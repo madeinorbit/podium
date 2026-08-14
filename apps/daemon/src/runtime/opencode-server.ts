@@ -232,22 +232,72 @@ async function waitForReady(baseUrl: string, secret: string, deadlineMs: number)
  * PATH is not going to be swapped under a running daemon — and because the probe
  * costs a process spawn that would otherwise be paid per session.
  */
-let versionVerdict: { diagnostic: OpencodeVersionDiagnostic | null } | undefined
+/**
+ * THREE ANSWERS, NOT TWO — and the third one is why this is a union (POD-2056's
+ * measurement, reported on POD-2023).
+ *
+ * "This machine's opencode is too old" and "I could not find out" are different
+ * facts and deserve different behaviour, and collapsing them cost a real
+ * debugging session. The first is stable and about the MACHINE: degrading an
+ * explicit override to the terminal driver is defensible, because the driver
+ * genuinely cannot run here and will not start next time either. The second is
+ * transient and about LOAD: degrading on it silently converts a deliberate
+ * request into a different kind of session, on a box that happened to be busy.
+ */
+export type OpencodeProbeVerdict =
+  | { drivable: true }
+  /** The binary answered and the gate refused it. Stable; degrade is honest. */
+  | { drivable: false; reason: 'unsupported'; diagnostic: OpencodeVersionDiagnostic }
+  /** The binary did not answer at all — absent, or too slow under load. NOT a
+   *  statement about the version, and NOT memoized. */
+  | { drivable: false; reason: 'unprobeable'; diagnostic: OpencodeVersionDiagnostic }
 
-export function opencodeVersionDiagnostic(
-  probe: () => string = defaultVersionProbe,
-): OpencodeVersionDiagnostic | null {
-  if (versionVerdict) return versionVerdict.diagnostic
-  let output: string
-  try {
-    output = probe()
-  } catch (err) {
-    output = String(err)
+/**
+ * MEMOIZED ONLY WHEN THE ANSWER IS DEFINITIVE.
+ *
+ * A version the gate accepted or refused cannot change under a running daemon,
+ * so caching it saves a 15-second process spawn per session. A probe that TIMED
+ * OUT is a fact about how loaded the box was in that moment — caching it would
+ * disable the server driver for the daemon's entire life because one spawn was
+ * unlucky, which is exactly the failure this whole change is about.
+ */
+let versionVerdict: OpencodeProbeVerdict | undefined
+
+export function opencodeVersionProbe(
+  probe: () => { output: string; ok: boolean } = defaultVersionProbe,
+): OpencodeProbeVerdict {
+  if (versionVerdict) return versionVerdict
+  const { output, ok } = probe()
+  if (!ok) {
+    // Deliberately NOT cached. Retried on the next spawn, which on a quieter box
+    // is the one that succeeds.
+    const diagnostic: OpencodeVersionDiagnostic = {
+      code: 'opencode-version-unsupported',
+      title: 'opencode server driver needs review',
+      body: `\`opencode --version\` did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms. That is a statement about this machine's load or PATH, NOT about the version — the server driver is not disabled, and the next spawn probes again. Observed: ${output || '(no output)'}`,
+      observedVersion: output.trim() || '(probe failed)',
+    }
+    log.warn('could not probe the opencode version', { output })
+    return { drivable: false, reason: 'unprobeable', diagnostic }
   }
   const diagnostic = gateOpencodeVersion(output)
-  versionVerdict = { diagnostic }
+  const verdict: OpencodeProbeVerdict = diagnostic
+    ? { drivable: false, reason: 'unsupported', diagnostic }
+    : { drivable: true }
+  versionVerdict = verdict
   if (diagnostic) log.warn('opencode is outside the server driver range', { diagnostic })
-  return diagnostic
+  return verdict
+}
+
+/** The old shape, kept for the callers that only ask "may I drive it". A probe
+ *  that could not answer reads as "no" here, which is right for an availability
+ *  LIST — the distinction that matters is at the spawn site, which asks the
+ *  verdict directly. */
+export function opencodeVersionDiagnostic(
+  probe?: () => { output: string; ok: boolean },
+): OpencodeVersionDiagnostic | null {
+  const verdict = probe ? opencodeVersionProbe(probe) : opencodeVersionProbe()
+  return verdict.drivable ? null : verdict.diagnostic
 }
 
 /** Reset the memo. Tests only — a daemon never needs it. */
@@ -255,17 +305,44 @@ export function resetOpencodeVersionProbe(): void {
   versionVerdict = undefined
 }
 
-function defaultVersionProbe(): string {
+/**
+ * How long to wait for `opencode --version`.
+ *
+ * SIXTY SECONDS, AND THAT IS NOT PARANOIA. POD-2056 measured this command at
+ * 11–15s on the project's build host across three consecutive runs — the cost is
+ * bun's startup for a ~180MB single-file bundle, it is CPU-bound, and warming
+ * the page cache does not move it (run 3 was still 15.0s after two warm runs).
+ * The old 15s budget therefore raced the thing it was measuring, and losing that
+ * race silently turned an explicit server-driver override into a PTY session.
+ *
+ * The cost of a generous budget is paid ONCE per daemon, on the first spawn that
+ * asks for this driver, and only when the answer is not already cached.
+ */
+const VERSION_PROBE_TIMEOUT_MS = 60_000
+
+function defaultVersionProbe(): { output: string; ok: boolean } {
   const result = spawnSyncVersion()
-  return `${result.stdout}${result.stderr}`.trim()
+  const output = `${result.stdout}${result.stderr}`.trim()
+  return { output, ok: result.ok }
 }
 
-function spawnSyncVersion(): { stdout: string; stderr: string } {
+function spawnSyncVersion(): { stdout: string; stderr: string; ok: boolean } {
   // Imported lazily so a daemon that never spawns an opencode session never
   // pays for the module.
   const { spawnSync } = require('node:child_process') as typeof import('node:child_process')
-  const result = spawnSync('opencode', ['--version'], { encoding: 'utf8', timeout: 15_000 })
-  return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
+  const result = spawnSync('opencode', ['--version'], {
+    encoding: 'utf8',
+    timeout: VERSION_PROBE_TIMEOUT_MS,
+  })
+  return {
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    // `ok` IS ABOUT THE SPAWN, not the version. A timeout sets `error` (ETIMEDOUT)
+    // and a missing binary sets it to ENOENT; both mean we learned nothing about
+    // the version, and only the CALLER can decide whether that should degrade a
+    // session or refuse it.
+    ok: result.error === undefined && result.status === 0,
+  }
 }
 
 // ---------------------------------------------------------------------------

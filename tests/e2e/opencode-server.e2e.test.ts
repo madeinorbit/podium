@@ -86,7 +86,7 @@ async function waitFor(pred: () => boolean, timeoutMs = 30_000, what = 'conditio
 }
 
 describe.skipIf(!live)('e2e: an opencode session on the SERVER driver', () => {
-  it('spawns, answers, renders, interrupts, parks and resumes', async () => {
+  it('spawns, answers, renders, interrupts and parks', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'podium-opencode-e2e-'))
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
 
@@ -220,7 +220,12 @@ describe.skipIf(!live)('e2e: an opencode session on the SERVER driver', () => {
         expect(['permission', 'question']).toContain(open.kind)
       }
 
-      // ---- 7. HIBERNATE, THEN RESUME ---------------------------------------
+      // ---- 7. HIBERNATE ----------------------------------------------------
+      //
+      // NOT "and resume": there is no server-family revival path in the daemon
+      // yet, so nothing here can call `driver.resume()` end to end. It is
+      // implemented and covered against the fake by the conformance corpus, and
+      // the acceptance doc marks the live half `[~]` rather than claiming it.
       //
       // The server process dies and the CONVERSATION does not — it is rows in a
       // database that outlives it. That is the property that makes a

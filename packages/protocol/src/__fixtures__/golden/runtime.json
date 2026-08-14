@@ -351,12 +351,13 @@
       "variant": "full/arm1",
       "wire": {
         "ok": false,
-        "reason": "expired"
+        "reason": "expired",
+        "detail": "detail"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"ok\":false,\"reason\":\"expired\"}"
+      "encoded": "{\"ok\":false,\"reason\":\"expired\",\"detail\":\"detail\"}"
     },
     {
       "schema": "InteractionEvent",
@@ -1530,13 +1531,14 @@
         "sessionId": "sessionId",
         "outcome": {
           "ok": false,
-          "reason": "expired"
+          "reason": "expired",
+          "detail": "outcome.detail"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":false,\"reason\":\"expired\"}}"
+      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":false,\"reason\":\"expired\",\"detail\":\"outcome.detail\"}}"
     },
     {
       "schema": "RuntimeCommandMessage",
@@ -1695,13 +1697,14 @@
         "sessionId": "sessionId",
         "outcome": {
           "ok": false,
-          "reason": "unknown-interaction"
+          "reason": "unknown-interaction",
+          "detail": "outcome.detail"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":false,\"reason\":\"unknown-interaction\"}}"
+      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"outcome.detail\"}}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -2826,13 +2829,14 @@
         "sessionId": "sessionId",
         "outcome": {
           "ok": false,
-          "reason": "unknown-interaction"
+          "reason": "unknown-interaction",
+          "detail": "outcome.detail"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":false,\"reason\":\"unknown-interaction\"}}"
+      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"outcome.detail\"}}"
     },
     {
       "schema": "RuntimeMessage",

@@ -31,10 +31,11 @@ import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { runtimeContractEnabledFor, runtimeDriverByEnv, runtimeDriverFor } from '../runtime/flag'
 import { sessionIsBehindContract } from '../runtime/handlers'
-import { opencodeVersionDiagnostic } from '../runtime/opencode-server'
+import { opencodeVersionProbe } from '../runtime/opencode-server'
 import {
   availableDriverIds,
   isServerDriver,
+  isServerDriverId,
   resolveRuntimeDriver,
   terminalProfileFor,
 } from '../runtime/registry'
@@ -567,18 +568,121 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
  * Start this session on a server-family driver, or answer `false` for "not
  * mine".
  *
- * REFUSES LOUDLY RATHER THAN DEGRADING. If a spawn names `opencode-server` and
- * the resolution comes back with something else — an unknown id, a machine whose
- * opencode is out of the pinned range — the session does NOT silently become a
- * terminal one. An operator testing the server driver would otherwise read a
- * perfectly working terminal session as proof the driver works.
+ * TWO OUTCOMES FOR A REQUEST THAT CANNOT BE HONOURED, and the split is
+ * deliberate — an earlier version of this comment claimed both were refusals,
+ * which was the opposite of what the code does on the case it named (POD-2023
+ * review, 7.1):
+ *
+ *   - AN UNKNOWN DRIVER ID REFUSES, loudly, with the id in the message. This
+ *     build ships no such driver, so it is a typo or a spawn from a newer
+ *     server, and an operator who asked for `opencode-sever` and got a working
+ *     terminal session would read it as proof the override works.
+ *   - AN UNSUPPORTED DRIVER DEGRADES to whatever the manifest ranks next, which
+ *     today is terminal. The machine's opencode answered and the gate refused
+ *     its version; `selectRuntimeDriver` already drops a preference the machine
+ *     cannot run, and honouring it anyway would turn a stale settings value into
+ *     a session that cannot start. Pinned by `opencode-server.test.ts`'s
+ *     "DEGRADES an opt-in the machine cannot run".
+ *   - A DRIVER WE COULD NOT PROBE REFUSES, when the spawn named it explicitly.
+ *     Added after POD-2056 measured `opencode --version` at 11–15s on the build
+ *     host against a 15s budget: losing that race made an explicit
+ *     `runtimeContract: 'opencode-server'` become a PTY session, and it did so
+ *     invisibly — the session went live, the row still said `runtimeContract:
+ *     true` (the TERMINAL driver had registered), and the first send came back
+ *     `unverified`, which reads as a model problem four steps from the cause.
+ *     "This machine's opencode is too old" is a fact about the machine and
+ *     degrading on it is honest; "I could not find out" is a fact about load,
+ *     and an operator who NAMED the driver would rather be told.
+ *
+ * The difference is whether the REQUEST is meaningless, genuinely unsatisfiable
+ * here, or merely unanswered — and only the middle one is safe to paper over.
  */
+/**
+ * Re-bind a surviving server-family session after a daemon restart, or answer
+ * `false` for "not mine".
+ *
+ * SILENT WHEN THERE IS NO JOURNAL ENTRY, which is the common case: every
+ * terminal session reaches this function and none of them has one. The entry is
+ * written by the server driver's own launch, so its presence IS the statement
+ * that this session was server-driven.
+ */
+async function adoptServerDriverSession(
+  ctx: DaemonContext,
+  msg: ReattachControl,
+): Promise<boolean> {
+  const runtime = ctx.opencodeRuntime
+  if (!runtime) return false
+  const entry = runtime.journal.read(msg.sessionId)
+  if (!entry) return false
+  try {
+    const handle = await runtime.adoptFromJournal(msg.sessionId)
+    if (!handle) {
+      /**
+       * THE JOURNAL SAID SERVER, AND NOTHING ANSWERED. Reported as a reattach
+       * FAILURE rather than fallen through to the PTY path: falling through
+       * would spawn nothing, find no durable host and report the same failure
+       * one layer down with a reason that names abduco — which would send the
+       * next reader looking for a master that was never supposed to exist.
+       */
+      ctx.send({
+        type: 'reattachFailed',
+        sessionId: msg.sessionId,
+        reason: `the opencode server for this session is gone (${entry.baseUrl} did not answer with its recorded credential)`,
+      })
+      return true
+    }
+    ctx.send({
+      type: 'bind',
+      sessionId: msg.sessionId,
+      cmd: `opencode serve (${handle.binding.driver})`,
+      cwd: entry.workdir,
+      agentKind: msg.agentKind,
+      geometry: msg.geometry ?? { cols: 120, rows: 40 },
+      // The same fact the launch path states, and for the same reason: W4's
+      // senders branch on it, and a rebound session that reported `false` would
+      // be routed to a PTY it does not have.
+      runtimeContract: true,
+    })
+    ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
+    log.info('adopted a surviving opencode server session', {
+      sessionId: msg.sessionId,
+      baseUrl: entry.baseUrl,
+    })
+    return true
+  } catch (err) {
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: err instanceof Error ? err.message : String(err),
+    })
+    return true
+  }
+}
+
 async function launchServerDriverSession(
   ctx: DaemonContext,
   msg: SpawnControl,
 ): Promise<boolean> {
   const requested = runtimeDriverFor(runtimeDriverByEnv(), msg.runtimeContract)
   if (!requested) return false
+  /**
+   * AN EXPLICIT REQUEST FOR A SERVER DRIVER IS NOT SILENTLY DOWNGRADED BECAUSE A
+   * PROBE WAS SLOW.
+   *
+   * Checked BEFORE resolution, because `resolveRuntimeDriver` cannot see the
+   * difference: it takes an availability LIST, and an unprobeable driver is
+   * absent from that list exactly like an unsupported one. The distinction lives
+   * here, where the caller's intent is still in hand.
+   */
+  const probe = opencodeVersionProbe()
+  if (!probe.drivable && probe.reason === 'unprobeable' && isServerDriverId(requested)) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: `${probe.diagnostic.title}: ${probe.diagnostic.body}`,
+    })
+    return true
+  }
   const resolution = resolveRuntimeDriver({
     agentKind: msg.agentKind,
     requested: msg.runtimeContract,
@@ -587,7 +691,7 @@ async function launchServerDriverSession(
     // opencode is missing or out of the pinned range does not list the driver,
     // so an explicit preference for it falls through rather than producing a
     // session that cannot start.
-    available: availableDriverIds({ opencodeDrivable: opencodeVersionDiagnostic() === null }),
+    available: availableDriverIds({ opencodeDrivable: probe.drivable }),
     platform: process.platform,
   })
   if (!resolution.ok) {
@@ -675,6 +779,27 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       return
     }
   }
+  /**
+   * A SERVER-FAMILY SESSION IS REBOUND HERE, BEFORE THE DURABLE-HOST LOOKUP.
+   *
+   * This is the boot-time caller `adopt()` never had (found by POD-2056's lane,
+   * which could not reach its own subject without it). Everything below this
+   * point assumes a PTY: it asks whether an abduco socket or a tmux session
+   * still holds the durable label. A server-family session has neither — its
+   * process is an `opencode serve` on a loopback port — so a restarted daemon
+   * looked for a master that never existed, answered `reattachFailed: session
+   * not found`, and left a perfectly healthy server running ORPHANED with the
+   * row reporting it dead.
+   *
+   * The journal is what makes this exact rather than hopeful: it holds the
+   * process key, the port and the secret, and `host.adopt` matches the key and
+   * then health-probes with that secret before claiming anything. A recycled
+   * port answers nothing on this credential, which is precisely the
+   * discrimination "adopting the wrong process is worse than not adopting"
+   * demands.
+   */
+  if (await adoptServerDriverSession(ctx, msg)) return
+
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
     // Capture legacy state before observer replacement. A freshly fenced

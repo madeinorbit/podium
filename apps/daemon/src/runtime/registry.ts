@@ -24,6 +24,7 @@
  */
 
 import {
+  AGENT_MANIFESTS,
   declaredValue,
   type DriverId,
   harnessNeedsSubmitVerification,
@@ -167,4 +168,22 @@ export function resolveRuntimeDriver(input: {
 export function isServerDriver(agentKind: AgentKind, driverId: DriverId): boolean {
   const server = manifestFor(agentKind)?.runtime.server
   return server !== undefined && declaredValue(server)?.driverId === driverId
+}
+
+/**
+ * Is this driver id a SERVER-family one, judged from the id alone?
+ *
+ * Deliberately not {@link isServerDriver}, which asks a HARNESS whether a
+ * resolved driver is its server one. The spawn path needs the question one step
+ * earlier — before resolution, while it still holds what the caller ASKED for —
+ * so that an explicit server-driver request can be refused rather than silently
+ * resolved into a terminal session when the machine could not be probed
+ * (POD-2056's measurement). Reads the manifests rather than matching on a
+ * substring, so a driver id is server-family exactly when some harness declares
+ * it as one.
+ */
+export function isServerDriverId(driverId: string): boolean {
+  return Object.values(AGENT_MANIFESTS).some(
+    (manifest) => declaredValue(manifest.runtime.server)?.driverId === driverId,
+  )
 }

@@ -36,7 +36,9 @@
  */
 
 import {
+  type AgentSessionHandle,
   createOpencodeRuntime,
+  OPENCODE_SERVER_DRIVER_ID,
   type OpencodeRuntime,
   type OpencodeRuntimeHost,
   type PendingInteraction,
@@ -67,13 +69,23 @@ export interface DaemonOpencodeRuntime extends OpencodeRuntime {
   /** Start a session on this driver and put it behind the contract. Resolves
    *  when the server is up and the opencode session exists. */
   launch(input: OpencodeSessionLaunch): Promise<void>
-  /** Every session this runtime currently holds. */
-  has(sessionId: SessionId): boolean
+  /**
+   * Re-bind a session whose SERVER survived this daemon, from the journal alone.
+   *
+   * `undefined` when nothing is answering — the entry is stale and the caller
+   * reports the session gone rather than falling through to a PTY path that
+   * would look for an abduco master this family never had.
+   *
+   * Distinct from the contract's `adopt(binding)`, which takes a live
+   * `SessionBinding` a caller already holds. After a daemon restart nobody holds
+   * one: the journal IS the binding, which is why it records the process key,
+   * the port and the secret.
+   */
+  adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
 }
 
 export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOpencodeRuntime {
   const runtime = createOpencodeRuntime(deps.host)
-  const live = new Set<SessionId>()
 
   /**
    * Fan one session's contract events out onto the daemon's frame stream.
@@ -147,7 +159,6 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
       case 'process': {
         if (event.ev.ev !== 'exited') return
         deps.send({ type: 'agentExit', sessionId, code: event.ev.code ?? 0 })
-        live.delete(sessionId)
         return
       }
       default:
@@ -161,7 +172,42 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
   return {
     ...runtime,
 
-    has: (sessionId) => live.has(sessionId),
+    /**
+     * `has` COMES STRAIGHT FROM THE RUNTIME, and this comment is here because a
+     * parallel Set used to live at this line (POD-2023 review addendum).
+     *
+     * It tracked launches and was cleared only on a `process: exited` event, so
+     * `hibernate`/`stop`/`kill` — which all drop the handle — left it saying
+     * `true` for a session with nobody home. The daemon reports that as
+     * `bind.runtimeContract`, so a reattached parked session would have been
+     * routed onto a contract path where every verb answers `not_running`: the
+     * same shape as the bind-fact bug one layer up, which is what made it worth
+     * deleting the Set rather than fixing its bookkeeping.
+     */
+    async adoptFromJournal(sessionId) {
+      const entry = runtime.journal.read(sessionId)
+      if (!entry) return undefined
+      let handle: AgentSessionHandle
+      try {
+        handle = await runtime.driver.adopt({
+          sessionId: entry.sessionId,
+          driver: OPENCODE_SERVER_DRIVER_ID,
+          family: 'server',
+          harness: 'opencode',
+          workdir: entry.workdir,
+          resume: { kind: 'opencode-session', value: entry.opencodeSessionId },
+          process: entry.process,
+          bindingVersion: entry.bindingVersion,
+        })
+      } catch {
+        // `adopt()` REJECTS for a process that did not survive — that is the
+        // contract's own wording and its exactness is the point. Here it simply
+        // means "gone", and the caller turns it into an honest reattach failure.
+        return undefined
+      }
+      pump(sessionId)
+      return handle
+    },
 
     async launch(input) {
       /**
@@ -194,7 +240,6 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
         ...(input.env ? { env: input.env } : {}),
         ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       })
-      live.add(input.sessionId)
       pump(input.sessionId)
       /**
        * `bind` IS WHAT MARKS THE SESSION LIVE, and it is sent with the truth

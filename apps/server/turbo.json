@@ -733,6 +733,7 @@
         "src/modules/interactions/registry.ts",
         "src/modules/interactions/service.test.ts",
         "src/modules/interactions/service.ts",
+        "src/modules/interactions/structured.test.ts",
         "src/modules/interactions/synthesis.ts",
         "src/modules/interactions/trpc.ts",
         "src/modules/issue-events/feed.ts",

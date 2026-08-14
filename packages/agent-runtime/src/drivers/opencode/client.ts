@@ -128,6 +128,9 @@ export function createOpencodeClient(config: OpencodeClientConfig): OpencodeClie
     path: string,
     body?: unknown,
     signal?: AbortSignal,
+    /** A long-lived response body (`/event`) whose abort must outlive the
+     *  headers — see the `finally` below. */
+    streaming = false,
   ): Promise<Response> {
     // Every request is bounded. A hung loopback socket must not hold a session
     // verb open forever — `send()` promises a receipt, and a promise that never
@@ -153,7 +156,22 @@ export function createOpencodeClient(config: OpencodeClientConfig): OpencodeClie
       return response
     } finally {
       clearTimeout(timeout)
-      signal?.removeEventListener('abort', onAbort)
+      /**
+       * THE FORWARDER STAYS FOR A STREAM (POD-2023 review, 7.5).
+       *
+       * `finally` runs as soon as the response HEADERS arrive, which for an
+       * ordinary request is after the body is read and for `/event` is at the
+       * very beginning of a stream that then runs for the session's life.
+       * Removing the listener there left `session.stream.abort()` with nothing
+       * to reach: the fetch stayed open and the consume loop exited only when
+       * the next read happened to resolve. Benign while every abort is paired
+       * with killing the server, and a leaked subscription the moment a
+       * reconnect aborts without doing so.
+       *
+       * `streaming` callers keep the forwarder; the AbortSignal is garbage with
+       * the request once the stream ends.
+       */
+      if (!streaming) signal?.removeEventListener('abort', onAbort)
     }
   }
 
@@ -230,7 +248,7 @@ export function createOpencodeClient(config: OpencodeClientConfig): OpencodeClie
     },
 
     events(signal) {
-      return streamEvents(() => request('GET', '/event', undefined, signal), signal)
+      return streamEvents(() => request('GET', '/event', undefined, signal, true), signal)
     },
   }
 }

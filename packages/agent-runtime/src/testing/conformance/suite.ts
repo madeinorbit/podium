@@ -581,6 +581,67 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(await session.interactions()).toHaveLength(0)
       })
 
+      it('an OPEN ask is visible in state(), not only on the event stream', async () => {
+        /**
+         * THE PROPERTY THAT WAS MISSING, AND THE ONE W5's REVIEW CAUGHT A DRIVER
+         * THROUGH (POD-2023).
+         *
+         * The corpus pinned `needs_user` only as a REFUSAL REASON on a receipt,
+         * so it never asked whether the session's own PROJECTION agrees with its
+         * event stream. A driver could emit `{t:'state', change:{kind:'needs_user'}}`
+         * and leave `state()` reporting `working` — which is exactly what the
+         * opencode driver did for one release: the PendingInteraction row
+         * appeared, the badge stayed "working" for as long as the human took to
+         * answer, and every attention surface that reads the phase stayed quiet.
+         *
+         * Spec §4's claim is that "a blocked session is BY CONSTRUCTION a session
+         * with an open interaction". That has to hold on BOTH readers of a driver
+         * — `interactions()` and `state()` — or the two disagree about the one
+         * thing a stuck session is defined by. This asserts them together.
+         */
+        const { handle, control, driver } = setup()
+        const session = await handle
+        const declared = driver.capabilities().interactions
+        if (!declared.supported) return
+        const before = (await session.state()).phase
+        expect(before).not.toBe('needs_user')
+
+        const id = control.askInteraction(session.binding.sessionId, 'permission')
+        expect((await session.interactions()).map((i) => i.id)).toContain(id)
+        // THE PROJECTION, not the stream. `snapshot()` carries the same value for
+        // the same reason: a consumer bootstrapping mid-block must see the block.
+        expect((await session.state()).phase).toBe('needs_user')
+        expect((await session.snapshot()).state.phase).toBe('needs_user')
+
+        /**
+         * …AND THE ASK ITSELF CLOSES, whichever way the answer went.
+         *
+         * A driver is ENTITLED to refuse: the terminal family declines
+         * keystroke-emulated permissions outright (POD-707 — the native menu's
+         * ordinals vary per ask, so a denial can approve), and that refusal is a
+         * feature. Refused means the ask stays open, which is the whole point of
+         * refusing rather than degrading.
+         *
+         * WHAT IS DELIBERATELY *NOT* ASSERTED HERE: that the phase leaves
+         * `needs_user` after a successful answer. That is not family-invariant,
+         * and discovering why is what this property is worth beyond its forward
+         * direction. For a SERVER driver the driver IS the observer — it saw the
+         * ask arrive on its own protocol and it sees the reply land, so it owns
+         * the projection and must move it. For a TERMINAL driver the phase comes
+         * from an EXTERNAL observer watching the screen: answering types digits,
+         * and the transition out of `needs_user` is the observer's to report when
+         * the menu actually closes. A terminal driver that moved the phase itself
+         * would be fabricating state it has not observed — exactly what the
+         * causal contract forbids, and a worse failure than reporting it late.
+         *
+         * The FORWARD direction above is the invariant, and it is the one spec §4
+         * rests on: a session with an open ask reports itself blocked.
+         */
+        const answered = await session.answer(id, { decision: 'allow' })
+        const stillOpen = (await session.interactions()).map((i) => i.id)
+        expect(stillOpen.includes(id)).toBe(!answered.ok)
+      })
+
       it('answering twice is a typed error, not a double action', async () => {
         const { handle, control } = setup()
         const session = await handle

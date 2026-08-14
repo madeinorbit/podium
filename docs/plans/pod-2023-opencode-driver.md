@@ -157,12 +157,29 @@ subscription is ToS-barred; provider keys only — this is recorded in the spec)
       runs afterwards), so no per-family value is true of both drivers. The corpus stops
       leaning on that permission and now pins `deliveredAs` against each driver's declared
       `send.native` in both directions, which bites on every family.
-- [x] **E2E flow demonstrated** — `tests/e2e/opencode-server.e2e.test.ts`, run against a
-      real `opencode serve`: spawn on the server driver, `accepted` proven by
+- [~] **E2E flow — most of it demonstrated live, two of plan §5's criteria not.**
+      `tests/e2e/opencode-server.e2e.test.ts`, run against a real `opencode serve`: spawn
+      on the server driver, the row recording `runtimeContract`, `accepted` proven by
       `protocol-ack`, badge working → idle, the assistant reply rendering in the SESSION's
       transcript (the UI's own buffer), interrupt, hibernate, parked-session refusal.
       Opt-in via `PODIUM_OPENCODE_LIVE=1` — it needs a model credential, and a lane that
       is occasionally red because a provider was slow is a lane people stop reading.
+
+      NOT demonstrated live, and marked rather than quietly rewritten (POD-2023 review,
+      finding 3):
+      - *"answering a permission RESUMES THE TURN."* The ask surfacing is real and the
+        SERVER-side round trip is now covered at the seam
+        (`apps/server/src/modules/interactions/structured.test.ts`: the driver's own id
+        into the aggregate, the structured door taken instead of keystrokes, idempotence,
+        a failed delivery recorded as unverified). What no lane does is answer a REAL
+        opencode permission and watch the turn continue — the live lane deliberately does
+        not force one, because whether a turn trips a permission depends on the model's
+        own tool use.
+      - *"hibernate → resume works."* The lane hibernates and asserts the parked send is
+        refused `not_running`. There is no resume: `driver.resume()` is implemented and
+        covered against the fake by the conformance corpus, but the daemon has no
+        server-family revival path wired, so nothing can call it end to end yet. The test's
+        title says "parks" for that reason.
 - [x] **Version gate** refuses an out-of-range opencode with a machine diagnostic, unit
       tested in both directions incl. an unreadable version and a throwing probe. Range
       `>=1.18 <1.25`, pinned to the recorded fixtures and memoized one probe per daemon.

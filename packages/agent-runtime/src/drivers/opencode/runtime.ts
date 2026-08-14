@@ -249,6 +249,23 @@ export interface OpencodeRuntime {
    */
   createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  /**
+   * Is this session behind this runtime RIGHT NOW?
+   *
+   * BACKED BY THE SAME MAP `handleFor` READS, and that is the whole point of it
+   * existing here rather than being kept by a caller. A parallel liveness set is
+   * a second source of truth for one fact, and the two drift in exactly one
+   * direction: the set keeps saying `true` after the handle is gone. The daemon
+   * reports this as `bind.runtimeContract`, so a stale `true` makes the server
+   * route a parked session's sends onto a contract path where `handleFor`
+   * answers `undefined` and every verb replies `not_running`.
+   */
+  has(sessionId: SessionId): boolean
+  /** The binding journal this runtime writes to. Exposed because the DAEMON's
+   *  reattach path has to ask "was this session server-driven?" before it can
+   *  decide whether to look for a PTY, and the journal entry's existence is that
+   *  answer. */
+  readonly journal: OpencodeJournal
   /** Drop a session's handle and stop its stream, without touching the process.
    *  What a supervisor restart looks like from inside this process. */
   forget(sessionId: SessionId): void
@@ -484,21 +501,50 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   function openAsk(session: DriverSession, interaction: PendingInteraction, at: string): void {
     session.interactions.set(interaction.id, interaction)
     emit(session, { t: 'interaction', ev: { ev: 'asked', interaction } }, at)
+    const need = interaction.kind === 'permission' ? 'permission' : 'question'
+    const summary =
+      interaction.kind === 'permission' ? interaction.payload.inputSummary : undefined
     emit(
       session,
       {
         t: 'state',
         change: {
           kind: 'needs_user',
-          need: interaction.kind === 'permission' ? 'permission' : 'question',
-          ...(interaction.kind === 'permission' && interaction.payload.inputSummary
-            ? { summary: interaction.payload.inputSummary }
-            : {}),
+          need,
+          ...(summary ? { summary } : {}),
           at,
         },
       },
       at,
     )
+    /**
+     * AND THE PROJECTION MOVES WITH IT (POD-2023 review, must-fix).
+     *
+     * `emit()` stamps, logs and wakes — it does not fold. So for one release the
+     * event stream said `needs_user` while `state()` and `snapshot().state` still
+     * said `working`, and a blocked server session raised no attention: the badge
+     * stayed "working" for as long as the human took to answer, and
+     * `isAttentionPhase` never fired. Two observers of the same driver
+     * disagreeing about whether a session needs a user is the exact failure the
+     * causal contract exists to prevent.
+     *
+     * The fold lives HERE rather than in `emit()` on purpose: emit is total over
+     * the event union and folding there would make it a second reducer for the
+     * whole vocabulary. Only the three places that already own a phase — this
+     * one, `closeTurn`, `deliver` — assign `session.state`.
+     */
+    session.state = {
+      phase: 'needs_user',
+      since: at,
+      nativeSubagentCount: 0,
+      need: {
+        kind: need,
+        // `summary` is the field the badge and the attention surfaces render —
+        // the ONE field that says what the ask would do, which for a bash
+        // permission is opencode's own `metadata.command`.
+        ...(summary ? { summary } : {}),
+      },
+    }
   }
 
   function closeAsk(
@@ -509,6 +555,21 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   ): void {
     if (!session.interactions.delete(id)) return
     emit(session, { t: 'interaction', ev: { ev: 'answered', id, answeredBy, at } }, at)
+    /**
+     * THE ASK CLOSED, SO THE PHASE MUST LEAVE `needs_user` — and it goes back to
+     * what the SESSION is actually doing, not to a fixed value.
+     *
+     * Another ask still open means still blocked. Otherwise the turn opencode is
+     * running (or is not) decides it, which `busy` already records. Leaving the
+     * phase at `needs_user` here would strand a session that just got its answer;
+     * hardcoding `idle` would report a running turn as finished.
+     */
+    if (session.interactions.size > 0) return
+    session.state = {
+      phase: session.busy ? 'working' : 'idle',
+      since: at,
+      nativeSubagentCount: 0,
+    }
   }
 
   /**
@@ -953,8 +1014,18 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         return {
           outcome: 'accepted',
           turnEpoch: session.turnEpoch,
-          // Never `steer` — see `send.native` in ./capabilities.ts.
-          deliveredAs: wanted === 'steer' ? 'queue' : wanted,
+          /**
+           * WHAT ACTUALLY HAPPENED, not what was asked for.
+           *
+           * Never `steer` — see `send.native` in ./capabilities.ts. But reaching
+           * this line means the words went STRAIGHT to opencode and opened a
+           * turn: the queue branch above did not take them. So a `steer` that
+           * arrived on an idle session was delivered `when-ready`, and saying
+           * `queue` would report a wait that never happened (POD-2023 review,
+           * 7.4). A `steer` that DID wait was answered `queued` above and never
+           * gets here.
+           */
+          deliveredAs: wanted === 'steer' ? 'when-ready' : wanted,
           /** The 204 from `prompt_async`. The only proof this driver declares,
            *  and the only one it needs. */
           provenBy: 'protocol-ack',
@@ -1014,8 +1085,18 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
           } else {
             await session.client.rejectQuestion(ask.id)
           }
-        } catch {
-          return { ok: false, reason: 'not-yet-supported' }
+        } catch (err) {
+          /**
+           * A TRANSPORT FAILURE IS NOT A CAPABILITY GAP (POD-2023 review, 7.3).
+           *
+           * `not-yet-supported` says "this driver cannot answer asks of this
+           * shape", which a surface renders as a permanent limitation and a
+           * caller stops retrying. A reply that failed to REACH opencode is the
+           * opposite: the capability is there and the attempt should be made
+           * again. The ask stays open either way — which is what keeps the
+           * session visibly blocked rather than falsely resolved.
+           */
+          return { ok: false, reason: 'delivery-failed', detail: String(err) }
         }
         session.answered.add(interactionId)
         closeAsk(
@@ -1462,7 +1543,11 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   return {
     driver,
     createWithId,
+    journal: host.journal,
     handleFor: (sessionId) => handles.get(sessionId),
+    // ONE MAP, TWO READERS. `stop`/`hibernate`/`kill` all delete from `handles`,
+    // so both answers change together by construction.
+    has: (sessionId) => handles.has(sessionId),
     forget: (sessionId) => {
       const session = sessions.get(sessionId)
       if (!session) return

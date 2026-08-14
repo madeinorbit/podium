@@ -640,7 +640,30 @@ export const InteractionAnswerOutcome = z.union([
      * visibly blocked, and a human answers it at the terminal — which is
      * strictly better than a silent wrong keystroke that reports success.
      */
-    reason: z.enum(['already-answered', 'expired', 'unknown-interaction', 'not-yet-supported']),
+    reason: z.enum([
+      'already-answered',
+      'expired',
+      'unknown-interaction',
+      'not-yet-supported',
+      /**
+       * THE ANSWER WAS RIGHT AND DID NOT ARRIVE (POD-2023).
+       *
+       * Distinct from `not-yet-supported`, and the distinction is the whole
+       * reason it exists: that one says "this driver cannot answer asks of this
+       * shape", which a surface renders as a permanent limitation and a caller
+       * stops retrying. This one says the capability is there and the REPLY
+       * failed to reach the provider — a retry is exactly the right response.
+       * Its first producer is the opencode driver, whose REST reply can fail
+       * like any other network call.
+       *
+       * The ask stays OPEN either way, which is what keeps a session visibly
+       * blocked instead of falsely resolved.
+       */
+      'delivery-failed',
+    ]),
+    /** What went wrong, for a surface to show and a log to keep. Never parsed
+     *  for control flow — that is what `reason` is for. */
+    detail: z.string().optional(),
   }),
 ])
 export type InteractionAnswerOutcome = z.infer<typeof InteractionAnswerOutcome>
@@ -995,7 +1018,11 @@ export const SessionSnapshot = z.object({
    *  is re-narrowed at `@podium/agent-runtime`'s boundary. */
   state: z.record(z.string(), z.unknown()),
   cursor: ProviderCursor,
-  observerGeneration: z.number().int().positive(),
+  /** NON-NEGATIVE, matching the contract type exactly (POD-2023 review, 6a).
+   *  It was `positive()`, which made the wire NARROWER than the type it
+   *  projects — the one asymmetry the drift guard below would have caught, and
+   *  did once it existed. */
+  observerGeneration: z.number().int().nonnegative(),
   turnEpoch: z.number().int().nonnegative(),
   interactions: z.array(PendingInteraction).readonly(),
   draft: z.string().optional(),

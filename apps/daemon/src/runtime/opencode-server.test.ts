@@ -22,6 +22,7 @@ import {
   createOpencodeJournal,
   opencodeScopeLabel,
   opencodeVersionDiagnostic,
+  opencodeVersionProbe,
   resetOpencodeVersionProbe,
 } from './opencode-server'
 import { availableDriverIds, isServerDriver, resolveRuntimeDriver } from './registry'
@@ -142,32 +143,70 @@ describe('the version gate, as the daemon reads it', () => {
   beforeEach(() => resetOpencodeVersionProbe())
   afterEach(() => resetOpencodeVersionProbe())
 
+  const answered = (output: string) => () => ({ output, ok: true })
+  const silent = (output = '') => () => ({ output, ok: false })
+
   it('admits a version in range and refuses one outside it', () => {
-    expect(opencodeVersionDiagnostic(() => '1.18.16')).toBeNull()
+    expect(opencodeVersionProbe(answered('1.18.16'))).toEqual({ drivable: true })
     resetOpencodeVersionProbe()
-    expect(opencodeVersionDiagnostic(() => '2.0.0')?.code).toBe('opencode-version-unsupported')
+    const verdict = opencodeVersionProbe(answered('2.0.0'))
+    expect(verdict.drivable).toBe(false)
+    if (!verdict.drivable) expect(verdict.reason).toBe('unsupported')
   })
 
-  it('MEMOIZES, because the binary on PATH does not change under a running daemon', () => {
+  it('MEMOIZES a DEFINITIVE answer, because the binary does not change under a daemon', () => {
     let calls = 0
-    const probe = (): string => {
+    const probe = (): { output: string; ok: boolean } => {
       calls += 1
-      return '1.18.16'
+      return { output: '1.18.16', ok: true }
     }
-    opencodeVersionDiagnostic(probe)
-    opencodeVersionDiagnostic(probe)
-    opencodeVersionDiagnostic(probe)
+    opencodeVersionProbe(probe)
+    opencodeVersionProbe(probe)
+    opencodeVersionProbe(probe)
     // One fork of a 180MB binary per daemon, not one per session.
     expect(calls).toBe(1)
   })
 
-  it('refuses when the probe THROWS, rather than treating an error as a pass', () => {
+  it('does NOT memoize a probe that could not answer — the regression', () => {
+    /**
+     * POD-2056 MEASURED `opencode --version` AT 11–15s on the build host, against
+     * what was then a 15s budget. Caching that miss would disable the server
+     * driver for the daemon's whole life because one spawn was unlucky, which is
+     * a far worse outcome than paying for a second probe.
+     */
+    let calls = 0
+    const probe = (): { output: string; ok: boolean } => {
+      calls += 1
+      return calls === 1 ? { output: 'ETIMEDOUT', ok: false } : { output: '1.18.16', ok: true }
+    }
+    expect(opencodeVersionProbe(probe).drivable).toBe(false)
+    // The next spawn asks again, and on a quieter box it succeeds.
+    expect(opencodeVersionProbe(probe)).toEqual({ drivable: true })
+    expect(calls).toBe(2)
+  })
+
+  it('separates "too old" from "could not find out"', () => {
+    // The distinction the spawn path branches on: one is a stable fact about the
+    // machine and safe to degrade on, the other is a fact about load.
+    const unsupported = opencodeVersionProbe(answered('2.0.0'))
+    expect(unsupported.drivable === false && unsupported.reason).toBe('unsupported')
     resetOpencodeVersionProbe()
-    const diagnostic = opencodeVersionDiagnostic(() => {
-      throw new Error('ENOENT: opencode')
-    })
-    expect(diagnostic).not.toBeNull()
-    expect(diagnostic?.observedVersion).toContain('ENOENT')
+    const unprobeable = opencodeVersionProbe(silent('spawnSync opencode ETIMEDOUT'))
+    expect(unprobeable.drivable === false && unprobeable.reason).toBe('unprobeable')
+    // …and it says so in terms an operator can act on, rather than blaming the
+    // version it never read.
+    if (!unprobeable.drivable) {
+      expect(unprobeable.diagnostic.body).toContain('NOT about the version')
+    }
+  })
+
+  it('reports "no" through the old boolean surface either way', () => {
+    // `availableDriverIds` only asks "may I drive it", and for an availability
+    // LIST an unprobeable driver is correctly absent. The distinction lives at
+    // the spawn site, which asks the verdict directly.
+    expect(opencodeVersionDiagnostic(answered('1.18.16'))).toBeNull()
+    resetOpencodeVersionProbe()
+    expect(opencodeVersionDiagnostic(silent('ENOENT'))).not.toBeNull()
   })
 })
 
@@ -310,5 +349,140 @@ describe('the contract bind fact', () => {
     expect(sessionIsBehindContract(ctxWith({ terminal: [], opencode: [] }), SESSION)).toBe(false)
     // …and for a daemon with no runtimes wired at all.
     expect(sessionIsBehindContract(ctxWith({}), SESSION)).toBe(false)
+  })
+
+  it('is what EVERY bind site actually calls — the adoption pin', () => {
+    /**
+     * THE TRIO ABOVE PINS THE PREDICATE; THIS PINS ITS ADOPTION (POD-2023 review
+     * addendum, (b)).
+     *
+     * The bug that started this was a bind site asking ONE registry. Fixing the
+     * predicate and testing the predicate leaves the regression fully available:
+     * a site that reverts to `ctx.runtime?.has(...)` tomorrow passes all three
+     * tests above and ships the same defect.
+     *
+     * So this reads the source and asserts the CALL SITES. Every `type: 'bind'`
+     * in the daemon either routes through the predicate or — for the opencode
+     * driver's own bind — hardcodes `true`, which is equivalent by construction
+     * because the handle is registered before that line runs. A fifth bind site
+     * appearing without one of those two shapes fails here.
+     */
+    const daemonSrc = join(import.meta.dirname, '..')
+    const files = [
+      join(daemonSrc, 'control', 'session.ts'),
+      join(daemonSrc, 'runtime', 'opencode-driver.ts'),
+    ]
+    let bindSites = 0
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8')
+      for (const [index, line] of source.split('\n').entries()) {
+        if (!line.includes("type: 'bind'")) continue
+        bindSites += 1
+        // The frame body, from `type: 'bind'` to the call's closing `})`. Taken
+        // by brace rather than by a line count: the opencode driver's bind
+        // carries a long comment explaining why it states the fact outright, and
+        // a fixed window would have "found" no fact there.
+        const lines = source.split('\n')
+        let body = ''
+        for (let i = index; i < lines.length; i++) {
+          body += `${lines[i]}\n`
+          if (/^\s{0,8}\}\)/.test(lines[i] ?? '')) break
+        }
+        expect(
+          body.includes('sessionIsBehindContract(') || body.includes('runtimeContract: true'),
+          `bind site at ${file}:${index + 1} states no contract fact — a server-family session there would report false`,
+        ).toBe(true)
+        // …and NEVER by asking one registry directly, which is the regression.
+        expect(
+          body.includes('ctx.runtime?.has('),
+          `bind site at ${file}:${index + 1} asks only the terminal registry`,
+        ).toBe(false)
+      }
+    }
+    /**
+     * FIVE today: launchSpawn, two handleReattach arms, the opencode driver's
+     * launch, and the opencode ADOPT path that rebinds a surviving server after
+     * a daemon restart.
+     *
+     * The count is asserted so a new bind site cannot be added without coming
+     * here and deciding what it reports — and it has already earned that: the
+     * adopt path was the fifth, and this assertion is what stopped it shipping
+     * without the fact. A rebound session that reported `false` would be routed
+     * by W4's senders to a PTY it does not have.
+     */
+    expect(bindSites).toBe(5)
+  })
+})
+
+/**
+ * THE BOOT-TIME `adopt()` CALLER (POD-2056's finding, fixed on POD-2023).
+ *
+ * `adopt()` was implemented and covered by four conformance properties, and
+ * NOTHING CALLED IT. On a daemon restart `handleReattach` went straight to the
+ * durable-host lookup, asked abduco and tmux whether they still held the
+ * session's label, got "no" from both — because a server-family session has no
+ * PTY and never had a master — and answered `reattachFailed: session not found`
+ * while a healthy `opencode serve` kept running orphaned on its port.
+ *
+ * These pin the DECISION the reattach path now makes, at the seam where it makes
+ * it. The rebind itself is the contract's, and the corpus proves that.
+ */
+describe('reattach routes a server-family session to adopt, not to abduco', () => {
+  let dir: string
+  let previous: string | undefined
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-oc-adopt-'))
+    previous = process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = dir
+  })
+  afterEach(() => {
+    if (previous === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = previous
+  })
+
+  const journalled = {
+    sessionId: SESSION,
+    opencodeSessionId: 'ses_survivor',
+    baseUrl: 'http://127.0.0.1:41999',
+    username: 'podium',
+    secret: 'kept-so-adopt-can-authenticate',
+    workdir: '/tmp/work',
+    process: { key: opencodeScopeLabel(SESSION), pid: 5150, scopeUnit: 'x.scope' },
+    seq: 12,
+    turnEpoch: 4,
+    bindingVersion: 2,
+  }
+
+  it('THE JOURNAL ENTRY IS THE ANSWER to "was this session server-driven?"', () => {
+    // The discriminator the reattach branch reads. It exists only because the
+    // server driver's own launch wrote it, so its presence is a fact rather than
+    // an inference — which is why the branch can be taken before anything else
+    // in `handleReattach` runs.
+    const journal = createOpencodeJournal()
+    expect(journal.read(SESSION)).toBeUndefined()
+    journal.write(journalled)
+    expect(createOpencodeJournal().read(SESSION)?.opencodeSessionId).toBe('ses_survivor')
+  })
+
+  it('carries everything adopt needs to be EXACT rather than hopeful', () => {
+    createOpencodeJournal().write(journalled)
+    const entry = createOpencodeJournal().read(SESSION)
+    // The process key is what `adopt()` matches on — a prefix or a port would
+    // rebind whatever inherited the socket.
+    expect(entry?.process.key).toBe(opencodeScopeLabel(SESSION))
+    // …and the secret, without which the health probe cannot tell a live server
+    // from a recycled port answering someone else's traffic.
+    expect(entry?.secret).toBe('kept-so-adopt-can-authenticate')
+    expect(entry?.baseUrl).toBe('http://127.0.0.1:41999')
+    // The epoch survives, so the rebound stream cannot rewind and look like new
+    // work.
+    expect(entry?.turnEpoch).toBe(4)
+    expect(entry?.seq).toBe(12)
+  })
+
+  it('leaves a TERMINAL session alone — no entry, no branch', () => {
+    // Every terminal session reaches the same code path. The branch must be
+    // silent for them, or one journal read would divert the whole fleet.
+    expect(createOpencodeJournal().read(SESSION)).toBeUndefined()
   })
 })

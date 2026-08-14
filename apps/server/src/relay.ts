@@ -2402,9 +2402,21 @@ export class SessionRegistry {
      * branches on when it decides whether to dedupe by fingerprint.
      */
     sessionsSvc.interactionAsk = (msg) => {
-      void interactions.ask({
-        interaction: { ...msg.interaction, sessionId: msg.sessionId },
-      })
+      // LOGGED, NOT SWALLOWED (POD-2023 review, 7.2). This frame is classified
+      // `control.entity` on the argument that "a dropped one would leave a
+      // session blocked with nothing on any surface saying so" — so a write that
+      // REJECTS is exactly the case the classification is about, and dropping it
+      // into an unhandled rejection would make the aggregate's own failure the
+      // one thing nobody is told about.
+      void interactions
+        .ask({ interaction: { ...msg.interaction, sessionId: msg.sessionId } })
+        .catch((err: unknown) => {
+          log.error('protocol interaction ask failed to reach the aggregate', {
+            err,
+            sessionId: msg.sessionId,
+            kind: msg.interaction.kind,
+          })
+        })
     }
     this.bus.on('session.stateChanged', (e) => {
       void interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })

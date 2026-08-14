@@ -29,12 +29,16 @@
  * WHAT HAS NO SCHEMA IN W1, AND WHY THAT IS NOT AN OVERSIGHT
  * ---------------------------------------------------------------------------
  *
- * `SessionBinding`, `SessionSnapshot`, `AttachEndpoint`, `SessionLease`,
- * `SessionHealth` and `UsageSnapshot` are contract TYPES with no wire schema
- * yet. Their first producer is W3 (the terminal driver) or W5 (attach
- * negotiation), and a schema nothing can produce is a promise to a client this
- * build cannot keep. They get schemas — and these assertions — in the item that
- * gives them a producer.
+ * `AttachEndpoint`, `SessionLease`, `SessionHealth` and `UsageSnapshot` are
+ * contract TYPES with no wire schema yet. A schema nothing can produce is a
+ * promise to a client this build cannot keep. They get schemas — and these
+ * assertions — in the item that gives them a producer.
+ *
+ * `SessionBinding` and `SessionSnapshot` GOT one in POD-2023 (W5), because the
+ * snapshot frame produces them, and their guards are at the bottom of this
+ * file. Two of their fields are deliberately WIDER on the wire, for the same
+ * directional reason as `RuntimeEvent.change`, so they are asserted with the
+ * weaker `encodes` claim rather than `exact`; the note there names both.
  *
  * THE ONE DELIBERATE DIVERGENCE among what IS projected: `RuntimeEvent.change`
  * is an open record on the wire, because `AgentStateEvent` is defined in
@@ -51,6 +55,7 @@ import type {
   TurnEvent,
   TurnFailureReason,
 } from './errors.js'
+import type { SessionBinding, SessionSnapshot } from './binding.js'
 import type { CausalEnvelope, RuntimeEvent, TranscriptItemDelta } from './events.js'
 import type {
   InteractionAnswerability,
@@ -100,6 +105,8 @@ export {
   RuntimeEventBody as RuntimeEventBodySchema,
   RuntimeMessage as RuntimeMessageSchema,
   SendProof as SendProofSchema,
+  SessionBinding as SessionBindingSchema,
+  SessionSnapshot as SessionSnapshotSchema,
   TranscriptItemDelta as TranscriptItemDeltaSchema,
   TurnDelivery as TurnDeliverySchema,
   TurnEvent as TurnEventSchema,
@@ -123,6 +130,8 @@ import type {
   Refusal as RefusalWire,
   RuntimeEvent as RuntimeEventWire,
   SendProof as SendProofWire,
+  SessionBinding as SessionBindingWire,
+  SessionSnapshot as SessionSnapshotWire,
   TranscriptItemDelta as TranscriptItemDeltaWire,
   TurnDelivery as TurnDeliveryWire,
   TurnEvent as TurnEventWire,
@@ -175,3 +184,33 @@ exact<z.infer<typeof TranscriptItemDeltaWire>, TranscriptItemDelta>(true)
 // lives above protocol. The weaker claim is the true one — every event the
 // contract admits still encodes.
 encodes<RuntimeEvent, z.infer<typeof RuntimeEventWire>>(true)
+
+// ---------------------------------------------------------------------------
+// The identity pair (POD-2023 W5 — the snapshot frame's payloads)
+// ---------------------------------------------------------------------------
+
+/**
+ * `SessionBinding` and `SessionSnapshot`, asserted the honest way.
+ *
+ * `encodes` RATHER THAN `exact`, and the two reasons are the same one twice:
+ * a field whose type is defined ABOVE protocol cannot be named by a protocol
+ * schema, so the wire widens it and the true claim is one-directional.
+ *
+ *   - `SessionBinding.driver` is `DriverId` — a closed union in
+ *     `@podium/harness`, which protocol sits below. The wire carries
+ *     `z.string().min(1)`.
+ *   - `SessionSnapshot.state` is `AgentRuntimeState` from `@podium/model`, and
+ *     is an open record on the wire for exactly the reason
+ *     `RuntimeEventBody.change` is.
+ *
+ * Everything else lines up field for field, and the guard is what says so — it
+ * already earned its place by catching one real asymmetry the moment it was
+ * written: the wire had `observerGeneration: positive()` where the contract type
+ * is a bare `number`, so a snapshot at generation 0 would have failed to parse.
+ * The wire now says `nonnegative()`.
+ *
+ * The DIRECTION asserted is the one that matters for a producer: every value the
+ * contract can hand to the frame must be a value the wire accepts.
+ */
+encodes<SessionBinding, z.infer<typeof SessionBindingWire>>(true)
+encodes<SessionSnapshot, z.infer<typeof SessionSnapshotWire>>(true)

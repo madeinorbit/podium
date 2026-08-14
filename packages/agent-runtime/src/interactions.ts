@@ -82,7 +82,15 @@ export type InteractionAnswerOutcome =
   | { ok: true }
   | {
       ok: false
-      reason: 'already-answered' | 'expired' | 'unknown-interaction' | 'not-yet-supported'
+      reason:
+        | 'already-answered'
+        | 'expired'
+        | 'unknown-interaction'
+        | 'not-yet-supported'
+        /** The capability exists and the REPLY did not arrive — retry, do not
+         *  report a permanent gap (POD-2023). */
+        | 'delivery-failed'
+      detail?: string
     }
 
 export interface InteractionAsked {
