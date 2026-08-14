@@ -30,6 +30,7 @@ import {
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 import { createDevWebBuilder, type DevWebBuildState, decideWebDist } from './dev-web-build'
+import { createGitHeadShaCache } from './head-sha-cache'
 
 const log = createLogger('server:updates')
 
@@ -136,10 +137,25 @@ export function wireDevBundlePublisher(deps: {
   readonly locks: DevBundleLockService
   /** Names the transient build units. Defaults to the default instance. */
   readonly instanceId?: string
+  /** Seam for tests; defaults to `git rev-parse --short=7 HEAD` in `sourceRoot`. */
+  readonly readHeadSha?: (root: string) => Promise<string>
 }): DevPublisherWiring {
   const sourceRoot = deps.sourceRoot
   const artifactOrigin = deps.artifactOrigin
   const instanceId = deps.instanceId ?? 'default'
+  /**
+   * ONE HEAD READER for everything below, and the reason it is here.
+   *
+   * The publisher reads HEAD two to four times per `/version` — to decide, to
+   * name the target, to explain a refusal — and the web builder reads it again
+   * on a rebuild. Every one of those was its own `git rev-parse`. Sharing a
+   * cache is only possible at the composition root, because it is the only
+   * place that knows they are all asking about the same checkout (POD-2052).
+   */
+  const readHeadSha = deps.readHeadSha ?? developmentHeadSha
+  const headSha = sourceRoot
+    ? createGitHeadShaCache(sourceRoot, () => readHeadSha(sourceRoot))
+    : undefined
   /**
    * The website the compile will demand. Owned here rather than in `server.ts`
    * because it is one half of the same job: the publisher awaits it before the
@@ -150,7 +166,7 @@ export function wireDevBundlePublisher(deps: {
     ? createDevWebBuilder({
         root: sourceRoot,
         instanceId,
-        headSha: () => developmentHeadSha(sourceRoot),
+        headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
       })
     : undefined
   const publisher = sourceRoot
@@ -158,7 +174,7 @@ export function wireDevBundlePublisher(deps: {
         isSourceRun: true,
         root: sourceRoot,
         instanceId,
-        headSha: () => developmentHeadSha(sourceRoot),
+        headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
         signingKey: deps.signingKey,
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
         // The instant a build is admitted, the read model must say `preparing`
@@ -293,7 +309,15 @@ export function wireDevBundlePublisher(deps: {
 
   return {
     enabled: publisher !== undefined,
-    requestWebRebuild: webBuilder ? () => webBuilder.requestRebuild() : undefined,
+    requestWebRebuild: webBuilder
+      ? () => {
+          // Human-initiated, like an explicit build: ask git rather than the
+          // stamp. Rebuilding the website for the wrong commit is a slow
+          // mistake to discover.
+          headSha?.invalidate()
+          webBuilder.requestRebuild()
+        }
+      : undefined,
     webBuildState: () => webBuilder?.state() ?? { state: 'idle' },
     preparation: () => {
       const web = webBuilder?.state()
@@ -310,6 +334,11 @@ export function wireDevBundlePublisher(deps: {
     publishTarget,
     requestBuild: (explicit) => {
       if (!publisher) return Promise.resolve()
+      // A human pressed Update. Whatever the stamp says, ask git — the one
+      // interaction where someone is watching is not the place to save 8ms,
+      // and it is the escape hatch if this cache is ever wrong about a
+      // checkout. The polling path keeps the cache.
+      if (explicit) headSha?.invalidate()
       // `preparing` is published by the publisher's `onAdmitted` above, not
       // from here: this call returns before admission has been decided.
       return publisher.requestBuild(explicit).then(

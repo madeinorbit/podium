@@ -1,5 +1,5 @@
 import { generateKeyPairSync, sign, verify } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
@@ -74,6 +74,50 @@ describe('development artifact route', () => {
       }).enabled,
     ).toBe(true)
     expect(wireDevBundlePublisher({ ...base, sourceRoot: undefined }).enabled).toBe(false)
+  })
+
+  it('shares ONE cached HEAD reader across everything it wires', async () => {
+    // The composition is the only place that can share it, and a shared reader
+    // is exactly the kind of wiring that goes missing without anyone noticing:
+    // drop it and every caller still works, just with a `git rev-parse` each
+    // (POD-2052). A poll reads HEAD twice — to decide, and to name the target.
+    const root = mkdtempSync(join(tmpdir(), 'wiring-head-'))
+    try {
+      mkdirSync(join(root, '.git', 'refs', 'heads'), { recursive: true })
+      writeFileSync(join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+      writeFileSync(join(root, '.git', 'refs', 'heads', 'main'), `${'a'.repeat(40)}\n`)
+
+      let reads = 0
+      const wiring = wireDevBundlePublisher({
+        sourceRoot: root,
+        artifactOrigin: 'https://podium.example.test',
+        localArtifactOrigin: () => 'http://127.0.0.1:18787',
+        hasRemoteManagedMachines: () => false,
+        artifactToken: 'random-token',
+        signingKey: 'unused-until-build',
+        setTarget: () => {},
+        locks: {
+          acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
+          cancel: () => {},
+          renew: () => {},
+          release: () => {},
+        },
+        readHeadSha: async () => {
+          reads++
+          return 'aaaaaaa'
+        },
+      })
+
+      for (let i = 0; i < 8; i++) await wiring.publishTarget()
+      expect(reads).toBe(1)
+
+      // A commit lands: the stamp moves and the next reader goes back to git.
+      writeFileSync(join(root, '.git', 'refs', 'heads', 'main'), `${'b'.repeat(40)}\n`)
+      await wiring.publishTarget()
+      expect(reads).toBe(2)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('uses loopback only for a same-host managed fleet', () => {
