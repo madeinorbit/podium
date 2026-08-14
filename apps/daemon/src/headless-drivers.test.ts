@@ -1,9 +1,13 @@
+import { asAccountId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { HarnessBins } from './harness-exec.js'
 import { buildClaudeSdkOptions, buildHeadlessExec, runHeadlessTurn } from './headless-drivers.js'
 
 const bins: HarnessBins = { opencode: () => '/opt/opencode', cursor: () => '/opt/cursor-agent' }
-const identity = { accountId: 'native:claude-code:test' as const, requestDigest: 'a'.repeat(64) }
+const identity = {
+  accountId: asAccountId('native:claude-code:test'),
+  requestDigest: 'a'.repeat(64),
+}
 
 describe('buildHeadlessExec argv shapes', () => {
   it('reapplies the current system prompt when resuming a Claude SDK thread', () => {

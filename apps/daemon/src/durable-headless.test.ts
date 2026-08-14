@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId } from '@podium/model'
+import { asAccountId, asSessionId } from '@podium/model'
 import { abducoHasSession, isAbducoAvailable, killAbducoSession } from '@podium/pty'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -13,7 +13,10 @@ import {
 } from './durable-headless.js'
 
 const roots: string[] = []
-const identity = { accountId: 'native:claude-code:test' as const, requestDigest: 'a'.repeat(64) }
+const identity = {
+  accountId: asAccountId('native:claude-code:test'),
+  requestDigest: 'a'.repeat(64),
+}
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -180,7 +183,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
     const label = `podium-${sessionId}`
     const spec = {
       agent: 'grok' as const,
-      accountId: 'native:grok:test' as const,
+      accountId: asAccountId('native:grok:test'),
       requestDigest: 'b'.repeat(64),
       cwd: root,
       prompt: 'survive',
