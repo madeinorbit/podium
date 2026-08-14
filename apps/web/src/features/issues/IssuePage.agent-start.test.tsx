@@ -30,6 +30,14 @@ vi.mock('@/app/store', () => {
       setSelectedWorktree: vi.fn(),
       setPane: vi.fn(),
       setView: vi.fn(),
+      // The page edits an issue through the STORE ACTION, not through trpc
+      // directly — `issue-page-commands` takes `updateIssue` as a dependency and
+      // IssuePage hands it `s.updateIssue`. Without it here the call landed on
+      // `undefined`, was swallowed by the commands' own `void run(...)`, and the
+      // assertion below saw zero calls with nothing explaining why. Stands in for
+      // the real action (actions.ts enqueues an overlayed `issueUpdate`) at the
+      // point where it reaches the wire.
+      updateIssue: async (id: string, patch: unknown) => update({ id, patch }),
     }) as never
   return {
     useStore: () => state(),

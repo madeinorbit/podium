@@ -48,6 +48,10 @@ vi.mock('@/app/store', () => {
       setSelectedWorktree: vi.fn(),
       setPane: vi.fn(),
       setView: vi.fn(),
+      // See IssuePage.agent-start.test.tsx: edits go through the store action
+      // `updateIssue`, which `issue-page-commands` takes as a dependency. Absent,
+      // the call is swallowed and the assertion reports zero calls.
+      updateIssue: async (id: string, patch: unknown) => update({ id, patch }),
     }) as never
   return {
     useStore: () => state(),

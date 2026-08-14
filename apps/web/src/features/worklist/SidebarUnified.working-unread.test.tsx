@@ -159,8 +159,14 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
   it('a fully-working unread issue is not emphasized, while an idle unread issue in WORK is', () => {
     render(<SidebarUnified />)
     // Same issue, both unread — the only difference is WORKING vs WORK placement.
-    expect(screen.getByText('Working issue').className).not.toContain('font-medium')
-    expect(screen.getByText('Work issue').className).toContain('font-medium')
+    //
+    // The emphasis is `font-semibold` (unreadTitleClass in components/UnreadMark),
+    // not the `font-medium` these once looked for. Both lines move together on
+    // purpose: with the row on semibold, the negative assertion would have gone on
+    // passing against a row that WAS emphasized, so leaving it would have kept a
+    // green test that could no longer fail for the reason it exists.
+    expect(screen.getByText('Working issue').className).not.toContain('font-semibold')
+    expect(screen.getByText('Work issue').className).toContain('font-semibold')
   })
 
   // The lifted working session used to render as its own PanelRow inside the

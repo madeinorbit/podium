@@ -472,6 +472,7 @@ export function TranscriptFeed({
               <span className="transcript-delivery">pending</span>
               <button
                 type="button"
+                data-pressable
                 className="transcript-retract"
                 aria-label="Retract pending message"
                 title="Retract pending message"

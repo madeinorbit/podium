@@ -26,7 +26,7 @@
  */
 
 import type { z } from 'zod'
-import { SAMPLE_OVERRIDES } from './sample-overrides'
+import { SAMPLE_FIXUPS, SAMPLE_OVERRIDES } from './sample-overrides'
 
 /** How many union arms / enum members a single schema is sampled across. The
  *  aggregate transport unions (ClientMessage, ServerMessage, …) are covered
@@ -170,6 +170,20 @@ const sampleNode = (schema: z.ZodTypeAny, opts: SampleOptions, path: string): un
   const override = SAMPLE_OVERRIDES.get(schema)
   if (override !== undefined) return override(opts, path)
 
+  const sampled = sampleWalk(schema, opts, path)
+
+  // A FIXUP repairs a CROSS-FIELD invariant, which no per-field override can
+  // reach: `ShipOrder.holdCode` is legal exactly while the order is held, and a
+  // receipt must bind the head sha of the order it travels with. It runs AFTER
+  // the walk on purpose — the sample stays schema-DERIVED, so a field added to
+  // the schema still lands in the `full` golden as a new line. Replacing these
+  // objects with hand-written overrides would satisfy the parse and silently
+  // retire that property, which is the one these fixtures exist to provide.
+  const fixup = SAMPLE_FIXUPS.get(schema)
+  return fixup !== undefined ? fixup(sampled, opts, path) : sampled
+}
+
+const sampleWalk = (schema: z.ZodTypeAny, opts: SampleOptions, path: string): unknown => {
   const def = defOf(schema)
   switch (def.typeName) {
     case 'ZodString':

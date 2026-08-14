@@ -236,7 +236,17 @@ describe.each([
   { name: 'non-compact', compact: false },
 ])('ChatComposer keyboard contract ($name)', ({ compact }) => {
   const press = (ta: HTMLTextAreaElement, init: KeyboardEventInit & { keyCode?: number }) => {
-    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, ...init })
+    // `cancelable: true` because a real keydown is, and because without it
+    // `preventDefault()` is a no-op and `defaultPrevented` can never read true —
+    // which is how the double-Escape case landed asserting something the harness
+    // made unobservable. Set on every press rather than just that one: an event
+    // the browser would let a handler cancel should be cancelable here too.
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    })
     if (init.keyCode !== undefined) {
       Object.defineProperty(event, 'keyCode', { value: init.keyCode })
     }

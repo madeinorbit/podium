@@ -52,6 +52,7 @@ import * as runtimeState from '../messages/runtime-state'
 import * as search from '../messages/search'
 import * as server from '../messages/server'
 import * as serverTransfer from '../messages/server-transfer'
+import * as shipping from '../messages/shipping'
 import * as sync from '../messages/sync'
 import * as terminal from '../messages/terminal'
 import * as transcript from '../messages/transcript'
@@ -92,6 +93,12 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['search', search],
   ['server', server],
   ['server-transfer', serverTransfer],
+  // Registered late (the module shipped before its family did), which is why
+  // `shippingJobRequest` / `shippingJobResult` reached ControlMessage and
+  // DaemonMessage with no fixture and the arm-coverage assertions failed. The
+  // registry is mechanical about a module's SCHEMAS, not about the module list —
+  // so a new message file still has to be named here once.
+  ['shipping', shipping],
   ['sync', sync],
   ['terminal', terminal],
   ['transcript', transcript],

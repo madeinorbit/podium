@@ -99,14 +99,39 @@ describe('resolveTaskAction', () => {
   it('offers to close a handed-off origin rather than answer it', () => {
     // The work moved to the spin-off and no session is left here, so there is
     // nobody to answer — the only decision left is whether to close.
+    //
+    // `needsHuman` is explicit because REVIEW STAGE ALONE no longer reaches this
+    // branch: b8b13c01d made a vacated review origin "a signpost, not a review
+    // item" (issueNeedsHuman in client-core's mission.ts), which is asserted as
+    // its own case below. What survives that change, and is what this case is
+    // about, is the choice of verb once the issue DOES want a human: with the
+    // work gone and no session to carry a reply, the offer is to close it, not
+    // to answer into an empty room.
     const issue = makeIssue({
       stage: 'review',
+      needsHuman: true,
       dependents: [{ id: 'spin', type: 'discovered-from' }],
     })
     expect(resolveTaskAction(issue, [])).toEqual({
       kind: 'mark-done',
       label: 'Mark done',
       warn: true,
+    })
+  })
+
+  it('leaves a vacated review origin as ordinary work, not a review item', () => {
+    // The counterpart to the case above (b8b13c01d): the same shape WITHOUT an
+    // explicit needsHuman is a signpost the operator can pick back up, so it
+    // resolves to plain "Start work" and never demands a decision it has no
+    // question for.
+    const issue = makeIssue({
+      stage: 'review',
+      dependents: [{ id: 'spin', type: 'discovered-from' }],
+    })
+    expect(resolveTaskAction(issue, [])).toEqual({
+      kind: 'start-work',
+      label: 'Start work',
+      warn: false,
     })
   })
 

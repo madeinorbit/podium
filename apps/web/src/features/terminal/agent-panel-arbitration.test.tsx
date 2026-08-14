@@ -114,6 +114,11 @@ vi.mock('@/app/store', () => {
     useSession: (id: string | undefined) =>
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
+    // `undefined` = this session has no exit state, which is what the panel saw
+    // before the hook existed. A concrete kind here would change what AgentPanel
+    // renders, so the neutral value is the one that keeps these cases about
+    // arbitration rather than about teardown.
+    useSessionExitKind: () => undefined,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })

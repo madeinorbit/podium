@@ -243,7 +243,12 @@ describe('ShippingPanel', () => {
       ),
     ).toBeTruthy()
     expect(cancel.disabled).toBe(false)
-    expect(screen.getByText('Running checks')).toBeTruthy()
+    // The activity label renders TWICE by design — once on the status line beside
+    // the state marker, once as the "Current" row of the proof list — so a
+    // `getByText` here throws on the ambiguity rather than reading either one.
+    // Asserting the pair says which two are expected, and still fails if the held
+    // order stops reporting its activity in either place.
+    expect(screen.getAllByText('Running checks')).toHaveLength(2)
     expect(screen.queryByRole('alert')).toBeNull()
   })
 

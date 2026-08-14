@@ -27,7 +27,10 @@ const EXCEPTIONS: Record<string, Record<string, string>> = {
   worklist: {
     issues: 'sidebar composes issue nav inline (context menu, status icon, new-issue, hierarchy)',
     machines: 'sidebar mounts the HostIndicators strip',
-    setup: 'sidebar hosts the repo add/scan flow',
+    // `setup` is GONE, not forgotten: 32417dfb8 took the last worklist -> setup
+    // import with it, and this list is asserted to match what is actually
+    // imported, so a seam that closed has to be struck off here or it reads as
+    // still permitted. Deleting the row is the ratchet closing a notch.
   },
   terminal: { chat: 'agent pane embeds the chat surface' },
   issues: { chat: 'issue and session rows embed the chat OfferBar' },

@@ -585,7 +585,11 @@ describe('ChatView sending into a hibernated session', () => {
 
     const bubble = container.querySelector('.transcript-pending')
     expect(bubble?.textContent).toContain('pick this back up')
-    expect(bubble?.textContent).toContain('queued')
+    // 'pending' is the one word every not-yet-delivered bubble wears since
+    // 5bc2fd241; the restored-from-ledger case above already asserts it. What
+    // this case is really about is the NEGATIVE below — the bubble must not sit
+    // in "sending…", which is the state that becomes a lie once the turn parks.
+    expect(bubble?.textContent).toContain('pending')
     expect(bubble?.textContent).not.toContain('sending…')
   })
 

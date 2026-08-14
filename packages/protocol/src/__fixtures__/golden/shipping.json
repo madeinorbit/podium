@@ -1,0 +1,291 @@
+{
+  "family": "shipping",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "ShippingJobAction",
+      "variant": "minimal",
+      "wire": "start",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"start\""
+    },
+    {
+      "schema": "ShippingJobAction",
+      "variant": "full",
+      "wire": "start",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"start\""
+    },
+    {
+      "schema": "ShippingJobClassification",
+      "variant": "minimal",
+      "wire": "observed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"observed\""
+    },
+    {
+      "schema": "ShippingJobClassification",
+      "variant": "full",
+      "wire": "observed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"observed\""
+    },
+    {
+      "schema": "ShippingJobOperation",
+      "variant": "minimal",
+      "wire": "preflight",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"preflight\""
+    },
+    {
+      "schema": "ShippingJobOperation",
+      "variant": "full",
+      "wire": "preflight",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"preflight\""
+    },
+    {
+      "schema": "ShippingJobRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "shippingJobRequest",
+        "requestId": "requestId",
+        "action": "start",
+        "jobId": "jobId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "orderId": "orderId",
+        "attemptId": "attemptId",
+        "generation": 1,
+        "operation": "preflight",
+        "repoPath": "repoPath",
+        "sourceBranch": "sourceBranch",
+        "targetBranch": "targetBranch",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "expectedTargetSha": "expectedTargetSha",
+        "destination": "destination",
+        "validationProfile": {
+          "id": "validationProfile.id",
+          "argv": ["validationProfile.argv[0]"],
+          "cwd": "integration-root",
+          "timeoutMs": 1,
+          "resourceLocks": []
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingJobRequest\",\"requestId\":\"requestId\",\"action\":\"start\",\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"generation\":1,\"operation\":\"preflight\",\"repoPath\":\"repoPath\",\"sourceBranch\":\"sourceBranch\",\"targetBranch\":\"targetBranch\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"expectedTargetSha\":\"expectedTargetSha\",\"destination\":\"destination\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]}}"
+    },
+    {
+      "schema": "ShippingJobRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "shippingJobRequest",
+        "requestId": "requestId",
+        "action": "start",
+        "jobId": "jobId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "orderId": "orderId",
+        "attemptId": "attemptId",
+        "generation": 1,
+        "operation": "preflight",
+        "repoPath": "repoPath",
+        "sourceBranch": "sourceBranch",
+        "targetBranch": "targetBranch",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "expectedTargetSha": "expectedTargetSha",
+        "destination": "destination",
+        "validationProfile": {
+          "id": "validationProfile.id",
+          "argv": ["validationProfile.argv[0]"],
+          "cwd": "integration-root",
+          "timeoutMs": 1,
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
+        },
+        "providerRef": {
+          "provider": "providerRef.provider",
+          "id": "providerRef.id",
+          "url": "providerRef.url"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingJobRequest\",\"requestId\":\"requestId\",\"action\":\"start\",\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"generation\":1,\"operation\":\"preflight\",\"repoPath\":\"repoPath\",\"sourceBranch\":\"sourceBranch\",\"targetBranch\":\"targetBranch\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"expectedTargetSha\":\"expectedTargetSha\",\"destination\":\"destination\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"validationProfile.resourceLocks[0]\"]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"}}"
+    },
+    {
+      "schema": "ShippingJobResult",
+      "variant": "minimal",
+      "wire": {
+        "jobId": "jobId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "orderId": "orderId",
+        "attemptId": "attemptId",
+        "machineId": "machineId",
+        "generation": 1,
+        "operation": "preflight",
+        "state": "running",
+        "classification": "observed",
+        "summary": "summary",
+        "logs": [],
+        "artifactRefs": [],
+        "heartbeatedAt": "heartbeatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"machineId\":\"machineId\",\"generation\":1,\"operation\":\"preflight\",\"state\":\"running\",\"classification\":\"observed\",\"summary\":\"summary\",\"logs\":[],\"artifactRefs\":[],\"heartbeatedAt\":\"heartbeatedAt\"}"
+    },
+    {
+      "schema": "ShippingJobResult",
+      "variant": "full",
+      "wire": {
+        "jobId": "jobId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "orderId": "orderId",
+        "attemptId": "attemptId",
+        "machineId": "machineId",
+        "generation": 1,
+        "operation": "preflight",
+        "state": "running",
+        "classification": "observed",
+        "summary": "summary",
+        "observedSourceSha": "observedSourceSha",
+        "observedTargetSha": "observedTargetSha",
+        "observedDestinationSha": "observedDestinationSha",
+        "testedIntegrationSha": "testedIntegrationSha",
+        "landedRefSha": "landedRefSha",
+        "validationProfileId": "validationProfileId",
+        "validationResult": "passed",
+        "logs": ["logs[0]"],
+        "artifactRefs": ["artifactRefs[0]"],
+        "heartbeatedAt": "heartbeatedAt",
+        "finishedAt": "finishedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"machineId\":\"machineId\",\"generation\":1,\"operation\":\"preflight\",\"state\":\"running\",\"classification\":\"observed\",\"summary\":\"summary\",\"observedSourceSha\":\"observedSourceSha\",\"observedTargetSha\":\"observedTargetSha\",\"observedDestinationSha\":\"observedDestinationSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"logs\":[\"logs[0]\"],\"artifactRefs\":[\"artifactRefs[0]\"],\"heartbeatedAt\":\"heartbeatedAt\",\"finishedAt\":\"finishedAt\"}"
+    },
+    {
+      "schema": "ShippingJobResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "jobId": "jobId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "orderId": "orderId",
+        "attemptId": "attemptId",
+        "machineId": "machineId",
+        "generation": 1,
+        "operation": "preflight",
+        "state": "running",
+        "classification": "observed",
+        "summary": "summary",
+        "logs": [],
+        "artifactRefs": [],
+        "heartbeatedAt": "heartbeatedAt",
+        "type": "shippingJobResult",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"machineId\":\"machineId\",\"generation\":1,\"operation\":\"preflight\",\"state\":\"running\",\"classification\":\"observed\",\"summary\":\"summary\",\"logs\":[],\"artifactRefs\":[],\"heartbeatedAt\":\"heartbeatedAt\",\"type\":\"shippingJobResult\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "ShippingJobResultMessage",
+      "variant": "full",
+      "wire": {
+        "jobId": "jobId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "orderId": "orderId",
+        "attemptId": "attemptId",
+        "machineId": "machineId",
+        "generation": 1,
+        "operation": "preflight",
+        "state": "running",
+        "classification": "observed",
+        "summary": "summary",
+        "observedSourceSha": "observedSourceSha",
+        "observedTargetSha": "observedTargetSha",
+        "observedDestinationSha": "observedDestinationSha",
+        "testedIntegrationSha": "testedIntegrationSha",
+        "landedRefSha": "landedRefSha",
+        "validationProfileId": "validationProfileId",
+        "validationResult": "passed",
+        "logs": ["logs[0]"],
+        "artifactRefs": ["artifactRefs[0]"],
+        "heartbeatedAt": "heartbeatedAt",
+        "finishedAt": "finishedAt",
+        "type": "shippingJobResult",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"machineId\":\"machineId\",\"generation\":1,\"operation\":\"preflight\",\"state\":\"running\",\"classification\":\"observed\",\"summary\":\"summary\",\"observedSourceSha\":\"observedSourceSha\",\"observedTargetSha\":\"observedTargetSha\",\"observedDestinationSha\":\"observedDestinationSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"logs\":[\"logs[0]\"],\"artifactRefs\":[\"artifactRefs[0]\"],\"heartbeatedAt\":\"heartbeatedAt\",\"finishedAt\":\"finishedAt\",\"type\":\"shippingJobResult\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "ShippingJobState",
+      "variant": "minimal",
+      "wire": "running",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"running\""
+    },
+    {
+      "schema": "ShippingJobState",
+      "variant": "full",
+      "wire": "running",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"running\""
+    },
+    {
+      "schema": "ShippingValidationProfile",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "argv": ["argv[0]"],
+        "cwd": "integration-root",
+        "timeoutMs": 1,
+        "resourceLocks": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"argv\":[\"argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]}"
+    },
+    {
+      "schema": "ShippingValidationProfile",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "argv": ["argv[0]"],
+        "cwd": "integration-root",
+        "timeoutMs": 1,
+        "resourceLocks": ["resourceLocks[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"argv\":[\"argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"resourceLocks[0]\"]}"
+    }
+  ]
+}

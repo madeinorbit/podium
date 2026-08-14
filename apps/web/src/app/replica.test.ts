@@ -303,6 +303,10 @@ describe('replica adapter', () => {
       conversations: [],
       automations: [],
       automationRuns: [],
+      // The replicated shipping row arrived with the durable shipping model. An
+      // empty table is still a table the degraded replica has to offer, or a
+      // reader would have to branch on whether storage happened to work.
+      shipOrders: [],
       userLayouts: [],
       cursor: null,
       // Degraded storage has no durable entity data, so the cursor triple reads
@@ -332,6 +336,7 @@ describe('replica adapter', () => {
       conversations: [],
       automations: [],
       automationRuns: [],
+      shipOrders: [],
       userLayouts: [],
       cursor: null,
       feedCursor: COLD_CURSOR,

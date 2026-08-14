@@ -121,6 +121,9 @@ vi.mock('@/app/store', () => {
     useSession: (id: string | undefined) =>
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (storeDrafts[id] ?? '')),
+    // `undefined` = no exit state. The draft flush is a property of a LIVE
+    // session, so an exited one would make this case vacuous.
+    useSessionExitKind: () => undefined,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })

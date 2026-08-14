@@ -87,6 +87,10 @@ vi.mock('@/app/store', () => {
     useSession: (id: string | undefined) =>
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
+    // `undefined` = no exit state. These cases are about the takeover cover, and
+    // a session that reported itself removed or evicted would render a different
+    // pane entirely.
+    useSessionExitKind: () => undefined,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })

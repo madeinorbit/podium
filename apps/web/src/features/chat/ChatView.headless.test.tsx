@@ -259,11 +259,15 @@ describe('ChatView headless mode', () => {
     await act(async () => {
       send.click()
     })
-    // Every turn carries what the user has on screen (#225).
+    // Every turn carries what the user has on screen (#225), and since the
+    // superagent header grew a model picker, the picker's current selection
+    // travels with it — 'auto' being "follow the configured default".
     expect(sendTurn).toHaveBeenCalledWith({
       threadId: 'global',
       text: 'do the thing',
       focus: { view: 'workspace' },
+      model: 'auto',
+      effort: 'auto',
     })
     expect(sendText).not.toHaveBeenCalled()
   })
@@ -280,6 +284,8 @@ describe('ChatView headless mode', () => {
       repoPath: '/repo',
       text: 'file an issue',
       focus: { view: 'workspace' },
+      model: 'auto',
+      effort: 'auto',
     })
     expect(sendTurn).not.toHaveBeenCalled()
   })
@@ -326,8 +332,12 @@ describe('ChatView headless mode', () => {
     })
     await flush()
     // The text is still on screen, wearing the queued mark and NOT the failed one.
+    // The mark READS 'pending' — 5bc2fd241 settled on one word for every
+    // not-yet-delivered bubble so a revived message and a queued one do not
+    // describe the same state two ways. `state` is still 'queued'; only the copy
+    // moved, which is why this asserts the rendered word rather than the state.
     expect(container.textContent).toContain('and another thing')
-    expect(container.querySelector('.transcript-delivery')?.textContent).toBe('queued')
+    expect(container.querySelector('.transcript-delivery')?.textContent).toBe('pending')
     expect(container.querySelector('.transcript-pending--failed')).toBeNull()
   })
 

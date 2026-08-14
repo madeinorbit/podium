@@ -50,12 +50,24 @@ describe('daemon-only protocol entry', () => {
         resourceLocks: [],
       },
     })
+    // The fingerprint covers the JOB FACTS, not the envelope that carried them,
+    // so the four transport keys come off before the parse. Handing the whole
+    // request to the omitted schema is what made this red: omit() leaves the
+    // object STRICT, so a key it no longer knows about is an error rather than
+    // surplus the parse quietly drops.
+    const {
+      type: _type,
+      requestId: _requestId,
+      action: _action,
+      requestDigest: _requestDigest,
+      ...jobFacts
+    } = request
     const facts = ShippingJobRequestMessage.omit({
       type: true,
       requestId: true,
       action: true,
       requestDigest: true,
-    }).parse(request)
+    }).parse(jobFacts)
 
     expect(parseControlMessage(encodeDaemonMessage(request))).toEqual(request)
     expect(shippingJobRequestFingerprint(facts)).toContain('"jobId":"job-1"')

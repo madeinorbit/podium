@@ -27,6 +27,7 @@ import runtimeState from './runtime-state.json' with { type: 'json' }
 import search from './search.json' with { type: 'json' }
 import server from './server.json' with { type: 'json' }
 import serverTransfer from './server-transfer.json' with { type: 'json' }
+import shipping from './shipping.json' with { type: 'json' }
 import sync from './sync.json' with { type: 'json' }
 import terminal from './terminal.json' with { type: 'json' }
 import transcript from './transcript.json' with { type: 'json' }
@@ -61,6 +62,7 @@ export const GOLDEN: Record<string, unknown> = {
   search: search,
   server: server,
   'server-transfer': serverTransfer,
+  shipping: shipping,
   sync: sync,
   terminal: terminal,
   transcript: transcript,
