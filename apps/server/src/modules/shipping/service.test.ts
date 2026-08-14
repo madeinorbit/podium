@@ -1930,6 +1930,16 @@ describe('ShippingService enqueue transaction', () => {
     if (!evidenceRef) throw new Error('daemon evidence ref was not recorded')
     service.dispose()
 
+    issues.shippingCommit(
+      leader.issue.id,
+      {
+        expectedStage: 'shipping',
+        nextStage: 'review',
+        needsHuman: false,
+        shipOrderChanges: [],
+      },
+      () => {},
+    )
     issues.update(leader.issue.id, { branch: 'issue/drifted-after-train-release' })
     const unavailableDaemon = vi.fn(async () => {
       throw new Error('daemon journal and logs unavailable')
