@@ -242,6 +242,13 @@ export const CONTROL_PLANE_CLASS = {
   shippingJobRequest: 'control.command',
   shippingEvidenceRequest: 'control.command',
   shippingRepairApplyRequest: 'control.command',
+  // AGENT RUNTIME CONTRACT (POD-1761 W3). Correlated request/reply over a live
+  // path, exactly like `spawn` and every other session verb — see the argument
+  // in `./runtime.ts`'s header.
+  runtimeSendRequest: 'control.command',
+  runtimeInterruptRequest: 'control.command',
+  runtimeAnswerRequest: 'control.command',
+  runtimeLifecycleRequest: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**
@@ -324,6 +331,15 @@ export const DAEMON_PLANE_CLASS = {
   shippingJobResult: 'control.command',
   shippingEvidenceResult: 'control.command',
   shippingRepairApplyResult: 'control.command',
+  // AGENT RUNTIME CONTRACT (POD-1761 W3). The receipts are correlated replies;
+  // `runtimeEvent` is stream·live for the same reason `agentObservation` and
+  // `transcriptDelta` above are — the durable truth arrives by the observation
+  // protocol, and the causal envelope makes a gap re-readable from `snapshot()`
+  // rather than permanently invisible.
+  runtimeSendResult: 'control.command',
+  runtimeLifecycleResult: 'control.command',
+  runtimeAnswerResult: 'control.command',
+  runtimeEvent: 'stream.live',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

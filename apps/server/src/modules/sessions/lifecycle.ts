@@ -3,15 +3,21 @@ import type {
   Attribution,
   Geometry,
   IssueId,
+  MachineId,
   ResumeRef,
   SessionId,
   SessionMeta,
   TranscriptItem,
   WorkState,
-  MachineId,
 } from '@podium/model'
-import { type AgentKind, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
-import { spawnedByParentSessionId } from '@podium/model'
+import {
+  type AgentKind,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  spawnedByParentSessionId,
+  type UserId,
+} from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -77,7 +83,7 @@ import { isFeatureEnabled } from '../../features'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
-import { type ClientConn, type ClientRegistry } from '../../gateway/client-registry'
+import type { ClientConn, ClientRegistry } from '../../gateway/client-registry'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import {
   harnessCapabilitiesFor,
@@ -120,16 +126,18 @@ import {
   inboxActorColumns,
   inboxActorFromColumns,
   inboxPrincipalFromCommand,
-  SessionInbox,
+  type SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
 // Still used by the lazy workspace-fetch path (POD-658), which shares the
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import type { SessionRuntimeGateway } from './runtime-gateway'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionSpawnResult } from './session-start'
 
+export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 export type { SessionSpawnResult }
 // Re-exported for `relay.ts`, which imports both from here. Neither is
 // DECLARED here: DEFAULT_GEOMETRY lives in session-shared.ts (three
@@ -137,40 +145,40 @@ export type { SessionSpawnResult }
 // that produces it. POD-302's registry names declaration SITES, so pointing
 // it at a re-export is what went stale after the extraction.
 export { DEFAULT_GEOMETRY }
-export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 
 import type { AgentConcurrencyHistory, AgentConcurrencyHistoryResult } from './concurrency-history'
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionMachineReconciler } from './machine-reconciler'
-import { normalizeAgentName } from './naming'
 import type { SessionNaming } from './naming'
+import { normalizeAgentName } from './naming'
 import { SessionObservationLeases } from './observation-leases'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
-import type { SessionRepository, SessionProjectionEvent } from './repository'
+import type { SessionProjectionEvent, SessionRepository } from './repository'
 import type { Session } from './session'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
-import type { SessionBindingReceipts } from './session-binding'
-import type { SessionStart } from './session-start'
-import type { SessionTeardown } from './session-teardown'
-import type { SessionKill } from './session-kill'
-import type { SessionClientPlane } from './session-client-plane'
 import type { SessionAuthz } from './session-authz'
+import type { SessionBindingReceipts } from './session-binding'
+import type { SessionClientPlane } from './session-client-plane'
+import type { SessionKill } from './session-kill'
 import type { SessionMetaOps } from './session-meta-ops'
 import type { SessionRevival } from './session-revival'
-import { wireSessionLifecycle } from './session-wiring'
+import type { SessionStart } from './session-start'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
+import type { SessionTeardown } from './session-teardown'
+import { wireSessionLifecycle } from './session-wiring'
 import type { SessionTerminalProof, TerminalProofStatus } from './terminal-proof'
 import type { SessionListCaller, SessionView } from './view'
 import type { SessionWorkspace } from './workspace'
 
 /** Composition types — live in session-lifecycle-types.ts (POD-1396). */
 export type {
-  SessionLedger,
   SessionDeletePlan,
-  SessionRestorePlan,
+  SessionLedger,
   SessionLifecycleDeps,
+  SessionRestorePlan,
 } from './session-lifecycle-types'
+
 import type { SessionLifecycleDeps } from './session-lifecycle-types'
 
 /** Session lifecycle runtime + composition boundary (POD-1396 facade). */
@@ -244,6 +252,10 @@ export class SessionLifecycle {
   private readonly funnel!: WriteFunnel
   readonly clientControl!: SessionClientControl
   readonly daemonProjection!: SessionDaemonProjection
+  /** The Agent Runtime contract's server half (POD-1761 W3): the pass-through
+   *  for the five machine verbs, the durable completion of `queue`, and the sink
+   *  for the driver's causal stream. No caller routes through it until W4. */
+  readonly runtimeGateway!: SessionRuntimeGateway
   private readonly daemonLifecycle!: SessionDaemonLifecycle
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView

@@ -51,6 +51,7 @@ import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
 import { SessionRepository } from './repository'
+import { SessionRuntimeGateway } from './runtime-gateway'
 import { SessionAuthz } from './session-authz'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionClientPlane } from './session-client-plane'
@@ -449,6 +450,48 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       return { live: s.status === 'live' || s.status === 'starting', state: s.agentState }
     },
   })
+  /**
+   * THE AGENT RUNTIME CONTRACT'S SERVER HALF (POD-1761 W3).
+   *
+   * Built here so the daemon lifecycle below can route `runtimeEvent` frames
+   * into it. NOTHING CALLS ITS WRITE VERBS YET — W4 migrates the ~29 send sites
+   * onto receipts, cluster by cluster, behind the same flag. Until then this is
+   * the destination that had to exist first, and an unflagged session produces
+   * no frames for it to record.
+   */
+  bag.runtimeGateway = new SessionRuntimeGateway({
+    rpc: bag.rpc,
+    queue: {
+      // The DURABLE FIFO, and the reason `queue` completes on this side of the
+      // socket at all: the table survives a daemon restart, a machine going
+      // offline and a parked session. The position is the table's real depth,
+      // read back rather than counted here.
+      enqueue: (input) => {
+        const queued = bag.inbox.queueText({
+          sessionId: input.sessionId,
+          text: input.text,
+          inputOrigin: input.origin,
+          principal: SYSTEM_INBOX_PRINCIPAL,
+        })
+        if (!queued.ok) {
+          return {
+            ok: false as const,
+            reason:
+              queued.reason === 'no resume ref'
+                ? ('no_resume_ref' as const)
+                : ('not_running' as const),
+            ...(queued.reason ? { detail: queued.reason } : {}),
+          }
+        }
+        return {
+          ok: true as const,
+          position: bag.store.sync.listQueuedMessages(input.sessionId).length,
+        }
+      },
+    },
+    machineOf: (sessionId: SessionId) => bag.sessions.get(sessionId)?.machineId,
+    now: () => bag.now(),
+  })
   bag.daemonLifecycle = new SessionDaemonLifecycle({
     sessions: bag.sessions,
     bus: bag.bus,
@@ -482,6 +525,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.machineReconciler.reviveParkedButAlive(session, machineId, reason),
     onDurableSessionCensus: (principal, labels) =>
       bag.machineReconciler.onDurableSessionCensus(principal, labels),
+    runtimeEvents: bag.runtimeGateway,
   })
   // Teardown needs repository/view/state and autoContinue/daemonProjection.
   // Built here so every port target already exists. Early constructor ports

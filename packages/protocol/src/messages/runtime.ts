@@ -34,41 +34,47 @@ import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from '.
  * standing precedent — the causal observation protocol already lives there.
  *
  * ---------------------------------------------------------------------------
- * WHY THE FRAMES ARE NOT YET ARMS OF `ControlMessage` / `DaemonMessage`
+ * TWELVE OF THE THIRTEEN FRAMES ARE ARMS OF `ControlMessage` / `DaemonMessage`
+ * AS OF W3
  * ---------------------------------------------------------------------------
  *
- * [decided POD-2019 — recorded so a later pass can re-derive the argument.]
+ * [decided POD-2019, discharged POD-2021 — the argument is kept because the
+ * classification below rests on it.]
  *
  * Those two unions are compile-TOTAL in three places at once: the plane
  * classification tables in `./message-class.ts`, the edge membership sets in
  * `../planes/port-rule.ts`, and every `createDispatcher` over them — including
  * the daemon's control registry, where a mapped type makes a union member
- * without a handler a compile error.
+ * without a handler a compile error. W1 kept these frames OUT of the unions for
+ * exactly that reason: folding them in would have forced stub handlers into the
+ * daemon and a plane classification argued from nothing, in a work item whose
+ * acceptance criterion was NO BEHAVIOR CHANGE ANYWHERE.
  *
- * That totality is a feature, and it is exactly why these frames stay out for
- * now: folding them in would force stub handlers into the daemon and a plane
- * classification argued from nothing, in a work item whose acceptance criterion
- * is NO BEHAVIOR CHANGE ANYWHERE. A classification is a claim about durability
- * and replay — "a lost one is a permanent invisible gap" versus "the durable
- * truth arrives by another path" — and that claim cannot be made honestly before
- * a producer and a consumer exist.
+ * W3 lands the producer (`apps/daemon/src/runtime`) and the consumer
+ * (`apps/server/src/modules/sessions/runtime-gateway.ts`), so the classification
+ * can now be argued rather than guessed:
  *
- * WHAT CHANGES THIS: W2 (the interactions backbone) and W3 (the terminal
- * driver) land the first producer and consumer. At that point each frame below
- * joins the peer union it belongs to and takes a classification with a real
- * argument behind it. The expected homes, stated now so the later change is a
- * confirmation rather than a fresh decision:
- *
- *   - `runtimeEvent`            → daemon→server, `control.entity` (durable-synced:
- *                                 a lost RuntimeEvent is a permanent gap in the
- *                                 causal stream, the same argument as `feedDelta`)
- *   - `runtimeInteractionAsked` → daemon→server, `control.entity` (a blocking ask
- *                                 nobody recovers is the stuck session §4 exists
- *                                 to abolish)
- *   - every `runtime*Request`   → server→daemon, `control.command` (correlated
- *     and its `*Result`           request/reply, like every other session verb)
- *   - `runtimeAttachResult`     → the frame STREAM stays `bulk`/`stream.live` on
- *                                 the existing terminal frames path, untouched
+ *   - every `runtime*Request` and its `*Result` → `control.command`. They are
+ *     correlated request/reply over a live path, exactly like `spawn`,
+ *     `memoryBreakdownRequest` and every other session verb. A lost one is a
+ *     failed RPC the caller already has to handle, not a durability hole.
+ *   - `runtimeEvent` → `stream.live`, NOT `control.entity`. W1 expected
+ *     `control.entity` by analogy with `feedDelta`, and that analogy does not
+ *     survive contact with the terminal driver: the durable truth this stream
+ *     describes already arrives by another path (`agentObservation`,
+ *     `transcriptDelta`, `agentState` — all `stream.live` for the same reason),
+ *     and the causal envelope makes a gap RECOVERABLE by construction — a
+ *     consumer that missed events re-reads from `snapshot()` and its cursor.
+ *     Classifying it entity would put a second, unreconciled writer in front of
+ *     the oplog for facts the observation protocol already owns. When W4 makes a
+ *     runtime event the SOLE source of a durable fact, that is the moment to
+ *     re-argue this — with the fact in hand.
+ *   - `runtimeInteractionAsked` stays OUT, and is the reason this section says
+ *     twelve rather than thirteen. Its producer is W2's interactions aggregate,
+ *     and W1's classification for it — durable-synced, because a blocking ask
+ *     nobody recovers is the stuck session §4 exists to abolish — is a claim
+ *     about a durable row that does not exist yet. Folding it in now would be
+ *     the guessed classification this whole argument avoids.
  */
 
 // ---------------------------------------------------------------------------
@@ -345,85 +351,135 @@ export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 // The frames
 // ---------------------------------------------------------------------------
 //
-// DECLARED, NOT YET ROUTED. These are STANDALONE schemas, exactly like
-// `./runtime-state.ts` — they are deliberately NOT arms of `ControlMessage` /
-// `DaemonMessage` and carry no `MESSAGE_SYNC_CLASSES` entry in W1.
-//
-// [decided POD-2019 — recorded so a later pass can re-derive the argument.]
-// Those unions are compile-TOTAL in three places at once: the plane
-// classification tables in `./message-class.ts`, the edge membership sets in
-// `../planes/port-rule.ts`, and every `createDispatcher` over them — including
-// the daemon's control registry, where a mapped type makes a union member
-// without a handler a compile error. Folding these in now would force stub
-// handlers across apps and a plane classification argued from nothing, in a work
-// item whose acceptance criterion is NO BEHAVIOR CHANGE ANYWHERE. A
-// classification is a claim about durability and replay — "a lost one is a
-// permanent invisible gap" versus "the durable truth arrives by another path" —
-// and that claim cannot be made honestly before a producer and a consumer exist.
-//
-// SYNC-CLASS INTENT, as a comment now and a table entry when W2/W3 land a
-// producer:
-//   - `runtimeEvent`             durable-synced (`control.entity`). A lost
-//                                RuntimeEvent is a permanent gap in the causal
-//                                stream — the same argument as `feedDelta`.
-//   - `runtimeInteractionAsked`  durable-synced (`control.entity`). A blocking
-//                                ask nobody recovers is exactly the stuck
-//                                session §4 exists to abolish.
-//   - `runtimeSendRequest` and its result, `runtimeAnswerRequest` and its
-//                                result: command (`control.command`) — correlated
-//                                request/reply, like every other session verb.
-//
-// Attach negotiation is absent entirely: its first consumer is W5.
+// Each carries a `requestId` where it is half of a correlated pair, matching
+// every other session verb on the host edge. They are exported INDIVIDUALLY
+// because `ControlMessage`/`DaemonMessage` are `z.discriminatedUnion`s over
+// member schemas — a nested union cannot be an arm of one.
 
-/** server → daemon: the two write verbs W2 and W3 need. */
+/** server → daemon: deliver one turn through the contract. */
+export const RuntimeSendRequestMessage = z.object({
+  type: z.literal('runtimeSendRequest'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  text: z.string(),
+  origin: ObservationInputOrigin,
+  delivery: TurnDelivery,
+})
+export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
+
+/** server → daemon: REQUEST a fence. The fence itself only ever arrives as a
+ *  provider-confirmed terminal event on the causal stream. */
+export const RuntimeInterruptRequestMessage = z.object({
+  type: z.literal('runtimeInterruptRequest'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+})
+export type RuntimeInterruptRequestMessage = z.infer<typeof RuntimeInterruptRequestMessage>
+
+export const RuntimeAnswerRequestMessage = z.object({
+  type: z.literal('runtimeAnswerRequest'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  interactionId: z.string().min(1),
+  answer: z.record(z.string(), z.unknown()),
+})
+export type RuntimeAnswerRequestMessage = z.infer<typeof RuntimeAnswerRequestMessage>
+
+export const RuntimeLifecycleRequestMessage = z.object({
+  type: z.literal('runtimeLifecycleRequest'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  verb: z.enum(['stop', 'hibernate', 'kill']),
+})
+export type RuntimeLifecycleRequestMessage = z.infer<typeof RuntimeLifecycleRequestMessage>
+
+/**
+ * ATTACH AND SNAPSHOT HAVE NO FRAMES HERE, and that is a W3 decision rather than
+ * an omission.
+ *
+ * The terminal driver implements both verbs on the contract — the conformance
+ * corpus exercises them, and the daemon reads them locally. What they do not
+ * have is a REMOTE caller: nothing on the server asks a machine to negotiate an
+ * attach (W5's consumer) or to bootstrap an observation over the wire (W4's).
+ * Their payload schemas — `AttachEndpoint`, `SessionSnapshot` and the binding it
+ * embeds — were deleted from this file by W1's review under the rule stated in
+ * the header: no producer, no consumer, no schema. Re-adding them to carry
+ * frames nobody sends would undo that decision to buy nothing.
+ */
+
+/** server → daemon: drive one session verb through the contract. */
 export const RuntimeCommandMessage = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('runtimeSendRequest'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    text: z.string(),
-    origin: ObservationInputOrigin,
-    delivery: TurnDelivery,
-  }),
-  z.object({
-    type: z.literal('runtimeAnswerRequest'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    interactionId: z.string().min(1),
-    answer: z.record(z.string(), z.unknown()),
-  }),
+  RuntimeSendRequestMessage,
+  RuntimeInterruptRequestMessage,
+  RuntimeAnswerRequestMessage,
+  RuntimeLifecycleRequestMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
-/** daemon → server: receipts, answer outcomes, the causal event stream, and the
- *  ask that opens an interaction's durable life. */
-export const RuntimeEventMessage = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('runtimeSendResult'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    receipt: TurnReceipt,
-  }),
-  z.object({
-    type: z.literal('runtimeAnswerResult'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    outcome: InteractionAnswerOutcome,
-  }),
-  z.object({
-    type: z.literal('runtimeInteractionAsked'),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    interaction: PendingInteraction,
-  }),
-  z.object({
-    type: z.literal('runtimeEvent'),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    event: RuntimeEvent,
-  }),
-])
+export const RuntimeSendResultMessage = z.object({
+  type: z.literal('runtimeSendResult'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  receipt: TurnReceipt,
+})
+export type RuntimeSendResultMessage = z.infer<typeof RuntimeSendResultMessage>
+
+export const RuntimeLifecycleResultMessage = z.object({
+  type: z.literal('runtimeLifecycleResult'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  /** A refusal is an OUTCOME, not an error: `hibernate` without a resume ref
+   *  is expected and the caller handles it. */
+  result: z.union([z.object({ ok: z.literal(true) }), Refusal]),
+})
+export type RuntimeLifecycleResultMessage = z.infer<typeof RuntimeLifecycleResultMessage>
+
+export const RuntimeAnswerResultMessage = z.object({
+  type: z.literal('runtimeAnswerResult'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  outcome: InteractionAnswerOutcome,
+})
+export type RuntimeAnswerResultMessage = z.infer<typeof RuntimeAnswerResultMessage>
+
+/**
+ * daemon → server: the ask that opens an interaction's durable life.
+ *
+ * STILL DECLARED-ONLY after W3, and deliberately so. Its producer is the
+ * interactions backbone (W2), and the classification W1 argued for it —
+ * durable-synced, because "a blocking ask nobody recovers is exactly the stuck
+ * session §4 exists to abolish" — is a claim about a durable aggregate that does
+ * not exist yet. W3 folded the frames it PRODUCES into the peer unions and left
+ * this one out rather than give it a plane class with no writer behind it.
+ */
+export const RuntimeInteractionAskedMessage = z.object({
+  type: z.literal('runtimeInteractionAsked'),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  interaction: PendingInteraction,
+})
+export type RuntimeInteractionAskedMessage = z.infer<typeof RuntimeInteractionAskedMessage>
+
+/** daemon → server: one causally-enveloped event from a session's driver.
+ *  UNCORRELATED — it is a stream, not a reply, which is why it is the only
+ *  frame in this family without a `requestId`. */
+export const RuntimeEventMessage = z.object({
+  type: z.literal('runtimeEvent'),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  event: RuntimeEvent,
+})
 export type RuntimeEventMessage = z.infer<typeof RuntimeEventMessage>
 
-export const RuntimeMessage = z.union([RuntimeCommandMessage, RuntimeEventMessage])
+/** daemon → server: receipts, results, and the causal event stream. */
+export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
+  RuntimeSendResultMessage,
+  RuntimeLifecycleResultMessage,
+  RuntimeAnswerResultMessage,
+  RuntimeInteractionAskedMessage,
+  RuntimeEventMessage,
+])
+export type RuntimeDaemonMessage = z.infer<typeof RuntimeDaemonMessage>
+
+export const RuntimeMessage = z.union([RuntimeCommandMessage, RuntimeDaemonMessage])
 export type RuntimeMessage = z.infer<typeof RuntimeMessage>
 
 /**
@@ -440,8 +496,11 @@ export type RuntimeMessage = z.infer<typeof RuntimeMessage>
  */
 export const RUNTIME_FRAME_TYPES = [
   'runtimeSendRequest',
+  'runtimeInterruptRequest',
   'runtimeAnswerRequest',
+  'runtimeLifecycleRequest',
   'runtimeSendResult',
+  'runtimeLifecycleResult',
   'runtimeAnswerResult',
   'runtimeInteractionAsked',
   'runtimeEvent',

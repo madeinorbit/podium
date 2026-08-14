@@ -53,6 +53,16 @@ export interface SessionDaemonLifecyclePorts {
   reviveParkedButAlive(session: Session, machineId: string, reason: string): void
   /** This machine's live durable labels, pushed on connect [POD-1953]. */
   onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): void
+  /**
+   * The Agent Runtime contract's inbound event sink (POD-1761 W3).
+   *
+   * OPTIONAL because a build without the contract wired has nowhere for these to
+   * go, and because every existing fixture predates it — an unflagged session
+   * produces none of these frames, so an absent sink is not a dropped fact.
+   */
+  runtimeEvents?: {
+    record(machineId: MachineId, msg: Extract<SessionsDaemonFrame, { type: 'runtimeEvent' }>): void
+  }
 }
 
 function isAttentionPhase(state: AgentRuntimeState | undefined): boolean {
@@ -657,6 +667,19 @@ export class SessionDaemonLifecycle {
         ) {
           this.clearOffer(msg.sessionId)
         }
+        break
+      }
+      case 'runtimeEvent': {
+        // THE AGENT RUNTIME CONTRACT'S CAUSAL STREAM (POD-1761 W3).
+        //
+        // W3 lands the PATH, not the consumers: the durable facts this stream
+        // describes still arrive by the observation protocol above, and W2/W4
+        // are what subscribe to it for interactions and receipts. So the server
+        // half here is exactly two things — the ownership check every
+        // session-owned frame gets, and a sink a later item registers against.
+        // Anything more would be a second writer for facts that already have one.
+        const owner = this.sessions.get(msg.sessionId)
+        if (owner?.machineId === machineId) this.ports.runtimeEvents?.record(machineId, msg)
         break
       }
       default:

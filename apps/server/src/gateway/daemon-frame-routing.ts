@@ -66,6 +66,10 @@ export const DAEMON_FRAME_PORTS = {
   sessionGitActivity: ['sessions'],
   sessionOpenUrl: ['sessions'],
   sessionOpenUrlResult: ['sessions'],
+  // AGENT RUNTIME CONTRACT (POD-1761 W3): the causal event stream a flagged
+  // session's driver produces. Session-owned like every other per-session
+  // observation, and attributed to the machine that sent it.
+  runtimeEvent: ['sessions'],
 
   // ---- machine-owned ----
   inventoryReport: ['machines'],
@@ -111,6 +115,11 @@ export const DAEMON_FRAME_PORTS = {
   shippingJobResult: ['rpc'],
   shippingEvidenceResult: ['rpc'],
   shippingRepairApplyResult: ['rpc'],
+  // AGENT RUNTIME CONTRACT (POD-1761 W3). Five correlated receipts, settled by
+  // `requestId` through the one correlator — no new port, no new pending map.
+  runtimeSendResult: ['rpc'],
+  runtimeLifecycleResult: ['rpc'],
+  runtimeAnswerResult: ['rpc'],
 
   // ---- headless-owned ----
   headlessTurnEvent: ['headless'],

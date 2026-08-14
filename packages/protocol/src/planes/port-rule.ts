@@ -78,6 +78,17 @@ export const HOST_EDGE_FRAMES = [
   'agentExit',
   'bind',
   'transcriptDelta',
+  // The Agent Runtime contract (POD-1761 W3). Session verbs and their receipts
+  // on the daemon socket — never the agent relay, whose URL bakes in a session
+  // identity these frames carry explicitly.
+  'runtimeSendRequest',
+  'runtimeSendResult',
+  'runtimeInterruptRequest',
+  'runtimeAnswerRequest',
+  'runtimeAnswerResult',
+  'runtimeLifecycleRequest',
+  'runtimeLifecycleResult',
+  'runtimeEvent',
   // Host-initiated file / transcript bulk.
   'transcriptRead',
   'transcriptReadResult',

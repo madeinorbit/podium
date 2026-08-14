@@ -13,6 +13,7 @@ import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
+import type { TerminalRuntime } from '../runtime/terminal-driver'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
 import type { ShippingExecutionPlane } from '../shipping/executor'
@@ -71,6 +72,21 @@ export interface DaemonContext {
   outputScheduler: OutputScheduler
   /** Agent-state trackers, transcript tails, per-harness observers. */
   observers: SessionObservers
+  /**
+   * The Agent Runtime contract's terminal driver (POD-1761 W3), when this daemon
+   * was built with it.
+   *
+   * OPTIONAL, AND THAT IS THE FLAG'S SHAPE. A daemon with no registry drives
+   * every session the legacy way and answers every `runtime*` frame with
+   * `not_running` — which is true. The registry exists whenever the daemon can
+   * run the contract at all; whether a given SESSION is behind it is the
+   * registry's own per-session question, not this field's.
+   */
+  runtime?: TerminalRuntime
+  /** The machine-wide `PODIUM_RUNTIME_CONTRACT` switch, read ONCE at bootstrap.
+   *  OR-ed with each session's own `runtimeContract` field — see
+   *  `runtime/flag.ts` for why both exist and why neither wins. */
+  runtimeContractEnabled: boolean
   /** Resolves hook cwds to worktree roots; cleared on session exit. */
   sessionCwdTracker: SessionCwdTracker
   /** Re-arms prime injection when a session dies. */

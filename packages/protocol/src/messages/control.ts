@@ -38,6 +38,12 @@ import {
 } from './host'
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
+import {
+  RuntimeAnswerRequestMessage,
+  RuntimeInterruptRequestMessage,
+  RuntimeLifecycleRequestMessage,
+  RuntimeSendRequestMessage,
+} from './runtime'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
 import {
   ServerTransferAbortRequestMessage,
@@ -137,5 +143,13 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ShippingJobRequestMessage,
   ShippingEvidenceRequestMessage,
   ShippingRepairApplyRequestMessage,
+  // The Agent Runtime contract's write path (POD-1761 W3). One correlated verb
+  // per frame, reaching the flagged session's driver and nothing else — the
+  // legacy `input`/`kill` frames above stay exactly as they are for every
+  // unflagged session.
+  RuntimeSendRequestMessage,
+  RuntimeInterruptRequestMessage,
+  RuntimeAnswerRequestMessage,
+  RuntimeLifecycleRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>

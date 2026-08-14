@@ -34,13 +34,18 @@ import type {
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
+  InteractionAnswerOutcome,
   ModelChoiceWire,
+  ObservationInputOrigin,
   PortableCredentialBundle,
   PortableCredentialKind,
   RepoOp,
+  RuntimeLifecycleResultMessage,
   ServerTransferManifest,
   ServerTransferManifestEntry,
   ServerTransferResultMessage,
+  TurnDelivery,
+  TurnReceipt,
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
@@ -77,6 +82,19 @@ const BROWSE_TIMEOUT_MS = 20_000
 // `createRepo` is four git invocations after the mkdir, and the first one on a
 // cold machine pays for git's own start-up. Still well short of the clone budget.
 const DIR_OP_INIT_TIMEOUT_MS = 60_000
+/**
+ * How long a `runtimeSendRequest` waits for its receipt.
+ *
+ * DERIVED FROM THE DRIVER'S OWN WINDOW, not chosen: the terminal driver waits
+ * `VERIFICATION_WINDOW_MS` (4.8s) before answering `unverified`, so an RPC
+ * deadline shorter than that would time out sends the driver was about to
+ * report honestly — turning the one outcome that exists to avoid a guess back
+ * into a guess. The margin covers the round trip.
+ */
+const RUNTIME_SEND_TIMEOUT_MS = 12_000
+/** The other four verbs are local operations on the machine — a lease check, a
+ *  keystroke, a state read — with no verification window to wait out. */
+const RUNTIME_VERB_TIMEOUT_MS = 10_000
 
 export interface ScanResult {
   conversations: ConversationSummaryWire[]
@@ -194,6 +212,13 @@ const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>(
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
 const SHIPPING_EVIDENCE = daemonRequestKind<Payload<ShippingEvidenceResultMessage>>('se')
 const SHIPPING_REPAIR_APPLY = daemonRequestKind<Payload<ShippingRepairApplyResultMessage>>('sr')
+// AGENT RUNTIME CONTRACT (POD-1761 W3). Five correlated verbs against a flagged
+// session's driver. They are ordinary RPC families because that is exactly what
+// they are — nothing about the contract needed a new transport, which is the
+// point of putting it in FRONT of the existing stack rather than beside it.
+const RUNTIME_SEND = daemonRequestKind<TurnReceipt>('rs')
+const RUNTIME_LIFECYCLE = daemonRequestKind<Payload<RuntimeLifecycleResultMessage>>('rl')
+const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
@@ -305,6 +330,12 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(SHIPPING_REPAIR_APPLY, msg.requestId, machineId, payloadOf(msg)),
   credentialInstallResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
+  runtimeSendResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_SEND, msg.requestId, machineId, msg.receipt),
+  runtimeLifecycleResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_LIFECYCLE, msg.requestId, machineId, payloadOf(msg)),
+  runtimeAnswerResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_ANSWER, msg.requestId, machineId, msg.outcome),
 }
 
 /**
@@ -618,6 +649,108 @@ export class DaemonRpcService {
         artifactRefs: [],
       }),
       (requestId) => ({ type: 'shippingRepairApplyRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  // ---- the Agent Runtime contract (POD-1761 W3) ----
+  //
+  // FOUR VERBS, NO POLICY. Everything these methods know is which frame to build
+  // and how long to wait; whether a session is behind the contract at all is the
+  // DAEMON's answer, and it comes back as a typed refusal rather than as a
+  // question this side has to ask first. A caller that guessed would be a second
+  // place the flag lived.
+
+  /**
+   * Deliver one turn through the contract and answer with its receipt.
+   *
+   * NOTE WHAT A TIMEOUT PRODUCES: `unverified`, not `refused`. The frame really
+   * did go to a machine, so "the keystrokes may well have landed and nobody
+   * proved it" is the true statement — which is precisely what that outcome
+   * means. Reporting `refused` would tell a caller the session declined the
+   * write, and a caller that believed it would send the same text twice.
+   */
+  runtimeSend(
+    input: {
+      sessionId: SessionId
+      text: string
+      origin: ObservationInputOrigin
+      delivery: TurnDelivery
+    },
+    machineId: MachineId,
+  ): Promise<TurnReceipt> {
+    return this.request(
+      RUNTIME_SEND,
+      RUNTIME_SEND_TIMEOUT_MS,
+      () => ({
+        outcome: 'unverified' as const,
+        deliveredAs: input.delivery,
+        verificationWindowMs: RUNTIME_SEND_TIMEOUT_MS,
+        at: new Date().toISOString(),
+      }),
+      (requestId) => ({
+        type: 'runtimeSendRequest',
+        requestId,
+        sessionId: input.sessionId,
+        text: input.text,
+        origin: input.origin,
+        delivery: input.delivery,
+      }),
+      machineId,
+    )
+  }
+
+  /** REQUEST a fence. The fence itself, if the provider confirms one, arrives on
+   *  the causal stream as a terminal turn event — never as this reply. */
+  runtimeInterrupt(
+    sessionId: SessionId,
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeLifecycleResultMessage>> {
+    return this.request(
+      RUNTIME_LIFECYCLE,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({ type: 'runtimeInterruptRequest', requestId, sessionId }),
+      machineId,
+    )
+  }
+
+  runtimeAnswer(
+    input: { sessionId: SessionId; interactionId: string; answer: Record<string, unknown> },
+    machineId: MachineId,
+  ): Promise<InteractionAnswerOutcome> {
+    return this.request(
+      RUNTIME_ANSWER,
+      RUNTIME_VERB_TIMEOUT_MS,
+      // A timeout is not "already answered" and not "expired": the ask may still
+      // be open and unanswered, which is exactly `unknown-interaction` from this
+      // side's point of view — we do not know that it is there.
+      () => ({ ok: false as const, reason: 'unknown-interaction' as const }),
+      (requestId) => ({
+        type: 'runtimeAnswerRequest',
+        requestId,
+        sessionId: input.sessionId,
+        interactionId: input.interactionId,
+        answer: input.answer,
+      }),
+      machineId,
+    )
+  }
+
+  runtimeLifecycle(
+    input: { sessionId: SessionId; verb: 'stop' | 'hibernate' | 'kill' },
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeLifecycleResultMessage>> {
+    return this.request(
+      RUNTIME_LIFECYCLE,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({
+        type: 'runtimeLifecycleRequest',
+        requestId,
+        sessionId: input.sessionId,
+        verb: input.verb,
+      }),
       machineId,
     )
   }

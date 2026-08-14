@@ -42,6 +42,12 @@ import {
 import { InventoryReportMessage, ModelProbeResultMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
 import {
+  RuntimeAnswerResultMessage,
+  RuntimeEventMessage,
+  RuntimeLifecycleResultMessage,
+  RuntimeSendResultMessage,
+} from './runtime'
+import {
   AgentObservationMessage,
   AgentObservationRebindMessage,
   AgentObserverLiveConfirmationMessage,
@@ -217,5 +223,13 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ShippingJobResultMessage,
   ShippingEvidenceResultMessage,
   ShippingRepairApplyResultMessage,
+  // The Agent Runtime contract's read/receipt path (POD-1761 W3). The five
+  // `*Result` frames settle through the one RPC correlator by `requestId`;
+  // `runtimeEvent` is the uncorrelated causal stream a flagged session's driver
+  // produces.
+  RuntimeSendResultMessage,
+  RuntimeLifecycleResultMessage,
+  RuntimeAnswerResultMessage,
+  RuntimeEventMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

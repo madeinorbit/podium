@@ -61,6 +61,11 @@ export * from './attach.js'
 export * from './binding.js'
 export * from './capabilities.js'
 export * from './driver.js'
+/** The terminal family's app-independent half (POD-1761 W3): the receipt state
+ *  machine, the capability declaration, the exemption table, the envelope
+ *  assembly. The concrete `RuntimeDriver` lives in `apps/daemon/src/runtime`,
+ *  because it is composed of daemon internals this layer may not import. */
+export * from './drivers/terminal/index.js'
 export * from './errors.js'
 export * from './events.js'
 export * from './families.js'

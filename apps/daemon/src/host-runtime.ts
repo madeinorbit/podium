@@ -64,6 +64,9 @@ import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { createReattachGates } from './reattach-gates'
+import { runtimeContractEnabledByEnv } from './runtime/flag'
+import { daemonRuntimeHost } from './runtime/host'
+import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
@@ -104,7 +107,30 @@ export async function createDaemonHostRuntime(args: {
   installDir: string | undefined
   send: (message: DaemonMessage) => void
 }): Promise<DaemonHostRuntime> {
-  const { options: opts, instance, build, installDir, send } = args
+  const { options: opts, instance, build, installDir, send: sendUpstream } = args
+  /**
+   * THE AGENT RUNTIME CONTRACT'S TERMINAL DRIVER (POD-1761 W3), when the flag is
+   * on for this daemon or for an individual session.
+   *
+   * Declared here, built after the context it needs, and TAPPED on the outbound
+   * frame sink below — see `terminal-driver.ts`'s header for why that sink is the
+   * driver's event source rather than a set of new observer callbacks.
+   */
+  let terminalRuntime: TerminalRuntime | undefined
+  const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
+  /**
+   * Every outbound daemon frame, past the driver's observation tap.
+   *
+   * TWO PROPERTIES THIS WRAPPER HAS TO KEEP. It must not recurse — the driver
+   * emits `runtimeEvent` frames THROUGH here, so those are the one type the tap
+   * skips. And it must cost nothing when the flag is off: with no registry the
+   * optional call is a null check, and with a registry but no flagged session the
+   * tap returns on a map lookup.
+   */
+  const send = (message: DaemonMessage): void => {
+    if (message.type !== 'runtimeEvent') terminalRuntime?.observe(message)
+    sendUpstream(message)
+  }
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const backend = selectDurableBackend(opts)
@@ -283,7 +309,14 @@ export async function createDaemonHostRuntime(args: {
         throw new Error(`Codex receipt ${sessionId} has no owned binding`)
       }
     },
-    onPayload: (sessionId, payload) => observers.onHookPayload(sessionId, payload),
+    onPayload: (sessionId, payload) => {
+      // THE DRIVER SEES THE RAW HOOK FIRST. A `UserPromptSubmit` is the causal
+      // accept a terminal receipt anchors to, and waiting for it to become a
+      // delivered, acked, fenced observation would report `unverified` for sends
+      // the harness had already taken (POD-1761 W3). No-op when unflagged.
+      terminalRuntime?.onHookPayload(sessionId, payload)
+      observers.onHookPayload(sessionId, payload)
+    },
   })
 
   if (opts.installCodexHooks) {
@@ -504,7 +537,13 @@ export async function createDaemonHostRuntime(args: {
       }),
     retireAfterTransfer: opts.retireAfterTransfer ?? retireTargetDaemonAfterAcknowledgement,
     applyUpdateGrant,
+    runtimeContractEnabled,
   }
+  // Built AFTER the context, because the driver's host port is that context. The
+  // assignment closes the only cycle in this wiring: handlers reach the registry
+  // through `ctx.runtime`, and the registry reaches the daemon through `ctx`.
+  terminalRuntime = createTerminalRuntime(daemonRuntimeHost(ctx, send))
+  ctx.runtime = terminalRuntime
   const frameGuard = createFrameGuard(ctx)
 
   const metricsBackground = opts.metrics?.background ?? true
@@ -610,6 +649,7 @@ export async function createDaemonHostRuntime(args: {
       else turn.dispose?.()
     }
     ctx.runningHeadlessTurns.clear()
+    terminalRuntime?.dispose()
     observers.disposeObservers()
     composerEngine.disposeAll()
     await Promise.all(durableReaps)

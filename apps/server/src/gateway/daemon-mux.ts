@@ -135,6 +135,8 @@ const DISPATCH: Dispatcher = {
   sessionGitActivity: toSessions,
   sessionOpenUrl: toSessions,
   sessionOpenUrlResult: toSessions,
+  // AGENT RUNTIME CONTRACT (POD-1761 W3) — the driver's causal stream.
+  runtimeEvent: toSessions,
 
   // ---- machines: the machine's own reported inventory, scoped by principal ----
   inventoryReport: (ports, principal, msg) =>
@@ -213,6 +215,10 @@ const DISPATCH: Dispatcher = {
   shippingJobResult: toRpc,
   shippingEvidenceResult: toRpc,
   shippingRepairApplyResult: toRpc,
+  // AGENT RUNTIME CONTRACT (POD-1761 W3) — five receipts, one correlator.
+  runtimeSendResult: toRpc,
+  runtimeLifecycleResult: toRpc,
+  runtimeAnswerResult: toRpc,
   // ---- headless ----
   headlessTurnEvent: (ports, _p, msg) => ports.headless.onTurnEvent(msg),
   headlessTurnResult: (ports, _p, msg) => ports.headless.onTurnResult(msg),

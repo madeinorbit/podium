@@ -172,7 +172,12 @@ describe('machine scope and the writer class', () => {
     // running) both drive a session-row repair, so both are session-owned and
     // both must arrive with the machine principal that observed them: the repair
     // only ever touches rows on the reporting machine.
-    expect(sessionFrames.length).toBe(23)
+    //
+    // 24 since POD-2021. `runtimeEvent` is the Agent Runtime contract's causal
+    // stream for a flagged session — a per-session observation like every other
+    // frame here, and one whose ownership check is exactly what stops a machine
+    // from narrating a session it does not hold.
+    expect(sessionFrames.length).toBe(24)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
@@ -219,10 +224,17 @@ describe('machine scope and the writer class', () => {
     // the rpc port, and none of them arrives anonymously. The count is the
     // ratchet — a new rpc reply must be added here DELIBERATELY, which is how
     // this test noticed POD-1466's frame rather than absorbing it silently.
+    //
+    // 29 since POD-2021, and the arithmetic is worth writing down because it is
+    // not all one item's: `shippingJobResult` had already joined the rpc set
+    // without this ratchet being moved (25 → 26), and the Agent Runtime
+    // contract's three correlated receipts take it to 29. Each of those three is
+    // an ordinary request/reply against a session's driver — no new transport,
+    // no private door into the rpc port, which is the property below.
     const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
       (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
     )
-    expect(rpcFrames.length).toBe(30)
+    expect(rpcFrames.length).toBe(32)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

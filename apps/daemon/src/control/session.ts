@@ -9,6 +9,7 @@ import {
   type LaunchFile,
   manifestFor,
 } from '@podium/harness'
+import { createLogger } from '@podium/logger'
 import { type AgentKind, asMachineId, type Geometry, type SessionId } from '@podium/model'
 import {
   type AgentSession,
@@ -28,11 +29,12 @@ import {
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
+import { runtimeContractEnabledFor } from '../runtime/flag'
+import { terminalProfileFor } from '../runtime/registry'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
 import { sourceForRead } from './transcripts'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:session')
 
@@ -245,7 +247,19 @@ export function wireBridge(
   return pending ? { cols: pending.cols, rows: pending.rows } : geometry
 }
 
-async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
+/**
+ * Start the process for a spawn instruction.
+ *
+ * EXPORTED for the Agent Runtime contract's `create()`/`resume()` (POD-1761 W3),
+ * which must go THROUGH this path rather than around it — the launch-file
+ * materialization, the instrumentation env and the observer wiring below are
+ * exactly what makes a contract-driven session byte-identical to a
+ * server-spawned one. `handleSpawn` stays private because its binding transition
+ * is server-authored: a driver on the machine has no principal to author one
+ * with, so it takes the launch and leaves the binding to the frame that carries
+ * an authenticated one.
+ */
+export async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
   try {
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
     // is known before the agent has run a single hook. Every server-side spawn funnels
@@ -365,6 +379,7 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
       startedAtMs: spawnStartedAt,
       ...(newSessionId ? { newSessionId } : {}),
     })
+    bindRuntimeContract(ctx, msg, false)
     // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
     // session. attach() is a no-op for harnesses without a driver.
     if (msg.draftSync) {
@@ -403,6 +418,58 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
 }
 export const MISSING_SESSION_BINDING_MESSAGE =
   'server-minted SessionBinding instruction is required'
+
+/**
+ * Put this session behind the Agent Runtime contract, when the flag says so
+ * (POD-1761 W3).
+ *
+ * CALLED FROM BOTH THE SPAWN AND THE REATTACH PATHS, immediately after the
+ * observers are wired, because those are the two moments a session acquires a
+ * live bridge — and a driver handle without a bridge would answer `not_running`
+ * to everything, which is true but useless.
+ *
+ * FLAG OFF RETURNS ON THE FIRST LINE. That is the whole of the "zero diff"
+ * claim on this path: no handle, no queue, no observation tap entry, and the
+ * legacy machinery above ran exactly as it always has.
+ */
+function bindRuntimeContract(
+  ctx: DaemonContext,
+  msg: SpawnControl | ReattachControl,
+  rebind: boolean,
+): void {
+  if (!ctx.runtime) return
+  if (!runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)) return
+  const profile = terminalProfileFor(msg.agentKind)
+  // A shell has no turns, no transcript and no state channel — there is nothing
+  // for a driver to be honest about, so the flag simply does not reach it.
+  if (!profile) return
+  try {
+    ctx.runtime.register(
+      {
+        sessionId: msg.sessionId,
+        agentKind: msg.agentKind,
+        cwd: msg.cwd,
+        resume: msg.resume ?? null,
+        ...(msg.observationGeneration !== undefined
+          ? { observerGeneration: msg.observationGeneration }
+          : {}),
+        ...(msg.observationBindingVersion !== undefined
+          ? { bindingVersion: msg.observationBindingVersion }
+          : {}),
+        rebind,
+      },
+      profile,
+    )
+  } catch (err) {
+    // A DRIVER THAT CANNOT BE BUILT MUST NOT TAKE THE SESSION DOWN WITH IT. The
+    // legacy path is already wired and working at this point; the flagged path is
+    // additive, so its failure is a diagnostic, not a spawn error.
+    log.warn('could not put the session behind the runtime contract', {
+      err,
+      sessionId: msg.sessionId,
+    })
+  }
+}
 
 async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
   if ((!msg.binding && !msg.adoptedBinding) || (msg.binding && msg.adoptedBinding)) {
@@ -531,6 +598,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         seedOnFrame: false,
       })
     }
+    bindRuntimeContract(ctx, msg, true)
     const cmd =
       ctx.backend === 'tmux'
         ? `tmux -L ${msg.durableLabel} attach`
@@ -662,6 +730,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     ctx.observers.initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
       seedOnFrame: false,
     })
+    bindRuntimeContract(ctx, msg, true)
     if (msg.draftSync) {
       ctx.composerEngine.attach(msg.sessionId, msg.agentKind, geometry.cols, geometry.rows)
     }
@@ -681,12 +750,23 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
   })
 }
 
-function stopSessionProcess(
+/**
+ * The daemon half of the survival table: drop the bridge, stop the observers,
+ * reap the durable host, and clean the session's per-session dirs.
+ *
+ * EXPORTED for the runtime contract's `stop`/`hibernate`/`kill` (POD-1761 W3) —
+ * all three reap the same way on this side, and the DIFFERENCE between them is
+ * the server's row transition, which is where it has always been. A driver that
+ * reimplemented any part of this would be the second place a session's teardown
+ * lived.
+ */
+export function stopSessionProcess(
   ctx: DaemonContext,
   msg: { sessionId: SessionId; durableLabel?: string },
 ): void {
   const session = ctx.bridges.get(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
+  ctx.runtime?.clear(msg.sessionId)
   ctx.pendingResizes.delete(msg.sessionId)
   if (session) {
     session.dispose()

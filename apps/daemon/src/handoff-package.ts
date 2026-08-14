@@ -17,7 +17,7 @@ import { declaredValue, manifestFor } from '@podium/harness'
 
 export { codexTranscriptPlacement } from '@podium/harness'
 
-import type { Attribution, SessionId, RepoId, IssueId, MachineId } from '@podium/model'
+import type { Attribution, IssueId, MachineId, RepoId, SessionId } from '@podium/model'
 import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/model'
 import { gitWorktree } from './worktree-resolve'
 
@@ -323,8 +323,19 @@ export function transcriptPlacement(
   })
 }
 
-async function transcriptForExport(input: {
-  agentKind: 'claude-code' | 'codex'
+/**
+ * Where this session's harness-native transcript lives, for an export.
+ *
+ * EXPORTED for the Agent Runtime contract's `export()` (POD-1761 W3), which
+ * needs exactly this and nothing else the handoff package does: an archive is
+ * "what another machine needs to resume the CONVERSATION", while a handoff
+ * package is that plus a git bundle, a snapshot commit and an ownership
+ * manifest. `agentKind` is a plain string because `handoffTranscriptFor` already
+ * refuses an unsupported harness with a message naming it — a narrower type here
+ * would only move that refusal to the call site's cast.
+ */
+export async function transcriptForExport(input: {
+  agentKind: string
   cwd: string
   resumeValue: string
   home: string

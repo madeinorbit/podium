@@ -49,6 +49,7 @@ import * as issues from '../messages/issues'
 import * as localLink from '../messages/local-link'
 import * as logs from '../messages/logs'
 import * as messageClass from '../messages/message-class'
+import * as runtime from '../messages/runtime'
 import * as runtimeState from '../messages/runtime-state'
 import * as search from '../messages/search'
 import * as server from '../messages/server'
@@ -91,6 +92,10 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['message-class', messageClass],
   ['perf', perf],
   ['presence-rooms', presenceRooms],
+  // The Agent Runtime contract's wire family (POD-1761 W1), registered by
+  // POD-2021 — the item that folded its frames into the peer unions, which is
+  // what made an uncovered arm a failure rather than a declaration.
+  ['runtime', runtime],
   ['runtime-state', runtimeState],
   ['search', search],
   ['server', server],
