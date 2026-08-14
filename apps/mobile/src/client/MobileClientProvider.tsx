@@ -87,6 +87,8 @@ import {
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
+import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
+import { createPlatformConnectivity } from './platform-connectivity'
 import { type MobileShell, MobileShellProvider } from './shell'
 import { useOptionalServerProfile } from './ServerProfileGate'
 import {
@@ -543,16 +545,31 @@ function demoTrpc(): MobileTrpc {
 }
 
 /**
- * Attach the engine's hub to the mobile assembly (POD-1241).
+ * Attach the engine's hub to the mobile assembly (POD-1241) and, on a phone, to
+ * the platform connectivity controller (POD-2055).
  *
  * A re-bootstrap is a reconnect, so `PushedBootstrapSource` needs the hub — and
  * the hub is built by the engine FROM the assembly, so it cannot be handed over
- * at construction. This runs inside the provider, where the hub exists.
+ * at construction. This runs inside the provider, where the hub exists. The
+ * AppState/NetInfo controller has the same shape of need: it commands the
+ * transport (`suspend` on background, `connectNow` on foreground and on network
+ * restore), and the transport does not exist until the store does.
  */
-function MobileHubAttach({ attachHub }: { attachHub: (hub: SocketHub) => void }): null {
+function MobileHubAttach({
+  attachHub,
+  connectivity,
+}: {
+  attachHub: (hub: SocketHub) => void
+  connectivity: NativeConnectivity | undefined
+}): null {
   const { hub } = useStore()
   useEffect(() => {
     attachHub(hub)
+    // The AppState/NetInfo controller commands the transport (`suspend` on
+    // background, `connectNow` on foreground and on network restore), so it
+    // needs the hub the same way the bootstrap source does. `undefined` on web,
+    // where the listeners below are the ones that answer instead.
+    connectivity?.attachHub(hub)
     // iOS Safari keeps a dead WebSocket after backgrounding and does not fire
     // `close`. The replica stays open (pagehide must not close IndexedDB); this
     // is the only thing that has to happen on the way back: drop the zombie
@@ -587,7 +604,7 @@ function MobileHubAttach({ attachHub }: { attachHub: (hub: SocketHub) => void })
         document.removeEventListener('visibilitychange', onVisibility)
       }
     }
-  }, [attachHub, hub])
+  }, [attachHub, connectivity, hub])
   return null
 }
 
@@ -600,6 +617,12 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const recordUser = serverProfile?.recordUser
   const recordUserRef = useRef(recordUser)
   recordUserRef.current = recordUser
+  // THE PHONE'S OWN SENSES (POD-2055 F4). AppState and NetInfo, adapted to the
+  // seams the shared client already has; `undefined` on web, where the DOM
+  // answers those questions itself. Built once for the life of the provider —
+  // it holds two OS subscriptions, so a rebuild per render would leak them.
+  const connectivity = useMemo(() => createPlatformConnectivity(), [])
+  useEffect(() => () => connectivity?.dispose(), [connectivity])
   const trpc = useMemo(() => makeMobileTrpc(config.httpOrigin, bearer), [bearer, config.httpOrigin])
   const inheritedAuthStatus = useAuthStatus()
   const [error, setError] = useState<string | null>(null)
@@ -822,8 +845,12 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // the hub sends wireVersion and receives feedDelta/feedBootstrap/…
       feed={openedReplica.feed}
       routerWindow={routerWindow}
+      // Visibility, connectivity and ping cadence, from the platform rather
+      // than from browser globals a phone does not have (POD-2055 WP-C).
+      // Empty on web, which keeps every DOM default.
+      {...nativeClientSeams(connectivity)}
     >
-      <MobileHubAttach attachHub={openedReplica.attachHub} />
+      <MobileHubAttach attachHub={openedReplica.attachHub} connectivity={connectivity} />
       <MobileShellProvider value={shell}>{children}</MobileShellProvider>
     </StoreProvider>
   )
