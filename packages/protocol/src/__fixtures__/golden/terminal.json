@@ -327,12 +327,13 @@
           "cols": 1,
           "rows": 1
         },
-        "draftSyncEngine": true
+        "draftSyncEngine": true,
+        "runtimeContract": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"draftSyncEngine\":true}"
+      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"draftSyncEngine\":true,\"runtimeContract\":true}"
     },
     {
       "schema": "ControllerChangedMessage",

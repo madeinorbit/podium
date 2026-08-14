@@ -186,6 +186,32 @@ as today's optimistic bubble with reconcile-on-echo.
 re-baselined; with the flag off, unchanged suites pass unmodified. No caller consults
 `agentState.phase` for delivery decisions anymore when flagged — receipts only.
 
+**LANDED (POD-2022).** The per-session fact is reported by the DAEMON on its `bind` frame
+(beside `draftSyncEngine`) and recorded per session — the server cannot compute it, since the
+daemon ORs its own env var with the per-spawn field and declines the flag for profileless
+harnesses. Callers route through `modules/sessions/receipt-send.ts`, which answers
+synchronously in the legacy shape and reconciles when the receipt lands; migrated callers do
+NOT await proof, because awaiting would defer the flag-off path's ledger writes and break the
+messages module's synchronous wire contract. `queue`/`steer` complete server-side through one
+shared durable-FIFO port and are never forwarded, which is what keeps W3's precondition 2
+(no `authorizeAtDrain` provider on the daemon) satisfied by construction.
+
+Migrated: C1 `modules/messages` (`injectAndMark`, `deliverBatch`, plus `reconcileReceipt`
+emitting `message.receipt` and never resending); C2 steward's `sendTextWhenReady` seam → `queue`
+(NOT `when-ready`, which would have dropped the resurrect); C3 the superagent spawn tool's first
+message and `resume_and_send`; C4 automations (at its ports), the answer text fallback, and the
+`issue.mailSent` nudge. W3 review precondition 1 is closed in the driver's lease check (holder
+identity folded into the acting principal).
+
+Needed nothing: `send_to_agent` and the whole client chat path already ride the messages
+substrate (POD-729), so C1 IS the chat policy. Deliberately not done: collapsing the mail
+nudge's two arms into one `when-ready` — it would trade away durability across a daemon
+restart, so it left as POD-2043 rather than riding in on a migration.
+
+Guard: `modules/sessions/receipt-send.guard.test.ts` holds the legacy verbs to a closed,
+justified set of callers (they are the flag-off implementation, not dead code) and pins that
+the durable queue is never forwarded to a machine.
+
 ### W5 — opencode server driver  *(spec §2, §3, §6; §9 phase 3 — THE GOAL)*
 
 **Scope.** `drivers/opencode-server` in `packages/agent-runtime`:

@@ -707,8 +707,26 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const target = selectMailNudgeSession(members)
       if (!target) return
       const text = `You have mail on issue #${seq}: run 'podium issue mail inbox' (claim with 'podium issue mail claim <id>' only if you will act on it).`
-      if (target.mode === 'send') bag.sendText({ sessionId: target.sessionId, text })
-      else void bag.queueText({ sessionId: target.sessionId, text })
+      // MIGRATED, WITH BOTH ARMS PRESERVED EXACTLY (POD-1761 W4, C4).
+      //
+      // The obvious move is to collapse these two into one `when-ready`: that is
+      // what the mode has always been approximating — "now if it can take it,
+      // next turn boundary otherwise" — and it is what would finally retire
+      // `selectMailNudgeSession`'s phase peek, which W4 was asked to do.
+      //
+      // I did not, and the reason is durability rather than nerve. `when-ready`
+      // is the daemon's IN-MEMORY path; the busy-agent arm here is the DURABLE
+      // outbox, so collapsing them would silently drop any outstanding nudge
+      // across a daemon restart. That is a delivery-semantics change, and this
+      // item's rule is that behavioural improvements leave as subissues rather
+      // than riding in on a migration. POD-2043 carries the collapse, to be done
+      // when the operator flips the default and the trade can be judged on its
+      // own.
+      //
+      // What DOES change: both arms stop calling the legacy verbs directly, so
+      // the nudge gets a receipt and the C5 guard has nothing to except here.
+      if (target.mode === 'send') bag.receiptSender.send('now', { sessionId: target.sessionId, text })
+      else void bag.receiptSender.send('queue', { sessionId: target.sessionId, text })
     },
   )
 }
