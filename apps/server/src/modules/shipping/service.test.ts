@@ -47,6 +47,7 @@ function harness(
     useStoredReceipts?: boolean
     resolveBranchTip?: ConstructorParameters<typeof ShippingService>[0]['resolveBranchTip']
     resolveRefTip?: ConstructorParameters<typeof ShippingService>[0]['resolveRefTip']
+    isAncestor?: ConstructorParameters<typeof ShippingService>[0]['isAncestor']
     policy?: ShippingPolicyResolver
     takeBranchCustody?: ConstructorParameters<
       typeof ShippingService
@@ -73,20 +74,28 @@ function harness(
         },
         sessionDefaults: { agent: 'codex' },
       }),
-    spawnSession: () => ({ sessionId: 'session-1' as never, machine: 'machine-1' }),
+    spawnSession: () => ({
+      sessionId: 'session-1' as never,
+      machine: 'machine-1',
+    }),
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
     ledger,
     publishSpecs: {
       issueUpdated: (issue) => ({ rows: [{ id: issue.id, value: issue }] }),
-      issuesChanged: (rows) => ({ rows: rows.map((issue) => ({ id: issue.id, value: issue })) }),
+      issuesChanged: (rows) => ({
+        rows: rows.map((issue) => ({ id: issue.id, value: issue })),
+      }),
     },
   })
   const issuePort = {
     get(id: string): IssueWire {
       const issue = issues.get(id)
       if (!issue) throw new Error(`unknown issue ${id}`)
-      return { ...issue, branch: issue.branch ?? `issue/${issue.seq}-shipping-test` }
+      return {
+        ...issue,
+        branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
+      }
     },
     children: (id: string, recursive?: boolean) =>
       issues.children(id, recursive).map((issue) => ({
@@ -126,6 +135,7 @@ function harness(
     machineFor: () => asMachineId('machine-1'),
     resolveBranchTip: options.resolveBranchTip ?? (async () => 'head-sha'),
     resolveRefTip: options.resolveRefTip ?? (async () => 'base-sha'),
+    isAncestor: options.isAncestor ?? (async () => false),
     now: () => '2026-08-13T10:00:00.000Z',
     ...(options.beforeCompletionCommit
       ? { beforeCompletionCommit: options.beforeCompletionCommit }
@@ -184,7 +194,11 @@ const provedShippingJob: NonNullable<
 describe('ShippingService enqueue transaction', () => {
   it('atomically freezes the order, moves review to shipping, and publishes compact rows', async () => {
     const { store, ledger, issues, service } = harness()
-    const issue = issues.create({ repoPath: '/repo', title: 'approved', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'approved',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const cursor = ledger.cursor()
 
@@ -220,7 +234,11 @@ describe('ShippingService enqueue transaction', () => {
 
   it('rejects a replay when any frozen admission fact differs', async () => {
     const { issues, service } = harness()
-    const issue = issues.create({ repoPath: '/repo', title: 'frozen replay', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'frozen replay',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     await service.enqueue({
       issueId: issue.id,
@@ -232,9 +250,47 @@ describe('ShippingService enqueue transaction', () => {
       service.enqueue({
         issueId: issue.id,
         ...approval,
-        approved: { ...approval.approved, evidenceManifestRef: 'evidence:changed' },
+        approved: {
+          ...approval.approved,
+          evidenceManifestRef: 'evidence:changed',
+        },
       }),
     ).rejects.toMatchObject({ code: 'source-stale' })
+    service.dispose()
+  })
+
+  it('freezes the nearest native Git-stack predecessor as a delivery edge', async () => {
+    let lowerIssueId = ''
+    const { issues, service } = harness(undefined, {
+      resolveBranchTip: async (issue) => (issue.id === lowerIssueId ? 'lower-head' : 'upper-head'),
+      isAncestor: async (_issue, ancestor, descendant) =>
+        ancestor === 'lower-head' && descendant === 'upper-head',
+    })
+    const lower = issues.create({
+      repoPath: '/repo',
+      title: 'lower layer',
+      startNow: false,
+    })
+    lowerIssueId = lower.id
+    const upper = issues.create({
+      repoPath: '/repo',
+      title: 'upper layer',
+      startNow: false,
+    })
+    issues.update(lower.id, { stage: 'review' })
+    issues.update(upper.id, { stage: 'review' })
+    const lowerOrder = await service.enqueue({
+      issueId: lower.id,
+      ...approval,
+      approved: { ...approval.approved, sourceHeadSha: 'lower-head' },
+    })
+    const upperOrder = await service.enqueue({
+      issueId: upper.id,
+      ...approval,
+      approved: { ...approval.approved, sourceHeadSha: 'upper-head' },
+    })
+
+    expect(upperOrder.order.deliveryDependsOn).toEqual([lowerOrder.order.id])
     service.dispose()
   })
 
@@ -243,7 +299,11 @@ describe('ShippingService enqueue transaction', () => {
     const { issues, service } = harness(undefined, {
       resolveBranchTip: async () => liveHead,
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'live replay fence', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'live replay fence',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -259,7 +319,11 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = harness(undefined, {
       resolveBranchTip: async () => (++sourceReads === 1 ? 'head-sha' : 'advanced-head-sha'),
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'admission ref race', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'admission ref race',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
 
     await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
@@ -272,7 +336,11 @@ describe('ShippingService enqueue transaction', () => {
 
   it('rolls back issue custody and the order when the ledger append fails', async () => {
     const { store, issues, service } = harness()
-    const issue = issues.create({ repoPath: '/repo', title: 'rollback', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'rollback',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
@@ -289,7 +357,11 @@ describe('ShippingService enqueue transaction', () => {
 
   it('atomically creates or returns one order when identical admissions race', async () => {
     const { store, issues, service } = harness()
-    const issue = issues.create({ repoPath: '/repo', title: 'concurrent', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'concurrent',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
 
     const receipts = await Promise.all([
@@ -305,7 +377,11 @@ describe('ShippingService enqueue transaction', () => {
 
   it('rejects a nested issue with the highest root and exact safe retry command', async () => {
     const { issues, service } = harness()
-    const root = issues.create({ repoPath: '/repo', title: 'root', startNow: false })
+    const root = issues.create({
+      repoPath: '/repo',
+      title: 'root',
+      startNow: false,
+    })
     const middle = issues.create({
       repoPath: '/repo',
       title: 'middle',
@@ -332,8 +408,14 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('freezes the exact typed integration receipt for the live root and descendant tips', async () => {
-    const { store, issues, service } = harness(undefined, { useStoredReceipts: true })
-    const root = issues.create({ repoPath: '/repo', title: 'root', startNow: false })
+    const { store, issues, service } = harness(undefined, {
+      useStoredReceipts: true,
+    })
+    const root = issues.create({
+      repoPath: '/repo',
+      title: 'root',
+      startNow: false,
+    })
     const child = issues.create({
       repoPath: '/repo',
       title: 'child',
@@ -367,8 +449,14 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('refuses stale or manifest-mismatched immutable integration proof', async () => {
-    const { store, issues, service } = harness(undefined, { useStoredReceipts: true })
-    const root = issues.create({ repoPath: '/repo', title: 'root refusal', startNow: false })
+    const { store, issues, service } = harness(undefined, {
+      useStoredReceipts: true,
+    })
+    const root = issues.create({
+      repoPath: '/repo',
+      title: 'root refusal',
+      startNow: false,
+    })
     const child = issues.create({
       repoPath: '/repo',
       title: 'child refusal',
@@ -387,7 +475,10 @@ describe('ShippingService enqueue transaction', () => {
       service.enqueue({
         issueId: root.id,
         ...approval,
-        approved: { ...approval.approved, evidenceManifestRef: 'evidence:root' },
+        approved: {
+          ...approval.approved,
+          evidenceManifestRef: 'evidence:root',
+        },
       }),
     ).rejects.toMatchObject({ code: 'evidence' })
     expect(store.shipping.activeOrderForIssue(root.id)).toBeNull()
@@ -396,8 +487,14 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('admits a top-level leaf without fabricating a descendant integration receipt', async () => {
-    const { store, issues, service } = harness(undefined, { rootIntegrationReceipt: () => null })
-    const issue = issues.create({ repoPath: '/repo', title: 'top-level leaf', startNow: false })
+    const { store, issues, service } = harness(undefined, {
+      rootIntegrationReceipt: () => null,
+    })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'top-level leaf',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
 
     const accepted = await service.enqueue({ issueId: issue.id, ...approval })
@@ -411,7 +508,10 @@ describe('ShippingService enqueue transaction', () => {
   it('freezes only typed review evidence bound to the exact live approval', async () => {
     const compatibility = new CompatibilityShippingPolicyResolver(() => 'main')
     const policy: ShippingPolicyResolver = {
-      resolve: (issue) => ({ ...compatibility.resolve(issue), evidenceOptional: false }),
+      resolve: (issue) => ({
+        ...compatibility.resolve(issue),
+        evidenceOptional: false,
+      }),
     }
     const acceptedReviewEvidence = vi.fn(
       (input: Omit<AcceptedReviewEvidence, 'evidenceManifestRef' | 'previewLeaseIds'>) => ({
@@ -420,8 +520,15 @@ describe('ShippingService enqueue transaction', () => {
         previewLeaseIds: ['preview-1'],
       }),
     )
-    const { issues, service } = harness(undefined, { policy, acceptedReviewEvidence })
-    const issue = issues.create({ repoPath: '/repo', title: 'evidence required', startNow: false })
+    const { issues, service } = harness(undefined, {
+      policy,
+      acceptedReviewEvidence,
+    })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'evidence required',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
 
     const accepted = await service.enqueueCurrent({
@@ -457,7 +564,10 @@ describe('ShippingService enqueue transaction', () => {
     compatible.service.dispose()
 
     const strictPolicy: ShippingPolicyResolver = {
-      resolve: (issue) => ({ ...compatibility.resolve(issue), evidenceOptional: false }),
+      resolve: (issue) => ({
+        ...compatibility.resolve(issue),
+        evidenceOptional: false,
+      }),
     }
     for (const acceptedReviewEvidence of [
       () => null,
@@ -468,7 +578,10 @@ describe('ShippingService enqueue transaction', () => {
         previewLeaseIds: [],
       }),
     ]) {
-      const strict = harness(undefined, { policy: strictPolicy, acceptedReviewEvidence })
+      const strict = harness(undefined, {
+        policy: strictPolicy,
+        acceptedReviewEvidence,
+      })
       const issue = strict.issues.create({
         repoPath: '/repo',
         title: 'strict evidence',
@@ -495,7 +608,11 @@ describe('ShippingService enqueue transaction', () => {
         if (hidden) throw Object.assign(new Error('hidden root'), { code: 'NOT_FOUND' })
       },
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'opaque order', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'opaque order',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     hidden = true
@@ -549,7 +666,11 @@ describe('ShippingService enqueue transaction', () => {
       heartbeatedAt: '2026-08-13T10:00:00.000Z',
       finishedAt: '2026-08-13T10:00:00.000Z',
     }))
-    const issue = issues.create({ repoPath: '/repo', title: 'held', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'held',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -557,7 +678,10 @@ describe('ShippingService enqueue transaction', () => {
     expect(store.shipping.getOrder(order.id)?.state).toBe('held')
     expect(store.issues.getIssue(issue.id)?.needsHuman).toBe(true)
     const hold = store.shipping.openHoldForOrder(order.id)
-    expect(hold).toMatchObject({ generation: 1, actions: ['retry', 'return-to-issue'] })
+    expect(hold).toMatchObject({
+      generation: 1,
+      actions: ['retry', 'return-to-issue'],
+    })
     await expect(
       service.resolveHold({
         orderId: order.id,
@@ -578,7 +702,10 @@ describe('ShippingService enqueue transaction', () => {
     })
     expect(store.shipping.getOrder(order.id)?.state).toBe('queued')
     expect(store.issues.getIssue(issue.id)?.needsHuman).toBe(false)
-    const projected = ledger.authority.snapshot('shipOrder') as { id: string; hold?: unknown }[]
+    const projected = ledger.authority.snapshot('shipOrder') as {
+      id: string
+      hold?: unknown
+    }[]
     expect(projected.find((row) => row.id === order.id)).not.toHaveProperty('hold')
     await service.runOrder(order.id)
     expect(store.shipping.latestAttemptForOrder(order.id)?.leaseGeneration).toBe(2)
@@ -612,13 +739,20 @@ describe('ShippingService enqueue transaction', () => {
       }),
       { authorize, reauthorize },
     )
-    const issue = issues.create({ repoPath: '/repo', title: 'auth', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'auth',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: 'enqueue' }))
     expect(reauthorize).toHaveBeenCalledWith(
-      expect.objectContaining({ effect: 'commit-merge-group', machineId: 'machine-1' }),
+      expect.objectContaining({
+        effect: 'commit-merge-group',
+        machineId: 'machine-1',
+      }),
     )
     expect(store.shipping.getOrder(order.id)?.state).toBe('held')
     expect(store.shipping.getOrder(order.id)?.holdCode).toBe('policy-refused')
@@ -631,8 +765,14 @@ describe('ShippingService enqueue transaction', () => {
       ok: false,
       detail: 'source worktree has unsaved changes',
     }))
-    const { store, issues, service } = harness(shippingJob, { takeBranchCustody })
-    const issue = issues.create({ repoPath: '/repo', title: 'custody', startNow: false })
+    const { store, issues, service } = harness(shippingJob, {
+      takeBranchCustody,
+    })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'custody',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -677,8 +817,14 @@ describe('ShippingService enqueue transaction', () => {
         },
       ),
     }
-    const { store, issues, service } = harness(provedShippingJob, { resourceAdmission })
-    const issue = issues.create({ repoPath: '/repo', title: 'resource locks', startNow: false })
+    const { store, issues, service } = harness(provedShippingJob, {
+      resourceAdmission,
+    })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'resource locks',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -746,7 +892,11 @@ describe('ShippingService enqueue transaction', () => {
     const release = vi.fn()
     const resourceAdmission = { acquire: vi.fn(() => true), renew, release }
     const { store, issues, service } = harness(daemon, { resourceAdmission })
-    const issue = issues.create({ repoPath: '/repo', title: 'renew lease', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'renew lease',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -798,7 +948,11 @@ describe('ShippingService enqueue transaction', () => {
     const release = vi.fn()
     const resourceAdmission = { acquire: vi.fn(() => true), renew, release }
     const { store, issues, service } = harness(daemon, { resourceAdmission })
-    const issue = issues.create({ repoPath: '/repo', title: 'lost lease', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'lost lease',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -828,7 +982,11 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = harness(provedShippingJob, {
       resourceAdmission: { acquire: vi.fn(() => true), renew, release },
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'post effect fence', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'post effect fence',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -857,7 +1015,11 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = harness(daemon, {
       resourceAdmission: { acquire: vi.fn(() => true), renew, release },
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'dispatch lease', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'dispatch lease',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -898,7 +1060,11 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = harness(daemon, {
       resourceAdmission: { acquire: vi.fn(() => true), renew, release },
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'dispose lease', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'dispose lease',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -959,13 +1125,20 @@ describe('ShippingService enqueue transaction', () => {
     }
     const setup = harness(daemon, { resourceAdmission })
     service = setup.service
-    const issue = setup.issues.create({ repoPath: '/repo', title: 'cancel fence', startNow: false })
+    const issue = setup.issues.create({
+      repoPath: '/repo',
+      title: 'cancel fence',
+      startNow: false,
+    })
     setup.issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
     await cancellation
-    expect(calls).not.toContainEqual({ action: 'start', operation: 'validate' })
+    expect(calls).not.toContainEqual({
+      action: 'start',
+      operation: 'validate',
+    })
     expect(setup.store.shipping.getOrder(order.id)?.state).toBe('cancelled')
     service.dispose()
   })
@@ -1011,7 +1184,11 @@ describe('ShippingService enqueue transaction', () => {
         if (crash) throw new Error('simulated server crash before completion commit')
       },
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'recover', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'recover',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -1023,7 +1200,10 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
 
     crash = false
-    const restarted = new ShippingService({ ...deps, beforeCompletionCommit: () => {} })
+    const restarted = new ShippingService({
+      ...deps,
+      beforeCompletionCommit: () => {},
+    })
     await restarted.reconcile()
     expect(store.shipping.getOrder(order.id)?.state).toBe('shipped')
     expect(store.shipping.latestAttemptForOrder(order.id)).toMatchObject({
@@ -1071,7 +1251,11 @@ describe('ShippingService enqueue transaction', () => {
       }),
       { authorize },
     )
-    const issue = issues.create({ repoPath: '/repo', title: 'cancel', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'cancel',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
@@ -1110,7 +1294,11 @@ describe('ShippingService enqueue transaction', () => {
         heartbeatedAt: '2026-08-13T10:00:00.000Z',
       }
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'supersede', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'supersede',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
@@ -1123,7 +1311,9 @@ describe('ShippingService enqueue transaction', () => {
     await restarted.reconcile()
     expect(generations).toEqual([1, 1])
     expect(store.shipping.getAttempt(first!.id)?.outcome).toBeUndefined()
-    expect(store.shipping.latestAttemptForOrder(order.id)).toMatchObject({ leaseGeneration: 1 })
+    expect(store.shipping.latestAttemptForOrder(order.id)).toMatchObject({
+      leaseGeneration: 1,
+    })
     restarted.dispose()
   })
 
@@ -1143,7 +1333,11 @@ describe('ShippingService enqueue transaction', () => {
       artifactRefs: [],
       heartbeatedAt: '2026-08-13T10:00:00.000Z',
     }))
-    const issue = issues.create({ repoPath: '/repo', title: 'claim cas', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'claim cas',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
@@ -1207,7 +1401,11 @@ describe('ShippingService enqueue transaction', () => {
         ...(input.action === 'cancel' ? { finishedAt: '2026-08-13T10:00:00.000Z' } : {}),
       }
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'cancel recovery', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'cancel recovery',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
@@ -1252,9 +1450,9 @@ describe('ShippingService enqueue transaction', () => {
         startedAt: recordedAt,
       },
     })
-    expect(
-      store.shipping.latestStepForEffect(first.id, effectKey),
-    ).toMatchObject({ state: 'running' })
+    expect(store.shipping.latestStepForEffect(first.id, effectKey)).toMatchObject({
+      state: 'running',
+    })
     expect(() =>
       store.shipping.claimAttempt({
         orderId: order.id,
@@ -1302,7 +1500,11 @@ describe('ShippingService enqueue transaction', () => {
         },
       },
     )
-    const issue = issues.create({ repoPath: '/repo', title: 'cancel refusal', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'cancel refusal',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
@@ -1315,7 +1517,9 @@ describe('ShippingService enqueue transaction', () => {
       overrideScope: false,
     })
     expect(held).toMatchObject({ state: 'held', holdCode: 'policy-refused' })
-    expect(store.shipping.getAttempt(attempt.id)).toMatchObject({ outcome: 'failed' })
+    expect(store.shipping.getAttempt(attempt.id)).toMatchObject({
+      outcome: 'failed',
+    })
     expect(
       store.shipping.latestStepForEffect(attempt.id, `cancel:${attempt.leaseGeneration}`),
     ).toMatchObject({
@@ -1346,7 +1550,11 @@ describe('ShippingService enqueue transaction', () => {
         heartbeatedAt: '2026-08-13T10:00:00.000Z',
       }
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'cancel rpc refusal', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'cancel rpc refusal',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
@@ -1358,11 +1566,20 @@ describe('ShippingService enqueue transaction', () => {
       requestedBy: approval.requestedBy,
       overrideScope: false,
     })
-    expect(held).toMatchObject({ state: 'held', holdCode: 'machine-unavailable' })
-    expect(store.shipping.getAttempt(attempt.id)).toMatchObject({ outcome: 'failed' })
+    expect(held).toMatchObject({
+      state: 'held',
+      holdCode: 'machine-unavailable',
+    })
+    expect(store.shipping.getAttempt(attempt.id)).toMatchObject({
+      outcome: 'failed',
+    })
     expect(
       store.shipping.latestStepForEffect(attempt.id, `cancel:${attempt.leaseGeneration}`),
-    ).toMatchObject({ state: 'failed', outcome: 'cancel-error', summary: 'daemon disconnected' })
+    ).toMatchObject({
+      state: 'failed',
+      outcome: 'cancel-error',
+      summary: 'daemon disconnected',
+    })
     expect(store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(false)
     service.dispose()
   })
@@ -1402,7 +1619,11 @@ describe('ShippingService enqueue transaction', () => {
         resolveStart = resolve
       })
     })
-    const issue = issues.create({ repoPath: '/repo', title: 'late result', startNow: false })
+    const issue = issues.create({
+      repoPath: '/repo',
+      title: 'late result',
+      startNow: false,
+    })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     const execution = service.runOrder(order.id)

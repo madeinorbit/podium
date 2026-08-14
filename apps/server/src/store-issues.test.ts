@@ -103,9 +103,24 @@ describe('store issues', () => {
     const s = new SessionStore(':memory:')
     const rid = (p: string) => s.repos.resolveRepoIdForPath(p)
     expect(s.issues.nextIssueSeq(rid('/r'))).toBe(1)
-    s.issues.upsertIssue({ ...base(), id: asIssueId('a'), repoPath: '/r', seq: 1 })
-    s.issues.upsertIssue({ ...base(), id: asIssueId('b'), repoPath: '/r', seq: 2 })
-    s.issues.upsertIssue({ ...base(), id: asIssueId('c'), repoPath: '/other', seq: 1 })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('a'),
+      repoPath: '/r',
+      seq: 1,
+    })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('b'),
+      repoPath: '/r',
+      seq: 2,
+    })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('c'),
+      repoPath: '/other',
+      seq: 1,
+    })
     expect(s.issues.nextIssueSeq(rid('/r'))).toBe(3)
     expect(s.issues.nextIssueSeq(rid('/other'))).toBe(2)
     expect(
@@ -240,7 +255,10 @@ describe('store issues', () => {
 
   it('normalizes a non-array blockedBy to [] on write', () => {
     const s = new SessionStore(':memory:')
-    s.issues.upsertIssue({ ...base(), blockedBy: 'nope' as unknown as string[] })
+    s.issues.upsertIssue({
+      ...base(),
+      blockedBy: 'nope' as unknown as string[],
+    })
     expect(s.issues.getIssue('iss_1')?.blockedBy).toEqual([])
   })
 
@@ -269,9 +287,24 @@ describe('store issues', () => {
   // POD-568 — the finished-work projection the auto-hibernate sweep orders by.
   it('names closed issues by stage, close reason and tombstone', () => {
     const s = new SessionStore(':memory:')
-    s.issues.upsertIssue({ ...base(), id: asIssueId('open'), seq: 1, stage: 'in_progress' })
-    s.issues.upsertIssue({ ...base(), id: asIssueId('review'), seq: 2, stage: 'review' })
-    s.issues.upsertIssue({ ...base(), id: asIssueId('done'), seq: 3, stage: 'done' })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('open'),
+      seq: 1,
+      stage: 'in_progress',
+    })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('review'),
+      seq: 2,
+      stage: 'review',
+    })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('done'),
+      seq: 3,
+      stage: 'done',
+    })
     // Closed for a reason WITHOUT reaching done — the half isIssueClosed exists for.
     s.issues.upsertIssue({
       ...base(),
@@ -280,7 +313,12 @@ describe('store issues', () => {
       stage: 'backlog',
       closedReason: 'duplicate',
     })
-    s.issues.upsertIssue({ ...base(), id: asIssueId('gone'), seq: 5, stage: 'planning' })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('gone'),
+      seq: 5,
+      stage: 'planning',
+    })
     rawDb(s).prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run('t1', 'gone')
 
     expect([...s.issues.closedIssueIds()].sort()).toEqual(['done', 'duped', 'gone'])
@@ -570,7 +608,10 @@ describe('shipping durable store', () => {
     expect(s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
     expect(s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
     expect(() =>
-      s.shipping.completeVerifiedOrder({ ...receipt, destinationSha: 'different-proof' }),
+      s.shipping.completeVerifiedOrder({
+        ...receipt,
+        destinationSha: 'different-proof',
+      }),
     ).toThrow(/different immutable receipt/)
     expect(() => s.shipping.transitionOrder(order.id, 'shipped', 'queued', 'later')).toThrow(
       /terminal ship order.*immutable/,
@@ -602,7 +643,9 @@ describe('shipping durable store', () => {
     expect(() => s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-2') }))).not.toThrow()
     s.close()
     const restarted = new SessionStore(file)
-    expect(restarted.shipping.getOrder(order.id)).toMatchObject({ state: 'shipped' })
+    expect(restarted.shipping.getOrder(order.id)).toMatchObject({
+      state: 'shipped',
+    })
     expect(restarted.shipping.receiptForOrder(order.id)).toEqual(receipt)
     expect(restarted.shipping.stepsForAttempt(attempt.id)).toEqual([
       plannedStep,
@@ -610,7 +653,10 @@ describe('shipping durable store', () => {
       finishedStep,
     ])
     expect(restarted.shipping.listHolds()).toContainEqual(
-      expect.objectContaining({ id: asShipHoldId('hold-1'), resolution: 'retry' }),
+      expect.objectContaining({
+        id: asShipHoldId('hold-1'),
+        resolution: 'retry',
+      }),
     )
     restarted.close()
   })
@@ -618,6 +664,78 @@ describe('shipping durable store', () => {
   it('omits cancelled orders from the routine compact projection', () => {
     const cancelled = shipOrder({ state: 'cancelled' })
     expect(shipOrderProjectionRows([cancelled], [], [])).toEqual([])
+  })
+
+  it('settles a queued dependency from its shipped train covering proof', () => {
+    const s = new SessionStore(':memory:')
+    const lowerIssue = asIssueId('iss_lower')
+    const coveringIssue = asIssueId('iss_covering')
+    s.issues.upsertIssue({ ...base(), id: lowerIssue, seq: 40 })
+    s.issues.upsertIssue({ ...base(), id: coveringIssue, seq: 41 })
+    const lower = shipOrder({
+      id: asShipOrderId('order-lower'),
+      issueId: lowerIssue,
+      approvedHeadSha: 'lower-head',
+    })
+    const covering = shipOrder({
+      id: asShipOrderId('order-covering'),
+      issueId: coveringIssue,
+      approvedHeadSha: 'covering-head',
+      deliveryDependsOn: [lower.id],
+    })
+    s.shipping.createOrder(lower)
+    s.shipping.createOrder(covering)
+    const claimed = s.shipping.claimAttempt({
+      orderId: covering.id,
+      expectedState: 'queued',
+      expectedAttemptId: null,
+      expectedGeneration: 0,
+      machineId: asMachineId('machine-1'),
+      startedAt: '2026-08-12T10:01:00.000Z',
+    })
+    for (const [from, to] of [
+      ['preflight', 'composing'],
+      ['composing', 'validating'],
+      ['validating', 'landing'],
+      ['landing', 'publishing'],
+      ['publishing', 'verifying'],
+    ] as const) {
+      s.shipping.transitionOrder(covering.id, from, to, '2026-08-12T10:02:00.000Z')
+    }
+    s.shipping.finishAttempt(claimed.attempt.id, claimed.attempt.leaseGeneration, {
+      finishedAt: '2026-08-12T10:03:00.000Z',
+      outcome: 'succeeded',
+      testedIntegrationSha: 'covering-head',
+      landedRefSha: 'covering-head',
+      destinationSha: 'covering-head',
+      validationProfileId: 'default',
+      validationResult: 'passed',
+    })
+    const coveringReceipt = {
+      id: asDeliveryReceiptId('receipt-covering'),
+      orderId: covering.id,
+      approvedBaseSha: covering.approvedBaseSha,
+      approvedHeadSha: covering.approvedHeadSha,
+      testedIntegrationSha: 'covering-head',
+      landedRefSha: 'covering-head',
+      destinationSha: 'covering-head',
+      validationProfileId: 'default',
+      validationResult: 'passed' as const,
+      destination: covering.destination,
+      completedAt: '2026-08-12T10:04:00.000Z',
+    }
+    s.shipping.completeVerifiedOrder(coveringReceipt)
+    const lowerReceipt = {
+      ...coveringReceipt,
+      id: asDeliveryReceiptId('receipt-lower'),
+      orderId: lower.id,
+      approvedHeadSha: lower.approvedHeadSha,
+      landedRefSha: lower.approvedHeadSha,
+    }
+
+    expect(s.shipping.completeCoveredOrder(lowerReceipt, covering.id)).toEqual(lowerReceipt)
+    expect(s.shipping.getOrder(lower.id)?.state).toBe('shipped')
+    s.close()
   })
 
   it('exposes a CAS-only issue custody seam for atomic admission and settlement', () => {
@@ -638,8 +756,14 @@ describe('shipping durable store', () => {
 
   it('persists typed root integration receipts as immutable pre-admission proof', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-root-integration-')), 'shipping.db')
-    const childA = { issueId: asIssueId('iss_child_a'), approvedHeadSha: 'sha-a' }
-    const childB = { issueId: asIssueId('iss_child_b'), approvedHeadSha: 'sha-b' }
+    const childA = {
+      issueId: asIssueId('iss_child_a'),
+      approvedHeadSha: 'sha-a',
+    }
+    const childB = {
+      issueId: asIssueId('iss_child_b'),
+      approvedHeadSha: 'sha-b',
+    }
     const receipt = {
       rootIssueId: asIssueId('iss_1'),
       approvedHeadSha: 'integrated-root-head',
@@ -683,8 +807,14 @@ describe('shipping durable store', () => {
   it('exposes exact current proof through the typed admission retrieval port', () => {
     const s = new SessionStore(':memory:')
     const rootIssueId = asIssueId('iss_1')
-    const childA = { issueId: asIssueId('iss_child_a'), approvedHeadSha: 'sha-a' }
-    const childB = { issueId: asIssueId('iss_child_b'), approvedHeadSha: 'sha-b' }
+    const childA = {
+      issueId: asIssueId('iss_child_a'),
+      approvedHeadSha: 'sha-a',
+    }
+    const childB = {
+      issueId: asIssueId('iss_child_b'),
+      approvedHeadSha: 'sha-b',
+    }
     s.issues.upsertIssue(base())
     s.shipping.recordRootIntegrationReceipt({
       rootIssueId,
@@ -714,8 +844,14 @@ describe('shipping durable store', () => {
 
   it('persists evidenceManifestRef and a typed current integration receipt', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-shipping-evidence-')), 'shipping.db')
-    const childA = { issueId: asIssueId('iss_child_a'), approvedHeadSha: 'sha-a' }
-    const childB = { issueId: asIssueId('iss_child_b'), approvedHeadSha: 'sha-b' }
+    const childA = {
+      issueId: asIssueId('iss_child_a'),
+      approvedHeadSha: 'sha-a',
+    }
+    const childB = {
+      issueId: asIssueId('iss_child_b'),
+      approvedHeadSha: 'sha-b',
+    }
     const evidenced = shipOrder({
       evidenceManifestRef: 'evidence://manifest/1',
       descendantManifest: [childA, childB],
@@ -767,5 +903,9 @@ describe('shipping durable store', () => {
 function rawDb(s: SessionStore): {
   prepare(q: string): { run(...a: unknown[]): unknown }
 } {
-  return (s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
+  return (
+    s as unknown as {
+      db: { prepare(q: string): { run(...a: unknown[]): unknown } }
+    }
+  ).db
 }

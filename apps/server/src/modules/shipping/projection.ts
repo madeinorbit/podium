@@ -5,6 +5,7 @@ import {
   ShipOrderProjection,
   type ShipOrderProjection as ShipOrderProjectionValue,
 } from '@podium/model'
+import { shippingQueue } from './queue'
 
 const humanState = (
   state: Exclude<ShipOrder['state'], 'cancelled'>,
@@ -43,8 +44,11 @@ export function shipOrderProjectionRows(
   receipts: Iterable<DeliveryReceipt>,
 ): { id: string; value: ShipOrderProjectionValue }[] {
   const orderList = [...orders].filter(
-    (order): order is ShipOrder & { state: Exclude<ShipOrder['state'], 'cancelled'> } =>
-      order.state !== 'cancelled',
+    (
+      order,
+    ): order is ShipOrder & {
+      state: Exclude<ShipOrder['state'], 'cancelled'>
+    } => order.state !== 'cancelled',
   )
   const openHoldByOrder = new Map(
     [...holds].filter((hold) => !hold.resolvedAt).map((hold) => [hold.orderId, hold]),
@@ -82,13 +86,15 @@ export function shipOrderProjectionRows(
   })
 }
 
-/** One compact row with an optional scheduler-derived lane rank. The rank is
+/** One compact row with optional scheduler-derived train/range facts. They are
  * accepted only at this projection edge and never written back to ShipOrder. */
 export function shipOrderProjectionRow(
   order: ShipOrder,
   hold?: ShipHold,
   receipt?: DeliveryReceipt,
   queueRank?: number,
+  waitEstimate?: ShipOrderProjectionValue['waitEstimate'],
+  train?: ShipOrderProjectionValue['train'],
 ): { id: string; value: ShipOrderProjectionValue } | null {
   const row = shipOrderProjectionRows([order], hold ? [hold] : [], receipt ? [receipt] : [])[0]
   if (!row) return null
@@ -97,6 +103,41 @@ export function shipOrderProjectionRow(
     value: ShipOrderProjection.parse({
       ...row.value,
       ...(queueRank === undefined ? {} : { queueRank }),
+      ...(waitEstimate === undefined ? {} : { waitEstimate }),
+      ...(train === undefined ? {} : { train }),
     }),
   }
+}
+
+/** Boot/reconnect summary uses the same scheduler snapshot as live mutations,
+ * so a restart cannot briefly publish FIFO-looking client ranks or stale waits. */
+export function scheduledShipOrderProjectionRows(
+  orders: Iterable<ShipOrder>,
+  holds: Iterable<ShipHold>,
+  receipts: Iterable<DeliveryReceipt>,
+  now = Date.now(),
+): { id: string; value: ShipOrderProjectionValue }[] {
+  const orderList = [...orders]
+  const holdByOrder = new Map(
+    [...holds].filter((hold) => !hold.resolvedAt).map((hold) => [hold.orderId, hold]),
+  )
+  const receiptList = [...receipts]
+  const receiptByOrder = new Map(receiptList.map((receipt) => [receipt.orderId, receipt]))
+  return shippingQueue(orderList, receiptList, now).flatMap(
+    ({ order, queueRank, waitEstimate, trainId, trainIndex, trainSize }) => {
+      const train =
+        trainId && trainIndex !== undefined && trainSize !== undefined
+          ? { id: trainId, index: trainIndex, size: trainSize }
+          : undefined
+      const row = shipOrderProjectionRow(
+        order,
+        holdByOrder.get(order.id),
+        receiptByOrder.get(order.id),
+        queueRank,
+        waitEstimate,
+        train,
+      )
+      return row ? [row] : []
+    },
+  )
 }

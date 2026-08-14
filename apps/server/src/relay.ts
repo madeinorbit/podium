@@ -125,7 +125,7 @@ import {
   ShippingService,
   shippingResourceHolderId,
 } from './modules/shipping'
-import { shipOrderProjectionRows } from './modules/shipping/projection'
+import { scheduledShipOrderProjectionRows } from './modules/shipping/projection'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
@@ -473,7 +473,10 @@ export class SessionRegistry {
       telegramBindings: this.store.telegramBindings,
       // The append-only settings trail (POD-421). Injected here so the transport
       // never reaches into the store for it.
-      audit: { repo: this.store.settingsAudit, now: () => new Date(this.now()).toISOString() },
+      audit: {
+        repo: this.store.settingsAudit,
+        now: () => new Date(this.now()).toISOString(),
+      },
       ...(options.telegramSetup ? { telegramSetup: options.telegramSetup } : {}),
       ...(options.generateTelegramSetupCode
         ? { generateTelegramSetupCode: options.generateTelegramSetupCode }
@@ -525,10 +528,11 @@ export class SessionRegistry {
     this.store.events.onAppend((id, event) => issueEventFeed?.publish(id, event))
     ledger.reconcile(
       'shipOrder',
-      shipOrderProjectionRows(
+      scheduledShipOrderProjectionRows(
         this.store.shipping.listOrders(),
         this.store.shipping.listHolds(),
         this.store.shipping.listReceipts(),
+        this.now(),
       ),
     )
     const issueArbitration = new IssueAuthorityArbitration(ledger)
@@ -1175,7 +1179,11 @@ export class SessionRegistry {
       void issueSessionLifecycle
         .resurrectSession({ sessionId })
         .then((result) => {
-          if (!result.ok) log.warn('wake-on-queue failed', { sessionId, reason: result.reason })
+          if (!result.ok)
+            log.warn('wake-on-queue failed', {
+              sessionId,
+              reason: result.reason,
+            })
         })
         .catch((err) => {
           log.warn('wake-on-queue failed', { sessionId, err })
@@ -1471,7 +1479,9 @@ export class SessionRegistry {
           return workflows.executionProfileForLaunch({
             ...profileInput,
             ...(caller
-              ? { caller: workflowCallerForCapability(caller.capability, caller.overrideScope) }
+              ? {
+                  caller: workflowCallerForCapability(caller.capability, caller.overrideScope),
+                }
               : {}),
           })
         },
@@ -1496,7 +1506,10 @@ export class SessionRegistry {
       watermarks: this.store.readWatermarks,
       repoOp: async (op, cwd, machineId) => rpc.repoOp(op, cwd, undefined, machineId),
       readTranscript: (input) =>
-        rpc.readTranscript(input, { kind: 'system', id: 'session-read-toolkit' }),
+        rpc.readTranscript(input, {
+          kind: 'system',
+          id: 'session-read-toolkit',
+        }),
       now: () => new Date(this.now()).toISOString(),
     })
 
@@ -1687,7 +1700,10 @@ export class SessionRegistry {
             sessions: sessionsSvc,
             rpc: {
               readTranscript: (input) =>
-                rpc.readTranscript(input, { kind: 'system', id: 'issue-answer-delivery' }),
+                rpc.readTranscript(input, {
+                  kind: 'system',
+                  id: 'issue-answer-delivery',
+                }),
             },
           },
           {
@@ -1777,7 +1793,10 @@ export class SessionRegistry {
       authorization: {
         attribution: (principal) => {
           if (principal.kind === 'user') {
-            return { actor: actorUser(principal.user), onBehalfOf: principal.user }
+            return {
+              actor: actorUser(principal.user),
+              onBehalfOf: principal.user,
+            }
           }
           if (principal.kind === 'agent') {
             return {
@@ -1930,7 +1949,11 @@ export class SessionRegistry {
           }
           try {
             for (const name of [...new Set(names)].sort()) {
-              locks.renew(caller, { repoPath: issue.repoPath, name, ttlSeconds })
+              locks.renew(caller, {
+                repoPath: issue.repoPath,
+                name,
+                ttlSeconds,
+              })
             }
             return true
           } catch {
@@ -1984,6 +2007,16 @@ export class SessionRegistry {
         }
         return result.output.trim().split(/\s+/)[0]!
       },
+      isAncestor: async (issue, ancestorSha, descendantSha) => {
+        const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
+        const result = await rpc.repoOp(
+          'isMergedInto',
+          issue.repoPath,
+          { branch: ancestorSha, parentBranch: descendantSha },
+          machineId,
+        )
+        return result.ok
+      },
       now: () => new Date(this.now()).toISOString(),
       audit: (kind, issueId, payload) => {
         try {
@@ -2003,7 +2036,10 @@ export class SessionRegistry {
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
     const layout = new LayoutService({ layout: this.store.layout, ledger })
     // Same composition seam for the read-cursor family (POD-1380).
-    const readPosition = new ReadPositionService({ cursors: this.store.readPositions, ledger })
+    const readPosition = new ReadPositionService({
+      cursors: this.store.readPositions,
+      ledger,
+    })
     this.modules = {
       bus: this.bus,
       funnel,
@@ -2207,7 +2243,10 @@ export class SessionRegistry {
       feed: feedServing,
       presence,
       bootstrap: (client) => {
-        client.send({ type: 'approvalsChanged', pending: approvals.listPending() })
+        client.send({
+          type: 'approvalsChanged',
+          pending: approvals.listPending(),
+        })
         hosts.snapshotFor(client.send)
       },
     })
@@ -2221,8 +2260,12 @@ export class SessionRegistry {
         rpc,
         headless,
         approvals,
-        agentRelay: { run: (machineId, msg) => void agentRelayGate.run(machineId, msg) },
-        updates: { onUpdateStatus: (machineId, msg) => updatesService.onStatus(machineId, msg) },
+        agentRelay: {
+          run: (machineId, msg) => void agentRelayGate.run(machineId, msg),
+        },
+        updates: {
+          onUpdateStatus: (machineId, msg) => updatesService.onStatus(machineId, msg),
+        },
       },
     })
   }

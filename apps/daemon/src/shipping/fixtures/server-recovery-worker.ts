@@ -119,6 +119,14 @@ const service = new ShippingService({
   machineFor: () => machineId,
   resolveBranchTip: async (issue) => git('rev-parse', `refs/heads/${issue.branch}`),
   resolveRefTip: async (_issue, ref) => git('rev-parse', `refs/heads/${ref}`),
+  isAncestor: async (_issue, ancestorSha, descendantSha) => {
+    try {
+      git('merge-base', '--is-ancestor', ancestorSha, descendantSha)
+      return true
+    } catch {
+      return false
+    }
+  },
   ...(phase === 'crash'
     ? {
         beforeCompletionCommit: () => {

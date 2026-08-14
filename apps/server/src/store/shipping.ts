@@ -896,7 +896,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       'queued' | 'preflight' | 'composing' | 'validating' | 'repairing'
     >,
     cancelledAt: string,
-    custody?: { attemptId: string; generation: number; terminalSteps: ShipStepValue[] },
+    custody?: {
+      attemptId: string
+      generation: number
+      terminalSteps: ShipStepValue[]
+    },
   ): ShipOrderValue {
     return transaction(this.db, () => {
       const order = this.getOrder(orderId)
@@ -1179,6 +1183,88 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return (this.db.prepare(`${receiptSelect} ORDER BY completed_at, id`).all() as SqlRow[]).map(
       mapReceipt,
     )
+  }
+
+  /** Settle an earlier immutable train prefix from a later order's exact
+   * destination proof. The covering order must durably depend on this member;
+   * this is the only path which may cross queued → shipped without fabricating
+   * a per-member executor attempt. */
+  completeCoveredOrder(
+    input: DeliveryReceiptValue,
+    coveringOrderId: ShipOrderValue['id'],
+  ): DeliveryReceiptValue {
+    const receipt = DeliveryReceipt.parse(input)
+    return transaction(this.db, () => {
+      const order = this.getOrder(receipt.orderId)
+      const covering = this.getOrder(coveringOrderId)
+      const coveringReceipt = this.receiptForOrder(coveringOrderId)
+      if (!order || !covering || !coveringReceipt || covering.state !== 'shipped') {
+        throw new Error(`covered delivery receipt ${receipt.id} has no shipped covering order`)
+      }
+      const existing = this.receiptForOrder(order.id)
+      if (order.state === 'shipped' && existing) {
+        if (JSON.stringify(existing) === JSON.stringify(receipt)) return existing
+        throw new Error(`ship order ${order.id} already has different immutable receipt`)
+      }
+      if (order.state !== 'queued') {
+        throw new Error(`covered ship order ${order.id} is ${order.state}, not queued`)
+      }
+      const reaches = (candidate: ShipOrderValue, visiting = new Set<string>()): boolean => {
+        if (candidate.id === order.id) return true
+        if (visiting.has(candidate.id)) return false
+        visiting.add(candidate.id)
+        return candidate.deliveryDependsOn.some((id) => {
+          const dependency = this.getOrder(id)
+          return dependency ? reaches(dependency, visiting) : false
+        })
+      }
+      if (!reaches(covering)) {
+        throw new Error(`ship order ${covering.id} does not cover dependency ${order.id}`)
+      }
+      if (
+        order.repoId !== covering.repoId ||
+        order.destination !== covering.destination ||
+        order.targetBranch !== covering.targetBranch ||
+        order.policyId !== covering.policyId ||
+        receipt.approvedBaseSha !== order.approvedBaseSha ||
+        receipt.approvedHeadSha !== order.approvedHeadSha ||
+        receipt.destination !== order.destination ||
+        receipt.testedIntegrationSha !== coveringReceipt.testedIntegrationSha ||
+        receipt.destinationSha !== coveringReceipt.destinationSha ||
+        receipt.validationProfileId !== coveringReceipt.validationProfileId
+      ) {
+        throw new Error(`covered delivery receipt ${receipt.id} does not match its train proof`)
+      }
+      this.db
+        .prepare(
+          `INSERT INTO delivery_receipts
+            (id, order_id, approved_base_sha, approved_head_sha, tested_integration_sha,
+             landed_ref_sha, destination_sha, validation_profile_id, validation_result,
+             destination, completed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          receipt.id,
+          receipt.orderId,
+          receipt.approvedBaseSha,
+          receipt.approvedHeadSha,
+          receipt.testedIntegrationSha,
+          receipt.landedRefSha,
+          receipt.destinationSha,
+          receipt.validationProfileId,
+          receipt.validationResult,
+          receipt.destination,
+          receipt.completedAt,
+        )
+      const changed = this.db
+        .prepare(
+          `UPDATE ship_orders SET state = 'shipped', state_changed_at = ?, hold_code = NULL
+           WHERE id = ? AND state = 'queued'`,
+        )
+        .run(receipt.completedAt, receipt.orderId)
+      if (changed.changes !== 1) throw new Error(`ship order ${order.id} coverage fence failed`)
+      return this.receiptForOrder(order.id) as DeliveryReceiptValue
+    })
   }
 
   /** Insert the order's one immutable receipt and cross the verifying→shipped

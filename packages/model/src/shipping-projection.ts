@@ -64,7 +64,9 @@ export const ShipOrderActivity = z.enum([
 export type ShipOrderActivity = z.infer<typeof ShipOrderActivity>
 
 /** Compact replicated order row. It is keyed by order id and joined locally by
- * issueId; it never nests into IssueAggregate/IssueProjection. */
+ * issueId; it never nests into IssueAggregate/IssueProjection. Queue rank is a
+ * lane-local scheduler turn, so compatible members of one train share a rank.
+ * A wait estimate is a sampled duration range, never a promised completion. */
 export const ShipOrderProjection = z.object({
   id: ShipOrderIdField,
   issueId: IssueIdField,
@@ -77,6 +79,27 @@ export const ShipOrderProjection = z.object({
   queuedAt: z.string(),
   stateChangedAt: z.string(),
   queueRank: z.number().int().positive().optional(),
+  train: z
+    .object({
+      id: z.string().min(1),
+      index: z.number().int().positive(),
+      size: z.number().int().positive(),
+    })
+    .refine((train) => train.index <= train.size, {
+      message: 'train member index must not exceed its size',
+    })
+    .optional(),
+  waitEstimate: z
+    .object({
+      lowerBoundMs: z.number().int().nonnegative(),
+      upperBoundMs: z.number().int().nonnegative(),
+      sampleSize: z.number().int().positive(),
+      basis: z.literal('lane-history'),
+    })
+    .refine((estimate) => estimate.upperBoundMs >= estimate.lowerBoundMs, {
+      message: 'wait estimate upper bound must not precede its lower bound',
+    })
+    .optional(),
   hold: z
     .object({
       id: ShipHoldIdField,
