@@ -942,6 +942,142 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect('kind' in endpoint).toBe(true)
         if ('kind' in endpoint) expect(declared.value.kinds).toContain(endpoint.kind)
       })
+
+      it('is ONE control lease and unlimited spectators — in both modes', async () => {
+        /**
+         * THE MODE WAS NEVER EXERCISED (POD-2085 review, and spec §5).
+         *
+         * Until this property the corpus made exactly one `attach` call, in
+         * `peek` mode, and looked only at the shape that came back. `takeover`
+         * — the mode with an INVARIANT attached to it — was never asked for by
+         * any driver's conformance run, on any family. That is not a small gap:
+         * "exactly one driver-controller or one human-controller holds it" is
+         * what makes "the user attached and started typing" and "the steward
+         * tried to nudge" impossible to interleave, and it is enforced in three
+         * separate driver implementations that nothing compared.
+         *
+         * It had already broken once, in a driver, in the direction the type
+         * system cannot see: POD-2059 found opencode's `attach` taking the lease
+         * UNCONDITIONALLY after starting a client, so a second take-over
+         * silently displaced the first — while `lease.acquire()`, one screen
+         * down in the same file, refused that exact case with `lease_held`. One
+         * verb handing out for free what its sibling refuses is worse than
+         * neither enforcing it, because callers read the refusal and believe it.
+         * A driver-local fix leaves the next driver free to make the same
+         * mistake; this is the property that would have caught it anywhere.
+         *
+         * THE LEASE IS READ AFTER EVERY STEP, not just at the end. "Refused" and
+         * "refused without moving the lease" are different claims, and only the
+         * second one is the invariant — a refusal that displaced the holder
+         * anyway would satisfy a check that only looked at the return value.
+         */
+        const { handle, driver } = setup()
+        const session = await handle
+        const declared = driver.capabilities().attach
+        if (!declared.supported) {
+          // THE REFUSAL ARM, ASKED IN THE MODE THAT MATTERS. A family with no
+          // terminal declines every mode, not just the one the older property
+          // happened to ask for — an `attach` that refused `peek` and then
+          // handed out a take-over endpoint would be a fabricated stream with a
+          // lease attached to it.
+          expect(permits(target.family, 'no-attach')).toBe(true)
+          expect(await session.attach({ mode: 'takeover', holder: 'operator' })).toMatchObject({
+            reason: 'unsupported',
+          })
+          return
+        }
+
+        /**
+         * BOTH BRANCHES ARE ASSERTED, WHICH IS THE POINT OF THE ARM (POD-2059's
+         * review, via POD-1761's ruling).
+         *
+         * A driver that DECLARES attach can still refuse a particular call: the
+         * machine may have no terminal host to spawn a client into. That is a
+         * runtime refusal rather than a declared gap, and the corpus asserted
+         * NOTHING about it — the property assumed an endpoint and would have
+         * died on a refusal with `'kind' in endpoint` being false, which reads in
+         * a run log as a broken test rather than as the branch it is.
+         *
+         * So each answer is classified before it is judged, and the refusal side
+         * carries the invariant that matters: a refused attach must not have
+         * taken the lease. That is POD-2023's "the refusal must land BEFORE the
+         * client terminal starts", expressed in something every target can
+         * already observe — their old code spawned the TUI and only then took
+         * the lease, so a refusal would have left an orphaned terminal attached
+         * to a session it had just been refused control of.
+         *
+         * TODAY THIS ARM IS DORMANT and that is the sequencing, not an oversight:
+         * every landed fixture hosts a client, so no target reaches it. The
+         * opencode fixture that returns a fabricated endpoint is POD-2023's file
+         * and is filed as POD-2121, dep-blocked on this landing — the property
+         * has to exist first, or a fixture change would alter nothing under test.
+         */
+        const answered = async (
+          answer: Awaited<ReturnType<typeof session.attach>>,
+        ): Promise<'endpoint' | 'refused'> => {
+          if ('kind' in answer) {
+            expect(declared.value.kinds).toContain(answer.kind)
+            return 'endpoint'
+          }
+          // A TYPED refusal, never a bare shrug — the caller has to be able to
+          // branch on why they did not get a terminal.
+          expect(['unsupported', 'not_running', 'lease_held']).toContain(answer.reason)
+          return 'refused'
+        }
+
+        // A SPECTATOR TAKES NOTHING. There is no spectator arm in `lease` at all
+        // — that is the design — so the observable is that the lease is exactly
+        // as it was.
+        const before = await session.lease.state()
+        const peeked = await answered(await session.attach({ mode: 'peek', holder: 'viewer' }))
+        expect(await session.lease.state()).toEqual(before)
+        if (peeked === 'refused') {
+          // This machine cannot host a terminal for this session. Nothing below
+          // is reachable, and pretending otherwise would test the fixture rather
+          // than the driver.
+          return
+        }
+
+        // A CONTROLLER TAKES IT, and the lease says who by. Reading it through
+        // `lease.state()` rather than trusting the endpoint is the point: the
+        // two verbs must agree, and this is where they are compared.
+        const took = await answered(
+          await session.attach({ mode: 'takeover', holder: 'operator' }),
+        )
+        if (took === 'refused') {
+          expect(
+            await session.lease.state(),
+            'a refused take-over took the control lease anyway — the refusal landed after the client started',
+          ).toEqual(before)
+          return
+        }
+        expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
+
+        // A SECOND CONTROLLER IS REFUSED — and the lease DOES NOT MOVE.
+        expect(await session.attach({ mode: 'takeover', holder: 'intruder' })).toMatchObject({
+          reason: 'lease_held',
+        })
+        expect(
+          await session.lease.state(),
+          'a refused take-over displaced the holder anyway',
+        ).toMatchObject({ holder: 'operator' })
+
+        // THE HOLDER MAY COME BACK. A dropped TUI reconnecting is the ordinary
+        // case, and a driver that locked the holder out with its own lease would
+        // strand the one person entitled to be there — which is why the guard is
+        // "a DIFFERENT holder", not "a lease exists".
+        expect('kind' in (await session.attach({ mode: 'takeover', holder: 'operator' }))).toBe(
+          true,
+        )
+        expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
+
+        // AND SPECTATORS ARE STILL UNLIMITED while somebody holds control: the
+        // exclusion is on the control lease, never on watching.
+        expect('kind' in (await session.attach({ mode: 'peek', holder: 'second-viewer' }))).toBe(
+          true,
+        )
+        expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
+      })
     })
 
     // -----------------------------------------------------------------------
