@@ -294,6 +294,9 @@ interface DriverSession {
   watchers: { coarse: number; fine: number }
   /** The level the CURRENT connection negotiated at its handshake. */
   connectedLevel: WatchLevel
+  /** An upgrade is mid-flight. Guards against two viewers each spawning a
+   *  child — see `upgradeToFine`. */
+  upgrading: boolean
   log: { seq: number; event: RuntimeEvent }[]
   wakers: Set<() => void>
   state: AgentRuntimeState
@@ -1422,9 +1425,29 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
    * the documented degradation for a driver that cannot produce a token stream.
    */
   async function upgradeToFine(session: DriverSession): Promise<void> {
-    if (session.disposed) return
+    /**
+     * ONE UPGRADE AT A TIME, AND THE PRECONDITIONS ARE CHECKED TWICE.
+     *
+     * `watch()` cannot await this — it must hand a viewer its release function
+     * immediately — so the call is fire-and-forget, and two viewers opening a
+     * chat at the same moment would otherwise start two upgrades. Each spawns a
+     * child; the second overwrites `session.endpoint`, and the first's child is
+     * left running with nobody holding it. An in-flight flag is what keeps a UI
+     * navigation from leaking processes.
+     *
+     * The second check matters just as much and is easy to miss: the guards
+     * below run BEFORE two awaits (a process spawn and a handshake), and a turn
+     * or an approval can arrive during them. Swapping the connection then would
+     * abandon an in-flight turn's notifications, or kill a blocked
+     * server->client request that no longer has anywhere to be answered. So the
+     * state is re-read after the awaits, and a session that got busy in the
+     * meantime keeps the connection it has — the freshly-launched child is
+     * stopped rather than adopted.
+     */
+    if (session.disposed || session.upgrading) return
     if (busy(session) || session.asks.size > 0) return
     if (session.connectedLevel === 'fine') return
+    session.upgrading = true
     try {
       const endpoint = await host.launch({
         sessionId: session.sessionId,
@@ -1433,6 +1456,12 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         ...mcpOf(session.spec),
       })
       const connection = await connect(endpoint, 'fine')
+      // RE-READ, not remembered. Everything above took real time.
+      if (session.disposed || busy(session) || session.asks.size > 0) {
+        connection.client.close()
+        await endpoint.stop()
+        return
+      }
       await connection.client.call(CODEX_METHODS.threadResume, { threadId: session.threadId })
       const old = session.client
       const oldEndpoint = session.endpoint
@@ -1456,6 +1485,8 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       )
     } catch {
       // See the note above: the fine watch degrades to complete items.
+    } finally {
+      session.upgrading = false
     }
   }
 
@@ -1627,6 +1658,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       draft: '',
       watchers: { coarse: 0, fine: 0 },
       connectedLevel: input.level,
+      upgrading: false,
       log: [],
       wakers: new Set(),
       state: { phase: 'idle', since: iso(), nativeSubagentCount: 0 },

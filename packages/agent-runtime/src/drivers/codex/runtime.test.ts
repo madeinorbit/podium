@@ -30,6 +30,12 @@ import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-
 interface World {
   handle: AgentSessionHandle
   server: FakeAppServer
+  /** Children the host was asked to start, and to stop. */
+  counts(): { launches: number; stopped: number }
+  /** Hold the NEXT launch open until `releaseLaunch()` is called, so a test can
+   *  act INSIDE the window between "an upgrade started" and "it finished". */
+  gateNextLaunch(): void
+  releaseLaunch(): void
   authReports: { authMethod: string | undefined; subscription: boolean }[]
   events(): RuntimeEvent[]
   dispose(): void
@@ -40,6 +46,10 @@ async function world(): Promise<World> {
   const entries = new Map<SessionId, CodexJournalEntry>()
   const authReports: World['authReports'] = []
   let seq = 0
+  let launches = 0
+  let stopped = 0
+  let gate: Promise<void> | undefined
+  let openGate: (() => void) | undefined
   const journal: CodexJournal = {
     read: (id) => entries.get(id),
     write: (entry) => {
@@ -54,13 +64,24 @@ async function world(): Promise<World> {
     now: () => Date.UTC(2026, 7, 14) + ++seq * 1000,
     mintSessionId: () => 'cx-1' as SessionId,
     async launch(input) {
+      launches += 1
+      // A REAL PAUSE, where the real host does a process spawn and a handshake.
+      // Without it the upgrade completes before a test can interleave anything,
+      // and the property about interleaving becomes unfalsifiable.
+      if (gate) {
+        const waiting = gate
+        gate = undefined
+        await waiting
+      }
       const server = startFakeAppServer()
-      servers.get(input.sessionId)?.close()
       servers.set(input.sessionId, server)
       return {
         transport: server.transport,
         process: { key: `podium-cx-${input.sessionId}`, pid: 1000 + seq },
-        stop: async () => server.close(),
+        stop: async () => {
+          stopped += 1
+          server.close()
+        },
         kill: async () => server.close(),
         memoryBytes: () => 1024,
       }
@@ -90,6 +111,13 @@ async function world(): Promise<World> {
   return {
     handle,
     server,
+    counts: () => ({ launches, stopped }),
+    gateNextLaunch: () => {
+      gate = new Promise<void>((resolve) => {
+        openGate = resolve
+      })
+    },
+    releaseLaunch: () => openGate?.(),
     authReports,
     events: () => [...collected],
     dispose: () => runtime.dispose(),
@@ -317,6 +345,69 @@ describe('the watch levels, negotiated rather than filtered', () => {
     // first time empty.
     const items = w.events().filter((e) => e.t === 'item' && e.item.kind === 'complete')
     expect(items).toHaveLength(1)
+    w.dispose()
+  })
+})
+
+describe('the fine-watch upgrade, which reconnects', () => {
+  it('starts ONE child when two viewers ask at once', async () => {
+    /**
+     * `watch()` cannot await the upgrade — it owes a viewer its release function
+     * immediately — so the call is fire-and-forget. Two viewers opening a chat
+     * in the same tick would otherwise each spawn a `codex app-server`, the
+     * second would overwrite the endpoint, and the first child would be left
+     * running with nobody holding it. A UI navigation must not leak processes.
+     */
+    const w = await world()
+    const before = w.counts().launches
+    const [releaseA, releaseB] = await Promise.all([
+      w.handle.watch('fine'),
+      w.handle.watch('fine'),
+    ])
+    await settle()
+    await settle()
+    expect(w.counts().launches - before).toBeLessThanOrEqual(1)
+    releaseA()
+    releaseB()
+    w.dispose()
+  })
+
+  it('ABANDONS the upgrade when a turn opened while it was launching', async () => {
+    /**
+     * The safety guards run BEFORE a process spawn and a handshake, and a turn
+     * can arrive during them. Swapping the connection then would abandon the
+     * in-flight turn's notifications — so the freshly-launched child is stopped
+     * rather than adopted, and the session keeps the connection it has.
+     */
+    const w = await world()
+    const bindingBefore = w.handle.binding.bindingVersion
+    // The upgrade's launch is held open, so the turn genuinely lands INSIDE the
+    // window rather than after it.
+    w.gateNextLaunch()
+    const release = await w.handle.watch('fine')
+    await settle()
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    w.releaseLaunch()
+    await settle()
+    await settle()
+    await settle()
+
+    /**
+     * THE ASSERTION IS THE HARM, NOT THE BOOKKEEPING.
+     *
+     * Counting launches and stops cannot tell "abandoned the new child" from
+     * "swapped and stopped the old one" — both are one launch and one stop. What
+     * separates them is whether the session can still hear the turn it has: a
+     * driver that swapped is now connected to a child that never saw this turn,
+     * so the completion arrives at a pipe nobody is reading and the session never
+     * fences. `w.server` is the ORIGINAL child, and it is the one running the
+     * turn.
+     */
+    expect(w.handle.binding.bindingVersion).toBe(bindingBefore)
+    w.server.completeTurn('completed')
+    await settle()
+    expect((await w.handle.state()).phase).toBe('idle')
+    release()
     w.dispose()
   })
 })
