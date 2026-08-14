@@ -336,6 +336,45 @@ describe('TranscriptIndexer', () => {
     expect(store.conversations.transcriptIndex.rows(asMachineId('m1'), 'done')).toHaveLength(1)
   })
 
+  it('prunes a missing lake during backfill without warning or retrying it', async () => {
+    const logs = captureLogs()
+    try {
+      const first = userLine('u1', 'stale indexed message')
+      const content = first + assistantLine('a1', 'missing unindexed answer')
+      const { store, indexer, lakePathFor } = backfillSetup([{ nativeId: 'orphan', content }])
+      store.conversations.transcriptIndex.append(
+        asMachineId('m1'),
+        'orphan',
+        [{ content: 'stale indexed message', itemUuid: 'u1' }],
+        Buffer.byteLength(first),
+      )
+      store.conversations.mirror.setReportedBytes(
+        asMachineId('m1'),
+        'orphan',
+        Buffer.byteLength(content),
+      )
+      rmSync(lakePathFor('orphan'))
+
+      indexer.backfillMachine(asMachineId('m1'), lakePathFor)
+      await indexer.settled()
+      indexer.backfillMachine(asMachineId('m1'), lakePathFor)
+      await indexer.settled()
+
+      expect(logs.at('warn')).toEqual([])
+      expect(store.conversations.transcriptIndex.rows(asMachineId('m1'), 'orphan')).toEqual([])
+      expect(store.conversations.mirror.mirrorCursor(asMachineId('m1'), 'orphan')).toBe(0)
+      expect(store.conversations.transcriptIndex.indexedCursor(asMachineId('m1'), 'orphan')).toBe(0)
+      expect(store.conversations.transcriptIndex.segmentsToIndex(asMachineId('m1'))).toEqual([])
+      expect(
+        store.conversations.mirror
+          .segmentsToMirrorDirty(asMachineId('m1'))
+          .map((segment) => segment.nativeId),
+      ).toEqual(['orphan'])
+    } finally {
+      logs.restore()
+    }
+  })
+
   it('stops re-reading an unchanged undrainable gap across sweeps (newline-less tail)', async () => {
     // Production shape: 42 lake files end without a trailing newline, so their
     // segments never leave segmentsToIndex — every sweep used to re-read the same

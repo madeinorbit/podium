@@ -221,7 +221,12 @@ export class TranscriptIndexer {
         state.rerun = false
         let consumed = 0
         try {
-          consumed = await this.indexWindow(machineId, nativeId, state.lakePath)
+          consumed = await this.indexWindow(
+            machineId,
+            nativeId,
+            state.lakePath,
+            pass !== undefined,
+          )
         } catch (err) {
           // Disposed mid-window: the store is closing or closed, so the failure
           // is an artifact of the shutdown rather than news. Reporting it is the
@@ -253,6 +258,7 @@ export class TranscriptIndexer {
     machineId: MachineId,
     nativeId: string,
     lakePath: string,
+    pruneMissingLake: boolean,
   ): Promise<number> {
     if (!this.deps.index.isAvailable) return 0
     const from = this.deps.index.indexedCursor(machineId, nativeId)
@@ -262,7 +268,23 @@ export class TranscriptIndexer {
     let buf: Buffer
     let lastNl: number
     for (;;) {
-      buf = await readRange(lakePath, from, Math.min(to, from + win))
+      try {
+        buf = await readRange(lakePath, from, Math.min(to, from + win))
+      } catch (err) {
+        // Backfill consumes durable cursor state, and that state can outlive the
+        // canonical lake file (for example after a lake-dir cleanup). ENOENT is
+        // therefore reconciliation, not one warning per orphan on every boot.
+        // Reset only if neither cursor moved while open() was failing; preserving
+        // reported_bytes makes the mirror dirty so it can re-pull from byte zero.
+        if (pruneMissingLake && isEnoent(err)) {
+          this.deps.index.resetMissingLake(machineId, nativeId, {
+            mirroredBytes: to,
+            indexedBytes: from,
+          })
+          return 0
+        }
+        throw err
+      }
       // Complete lines only: everything past the last newline is a partial record
       // still being mirrored — it stays unindexed until a later chunk completes it.
       lastNl = buf.lastIndexOf(0x0a)
@@ -301,6 +323,10 @@ async function readRange(path: string, from: number, to: number): Promise<Buffer
   } finally {
     await handle.close()
   }
+}
+
+function isEnoent(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
 }
 
 /** Plain-text FTS rows for the user/assistant messages in a complete-lines buffer.

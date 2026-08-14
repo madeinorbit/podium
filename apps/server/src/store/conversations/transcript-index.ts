@@ -74,6 +74,39 @@ export class TranscriptIndexRepository {
     })
   }
 
+  /**
+   * Reconcile a durable cursor whose canonical lake file has disappeared.
+   *
+   * The expected cursors make this an optimistic update: if the mirror repaired
+   * or advanced the segment while the indexer's file open was failing, that
+   * newer state wins. `reported_bytes` deliberately survives the reset so the
+   * mirror's dirty query schedules a re-pull from byte zero.
+   */
+  resetMissingLake(
+    machineId: MachineId,
+    nativeId: string,
+    expected: { mirroredBytes: number; indexedBytes: number },
+  ): boolean {
+    let reset = false
+    transaction(this.db, () => {
+      const result = this.db
+        .prepare(
+          `UPDATE conversation_segments
+           SET mirrored_bytes=0,mirrored_at=NULL,indexed_bytes=0
+           WHERE machine_id=? AND native_id=?
+             AND mirrored_bytes=? AND indexed_bytes=?`,
+        )
+        .run(machineId, nativeId, expected.mirroredBytes, expected.indexedBytes)
+      reset = Number(result.changes) === 1
+      if (reset && this.available) {
+        this.db
+          .prepare('DELETE FROM transcript_fts WHERE machine_id=? AND native_id=?')
+          .run(machineId, nativeId)
+      }
+    })
+    return reset
+  }
+
   rows(
     machineId: MachineId,
     nativeId: string,
