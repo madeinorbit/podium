@@ -77,10 +77,6 @@
   /* ── shared surface pieces ───────────────────────────────────────────────── */
   .col{display:flex;flex-direction:column;background:var(--sidebar);color:var(--text-strong);
        font:14px/1.55 ui-sans-serif,system-ui,sans-serif}
-  .lbl{display:flex;align-items:center;gap:6px;padding:2px 14px 8px;
-       font:600 8.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.16em;
-       text-transform:uppercase;color:var(--text-faint)}
-  .row46{display:flex;align-items:center;gap:10px;height:46px;padding:0 14px}
   .cta{display:flex;align-items:center;justify-content:center;gap:8px;height:32px;
        border-radius:9px;font:600 12.5px/1 ui-sans-serif,system-ui,sans-serif;
        background:color-mix(in srgb,var(--attention) 12%,transparent);
@@ -107,13 +103,24 @@ copy — the shape of what is coming, not a spinner.</p>
   It is <em>not</em> a live capture of the running app.
 </div>
 
+<div class="callout" style="background:#eef3fb;border-color:#c3d4ee">
+  <strong>Rebased onto the 3a sidebar.</strong> POD-1057's redraw landed on main mid-flight and
+  changed the rows the work-list ghost mirrors — 44px at a 13px inset, a 26px id gutter, a fixed
+  56px meta column, section labels promoted to folding bands, and no rules between rows. State 1
+  below is drawn against that, not the row it was designed on. The other three surfaces were
+  untouched by 3a.
+</div>
+
 <h2>1 · Work list — ghost rows</h2>
 <p class="meta">apps/web/src/features/worklist/WorkListEmpty.tsx</p>
-<p class="note">Four ghost rows at the live row's own 46px, straight under a label that names the
-project. On an empty list that label is the only thing saying <em>which</em> project is empty, which
-is what kills the “is this loading, or am I pointed at the wrong repo?” doubt. The
-<code>0</code> beside it is rendered rather than hidden — it is the cheapest proof the bars are not
-data.</p>
+<p class="note">Four ghost rows at the live row's own anatomy — the 3a row this landed against
+(POD-1057): a 26px id gutter, title and a fixed 56px meta column on line 1, a mono status line on
+line 2, 44px minimum, no rules between rows. Those numbers are imported from
+<code>WorkRowShell</code>'s own <code>ID_GUTTER_W</code> and <code>META_COL_W</code> rather than
+copied, so the next retune carries the ghost with it. Above them sits a static section band: on an
+empty list it is the only thing saying <em>which</em> project is empty, which is what kills the “is
+this loading, or am I pointed at the wrong repo?” doubt. Its <code>0</code> is rendered where a live
+band hides it — the cheapest proof the bars are not data.</p>
 <div class="pair" id="s1"></div>
 
 <h2>2 · Flight deck — ghost tree</h2>
@@ -203,27 +210,45 @@ const dot = (tone, s) => el('span', 'dot', `width:${s}px;height:${s}px;backgroun
 const txt = (t, cls, css) => { const n = el(t, cls, css); return n }
 
 function workList() {
-  const col = el('div', 'col', 'width:306px;height:430px;padding-top:10px')
-  const lbl = el('div', 'lbl')
-  lbl.appendChild(el('span', '', 'flex:1;min-width:0')).textContent = 'Work in podium'
-  lbl.appendChild(el('span')).textContent = '0'
-  col.appendChild(lbl)
+  const col = el('div', 'col', 'width:306px;height:430px')
 
-  const rows = [[1,'76%','42%',24,1],[2,'60%','34%',18,0],[3,'68%','28%',null,0],[4,'52%',null,null,0]]
+  // The 3a SECTION BAND (POD-1057): 34px, full-bleed, --muted, hairline top and
+  // bottom. Static here — there is nothing under it to fold, so no chevron.
+  const band = el('div', '', 'display:flex;align-items:center;gap:8px;height:34px;flex:none;padding:0 13px;background:var(--muted);border-top:1px solid var(--hairline-bar);border-bottom:1px solid var(--hairline-bar)')
+  band.appendChild(el('span', '', 'flex:1;min-width:0;font:600 8.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--muted-foreground)'))
+    .textContent = 'Work in podium'
+  band.appendChild(el('span', '', 'flex:none;font:10.5px/1 ui-monospace,Menlo,monospace;color:var(--muted-foreground)'))
+    .textContent = '0'
+  col.appendChild(band)
+
+  // The 3a row: 26px id gutter, title + fixed 56px meta column on line 1, a mono
+  // status line on line 2. No rules between rows — 3a dropped them.
+  const rows = [[1,'58%','44%',30,1],[2,'72%','36%',22,0],[3,'46%','52%',null,0],[4,'64%','30%',null,0]]
   const g = el('div', 'ghost', 'display:flex;flex-direction:column;flex:none')
   for (const [tier, t, s, meta, sel] of rows) {
-    const r = el('div', 'row46', sel ? 'background:var(--ghost-4)' : '')
-    r.appendChild(sq(tier, 10))
-    const stack = el('span', '', 'display:flex;flex:1;min-width:0;flex-direction:column;gap:7px')
-    stack.appendChild(bar(tier, t, 8))
-    if (s) stack.appendChild(bar(Math.min(tier + 1, 4), s, 6))
-    r.appendChild(stack)
-    if (meta) r.appendChild(bar(Math.min(tier + 1, 4), meta + 'px', 12, 'border-radius:6px;flex:none'))
+    const next = Math.min(tier + 1, 4)
+    const r = el('div', '', 'display:flex;align-items:center;min-height:44px;padding:6px 13px;' +
+      (sel ? 'background:var(--chip);box-shadow:inset 3px 0 0 var(--ghost-1);' : ''))
+    const inner = el('div', '', 'display:flex;flex:1;min-width:0;align-items:center;gap:11px')
+    const gut = el('span', '', 'display:flex;flex:none;justify-content:flex-end;width:26px')
+    gut.appendChild(bar(tier, '18px', 8))
+    inner.appendChild(gut)
+    const stack = el('span', '', 'display:flex;flex:1;min-width:0;flex-direction:column;gap:5px')
+    const l1 = el('span', '', 'display:flex;align-items:center;gap:8px;min-width:0')
+    l1.appendChild(bar(tier, t, 8))
+    l1.appendChild(el('span', '', 'flex:1'))
+    const metaCol = el('span', '', 'display:flex;flex:none;justify-content:flex-end;min-width:56px')
+    if (meta) metaCol.appendChild(bar(next, meta + 'px', 7))
+    l1.appendChild(metaCol)
+    stack.appendChild(l1)
+    stack.appendChild(bar(next, s, 7))
+    inner.appendChild(stack)
+    r.appendChild(inner)
     g.appendChild(r)
   }
   col.appendChild(g)
 
-  const copy = el('div', '', 'flex:1;padding:14px 22px 56px')
+  const copy = el('div', '', 'flex:1;padding:16px 13px 56px')
   copy.appendChild(txt('p', 'h-strong')).textContent = 'Your work lands here'
   copy.appendChild(txt('p', 'body-dim')).textContent = 'One row per task, newest first.'
   const cta = el('div', 'cta', 'margin-top:16px')

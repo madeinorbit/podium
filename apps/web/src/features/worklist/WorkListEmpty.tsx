@@ -34,8 +34,8 @@ import { agentBrandText } from '@/lib/agent-tone'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
 import { useDefaultSpawn } from './spawn-row'
-import { SECTION_BAND_CLASS, SECTION_BAND_LABEL_CLASS } from './work-folds'
 import { ID_GUTTER_W, META_COL_W } from './WorkRowShell'
+import { SECTION_BAND_CLASS, SECTION_BAND_LABEL_CLASS } from './work-folds'
 
 /**
  * One dead row, at the live row's own geometry.
@@ -76,10 +76,7 @@ function GhostWorkRow({
       <div className="flex min-w-0 flex-1 items-center gap-[11px]">
         {/* The identity gutter: right-aligned, because the live one right-aligns
             its digits so three- and four-digit refs share an edge. */}
-        <span
-          className="flex flex-none justify-end"
-          style={{ width: ID_GUTTER_W }}
-        >
+        <span className="flex flex-none justify-end" style={{ width: ID_GUTTER_W }}>
           <GhostBar tier={tier} width="18px" height={8} />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-[5px]">
@@ -89,10 +86,7 @@ function GhostWorkRow({
             {/* Reserved at the live column's width whether or not it holds
                 anything — the same rule the real row follows, and the reason
                 every ghost title ellipsizes at one x. */}
-            <span
-              className="flex flex-none justify-end"
-              style={{ minWidth: META_COL_W }}
-            >
+            <span className="flex flex-none justify-end" style={{ minWidth: META_COL_W }}>
               {meta !== undefined && <GhostBar tier={next} width={`${meta}px`} height={7} />}
             </span>
           </span>
@@ -115,9 +109,7 @@ export function WorkListEmpty(): JSX.Element {
   return (
     <>
       <div className={SECTION_BAND_CLASS} data-testid="work-empty-band">
-        <span className={SECTION_BAND_LABEL_CLASS}>
-          {project ? `Work in ${project}` : 'Work'}
-        </span>
+        <span className={SECTION_BAND_LABEL_CLASS}>{project ? `Work in ${project}` : 'Work'}</span>
         <span className="shell-type-micro flex-none font-mono tabular-nums text-muted-foreground">
           0
         </span>
