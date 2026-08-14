@@ -87,6 +87,15 @@ Grok headless feasibility investigation.
 
 ## Lessons the epic has paid for (read before building on the landed layers)
 
+- **Mirroring an existing driver file-for-file inherits its bugs along with its structure.**
+  W6 mirrored W5 and inherited FOUR defects, every one found by a corpus property or a
+  reviewer working from another driver's defect, never by the mirroring driver's own tests:
+  the needs_user projection, the lease-release drain edge, attach taking the control lease
+  unconditionally, and the daemon adopt path wired for exactly one driver. Mirroring is
+  still the right instruction — the shape fits — but a W7 author must do two things: after
+  mirroring a file, grep the daemon for every call site the mirrored file's SIBLING has
+  (three of the four were missing callers, not wrong code), and treat the conformance
+  corpus plus an adversarial review as the actual safety net, not the mirrored tests.
 - **A port fronting a legacy verb must be a superset of its payload.** W4's queue port
   dropped `mutationId`/`sourceMessageId` and every retry would have become a duplicate turn.
   When you wrap an existing verb behind a contract port, diff the FULL payload first.
