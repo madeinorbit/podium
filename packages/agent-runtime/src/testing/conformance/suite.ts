@@ -322,7 +322,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const session = await handle
         const id = control.askInteraction(session.binding.sessionId, {
           kind: 'permission',
-          payload: { toolName: 'Bash', inputSummary: 'ls', canAlwaysAllow: false },
+          payload: { v: 1, toolName: 'Bash', inputSummary: 'ls', canAlwaysAllow: false },
         })
         const open = await session.interactions()
         // "Stuck" is supposed to be impossible to hide: a blocked session is BY
@@ -359,6 +359,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const id = control.askInteraction(session.binding.sessionId, {
           kind: 'recovery',
           payload: {
+            v: 1,
             reason: 'cache-miss',
             prompt: 'resume from summary?',
             offered: ['full-resume', 'summary-resume'],

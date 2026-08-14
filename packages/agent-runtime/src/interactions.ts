@@ -67,11 +67,23 @@ export type {
   RecoveryChoice,
 } from '@podium/protocol'
 
-/** Answering is idempotent; a second answer returns a typed error rather than
- *  double-acting. */
+/**
+ * Answering is idempotent; a second answer returns a typed error rather than
+ * double-acting.
+ *
+ * `not-yet-supported` is the DELIBERATE refusal (POD-2020): a keystroke-emulated
+ * `permission` is unshipped by POD-707 — the native menu's ordinals vary per ask
+ * so a denial can approve, and always-allow must never be pressed
+ * programmatically — and `structured` answering waits on a protocol driver.
+ * Both refuse rather than degrade, leaving the ask OPEN and the session visibly
+ * blocked, which beats a silent wrong keystroke reported as success.
+ */
 export type InteractionAnswerOutcome =
   | { ok: true }
-  | { ok: false; reason: 'already-answered' | 'expired' | 'unknown-interaction' }
+  | {
+      ok: false
+      reason: 'already-answered' | 'expired' | 'unknown-interaction' | 'not-yet-supported'
+    }
 
 export interface InteractionAsked {
   ev: 'asked'
@@ -89,3 +101,15 @@ export interface InteractionExpired {
   id: string
   at: string
 }
+
+/**
+ * The lifecycle event, as one union.
+ *
+ * The three arms existed separately and the union did NOT, which is why
+ * `InteractionEvent` was the one interaction schema with no `exact<>` drift
+ * guard (POD-2019's review; closed here). Without a named union there was
+ * nothing for the guard to compare the wire against, so an arm added on one side
+ * and not the other would have stopped an event crossing with no compile error
+ * anywhere.
+ */
+export type InteractionEvent = InteractionAsked | InteractionAnswered | InteractionExpired

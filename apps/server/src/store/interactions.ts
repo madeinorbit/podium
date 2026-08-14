@@ -242,28 +242,37 @@ export class InteractionsRepository {
     return res.changes > 0
   }
 
-  /** Mark an open ask unanswerable. NOT a decision — see `InteractionStatus`. */
-  expire(id: string, at: string): boolean {
+  /**
+   * Close an open ask without answering it. NOT a decision — see
+   * `InteractionStatus`.
+   *
+   * `expired` means the SESSION went away and took the menu with it;
+   * `superseded` means the session moved on, whose usual cause is a person
+   * answering at the terminal. Both share the `expired_at` column: it is the
+   * moment the row stopped being open, and a second timestamp column that only
+   * ever holds the same instant under a different name is a field somebody has
+   * to keep in step for nothing.
+   */
+  close(id: string, status: 'expired' | 'superseded', at: string): boolean {
     const res = this.db
       .prepare(
-        `UPDATE pending_interactions SET status = 'expired', expired_at = ?
+        `UPDATE pending_interactions SET status = ?, expired_at = ?
          WHERE id = ? AND status = 'asked'`,
       )
-      .run(at, id)
+      .run(status, at, id)
     return res.changes > 0
   }
 
-  /** Every open ask on a session becomes unanswerable at once — what a session
-   *  ending means for the asks it left behind. Returns the ids that moved. */
-  expireSession(sessionId: SessionId, at: string): string[] {
+  /** Every open ask on a session closes at once. Returns the ids that moved. */
+  closeSession(sessionId: SessionId, status: 'expired' | 'superseded', at: string): string[] {
     const open = this.listOpen(sessionId)
     if (open.length === 0) return []
     this.db
       .prepare(
-        `UPDATE pending_interactions SET status = 'expired', expired_at = ?
+        `UPDATE pending_interactions SET status = ?, expired_at = ?
          WHERE session_id = ? AND status = 'asked'`,
       )
-      .run(at, sessionId)
+      .run(status, at, sessionId)
     return open.map((r) => r.id)
   }
 

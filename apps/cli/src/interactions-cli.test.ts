@@ -17,7 +17,7 @@ const permissionRow = (over: Partial<PendingInteractionWire> = {}): PendingInter
     id: 'ixn_1',
     sessionId: 'ses_1',
     kind: 'permission',
-    payload: { toolName: 'Bash', inputSummary: 'rm -rf build', canAlwaysAllow: false },
+    payload: { v: 1, toolName: 'Bash', inputSummary: 'rm -rf build', canAlwaysAllow: false },
     askedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
     source: 'hook',
     answerable: 'keystroke-emulated',
@@ -96,6 +96,7 @@ describe('podium interactions list', () => {
         permissionRow({
           kind: 'question',
           payload: {
+            v: 1,
             questions: [
               {
                 question: 'Which database?',
@@ -126,6 +127,45 @@ describe('podium interactions answer', () => {
     expect(calls[0]).toEqual({ id: 'ixn_1', text: 'allow' })
     expect(r.exitCode).toBe(0)
     expect(r.text).toContain('answered ixn_1')
+  })
+
+  it('carries free text through to the server, which routes it to the Other row', async () => {
+    // The end-to-end free-text path: the CLI sends INTENT and the server
+    // resolves it against the ask's own options — an unmatched answer on a
+    // question that drew an Other row is answered through that row, and one on a
+    // preview-layout question is refused (POD-770). Both decisions are the
+    // server's; the CLI's job is to relay the text unmangled and show the reason.
+    const { trpc, calls } = client({ answer: () => ({ ok: true }) })
+    const ok = await runInteractionsCommand(['answer', 'ixn_1', 'DuckDB'], trpc)
+    expect(calls[0]).toEqual({ id: 'ixn_1', text: 'DuckDB' })
+    expect(ok.exitCode).toBe(0)
+
+    const refused = client({
+      answer: () => ({
+        ok: false,
+        reason: 'unknown-interaction',
+        detail:
+          '"Which migration?" is drawn as a side-by-side preview dialog, which has no Other row',
+      }),
+    })
+    const r = await runInteractionsCommand(['answer', 'ixn_2', 'Something else'], refused.trpc)
+    expect(r.exitCode).toBe(1)
+    expect(r.text).toContain('no Other row')
+  })
+
+  it('surfaces the not-yet-supported refusal on a permission ask', async () => {
+    // POD-707. The operator has to be told to go to the terminal, not left
+    // believing the agent was unblocked.
+    const { trpc } = client({
+      answer: () => ({
+        ok: false,
+        reason: 'not-yet-supported',
+        detail: 'answering a permission prompt by keystroke is not shipped (POD-707)',
+      }),
+    })
+    const r = await runInteractionsCommand(['answer', 'ixn_1', 'allow'], trpc)
+    expect(r.exitCode).toBe(1)
+    expect(r.text).toContain('POD-707')
   })
 
   it('joins an unquoted multi-word answer', async () => {

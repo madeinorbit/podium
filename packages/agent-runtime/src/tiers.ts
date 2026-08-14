@@ -32,8 +32,15 @@
  */
 
 /**
- * CORE — what a new driver MUST implement or explicitly decline, and all the
- * conformance suite pins.
+ * CORE — what a new driver MUST implement or explicitly decline.
+ *
+ * NOT "and all the conformance suite pins", which is what this said and is no
+ * longer true (POD-2019's review, relayed to POD-2020). `import` and `list` are
+ * core and live on the RUNTIME, not on a session handle, so the corpus — which
+ * is parameterized over a driver and a session — has nothing to call them
+ * through. Core is the completeness bar for a DRIVER; what the corpus pins is a
+ * subset of it, and `testing/manifest-axis.test.ts` is where that subset is
+ * named.
  *
  * EXTENDED — feature seams carried on the same registry that never block a
  * driver. A driver shipping only the core is COMPLETE.

@@ -6,7 +6,13 @@
 
 import { type AgentRuntimeState, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { interactionFingerprint, normalizeQuestions, sourceFor, synthesizeAsk } from './synthesis'
+import {
+  type InteractionAskSpec,
+  interactionFingerprint,
+  normalizeQuestions,
+  sourceFor,
+  synthesizeAsk,
+} from './synthesis'
 
 const S = asSessionId('ses_1')
 
@@ -33,7 +39,7 @@ describe('synthesizeAsk', () => {
     )
     expect(ask?.spec).toEqual({
       kind: 'permission',
-      payload: { toolName: 'Bash', inputSummary: 'rm -rf build', canAlwaysAllow: true },
+      payload: { v: 1, toolName: 'Bash', inputSummary: 'rm -rf build', canAlwaysAllow: true },
     })
     expect(ask?.source).toBe('hook')
     // Terminal-family asks are keystroke-emulated whatever their source: a hook
@@ -73,6 +79,7 @@ describe('synthesizeAsk', () => {
     expect(ask?.spec).toEqual({
       kind: 'question',
       payload: {
+        v: 1,
         questions: [
           {
             question: 'Which database?',
@@ -103,7 +110,7 @@ describe('synthesizeAsk', () => {
     )
     expect(ask?.spec).toEqual({
       kind: 'plan-approval',
-      payload: { plan: 'Step 1: rewrite the parser', autoAcceptOffered: false },
+      payload: { v: 1, plan: 'Step 1: rewrite the parser', autoAcceptOffered: false },
     })
   })
 
@@ -135,11 +142,10 @@ describe('synthesizeAsk', () => {
 })
 
 describe('interactionFingerprint', () => {
-  const permission = (detail: string) =>
-    ({
-      kind: 'permission',
-      payload: { toolName: 'Bash', inputSummary: detail, canAlwaysAllow: false },
-    }) as const
+  const permission = (detail: string): InteractionAskSpec => ({
+    kind: 'permission',
+    payload: { v: 1, toolName: 'Bash', inputSummary: detail, canAlwaysAllow: false },
+  })
 
   it('collapses two observations of the same ask', () => {
     expect(interactionFingerprint(S, permission('ls'))).toBe(
@@ -164,11 +170,11 @@ describe('interactionFingerprint', () => {
     // prompt re-observed with the flag read differently is still one ask.
     const a = interactionFingerprint(S, {
       kind: 'permission',
-      payload: { toolName: 'Bash', inputSummary: 'ls', canAlwaysAllow: false },
+      payload: { v: 1, toolName: 'Bash', inputSummary: 'ls', canAlwaysAllow: false },
     })
     const b = interactionFingerprint(S, {
       kind: 'permission',
-      payload: { toolName: 'Bash', inputSummary: 'ls', canAlwaysAllow: true },
+      payload: { v: 1, toolName: 'Bash', inputSummary: 'ls', canAlwaysAllow: true },
     })
     expect(a).toBe(b)
   })
@@ -181,6 +187,33 @@ describe('normalizeQuestions', () => {
     expect(normalizeQuestions(undefined, 'Pick one')).toEqual([
       { question: 'Pick one', multiSelect: false, previewLayout: false, options: [] },
     ])
+  })
+
+  it('puts the Other row one past the last option, 1-based (the native rule)', () => {
+    const [q] = normalizeQuestions(
+      [{ question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }],
+      undefined,
+    )
+    expect(q).toMatchObject({ otherIndex: 3 })
+  })
+
+  it('gives a PREVIEW-LAYOUT question no Other row at all', () => {
+    // That dialog does not draw one (POD-770); claiming an index would invite
+    // an answer that silently selects option 1.
+    const [q] = normalizeQuestions(
+      [{ question: 'Which?', options: [{ label: 'A', preview: 'x' }, { label: 'B' }] }],
+      undefined,
+    )
+    expect(q).toMatchObject({ previewLayout: true })
+    expect(q?.otherIndex).toBeUndefined()
+  })
+
+  it('carries the question header through', () => {
+    const [q] = normalizeQuestions(
+      [{ question: 'Which?', header: 'Database', options: [{ label: 'A' }] }],
+      undefined,
+    )
+    expect(q).toMatchObject({ header: 'Database' })
   })
 
   it('never sets previewLayout on a multi-select', () => {

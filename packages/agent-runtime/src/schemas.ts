@@ -55,6 +55,7 @@ import type { CausalEnvelope, RuntimeEvent, TranscriptItemDelta } from './events
 import type {
   InteractionAnswerability,
   InteractionAnswerOutcome,
+  InteractionEvent,
   InteractionKind,
   InteractionSource,
   PendingInteraction,
@@ -112,6 +113,7 @@ import type {
   FailureDisposition as FailureDispositionWire,
   InteractionAnswerability as InteractionAnswerabilityWire,
   InteractionAnswerOutcome as InteractionAnswerOutcomeWire,
+  InteractionEvent as InteractionEventWire,
   InteractionKind as InteractionKindWire,
   InteractionSource as InteractionSourceWire,
   ObservationInputOrigin,
@@ -160,6 +162,12 @@ exact<z.infer<typeof CausalEnvelopeWire>, CausalEnvelope>(true)
 exact<z.infer<typeof TurnReceiptWire>, TurnReceipt>(true)
 exact<z.infer<typeof TurnEventWire>, TurnEvent>(true)
 exact<z.infer<typeof PendingInteractionWire>, PendingInteraction>(true)
+// THE LAST UNGUARDED INTERACTION SCHEMA (POD-2019's review named it; POD-2020
+// closes it). Every sibling above had a guard and this one did not, which is
+// exactly the asymmetry that lets a union arm drift: `InteractionEvent` carries
+// the asked/answered/expired lifecycle, so an arm added on one side and not the
+// other would stop an event crossing the wire with no compile error anywhere.
+exact<z.infer<typeof InteractionEventWire>, InteractionEvent>(true)
 exact<z.infer<typeof ProcessEventWire>, ProcessEvent>(true)
 exact<z.infer<typeof TranscriptItemDeltaWire>, TranscriptItemDelta>(true)
 

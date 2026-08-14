@@ -71,6 +71,7 @@ export type {
   InteractionAnswer,
   InteractionAnswerability,
   InteractionAnswerOutcome,
+  InteractionEvent,
   InteractionKind,
   InteractionSource,
   LoginAnswer,

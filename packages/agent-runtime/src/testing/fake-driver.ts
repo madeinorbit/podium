@@ -272,6 +272,7 @@ export type InteractionAskSpec = AskSpecOf<PendingInteraction>
  *  cache-miss one {@link defaultAskFor} mints. */
 const askPayloadForOverflow = () =>
   ({
+    v: 1,
     reason: 'context-overflow',
     prompt: 'The context window overflowed. How should this session continue?',
     offered: ['full-resume', 'summary-resume', 'fresh-session', 'abandon'],
@@ -280,11 +281,12 @@ const askPayloadForOverflow = () =>
 export function defaultAskFor(kind: InteractionKind): InteractionAskSpec {
   switch (kind) {
     case 'permission':
-      return { kind, payload: { toolName: 'Bash', canAlwaysAllow: false } }
+      return { kind, payload: { v: 1, toolName: 'Bash', canAlwaysAllow: false } }
     case 'question':
       return {
         kind,
         payload: {
+          v: 1,
           questions: [
             {
               question: 'Which way?',
@@ -296,15 +298,18 @@ export function defaultAskFor(kind: InteractionKind): InteractionAskSpec {
         },
       }
     case 'plan-approval':
-      return { kind, payload: { plan: 'Do the thing.', autoAcceptOffered: false } }
+      return { kind, payload: { v: 1, plan: 'Do the thing.', autoAcceptOffered: false } }
     case 'elicitation':
-      return { kind, payload: { message: 'Fill this in.', requestedSchema: { type: 'object' } } }
+      return {
+        kind,
+        payload: { v: 1, message: 'Fill this in.', requestedSchema: { type: 'object' } },
+      }
     case 'login':
-      return { kind, payload: { provider: 'fake', reason: 'auth-expired' } }
+      return { kind, payload: { v: 1, provider: 'fake', reason: 'auth-expired' } }
     case 'recovery':
       return {
         kind,
-        payload: { reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
+        payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
       }
   }
 }
@@ -875,8 +880,8 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         ask(
           core,
           kind === 'login'
-            ? { kind, payload: { provider: 'fake', reason: 'auth-expired' } }
-            : { kind: 'recovery', payload: askPayloadForOverflow() },
+            ? ({ kind, payload: { v: 1, provider: 'fake', reason: 'auth-expired' } } as const)
+            : ({ kind: 'recovery', payload: askPayloadForOverflow() } as const),
           interactionSource,
         )
       }

@@ -2314,7 +2314,10 @@ export const pendingInteractions = sqliteTable(
     uniqueIndex('idx_pending_interactions_fingerprint')
       .on(table.sessionId, table.fingerprint)
       .where(sql`status = 'asked'`),
-    check('pending_interactions_status_check', sql`status IN ('asked','answered','expired')`),
+    check(
+      'pending_interactions_status_check',
+      sql`status IN ('asked','answered','expired','superseded')`,
+    ),
     check(
       'pending_interactions_kind_check',
       sql`kind IN ('permission','question','plan-approval','elicitation','login','recovery')`,

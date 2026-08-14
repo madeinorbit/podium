@@ -558,6 +558,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         ? {
             kind: 'permission',
             payload: {
+              v: 1,
               toolName: need.ask?.toolName ?? need.summary ?? 'unknown tool',
               ...(need.ask?.detail ? { inputSummary: need.ask.detail } : {}),
               canAlwaysAllow: need.ask?.canAlwaysAllow ?? false,
@@ -566,6 +567,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         : {
             kind: 'question',
             payload: {
+              v: 1,
               questions: [
                 {
                   question: need?.summary ?? '',

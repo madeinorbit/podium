@@ -42,15 +42,23 @@ import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type {
   InteractionAnswer,
+  InteractionAnswerability,
   InteractionAnsweredBy,
   InteractionAnswerOutcome,
+  InteractionSource,
   PendingInteractionWire,
 } from '@podium/protocol'
 import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 import type { InboxPrincipalReference } from '../sessions/inbox'
 import type { AnswerDeliveryResult } from '../superagent/answer-delivery'
 import { defaultAnswerFor, resolveAnswerText } from './answers'
-import { type InteractionAskSpec, type QuestionPromptInput, synthesizeAsk } from './synthesis'
+import {
+  hasReliableIdentity,
+  type InteractionAskSpec,
+  interactionFingerprint,
+  type QuestionPromptInput,
+  synthesizeAsk,
+} from './synthesis'
 
 const log = createLogger('server:interactions')
 
@@ -133,6 +141,70 @@ export class InteractionService {
    * not having it. Leaving `needs_user` (or `idle`-in-plan-mode) is the
    * observable proof the ask is gone, whoever resolved it.
    */
+  /**
+   * THE INGRESS — record an ask, whoever observed it.
+   *
+   * This is the seam W5's opencode driver and W6's codex driver land on, and it
+   * is public for that reason: a driver that watched a `permission.updated`
+   * event knows strictly more than the bus subscription does, and must be able
+   * to say so rather than have the server re-derive a worse version.
+   *
+   * THE CALLER'S IDENTITY SURVIVES. `id` is taken as given — W3's terminal
+   * driver mints `ask:<transitionId>`, a server driver has a provider request id
+   * — because that id is what the driver will need to answer THROUGH later. Only
+   * a caller that supplies none gets a server mint.
+   *
+   * `fingerprint` is likewise the caller's when supplied: a driver with reliable
+   * ask identity should not have the server guess a digest for it. When absent
+   * the server computes one, and consults it only where the source says identity
+   * is unreliable (see {@link hasReliableIdentity}).
+   *
+   * Returns the row now open for this ask — the fresh one, or the duplicate it
+   * collapsed into.
+   */
+  async ask(input: {
+    interaction: InteractionAskSpec & {
+      id?: string
+      sessionId: SessionId
+      source: InteractionSource
+      answerable: InteractionAnswerability
+      askedAt?: string
+      expiresAt?: string
+      fingerprint?: string
+    }
+  }): Promise<{ row: PendingInteractionWire; inserted: boolean }> {
+    const a = input.interaction
+    const spec = { kind: a.kind, payload: a.payload } as InteractionAskSpec
+    const fingerprint =
+      a.fingerprint ??
+      interactionFingerprint(
+        a.sessionId,
+        spec,
+        // A caller with reliable identity and no fingerprint of its own still
+        // must not have two distinct asks merged; its supplied id is the
+        // discriminator, and falling back to the ask instant covers a mint.
+        hasReliableIdentity(a.source) ? (a.id ?? this.deps.now()) : undefined,
+      )
+    const { row, inserted } = this.deps.store.insert({
+      id: a.id ?? `ixn_${randomUUID()}`,
+      sessionId: a.sessionId,
+      kind: a.kind,
+      payload: a.payload,
+      source: a.source,
+      answerable: a.answerable,
+      fingerprint,
+      askedAt: a.askedAt ?? this.deps.now(),
+      ...(a.expiresAt ? { expiresAt: a.expiresAt } : {}),
+    })
+    // A collapsed duplicate must not re-announce — see the header.
+    if (inserted) {
+      this.deps.publish(row)
+      await this.applyDefaultAnswer(row, spec)
+    }
+    const settled = this.deps.store.get(row.id) ?? row
+    return { row: toWire(settled), inserted }
+  }
+
   async onStateChanged(input: {
     sessionId: SessionId
     prev: AgentRuntimeState | undefined
@@ -145,29 +217,30 @@ export class InteractionService {
           : undefined
       const ask = synthesizeAsk(input.sessionId, input.next, { questionOptions })
       if (!ask) {
-        this.closeOpen(input.sessionId, 'the session left the asking state')
+        // SUPERSEDED, not expired: the overwhelmingly common cause is a person
+        // answering at the terminal, which is a resolution. A list that
+        // reported those as expirations would read as a pile of failures.
+        this.closeOpen(input.sessionId, 'superseded', 'the session left the asking state')
         return
       }
       // A state that re-reports the SAME ask leaves the open row alone; a state
       // that reports a DIFFERENT one closes the stale row first, because two
       // open asks on one terminal session would both claim the same menu.
       for (const open of this.deps.store.listOpen(input.sessionId)) {
-        if (open.fingerprint !== ask.fingerprint) this.expire(open.id)
+        if (open.fingerprint !== ask.fingerprint) this.supersede(open.id)
       }
-      const { row, inserted } = this.deps.store.insert({
-        id: `ixn_${randomUUID()}`,
-        sessionId: input.sessionId,
-        kind: ask.spec.kind,
-        payload: ask.spec.payload,
-        source: ask.source,
-        answerable: ask.answerable,
-        fingerprint: ask.fingerprint,
-        askedAt: this.deps.now(),
+      // ONE INTERNAL CALLER of the public ingress: the bus path has no more
+      // authority than a driver does, and routing it through `ask()` is what
+      // keeps the two from growing separate insert/publish/auto-answer logic.
+      await this.ask({
+        interaction: {
+          ...ask.spec,
+          sessionId: input.sessionId,
+          source: ask.source,
+          answerable: ask.answerable,
+          fingerprint: ask.fingerprint,
+        },
       })
-      // A collapsed duplicate must not re-announce — see the header.
-      if (!inserted) return
-      this.deps.publish(row)
-      await this.applyDefaultAnswer(row, ask.spec)
     } catch (err) {
       // NEVER THROWS INTO THE BUS. This is an observer; a fault here must not
       // break the state-change fan-out that the badge and the inbox ride on.
@@ -175,21 +248,23 @@ export class InteractionService {
     }
   }
 
-  /** A session ended: every ask it left behind stops being answerable. */
+  /** A session ended: every ask it left behind stops being answerable. EXPIRED
+   *  rather than superseded — the menu went away with the process, and nobody
+   *  answered it. */
   onSessionExited(sessionId: SessionId): void {
-    this.closeOpen(sessionId, 'the session ended')
+    this.closeOpen(sessionId, 'expired', 'the session ended')
   }
 
-  private closeOpen(sessionId: SessionId, why: string): void {
-    for (const id of this.deps.store.expireSession(sessionId, this.deps.now())) {
+  private closeOpen(sessionId: SessionId, status: 'expired' | 'superseded', why: string): void {
+    for (const id of this.deps.store.closeSession(sessionId, status, this.deps.now())) {
       const row = this.deps.store.get(id)
       if (row) this.deps.publish(row)
-      log.debug('interaction expired', { id, why })
+      log.debug('interaction closed', { id, status, why })
     }
   }
 
-  private expire(id: string): void {
-    if (!this.deps.store.expire(id, this.deps.now())) return
+  private supersede(id: string): void {
+    if (!this.deps.store.close(id, 'superseded', this.deps.now())) return
     const row = this.deps.store.get(id)
     if (row) this.deps.publish(row)
   }
@@ -257,6 +332,24 @@ export class InteractionService {
     if (!row) return { ok: false, reason: 'unknown-interaction' }
     if (row.status === 'answered') return { ok: false, reason: 'already-answered' }
     if (row.status === 'expired') return { ok: false, reason: 'expired' }
+
+    // SUPERSEDED READS AS ALREADY-ANSWERED, not expired, and the distinction is
+    // the caller's not ours: the overwhelmingly common way a row supersedes is a
+    // person answering at the terminal. "Expired" would tell an operator their
+    // answer was too late for an ask nobody handled; "already answered" tells
+    // them the true thing, which is that somebody got there first.
+    if (row.status === 'superseded') return { ok: false, reason: 'already-answered' }
+
+    // ---------------------------------------------------------------------
+    // THE UNSHIPPED PATHS REFUSE HERE — BEFORE THE ROW IS CLAIMED.
+    // ---------------------------------------------------------------------
+    // Order is the whole point. Refusing after the claim would mark the ask
+    // ANSWERED and drop it out of `listOpen`, so a session that is still sitting
+    // on a permission prompt would vanish from the one list whose promise is
+    // that a blocked session appears in it. The ask stays open and the refusal
+    // is typed.
+    const unsupported = unsupportedAnswerReason(row)
+    if (unsupported) return { ok: false, reason: 'not-yet-supported', detail: unsupported }
 
     const spec = { kind: row.kind, payload: row.payload } as InteractionAskSpec
     let answer: InteractionAnswer
@@ -355,22 +448,60 @@ export class InteractionService {
 }
 
 /**
+ * WHY THIS ASK CANNOT BE ANSWERED YET, or `null` if it can.
+ *
+ * Two paths are specified and deliberately unshipped, and both refuse rather
+ * than degrade.
+ *
+ * PERMISSION BY KEYSTROKE — POD-707. The evidence file
+ * (`docs/agents/evidence/pod-707-permission-menu.md` §5) lists what a PTY run
+ * still has to establish: whether `1` approves an ordinary Bash ask or lands in
+ * a `yesInputMode` field, whether Esc rejects cleanly, and whether the reject
+ * path needs a settle delay. Until those are answered the ordinals are not
+ * known to be stable per ask, which means a "deny" keystroke can approve. The
+ * always-allow rows are worse: they are conditional and ordered per tool, so
+ * they must never be pressed programmatically — `canAlwaysAllow` exists so a
+ * surface can SAY the option is in the terminal, not so anything can reach it.
+ *
+ * STRUCTURED, ANY KIND — no protocol driver exists yet. W5/W6 land the first
+ * one; this refusal is the clean seam they replace.
+ *
+ * Refusing leaves the session visibly blocked and a human answers at the
+ * terminal, which is strictly better than a silent wrong keystroke reported as
+ * success.
+ */
+export function unsupportedAnswerReason(row: {
+  kind: InteractionRow['kind']
+  answerable: InteractionRow['answerable']
+}): string | null {
+  if (row.answerable === 'structured') {
+    return 'structured answering needs a protocol driver, which does not exist yet (W5/W6)'
+  }
+  if (row.kind === 'permission') {
+    return (
+      'answering a permission prompt by keystroke is not shipped (POD-707): the native menu’s ' +
+      'ordinals vary per ask, so a denial can approve, and the always-allow rows must never be ' +
+      'pressed programmatically. Answer it at the terminal.'
+    )
+  }
+  return null
+}
+
+/**
  * The typed answer → the string the delivery gate takes.
  *
  * `null` means this answer has no keystroke form. That is not a gap to be
  * filled with a guess: an elicitation is a form, and typing something at a
  * terminal that is waiting for structured content would be worse than refusing.
+ *
+ * There is NO `permission` arm, and its absence is the POD-707 rule made
+ * structural — see {@link unsupportedAnswerReason}. A permission answer never
+ * reaches this function.
  */
 function deliverableText(answer: InteractionAnswer): string | null {
   switch (answer.kind) {
     case 'permission':
-      // The menu's rows are "yes" / "yes, and don't ask again" / "no"; the
-      // matcher resolves these labels against whatever the harness drew.
-      return answer.decision === 'deny'
-        ? 'no'
-        : answer.decision === 'allow-always'
-          ? 'always'
-          : 'yes'
+      return null
     case 'question': {
       // The digit path takes 1-based indices; `matchAnswerToOptions` reads a
       // bare comma-separated list of them, which is the single form that works

@@ -12,20 +12,21 @@ import type { InteractionAskSpec } from './synthesis'
 
 const permission = (canAlwaysAllow: boolean): InteractionAskSpec => ({
   kind: 'permission',
-  payload: { toolName: 'Bash', inputSummary: 'ls', canAlwaysAllow },
+  payload: { v: 1, toolName: 'Bash', inputSummary: 'ls', canAlwaysAllow },
 })
 
 const question = (
   options: string[],
-  extra: { multiSelect?: boolean; otherIndex?: number } = {},
+  extra: { multiSelect?: boolean; otherIndex?: number; previewLayout?: boolean } = {},
 ): InteractionAskSpec => ({
   kind: 'question',
   payload: {
+    v: 1,
     questions: [
       {
         question: 'Which database?',
         multiSelect: extra.multiSelect ?? false,
-        previewLayout: false,
+        previewLayout: extra.previewLayout ?? false,
         options: options.map((label) => ({ label })),
         ...(extra.otherIndex !== undefined ? { otherIndex: extra.otherIndex } : {}),
       },
@@ -92,6 +93,18 @@ describe('resolveAnswerText — question', () => {
     )
   })
 
+  it('REFUSES free text on a preview-layout question — it has no Other row', () => {
+    // POD-770: in that dialog a digit only moves the cursor and the closing CR
+    // commits whatever is highlighted, so routing text through `otherIndex`
+    // selects option 1 and throws the text away. Fail closed instead.
+    const r = resolveAnswerText(
+      question(['Expand', 'Rebuild'], { previewLayout: true, otherIndex: 3 }),
+      'Something else',
+    )
+    expect(r.ok).toBe(false)
+    expect(r.ok === false && r.message).toContain('no Other row')
+  })
+
   it('refuses unmatched text with the options listed, when there is no Other', () => {
     const r = resolveAnswerText(question(['Postgres', 'SQLite']), 'DuckDB')
     expect(r.ok).toBe(false)
@@ -108,7 +121,7 @@ describe('resolveAnswerText — question', () => {
 describe('resolveAnswerText — the other kinds', () => {
   const plan: InteractionAskSpec = {
     kind: 'plan-approval',
-    payload: { plan: 'Rewrite it', autoAcceptOffered: true },
+    payload: { v: 1, plan: 'Rewrite it', autoAcceptOffered: true },
   }
 
   it('takes prose at a plan as redirection, not as an unreadable answer', () => {
@@ -124,7 +137,7 @@ describe('resolveAnswerText — the other kinds', () => {
     })
     const notOffered: InteractionAskSpec = {
       kind: 'plan-approval',
-      payload: { plan: 'Rewrite it', autoAcceptOffered: false },
+      payload: { v: 1, plan: 'Rewrite it', autoAcceptOffered: false },
     }
     expect(resolveAnswerText(notOffered, 'always')).toEqual({
       ok: true,
@@ -135,7 +148,7 @@ describe('resolveAnswerText — the other kinds', () => {
   it('takes a login answer as a report and never as a credential', () => {
     expect(
       resolveAnswerText(
-        { kind: 'login', payload: { provider: 'anthropic', reason: 'auth-expired' } },
+        { kind: 'login', payload: { v: 1, provider: 'anthropic', reason: 'auth-expired' } },
         'done',
       ),
     ).toEqual({
@@ -147,7 +160,7 @@ describe('resolveAnswerText — the other kinds', () => {
   it('accepts only the recovery choices this harness offered', () => {
     const ask: InteractionAskSpec = {
       kind: 'recovery',
-      payload: { reason: 'cache-miss', prompt: 'Resume?', offered: ['summary-resume'] },
+      payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['summary-resume'] },
     }
     expect(resolveAnswerText(ask, 'summary')).toMatchObject({
       answer: { choice: 'summary-resume' },
@@ -160,7 +173,7 @@ describe('resolveAnswerText — the other kinds', () => {
   it('refuses free text at an elicitation — a form is not a sentence', () => {
     const ask: InteractionAskSpec = {
       kind: 'elicitation',
-      payload: { message: 'Your name?', requestedSchema: { type: 'object' } },
+      payload: { v: 1, message: 'Your name?', requestedSchema: { type: 'object' } },
     }
     expect(resolveAnswerText(ask, 'Ada')).toMatchObject({ ok: false })
     expect(resolveAnswerText(ask, 'decline')).toEqual({
@@ -183,7 +196,7 @@ describe('the default answer table', () => {
   it('falls back to summary-resume only when no full path is offered', () => {
     const offered = (choices: string[]): InteractionAskSpec => ({
       kind: 'recovery',
-      payload: { reason: 'cache-miss', prompt: 'Resume?', offered: choices as never },
+      payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: choices as never },
     })
     expect(defaultAnswerFor(offered(['full-resume', 'summary-resume']))).toMatchObject({
       choice: 'full-resume',

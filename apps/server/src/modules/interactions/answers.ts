@@ -129,8 +129,22 @@ export function resolveAnswerText(spec: InteractionAskSpec, text: string): Answe
         }
         const idx = matchAnswerToOptions(t, labels)
         if (idx.length === 0) {
-          // The "Other" row is the free-text escape, and it only exists when the
-          // menu drew one. Without it, unmatched text has nowhere to go.
+          // THE "OTHER" ROW IS THE FREE-TEXT ESCAPE, AND THE PREVIEW LAYOUT HAS
+          // NONE (POD-770). In that dialog a digit only moves the cursor and the
+          // closing carriage return commits whatever is highlighted, so routing
+          // free text through `otherIndex` there does not answer the question —
+          // it silently selects option 1 and throws the text away. That is the
+          // exact bug the flag was added to prevent, so it fails closed.
+          if (q.previewLayout) {
+            return {
+              ok: false,
+              message:
+                `"${q.question}" is drawn as a side-by-side preview dialog, which has no Other ` +
+                `row — free text cannot be typed into it. Pick one of: ${labels
+                  .map((l, i) => `${i + 1}) ${l}`)
+                  .join(', ')}`,
+            }
+          }
           if (q.otherIndex !== undefined) {
             selections.push({ optionIndices: [q.otherIndex], text: t })
             continue

@@ -224,6 +224,24 @@ export type InteractionAnswerability = z.infer<typeof InteractionAnswerability>
 // parse failure rather than a runtime surprise.
 
 /**
+ * EVERY ASK PAYLOAD CARRIES ITS OWN VERSION, and the reason is specific to this
+ * union rather than general good practice.
+ *
+ * These six payloads are the one place in the system where five vendors' shapes
+ * are normalized into one vocabulary, and four of the six have NO producer yet
+ * (elicitation, login, recovery today; plan-approval from one source only). They
+ * will change shape as W5's opencode driver and W6's codex driver land real
+ * asks — and unlike the transport envelope, which `WIRE_VERSION` covers, a
+ * payload change is invisible at the frame level. A consumer holding a durable
+ * row written months earlier needs to know which vocabulary it is reading.
+ *
+ * It is a `z.literal(1)` and not a number: a producer cannot forget to set it,
+ * and a bump is a deliberate edit at every construction site rather than a
+ * value that quietly drifts.
+ */
+const ASK_VERSION = { v: z.literal(1) } as const
+
+/**
  * `permission` — a tool call awaiting consent.
  *
  * Sources: Claude's `PermissionRequest` hook and its `permission_prompt`
@@ -237,6 +255,7 @@ export type InteractionAnswerability = z.infer<typeof InteractionAnswerability>
  * not try to press it. (`docs/agents/evidence/pod-707-permission-menu.md`.)
  */
 export const PermissionAsk = z.object({
+  ...ASK_VERSION,
   /** The tool being consented to, in the harness's own naming (`Bash`, `Edit`). */
   toolName: z.string().min(1),
   /** THE ONE FIELD THAT SAYS WHAT IT WOULD DO — the command, the path, the URL —
@@ -246,6 +265,22 @@ export const PermissionAsk = z.object({
   inputSummary: z.string().optional(),
   /** Did the harness offer an always-allow alongside this ask? */
   canAlwaysAllow: z.boolean(),
+  /**
+   * RESERVED, AND NOTHING FILLS IT IN W2.
+   *
+   * Claude's `permission_suggestions` is a discriminated union of RULE
+   * MUTATIONS — addRules / replaceRules / setMode / addDirectories — not
+   * user-facing labels, and `translateClaudeHookPayload` reduces it to the
+   * `canAlwaysAllow` boolean before anything reaches the server. So there is no
+   * source for this field today; it is declared so that a driver which does
+   * carry the mutations (W5's opencode `permission.updated`, W6's codex) has a
+   * place to put them that later consumers can already name.
+   *
+   * Deliberately `unknown[]` rather than a guessed union: inventing the shape
+   * from one harness's bundle, with no consumer, is exactly the vocabulary-
+   * before-normalization mistake W1 avoided by leaving `payload` opaque.
+   */
+  suggestions: z.array(z.unknown()).readonly().optional(),
 })
 export type PermissionAsk = z.infer<typeof PermissionAsk>
 
@@ -274,15 +309,38 @@ export type QuestionOption = z.infer<typeof QuestionOption>
 
 export const QuestionPrompt = z.object({
   question: z.string(),
+  /** The short column heading the native dialog draws above the options.
+   *  Present on `AskQuestion` in `client-core/src/viewmodels/ask-question.ts`,
+   *  which is this shape's reference — the two describe one menu, so a field
+   *  there and not here would be a field the server silently drops. */
+  header: z.string().optional(),
   /** Digits TOGGLE on a multi-select menu rather than selecting, so answering
    *  one needs a confirming key the single-select path must not send (POD-609). */
   multiSelect: z.boolean(),
-  /** 1-BASED, matching `optionIndices`. The index of the synthetic "Other" row
-   *  when the menu offers free text; absent when it does not. An answer that
-   *  names it must carry {@link QuestionSelection.text}. */
+  /** 1-BASED (= option count + 1), matching `optionIndices`. The index of the
+   *  synthetic "Other" row when the menu offers free text; absent when it does
+   *  not. An answer that names it must carry {@link QuestionSelection.text}.
+   *
+   *  MEANINGLESS UNDER `previewLayout` — that dialog has no Other row at all,
+   *  which is the trap POD-770 documents: the Other script there silently
+   *  answers option 1 and throws the typed text away. */
   otherIndex: z.number().int().positive().optional(),
-  /** The dialog draws side-by-side, where a digit moves the cursor and a
-   *  carriage return is what selects (POD-770). */
+  /**
+   * The dialog draws SIDE-BY-SIDE, and this is the more dangerous of the two
+   * shape facts (POD-770).
+   *
+   * In that layout a digit only MOVES the cursor, a digit past the last option
+   * is dropped, and the closing carriage return commits whatever is highlighted.
+   * There is no Other row; the free-text escape is a "Notes" field reached with
+   * `n`. A caller that answers such a question with free text has not answered
+   * it — it has selected option 1. Consumers must refuse instead.
+   *
+   * Computed as the CLI's own predicate — `!multiSelect && options.some(o =>
+   * o.preview)` — which is `isPreviewLayout` in
+   * `client-core/src/viewmodels/ask-question.ts`. Carried on the row rather than
+   * recomputed per surface so a client that never sees the options still knows
+   * the ask cannot take free text.
+   */
   previewLayout: z.boolean(),
   options: z.array(QuestionOption).readonly(),
 })
@@ -296,6 +354,7 @@ export type QuestionPrompt = z.infer<typeof QuestionPrompt>
  * question events; a classified terminal menu.
  */
 export const QuestionAsk = z.object({
+  ...ASK_VERSION,
   questions: z.array(QuestionPrompt).readonly(),
 })
 export type QuestionAsk = z.infer<typeof QuestionAsk>
@@ -329,6 +388,7 @@ export type QuestionAnswer = z.infer<typeof QuestionAnswer>
  * request over their protocol.
  */
 export const PlanApprovalAsk = z.object({
+  ...ASK_VERSION,
   /** The plan as written. Unbounded by nature — a plan IS its text, so there is
    *  no summary that preserves the thing being approved. */
   plan: z.string(),
@@ -363,6 +423,7 @@ export type PlanApprovalAnswer = z.infer<typeof PlanApprovalAnswer>
  * that already has one shape would only add a translation nobody needs.
  */
 export const ElicitationAsk = z.object({
+  ...ASK_VERSION,
   message: z.string(),
   /** The MCP `requestedSchema` verbatim: a JSON Schema object describing the
    *  fields. Opaque HERE by nature — it is a schema, not a value — and rendered
@@ -395,6 +456,7 @@ export type ElicitationAnswer = z.infer<typeof ElicitationAnswer>
  * agent rather than a session that silently stopped.
  */
 export const LoginAsk = z.object({
+  ...ASK_VERSION,
   /** The provider whose credential is wanted, in the harness's naming
    *  ('anthropic', 'openai', …). */
   provider: z.string().min(1),
@@ -433,6 +495,7 @@ export type RecoveryChoice = z.infer<typeof RecoveryChoice>
  * aggregate's `DEFAULT_ANSWERS` — so the producer arrives to a decided policy.
  */
 export const RecoveryAsk = z.object({
+  ...ASK_VERSION,
   reason: z.enum(['cache-miss', 'trust-prompt', 'context-overflow', 'unknown']),
   /** What the harness actually asked, for a surface that renders it. */
   prompt: z.string(),
@@ -561,7 +624,23 @@ export const InteractionAnswerOutcome = z.union([
   z.object({ ok: z.literal(true) }),
   z.object({
     ok: z.literal(false),
-    reason: z.enum(['already-answered', 'expired', 'unknown-interaction']),
+    /**
+     * `not-yet-supported` is the DELIBERATE refusal, and it is the one that
+     * keeps a session honest rather than safe-looking.
+     *
+     * Two answering paths are specified and unshipped. A keystroke-emulated
+     * PERMISSION is unshipped by POD-707: the native menu's ordinals vary per
+     * ask, so deny-by-digit can approve, and the always-allow rows are
+     * conditional so they must never be pressed programmatically — the evidence
+     * file's §5 lists exactly what a PTY run still has to answer first. A
+     * `structured` answer is unshipped because no protocol driver exists yet
+     * (W5/W6).
+     *
+     * Both REFUSE rather than degrade. The ask stays open, the session stays
+     * visibly blocked, and a human answers it at the terminal — which is
+     * strictly better than a silent wrong keystroke that reports success.
+     */
+    reason: z.enum(['already-answered', 'expired', 'unknown-interaction', 'not-yet-supported']),
   }),
 ])
 export type InteractionAnswerOutcome = z.infer<typeof InteractionAnswerOutcome>
@@ -573,15 +652,22 @@ export type InteractionAnswerOutcome = z.infer<typeof InteractionAnswerOutcome>
 /**
  * THE LIFECYCLE, AND WHY `expired` IS NOT A DECISION.
  *
- * `asked → answered` and `asked → expired` are the only transitions, and
- * `expired` means the ask stopped being answerable — the session ended, or the
- * menu it named is provably gone — NOT that a deadline passed. Spec §4 is
- * explicit that `expiresAt` "raises the ask's visibility; it never answers it",
- * so a row past its escalation deadline is still `asked`. Conflating the two
- * would turn an escalation into a silent denial, which is the failure mode the
- * whole aggregate exists to abolish.
+ * `asked` moves to exactly one of three terminals and stops.
+ *
+ *  - `answered` — somebody decided, and `answeredBy` says who.
+ *  - `expired` — the ask stopped being answerable because the SESSION did: it
+ *    ended, taking the menu with it.
+ *  - `superseded` — the session moved on and this ask is no longer what it is
+ *    blocked on. Distinct from `expired` on purpose: the common cause is a
+ *    person answering at the terminal, which is a resolution, not a loss, and a
+ *    list that reported those as expirations would read as a pile of failures.
+ *
+ * NOTHING HERE IS A DEADLINE. Spec §4 is explicit that `expiresAt` "raises the
+ * ask's visibility; it never answers it", so a row past its escalation deadline
+ * is still `asked`. Conflating the two would turn an escalation into a silent
+ * denial, which is the failure mode the whole aggregate exists to abolish.
  */
-export const InteractionStatus = z.enum(['asked', 'answered', 'expired'])
+export const InteractionStatus = z.enum(['asked', 'answered', 'expired', 'superseded'])
 export type InteractionStatus = z.infer<typeof InteractionStatus>
 
 /** Who resolved it. `policy` is the per-session default answer table; there is

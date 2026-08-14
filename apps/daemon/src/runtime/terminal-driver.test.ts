@@ -929,6 +929,7 @@ describe('interactions', () => {
     // POD-2020 typed the payload per kind, so this is the `permission` arm and
     // not the bag of whatever the transition happened to carry.
     expect(ask.payload).toEqual({
+      v: 1,
       toolName: 'Bash',
       inputSummary: 'bun test',
       canAlwaysAllow: true,
@@ -957,7 +958,11 @@ describe('interactions', () => {
       },
     })
     const ask = (await session.interactions())[0] as PendingInteraction
-    expect(ask.payload).toEqual({ toolName: 'Bash wants to run tests', canAlwaysAllow: false })
+    expect(ask.payload).toEqual({
+      v: 1,
+      toolName: 'Bash wants to run tests',
+      canAlwaysAllow: false,
+    })
   })
 
   /**

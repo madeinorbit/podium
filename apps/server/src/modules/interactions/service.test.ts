@@ -59,6 +59,25 @@ const ASK_USER_QUESTION = {
   }),
 }
 
+/** The side-by-side dialog: single-select with per-option previews. It has NO
+ *  Other row, so free text cannot be typed into it (POD-770). */
+const ASK_USER_QUESTION_PREVIEW = {
+  role: 'tool',
+  toolName: 'AskUserQuestion',
+  toolInputJson: JSON.stringify({
+    questions: [
+      {
+        question: 'Which migration?',
+        multiSelect: false,
+        options: [
+          { label: 'Expand', preview: 'ALTER TABLE …' },
+          { label: 'Rebuild', preview: 'CREATE TABLE __new …' },
+        ],
+      },
+    ],
+  }),
+}
+
 function harness(
   options: { delivery?: (answer: string) => AnswerDeliveryResult; transcript?: unknown[] } = {},
 ) {
@@ -114,14 +133,50 @@ describe('InteractionService — synthesis', () => {
     ])
   })
 
-  it('a re-observed ask does NOT mint a second row or re-announce', async () => {
-    // The at-least-once defence: a re-rendered classified menu is one ask.
+  it('a re-observed CLASSIFIER ask does NOT mint a second row or re-announce', async () => {
+    // The at-least-once defence: a re-rendered scraped menu is one ask.
+    const scraped = (): AgentRuntimeState =>
+      state({
+        phase: 'needs_user',
+        stateSource: 'classifier',
+        need: {
+          kind: 'permission',
+          ask: { toolName: 'Bash', detail: 'ls', canAlwaysAllow: false },
+        },
+      })
     const { svc, published } = harness()
-    await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
-    await svc.onStateChanged({ sessionId: S, prev: permissionState(), next: permissionState() })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: scraped() })
+    await svc.onStateChanged({ sessionId: S, prev: scraped(), next: scraped() })
     expect(svc.listOpen()).toHaveLength(1)
     // A collapsed duplicate must not ping every surface again.
     expect(published).toHaveLength(1)
+  })
+
+  it('two sequential HOOK asks for the same tool stay two enumerable asks', async () => {
+    // The other half of the rule, and the one a whole-payload fingerprint gets
+    // wrong: a hook fires once per real ask, so a session running `Bash: ls`
+    // twice is blocked twice. Merging them would answer the first and leave the
+    // session stuck on a second nothing enumerates.
+    const { svc } = harness()
+    const first = permissionState()
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: first })
+    const answered = state({ phase: 'working' })
+    await svc.onStateChanged({ sessionId: S, prev: first, next: answered })
+    const second = { ...permissionState(), since: '2026-08-14T00:05:00.000Z' }
+    await svc.onStateChanged({ sessionId: S, prev: answered, next: second })
+    expect(svc.listOpen()).toHaveLength(1)
+    // Two rows overall: the first superseded when the session moved on, the
+    // second open — not one row reused.
+    expect(svc.listForSession(S)).toHaveLength(2)
+  })
+
+  it('a re-observation of the SAME hook transition still collapses', async () => {
+    // `since` is the transition instant, so a repeated observation of one
+    // transition is one ask — the discriminator distinguishes asks, not frames.
+    const { svc } = harness()
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
+    await svc.onStateChanged({ sessionId: S, prev: permissionState(), next: permissionState() })
+    expect(svc.listForSession(S)).toHaveLength(1)
   })
 
   it('a DIFFERENT ask on the same session expires the stale one', async () => {
@@ -135,7 +190,8 @@ describe('InteractionService — synthesis', () => {
       next: permissionState('rm -rf /'),
     })
     expect(svc.listOpen()).toHaveLength(1)
-    expect(svc.get(first.id)).toMatchObject({ status: 'expired' })
+    // SUPERSEDED, not expired — the session moved on to a different ask.
+    expect(svc.get(first.id)).toMatchObject({ status: 'superseded' })
   })
 
   it('leaving the asking state closes the open ask — whoever answered it', async () => {
@@ -156,6 +212,7 @@ describe('InteractionService — synthesis', () => {
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
     svc.onSessionExited(S)
     expect(svc.listOpen()).toHaveLength(0)
+    // EXPIRED here: the process died and took the menu with it.
     expect(svc.listForSession(S)[0]).toMatchObject({ status: 'expired' })
   })
 
@@ -180,6 +237,54 @@ describe('InteractionService — synthesis', () => {
   })
 })
 
+describe('InteractionService — the public ask() ingress', () => {
+  it('preserves the caller\u2019s id — W3 mints ask:<transitionId> and must keep it', async () => {
+    const { svc } = harness()
+    const { row, inserted } = await svc.ask({
+      interaction: {
+        id: 'ask:transition-7',
+        sessionId: S,
+        kind: 'permission',
+        payload: { v: 1, toolName: 'Bash', canAlwaysAllow: false },
+        source: 'hook',
+        answerable: 'keystroke-emulated',
+      },
+    })
+    expect(inserted).toBe(true)
+    expect(row.id).toBe('ask:transition-7')
+    // That id is what the driver answers THROUGH later, so it has to survive.
+    expect(svc.listOpen().map((i) => i.id)).toEqual(['ask:transition-7'])
+  })
+
+  it('honours a caller-supplied fingerprint rather than guessing one', async () => {
+    const { svc } = harness()
+    await svc.ask({
+      interaction: {
+        id: 'a',
+        sessionId: S,
+        kind: 'permission',
+        payload: { v: 1, toolName: 'Bash', canAlwaysAllow: false },
+        source: 'protocol',
+        answerable: 'structured',
+        fingerprint: 'provider-request-9',
+      },
+    })
+    const second = await svc.ask({
+      interaction: {
+        id: 'b',
+        sessionId: S,
+        kind: 'permission',
+        payload: { v: 1, toolName: 'Bash', canAlwaysAllow: false },
+        source: 'protocol',
+        answerable: 'structured',
+        fingerprint: 'provider-request-9',
+      },
+    })
+    expect(second.inserted).toBe(false)
+    expect(second.row.id).toBe('a')
+  })
+})
+
 describe('InteractionService — answering', () => {
   it('drives the native menu through the existing delivery path', async () => {
     const { svc, delivered } = harness({ transcript: [ASK_USER_QUESTION] })
@@ -198,14 +303,76 @@ describe('InteractionService — answering', () => {
   })
 
   it('answering twice returns the typed error and delivers once', async () => {
+    const { svc, delivered } = harness({ transcript: [ASK_USER_QUESTION] })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
+    const id = svc.listOpen()[0]!.id
+    expect(await answerAs(svc, id, 'Postgres')).toEqual({ ok: true })
+    expect(await answerAs(svc, id, 'SQLite')).toEqual({ ok: false, reason: 'already-answered' })
+    // The whole point: a second delivery on a keystroke-emulated ask types
+    // digits at a menu that has already moved.
+    expect(delivered).toEqual(['1'])
+  })
+
+  it('REFUSES to answer a permission prompt by keystroke, and leaves it open', async () => {
+    // POD-707: the native menu's ordinals vary per ask, so a denial can approve,
+    // and always-allow must never be pressed programmatically. The refusal is
+    // typed and — load-bearing — the ask STAYS OPEN, because a row marked
+    // answered would drop out of `listOpen` and hide a session that is still
+    // sitting on the prompt.
     const { svc, delivered } = harness()
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
     const id = svc.listOpen()[0]!.id
-    expect(await answerAs(svc, id, 'allow')).toEqual({ ok: true })
-    expect(await answerAs(svc, id, 'deny')).toEqual({ ok: false, reason: 'already-answered' })
-    // The whole point: a second delivery on a keystroke-emulated ask types
-    // digits at a menu that has already moved.
-    expect(delivered).toEqual(['yes'])
+    const outcome = await answerAs(svc, id, 'allow')
+    expect(outcome.ok).toBe(false)
+    expect(outcome.ok === false && outcome.reason).toBe('not-yet-supported')
+    expect(outcome.detail).toContain('POD-707')
+    expect(delivered).toEqual([])
+    expect(svc.listOpen().map((i) => i.id)).toEqual([id])
+    expect(svc.get(id)).toMatchObject({ status: 'asked' })
+  })
+
+  it('REFUSES a structured answer — no protocol driver exists yet', async () => {
+    const { svc, store, delivered } = harness()
+    store.insert({
+      id: 'ixn_structured',
+      sessionId: S,
+      kind: 'question',
+      payload: {
+        v: 1,
+        questions: [{ question: 'Which?', multiSelect: false, previewLayout: false, options: [] }],
+      },
+      source: 'protocol',
+      answerable: 'structured',
+      fingerprint: 'fp-structured',
+      askedAt: '2026-08-14T00:00:00.000Z',
+    })
+    const outcome = await svc.answer({
+      id: 'ixn_structured',
+      answer: { kind: 'question', selections: [{ optionIndices: [1] }] },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.ok === false && outcome.reason).toBe('not-yet-supported')
+    expect(delivered).toEqual([])
+    // W5/W6 replace this seam; until then the ask stays open.
+    expect(svc.get('ixn_structured')).toMatchObject({ status: 'asked' })
+  })
+
+  it('answering a SUPERSEDED ask reads as already-answered', async () => {
+    // The common cause is a person answering at the terminal. "Expired" would
+    // say the answer was too late for an ask nobody handled; "already answered"
+    // says the true thing — somebody got there first.
+    const { svc } = harness()
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
+    const id = svc.listOpen()[0]!.id
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: permissionState(),
+      next: state({ phase: 'working' }),
+    })
+    expect(svc.get(id)).toMatchObject({ status: 'superseded' })
+    expect(await answerAs(svc, id, 'allow')).toEqual({ ok: false, reason: 'already-answered' })
   })
 
   it('answering an expired ask returns `expired`, not `already-answered`', async () => {
@@ -225,10 +392,13 @@ describe('InteractionService — answering', () => {
   })
 
   it('an unresolvable answer refuses and leaves the ask OPEN', async () => {
-    const { svc, delivered } = harness()
-    await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
+    // A PREVIEW-LAYOUT question, which is the case that genuinely cannot take
+    // free text: that dialog has no Other row (POD-770), so routing text
+    // through one would select option 1 and throw the text away.
+    const { svc, delivered } = harness({ transcript: [ASK_USER_QUESTION_PREVIEW] })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
     const id = svc.listOpen()[0]!.id
-    const outcome = await answerAs(svc, id, 'perhaps')
+    const outcome = await answerAs(svc, id, 'DuckDB')
     expect(outcome.ok).toBe(false)
     expect(delivered).toEqual([])
     // Still blocked, still enumerable — a refusal must not resolve the row.
@@ -236,8 +406,8 @@ describe('InteractionService — answering', () => {
   })
 
   it('refuses a typed answer whose kind does not match the ask', async () => {
-    const { svc } = harness()
-    await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
+    const { svc } = harness({ transcript: [ASK_USER_QUESTION] })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
     const id = svc.listOpen()[0]!.id
     const outcome = await svc.answer({
       id,
@@ -252,10 +422,13 @@ describe('InteractionService — answering', () => {
   it('records a failed delivery as answered-but-unverified rather than reopening', async () => {
     // The honest middle state: the row was claimed before delivery (so two
     // answers cannot both type), so a delivery failure leaves a claimed row.
-    const { svc } = harness({ delivery: () => ({ ok: false, message: 'session not running' }) })
-    await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
+    const { svc } = harness({
+      delivery: () => ({ ok: false, message: 'session not running' }),
+      transcript: [ASK_USER_QUESTION],
+    })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
     const id = svc.listOpen()[0]!.id
-    const outcome = await answerAs(svc, id, 'allow')
+    const outcome = await answerAs(svc, id, 'Postgres')
     expect(outcome.ok).toBe(true)
     expect(outcome.detail).toContain('session not running')
     expect(svc.get(id)).toMatchObject({ status: 'answered', deliveredVia: 'unverified' })
@@ -269,7 +442,7 @@ describe('InteractionService — the default answer table', () => {
       id: 'ixn_recovery',
       sessionId: S,
       kind: 'recovery',
-      payload: { reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
+      payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
       source: 'hook',
       answerable: 'keystroke-emulated',
       fingerprint: 'fp-recovery',
@@ -301,7 +474,7 @@ describe('InteractionsRepository', () => {
     id,
     sessionId,
     kind: 'permission' as const,
-    payload: { toolName: 'Bash', canAlwaysAllow: false },
+    payload: { v: 1, toolName: 'Bash', canAlwaysAllow: false },
     source: 'hook' as const,
     answerable: 'keystroke-emulated' as const,
     fingerprint,
@@ -360,7 +533,7 @@ describe('InteractionsRepository', () => {
   it('recordDelivery does NOT resurrect an expired row', () => {
     const store = new InteractionsRepository(openMigratedTestDatabase())
     store.insert(row('a', 'fp'))
-    store.expire('a', '2026-08-14T00:01:00.000Z')
+    store.close('a', 'expired', '2026-08-14T00:01:00.000Z')
     expect(store.recordDelivery('a', 'menu')).toBe(false)
   })
 
@@ -383,7 +556,7 @@ describe('InteractionsRepository', () => {
     const store = new InteractionsRepository(openMigratedTestDatabase())
     store.insert(row('open', 'fp1'))
     store.insert(row('done', 'fp2'))
-    store.expire('done', '2026-08-14T00:00:30.000Z')
+    store.close('done', 'expired', '2026-08-14T00:00:30.000Z')
     expect(store.pruneResolvedBefore('2026-08-14T01:00:00.000Z')).toBe(1)
     // An ask nobody answered is the one thing this table must not forget.
     expect(store.listOpen()).toHaveLength(1)
