@@ -62,6 +62,11 @@ Grok headless feasibility investigation.
      agents using the two spellings can merge concurrently. Only `integration:1761` counts;**
   2. `git rebase issue/1761-agent-runtime` on your branch;
   3. run your gates (typecheck + touched tests);
+     **then `podium lock acquire integration:1761 --ttl 10m` again BEFORE the merge — re-acquiring
+     a lock you hold renews it. The epic's full gate list runs past 10 minutes (whole-graph
+     typecheck alone is ~1m30–19m under load), so a lease taken before the gates is often
+     EXPIRED by merge time (learned in production on POD-2121: 'lock is not held' at release).
+     An expired lease means you are NOT serialized, ff-only is merely the last line of defense;**
   4. `git -C /home/mgw/src/podium/.worktrees/issue-1761-agent-runtime merge --ff-only
      issue/<your-id>-<slug>` (never `cd` into that worktree — `git -C` only);
   5. `podium lock release integration:1761` immediately.
