@@ -62,7 +62,11 @@ Grok headless feasibility investigation.
   5. `podium lock release integration:1761` immediately.
 - Commits carry a `Podium-Issue: POD-<your id>` trailer.
 - Gates before merging: `bun scripts/typecheck.ts` and the test suites your change touches
-  (`bun scripts/test.ts --filter …`). Do not re-run the world.
+  (`bun scripts/test.ts --filter …`). Do not re-run the world. **Biome (`bun run lint`) is
+  explicitly NOT an epic gate** — it carries a ~1400-error repo-wide baseline nobody owns;
+  do not cite a red biome run as a finding against any commit (epic decision, learned from
+  a false finding in W1's review round). Boundary lint (`bun run lint:boundaries`) IS a
+  gate: no NEW violations vs the 6-line baseline POD-2033 recorded.
 - **There is no human in your loop.** Never use AskUserQuestion, never post an offer expecting
   a human, never wait for confirmation. Make the call, record it in a `podium issue comment`,
   proceed. If genuinely blocked by another subissue's missing work, mail the coordinator
