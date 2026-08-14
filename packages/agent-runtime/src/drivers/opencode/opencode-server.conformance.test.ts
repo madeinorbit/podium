@@ -32,8 +32,15 @@
  */
 
 import type { SessionId } from '@podium/model'
-import { runConformance } from '../../testing/index.js'
+import { describe, expect, it } from 'vitest'
+// `assertAttachHonoursOneControlLease` is the assertion, not a copy of it: the
+// refusal arm below is judged by the same corpus function the run judges its
+// endpoint arm with. Imported from the module rather than the `testing/` barrel
+// because the barrel is the corpus's surface to curate, and this file has no
+// business widening it.
+import { assertAttachHonoursOneControlLease } from '../../testing/conformance/suite.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
+import { runConformance } from '../../testing/index.js'
 import { createOpencodeClient, type OpencodeClient } from './client.js'
 import { SERVER_PERMITTED_FAILURES } from './permitted-failures.js'
 import {
@@ -60,7 +67,14 @@ import { type FakeOpencodeServer, startFakeOpencodeServer } from './test-support
  * affordance: it is what makes an ask raised while a socket was down, or
  * answered at an attached TUI, visible at all.
  */
-function makeWorld(): { target: ConformanceTarget } {
+interface WorldOptions {
+  /** `false` is a machine with nowhere to run `opencode attach <url>`. The
+   *  driver turns that into the corpus's typed refusal; see `attachClient`. */
+  hostsClientTerminals?: boolean
+}
+
+function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
+  const hostsClientTerminals = options.hostsClientTerminals !== false
   let runtime: OpencodeRuntime | undefined
   let seq = 0
   const servers = new Map<SessionId, FakeOpencodeServer>()
@@ -125,9 +139,24 @@ function makeWorld(): { target: ConformanceTarget } {
     },
 
     async attachClient(input) {
-      // `opencode attach <url>` would run here on a real host. The fixture only
-      // has to prove the driver produces the endpoint VARIANT its capability
-      // declares.
+      /**
+       * `opencode attach <url>` would run here on a real host — and on a host
+       * with nowhere to run one, NOTHING would (POD-2059's shape).
+       *
+       * This used to return an endpoint unconditionally, and the comment that
+       * stood here said why honestly: the fixture only had to prove the driver
+       * produced the endpoint VARIANT its capability declares, because that was
+       * the only thing the corpus asked. It is what made the corpus's refusal
+       * arm dormant — every landed fixture hosted a client, so no target ever
+       * reached it.
+       *
+       * `undefined` is the host contract's "this machine hosts no terminal", and
+       * it is a per-MACHINE fact rather than a per-driver one: the capability
+       * still declares `client`, because the variant this family produces does
+       * not change with the host. What changes is whether this box can run one,
+       * and the driver turns that into the typed refusal the corpus branches on.
+       */
+      if (!hostsClientTerminals) return undefined
       return { streamId: `oc-attach-${input.sessionId}`, warmTtlMs: 300_000 }
     },
 
@@ -283,6 +312,57 @@ function makeWorld(): { target: ConformanceTarget } {
 }
 
 const { target } = makeWorld()
+
+/**
+ * THE OTHER ARM OF THE SAME PROPERTY, ON A HOST THAT HOSTS NO TERMINAL.
+ *
+ * `assertAttachHonoursOneControlLease` classifies every answer before judging it
+ * and then branches: an endpoint must be of a kind the capability DECLARES, and
+ * a refusal must be TYPED — and a refused attach must not be holding the lease.
+ * The run above takes the ENDPOINT branch from its first `peek` and never comes
+ * back, which is correct for a machine that can host a client and is exactly why
+ * the refusal branch had no landed target reaching it.
+ *
+ * So the refusal arm gets the world it describes rather than a flag inside the
+ * other one: same real driver, same real loopback server, one host fact changed.
+ * The corpus's own property does the judging — this file only supplies the
+ * machine — which is what keeps the assertion shared rather than re-stated here.
+ *
+ * WHY NOT A SECOND FULL `runConformance`. Nothing else in the corpus reads
+ * `attachClient`, so a second whole-corpus pass would re-prove ~90 properties to
+ * reach one branch. The suite exports this assertion for precisely this — see
+ * its own note about the teeth tests.
+ */
+describe('opencode-server on a host with nowhere to run a terminal', () => {
+  it('refuses the attach, typed, and does not walk off with the lease', async () => {
+    const world = makeWorld({ hostsClientTerminals: false })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+
+      /**
+       * THE ARM IS PINNED BEFORE THE PROPERTY RUNS, because the property is
+       * satisfied by EITHER arm and would go green on this world without ever
+       * reaching the refusal branch — which is the exact failure that made the
+       * branch dormant in the first place, reproduced one level up. These two
+       * assertions are what make the test below about the refusal.
+       *
+       * `supported` stays TRUE: this is a declared attach being refused by a
+       * particular machine, not a family that has no terminal. The two reach
+       * different branches of the property and only this one carries the
+       * "a refused attach is not holding the lease" invariant.
+       */
+      expect(driver.capabilities().attach.supported).toBe(true)
+      expect(await handle.attach({ mode: 'peek', holder: 'probe' })).toMatchObject({
+        reason: 'unsupported',
+      })
+
+      await assertAttachHonoursOneControlLease(handle, driver.capabilities(), world.target.family)
+    } finally {
+      world.target.reset()
+    }
+  })
+})
 
 runConformance(target.createDriver, {
   name: target.name,

@@ -1,37 +1,53 @@
 /**
- * THE CONTROL LEASE, AND THE TWO VERBS THAT MUST AGREE ABOUT IT (POD-2059's
- * finding on POD-2023).
+ * WHAT IS LEFT OF THE DRIVER-LEVEL LEASE PIN, ONCE THE CORPUS OWNS THE
+ * INVARIANT (POD-2059's finding on POD-2023; the shared property is POD-2085's).
  *
  * ---------------------------------------------------------------------------
- * WHY THIS IS ITS OWN FILE AND NOT A CONFORMANCE PROPERTY
+ * THE DUPLICATE IS GONE, AND THIS IS WHAT IT WAS
  * ---------------------------------------------------------------------------
  *
- * It should be a conformance property — the invariant is spec §5's and belongs
- * to every family, and the terminal driver already satisfies it. The corpus is
- * POD-2085's to edit and it has landed; adding a property there from here would
- * be exactly the collision the epic's ownership split exists to prevent. So the
- * driver-level pin lives here, and POD-2085 has been told what the shared
- * property would look like.
+ * This file used to open with four tests pinning the bug POD-2059 found:
+ * `lease.acquire()` refused a second holder with `lease_held` while
+ * `attach({mode: 'takeover'})` — which the contract defines as *taking the
+ * control lease* — assigned it unconditionally, so two attachers both believed
+ * they held it and the second silently displaced the first. One door locked,
+ * one door open, on the same lease.
+ *
+ * They lived here rather than in the corpus for one reason, stated plainly at
+ * the time: the corpus was POD-2085's to edit, and adding a property there from
+ * here would have been the collision the epic's ownership split exists to
+ * prevent. That reason has expired. `assertAttachHonoursOneControlLease` in
+ * `testing/conformance/suite.ts` now asserts every one of them, for EVERY
+ * family rather than this driver alone:
+ *
+ *   - refuses a takeover while somebody else holds it, and the holder does not
+ *     move                                                    (suite, `lease_held`)
+ *   - lets the SAME holder re-attach                          (suite)
+ *   - never lets a peek touch the lease, even while held      (suite)
+ *   - takes the lease when nobody holds it, and a steward's
+ *     nudge does not then reach the agent   (suite, 'a human take-over lease
+ *                                            excludes other controllers')
+ *
+ * Keeping a second copy against one driver would mean the shared property could
+ * rot on this family without anything going red — which is the failure the
+ * corpus exists to end, reproduced in miniature.
  *
  * ---------------------------------------------------------------------------
- * WHAT WENT WRONG, BECAUSE THE SHAPE OF IT IS THE LESSON
+ * WHY THE REST STAYED, WHICH IS NOT THE SAME QUESTION
  * ---------------------------------------------------------------------------
  *
- * `lease.acquire()` refused a second holder with `lease_held`. `attach({mode:
- * 'takeover'})` — which the contract defines as *taking the control lease* —
- * assigned it unconditionally. So the session had two doors to one lease and
- * only one of them was locked: two attachers in take-over mode both believed
- * they held it, and the second silently displaced the first.
- *
- * That is worse than neither door being locked. A caller that reads
- * `lease_held` from `acquire()` and branches on it is entitled to believe the
- * exclusion is real; a second mechanism handing the same lease out for free
- * makes the refusal a lie rather than a gap.
+ * What remains is what the corpus CANNOT see from where it stands. It drives a
+ * driver through the contract; it has no way to observe that no client terminal
+ * was ever spawned, no way to release a lease and watch a parked turn drain, and
+ * no way to make a health probe fail once. Those are facts about this driver's
+ * internals and this harness's fake, and a shared property that could reach them
+ * would have to grow a control surface for opencode's plumbing — which is the
+ * corpus asking every other family to carry this one's shape.
  */
 
 import { describe, expect, it } from 'vitest'
-import type { AgentSessionHandle, SessionSpec } from '../../index.js'
-import { createOpencodeRuntime, type OpencodeRuntime } from './runtime.js'
+import type { SessionSpec } from '../../index.js'
+import { createOpencodeRuntime } from './runtime.js'
 import { makeOpencodeTestHost } from './test-support/host.js'
 
 const spec = (): SessionSpec => ({
@@ -43,84 +59,22 @@ const spec = (): SessionSpec => ({
   mcpServers: { supported: false, reason: 'fixture' },
 })
 
-async function session(): Promise<{ handle: AgentSessionHandle; runtime: OpencodeRuntime }> {
-  const runtime = createOpencodeRuntime(makeOpencodeTestHost())
-  const handle = await runtime.driver.create(spec())
-  return { handle, runtime }
-}
+// The `session()` helper that used to sit here went with the four tests the
+// corpus now owns: every test left builds its own runtime, because each one
+// needs a host wired for the specific thing it observes.
 
-describe('attach(takeover) and lease.acquire agree about who holds the lease', () => {
-  it('REFUSES a takeover while somebody else holds the lease', async () => {
-    const { handle, runtime } = await session()
-    try {
-      expect(await handle.lease.acquire('operator', 'human-controller')).toMatchObject({
-        holder: 'operator',
-      })
-      // THE REGRESSION. This used to succeed and silently displace `operator`.
-      const endpoint = await handle.attach({ mode: 'takeover', holder: 'someone-else' })
-      expect(endpoint).toMatchObject({ reason: 'lease_held' })
-      // …and the first holder still has it, which is the fact the refusal is
-      // about. A refusal that let go of the lease anyway would be theatre.
-      expect(await handle.lease.state()).toMatchObject({ holder: 'operator' })
-    } finally {
-      runtime.dispose()
-    }
-  })
-
-  it('lets the SAME holder re-attach, because that is not a second controller', async () => {
-    const { handle, runtime } = await session()
-    try {
-      await handle.lease.acquire('operator', 'human-controller')
-      const endpoint = await handle.attach({ mode: 'takeover', holder: 'operator' })
-      // Re-attaching after a disconnect is the common case and must not be
-      // refused by a lease the caller already holds.
-      expect('kind' in endpoint).toBe(true)
-    } finally {
-      runtime.dispose()
-    }
-  })
-
-  it('never lets a PEEK touch the lease — spectators are unlimited (spec §5)', async () => {
-    const { handle, runtime } = await session()
-    try {
-      await handle.lease.acquire('operator', 'human-controller')
-      const endpoint = await handle.attach({ mode: 'peek', holder: 'a-watcher' })
-      expect('kind' in endpoint).toBe(true)
-      // The watcher is watching, not controlling. If a peek took the lease, a
-      // second viewer would evict whoever was actually driving.
-      expect(await handle.lease.state()).toMatchObject({ holder: 'operator' })
-    } finally {
-      runtime.dispose()
-    }
-  })
-
-  it('TAKES the lease when nobody holds it, so takeover still means takeover', async () => {
-    const { handle, runtime } = await session()
-    try {
-      expect(await handle.lease.state()).toBeNull()
-      const endpoint = await handle.attach({ mode: 'takeover', holder: 'operator' })
-      expect('kind' in endpoint).toBe(true)
-      expect(await handle.lease.state()).toMatchObject({
-        holder: 'operator',
-        kind: 'human-controller',
-      })
-      // …and the exclusion it just established is real: a send on somebody
-      // else's behalf must not now interleave with the human at the terminal.
-      const receipt = await handle.send(
-        { text: 'nudge' },
-        { origin: 'steward', delivery: 'when-ready' },
-      )
-      expect(receipt.outcome).not.toBe('accepted')
-    } finally {
-      runtime.dispose()
-    }
-  })
-
+describe('a refused takeover leaves nothing running behind it', () => {
   it('does not start a client terminal for a refused takeover', async () => {
     /**
-     * THE SECOND HALF OF THE BUG. The old code spawned the client and only then
-     * assigned the lease, so a refusal would have left an orphaned TUI attached
-     * to a session it was just refused control of. The check now runs first.
+     * THE SECOND HALF OF THE BUG, AND THE HALF THE CORPUS CANNOT SEE. The old
+     * code spawned the client and only then assigned the lease, so a refusal
+     * would have left an orphaned TUI attached to a session it was just refused
+     * control of. The check now runs first.
+     *
+     * The shared property pins the lease side of this — a refused attach is not
+     * holding the lease — because every family can observe a lease through the
+     * contract. NOBODY can observe a process that should not exist without
+     * asking the host, so this one stays at driver level, where the host is.
      */
     const started: string[] = []
     const runtime = createOpencodeRuntime(
