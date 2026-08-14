@@ -1199,6 +1199,34 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
 
       // ---- attach and lease ----
       async attach(req: AttachRequest): Promise<AttachEndpoint | Refusal> {
+        /**
+         * THE LEASE IS CHECKED BEFORE ANYTHING IS STARTED (POD-2059's finding).
+         *
+         * This used to set `session.lease` UNCONDITIONALLY after starting the
+         * client, which broke the one thing the lease exists for. Spec §5:
+         * "exactly one driver-controller or one human-controller holds it", and
+         * that is what makes "the user attached and started typing" and "the
+         * steward tried to nudge" impossible to interleave. Two attachers in
+         * take-over mode both got "the" control lease and the second silently
+         * displaced the first — while `lease.acquire()`, one screen down, was
+         * refusing that exact case with `lease_held`. One verb enforcing an
+         * invariant its sibling hands out for free is worse than neither doing
+         * it, because callers read the refusal and believe it.
+         *
+         * ORDER MATTERS TOO, and that is the second half of the fix: the old
+         * code spawned a client terminal and only then took the lease, so a
+         * refusal — had there been one — would have left an orphaned TUI
+         * attached to the session it was refused access to.
+         *
+         * A `peek` never touches the lease: spectators are unlimited, which is
+         * the other half of §5 and the reason the check is scoped to takeover.
+         */
+        if (req.mode === 'takeover' && session.lease && session.lease.holder !== req.holder) {
+          return {
+            reason: 'lease_held',
+            detail: `the control lease is held by ${session.lease.holder}`,
+          }
+        }
         const client = await host.attachClient({
           sessionId: session.sessionId,
           url: session.endpoint.baseUrl,
