@@ -48,6 +48,7 @@
  * authentication has produced a principal. The provider renders nothing instead.
  */
 
+import { createLogger } from '@podium/logger'
 import type {
   IssueId,
   LayoutSnapshot,
@@ -191,6 +192,8 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
  * without a server round-trip, and nothing here needs finer resolution.
  */
 export const COARSE_CLOCK_MS = 60_000
+
+const log = createLogger('client-core:runtime')
 
 /**
  * How long a keystroke waits before its text goes out (POD-2045).
@@ -1154,7 +1157,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     } catch (err) {
       // A draft that cannot be cached is still on screen and still on its way to
       // the server. Losing the reload guarantee is not worth breaking the app.
-      console.warn('[podium] could not cache this device drafts', err)
+      log.warn('could not cache this device drafts', { err })
     }
   }
 
