@@ -46,15 +46,12 @@ preserve the local project and task draft when users go back.
 ### Always-on VPS
 
 Offer the benefit before the infrastructure: agents can continue when the laptop sleeps and Podium
-can remain available from another device. Guide reachability, one-line pairing, live machine
-detection, role choice, durable server transfer, reconnection, and return to project activation.
-Recommend moving Podium's server to the VPS; retain daemon-only hosting as an advanced choice whose
-dependency on the current server is stated plainly.
-
-Pairing and transfer presentation and controllers must be route-neutral and shared with Settings.
-Do not embed the Settings panel in onboarding. Persist the activation route and selected target with
-server confirmation before starting a server transfer so the transferred database cannot omit the
-continuation state.
+can remain available from another device. On first-run onboarding, treat the fresh VPS as a new
+all-in-one Podium authority rather than as a machine joining or replacing an already-configured
+local server. Give the user one SSH command that installs Podium and supported agents, guides
+reachability, login protection, and persistence, then verify its printed URL before changing the
+desktop into a client. Server transfer remains a separate Settings workflow for established
+installations.
 
 ### Mobile safety boundary
 
@@ -106,8 +103,8 @@ The complete product is integrated in this issue worktree as one test target. Th
 journey now includes trusted local all-in-one defaults, the revealed and resumable activation
 shell, local and GitHub CLI project intake, truthful agent readiness, the production model and
 effort controls, duplicate-safe tracked-task creation followed by idempotent agent start,
-existing-Podium client and joined-machine routes, guided VPS pairing and server transfer, and
-server-enforced mobile readiness gating.
+existing-Podium client and joined-machine routes, direct fresh-VPS activation, and server-enforced
+mobile readiness gating.
 
 The final coordinator audit also exercised the seams between those workstreams rather than
 accepting child completion reports independently. It closed the integration gaps found there:
@@ -121,17 +118,21 @@ accepting child completion reports independently. It closed the integration gaps
   drafts, and retires the old activation URL before restart.
 - Local project discovery restores the selected machine, repository source, browsed folder, scan
   results, and checkbox selection; successful repository registration clears that checkpoint.
-- VPS exits consume the persisted return route, and safe pre-cutover cancellation waits for
-  authoritative checkpoint removal before navigating.
+- Fresh VPS activation is a direct two-step setup rather than a transfer: one inspectable command
+  installs and configures a new authority, then the desktop verifies its readiness and connects as
+  a client. No machine pairing number is involved.
 - First-task activation creates one tracked issue, stores its identity, and retries an idempotent
   start command against that same issue. A partial launch failure therefore cannot create a second
   onboarding task.
 - The activation presentation now gives the first-run stage the available width, starts new
   Flight Decks folded, uses structured action rows instead of squeezed cards, and keeps VPS
   recovery explicit with saved-pairing copy and an Explore path.
+- The final polish uses the normal workspace sheet without a nested page surface, keeps Explore
+  close to each route's content, preserves bottom breathing room while scrolling, and removes
+  ordinary workspace controls from the focused agent-login terminal.
 
-The final combined `bun run test` gate passed after the coordinator audit on 2026-08-12: 24 of 24
-workspace typecheck tasks and 72 of 72 configured smoke tests passed. The required multi-instance
+The final combined `bun run test` gate passed after the coordinator audit on 2026-08-15: 24 of 24
+workspace typecheck tasks and 73 of 73 configured smoke tests passed. The required multi-instance
 lane was also attempted by the local and mobile boundary workstreams. It reached independent
 runtimes but then failed at
 unrelated runner infrastructure points (a Bun 1.3.14/node-pty panic and non-deterministic lifecycle

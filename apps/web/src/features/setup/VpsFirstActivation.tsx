@@ -172,6 +172,7 @@ export function VpsFirstActivation({
       description="Create a new always-on Podium on the VPS, then connect this app to it. Nothing on this computer is exposed, paired, or transferred."
       icon={<Server aria-hidden="true" />}
       contentClassName="mt-[34px]"
+      frameClassName="pb-16 sm:pb-[72px] lg:pb-[72px]"
       onExplore={onExplore}
     >
       <div className="max-w-[760px] space-y-4">
@@ -183,9 +184,9 @@ export function VpsFirstActivation({
             <div>
               <h2 className="text-[15px] font-semibold text-[#f2f3f5]">Run this over SSH</h2>
               <p className="mt-1.5 text-[13.5px] leading-[1.55] text-[#9ba1ab]">
-                Sign in to a fresh Linux VPS and paste the command. It installs Podium and the
-                supported agents, asks how the VPS should be reached, protects it with your login,
-                and starts it automatically after reboot.
+                Sign in to a fresh Linux VPS and paste this one command. It safely downloads the
+                installer first, installs Podium and the supported agents, then guides you through
+                its reachable URL, login password, and whether it should survive reboots.
               </p>
             </div>
           </div>
@@ -221,8 +222,9 @@ export function VpsFirstActivation({
             <div>
               <h2 className="text-[15px] font-semibold text-[#f2f3f5]">Connect this app</h2>
               <p className="mt-1.5 text-[13.5px] leading-[1.55] text-[#9ba1ab]">
-                When setup finishes, paste the Podium URL it printed. We verify the VPS before
-                changing anything, then this app restarts and asks for the login you created.
+                When setup finishes, paste the Podium URL it printed. No pairing number is needed:
+                we verify that the URL is a ready Podium server before changing anything, then this
+                app restarts and asks for the login you created.
               </p>
             </div>
           </div>

@@ -159,6 +159,7 @@ export function AgentPanel({
   sessionId,
   active = true,
   focused = active,
+  showHeader = true,
 }: {
   sessionId: SessionId
   /** False when this panel is mounted but hidden (an inactive tab kept warm so
@@ -168,6 +169,9 @@ export function AgentPanel({
    *  workspace can have several visible/active terminals, but desktop shortcut
    *  commands must have exactly one recipient. */
   focused?: boolean
+  /** Setup embeds the native terminal inside a dialog that already owns its title and close
+   *  action. Hide the ordinary workspace controls there so sign-in stays a single-purpose flow. */
+  showHeader?: boolean
 }): JSX.Element {
   const {
     hub,
@@ -696,70 +700,71 @@ export function AgentPanel({
           looking at. Identity is de-boxed (kind glyph + name as the anchor), the
           mode lives in ONE segmented control on the right, and the right cluster
           is model token · segment · snooze · archive · overflow. */}
-      <div
-        data-testid="agent-panel-header"
-        // `offer-lift-header`: the band the pane slides under when an offer
-        // fold opens. It has to outrank the lifted surface to cast its shadow
-        // over it, hence the z-rung.
-        className="offer-lift-header relative z-[1] flex h-[36px] flex-none items-center overflow-hidden gap-3 border-b border-hairline-soft px-4"
-      >
-        {session && (
-          <>
-            <KindIcon kind={session.agentKind} />
-            <span
-              className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] font-medium text-text-strong"
-              title={sessionDisplayName(session)}
-            >
-              {sessionDisplayName(session)}
-            </span>
-          </>
-        )}
-        {/* Machine badge: only when > 1 machine is connected, so single-machine
+      {showHeader && (
+        <div
+          data-testid="agent-panel-header"
+          // `offer-lift-header`: the band the pane slides under when an offer
+          // fold opens. It has to outrank the lifted surface to cast its shadow
+          // over it, hence the z-rung.
+          className="offer-lift-header relative z-[1] flex h-[36px] flex-none items-center overflow-hidden gap-3 border-b border-hairline-soft px-4"
+        >
+          {session && (
+            <>
+              <KindIcon kind={session.agentKind} />
+              <span
+                className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] font-medium text-text-strong"
+                title={sessionDisplayName(session)}
+              >
+                {sessionDisplayName(session)}
+              </span>
+            </>
+          )}
+          {/* Machine badge: only when > 1 machine is connected, so single-machine
             users see no change. Shows which daemon host this session runs on. */}
-        {machines.length > 1 && session?.machineName && (
-          <Badge
-            variant="secondary"
-            className="shrink-0 font-normal text-muted-foreground"
-            aria-label={`Running on ${session.machineName}`}
-          >
-            {session.machineName}
-          </Badge>
-        )}
-        {/* The agent's working directory — context for which checkout/worktree this
+          {machines.length > 1 && session?.machineName && (
+            <Badge
+              variant="secondary"
+              className="shrink-0 font-normal text-muted-foreground"
+              aria-label={`Running on ${session.machineName}`}
+            >
+              {session.machineName}
+            </Badge>
+          )}
+          {/* The agent's working directory — context for which checkout/worktree this
             session runs in. Truncates; full path on hover. */}
-        {session?.cwd && (
-          <span
-            className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate font-mono text-[10.5px] text-text-dim sm:inline-flex"
-            title={session.cwd}
-          >
-            <Folder size={11} aria-hidden="true" className="flex-none" />
-            <span className="truncate">{prettyCwd(session.cwd)}</span>
-          </span>
-        )}
-        {/* Git stamp [POD-98]: has this task committed, and on which branch —
+          {session?.cwd && (
+            <span
+              className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate font-mono text-[10.5px] text-text-dim sm:inline-flex"
+              title={session.cwd}
+            >
+              <Folder size={11} aria-hidden="true" className="flex-none" />
+              <span className="truncate">{prettyCwd(session.cwd)}</span>
+            </span>
+          )}
+          {/* Git stamp [POD-98]: has this task committed, and on which branch —
             always visible for the session you're reading; click opens the Git
             dock panel. Hidden when the session's issue has no probed state. */}
-        {stampIssue && (
-          <GitStamp
-            issueBranch={stampIssue.branch}
-            git={stampIssue.gitState}
-            density="chip"
-            className="hidden flex-none md:inline-flex"
-            onClick={() =>
-              window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'git' }))
-            }
-          />
-        )}
-        {/* Right cluster [POD-121]: model token · mode segment · the triage pair
+          {stampIssue && (
+            <GitStamp
+              issueBranch={stampIssue.branch}
+              git={stampIssue.gitState}
+              density="chip"
+              className="hidden flex-none md:inline-flex"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'git' }))
+              }
+            />
+          )}
+          {/* Right cluster [POD-121]: model token · mode segment · the triage pair
             (snooze, archive) · overflow. Transient utilities (take control, copy
             resume, ask superagent, hibernate) live in the overflow menu. */}
-        <span className="ml-auto inline-flex flex-none items-center gap-2">
-          {/* Who else is on this session [POD-1535] — ADR 7's rooms, surfaced.
+          <span className="ml-auto inline-flex flex-none items-center gap-2">
+            {/* Who else is on this session [POD-1535] — ADR 7's rooms, surfaced.
               Renders in every session state (a watcher may be reading an
               exited transcript with you), and distinguishes "only you" from
               "we do not know" rather than collapsing both to blank. */}
-          <SessionWatchers sessionId={sessionId} view={effectiveMode} />
-          {/* The running model + requested effort ("fable 5 · med"): observed
+            <SessionWatchers sessionId={sessionId} view={effectiveMode} />
+            {/* The running model + requested effort ("fable 5 · med"): observed
               model from the transcript tail (resolves a spawn-time `auto`),
               effort from the spawn selection — hidden until either is known.
 
@@ -771,179 +776,180 @@ export function AgentPanel({
               OBSERVED in the transcript (plain, because it is simply true) or
               merely REQUESTED at spawn and not yet seen (dotted rule, the
               typographic mark for provisional). The tooltip names it in words. */}
-          {session && modelToken(session) && (
-            <span
-              className="model-token hidden flex-none items-center gap-[5px] font-mono text-[10px] text-(--issue-muted) lg:inline-flex"
-              data-provenance={session.observedModel ? 'observed' : 'requested'}
-              title={
-                session.observedModel
-                  ? `Observed — the model this agent is actually running, read from its transcript. The harness owns this; Podium reports it.${session.effort ? ' Effort is the spawn request.' : ''}`
-                  : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.'
-              }
-            >
-              {/* Brand mark for harnesses that have one — a table lookup, so a new
+            {session && modelToken(session) && (
+              <span
+                className="model-token hidden flex-none items-center gap-[5px] font-mono text-[10px] text-(--issue-muted) lg:inline-flex"
+                data-provenance={session.observedModel ? 'observed' : 'requested'}
+                title={
+                  session.observedModel
+                    ? `Observed — the model this agent is actually running, read from its transcript. The harness owns this; Podium reports it.${session.effort ? ' Effort is the spawn request.' : ''}`
+                    : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.'
+                }
+              >
+                {/* Brand mark for harnesses that have one — a table lookup, so a new
                   harness adds a row rather than another branch here. */}
-              {agentBrandDot(session.agentKind) && (
-                <span
-                  className={cn(
-                    'size-[6px] flex-none rounded-full',
-                    agentBrandDot(session.agentKind),
-                  )}
-                  aria-hidden="true"
-                />
-              )}
-              <span className="model-token-text">{modelToken(session)}</span>
-            </span>
-          )}
-          {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment
+                {agentBrandDot(session.agentKind) && (
+                  <span
+                    className={cn(
+                      'size-[6px] flex-none rounded-full',
+                      agentBrandDot(session.agentKind),
+                    )}
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="model-token-text">{modelToken(session)}</span>
+              </span>
+            )}
+            {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment
               control — both views always visible and labeled, the filled segment
               is the current one. Only offered with a live PTY behind it — a
               hibernated/exited session has no terminal to switch to. */}
-          {gates.modeSwitchOffered && (
-            <span
-              role="tablist"
-              aria-label="Panel view"
-              // A TRACK WITH A CELL IN IT (POD-725), not two half-boxes divided by
-              // a rule: the track is the app ground recessed into the sheet and
-              // the current view is a white cell raised out of it — the same
-              // machined-segmented-control grammar the command bar's instrument
-              // uses, which is what stops two adjacent labels reading as two
-              // buttons where only one can be pressed.
-              className="inline-flex flex-none items-center gap-0 rounded-lg bg-background p-[2px]"
-            >
-              {(['chat', 'native'] as const).map((m) => (
-                <button
-                  data-pressable
-                  key={m}
-                  type="button"
-                  role="tab"
-                  aria-selected={effectiveMode === m}
-                  data-testid={`mode-${m}`}
-                  className={cn(
-                    'inline-flex cursor-pointer items-center gap-[5px] rounded-md px-[10px] py-[4px] text-[10.5px] transition-colors',
-                    effectiveMode === m
-                      ? 'bg-card font-semibold text-text-strong shadow-[0_1px_1px_var(--carve-drop)]'
-                      : 'text-text-dim hover:text-text-strong',
-                  )}
-                  onClick={() => pickModeWithTrace(m)}
-                >
-                  {m === 'chat' ? (
-                    <MessageSquareText size={12} aria-hidden="true" />
-                  ) : (
-                    <SquareTerminal size={12} aria-hidden="true" />
-                  )}
-                  {m === 'chat' ? 'Chat' : 'Native'}
-                </button>
-              ))}
-            </span>
-          )}
-          <span className="inline-flex flex-none items-center gap-[3px]">
-            {!isMobile && showSnooze && session && (
-              <SnoozeControl session={session} iconSize={15} dimmed={false} />
+            {gates.modeSwitchOffered && (
+              <span
+                role="tablist"
+                aria-label="Panel view"
+                // A TRACK WITH A CELL IN IT (POD-725), not two half-boxes divided by
+                // a rule: the track is the app ground recessed into the sheet and
+                // the current view is a white cell raised out of it — the same
+                // machined-segmented-control grammar the command bar's instrument
+                // uses, which is what stops two adjacent labels reading as two
+                // buttons where only one can be pressed.
+                className="inline-flex flex-none items-center gap-0 rounded-lg bg-background p-[2px]"
+              >
+                {(['chat', 'native'] as const).map((m) => (
+                  <button
+                    data-pressable
+                    key={m}
+                    type="button"
+                    role="tab"
+                    aria-selected={effectiveMode === m}
+                    data-testid={`mode-${m}`}
+                    className={cn(
+                      'inline-flex cursor-pointer items-center gap-[5px] rounded-md px-[10px] py-[4px] text-[10.5px] transition-colors',
+                      effectiveMode === m
+                        ? 'bg-card font-semibold text-text-strong shadow-[0_1px_1px_var(--carve-drop)]'
+                        : 'text-text-dim hover:text-text-strong',
+                    )}
+                    onClick={() => pickModeWithTrace(m)}
+                  >
+                    {m === 'chat' ? (
+                      <MessageSquareText size={12} aria-hidden="true" />
+                    ) : (
+                      <SquareTerminal size={12} aria-hidden="true" />
+                    )}
+                    {m === 'chat' ? 'Chat' : 'Native'}
+                  </button>
+                ))}
+              </span>
             )}
-            {/* Archive stays available in every read-only state — both hibernated
+            <span className="inline-flex flex-none items-center gap-[3px]">
+              {!isMobile && showSnooze && session && (
+                <SnoozeControl session={session} iconSize={15} dimmed={false} />
+              )}
+              {/* Archive stays available in every read-only state — both hibernated
                 (process paused to free memory) and exited (process gone, transcript
                 read-only). You can read the transcript and file it under Done without
                 waking/resuming first. Only hidden when there's no session at all. */}
-            {session && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
-                title="Archive session — files it under Done"
-                onClick={() => void guardedArchive(sessionId, true)}
-              >
-                <Archive size={13} aria-hidden="true" />
-              </Button>
-            )}
-            {session && (
-              // modal={false}: a modal menu loses the focus fight with the
-              // terminal underneath (xterm re-grabs focus, the menu closes on
-              // open) — same setting the issue-page property menus use.
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      data-testid="header-menu"
-                      className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
-                      title="More session actions"
-                      aria-label="More session actions"
-                    >
-                      <Ellipsis size={14} aria-hidden="true" />
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent
-                  align="end"
-                  className="w-auto min-w-[236px] max-w-[90vw] p-[5px] **:data-[slot=dropdown-menu-item]:gap-[9px] **:data-[slot=dropdown-menu-item]:px-[9px] **:data-[slot=dropdown-menu-item]:py-[6px] **:data-[slot=dropdown-menu-item]:text-[12px]"
+              {session && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+                  title="Archive session — files it under Done"
+                  onClick={() => void guardedArchive(sessionId, true)}
                 >
-                  {gates.takeControlOffered && (
-                    <DropdownMenuItem
-                      data-testid="take-control"
-                      aria-label="Take control of the terminal"
-                      onClick={() => mountedRef.current?.connection.requestControl()}
-                    >
-                      <Keyboard size={13} aria-hidden="true" /> Take control
-                    </DropdownMenuItem>
-                  )}
-                  {/* Native resume command (#119): one glanceable item — the verb
+                  <Archive size={13} aria-hidden="true" />
+                </Button>
+              )}
+              {session && (
+                // modal={false}: a modal menu loses the focus fight with the
+                // terminal underneath (xterm re-grabs focus, the menu closes on
+                // open) — same setting the issue-page property menus use.
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        data-testid="header-menu"
+                        className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+                        title="More session actions"
+                        aria-label="More session actions"
+                      >
+                        <Ellipsis size={14} aria-hidden="true" />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-auto min-w-[236px] max-w-[90vw] p-[5px] **:data-[slot=dropdown-menu-item]:gap-[9px] **:data-[slot=dropdown-menu-item]:px-[9px] **:data-[slot=dropdown-menu-item]:py-[6px] **:data-[slot=dropdown-menu-item]:text-[12px]"
+                  >
+                    {gates.takeControlOffered && (
+                      <DropdownMenuItem
+                        data-testid="take-control"
+                        aria-label="Take control of the terminal"
+                        onClick={() => mountedRef.current?.connection.requestControl()}
+                      >
+                        <Keyboard size={13} aria-hidden="true" /> Take control
+                      </DropdownMenuItem>
+                    )}
+                    {/* Native resume command (#119): one glanceable item — the verb
                       up top, the literal command as a mono sub-line. (No
                       DropdownMenuLabel here: Base UI's GroupLabel throws outside a
                       Group and the popup then silently never opens.) */}
-                  {resumeCmd && (
-                    <DropdownMenuItem
-                      onClick={() => {
-                        void navigator.clipboard
-                          ?.writeText(resumeCmd)
-                          .then(() => toast('Resume command copied'))
-                          .catch(() => toast.error('Could not copy to clipboard'))
-                      }}
-                    >
-                      <TerminalIcon
-                        size={13}
-                        aria-hidden="true"
-                        className="translate-y-[3px] self-start"
-                      />
-                      <span className="min-w-0">
-                        Copy resume command
-                        <span
-                          className="mt-px block max-w-[26ch] truncate font-mono shell-type-micro text-muted-foreground"
-                          title={resumeCmd}
-                        >
-                          {resumeCmd}
-                        </span>
-                      </span>
-                    </DropdownMenuItem>
-                  )}
-                  {chatCapable && (
-                    <DropdownMenuItem onClick={() => void startBtw(sessionId)}>
-                      <Sparkles size={13} aria-hidden="true" /> Ask superagent
-                      <DropdownMenuShortcut>/btw</DropdownMenuShortcut>
-                    </DropdownMenuItem>
-                  )}
-                  {hibernate && (
-                    <>
-                      <DropdownMenuSeparator />
+                    {resumeCmd && (
                       <DropdownMenuItem
-                        data-testid="lifecycle-hibernate"
-                        disabled={hibernate.disabledReason !== null}
-                        {...(hibernate.disabledReason ? { title: hibernate.disabledReason } : {})}
-                        onClick={() => void hibernateSession(sessionId)}
+                        onClick={() => {
+                          void navigator.clipboard
+                            ?.writeText(resumeCmd)
+                            .then(() => toast('Resume command copied'))
+                            .catch(() => toast.error('Could not copy to clipboard'))
+                        }}
                       >
-                        <Moon size={13} aria-hidden="true" /> {hibernate.label}
+                        <TerminalIcon
+                          size={13}
+                          aria-hidden="true"
+                          className="translate-y-[3px] self-start"
+                        />
+                        <span className="min-w-0">
+                          Copy resume command
+                          <span
+                            className="mt-px block max-w-[26ch] truncate font-mono shell-type-micro text-muted-foreground"
+                            title={resumeCmd}
+                          >
+                            {resumeCmd}
+                          </span>
+                        </span>
                       </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+                    )}
+                    {chatCapable && (
+                      <DropdownMenuItem onClick={() => void startBtw(sessionId)}>
+                        <Sparkles size={13} aria-hidden="true" /> Ask superagent
+                        <DropdownMenuShortcut>/btw</DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                    )}
+                    {hibernate && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          data-testid="lifecycle-hibernate"
+                          disabled={hibernate.disabledReason !== null}
+                          {...(hibernate.disabledReason ? { title: hibernate.disabledReason } : {})}
+                          onClick={() => void hibernateSession(sessionId)}
+                        >
+                          <Moon size={13} aria-hidden="true" /> {hibernate.label}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </span>
           </span>
-        </span>
-      </div>
+        </div>
+      )}
       {session?.condition === 'logged-out' && (
         <div
           role="status"

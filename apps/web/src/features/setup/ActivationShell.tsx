@@ -31,11 +31,11 @@ export function ActivationShell({
     >
       <div
         data-activation-scroll
-        className="workspace-sheet min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#15171b]"
+        className="workspace-sheet min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
       >
         <div
           className={cn(
-            'mx-auto mb-3 flex min-h-[840px] w-full max-w-[1180px] flex-col bg-[#22262d] px-6 py-10 font-sans shadow-[0_24px_60px_-30px_rgba(0,0,0,.7)] sm:px-12 sm:py-14 lg:px-[72px] lg:pt-16 lg:pb-12',
+            'mx-auto flex min-h-full w-full max-w-[1180px] flex-col px-6 pt-10 pb-12 font-sans sm:px-12 sm:pt-14 sm:pb-14 lg:px-[72px] lg:pt-16 lg:pb-14',
             frameClassName,
           )}
         >
@@ -60,9 +60,8 @@ export function ActivationShell({
             {description}
           </p>
           <div className={cn('mt-11', contentClassName)}>{children}</div>
-          <span className="min-h-8 flex-1" aria-hidden="true" />
           {onExplore && (
-            <div className="flex flex-wrap items-center gap-3.5 border-t border-[#2b2f37] pt-[22px]">
+            <div className="mt-10 flex flex-wrap items-center gap-3.5 border-t border-[#363b45] pt-[22px]">
               <button
                 type="button"
                 onClick={onExplore}

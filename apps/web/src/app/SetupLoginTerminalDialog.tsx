@@ -20,7 +20,7 @@ export function SetupLoginTerminalDialog({
           </p>
         </DialogHeader>
         <div className="min-h-0 flex-1">
-          {sessionId && <AgentPanel sessionId={sessionId} active />}
+          {sessionId && <AgentPanel sessionId={sessionId} active showHeader={false} />}
         </div>
       </DialogContent>
     </Dialog>
