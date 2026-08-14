@@ -45,6 +45,7 @@ import {
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
+import type { FeedHelloFields } from './feed-hello'
 import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
 import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
 
@@ -179,7 +180,7 @@ export interface SocketHubOptions {
  *  the whole frame. */
 export type FeedServerFrame = Extract<
   ServerMessageLenient,
-  { type: 'feedDelta' | 'feedBootstrap' | 'feedRescope' | 'feedResyncRequired' }
+  { type: 'feedDelta' | 'feedBootstrap' | 'feedRescope' | 'feedResyncRequired' | 'feedResume' }
 >
 
 /** Main-thread budgets for the safe, pre-worker feed boundary. */
@@ -236,9 +237,10 @@ export interface FeedBudgetSnapshot {
  * simply falls through to the existing synchronous parser.
  */
 function feedFrameTypeHint(raw: string): FeedServerFrame['type'] | null {
-  const match = /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedBootstrap|feedRescope|feedResyncRequired)"/.exec(
-    raw,
-  )
+  const match =
+    /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedBootstrap|feedRescope|feedResyncRequired|feedResume)"/.exec(
+      raw,
+    )
   return (match?.[1] as FeedServerFrame['type'] | undefined) ?? null
 }
 
@@ -254,8 +256,28 @@ function feedFrameTypeHint(raw: string): FeedServerFrame['type'] | null {
  * polling `hub.connected` would enter it late, at a different moment than frames stop.
  */
 export interface FeedSinkPort {
-  /** The socket is open and `hello` has advertised the wire version. */
-  connected(): void
+  /**
+   * The sink's own `hello` fields, or null when it holds no resumable position
+   * (POD-2061). Read ONCE per connection, immediately before `hello` is sent.
+   *
+   * AN OPAQUE FRAGMENT, AND THAT IS THE LAYERING. The transport must not learn
+   * what a feed position is — `boundary.test.ts` asserts that as a source
+   * property, and it is the same rule the two lifecycle calls below already
+   * obey. So the sink names the wire field and fills it; this class only decides
+   * WHETHER to ask (see `requestFreshWorld`) and spreads what it gets. A hub
+   * that read `.seq` here would be the second place the D7 ladder lives.
+   */
+  helloFields(): FeedHelloFields | null
+  /**
+   * The socket is open and `hello` has advertised the wire version.
+   *
+   * `worldPromised` is what this connection's `hello` bought: true when no
+   * position was presented, which is the pre-POD-2061 contract — the server
+   * serves every such connection one initial world, and a walk may wait for it.
+   * False when a position WAS presented: the server may answer with a resume
+   * grant instead, so nothing here may promise a world that is not coming.
+   */
+  connected(worldPromised: boolean): void
   /** The socket ended. The replica holds its last-known slice, marked stale. */
   disconnected(): void
   /** One frame, in arrival order. Order IS the correctness property (ADR 2 D9). */
@@ -519,6 +541,19 @@ export class SocketHub {
   /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
   private userReadPositionList: ReadPositionWire[] = []
   private intentionalClose = false
+  /**
+   * A world was ASKED FOR, so the next `hello` must not resume (POD-2061).
+   *
+   * Set by {@link requestFreshWorld} and consumed by the next `onopen`. Without
+   * it the socket that a re-bootstrap replaces would present a position, the
+   * server would answer "resumed, no world", and the walk that asked for the
+   * world would wait out its timeout — the one posture ADR 2 D7 never permits,
+   * reintroduced by the optimisation that is supposed to be invisible to it.
+   *
+   * A LATCH AND NOT A COUNTER: two requests before one socket opens still mean
+   * one world, and the walk consumes exactly one.
+   */
+  private wantWorld = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
@@ -639,6 +674,12 @@ export class SocketHub {
       // The backoff is NOT reset here — see `markAlive`. A TCP accept is not
       // evidence that the server works.
       this.startHeartbeat()
+      // WHAT THIS CONNECTION ASKS FOR, decided before `hello` is built and used
+      // twice below: once as the fields it carries, once as what the sink is told
+      // it bought. Reading it twice could not stay consistent — `wantWorld` is
+      // consumed here, so a second read would see a different answer.
+      const helloFields = this.wantWorld ? null : (this.opts.feed?.helloFields() ?? null)
+      this.wantWorld = false
       this.sendRaw({
         type: 'hello',
         clientId: this.clientIdValue,
@@ -664,6 +705,11 @@ export class SocketHub {
         // with no feed sink must keep saying nothing rather than announcing a
         // version it has nowhere to put.
         ...(this.opts.feed ? { wireVersion: WIRE_VERSION } : {}),
+        // WHERE THIS REPLICA STANDS (POD-2061), filled by the sink and spread
+        // unread — see `FeedSinkPort.helloFields`. Present, and the server may
+        // answer with a resume grant and no world; absent, and this is exactly
+        // the pre-POD-2061 connection, which is what a fresh-world request wants.
+        ...(helloFields ?? {}),
         // HOW THIS CLIENT NAMES ITSELF to an operator (POD-1920). Read from the
         // logger's process context rather than taken as a hub option, because
         // that context is what stamps the records the server files under this
@@ -674,7 +720,10 @@ export class SocketHub {
         ...(clientLogOrigin() ?? {}),
       })
       // Start both opaque feed sinks before restoring attaches and presence.
-      this.opts.feed?.connected()
+      // A world is promised iff this connection presented nothing to resume from:
+      // the server serves such a connection its world unconditionally, and that
+      // promise is what a cold walk waits on instead of cycling the socket.
+      this.opts.feed?.connected(helloFields === null)
       // The legacy adapter independently decides whether and how to catch up.
       this.legacyFeed?.connected()
       // Re-attach with a resume cursor: the view survived the drop, so ask the
@@ -925,6 +974,10 @@ export class SocketHub {
    * the intentional-shutdown path, or nothing would reopen.
    */
   requestFreshWorld(): void {
+    // BEFORE the guard, deliberately. The flag says what the NEXT connection must
+    // ask for, and a caller that asked while the socket was already gone wants
+    // exactly the same thing from the reconnect that is already scheduled.
+    this.wantWorld = true
     if (this.socket === undefined) return
     this.forceClose()
     this.scheduleReconnect()
@@ -1668,6 +1721,9 @@ export class SocketHub {
       this.opts.feed?.frame(msg)
     },
     feedResyncRequired: (msg) => {
+      this.opts.feed?.frame(msg)
+    },
+    feedResume: (msg) => {
       this.opts.feed?.frame(msg)
     },
     presenceRoomState: (msg) => {

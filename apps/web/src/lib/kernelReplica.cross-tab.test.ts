@@ -92,8 +92,8 @@ describe('kernel replica cross-tab convergence', () => {
     }
     first = await openKernelAssembly(options)
     second = await openKernelAssembly(options)
-    first.feed.connected()
-    second.feed.connected()
+    first.feed.connected(true)
+    second.feed.connected(true)
 
     const observer = second.createReplicaFn(asClientPrincipal(asUserId('alice')))
     const changed = vi.fn()
@@ -196,8 +196,8 @@ describe('kernel replica cross-tab convergence', () => {
         value: { id: 'revoked-issue', title: 'visible before rescope' },
       },
     ]
-    first.feed.connected()
-    second.feed.connected()
+    first.feed.connected(true)
+    second.feed.connected(true)
     pushWorld(first, 1, initiallyVisible)
     pushWorld(second, 1, initiallyVisible)
 

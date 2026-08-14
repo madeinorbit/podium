@@ -30,11 +30,23 @@ export type FeedPeerTraceEvent =
   | {
       readonly event: 'bootstrap'
       readonly peerId: string
-      readonly cause: 'attach' | 'hello' | 'version-change'
+      readonly cause: 'attach' | 'hello' | 'version-change' | 'cursor-rejected'
       readonly wireVersion: number
       readonly reused: boolean
       readonly throughSeq: number
       readonly rows: number
+      readonly durationMs: number
+    }
+  | {
+      /** The admission that sent NO world (POD-2061): the peer presented a
+       *  cursor the log could serve, so it was framed from there. Paired with
+       *  `bootstrap`'s `cursor-rejected` cause, these two say how much of the
+       *  reconnect traffic a fleet still pays a world for. */
+      readonly event: 'resume'
+      readonly peerId: string
+      readonly wireVersion: number
+      readonly fromSeq: number
+      readonly headSeq: number
       readonly durationMs: number
     }
   | {

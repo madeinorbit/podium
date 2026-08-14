@@ -14,6 +14,7 @@ import {
   FeedBootstrapMessage,
   FeedDeltaMessage,
   FeedRescopeMessage,
+  FeedResumeMessage,
   FeedResyncRequiredMessage,
 } from './feed'
 import { HeadlessActivityMessage } from './headless'
@@ -95,6 +96,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   FeedBootstrapMessage,
   FeedRescopeMessage,
   FeedResyncRequiredMessage,
+  FeedResumeMessage,
   AutomationsChangedMessage,
   AutomationRunsChangedMessage,
   SessionOpenUrlMessage,

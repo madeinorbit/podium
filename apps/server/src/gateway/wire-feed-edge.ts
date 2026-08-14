@@ -48,6 +48,7 @@ import type {
   FeedBootstrapMessage,
   FeedDeltaMessage,
   FeedRescopeMessage,
+  FeedResumeMessage,
   FeedResyncRequiredMessage,
   ServerMessage,
 } from '@podium/protocol'
@@ -74,6 +75,7 @@ export type FeedFrame =
   | FeedBootstrapMessage
   | FeedRescopeMessage
   | FeedResyncRequiredMessage
+  | FeedResumeMessage
 
 /**
  * Advisory state a pre-cutover wire carried inside an entity message.

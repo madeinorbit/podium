@@ -705,7 +705,10 @@ function onlineWithBootstrap(
   opened.attachHub({
     requestFreshWorld: deliver,
   } as never)
-  opened.feed.connected()
+  // A world IS promised here: this helper models the admission of a connection
+  // that presented no position (POD-2061), which is the contract the pushed
+  // world below belongs to.
+  opened.feed.connected(true)
   deliver()
 }
 

@@ -70,7 +70,12 @@ describe('SocketHub', () => {
       url: 'ws://x',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
-      feed: { connected: () => {}, disconnected: () => {}, frame: (frame) => frames.push(frame) },
+      feed: {
+        helloFields: () => null,
+        connected: () => {},
+        disconnected: () => {},
+        frame: (frame) => frames.push(frame),
+      },
       scheduleFeedTask: (task) => tasks.push(task),
     })
     hub.on('feedTask', (timing) => timings.push(timing))
@@ -120,7 +125,12 @@ describe('SocketHub', () => {
       url: 'ws://x',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
-      feed: { connected: () => {}, disconnected: () => {}, frame: (frame) => frames.push(frame) },
+      feed: {
+        helloFields: () => null,
+        connected: () => {},
+        disconnected: () => {},
+        frame: (frame) => frames.push(frame),
+      },
       scheduleFeedTask: (task) => tasks.push(task),
     })
     hub.connect()
@@ -160,6 +170,9 @@ describe('SocketHub', () => {
       viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       feed: {
+        // No position to present: these cases are about the backlog bound, and a
+        // cold hello is the honest answer for a hub that has installed nothing.
+        helloFields: () => null,
         connected: () => {},
         disconnected: () => {
           disconnects += 1
@@ -206,7 +219,12 @@ describe('SocketHub', () => {
       url: 'ws://x',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
-      feed: { connected: () => {}, disconnected: () => {}, frame: (frame) => frames.push(frame) },
+      feed: {
+        helloFields: () => null,
+        connected: () => {},
+        disconnected: () => {},
+        frame: (frame) => frames.push(frame),
+      },
       scheduleFeedTask: (task) => tasks.push(task),
     })
     hub.connect()

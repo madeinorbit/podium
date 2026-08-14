@@ -20,6 +20,7 @@ import {
   type Authority,
   type FeedIdentity,
   FeedIdentityRegistry,
+  type FeedRetentionPort,
   type FeedVisibilityPolicy,
   Ledger,
   type VisibilityAnchorPort,
@@ -57,6 +58,17 @@ export function feedTestPlumbing(
     visibility?: FeedVisibilityPolicy
     /** Goes with `visibility` — D14.3's grant-row → per-principal derivation. */
     anchors?: VisibilityAnchorPort
+    /**
+     * ADR 2 D5's floor. OMITTED reads the store, which is the truth for every
+     * suite that only ever appends.
+     *
+     * A suite about COMPACTION cannot get there by appending: this store never
+     * prunes, so its floor is 1 forever and the rung that fires when a cursor
+     * falls below the retained range would be untestable — present in the code,
+     * proven by nothing. Injecting the floor is injecting the one fact the store
+     * cannot produce, not stubbing the collaborator under test.
+     */
+    retention?: FeedRetentionPort
   } = {},
 ): FeedTestPlumbing {
   const store = new SessionStore(':memory:')
@@ -84,7 +96,7 @@ export function feedTestPlumbing(
         return `id-${minted}`
       },
     ),
-    retention: { minAvailableSeq: () => store.sync.minChangeSeq() },
+    retention: opts.retention ?? { minAvailableSeq: () => store.sync.minChangeSeq() },
     subscriptions,
     authorizationRevision: opts.authorizationRevision ?? (() => store.grants.visibilityRevision()),
     ...(opts.onVisibilityChanged ? { onVisibilityChanged: opts.onVisibilityChanged } : {}),

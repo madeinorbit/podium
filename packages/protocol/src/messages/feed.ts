@@ -264,6 +264,39 @@ export const FeedCursorField = z.object({
 export type FeedCursorField = z.infer<typeof FeedCursorField>
 
 /**
+ * THE ANSWER TO A CURSOR — "resumed; no world follows" (POD-2061).
+ *
+ * Until this frame existed, every admitted connection was served one
+ * `feedBootstrap`, and the client's consumer could therefore treat "the socket
+ * opened" as "a world is coming". A `hello` carrying {@link FeedCursorField}
+ * makes that promise CONDITIONAL, and a conditional promise nobody states is a
+ * client waiting on a world that is never sent.
+ *
+ * So the two outcomes are both explicit ON THE WIRE, and they are distinguishable
+ * by TYPE rather than by a flag: a granted cursor produces this frame and no
+ * bootstrap; a refused one produces the ordinary `feedBootstrap` stream and no
+ * frame of this type. There is deliberately no `feedResume{ accepted: false }` —
+ * a refusal that a client could mishandle by ignoring one boolean is the shape
+ * ADR 2 D2 keeps paying for; here, ignoring this frame entirely still leaves a
+ * client that heals correctly, because the frame carries no state it needs.
+ *
+ * `seq` is the position the publisher was connected AT — the client's own cursor
+ * when it is granted, echoed back so the grant can be checked rather than
+ * assumed. The rows in `(seq, head]` are NOT streamed: they are the client
+ * heal's (`sync.feedChangesSince`), which is the division of labour this frame
+ * exists to make legible. Identity travels with it for the reason every other
+ * frame carries it (ADR 2 D1): a position without a feed is meaningless, and one
+ * against a rolled epoch is worse, because it looks resumable.
+ */
+export const FeedResumeMessage = z.object({
+  type: z.literal('feedResume'),
+  feedId: z.string().min(1),
+  epoch: FeedEpochField,
+  seq: ChangeCursorSeqField,
+})
+export type FeedResumeMessage = z.infer<typeof FeedResumeMessage>
+
+/**
  * THE v2 CATCH-UP REPLY — rung 1 of ADR 2 D7's ladder, as an HTTP answer (POD-376).
  *
  * The v1 sibling is `SyncChangesSinceResult` in `messages/sync.ts`; this is its
@@ -343,12 +376,14 @@ export type FeedServerMessage =
   | FeedBootstrapMessage
   | FeedRescopeMessage
   | FeedResyncRequiredMessage
+  | FeedResumeMessage
 
 export const FEED_MESSAGE_TYPES = [
   'feedDelta',
   'feedBootstrap',
   'feedRescope',
   'feedResyncRequired',
+  'feedResume',
 ] as const
 
 // ---------------------------------------------------------------------------

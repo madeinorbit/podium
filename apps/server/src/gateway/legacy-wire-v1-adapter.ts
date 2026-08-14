@@ -161,6 +161,15 @@ export class LegacyWireV1Adapter
   constructor(private readonly deps: LegacyWireV1Deps) {}
 
   translate(frame: FeedFrame, peer: LegacyPeer): readonly ServerMessage[] {
+    if (frame.type === 'feedResume') {
+      // NOTHING TO SAY, and nothing lost by saying it (POD-2061). A resume grant
+      // answers a `hello` that presented a v2 cursor, which is a thing no v1 peer
+      // can send — so this frame does not reach a v1 peer unless the serving path
+      // granted a resume to a connection that never asked for one. It carries no
+      // entity content either way: a v1 peer's position is set by the serving
+      // path, never by a frame.
+      return []
+    }
     if (frame.type === 'feedRescope' || frame.type === 'feedResyncRequired') {
       // NEITHER IS EXPRESSIBLE ON v1, and neither may be silently dropped as a
       // no-op: both mean "your cache is wrong, re-bootstrap". v1's only way to

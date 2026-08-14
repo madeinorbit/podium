@@ -51,7 +51,7 @@ describe('PresenceRooms over a real SocketHub', () => {
       url: 'ws://transport.test',
       viewport,
       makeSocket: () => socket,
-      feed: { connected: vi.fn(), disconnected: vi.fn(), frame: vi.fn() },
+      feed: { helloFields: () => null, connected: vi.fn(), disconnected: vi.fn(), frame: vi.fn() },
     })
     const rooms = new PresenceRooms(hub)
     const room = { kind: 'session' as const, id: asSessionId('s-room') }

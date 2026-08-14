@@ -511,7 +511,12 @@ export async function openKernelAssembly(
     }
   }
   const feed: FeedSinkPort = {
-    connected: () => sink.connected(),
+    // Straight through, both of them: the hub reads the position it sends and
+    // reports back what that bought (POD-2061), and this assembly has no
+    // business between the two — a cursor rewritten here would be a position
+    // nothing in the replica holds.
+    helloFields: () => sink.helloFields(),
+    connected: (worldPromised) => sink.connected(worldPromised),
     disconnected: () => sink.disconnected(),
     frame: (frame) => relayFrame(frame, true),
   }

@@ -70,6 +70,7 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     feedDelta: noop,
     feedBootstrap: noop,
     feedRescope: noop,
+    feedResume: noop,
     feedResyncRequired: noop,
     welcome: noop,
     pong: noop,
