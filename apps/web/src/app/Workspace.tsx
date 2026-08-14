@@ -412,85 +412,85 @@ export function Workspace(): JSX.Element {
     // and its seams are unchanged — the sheet only clips and lifts them.
     <section className="native-agents-pane relative">
       <div className="workspace-sheet relative">
-      <DndContext
-        sensors={sensors}
-        collisionDetection={paneCollision}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onDragCancel={() => setDragTabId(null)}
-      >
-        {/* THE DECK BOX. Panes are rectangles inside it rather than nested
+        <DndContext
+          sensors={sensors}
+          collisionDetection={paneCollision}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setDragTabId(null)}
+        >
+          {/* THE DECK BOX. Panes are rectangles inside it rather than nested
             containers, so the panel list underneath stays FLAT (see panel-deck.ts):
             splitting, resizing and dragging a tab across panes are pure layout
             changes and never reparent — so never remount — a live terminal. */}
-        <div className="relative min-h-0 min-w-0 flex-1">
-          {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
+          <div className="relative min-h-0 min-w-0 flex-1">
+            {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
               plus the foreign warm sessions carried over from previously-viewed
               issues — all mounted, only the on-screen panes visible (display:none
               for the rest). */}
-          <PanelDeck
-            items={composeDeck({
-              tabs: deckTabs,
-              warm,
-              knownSessionIds,
-              panes: visiblePanes,
+            <PanelDeck
+              items={composeDeck({
+                tabs: deckTabs,
+                warm,
+                knownSessionIds,
+                panes: visiblePanes,
+              })}
+              panes={geometry.panes}
+              onCloseFile={closeTab}
+              previewTabId={previewTabId}
+              onPromote={promoteWorkspaceTab}
+              onFocusPane={focusPane}
+              focusedTabId={activeTabId}
+            />
+            {geometry.panes.map((rect) => {
+              const paneOf = layout.panes[rect.paneId]
+              if (!paneOf) return null
+              return (
+                <PaneChrome
+                  key={rect.paneId}
+                  rect={rect}
+                  pane={paneOf}
+                  tabs={resolveAll(paneOf.tabs)}
+                  otherTabs={deckTabs.filter((t) => !paneOf.tabs.includes(t.id))}
+                  focused={paneOf.id === activePane?.id}
+                  alone={geometry.panes.length === 1}
+                  previewTabId={previewTabId}
+                  splitting={tabSplittingEnabled}
+                  coordinatorIds={coordinatorIds}
+                  // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
+                  panelTarget={panelTarget!}
+                  issueId={issue?.id}
+                  onFocus={() => focusPane(paneOf.id)}
+                  onSelectTab={selectTab}
+                  onCloseTab={closeTab}
+                  onKeepOpen={promoteWorkspaceTab}
+                  onSplit={(axis, tabId) => splitWorkspacePane(paneOf.id, axis, { tabId })}
+                  onClosePane={() => closeWorkspacePane(paneOf.id)}
+                  onOpened={(sid) => openSessionTab(sid, { permanent: true, paneId: paneOf.id })}
+                  onAdopt={(id) => {
+                    // Filling an empty pane marks the session read too (#126).
+                    if (byId.get(id)?.kind === 'session') void markSessionRead(asSessionId(id))
+                    moveWorkspaceTab(id, paneOf.id, 0)
+                  }}
+                />
+              )
             })}
-            panes={geometry.panes}
-            onCloseFile={closeTab}
-            previewTabId={previewTabId}
-            onPromote={promoteWorkspaceTab}
-            onFocusPane={focusPane}
-            focusedTabId={activeTabId}
-          />
-          {geometry.panes.map((rect) => {
-            const paneOf = layout.panes[rect.paneId]
-            if (!paneOf) return null
-            return (
-              <PaneChrome
-                key={rect.paneId}
-                rect={rect}
-                pane={paneOf}
-                tabs={resolveAll(paneOf.tabs)}
-                otherTabs={deckTabs.filter((t) => !paneOf.tabs.includes(t.id))}
-                focused={paneOf.id === activePane?.id}
-                alone={geometry.panes.length === 1}
-                previewTabId={previewTabId}
-                splitting={tabSplittingEnabled}
-                coordinatorIds={coordinatorIds}
-                // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
-                panelTarget={panelTarget!}
-                issueId={issue?.id}
-                onFocus={() => focusPane(paneOf.id)}
-                onSelectTab={selectTab}
-                onCloseTab={closeTab}
-                onKeepOpen={promoteWorkspaceTab}
-                onSplit={(axis, tabId) => splitWorkspacePane(paneOf.id, axis, { tabId })}
-                onClosePane={() => closeWorkspacePane(paneOf.id)}
-                onOpened={(sid) => openSessionTab(sid, { permanent: true, paneId: paneOf.id })}
-                onAdopt={(id) => {
-                  // Filling an empty pane marks the session read too (#126).
-                  if (byId.get(id)?.kind === 'session') void markSessionRead(asSessionId(id))
-                  moveWorkspaceTab(id, paneOf.id, 0)
-                }}
-              />
-            )
-          })}
-          {geometry.seams.map((seam) => (
-            <PaneSeam key={seam.id} seam={seam} onResize={onSeamResize} />
-          ))}
-          {/* Drop targets exist only DURING a drag: a pane's body is not a click
+            {geometry.seams.map((seam) => (
+              <PaneSeam key={seam.id} seam={seam} onResize={onSeamResize} />
+            ))}
+            {/* Drop targets exist only DURING a drag: a pane's body is not a click
               target the rest of the time, and mounting them permanently would put
               four inert overlays over every terminal. */}
-          {dragTabId !== null &&
-            geometry.panes.map((rect) => <PaneDropZones key={rect.paneId} rect={rect} />)}
-        </div>
-        {/* The dragged tab rides in an overlay so it is not clipped by the strip
+            {dragTabId !== null &&
+              geometry.panes.map((rect) => <PaneDropZones key={rect.paneId} rect={rect} />)}
+          </div>
+          {/* The dragged tab rides in an overlay so it is not clipped by the strip
             it is leaving — a cross-pane drag whose tab vanishes at the edge of
             its own strip does not read as a drag at all. */}
-        <DragOverlay dropAnimation={null}>
-          {dragTab ? <TabGhost tab={dragTab} /> : null}
-        </DragOverlay>
-      </DndContext>
+          <DragOverlay dropAnimation={null}>
+            {dragTab ? <TabGhost tab={dragTab} /> : null}
+          </DragOverlay>
+        </DndContext>
       </div>
     </section>
   )
@@ -916,11 +916,7 @@ function SortableTab({
         // The overlay carries the tab while it is dragged; what stays behind is
         // the gap it will come back to.
         isDragging ? 'cursor-grabbing opacity-30' : 'cursor-grab',
-        active
-          ? 'native-tab-active bg-card'
-          : isDragging
-            ? 'issue-mix-10'
-            : 'hover:issue-mix-8',
+        active ? 'native-tab-active bg-card' : isDragging ? 'issue-mix-10' : 'hover:issue-mix-8',
       )}
       data-session={tab.id}
       data-preview={preview ? 'true' : undefined}

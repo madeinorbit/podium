@@ -1,4 +1,3 @@
-import { asIssueId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
@@ -18,6 +17,7 @@ import {
   isCoordinatorSession,
   issueContinuation,
   issueNote,
+  issueOwnContentUnread,
   type MissionDeparture,
   missionDepartures,
   missionIssueIds,
@@ -35,10 +35,10 @@ import {
   sessionSettled,
   sessionUnreadEmphasized,
   subtreeUnread,
-  issueOwnContentUnread,
   treeGuides,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, SessionMeta, IssueId, SessionId } from '@podium/model/browser'
+import { asIssueId } from '@podium/model'
+import type { AgentKind, IssueId, SessionId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,
@@ -71,9 +71,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
-import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { type IssueAgentKind, issueAgentOptions } from '@/lib/issue-agents'
 import { BrailleSpinner, PhaseTimer, useArrivals } from '@/lib/motion'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
@@ -1022,11 +1022,11 @@ function SessionRow({
               <WorkerLabel session={session} chip />
             </span>
             {unread ? (
-            <>
-              <UnreadDot />
-              <span className="sr-only">unread</span>
-            </>
-          ) : null}
+              <>
+                <UnreadDot />
+                <span className="sr-only">unread</span>
+              </>
+            ) : null}
             {/* THE REF IS THE HANDLE (POD-758). `POD-710-B` is what the operator
                 types, pastes and says out loud, and it is the one string on the
                 row that is worthless partly rendered — so it never truncates
@@ -1227,131 +1227,132 @@ function HungRows(ctx: HungContext): JSX.Element | null {
   )
 }
 
-const TaskRow = memo(function TaskRow({
-  row,
-  byId,
-  carries,
-  mode,
-  rootId,
-  inMission,
-  nameOf,
-  selected,
-  activeSessionId,
-  arrivals,
-  settle,
-  collapsed,
-  rails,
-  agentRail,
-  childFollows,
-  onToggle,
-  onSelectIssue,
-  onSelectSession,
-  onSelectNative,
-  onMenu,
-}: {
-  row: FlightDeckRow
-  byId: ReadonlyMap<string, IssueNavigationModel>
-  /** Which ancestor guide rails cross this row — see `treeGuides`. */
-  carries: readonly boolean[]
-  /** The tone of the rail at each of those levels — see `railTones`. */
-  rails: readonly RailTone[]
-  /** The line this task's OWN agents hang on: coloured when it has a lead. */
-  agentRail: Rail
-  /** Whether the next RENDERED row is a child of this task. Its agents and its
-   *  children share one line, so the line has to survive the gap between this
-   *  block and the next row instead of stopping at the last agent's elbow. */
-  childFollows: boolean
-  mode: FlightDeckMode
-  rootId: string | undefined
-  inMission: ReadonlySet<string>
-  nameOf: (sessionId: SessionId) => string | undefined
-  selected: boolean
-  activeSessionId: SessionId | null
-  arrivals: ReadonlySet<string>
-  settle: (key: string) => void
-  collapsed: boolean
-  folds: FoldMap
-  onToggle: () => void
-  /** Single click previews the task's lead session (and toggles the fold);
-   *  double click / Enter opens it permanently. */
-  onSelectIssue: (permanent: boolean) => void
-  onSelectSession: (session: SessionMeta, permanent: boolean) => void
-  onSelectNative: (session: SessionMeta) => void
-  /** Open the shared task menu at the cursor — right-click, or the ⋯ reveal. */
-  onMenu: (event: ReactMouseEvent) => void
-}): JSX.Element {
-  const intent = useClickIntent()
-  const payload = hasPayload(row)
-  const bandLeft = SPINE_PAD + row.depth * DEPTH_STEP
-  const ownRailX = SPINE_PAD + (row.depth - 1) * DEPTH_STEP + RAIL_INSET
-  const state = deckIssueState(row.issue, row.sessions, byId)
-  const sessions = deckSessions(row, mode)
-  // A PROPOSAL IS A DIFFERENT KIND OF ROW (round 3 §7b): nobody has accepted it,
-  // so it holds no seat for an agent and takes the shorter band. Only one with
-  // sub-tasks reaches this component — the childless ones leave the tree
-  // entirely for the Proposed tail below it.
-  const proposed = row.issue.stage === 'proposed'
-  const bandHeight = proposed ? PROPOSED_BAND : BAND_HEIGHT
-  const mid = proposed ? PROPOSED_MID : BAND_MID
-  const note = issueNote(row.issue, byId, row.sessions)
-  // The seat is held for work that could be picked up — never under a proposal,
-  // and never to restate a dependency the strip has already named above it.
-  const seat = proposed ? null : seatFor(presenceNote(row.issue, row.sessions, byId))
-  // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload
-  // chip: "2 running" is the thing the fold is hiding, and `3 tasks` is printed
-  // two inches to the left of it.
-  const folded = collapsed && payload
-  const unread = deckTaskUnread(row, collapsed, byId)
-  const liveWord =
-    folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
-      ? `${row.workingAgentCount} running`
-      : undefined
-  return (
-    <div className="relative pb-1.5" data-flight-issue={row.issue.id} data-depth={row.depth}>
-      <BranchGuides carries={carries} rails={rails} mid={mid} />
-      {/* THE TASK'S OWN DESCENT — one unbroken line from the strip down through
+const TaskRow = memo(
+  function TaskRow({
+    row,
+    byId,
+    carries,
+    mode,
+    rootId,
+    inMission,
+    nameOf,
+    selected,
+    activeSessionId,
+    arrivals,
+    settle,
+    collapsed,
+    rails,
+    agentRail,
+    childFollows,
+    onToggle,
+    onSelectIssue,
+    onSelectSession,
+    onSelectNative,
+    onMenu,
+  }: {
+    row: FlightDeckRow
+    byId: ReadonlyMap<string, IssueNavigationModel>
+    /** Which ancestor guide rails cross this row — see `treeGuides`. */
+    carries: readonly boolean[]
+    /** The tone of the rail at each of those levels — see `railTones`. */
+    rails: readonly RailTone[]
+    /** The line this task's OWN agents hang on: coloured when it has a lead. */
+    agentRail: Rail
+    /** Whether the next RENDERED row is a child of this task. Its agents and its
+     *  children share one line, so the line has to survive the gap between this
+     *  block and the next row instead of stopping at the last agent's elbow. */
+    childFollows: boolean
+    mode: FlightDeckMode
+    rootId: string | undefined
+    inMission: ReadonlySet<string>
+    nameOf: (sessionId: SessionId) => string | undefined
+    selected: boolean
+    activeSessionId: SessionId | null
+    arrivals: ReadonlySet<string>
+    settle: (key: string) => void
+    collapsed: boolean
+    folds: FoldMap
+    onToggle: () => void
+    /** Single click previews the task's lead session (and toggles the fold);
+     *  double click / Enter opens it permanently. */
+    onSelectIssue: (permanent: boolean) => void
+    onSelectSession: (session: SessionMeta, permanent: boolean) => void
+    onSelectNative: (session: SessionMeta) => void
+    /** Open the shared task menu at the cursor — right-click, or the ⋯ reveal. */
+    onMenu: (event: ReactMouseEvent) => void
+  }): JSX.Element {
+    const intent = useClickIntent()
+    const payload = hasPayload(row)
+    const bandLeft = SPINE_PAD + row.depth * DEPTH_STEP
+    const ownRailX = SPINE_PAD + (row.depth - 1) * DEPTH_STEP + RAIL_INSET
+    const state = deckIssueState(row.issue, row.sessions, byId)
+    const sessions = deckSessions(row, mode)
+    // A PROPOSAL IS A DIFFERENT KIND OF ROW (round 3 §7b): nobody has accepted it,
+    // so it holds no seat for an agent and takes the shorter band. Only one with
+    // sub-tasks reaches this component — the childless ones leave the tree
+    // entirely for the Proposed tail below it.
+    const proposed = row.issue.stage === 'proposed'
+    const bandHeight = proposed ? PROPOSED_BAND : BAND_HEIGHT
+    const mid = proposed ? PROPOSED_MID : BAND_MID
+    const note = issueNote(row.issue, byId, row.sessions)
+    // The seat is held for work that could be picked up — never under a proposal,
+    // and never to restate a dependency the strip has already named above it.
+    const seat = proposed ? null : seatFor(presenceNote(row.issue, row.sessions, byId))
+    // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload
+    // chip: "2 running" is the thing the fold is hiding, and `3 tasks` is printed
+    // two inches to the left of it.
+    const folded = collapsed && payload
+    const unread = deckTaskUnread(row, collapsed, byId)
+    const liveWord =
+      folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
+        ? `${row.workingAgentCount} running`
+        : undefined
+    return (
+      <div className="relative pb-1.5" data-flight-issue={row.issue.id} data-depth={row.depth}>
+        <BranchGuides carries={carries} rails={rails} mid={mid} />
+        {/* THE TASK'S OWN DESCENT — one unbroken line from the strip down through
           its agents and on into its first child. It starts behind the (opaque)
           strip and runs to the block's bottom edge, so the gap between this
           block and the row below it never breaks the branch. `HungRows` draws
           the same line at the same x for its elbows; this is what carries it
           across the padding they cannot reach. */}
-      {!collapsed && (sessions.length > 0 || childFollows) && (
-        <span
-          aria-hidden
-          className={cn('pointer-events-none absolute', agentRail.className)}
-          style={{ left: bandLeft + AGENT_RAIL, top: mid, bottom: 0, width: agentRail.width }}
-        />
-      )}
-      {/* COLOUR ARRIVES AS A TICK IN THE GUTTER, NEVER AS A SURFACE. Both marks
+        {!collapsed && (sessions.length > 0 || childFollows) && (
+          <span
+            aria-hidden
+            className={cn('pointer-events-none absolute', agentRail.className)}
+            style={{ left: bandLeft + AGENT_RAIL, top: mid, bottom: 0, width: agentRail.width }}
+          />
+        )}
+        {/* COLOUR ARRIVES AS A TICK IN THE GUTTER, NEVER AS A SURFACE. Both marks
           stand beside the strip rather than on it: attention outside the rail,
           selection inside it, so a selected task that also has somebody asking
           shows two ticks and neither one has to become the other. */}
-      {state.attention && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute bg-attention"
-          style={{
-            left: ownRailX + TICK_ATTENTION_X,
-            top: mid - TICK_HEIGHT / 2,
-            width: TICK_WIDTH,
-            height: TICK_HEIGHT,
-          }}
-        />
-      )}
-      {selected && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute"
-          style={{
-            left: ownRailX + TICK_SELECTED_X,
-            top: mid - TICK_HEIGHT / 2,
-            width: TICK_WIDTH,
-            height: TICK_HEIGHT,
-            background: 'var(--issue)',
-          }}
-        />
-      )}
-      {/* A TASK IS GREY, IN EVERY STATE (POD-758) — done, running, blocked,
+        {state.attention && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bg-attention"
+            style={{
+              left: ownRailX + TICK_ATTENTION_X,
+              top: mid - TICK_HEIGHT / 2,
+              width: TICK_WIDTH,
+              height: TICK_HEIGHT,
+            }}
+          />
+        )}
+        {selected && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute"
+            style={{
+              left: ownRailX + TICK_SELECTED_X,
+              top: mid - TICK_HEIGHT / 2,
+              width: TICK_WIDTH,
+              height: TICK_HEIGHT,
+              background: 'var(--issue)',
+            }}
+          />
+        )}
+        {/* A TASK IS GREY, IN EVERY STATE (POD-758) — done, running, blocked,
           moving, open or closed, selected or not. One fill for one kind of
           thing is what lets the column's only other fill (a proposal's fuchsia)
           mean exactly one thing: this task does not exist yet.
@@ -1365,158 +1366,160 @@ const TaskRow = memo(function TaskRow({
           would read as "answer me".
           The band's own HEIGHT transitions, so a task leaving `proposed` grows
           into its full strip rather than snapping (§7c). */}
-      <div
-        className={cn(
-          'deck-strip group/task relative flex items-center gap-1 rounded-row border bg-tabstrip pr-1.5 transition-[border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
-          state.state === 'blocked' && 'deck-hatch',
-          selected ? 'border-border-strong' : 'border-hairline-soft hover:border-hairline-bar',
-        )}
-        style={{ marginLeft: bandLeft, minHeight: bandHeight }}
-        // A TASK ANSWERS THE SAME GESTURE ITS AGENTS DO (POD-771). Right-click
-        // on an agent row has opened session lifecycle since POD-710; the task
-        // it hangs under offered nothing, so stage, placement, colour and close
-        // were reachable from the board and the sidebar but not from the column
-        // the operator actually works in. Same menu as those two surfaces —
-        // imported, never forked.
-        onContextMenu={onMenu}
-      >
-        {payload ? (
+        <div
+          className={cn(
+            'deck-strip group/task relative flex items-center gap-1 rounded-row border bg-tabstrip pr-1.5 transition-[border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
+            state.state === 'blocked' && 'deck-hatch',
+            selected ? 'border-border-strong' : 'border-hairline-soft hover:border-hairline-bar',
+          )}
+          style={{ marginLeft: bandLeft, minHeight: bandHeight }}
+          // A TASK ANSWERS THE SAME GESTURE ITS AGENTS DO (POD-771). Right-click
+          // on an agent row has opened session lifecycle since POD-710; the task
+          // it hangs under offered nothing, so stage, placement, colour and close
+          // were reachable from the board and the sidebar but not from the column
+          // the operator actually works in. Same menu as those two surfaces —
+          // imported, never forked.
+          onContextMenu={onMenu}
+        >
+          {payload ? (
+            <button
+              data-pressable
+              type="button"
+              className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong"
+              aria-label={collapsed ? `Expand ${row.issue.title}` : `Collapse ${row.issue.title}`}
+              aria-expanded={!collapsed}
+              // The chevron is the ONE control that folds without navigating, and
+              // it acts immediately — the row's own click is deferred by the
+              // double-click window, so an operator folding a long spine has an
+              // affordance that never waits.
+              onClick={onToggle}
+            >
+              {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+            </button>
+          ) : (
+            <span className="size-5 flex-none" />
+          )}
           <button
             data-pressable
             type="button"
-            className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong"
-            aria-label={collapsed ? `Expand ${row.issue.title}` : `Collapse ${row.issue.title}`}
-            aria-expanded={!collapsed}
-            // The chevron is the ONE control that folds without navigating, and
-            // it acts immediately — the row's own click is deferred by the
-            // double-click window, so an operator folding a long spine has an
-            // affordance that never waits.
-            onClick={onToggle}
+            className={cn(
+              // gap-1.5, not gap-2: five gaps at 8px is 40px of the row spent on
+              // air, and the title is the thing that pays for it.
+              'flex min-w-0 flex-1 items-center gap-1.5 text-left',
+              proposed ? 'py-0.5' : 'py-1',
+            )}
+            onClick={() =>
+              intent.press(
+                () => onSelectIssue(false),
+                () => onSelectIssue(true),
+              )
+            }
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              intent.commit(() => onSelectIssue(true))
+            }}
           >
-            {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
-          </button>
-        ) : (
-          <span className="size-5 flex-none" />
-        )}
-        <button
-          data-pressable
-          type="button"
-          className={cn(
-            // gap-1.5, not gap-2: five gaps at 8px is 40px of the row spent on
-            // air, and the title is the thing that pays for it.
-            'flex min-w-0 flex-1 items-center gap-1.5 text-left',
-            proposed ? 'py-0.5' : 'py-1',
-          )}
-          onClick={() =>
-            intent.press(
-              () => onSelectIssue(false),
-              () => onSelectIssue(true),
-            )
-          }
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return
-            event.preventDefault()
-            intent.commit(() => onSelectIssue(true))
-          }}
-        >
-          <StageGlyph stage={row.issue.stage} size={13} />
-          {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
+            <StageGlyph stage={row.issue.stage} size={13} />
+            {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
               it is the only thing here that shrinks. Ref THEN title, in one
               truncating label — the ref is how the operator addresses the task
               everywhere else in Podium, and a right-aligned ref made the column
               read right-to-left. */}
-          <span
-            className={cn(
-              'shell-type-secondary min-w-0 flex-1 truncate text-text-strong',
-              selected || unread ? 'font-semibold' : 'font-medium',
-            )}
-          >
-            <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
-              {issueDisplayRef(row.issue)}
+            <span
+              className={cn(
+                'shell-type-secondary min-w-0 flex-1 truncate text-text-strong',
+                selected || unread ? 'font-semibold' : 'font-medium',
+              )}
+            >
+              <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
+                {issueDisplayRef(row.issue)}
+              </span>
+              {row.issue.title}
             </span>
-            {row.issue.title}
-          </span>
-          {unread ? (
-            <>
-              <UnreadDot />
-              <span className="sr-only">unread</span>
-            </>
-          ) : null}
-          {note && <IssueNoteChip note={note} />}
-          {seat && <SeatChip note={seat} />}
-          {folded && <CollapsedPayload summary={row.collapsedSummary} />}
-          {folded && row.collapsedSummary.crew.length > 0 && (
-            <CrewCensus crew={row.collapsedSummary.crew} />
-          )}
-          <StateLabel value={state} label={liveWord} />
-        </button>
-        {/* The same pairing the agent rows use: right-click is the fast path,
+            {unread ? (
+              <>
+                <UnreadDot />
+                <span className="sr-only">unread</span>
+              </>
+            ) : null}
+            {note && <IssueNoteChip note={note} />}
+            {seat && <SeatChip note={seat} />}
+            {folded && <CollapsedPayload summary={row.collapsedSummary} />}
+            {folded && row.collapsedSummary.crew.length > 0 && (
+              <CrewCensus crew={row.collapsedSummary.crew} />
+            )}
+            <StateLabel value={state} label={liveWord} />
+          </button>
+          {/* The same pairing the agent rows use: right-click is the fast path,
             and the ⋯ is how an operator who has never right-clicked a strip
             finds out these actions exist. It floats over the row's right edge
             so revealing it never reflows the state column. */}
-        <div
-          data-hover-reveal
-          className="absolute top-0.5 right-1 hidden items-center rounded-md bg-chip group-hover/task:flex"
-        >
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="size-5 text-text-dim"
-            aria-label={`Task actions for ${row.issue.title}`}
-            title="Task actions"
-            onClick={(event) => {
-              event.stopPropagation()
-              onMenu(event)
-            }}
+          <div
+            data-hover-reveal
+            className="absolute top-0.5 right-1 hidden items-center rounded-md bg-chip group-hover/task:flex"
           >
-            <Ellipsis size={12} aria-hidden="true" />
-          </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-5 text-text-dim"
+              aria-label={`Task actions for ${row.issue.title}`}
+              title="Task actions"
+              onClick={(event) => {
+                event.stopPropagation()
+                onMenu(event)
+              }}
+            >
+              <Ellipsis size={12} aria-hidden="true" />
+            </Button>
+          </div>
         </div>
-      </div>
-      {/* THE FOLD GROWS AND SHRINKS (round 3 §7c) — a grid-rows collapse that
+        {/* THE FOLD GROWS AND SHRINKS (round 3 §7c) — a grid-rows collapse that
           needs no measurement and no mount, so nothing choreographs on first
           paint: a transition only runs when a value actually changes. */}
-      <div
-        className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"
-        style={{ gridTemplateRows: collapsed ? '0fr' : '1fr' }}
-      >
-        <div className="min-h-0 overflow-hidden">
-          <HungRows
-            issue={row.issue}
-            sessions={sessions}
-            rootId={rootId}
-            inMission={inMission}
-            nameOf={nameOf}
-            activeSessionId={activeSessionId}
-            arrivals={arrivals}
-            settle={settle}
-            inset={bandLeft}
-            rail={agentRail}
-            tail={childFollows}
-            onSelectSession={onSelectSession}
-            onSelectNative={onSelectNative}
-          />
+        <div
+          className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"
+          style={{ gridTemplateRows: collapsed ? '0fr' : '1fr' }}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <HungRows
+              issue={row.issue}
+              sessions={sessions}
+              rootId={rootId}
+              inMission={inMission}
+              nameOf={nameOf}
+              activeSessionId={activeSessionId}
+              arrivals={arrivals}
+              settle={settle}
+              inset={bandLeft}
+              rail={agentRail}
+              tail={childFollows}
+              onSelectSession={onSelectSession}
+              onSelectNative={onSelectNative}
+            />
+          </div>
         </div>
       </div>
-    </div>
-  )
-}, (previous, next) =>
-  previous.row === next.row &&
-  previous.byId === next.byId &&
-  previous.carries === next.carries &&
-  previous.rails === next.rails &&
-  previous.agentRail === next.agentRail &&
-  previous.childFollows === next.childFollows &&
-  previous.mode === next.mode &&
-  previous.rootId === next.rootId &&
-  previous.inMission === next.inMission &&
-  previous.nameOf === next.nameOf &&
-  previous.selected === next.selected &&
-  previous.activeSessionId === next.activeSessionId &&
-  previous.arrivals === next.arrivals &&
-  previous.settle === next.settle &&
-  previous.collapsed === next.collapsed &&
-  previous.folds === next.folds)
+    )
+  },
+  (previous, next) =>
+    previous.row === next.row &&
+    previous.byId === next.byId &&
+    previous.carries === next.carries &&
+    previous.rails === next.rails &&
+    previous.agentRail === next.agentRail &&
+    previous.childFollows === next.childFollows &&
+    previous.mode === next.mode &&
+    previous.rootId === next.rootId &&
+    previous.inMission === next.inMission &&
+    previous.nameOf === next.nameOf &&
+    previous.selected === next.selected &&
+    previous.activeSessionId === next.activeSessionId &&
+    previous.arrivals === next.arrivals &&
+    previous.settle === next.settle &&
+    previous.collapsed === next.collapsed &&
+    previous.folds === next.folds,
+)
 
 /**
  * A PROPOSAL IS THE COLUMN'S ONLY OTHER FILL (POD-758).
@@ -2368,10 +2371,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   <MissionGauge progress={progress} live={liveCount} working={workingCount} />
                 </div>
                 {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
-                  <MissionAgentMenu
-                    defaultAgent={rootIssue.defaultAgent}
-                    onAdd={addMissionAgent}
-                  />
+                  <MissionAgentMenu defaultAgent={rootIssue.defaultAgent} onAdd={addMissionAgent} />
                 )}
               </div>
             </div>
@@ -2695,11 +2695,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           </div>
         </>
       ) : (
-        <IntakeCanvas
-          session={focusedSession}
-          draft={focusedDraft}
-          repoName={repoName}
-        />
+        <IntakeCanvas session={focusedSession} draft={focusedDraft} repoName={repoName} />
       )}
       {issueMenu && menuIssue && (
         <IssueContextMenu
