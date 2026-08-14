@@ -188,6 +188,23 @@ export interface TerminalInjectionPorts {
   authorizeAtDrain?(turn: QueuedTurn): { ok: true } | { ok: false; reason: string }
   /** A turn the drain refused. Reported, never silently dropped. */
   onDrainRejected?(turn: QueuedTurn, reason: string): void
+  /**
+   * THE DRAIN GAVE UP, AND SOMEBODY HAS TO HEAR IT (POD-2107).
+   *
+   * `QUEUE_DRAIN_DEADLINE_MS` elapsed with the session still not live, so the
+   * turns below were never typed. Until this port existed that outcome made no
+   * sound at all: `stop()` set a boolean, the caller kept a receipt that said
+   * `queued`, and the only way to find out was to notice that an answer never
+   * came. A queue whose failure mode is invisible is the POD-549 loss wearing a
+   * durable row's clothes, and this is the seam that ends the silence.
+   *
+   * THE TURNS ARE STILL QUEUED when this fires — nothing is shifted. The report
+   * is "not delivered inside the deadline", not "discarded": a later enqueue
+   * restarts the drain and takes these turns first, which is why the deadline is
+   * `retryable` rather than terminal. A consumer that wants to correct its own
+   * receipt has what it needs; one that does not is unchanged.
+   */
+  onDrainAbandoned?(turns: readonly QueuedTurn[], reason: 'never-live'): void
 }
 
 export interface DeliverOptions {
@@ -441,6 +458,12 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
           return
         }
       } else if (now >= deadline) {
+        // NEVER WENT LIVE. This is the one exit from the drain that used to be
+        // completely silent — not a refusal, not an exit, just a timer that
+        // stopped — and it is the exit a dropped `bind` produced (POD-2107).
+        // Reported before `stop()`, with the queue intact, so a consumer reads
+        // exactly what is still undelivered.
+        ports.onDrainAbandoned?.([...queue], 'never-live')
         stop()
         return
       }

@@ -217,6 +217,23 @@ export interface TerminalRuntimeHost {
     turn: QueuedTurn
   }): { ok: true } | { ok: false; reason: string }
   onDrainRejected?(input: { sessionId: SessionId; turn: QueuedTurn; reason: string }): void
+  /**
+   * The drain reached its deadline with the session still not live, so the turns
+   * below were never typed (POD-2107). See
+   * `TerminalInjectionPorts.onDrainAbandoned` for why this cannot stay silent.
+   *
+   * OPTIONAL FOR THE SAME REASON `onDrainRejected` IS: the durable FIFO is the
+   * server's and nothing forwards a queue here yet, so there is no receipt on
+   * this machine to correct. The driver logs the abandonment unconditionally —
+   * that part is not optional — and this port is where whoever forwards a queue
+   * here later hangs the receipt correction, rather than inventing the
+   * mechanism under pressure.
+   */
+  onDrainAbandoned?(input: {
+    sessionId: SessionId
+    turns: readonly QueuedTurn[]
+    reason: 'never-live'
+  }): void
 }
 
 /** What the daemon knows about a session at the moment it is put behind the
@@ -980,6 +997,32 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       rawFirstTurn: () => (profile?.usesRawFirstTurn ?? false) && session.userTurns === 0,
       needsSubmitVerification: () => profile?.needsSubmitVerification ?? false,
       observedTurnEpoch: () => session.turnEpoch,
+      /**
+       * THE ABANDONED-QUEUE REPORT (POD-2107), and it is UNCONDITIONAL.
+       *
+       * A drain that gave up because the session never went live is the exact
+       * outcome a dropped `bind` produced, and it used to make no sound: the
+       * caller held a `queued` receipt and nothing anywhere said the words were
+       * never typed. One line naming the session and the turns is the least this
+       * can cost, and it is the difference between a bug someone can find and a
+       * session that quietly answers nothing.
+       *
+       * NOT EMITTED AS A `turn` EVENT, deliberately. A turn event on this stream
+       * is a PROVIDER-CONFIRMED FENCE — the corpus pins that the driver emits
+       * none of its own, because a consumer told a turn failed believes a turn
+       * ran. These turns never started. Correcting the SENDER's receipt is a
+       * server-side surface (the durable FIFO is the server's) and it does not
+       * exist yet; `host.onDrainAbandoned` is where it attaches when it does.
+       */
+      onDrainAbandoned: (turns, reason) => {
+        log.warn('queued turns were never delivered: the session never went live', {
+          sessionId: session.sessionId,
+          reason,
+          turns: turns.length,
+          turnIds: turns.map((turn) => turn.id),
+        })
+        host.onDrainAbandoned?.({ sessionId: session.sessionId, turns, reason })
+      },
       ...(host.authorizeAtDrain
         ? {
             authorizeAtDrain: (turn: QueuedTurn) =>

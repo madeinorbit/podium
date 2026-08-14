@@ -90,6 +90,8 @@ interface World {
   /** What the PTY was actually given, in order, decoded. */
   written: string[]
   frames: DaemonMessage[]
+  /** Every drain that gave up at its deadline, as the host was told about it. */
+  abandoned: Array<{ sessionId: SessionId; turns: readonly { text: string }[]; reason: string }>
   /**
    * Make the fake CLI fire `UserPromptSubmit` when it receives the submitting CR,
    * the way Claude does.
@@ -156,6 +158,7 @@ function makeWorld(): World {
   const phases = new Map<SessionId, AgentRuntimeState>()
   const written: string[] = []
   const frames: DaemonMessage[] = []
+  const abandoned: World['abandoned'] = []
   const autoHook = new Map<SessionId, { prompt?: unknown; payload?: Record<string, unknown> }>()
   const pendingPaste = new Map<SessionId, string>()
   let runtime!: TerminalRuntime
@@ -264,6 +267,11 @@ function makeWorld(): World {
     clearTimer: (handle) => {
       ;(handle as VirtualTimer).cancelled = true
     },
+    // The seam a forwarded queue's receipt correction will hang on. Provided
+    // here because a test is exactly the consumer it was built for.
+    onDrainAbandoned: (input) => {
+      abandoned.push(input)
+    },
   }
 
   runtime = createTerminalRuntime(host)
@@ -273,6 +281,7 @@ function makeWorld(): World {
     host,
     written,
     frames,
+    abandoned,
     hookOnSubmit: (sessionId, options) => {
       autoHook.set(sessionId, options ?? {})
     },
@@ -819,6 +828,49 @@ describe('the queue drain', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (let i = 0; i < 400; i++) await Promise.resolve()
     expect(world.written).toEqual([])
+  })
+
+  it('says so when it abandons a queue at the deadline (POD-2107)', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+
+    expect(
+      (await session.send({ text: 'first' }, { origin: 'mail', delivery: 'queue' })).outcome,
+    ).toBe('queued')
+    expect(
+      (await session.send({ text: 'second' }, { origin: 'mail', delivery: 'queue' })).outcome,
+    ).toBe('queued')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let i = 0; i < 400; i++) await Promise.resolve()
+
+    // NOT TYPED IS FINE. NOT TYPED AND NOT MENTIONED IS THE BUG. The caller
+    // holds two receipts that say `queued`, so the deadline has to be audible
+    // somewhere or a session that never came up simply answers nothing forever.
+    expect(world.written).toEqual([])
+    expect(world.abandoned).toHaveLength(1)
+    expect(world.abandoned[0]?.sessionId).toBe(session.binding.sessionId)
+    expect(world.abandoned[0]?.reason).toBe('never-live')
+    // EVERY undelivered turn, in order — the report is what is still owed, not a
+    // count of what was lost.
+    expect(world.abandoned[0]?.turns.map((turn) => turn.text)).toEqual(['first', 'second'])
+  })
+
+  it('does not report an abandonment when the queue drained (POD-2107)', async () => {
+    const world = makeWorld()
+    world.bindDuringLaunch()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+
+    expect(
+      (await session.send({ text: 'delivered' }, { origin: 'mail', delivery: 'queue' })).outcome,
+    ).toBe('queued')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let i = 0; i < 400; i++) await Promise.resolve()
+
+    expect(world.written.map(pastedText).filter((text) => text !== undefined)).toEqual(['delivered'])
+    expect(world.abandoned).toEqual([])
   })
 
   it('delivers once the CLI is up', async () => {
