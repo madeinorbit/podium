@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Queues Panel Redesign</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Podium tokens (DESIGN.md). Dark Ink is the signature look;
+   Paper mirrors its mechanics rather than inverting its hexes.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --ground:        #16171a;
+  --engraved:      #191a1e;  /* work list + right dock */
+  --bar:           #1b1d21;
+  --tabstrip:      #202228;
+  --panel:         #23262d;
+  --chip:          #252830;
+  --secondary:     #2c3038;
+
+  --ink-strong:    #f2f3f5;
+  --ink:           #d7dae0;
+  --ink-muted:     #a8adb6;
+  --label:         #949aa4;
+  --ink-dim:       #848a94;
+  --ink-faint:     #6f7580;
+
+  --hairline-soft: #24272d;
+  --seam:          #26292f;
+  --border-strong: #3a3f48;
+
+  --live:          #6f9dff;  /* what is MOVING */
+  --info:          #6f9dff;
+  --gold:          #e3ba52;  /* yellow as ink */
+  --yellow:        #f5c518;
+  --red:           #e5303f;
+
+  --live-wash:     rgba(111,157,255,.07);
+  --live-rim:      rgba(111,157,255,.26);
+  --dash:          rgba(58,63,72,.62);
+  --carve-drop:    rgba(0,0,0,.55);
+  --carve-far:     rgba(0,0,0,.42);
+  --well-floor:    rgba(0,0,0,.17);
+
+  --sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, "Cascadia Mono", monospace;
+
+  --r-md: 4.8px; --r-lg: 6px; --r-row: 7px; --r-tray: 10px;
+  --section-bar-h: 36px;
+}
+html[data-theme="light"] {
+  --ground:        #f2f1ed;
+  --engraved:      #f4f3f0;
+  --bar:           #f7f7f5;
+  --tabstrip:      #faf9f7;
+  --panel:         #ffffff;
+  --chip:          #ffffff;
+  --secondary:     #eeede8;
+
+  --ink-strong:    #1d1c19;
+  --ink:           rgba(29,28,25,.82);
+  --ink-muted:     rgba(29,28,25,.68);
+  --label:         rgba(29,28,25,.60);
+  --ink-dim:       rgba(29,28,25,.48);
+  --ink-faint:     rgba(29,28,25,.40);
+
+  --hairline-soft: #eeede8;
+  --seam:          #e6e5e0;
+  --border-strong: #e2e0d9;
+
+  --live:          #2a62f0;
+  --info:          #2a62f0;
+  --gold:          #8a6200;   /* ochre writes on paper */
+  --red:           #c22633;
+
+  --live-wash:     rgba(42,98,240,.05);
+  --live-rim:      rgba(42,98,240,.22);
+  --dash:          rgba(29,28,25,.18);
+  --carve-drop:    rgba(29,28,25,.10);
+  --carve-far:     rgba(29,28,25,.30);
+  --well-floor:    rgba(29,28,25,.045);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Page shell: the Reading Tier, so the doc never competes with the
+      12px specimens it is about. ───────────────────────────────── */
+.page { max-width: 1180px; margin: 0 auto; padding: 40px 28px 96px; }
+
+.masthead { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 8px; }
+h1 {
+  font-size: 22px; font-weight: 600; letter-spacing: -.018em;
+  line-height: 1.2; color: var(--ink-strong); margin: 0; flex: 1 1 auto;
+}
+.dek { font-size: 14.5px; line-height: 1.6; color: var(--ink-muted); max-width: 62ch; margin: 10px 0 0; }
+.meta {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-faint); margin: 14px 0 0;
+}
+
+h2 {
+  font-size: 15px; font-weight: 600; color: var(--ink-strong);
+  margin: 56px 0 14px; letter-spacing: -.005em;
+}
+h2:first-of-type { margin-top: 44px; }
+h3 { font-size: 13.5px; font-weight: 600; color: var(--ink-strong); margin: 26px 0 8px; }
+p { max-width: 62ch; margin: 0 0 12px; }
+.rule { height: 1px; background: var(--seam); border: 0; margin: 0; }
+
+code, .m { font-family: var(--mono); font-size: .92em; color: var(--ink-strong); }
+html[data-theme="dark"] code { color: #c7cdd8; }
+
+ul.pts { max-width: 62ch; margin: 0 0 12px; padding-left: 0; list-style: none; }
+ul.pts li { position: relative; padding-left: 18px; margin-bottom: 9px; }
+ul.pts li::before {
+  content: ""; position: absolute; left: 2px; top: .62em;
+  width: 5px; height: 1px; background: var(--ink-faint);
+}
+strong { color: var(--ink-strong); font-weight: 600; }
+
+/* ── Theme well (mirrors the command bar's well contract) ─────── */
+.well {
+  display: inline-flex; align-items: center; height: 30px; padding: 2px;
+  border-radius: 8px; background: var(--well-floor);
+  box-shadow: inset 0 1px 0 var(--carve-far), inset 0 -1px 0 rgba(255,255,255,.045);
+  flex: 0 0 auto;
+}
+html[data-theme="light"] .well { box-shadow: inset 0 1px 0 rgba(29,28,25,.07), inset 0 -1px 0 rgba(255,255,255,.9); }
+.well button {
+  height: 26px; padding: 0 11px; border: 0; background: transparent; cursor: pointer;
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-dim); border-radius: 6px; transition: color .15s ease;
+}
+.well button:hover { color: var(--ink-strong); }
+.well button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--secondary) 85%, transparent);
+  color: var(--ink-strong);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+}
+html[data-theme="light"] .well button[aria-pressed="true"] { background: #fff; box-shadow: 0 1px 2px rgba(29,28,25,.08); }
+.well button:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+
+/* ── Specimen rail ────────────────────────────────────────────── */
+.rail {
+  display: grid; grid-template-columns: repeat(2, 316px); gap: 30px 20px;
+  align-items: start; padding: 4px 0 18px;
+}
+figure { margin: 0; }
+@media (max-width: 720px) { .rail { grid-template-columns: 316px; } }
+.specimen { flex: 0 0 auto; width: 316px; }
+.specimen > figcaption {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--label); margin: 0 0 8px; display: flex; align-items: baseline; gap: 8px;
+}
+.specimen > figcaption em {
+  font-family: var(--sans); font-style: normal; font-size: 11px; letter-spacing: 0;
+  text-transform: none; color: var(--ink-faint);
+}
+
+/* ── The dock panel itself: 316px, the engraved tier, no tint,
+      no resting shadow — separated by tone and hairline only. ─── */
+.dock {
+  width: 316px; background: var(--engraved);
+  border: 1px solid var(--seam); border-radius: var(--r-tray);
+  overflow: hidden; font-size: 12px; color: var(--ink);
+}
+.dock-head {
+  display: flex; align-items: center; gap: 8px;
+  height: var(--section-bar-h); padding: 0 14px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.lbl {
+  font-family: var(--mono); font-size: 8.5px; font-weight: 500;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--label);
+}
+.lbl-strong { color: var(--ink-strong); font-weight: 600; letter-spacing: .1em; }
+.num { font-family: var(--mono); font-size: 8.5px; font-variant-numeric: tabular-nums; color: var(--ink-dim); }
+.spacer { margin-left: auto; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border: 0; border-radius: var(--r-lg);
+  background: transparent; color: var(--ink-dim); cursor: pointer; transition: color .15s ease, background .15s ease;
+}
+.icon-btn:hover { color: var(--ink-strong); background: color-mix(in srgb, var(--ink-strong) 6%, transparent); }
+.icon-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 35%, transparent); }
+
+/* Lane group */
+.group { border-bottom: 1px solid var(--hairline-soft); }
+.group:last-child { border-bottom: 0; }
+.group-head { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; }
+.group-head svg { flex: none; color: var(--info); }
+.group-title { font-size: 12px; font-weight: 600; color: color-mix(in srgb, var(--ink-strong) 90%, transparent); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-name {
+  margin-left: auto; font-family: var(--mono); font-size: 8.5px; color: var(--ink-dim);
+  max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none;
+}
+.sec { border-top: 1px solid var(--hairline-soft); }
+.sec-head { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 14px; }
+.sec-body { padding: 0 10px 10px; }
+
+/* Standing explainer — part of the resting state, not a dismissible tip */
+.hint {
+  padding: 0 14px 10px; font-size: 11px; line-height: 1.45;
+  color: var(--ink-muted); max-width: none;
+}
+.hint .m { font-size: 10.5px; color: var(--ink-dim); }
+
+/* Rows */
+.row-live {
+  width: 100%; display: block; text-align: left; padding: 8px 10px;
+  border: 1px solid var(--live-rim); background: var(--live-wash);
+  border-radius: var(--r-md); cursor: pointer; font: inherit; color: inherit;
+  transition: border-color .15s ease;
+}
+.row-live:hover { border-color: color-mix(in srgb, var(--live) 45%, transparent); }
+.row-live:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 35%, transparent); }
+.row-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ref { flex: none; font-family: var(--mono); font-size: 8.5px; font-weight: 600; color: var(--info); }
+.ttl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11.5px; font-weight: 500; color: color-mix(in srgb, var(--ink-strong) 90%, transparent); }
+.lease {
+  margin-top: 6px; display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: .08em;
+  font-variant-numeric: tabular-nums; color: var(--info);
+}
+.row-wait {
+  width: 100%; display: flex; align-items: center; gap: 8px; min-height: 44px;
+  padding: 6px 8px; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--seam) 92%, transparent);
+  background: color-mix(in srgb, var(--ground) 25%, transparent);
+  border-radius: var(--r-md); transition: border-color .15s ease;
+}
+.row-wait:hover { border-color: var(--border-strong); }
+.pos {
+  flex: none; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--seam); background: var(--secondary); border-radius: 4px;
+  font-family: var(--mono); font-size: 8.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--label);
+}
+.wait-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.wait-sub { margin-top: 2px; font-family: var(--mono); font-size: 8.5px; font-variant-numeric: tabular-nums; color: var(--ink-dim); }
+.row-cand {
+  width: 100%; display: flex; align-items: center; gap: 8px; min-height: 32px;
+  padding: 0 8px; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent; border-radius: var(--r-md); transition: background .15s ease, border-color .15s ease;
+}
+.row-cand:hover { border-color: color-mix(in srgb, var(--seam) 90%, transparent); background: color-mix(in srgb, var(--secondary) 55%, transparent); }
+.stack { display: flex; flex-direction: column; gap: 4px; }
+
+/* Released — past tense, and completely still */
+.row-past {
+  display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px;
+  border-radius: var(--r-md); opacity: .78;
+}
+.row-past .glyph { flex: none; color: var(--ink-faint); }
+.past-name { font-family: var(--mono); font-size: 10px; color: var(--ink-dim);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.past-when { margin-left: auto; flex: none; font-family: var(--mono); font-size: 8.5px;
+  font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+
+.empty {
+  border: 1px dashed var(--dash); border-radius: var(--r-md);
+  padding: 8px 10px; font-size: 11px; line-height: 1.45; color: var(--ink-muted);
+}
+.teach { padding: 2px 4px 10px; }
+.teach p { font-size: 11.5px; line-height: 1.5; color: var(--ink-muted); margin: 0 0 8px; max-width: none; }
+.teach p.first { color: var(--ink); font-weight: 500; }
+.teach .names { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.tag {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-muted);
+  border: 1px solid var(--seam); background: color-mix(in srgb, var(--ground) 30%, transparent);
+  border-radius: 4px; padding: 2px 6px;
+}
+
+/* Loading skeleton — not a spinner in the middle of content */
+.skel { height: 34px; border: 1px solid color-mix(in srgb, var(--seam) 85%, transparent);
+  border-radius: var(--r-md); display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+.skel i { display: block; height: 7px; border-radius: 2px; background: var(--secondary); }
+.skel i.a { width: 34px; } .skel i.b { width: 96px; opacity: .7; }
+
+/* Degraded band */
+.warn {
+  padding: 8px 14px; font-size: 10.5px; line-height: 1.45; color: var(--ink-muted);
+  border-bottom: 1px solid color-mix(in srgb, var(--red) 22%, transparent);
+  background: color-mix(in srgb, var(--red) 5%, transparent);
+}
+
+/* The one perpetual motion: a lease actually held right now */
+.spin { flex: none; width: 12px; height: 12px; color: var(--live); }
+.spin circle { opacity: .28; }
+.spin path { transform-origin: 50% 50%; animation: rot 1.1s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin path { animation: none; } }
+
+/* ── Before / after ledger ────────────────────────────────────── */
+.ledger { width: 100%; border-collapse: collapse; max-width: 100%; margin: 4px 0 8px; }
+.ledger th, .ledger td { text-align: left; vertical-align: top; padding: 11px 14px 11px 0; border-bottom: 1px solid var(--hairline-soft); font-size: 13px; }
+.ledger th { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--label); font-weight: 500; padding-bottom: 8px; }
+.ledger td:first-child { width: 27%; color: var(--ink-strong); font-weight: 500; }
+.ledger td:nth-child(2) { width: 34%; color: var(--ink-faint); }
+.ledger td:last-child { color: var(--ink); }
+.ledger tr:last-child td { border-bottom: 0; }
+
+.note {
+  border-left: 1px solid var(--live-rim); padding: 2px 0 2px 14px;
+  margin: 18px 0; max-width: 62ch; color: var(--ink-muted); font-size: 12.5px;
+}
+
+.foot { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--seam);
+  font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: .04em; }
+
+@media (max-width: 720px) {
+  .page { padding: 28px 18px 72px; }
+  .rail { margin: 0 -18px; padding-left: 18px; padding-right: 18px; }
+  .ledger td:first-child, .ledger td:nth-child(2) { width: auto; }
+  .ledger, .ledger tbody, .ledger tr, .ledger td { display: block; }
+  .ledger thead { display: none; }
+  .ledger tr { border-bottom: 1px solid var(--hairline-soft); padding: 10px 0; }
+  .ledger td { border-bottom: 0; padding: 2px 0; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="masthead">
+    <h1>Queues, without the dead lanes</h1>
+    <div class="well" role="group" aria-label="Theme">
+      <button type="button" data-set="dark" aria-pressed="true">Ink</button>
+      <button type="button" data-set="light" aria-pressed="false">Paper</button>
+    </div>
+  </div>
+
+  <p class="dek">
+    The right dock pins two lanes forever and hides every other one. <strong>Merge stays fixed</strong>, because it
+    is the only lane with a future to show. <strong>Everything else goes fully dynamic</strong>, including
+    <code>test:heavy</code>, and the panel finally says out loud what it shows, what it will show, and what
+    just left.
+  </p>
+  <p class="meta">POD-1076 · concept · right dock @ 316px</p>
+
+  <h2>What is wrong today</h2>
+  <p>
+    The panel does not list queues. It renders live advisory-lock state, and lock names are free-form,
+    created on demand by <code>podium lock acquire &lt;name&gt;</code>. There is no registry to enumerate,
+    so <code>merge:main</code> and <code>test:heavy</code> are hard-pinned in
+    <code>queueGroups()</code> and every other lane appears only while somebody holds it.
+  </p>
+  <ul class="pts">
+    <li><strong>The heavy lane squats.</strong> It holds a permanent three-section block (HOLDING, NEXT UP, READY) that is empty almost all the time now that focused test lanes run lock-free.</li>
+    <li><strong>Real lanes are invisible.</strong> <code>validation:watch</code>, <code>podium:dev-bundle</code>, <code>migrations</code>, <code>hotfile:*</code> exist and never show while free.</li>
+    <li><strong>Nothing explains the rule.</strong> A quiet panel is indistinguishable from a broken one, so an absent lane reads as a missing feature.</li>
+  </ul>
+
+  <h2>The redesign</h2>
+
+  <table class="ledger">
+    <thead><tr><th>Region</th><th>Today</th><th>Proposed</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Merge queue</td>
+        <td>Pinned, three sections, always mounted.</td>
+        <td><strong>Unchanged and still fixed.</strong> It is the one lane that is meaningful while free, because READY lists branches waiting to enter it. A forward-looking queue earns a permanent seat.</td>
+      </tr>
+      <tr>
+        <td>Heavy test queue</td>
+        <td>Pinned beside merge, usually empty.</td>
+        <td><strong>Unpinned.</strong> It becomes an ordinary lane that appears while held, keeping its flask icon and TESTING NOW vocabulary through <code>lockGroupKind()</code>. Nothing is lost; it stops occupying a third of the panel to say nothing.</td>
+      </tr>
+      <tr>
+        <td>Every other lane</td>
+        <td>Appears while held, unexplained, below the fold.</td>
+        <td><strong>One LIVE LANES band</strong> with a standing one-line explainer, a teaching empty state, and a RECENTLY RELEASED tail.</td>
+      </tr>
+      <tr>
+        <td>Header count</td>
+        <td><code>N held</code>, true but reading as a total.</td>
+        <td><code>N live</code> next to the refresh control, and the band's own count carries the rest.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>The rule the panel now states</h3>
+  <p class="note">
+    A row means a real lease. Lanes are created on demand, so a lane exists here while a session holds it
+    and leaves when the lease is released. Nothing is listed speculatively, which is exactly why the
+    absence has to be narrated rather than guessed at.
+  </p>
+  <ul class="pts">
+    <li><strong>Standing explainer.</strong> One sentence under the LIVE LANES header, always present, in the operator's language rather than a dismissible tip. It survives the panel being busy, which is when a newcomer actually looks.</li>
+    <li><strong>Teaching empty state.</strong> When nothing is held, the band names the mechanic <em>and</em> the lane names this repo's agents actually take — so "what will show" is concrete, not a promise.</li>
+    <li><strong>Recently released.</strong> The client remembers lanes it watched disappear and keeps them for 30 minutes as dim, past-tense, motionless rows. That is the piece that makes the mechanic self-evident: you see a lane arrive, run, and fade, instead of only ever seeing a panel that is already empty. It is client-side memory of real readings: it invents no server state, and it decays on its own.</li>
+    <li><strong>Motion stays honest.</strong> Only a lease held right now spins; a released row is completely still, which is what stillness means everywhere else in the shell.</li>
+  </ul>
+
+  <h2>The panel</h2>
+  <p>Rendered at the dock's 316px default, in every state the panel can resolve to.</p>
+
+  <div class="rail">
+
+    <!-- ── STATE 1: live ─────────────────────────────────────── -->
+    <figure class="specimen">
+      <figcaption>Live <em>three lanes held</em></figcaption>
+      <div class="dock">
+        <div class="dock-head">
+          <span class="lbl lbl-strong">QUEUES</span>
+          <span class="num">3 live</span>
+          <span class="spacer"></span>
+          <button class="icon-btn" type="button" aria-label="Refresh queues" title="Refresh queues">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+          </button>
+        </div>
+
+        <!-- Fixed: merge -->
+        <section class="group">
+          <div class="group-head">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+            <span class="group-title">Merge queue</span>
+            <span class="group-name">merge:main</span>
+          </div>
+          <div class="sec">
+            <div class="sec-head"><span class="lbl">MERGING NOW</span><span class="num">1</span></div>
+            <div class="sec-body">
+              <button class="row-live" type="button">
+                <span class="row-top">
+                  <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 9 9"/></svg>
+                  <span class="ref">POD-1075</span>
+                  <span class="ttl">Popover shadow on dark</span>
+                </span>
+                <span class="lease">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></svg>
+                  LEASE 56s left
+                </span>
+              </button>
+            </div>
+          </div>
+          <div class="sec">
+            <div class="sec-head"><span class="lbl">NEXT UP</span><span class="num">1</span></div>
+            <div class="sec-body">
+              <button class="row-wait" type="button">
+                <span class="pos">1</span>
+                <span class="wait-body">
+                  <span class="row-top"><span class="ref">POD-1058</span><span class="ttl">Empty-state review sheet</span></span>
+                  <span class="wait-sub">Waiting 2m 14s</span>
+                </span>
+              </button>
+            </div>
+          </div>
+          <div class="sec">
+            <div class="sec-head"><span class="lbl">READY</span><span class="num">2</span></div>
+            <div class="sec-body">
+              <div class="stack">
+                <button class="row-cand" type="button"><span class="ref">POD-1042</span><span class="ttl">Worklist ghost row</span></button>
+                <button class="row-cand" type="button"><span class="ref">POD-1069</span><span class="ttl">Biome normalize shell files</span></button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Dynamic band -->
+        <section class="group">
+          <div class="group-head">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span class="group-title">Live lanes</span>
+            <span class="group-name">2 held</span>
+          </div>
+          <p class="hint">A lane appears while a session holds its lock and leaves when the lease is released.</p>
+
+          <div class="sec">
+            <div class="sec-head">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--info)" aria-hidden="true"><path d="M9 3h6M10 3v6.5L5.5 18A2 2 0 0 0 7.3 21h9.4a2 2 0 0 0 1.8-3L14 9.5V3"/><path d="M7 15h10"/></svg>
+              <span class="lbl">TESTING NOW</span>
+              <span class="group-name" style="margin-left:auto">test:heavy</span>
+            </div>
+            <div class="sec-body">
+              <button class="row-live" type="button">
+                <span class="row-top">
+                  <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 9 9"/></svg>
+                  <span class="ref">POD-1102</span>
+                  <span class="ttl">Terminal hibernation proof</span>
+                </span>
+                <span class="lease">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></svg>
+                  LEASE 4m 12s left
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--info)" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+              <span class="lbl">HOLDING NOW</span>
+              <span class="group-name" style="margin-left:auto">validation:watch</span>
+            </div>
+            <div class="sec-body">
+              <button class="row-live" type="button">
+                <span class="row-top">
+                  <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 9 9"/></svg>
+                  <span class="ref">POD-1131</span>
+                  <span class="ttl">Admission gate rerun</span>
+                </span>
+                <span class="lease">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></svg>
+                  LEASE 1m 03s left
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head"><span class="lbl">RECENTLY RELEASED</span><span class="num">2</span></div>
+            <div class="sec-body">
+              <div class="stack">
+                <div class="row-past">
+                  <svg class="glyph" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg>
+                  <span class="past-name">podium:dev-bundle</span>
+                  <span class="past-when">6m ago</span>
+                </div>
+                <div class="row-past">
+                  <svg class="glyph" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg>
+                  <span class="past-name">migrations</span>
+                  <span class="past-when">22m ago</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </figure>
+
+    <!-- ── STATE 2: quiet ────────────────────────────────────── -->
+    <figure class="specimen">
+      <figcaption>Quiet <em>nothing held, panel teaches</em></figcaption>
+      <div class="dock">
+        <div class="dock-head">
+          <span class="lbl lbl-strong">QUEUES</span>
+          <span class="num">0 live</span>
+          <span class="spacer"></span>
+          <button class="icon-btn" type="button" aria-label="Refresh queues" title="Refresh queues">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+          </button>
+        </div>
+
+        <section class="group">
+          <div class="group-head">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+            <span class="group-title">Merge queue</span>
+            <span class="group-name">merge:main</span>
+          </div>
+          <div class="sec">
+            <div class="sec-head"><span class="lbl">MERGING NOW</span><span class="num">0</span></div>
+            <div class="sec-body"><p class="empty">Nobody holds the merge lock.</p></div>
+          </div>
+          <div class="sec">
+            <div class="sec-head"><span class="lbl">READY</span><span class="num">2</span></div>
+            <div class="sec-body">
+              <div class="stack">
+                <button class="row-cand" type="button"><span class="ref">POD-1042</span><span class="ttl">Worklist ghost row</span></button>
+                <button class="row-cand" type="button"><span class="ref">POD-1069</span><span class="ttl">Biome normalize shell files</span></button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="group-head">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span class="group-title">Live lanes</span>
+            <span class="group-name">none held</span>
+          </div>
+          <div class="sec-body teach" style="padding-top:8px">
+            <p class="first">No lane is held right now.</p>
+            <p>Lanes are created on demand. When a session runs <span class="m">podium&nbsp;lock&nbsp;acquire</span>, its lane appears here with the holder, the lease clock and everyone waiting behind it.</p>
+            <p style="margin-bottom:6px;color:var(--ink-faint)">Lanes this repo's agents take:</p>
+            <div class="names">
+              <span class="tag">test:heavy</span>
+              <span class="tag">validation:watch</span>
+              <span class="tag">migrations</span>
+              <span class="tag">podium:dev-bundle</span>
+              <span class="tag">hotfile:*</span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </figure>
+
+    <!-- ── STATE 3: loading ──────────────────────────────────── -->
+    <figure class="specimen">
+      <figcaption>Cold <em>first read, skeleton not spinner</em></figcaption>
+      <div class="dock">
+        <div class="dock-head">
+          <span class="lbl lbl-strong">QUEUES</span>
+          <span class="spacer"></span>
+          <button class="icon-btn" type="button" aria-label="Refresh queues" disabled style="opacity:.4;cursor:default">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+          </button>
+        </div>
+        <section class="group" aria-busy="true">
+          <div class="group-head">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+            <span class="group-title">Merge queue</span>
+            <span class="group-name">merge:main</span>
+          </div>
+          <div class="sec">
+            <div class="sec-head"><span class="lbl">MERGING NOW</span></div>
+            <div class="sec-body"><div class="skel"><i class="a"></i><i class="b"></i></div></div>
+          </div>
+          <div class="sec">
+            <div class="sec-head"><span class="lbl">READY</span></div>
+            <div class="sec-body"><div class="skel"><i class="a"></i><i class="b"></i></div></div>
+          </div>
+        </section>
+        <section class="group">
+          <div class="group-head">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span class="group-title">Live lanes</span>
+          </div>
+          <p class="hint">Reading every lease this repository holds…</p>
+          <div class="sec-body"><div class="skel"><i class="a"></i><i class="b"></i></div></div>
+        </section>
+      </div>
+    </figure>
+
+    <!-- ── STATE 4: degraded ─────────────────────────────────── -->
+    <figure class="specimen">
+      <figcaption>Degraded <em>last good reading held</em></figcaption>
+      <div class="dock">
+        <div class="dock-head">
+          <span class="lbl lbl-strong">QUEUES</span>
+          <span class="num">1 live</span>
+          <span class="spacer"></span>
+          <button class="icon-btn" type="button" aria-label="Refresh queues">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+          </button>
+        </div>
+        <p class="warn">Showing the last reading from 40s ago. The lock query timed out. Retry, or the next poll will clear it.</p>
+        <section class="group">
+          <div class="group-head">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+            <span class="group-title">Merge queue</span>
+            <span class="group-name">merge:main</span>
+          </div>
+          <div class="sec">
+            <div class="sec-head"><span class="lbl">MERGING NOW</span><span class="num">1</span></div>
+            <div class="sec-body">
+              <button class="row-live" type="button" style="border-color:var(--seam);background:transparent">
+                <span class="row-top">
+                  <span class="ref" style="color:var(--ink-dim)">POD-1075</span>
+                  <span class="ttl">Popover shadow on dark</span>
+                </span>
+                <span class="lease" style="color:var(--ink-faint)">
+                  LEASE UNKNOWN · CLOCK STOPPED
+                </span>
+              </button>
+            </div>
+          </div>
+        </section>
+        <section class="group">
+          <div class="group-head">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span class="group-title">Live lanes</span>
+            <span class="group-name">stale</span>
+          </div>
+          <p class="hint">Lanes are not being tracked while the reading is stale. A lane could have arrived or left since.</p>
+        </section>
+      </div>
+    </figure>
+
+  </div>
+
+  <h3>Why the stale state stops the clocks</h3>
+  <p>
+    A lease countdown that keeps ticking off a reading the client can no longer trust is the panel lying
+    politely. When the query fails, the timers go to <span class="m">CLOCK STOPPED</span> and the live band
+    says plainly that it is no longer tracking. Stillness is the shell's "something needs you" signal
+    everywhere else; it should mean it here too.
+  </p>
+
+  <h2>What changes in code</h2>
+  <ul class="pts">
+    <li><code>merge-queue-model.ts</code>: <code>queueGroups()</code> drops the pinned <code>heavy</code> member and returns <code>{ merge, lanes }</code>. <code>test:heavy</code> falls through to the same dynamic path every other lock takes, and <code>lockGroupKind()</code> plus <code>lockGroupTitle()</code> are unchanged, so it keeps its flask and its TESTING NOW label.</li>
+    <li><strong>New:</strong> a small released-lane memory beside <code>useRepoLocks</code>. Diff each reading against the last, stamp what vanished, expire at 30 minutes. Client-side only; no protocol change, no server work.</li>
+    <li><code>MergeQueuePanel.tsx</code>: the merge group renders as it does now. The heavy group's bespoke <code>ready</code> copy is deleted. A new <code>LiveLanes</code> section owns the explainer, the lane list, the teaching empty state and the released tail.</li>
+    <li>Known lane names in the empty state come from a short constant, not a registry. They are <em>examples that teach</em>, never rows, so the "a row means a real lease" rule holds without exception.</li>
+    <li>Tests: <code>MergeQueuePanel.test.tsx</code> gains the quiet state, the released decay, and heavy-as-dynamic; the pinned-heavy assertions go.</li>
+  </ul>
+
+  <div class="foot">POD-1076 · apps/web/src/features/merge-queue · Dark Ink + Paper</div>
+</div>
+
+<script>
+  const root = document.documentElement
+  const buttons = [...document.querySelectorAll('.well button')]
+  const apply = (mode) => {
+    root.setAttribute('data-theme', mode)
+    for (const b of buttons) b.setAttribute('aria-pressed', String(b.dataset.set === mode))
+  }
+  for (const b of buttons) b.addEventListener('click', () => apply(b.dataset.set))
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) apply('light')
+</script>
+</body>
+</html>
