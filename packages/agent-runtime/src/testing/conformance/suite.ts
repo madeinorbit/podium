@@ -476,11 +476,23 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         if (receipt.outcome === 'refused' || receipt.outcome === 'unverified') return
 
         if (receipt.deliveredAs === 'steer') {
+          const epochAfterReceipt = (await session.snapshot()).turnEpoch
+          const afterReceipt = control.textDeliveries(sessionId)
+          // THE FENCE IS THE SECOND QUESTION, not a second chance at the first.
+          // A steer's words were already in this turn, so its ending must not
+          // deliver anything — while a queue that was calling itself a steer
+          // drains exactly here. See the assertion's own note for what this
+          // does and does not catch.
+          control.completeTurn(sessionId)
           assertSteerJoinedOpenTurn({
             receipt,
             openEpoch,
-            epochAfterReceipt: (await session.snapshot()).turnEpoch,
-            textDeliveries: { before, afterReceipt: control.textDeliveries(sessionId) },
+            epochAfterReceipt,
+            textDeliveries: {
+              before,
+              afterReceipt,
+              afterFence: control.textDeliveries(sessionId),
+            },
           })
           return
         }
@@ -509,12 +521,23 @@ export function describeDriverConformance(target: ConformanceTarget): void {
          * reports the epoch nobody has revised yet. Asserting it would fail a
          * driver for the observer's latency, which says nothing about delivery.
          *
-         * The trade was worth naming rather than assuming (review, finding 1),
-         * and having named it: the epoch adds nothing here that the two
-         * assertions above do not already carry. Words that arrive AFTER a fence
-         * cannot join the fenced turn — fences are absorbing, which this corpus
-         * pins separately — so "delivered after the fence" IS "delivered as a
-         * new turn" for any driver that keeps that invariant.
+         * The trade was worth naming rather than assuming (review round 1,
+         * finding 1). What this branch proves is that the words REACHED THE
+         * AGENT after the fence, which is the part a caller's work depends on.
+         *
+         * WHAT IT DOES NOT PROVE, corrected after the claim was checked (review
+         * round 2, finding 3). An earlier version of this note argued the epoch
+         * was redundant because "words that arrive after a fence cannot join the
+         * fenced turn — fences are absorbing, which this corpus pins separately".
+         * The corpus does NOT pin that: `absorbing` appears twice in this file
+         * and both are comments. The reference fake implements absorption, so
+         * the premise holds there and is unverified everywhere else — and
+         * measuring it found the gap is real. Driving the opencode target's
+         * provider to signal idle TWICE for one turn emits TWO `turn completed`
+         * events for the same epoch (the epoch itself does not move, 1→1→1).
+         * Absorption of the terminal EVENT is therefore a fake-only property
+         * today; it is filed rather than asserted here, because pinning it would
+         * turn a landed driver red inside a corpus round rather than in its own.
          */
       })
 
@@ -956,127 +979,15 @@ export function describeDriverConformance(target: ConformanceTarget): void {
          * tried to nudge" impossible to interleave, and it is enforced in three
          * separate driver implementations that nothing compared.
          *
-         * It had already broken once, in a driver, in the direction the type
-         * system cannot see: POD-2059 found opencode's `attach` taking the lease
-         * UNCONDITIONALLY after starting a client, so a second take-over
-         * silently displaced the first — while `lease.acquire()`, one screen
-         * down in the same file, refused that exact case with `lease_held`. One
-         * verb handing out for free what its sibling refuses is worse than
-         * neither enforcing it, because callers read the refusal and believe it.
-         * A driver-local fix leaves the next driver free to make the same
-         * mistake; this is the property that would have caught it anywhere.
-         *
-         * THE LEASE IS READ AFTER EVERY STEP, not just at the end. "Refused" and
-         * "refused without moving the lease" are different claims, and only the
-         * second one is the invariant — a refusal that displaced the holder
-         * anyway would satisfy a check that only looked at the return value.
+         * The assertions live in {@link assertAttachHonoursOneControlLease} so
+         * the corpus's own teeth tests can drive them with a driver built to
+         * break each one — see `fake.test.ts`. That is not a style preference:
+         * this property's two refusal assertions are DORMANT on every landed
+         * target, so without a construction that reaches them they are the two
+         * nobody could ever show had bitten (review round 2, finding 2).
          */
         const { handle, driver } = setup()
-        const session = await handle
-        const declared = driver.capabilities().attach
-        if (!declared.supported) {
-          // THE REFUSAL ARM, ASKED IN THE MODE THAT MATTERS. A family with no
-          // terminal declines every mode, not just the one the older property
-          // happened to ask for — an `attach` that refused `peek` and then
-          // handed out a take-over endpoint would be a fabricated stream with a
-          // lease attached to it.
-          expect(permits(target.family, 'no-attach')).toBe(true)
-          expect(await session.attach({ mode: 'takeover', holder: 'operator' })).toMatchObject({
-            reason: 'unsupported',
-          })
-          return
-        }
-
-        /**
-         * BOTH BRANCHES ARE ASSERTED, WHICH IS THE POINT OF THE ARM (POD-2059's
-         * review, via POD-1761's ruling).
-         *
-         * A driver that DECLARES attach can still refuse a particular call: the
-         * machine may have no terminal host to spawn a client into. That is a
-         * runtime refusal rather than a declared gap, and the corpus asserted
-         * NOTHING about it — the property assumed an endpoint and would have
-         * died on a refusal with `'kind' in endpoint` being false, which reads in
-         * a run log as a broken test rather than as the branch it is.
-         *
-         * So each answer is classified before it is judged, and the refusal side
-         * carries the invariant that matters: a refused attach must not have
-         * taken the lease. That is POD-2023's "the refusal must land BEFORE the
-         * client terminal starts", expressed in something every target can
-         * already observe — their old code spawned the TUI and only then took
-         * the lease, so a refusal would have left an orphaned terminal attached
-         * to a session it had just been refused control of.
-         *
-         * TODAY THIS ARM IS DORMANT and that is the sequencing, not an oversight:
-         * every landed fixture hosts a client, so no target reaches it. The
-         * opencode fixture that returns a fabricated endpoint is POD-2023's file
-         * and is filed as POD-2121, dep-blocked on this landing — the property
-         * has to exist first, or a fixture change would alter nothing under test.
-         */
-        const answered = async (
-          answer: Awaited<ReturnType<typeof session.attach>>,
-        ): Promise<'endpoint' | 'refused'> => {
-          if ('kind' in answer) {
-            expect(declared.value.kinds).toContain(answer.kind)
-            return 'endpoint'
-          }
-          // A TYPED refusal, never a bare shrug — the caller has to be able to
-          // branch on why they did not get a terminal.
-          expect(['unsupported', 'not_running', 'lease_held']).toContain(answer.reason)
-          return 'refused'
-        }
-
-        // A SPECTATOR TAKES NOTHING. There is no spectator arm in `lease` at all
-        // — that is the design — so the observable is that the lease is exactly
-        // as it was.
-        const before = await session.lease.state()
-        const peeked = await answered(await session.attach({ mode: 'peek', holder: 'viewer' }))
-        expect(await session.lease.state()).toEqual(before)
-        if (peeked === 'refused') {
-          // This machine cannot host a terminal for this session. Nothing below
-          // is reachable, and pretending otherwise would test the fixture rather
-          // than the driver.
-          return
-        }
-
-        // A CONTROLLER TAKES IT, and the lease says who by. Reading it through
-        // `lease.state()` rather than trusting the endpoint is the point: the
-        // two verbs must agree, and this is where they are compared.
-        const took = await answered(
-          await session.attach({ mode: 'takeover', holder: 'operator' }),
-        )
-        if (took === 'refused') {
-          expect(
-            await session.lease.state(),
-            'a refused take-over took the control lease anyway — the refusal landed after the client started',
-          ).toEqual(before)
-          return
-        }
-        expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
-
-        // A SECOND CONTROLLER IS REFUSED — and the lease DOES NOT MOVE.
-        expect(await session.attach({ mode: 'takeover', holder: 'intruder' })).toMatchObject({
-          reason: 'lease_held',
-        })
-        expect(
-          await session.lease.state(),
-          'a refused take-over displaced the holder anyway',
-        ).toMatchObject({ holder: 'operator' })
-
-        // THE HOLDER MAY COME BACK. A dropped TUI reconnecting is the ordinary
-        // case, and a driver that locked the holder out with its own lease would
-        // strand the one person entitled to be there — which is why the guard is
-        // "a DIFFERENT holder", not "a lease exists".
-        expect('kind' in (await session.attach({ mode: 'takeover', holder: 'operator' }))).toBe(
-          true,
-        )
-        expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
-
-        // AND SPECTATORS ARE STILL UNLIMITED while somebody holds control: the
-        // exclusion is on the control lease, never on watching.
-        expect('kind' in (await session.attach({ mode: 'peek', holder: 'second-viewer' }))).toBe(
-          true,
-        )
-        expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
+        await assertAttachHonoursOneControlLease(await handle, driver.capabilities(), target.family)
       })
     })
 
@@ -1177,21 +1088,152 @@ export function runConformance(
 }
 
 /**
+ * EXACTLY ONE CONTROL LEASE, AND UNLIMITED SPECTATORS (spec §5).
+ *
+ * Every step reads the lease back, because "refused" and "refused without
+ * moving the lease" are different claims and only the second is the invariant:
+ * a refusal that displaced the holder anyway would satisfy a check that looked
+ * only at the return value.
+ *
+ * WHY THIS IS A FUNCTION AND NOT A PROPERTY BODY. It had already broken once,
+ * in a driver, in the direction the type system cannot see: POD-2059 found
+ * opencode's `attach` taking the lease UNCONDITIONALLY after starting a client,
+ * so a second take-over silently displaced the first — while `lease.acquire()`,
+ * one screen down in the same file, refused that exact case with `lease_held`.
+ * One verb handing out for free what its sibling refuses is worse than neither
+ * enforcing it, because callers read the refusal and believe it. Exported so
+ * the teeth tests can build that driver and watch this refuse it, which is the
+ * only way the two DORMANT refusal assertions below can be shown to bite at all.
+ *
+ * BOTH BRANCHES OF EVERY ANSWER ARE ASSERTED. A driver that DECLARES attach can
+ * still refuse a particular call — the machine may have no terminal host to
+ * spawn a client into — and the corpus said nothing about that: it assumed an
+ * endpoint and would have died on `'kind' in endpoint` being false, which reads
+ * in a run log as a broken test rather than as the branch it is. The refusal
+ * side carries POD-2023's second invariant, expressed in something every target
+ * can already observe: A REFUSED ATTACH MUST NOT BE HOLDING THE LEASE. Their old
+ * code spawned the TUI and only then took it, so a refusal would have left an
+ * orphaned terminal attached to a session it had just been refused control of.
+ *
+ * THAT ARM IS DORMANT ON TODAY'S TARGETS and that is sequencing, not oversight:
+ * every landed fixture hosts a client, so no target reaches it. The opencode
+ * fixture that returns a fabricated endpoint is POD-2023's file, filed as
+ * POD-2121 and dep-blocked on this corpus landing — the property has to exist
+ * first, or a fixture change would alter nothing under test.
+ */
+export async function assertAttachHonoursOneControlLease(
+  session: AgentSessionHandle,
+  capabilities: DriverCapabilities,
+  family: DriverFamily,
+): Promise<void> {
+  const declared = capabilities.attach
+  if (!declared.supported) {
+    // THE DECLARED-GAP ARM, ASKED IN THE MODE THAT MATTERS. A family with no
+    // terminal declines every mode, not just the one the older property happened
+    // to ask for — an `attach` that refused `peek` and then handed out a
+    // take-over endpoint would be a fabricated stream with a lease attached.
+    expect(permits(family, 'no-attach')).toBe(true)
+    expect(await session.attach({ mode: 'takeover', holder: 'operator' })).toMatchObject({
+      reason: 'unsupported',
+    })
+    return
+  }
+
+  const answered = async (
+    answer: Awaited<ReturnType<typeof session.attach>>,
+  ): Promise<'endpoint' | 'refused'> => {
+    if ('kind' in answer) {
+      expect(declared.value.kinds).toContain(answer.kind)
+      return 'endpoint'
+    }
+    // A TYPED refusal, never a bare shrug — the caller has to be able to branch
+    // on why they did not get a terminal.
+    expect(['unsupported', 'not_running', 'lease_held']).toContain(answer.reason)
+    return 'refused'
+  }
+
+  // A SPECTATOR TAKES NOTHING. There is no spectator arm in `lease` at all —
+  // that is the design — so the observable is that the lease is exactly as it
+  // was.
+  const before = await session.lease.state()
+  const peeked = await answered(await session.attach({ mode: 'peek', holder: 'viewer' }))
+  expect(await session.lease.state(), 'a peek took the control lease').toEqual(before)
+  if (peeked === 'refused') {
+    // This machine cannot host a terminal for this session. Nothing below is
+    // reachable, and pretending otherwise would test the fixture, not the driver.
+    return
+  }
+
+  // A CONTROLLER TAKES IT, and the lease says who by. Reading it through
+  // `lease.state()` rather than trusting the endpoint is the point: the two
+  // verbs must agree, and this is where they are compared.
+  const took = await answered(await session.attach({ mode: 'takeover', holder: 'operator' }))
+  if (took === 'refused') {
+    expect(
+      await session.lease.state(),
+      'a refused take-over took the control lease anyway — the refusal landed after the client started',
+    ).toEqual(before)
+    return
+  }
+  expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
+
+  // A SECOND CONTROLLER IS REFUSED — and the lease DOES NOT MOVE.
+  expect(await session.attach({ mode: 'takeover', holder: 'intruder' })).toMatchObject({
+    reason: 'lease_held',
+  })
+  expect(
+    await session.lease.state(),
+    'a refused take-over displaced the holder anyway',
+  ).toMatchObject({ holder: 'operator' })
+
+  // THE HOLDER MAY COME BACK. A dropped TUI reconnecting is the ordinary case,
+  // and a driver that locked the holder out with its own lease would strand the
+  // one person entitled to be there — which is why the guard is "a DIFFERENT
+  // holder", not "a lease exists".
+  expect('kind' in (await session.attach({ mode: 'takeover', holder: 'operator' }))).toBe(true)
+  expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
+
+  // AND SPECTATORS ARE STILL UNLIMITED while somebody holds control: the
+  // exclusion is on the control lease, never on watching.
+  expect('kind' in (await session.attach({ mode: 'peek', holder: 'second-viewer' }))).toBe(true)
+  expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
+}
+
+/**
  * What a `deliveredAs: 'steer'` receipt has to be TRUE about.
  *
- * THE THREE READINGS, taken at the instant the receipt resolved, and every one
- * of them is something an impostor cannot fake while queueing:
+ * THREE READINGS AT RECEIPT TIME, and one after the turn fences:
  *
  *   1. the receipt names the OPEN turn — it joined a turn, it did not open one;
  *   2. the session is still on that turn — nothing was opened during the send
  *      behind an honest-looking epoch in the receipt;
  *   3. EXACTLY ONE more delivery of the caller's text has reached the agent.
- *      This is the one that catches the substitution: words in a queue have not
- *      reached anybody, and `textDeliveries` counts at the drain (see
- *      `./target.ts`), so a queue-behind-the-turn reads as zero here no matter
- *      how fast it drains afterwards.
+ *      Words in a queue have not reached anybody, and `textDeliveries` counts at
+ *      the drain (see `./target.ts`), so a driver that queued while reporting a
+ *      steer reads as zero here;
+ *   4. and after the fence, THE COUNT DOES NOT RISE AGAIN.
  *
- * EQUALITY, NOT `<=`, on the epochs (POD-2085 review, finding 4). An epoch that
+ * WHY 4 IS NOT REDUNDANT, and the honest limit of 3 (POD-2085 review round 2,
+ * finding 1). Reading 3's guarantee holds only for a target that follows rule 3
+ * of the counting contract, and nothing here can check that a target counts
+ * where it says it does. The reviewer built the gap: a fake made devious on the
+ * steer branch — queue the words AND increment — satisfies all three readings
+ * and passes, because the count moved at the wrong MOMENT rather than by the
+ * wrong AMOUNT. Fencing the turn is what separates the two: a steer's words were
+ * already in that turn, so nothing may be delivered on its way out, while the
+ * devious construction's queue drains there and reads `before + 2`.
+ *
+ * The earlier comment claimed reading 3 was something "an impostor cannot fake
+ * while queueing" and that a queue "reads as zero no matter how fast it drains
+ * afterwards". Both were overclaims, on the one property whose entire job is to
+ * be stronger than its comment.
+ *
+ * WHAT 4 DOES NOT CATCH, stated rather than implied: a target whose second
+ * delivery lands later than this reading. That is a timing gap and it is the
+ * price of not reintroducing a sleep — reading 3 is the race-free half, and
+ * everything above is what a driver can be held to without one.
+ *
+ * EQUALITY, NOT `<=`, on the epochs (review round 1, finding 4). An epoch that
  * went BACKWARDS after a fence is a different contract violation, and a bound
  * that licenses it is not stating the invariant it claims to.
  *
@@ -1205,7 +1247,7 @@ export function assertSteerJoinedOpenTurn(observed: {
   receipt: TurnReceipt
   openEpoch: number
   epochAfterReceipt: number
-  textDeliveries: { before: number; afterReceipt: number }
+  textDeliveries: { before: number; afterReceipt: number; afterFence: number }
 }): void {
   const { receipt, openEpoch, epochAfterReceipt, textDeliveries } = observed
   expect(receipt.outcome).toBe('accepted')
@@ -1218,6 +1260,10 @@ export function assertSteerJoinedOpenTurn(observed: {
   expect(
     textDeliveries.afterReceipt,
     'the receipt says the words joined the open turn, but nothing reached the agent — they are sitting in a queue',
+  ).toBe(textDeliveries.before + 1)
+  expect(
+    textDeliveries.afterFence,
+    'a steer was delivered a SECOND time when the turn fenced — its words were queued behind the turn they claimed to join',
   ).toBe(textDeliveries.before + 1)
 }
 

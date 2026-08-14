@@ -25,6 +25,7 @@ import {
   resetFakeRuntime,
 } from '../fake-driver.js'
 import {
+  assertAttachHonoursOneControlLease,
   assertNoNativeSteerEntitled,
   assertSteerJoinedOpenTurn,
   assertUnverifiedClaimHonest,
@@ -194,16 +195,28 @@ describe('the corpus has teeth', () => {
     // EVERY READING IS MEASURED, never handed in. A teeth test that fed the
     // assertion the numbers it wanted to see would be testing arithmetic.
     const receipt = await session.send({ text: 'steer me' }, { origin: 'mail', delivery: 'steer' })
+    const epochAfterReceipt = (await session.snapshot()).turnEpoch
+    const afterReceipt = driver.control.textDeliveries(sessionId)
+    // Fenced in the same order the property fences it: the reading AFTER the
+    // turn ends is what separates a count that moved by the wrong amount from
+    // one that moved at the wrong moment.
+    driver.control.completeTurn(sessionId)
     return {
       receipt,
       openEpoch: opened.turnEpoch,
-      epochAfterReceipt: (await session.snapshot()).turnEpoch,
-      textDeliveries: { before, afterReceipt: driver.control.textDeliveries(sessionId) },
+      epochAfterReceipt,
+      textDeliveries: {
+        before,
+        afterReceipt,
+        afterFence: driver.control.textDeliveries(sessionId),
+      },
     }
   }
 
   it('REFUSES a driver that reports a steer and queues the words', async () => {
-    const observed = await steerScenario(createFakeServerDriver({ steerImpostor: true }))
+    const observed = await steerScenario(
+      createFakeServerDriver({ steerImpostor: 'queues-silently' }),
+    )
     // THE LIE IS WELL-FORMED, which is the point: the outcome, the delivery and
     // the epoch all say the words joined the open turn, and each of those is
     // separately asserted elsewhere in the corpus. Only the DELIVERY betrays it.
@@ -216,6 +229,26 @@ describe('the corpus has teeth', () => {
     expect(() => assertSteerJoinedOpenTurn(observed)).toThrow(/sitting in a queue/)
   })
 
+  it('REFUSES a driver whose steer counts at the wrong MOMENT', async () => {
+    /**
+     * THE ADVERSARY THE RECEIPT-TIME READINGS CANNOT SEE (review round 2,
+     * finding 1). This one queues the words AND increments, so all three
+     * receipt-time readings are satisfied — the count is up by exactly one and
+     * no epoch moved. The words are still in a queue, and the proof is what the
+     * FENCE does: it drains them, and a second delivery of a turn that claimed
+     * to be already delivered is the contradiction.
+     */
+    const observed = await steerScenario(
+      createFakeServerDriver({ steerImpostor: 'queues-and-counts' }),
+    )
+    // Every receipt-time reading looks honest…
+    expect(observed.epochAfterReceipt).toBe(observed.openEpoch)
+    expect(observed.textDeliveries.afterReceipt).toBe(observed.textDeliveries.before + 1)
+    // …and the fence is where the queue gives it away.
+    expect(observed.textDeliveries.afterFence).toBe(observed.textDeliveries.before + 2)
+    expect(() => assertSteerJoinedOpenTurn(observed)).toThrow(/delivered a SECOND time/)
+  })
+
   it('ACCEPTS a driver whose steer really reaches the agent', async () => {
     const observed = await steerScenario(createFakeServerDriver())
     const { receipt } = observed
@@ -223,6 +256,44 @@ describe('the corpus has teeth', () => {
     if (receipt.outcome !== 'accepted') return
     expect(receipt.deliveredAs).toBe('steer')
     expect(() => assertSteerJoinedOpenTurn(observed)).not.toThrow()
+  })
+
+  /**
+   * THE ATTACH INVARIANT, DRIVEN FROM BOTH SIDES (POD-2085 review round 2,
+   * finding 2).
+   *
+   * The attach property landed one commit after the steer teeth, without teeth
+   * of its own — and its two refusal assertions are dormant on every landed
+   * target, so they were the two nobody could show had ever bitten. Both
+   * constructions below are the SAME bug POD-2059 found in a real driver, one
+   * per half: taking the lease unconditionally, and taking it before deciding
+   * the machine cannot host a terminal at all.
+   */
+  const attachScenario = async (driver: ReturnType<typeof createFakeServerDriver>) => {
+    resetFakeRuntime()
+    const session = await driver.create(spec())
+    return assertAttachHonoursOneControlLease(session, driver.capabilities(), 'server')
+  }
+
+  it('REFUSES an attach that takes the control lease unconditionally', async () => {
+    // A second take-over silently displacing the first — the defect exactly as
+    // it shipped in opencode before POD-2059.
+    await expect(
+      attachScenario(createFakeServerDriver({ attachLease: 'displaces' })),
+    ).rejects.toThrow()
+  })
+
+  it('REFUSES an attach whose refusal lands after it took the lease', async () => {
+    // The ordering half: refusing for want of a terminal host is correct, doing
+    // it after taking the lease leaves an orphaned controller on a session the
+    // caller was just refused control of.
+    await expect(
+      attachScenario(createFakeServerDriver({ attachLease: 'refuses-after-taking' })),
+    ).rejects.toThrow(/refusal landed after the client started/)
+  })
+
+  it('ACCEPTS an attach that holds one lease and admits every spectator', async () => {
+    await expect(attachScenario(createFakeServerDriver())).resolves.toBeUndefined()
   })
 
   it('ACCEPTS drivers that declare their family honestly', () => {

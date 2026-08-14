@@ -112,14 +112,41 @@ export interface FakeDriverOptions {
    * DELIBERATELY DISHONEST — the impostor the anti-substitution property exists
    * to catch, kept in the tree rather than rebuilt by hand.
    *
-   * Reports `deliveredAs: 'steer'` with the OPEN turn's epoch, and queues the
-   * words. Every receipt field is well-formed; the only thing wrong is that
-   * nothing reached the agent. POD-2085's first round watched this fail once
-   * and threw the patch away, which left the property's own teeth living in a
-   * commit message (review finding 3) — a check nothing in the tree would
-   * notice weakening.
+   * Both modes report `deliveredAs: 'steer'` with the OPEN turn's epoch and put
+   * the words on the QUEUE. Every receipt field is well-formed; the only thing
+   * wrong is that nothing reached the agent.
+   *
+   *   `queues-silently`  — the plain substitution: the words are parked and the
+   *                        delivery count does not move, so the receipt-time
+   *                        reading catches it.
+   *   `queues-and-counts` — the reviewer's round-2 construction, and the reason
+   *                        the after-fence reading exists: it ALSO increments,
+   *                        which satisfies every receipt-time reading. The count
+   *                        moved at the wrong MOMENT rather than by the wrong
+   *                        amount, and only fencing the turn separates the two.
+   *
+   * POD-2085's first round watched the first of these fail once and threw the
+   * patch away, which left the property's own teeth living in a commit message
+   * (review round 1, finding 3) — a check nothing in the tree would notice
+   * weakening.
    */
-  steerImpostor?: boolean
+  steerImpostor?: 'queues-silently' | 'queues-and-counts'
+  /**
+   * DELIBERATELY DISHONEST — the POD-2059 defect, kept so the corpus's attach
+   * assertions can be shown to bite.
+   *
+   * `'displaces'` takes the control lease on every take-over, so a second
+   * attacher silently displaces the first: exactly what opencode's driver did
+   * before POD-2059 found it. `'refuses-after-taking'` is the ordering half of
+   * the same bug — it refuses for want of a terminal host, but only after it has
+   * already taken the lease, which is what left an orphaned TUI attached to a
+   * session it had just been refused control of.
+   *
+   * Both matter because the corpus's two refusal assertions are DORMANT on every
+   * landed target (they all host a client), so without these they are the two
+   * checks nobody could ever watch fail (POD-2085 review round 2, finding 2).
+   */
+  attachLease?: 'honest' | 'displaces' | 'refuses-after-taking'
 }
 
 /**
@@ -340,7 +367,8 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
   const interactionSource: InteractionSource = options.interactionSource ?? 'protocol'
   const atLeastOnce = options.atLeastOnceInteractions ?? false
   const requiresConnectSecret = options.requiresConnectSecret ?? family === 'server'
-  const steerImpostor = options.steerImpostor ?? false
+  const steerImpostor = options.steerImpostor
+  const attachLease = options.attachLease ?? 'honest'
 
   const capabilities = (): DriverCapabilities => ({
     send: {
@@ -633,7 +661,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           // turn starts would report nothing here (POD-2024 measured exactly
           // that against their codex fixture).
           if (steerImpostor) core.queue.push(stamp())
-          else core.textDeliveries += 1
+          if (!steerImpostor || steerImpostor === 'queues-and-counts') core.textDeliveries += 1
           return {
             outcome: 'accepted',
             turnEpoch: core.turnEpoch,
@@ -758,7 +786,12 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       async attach(req: AttachRequest): Promise<AttachEndpoint | Refusal> {
         const declared = capabilities().attach
         if (!declared.supported) return refuse('unsupported', declared.reason)
-        if (req.mode === 'takeover' && core.lease && core.lease.holder !== req.holder) {
+        if (
+          attachLease === 'honest' &&
+          req.mode === 'takeover' &&
+          core.lease &&
+          core.lease.holder !== req.holder
+        ) {
           return refuse('lease_held', core.lease.holder)
         }
         if (req.mode === 'takeover') {
@@ -766,6 +799,9 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
             holder: req.holder,
             kind: 'human-controller',
             acquiredAt: stamp(),
+          }
+          if (attachLease === 'refuses-after-taking') {
+            return refuse('unsupported', 'this machine cannot host a client terminal')
           }
         }
         return family === 'terminal'
