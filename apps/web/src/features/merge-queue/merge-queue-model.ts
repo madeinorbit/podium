@@ -1,7 +1,7 @@
-import type { IssueId, RepoId } from '@podium/model'
 import { HEAVY_TEST_LOCK_NAME, MERGE_LOCK_NAME } from '@podium/client-core/react'
 import { issuePendingDecision } from '@podium/client-core/viewmodels'
-import { type LockSessionIdWire, isMergeLockName, MERGE_LOCK_PREFIX } from '@podium/protocol'
+import type { IssueId, RepoId } from '@podium/model'
+import { isMergeLockName, type LockSessionIdWire, MERGE_LOCK_PREFIX } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 
 /** Identity carried by an advisory lock projection. */
@@ -154,32 +154,49 @@ function groupFor(name: string, lock: QueueLock | null): QueueGroupModel {
 
 export interface QueueGroups {
   merge: QueueGroupModel
-  heavy: QueueGroupModel
-  /** Every other held lease, by name. */
-  others: QueueGroupModel[]
+  /** Every held lease except the pinned merge lane, by kind then name. */
+  lanes: QueueGroupModel[]
 }
 
+/** Lanes of a kind stay together, so the band does not shuffle by name alone. */
+const KIND_RANK: Record<QueueGroupKind, number> = { merge: 0, heavy: 1, other: 2 }
+
 /**
- * The groups to render: the merge queue, the heavy-test queue, then every other
- * held lease by name.
+ * The groups to render: the merge lane, pinned, then every held lease.
  *
- * The two known lanes are pinned even when free — the merge lane still lists
- * what is ready to merge, and both are lanes the operator expects to find in a
- * fixed place. Every other lease appears only while held, because a free lock
- * has no row to report and no name to guess.
+ * ONE lane is pinned, and only because it is the one lane that says something
+ * while free — READY lists the branches waiting to enter it, so an unheld merge
+ * lock still has a queue to show. Every other lease appears only while held,
+ * `test:heavy` included (POD-1076): a free lock has no row to report and no
+ * name to guess, and a permanently mounted lane that is almost always empty
+ * teaches the operator to skip the region where the live ones arrive.
+ *
+ * What replaces the pin is not a second registry but narration — see the
+ * panel's standing explainer, its teaching empty state and its released tail.
  */
 export function queueGroups(locks: readonly QueueLock[]): QueueGroups {
   const byName = new Map(locks.map((lock) => [lock.name, lock] as const))
 
   return {
     merge: groupFor(MERGE_LOCK_NAME, byName.get(MERGE_LOCK_NAME) ?? null),
-    heavy: groupFor(HEAVY_TEST_LOCK_NAME, byName.get(HEAVY_TEST_LOCK_NAME) ?? null),
-    others: locks
-      .filter((lock) => lock.name !== MERGE_LOCK_NAME && lock.name !== HEAVY_TEST_LOCK_NAME)
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((lock) => groupFor(lock.name, lock)),
+    lanes: locks
+      .filter((lock) => lock.name !== MERGE_LOCK_NAME)
+      .map((lock) => groupFor(lock.name, lock))
+      .sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.name.localeCompare(b.name)),
   }
 }
+
+/**
+ * Lane names this repository's agents actually take, for the empty state to
+ * name. Examples that teach, never rows: a row means a real lease, so a name
+ * nobody holds gets mentioned in a sentence and never rendered as a queue.
+ */
+export const KNOWN_LANE_EXAMPLES: readonly string[] = [
+  HEAVY_TEST_LOCK_NAME,
+  'validation:watch',
+  'migrations',
+  'podium:dev-bundle',
+]
 
 export function formatLeaseRemaining(seconds: number): string {
   const safe = Math.max(0, Math.floor(seconds))

@@ -67,7 +67,7 @@ function queueGroup(name: string): HTMLElement {
 }
 
 describe('MergeQueuePanelView', () => {
-  it('keeps merge and heavy-test queues separate and orders each active, next, ready', () => {
+  it('pins merge alone, ordered active, next, ready', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
     const onSelectIssue = vi.fn()
@@ -111,21 +111,17 @@ describe('MergeQueuePanelView', () => {
     )
 
     const merge = queueGroup('Merge queue')
-    const heavy = queueGroup('Heavy test queue')
     expect(
       within(merge)
         .getAllByRole('heading')
         .map((heading) => heading.textContent),
     ).toEqual(['Merge queue', 'MERGING NOW', 'NEXT UP', 'READY'])
-    expect(
-      within(heavy)
-        .getAllByRole('heading')
-        .map((heading) => heading.textContent),
-    ).toEqual(['Heavy test queue', 'TESTING NOW', 'NEXT UP', 'READY'])
     expect(within(merge).getByText('Waiting 1m 00s')).toBeTruthy()
     expect(within(merge).getByText('Waiting 30s')).toBeTruthy()
     expect(within(merge).getByText('2m 05s left')).toBeTruthy()
-    expect(within(heavy).getByText('Ready for the next heavy test run.')).toBeTruthy()
+    // Nothing else is held, so the heavy lane takes no room at all.
+    expect(screen.queryByText('Heavy test queue')).toBeNull()
+    expect(within(queueGroup('Live lanes')).getByText('No lane is held right now.')).toBeTruthy()
 
     const first = within(merge).getByRole('button', {
       name: /POD-11 First candidate/,
@@ -138,7 +134,9 @@ describe('MergeQueuePanelView', () => {
     expect(onSelectIssue).toHaveBeenLastCalledWith(issues[2])
   })
 
-  it('renders heavy-test activity and FIFO wait time from its own lock', () => {
+  // POD-1076: the heavy lane is no longer pinned, so it has to arrive the way
+  // every other lane does — while held, keeping its own icon and vocabulary.
+  it('renders the heavy-test lane dynamically, with its FIFO wait time', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
     render(
@@ -176,20 +174,80 @@ describe('MergeQueuePanelView', () => {
       />,
     )
 
-    const heavy = queueGroup('Heavy test queue')
+    const heavy = queueGroup('TESTING NOW test:heavy')
     expect(within(heavy).getByText('Browser test lane')).toBeTruthy()
     expect(within(heavy).getByText('Integration lane')).toBeTruthy()
     expect(within(heavy).getByText('Waiting 45s')).toBeTruthy()
-    expect(
-      within(heavy).getByText('New runs join this queue when they request the heavy-test lease.'),
-    ).toBeTruthy()
     expect(within(heavy).getByLabelText('Work in progress').className).toContain('animate-spin')
+    // A held lane spends no row saying it is held, and the band drops its
+    // teaching copy the moment it has something real to show.
+    expect(screen.queryByText('No lane is held right now.')).toBeNull()
+    expect(
+      screen.getByText(
+        'A lane appears while a session holds its lock and leaves when the lease is released.',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('teaches the mechanic, and names what will show, while no lane is held', () => {
+    render(
+      <MergeQueuePanelView
+        state={idle}
+        issues={[]}
+        scope={scope}
+        onRefresh={vi.fn()}
+        onSelectIssue={vi.fn()}
+      />,
+    )
+
+    const band = queueGroup('Live lanes')
+    expect(within(band).getByText('none held')).toBeTruthy()
+    expect(within(band).getByText('No lane is held right now.')).toBeTruthy()
+    expect(within(band).getByText(/Lanes are created on demand/)).toBeTruthy()
+    // Examples that teach, never rows: a row would claim a lease nobody holds.
+    expect(
+      within(band)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['test:heavy', 'validation:watch', 'migrations', 'podium:dev-bundle'])
+    expect(within(band).queryByRole('heading', { level: 3 })).toBeNull()
+  })
+
+  it('keeps lanes it watched leave as a still, past-tense tail', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
+    render(
+      <MergeQueuePanelView
+        state={idle}
+        issues={[]}
+        scope={scope}
+        released={[
+          {
+            name: 'podium:dev-bundle',
+            kind: 'other',
+            releasedAt: Date.parse('2026-08-06T11:56:00.000Z'),
+          },
+          { name: 'test:heavy', kind: 'heavy', releasedAt: Date.parse('2026-08-06T12:01:40.000Z') },
+        ]}
+        onRefresh={vi.fn()}
+        onSelectIssue={vi.fn()}
+      />,
+    )
+
+    const tail = screen.getByRole('heading', { name: 'RECENTLY RELEASED' }).closest('section')
+    if (!(tail instanceof HTMLElement)) throw new Error('Released tail not found')
+    expect(within(tail).getByText('podium:dev-bundle')).toBeTruthy()
+    expect(within(tail).getByText('6m ago')).toBeTruthy()
+    expect(within(tail).getByText('just now')).toBeTruthy()
+    // History is history: nothing in the tail spins or offers a lease clock.
+    expect(within(tail).queryByLabelText('Work in progress')).toBeNull()
+    expect(within(tail).queryByText(/left$/)).toBeNull()
   })
 
   // POD-705: the lock namespace is free-form, so a panel that renders a fixed
   // pair of names hides exactly the queue nobody thought to register — here a
   // validation-admission lease with agents stacked behind it.
-  it('gives every unregistered lease its own queue, behind the two pinned lanes', () => {
+  it('gives every unregistered lease its own lane, behind the one pinned queue', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
     const onSelectIssue = vi.fn()
@@ -243,23 +301,21 @@ describe('MergeQueuePanelView', () => {
       />,
     )
 
-    // Pinned lanes first, then the free-form leases in name order.
+    // The pinned queue, then one band holding every free-form lease.
     expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
       'Merge queue',
-      'Heavy test queue',
-      'Podium dev bundle',
-      'Validation admission',
+      'Live lanes',
     ])
+    // Lanes group by kind, then name, so the band does not reshuffle.
+    expect(
+      within(queueGroup('Live lanes'))
+        .getAllByRole('heading', { level: 3 })
+        .map((h) => h.textContent),
+    ).toEqual(['HOLDING NOWpodium:dev-bundle', 'HOLDING NOWvalidation:admission', 'NEXT UP'])
 
-    const admission = queueGroup('Validation admission')
+    const admission = queueGroup('HOLDING NOW validation:admission')
     // The raw name is what the operator types into `podium lock`, so it stays.
     expect(within(admission).getByTitle('validation:admission')).toBeTruthy()
-    expect(
-      within(admission)
-        .getAllByRole('heading')
-        .map((heading) => heading.textContent),
-      // A free-form lease has no notion of what is READY to request it.
-    ).toEqual(['Validation admission', 'HOLDING NOW', 'NEXT UP'])
     expect(within(admission).getByText('Waiting 1m 00s')).toBeTruthy()
     expect(within(admission).getByText('3m 00s left')).toBeTruthy()
 
@@ -267,8 +323,12 @@ describe('MergeQueuePanelView', () => {
     expect(onSelectIssue).toHaveBeenLastCalledWith(holder)
 
     // Every held lease is counted, including the ones nobody registered.
-    expect(screen.getByText('3 held')).toBeTruthy()
-    expect(within(queueGroup('Podium dev bundle')).getByText('No sessions waiting.')).toBeTruthy()
+    expect(screen.getByText('3 live')).toBeTruthy()
+    expect(screen.getByText('2 held')).toBeTruthy()
+    // Nobody is queued behind the bundle lease, so it renders no NEXT UP at all.
+    const bundle = queueGroup('HOLDING NOW podium:dev-bundle')
+    expect(within(bundle).queryByText('NEXT UP')).toBeNull()
+    expect(within(bundle).queryByText('No sessions waiting.')).toBeNull()
   })
 
   it('renders accessible loading geometry in the requested order', () => {
@@ -289,11 +349,12 @@ describe('MergeQueuePanelView', () => {
       'MERGING NOW',
       'NEXT UP',
       'READY',
-      'Heavy test queue',
-      'TESTING NOW',
-      'NEXT UP',
-      'READY',
+      'Live lanes',
     ])
+    // A cold read must not claim the repository is quiet.
+    expect(screen.getByText('Reading every lease this repository holds…')).toBeTruthy()
+    expect(screen.queryByText('No lane is held right now.')).toBeNull()
+    expect(screen.queryByText('none held')).toBeNull()
   })
 
   it('offers a retry when the one repository reading fails', () => {

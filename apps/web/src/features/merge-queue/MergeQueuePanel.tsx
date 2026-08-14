@@ -1,5 +1,13 @@
 import { type RepoLocksState, useRepoLocks } from '@podium/client-core/react'
-import { FlaskConical, GitMerge, LoaderCircle, Lock, RefreshCw, Timer } from 'lucide-react'
+import {
+  FlaskConical,
+  GitMerge,
+  LoaderCircle,
+  Lock,
+  LockOpen,
+  RefreshCw,
+  Timer,
+} from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -7,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { issueIdTitle, issueRefLabel } from '@/lib/issue-labels'
 import {
   formatLeaseRemaining,
+  KNOWN_LANE_EXAMPLES,
   type MergeQueueRepoScope,
   type QueueGroupModel,
   type QueueLock,
@@ -15,11 +24,14 @@ import {
   queueGroups,
   readyMergeCandidates,
 } from './merge-queue-model'
+import { formatReleasedAgo, type ReleasedLane, useReleasedLanes } from './released-lanes'
 
 interface MergeQueuePanelViewProps {
   state: QueuePanelState
   issues: readonly IssueViewModel[]
   scope: MergeQueueRepoScope
+  /** Lanes this client watched leave; the live adapter owns the memory. */
+  released?: readonly ReleasedLane[]
   onRefresh: () => void
   onSelectIssue: (issue: IssueViewModel) => void
 }
@@ -64,6 +76,8 @@ export function MergeQueuePanel({
   onSelectIssue,
 }: MergeQueuePanelProps): JSX.Element {
   const locks = useRepoLocks(scope?.repoPath ?? null)
+  const state = queuePanelState(locks)
+  const released = useReleasedLanes(state)
 
   if (!scope) {
     return <div className="p-3 text-xs text-muted-foreground/70">No active repository.</div>
@@ -71,9 +85,10 @@ export function MergeQueuePanel({
 
   return (
     <MergeQueuePanelView
-      state={queuePanelState(locks)}
+      state={state}
       issues={issues}
       scope={scope}
+      released={released}
       onRefresh={locks.refresh}
       onSelectIssue={onSelectIssue}
     />
@@ -333,8 +348,12 @@ const GROUP_ICON = {
   other: Lock,
 } as const
 
-function QueueGroup({
-  id,
+/**
+ * The pinned merge lane. It keeps a title row and all three sections because
+ * it is the one lane that is meaningful while free — READY answers "what would
+ * go next" even with nobody holding the lock.
+ */
+function MergeGroup({
   group,
   issuesById,
   ready,
@@ -342,21 +361,17 @@ function QueueGroup({
   loading,
   onSelectIssue,
 }: {
-  id: string
   group: QueueGroupModel
   issuesById: ReadonlyMap<string, IssueViewModel>
-  /** Omitted for a lease with no notion of what is waiting to be admitted. */
-  ready?: ReactNode
-  readyCount?: number
+  ready: ReactNode
+  readyCount: number
   loading?: boolean
   onSelectIssue: (issue: IssueViewModel) => void
 }): JSX.Element {
+  const id = 'merge-queue'
   const Icon = GROUP_ICON[group.kind]
   return (
-    <section
-      className="border-b border-hairline-soft last:border-b-0"
-      aria-labelledby={`${id}-title`}
-    >
+    <section className="border-b border-hairline-soft" aria-labelledby={`${id}-title`}>
       <div className="flex h-10 items-center gap-2 px-3.5">
         <Icon size={13} className="flex-none text-info" aria-hidden="true" />
         <h2
@@ -365,7 +380,7 @@ function QueueGroup({
         >
           {group.title}
         </h2>
-        {/* A free-form name can be long; it yields to the title, never wraps. */}
+        {/* The raw name is what the operator types into `podium lock`. */}
         <span
           className="ml-auto min-w-0 max-w-[55%] truncate font-mono shell-type-micro text-text-dim"
           title={group.name}
@@ -383,13 +398,213 @@ function QueueGroup({
           <QueueSection id={`${id}-next`} label="NEXT UP" count={group.lock?.queue.length ?? 0}>
             <Waiters lock={group.lock} issuesById={issuesById} onSelectIssue={onSelectIssue} />
           </QueueSection>
-          {ready !== undefined && (
-            <QueueSection id={`${id}-ready`} label="READY" count={readyCount}>
-              {ready}
-            </QueueSection>
-          )}
+          <QueueSection id={`${id}-ready`} label="READY" count={readyCount}>
+            {ready}
+          </QueueSection>
         </>
       )}
+    </section>
+  )
+}
+
+/**
+ * One held lease. A lane exists only while somebody holds it, so it spends no
+ * row saying so: the kind's vocabulary and the raw name share a single 32px
+ * head, and NEXT UP appears only when somebody is actually queued behind it.
+ */
+function LaneGroup({
+  group,
+  issuesById,
+  onSelectIssue,
+}: {
+  group: QueueGroupModel
+  issuesById: ReadonlyMap<string, IssueViewModel>
+  onSelectIssue: (issue: IssueViewModel) => void
+}): JSX.Element {
+  const id = groupId(group.name)
+  const Icon = GROUP_ICON[group.kind]
+  const waiters = group.lock?.queue ?? []
+  return (
+    <section className="border-t border-hairline-soft" aria-labelledby={`${id}-title`}>
+      <div className="flex h-8 items-center gap-2 px-3.5">
+        <Icon size={12} className="flex-none text-info" aria-hidden="true" />
+        {/* Label and name are one heading: two lanes of a kind must not share
+            an accessible name. */}
+        <h3 id={`${id}-title`} className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="flex-none font-mono shell-type-micro font-medium tracking-[0.12em] text-label">
+            {group.activeLabel}
+          </span>
+          <span
+            className="ml-auto min-w-0 truncate font-mono shell-type-micro text-text-dim"
+            title={group.name}
+          >
+            {group.name}
+          </span>
+        </h3>
+      </div>
+      <div className="px-2.5 pb-2.5">
+        <ActiveLease lock={group.lock} issuesById={issuesById} onSelectIssue={onSelectIssue} />
+      </div>
+      {waiters.length > 0 && (
+        <QueueSection id={`${id}-next`} label="NEXT UP" count={waiters.length}>
+          <Waiters lock={group.lock} issuesById={issuesById} onSelectIssue={onSelectIssue} />
+        </QueueSection>
+      )}
+    </section>
+  )
+}
+
+/** Coarse, and its own clock: history that never updates reads as frozen. */
+function ReleasedAgo({ releasedAt }: { releasedAt: number }): JSX.Element {
+  const [label, setLabel] = useState(() => formatReleasedAgo(Date.now() - releasedAt))
+  useEffect(() => {
+    const tick = (): void => setLabel(formatReleasedAgo(Date.now() - releasedAt))
+    tick()
+    const timer = window.setInterval(tick, 30_000)
+    return () => window.clearInterval(timer)
+  }, [releasedAt])
+  return (
+    <time
+      className="ml-auto flex-none font-mono shell-type-micro tabular-nums text-text-dim"
+      dateTime={new Date(releasedAt).toISOString()}
+    >
+      {label}
+    </time>
+  )
+}
+
+/**
+ * Lanes this client watched leave. Dim, past tense and completely still — the
+ * point is that the operator sees the mechanic happen rather than inferring it
+ * from a panel that was already empty when they looked.
+ */
+function ReleasedTail({ released }: { released: readonly ReleasedLane[] }): JSX.Element {
+  return (
+    <QueueSection id="live-lanes-released" label="RECENTLY RELEASED" count={released.length}>
+      <ul className="flex flex-col gap-0.5">
+        {released.map((lane) => (
+          <li key={lane.name} className="flex min-h-7 items-center gap-2 px-2 opacity-80">
+            <LockOpen size={11} className="flex-none text-muted-foreground/60" aria-hidden="true" />
+            <span
+              className="min-w-0 truncate font-mono text-[10.5px] text-text-dim"
+              title={lane.name}
+            >
+              {lane.name}
+            </span>
+            <ReleasedAgo releasedAt={lane.releasedAt} />
+          </li>
+        ))}
+      </ul>
+    </QueueSection>
+  )
+}
+
+/**
+ * What the band will show, named concretely. A free lock has no row to report,
+ * so the names appear in a sentence rather than as rows nobody holds — the
+ * band's whole rule is that a row means a real lease.
+ */
+function LanesEmpty(): JSX.Element {
+  return (
+    <div className="px-3.5 pb-3">
+      <p className="text-[11.5px] font-medium leading-4 text-foreground/85">
+        No lane is held right now.
+      </p>
+      <p className="mt-2 text-[11.5px] leading-[1.5] text-muted-foreground">
+        Lanes are created on demand. When a session runs{' '}
+        <span className="font-mono text-[10.5px] text-foreground/85">podium lock acquire</span>, its
+        lane appears here with the holder, the lease clock and everyone waiting behind it.
+      </p>
+      <p className="mt-2.5 font-mono shell-type-micro tracking-[0.12em] text-text-dim">
+        LANES THIS REPO&apos;S AGENTS TAKE
+      </p>
+      <ul className="mt-1.5 flex flex-wrap gap-1">
+        {KNOWN_LANE_EXAMPLES.map((name) => (
+          <li
+            key={name}
+            className="rounded border border-border/70 bg-background/30 px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground"
+          >
+            {name}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/**
+ * Every held lease except the pinned merge lane, and nothing pinned inside it.
+ *
+ * The band carries its own explanation because it is the region that is
+ * legitimately empty most of the time (POD-1076): a standing one-line rule
+ * while lanes are running, the fuller teaching copy while none are, and the
+ * released tail either way.
+ */
+function LiveLanes({
+  lanes,
+  released,
+  loading,
+  issuesById,
+  onSelectIssue,
+}: {
+  lanes: readonly QueueGroupModel[]
+  released: readonly ReleasedLane[]
+  loading: boolean
+  issuesById: ReadonlyMap<string, IssueViewModel>
+  onSelectIssue: (issue: IssueViewModel) => void
+}): JSX.Element {
+  return (
+    <section
+      className="border-b border-hairline-soft last:border-b-0"
+      aria-labelledby="live-lanes-title"
+    >
+      <div className="flex h-10 items-center gap-2 px-3.5">
+        <Lock size={13} className="flex-none text-info" aria-hidden="true" />
+        <h2
+          id="live-lanes-title"
+          className="min-w-0 truncate text-[12px] font-semibold text-foreground/90"
+        >
+          Live lanes
+        </h2>
+        {!loading && (
+          <span className="ml-auto flex-none font-mono shell-type-micro tabular-nums text-text-dim">
+            {lanes.length === 0 ? 'none held' : `${lanes.length} held`}
+          </span>
+        )}
+      </div>
+
+      {loading ? (
+        <div aria-busy="true">
+          <span className="sr-only">Loading queue…</span>
+          <p className="px-3.5 pb-2.5 text-[11px] leading-4 text-muted-foreground">
+            Reading every lease this repository holds…
+          </p>
+          <div className="px-2.5 pb-2.5">
+            <div className="flex h-9 items-center gap-2 rounded-md border border-border/50 px-2.5">
+              <span className="h-2 w-12 rounded-sm bg-secondary" />
+              <span className="h-2 w-28 max-w-[55%] rounded-sm bg-secondary/70" />
+            </div>
+          </div>
+        </div>
+      ) : lanes.length === 0 ? (
+        <LanesEmpty />
+      ) : (
+        <>
+          <p className="px-3.5 pb-2.5 text-[11px] leading-4 text-muted-foreground">
+            A lane appears while a session holds its lock and leaves when the lease is released.
+          </p>
+          {lanes.map((lane) => (
+            <LaneGroup
+              key={lane.name}
+              group={lane}
+              issuesById={issuesById}
+              onSelectIssue={onSelectIssue}
+            />
+          ))}
+        </>
+      )}
+
+      {!loading && released.length > 0 && <ReleasedTail released={released} />}
     </section>
   )
 }
@@ -400,14 +615,17 @@ function groupId(name: string): string {
 }
 
 /**
- * Every lease the repository holds, each preserving holder → FIFO waiters. The
- * merge and heavy-test lanes are pinned in front (they have their own copy, and
- * the operator expects them in a fixed place); the rest are whatever agents took.
+ * Every lease the repository holds, each preserving holder → FIFO waiters.
+ *
+ * One lane is pinned — merge, because it has a queue to show while free. The
+ * rest live in a band that carries its own explanation, so the region that is
+ * legitimately empty most of the time never reads as a broken panel.
  */
 export function MergeQueuePanelView({
   state,
   issues,
   scope,
+  released = [],
   onRefresh,
   onSelectIssue,
 }: MergeQueuePanelViewProps): JSX.Element {
@@ -416,7 +634,7 @@ export function MergeQueuePanelView({
     [issues],
   )
   const locks = state.status === 'ready' ? state.locks : []
-  const { merge, heavy, others } = queueGroups(locks)
+  const { merge, lanes } = queueGroups(locks)
   const candidates = state.status === 'ready' ? readyMergeCandidates(issues, scope, merge.lock) : []
   const refreshing = state.status === 'ready' && state.refreshing === true
 
@@ -424,11 +642,11 @@ export function MergeQueuePanelView({
     <section className="min-h-0 flex-1 overflow-y-auto" aria-label="Repository queues">
       <div className="flex h-9 items-center gap-2 border-b border-hairline-soft px-3.5">
         <span className="font-mono shell-type-micro font-semibold tracking-[0.1em] text-label">
-          LIVE QUEUES
+          QUEUES
         </span>
         {state.status === 'ready' && (
           <span className="font-mono shell-type-micro tabular-nums text-text-dim">
-            {locks.length} held
+            {locks.length} live
           </span>
         )}
         <Button
@@ -471,8 +689,7 @@ export function MergeQueuePanelView({
             </div>
           )}
 
-          <QueueGroup
-            id="merge-queue"
+          <MergeGroup
             group={merge}
             issuesById={issuesById}
             loading={state.status === 'loading'}
@@ -495,30 +712,13 @@ export function MergeQueuePanelView({
             readyCount={candidates.length}
           />
 
-          <QueueGroup
-            id="heavy-test-queue"
-            group={heavy}
-            issuesById={issuesById}
+          <LiveLanes
+            lanes={lanes}
+            released={released}
             loading={state.status === 'loading'}
+            issuesById={issuesById}
             onSelectIssue={onSelectIssue}
-            ready={
-              <EmptyLine>
-                {heavy.lock
-                  ? 'New runs join this queue when they request the heavy-test lease.'
-                  : 'Ready for the next heavy test run.'}
-              </EmptyLine>
-            }
           />
-
-          {others.map((group) => (
-            <QueueGroup
-              key={group.name}
-              id={groupId(group.name)}
-              group={group}
-              issuesById={issuesById}
-              onSelectIssue={onSelectIssue}
-            />
-          ))}
         </>
       )}
     </section>
