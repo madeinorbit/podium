@@ -33,6 +33,7 @@ import {
   type SessionMeta,
   type MachineId,
 } from '@podium/model'
+import type { TurnReceipt } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'
@@ -60,6 +61,42 @@ export interface TransportBehaviour {
    *  to characterize the unresumable-wake path, where the push to the DEAD
    *  session must fail while the push to the freshly spawned child succeeds. */
   failSessions?: string[]
+}
+
+/**
+ * THE RECEIPT-SHAPED TRANSPORT (POD-1761 W4), beside the push seam above.
+ *
+ * The push seam records WHAT WAS SENT and answers in the legacy vocabulary. This
+ * one records the same sends and additionally answers with a `TurnReceipt`,
+ * which is the whole difference the migration makes: the flag-off suites keep
+ * asserting on `pushes`, byte for byte and untouched, while the flag-on variants
+ * assert on what the driver said afterwards.
+ *
+ * Absent = flag off. A harness that does not configure this wires no
+ * `receiptSend` at all, so delivery takes the legacy branch — which is what
+ * makes "flag off is byte-identical" a property of the harness rather than a
+ * promise about it.
+ */
+export interface ReceiptBehaviour {
+  /** Sessions the daemon reports a driver for. Absent = every session in the
+   *  fixture, which is the common flag-on variant. */
+  onContract?: SessionId[]
+  /** What the driver answers for a given send. Absent = `accepted`, hook-proven,
+   *  because that is the uninteresting case and a variant should have to ASK for
+   *  the interesting ones. */
+  answer?: (
+    via: 'now' | 'queue' | 'interrupt',
+    input: { sessionId: SessionId; text: string },
+  ) => TurnReceipt
+  /**
+   * Hold every receipt until `settleReceipts()` is called.
+   *
+   * This is how a variant models the verification window WITHOUT SLEEPING — the
+   * harness rule that makes these suites an oracle (POD-757). Deferred, the
+   * assertions between the send and the settle are exactly the state a real
+   * caller is in while the driver is still deciding.
+   */
+  defer?: boolean
 }
 
 export interface SessionFixture {
@@ -122,6 +159,9 @@ export interface HarnessOptions {
   resolveExecutionProfile?: MessageGateDeps['resolveExecutionProfile']
   /** Omit the wake-spawn seam entirely (the unwired-server arm). */
   omitSpawnOnWake?: boolean
+  /** Flag-on variant: wire the receipt-shaped transport (POD-1761 W4). Absent =
+   *  flag off, and the legacy push seam is the only one delivery can find. */
+  receipts?: ReceiptBehaviour
   /** Poll interval handed to the gate's blocking-send / await seams. */
   awaitPollMs?: number
   /**
@@ -155,6 +195,12 @@ export interface MailHarness {
   sessions: SessionMeta[]
   /** Every push at the transport seam, in order, bodies verbatim. */
   pushes: Push[]
+  /** Every receipt the driver answered with, in order (POD-1761 W4). Empty
+   *  whenever `receipts` was not configured — flag off produces none. */
+  receiptsSeen: { via: string; sessionId: SessionId; receipt: TurnReceipt }[]
+  /** Release the receipts held by `receipts.defer`, returning how many fired —
+   *  the verification window closing, with no wall-clock sleep. */
+  settleReceipts(): number
   /** Wake-spawn createSession calls (the spawn-on-wake seam). */
   wakeSpawns: Record<string, unknown>[]
   /** Gate spawnAgent calls (the direct `podium agent spawn` seam). */
@@ -233,6 +279,40 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
       return { ok: true, ...(transport.queued !== undefined ? { queued: transport.queued } : {}) }
     }
 
+  // THE RECEIPT SEAM. Built only when a variant asks for it, so an unconfigured
+  // harness has no `receiptSend` to find and delivery takes the legacy branch.
+  const receiptsSeen: { via: string; sessionId: SessionId; receipt: TurnReceipt }[] = []
+  const held: (() => void)[] = []
+  const receiptOpts = opts?.receipts
+  const legacyOf = { now: 'sendText', queue: 'queueText', interrupt: 'interruptText' } as const
+  const receiptSend: NonNullable<MessageDeliveryDeps['sessions']['receiptSend']> = (
+    via,
+    input,
+    onReceipt,
+  ) => {
+    // The SAME push record the legacy verbs write. A flag-on variant must be
+    // able to assert the bytes did not change while the evidence did — if these
+    // two seams recorded differently, "same decisions, new evidence" would be
+    // unfalsifiable.
+    const legacy = record(legacyOf[via])(input)
+    const onContract = receiptOpts?.onContract?.includes(input.sessionId) ?? true
+    if (!onContract || !onReceipt) return legacy
+    const receipt: TurnReceipt = receiptOpts?.answer?.(via, input) ?? {
+      outcome: 'accepted',
+      turnEpoch: 1,
+      deliveredAs: via === 'interrupt' ? 'interrupt' : via === 'queue' ? 'queue' : 'when-ready',
+      provenBy: 'hook',
+      at: now(),
+    }
+    const fire = () => {
+      receiptsSeen.push({ via, sessionId: input.sessionId, receipt })
+      onReceipt(receipt)
+    }
+    if (receiptOpts?.defer) held.push(fire)
+    else fire()
+    return legacy
+  }
+
   const svc = new MessageDeliveryService({
     messages: store.messages,
     notificationFacts: store.notificationFacts,
@@ -243,6 +323,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
       sendText: record('sendText'),
       queueText: record('queueText'),
       interruptText: record('interruptText'),
+      ...(receiptOpts ? { receiptSend } : {}),
     },
     // Production wires both legacy-mirror seams; the #463 regression class and
     // the read-consumption semantics both run through them.
@@ -337,6 +418,15 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     gate,
     sessions,
     pushes,
+    /** Every receipt the driver answered with, in order (POD-1761 W4). */
+    receiptsSeen,
+    /** Release the receipts held by `receipts.defer` — the verification window
+     *  closing, with no wall-clock sleep. */
+    settleReceipts: () => {
+      const pending = held.splice(0, held.length)
+      for (const fire of pending) fire()
+      return pending.length
+    },
     wakeSpawns,
     gateSpawns,
     transport,
