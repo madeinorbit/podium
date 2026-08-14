@@ -220,15 +220,16 @@ export function ChatComposer({
     // the height would snap instead of animate).
     const prev = ta.style.height
     ta.style.height = 'auto'
-    // Cap in px (max-h-44 = 176px) so the animated height never fights the
-    // CSS clamp; past the cap the textarea scrolls. When empty, scrollHeight
-    // includes the (possibly wrapped) placeholder — size to one line instead.
+    // Cap in px (matching `max-h-[150px]` on the field) so the animated height
+    // never fights the CSS clamp; past the cap the textarea scrolls. When empty,
+    // scrollHeight includes the (possibly wrapped) placeholder — size to one
+    // line instead.
     const cs = getComputedStyle(ta)
     const oneLine =
       Number.parseFloat(cs.lineHeight) +
       Number.parseFloat(cs.paddingTop) +
       Number.parseFloat(cs.paddingBottom)
-    const target = ta.value ? Math.min(ta.scrollHeight, 176) : oneLine
+    const target = ta.value ? Math.min(ta.scrollHeight, 150) : oneLine
     ta.style.height = prev || `${target}px`
     void ta.offsetHeight
     ta.style.height = `${target}px`
@@ -272,7 +273,15 @@ export function ChatComposer({
    * as narrower than the pane it sits in.
    */
   const actionCluster = (
-    <div className={cn('flex flex-none items-center gap-0.5', compact && 'self-end')}>
+    <div
+      className={cn(
+        'flex flex-none items-center',
+        // On the floor of a wide well the three controls are the only objects in
+        // the row, so they get a real gap rather than the 2px huddle they needed
+        // when they were squeezed in beside the field.
+        compact ? 'gap-0.5 self-end' : 'gap-2',
+      )}
+    >
       {headless && turnRunning && canInterrupt && (
         <Button
           type="button"
@@ -281,7 +290,12 @@ export function ChatComposer({
           // Destructive ink stays — stopping a turn is the one act in this
           // cluster that throws work away. Only the hover ground is brought onto
           // the cluster's shared idiom.
-          className="size-6 rounded-md text-destructive hover:bg-chip hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
+          className={cn(
+            'text-destructive hover:bg-chip hover:text-destructive',
+            compact
+              ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
+              : "size-7 rounded-[8px] [&_svg:not([class*='size-'])]:size-4",
+          )}
           title="Stop this turn"
           onClick={onInterrupt}
         >
@@ -296,8 +310,10 @@ export function ChatComposer({
           // One idiom across the cluster: the mic and the stop square sit either
           // side of this one, and three hover treatments in a 72px row is what
           // made the box read as assembled rather than designed.
-          'size-6 rounded-md text-text-dim hover:bg-chip hover:text-text-strong',
-          "[&_svg:not([class*='size-'])]:size-3.5",
+          'text-text-dim hover:bg-chip hover:text-text-strong',
+          compact
+            ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
+            : "size-7 rounded-[8px] [&_svg:not([class*='size-'])]:size-4",
         )}
         title="Attach image"
         onClick={attachments.openFilePicker}
@@ -327,10 +343,14 @@ export function ChatComposer({
                   : 'bg-primary text-primary-foreground hover:bg-primary/80',
               )
             : cn(
-                "size-7 rounded-md transition-colors duration-150 motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-3.5",
+                "size-7 rounded-[8px] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-4",
                 sendDisabled
-                  ? 'bg-secondary text-muted-foreground/70 hover:bg-secondary hover:text-muted-foreground/70 disabled:opacity-100'
-                  : 'bg-primary text-primary-foreground hover:bg-primary/80',
+                  ? 'bg-chip text-text-faint hover:bg-chip hover:text-text-faint disabled:opacity-100'
+                  : // Armed, it lifts a pixel under the pointer rather than
+                    // changing colour: the yellow already IS the state, and
+                    // dimming the one lit thing in the box to acknowledge a
+                    // hover reads as going backwards.
+                    'bg-primary text-primary-foreground hover:-translate-y-px hover:bg-primary',
               ),
         )}
         disabled={sendDisabled}
@@ -360,7 +380,10 @@ export function ChatComposer({
             // safe-area maths, so nothing is restated here.
             'prompt-dock font-mono'
           : cn(
-              'px-[18px] pt-2 pb-[calc(16px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
+              // The dock is the feed's own gutter, minus ten: 22px each side, so
+              // the well's edge sits just inside the column of words it answers
+              // and the whole bottom of the sheet reads as one object.
+              'chat-composer-dock px-[22px] pt-2 pb-[calc(18px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
               // Flat Field (POD-159): every chat composer mirrors the native
               // Claude Code / superagent prompt box — mono, CLI `>` prefix, block
               // caret, flat background.
@@ -458,12 +481,15 @@ export function ChatComposer({
           'relative',
           compact
             ? 'prompt-well'
-            : 'chat-composer-well flex flex-col gap-0.5 rounded-[11px] px-3.5 py-2',
+            : 'chat-composer-well flex flex-col gap-1.5 rounded-[12px] pt-[11px] pr-3 pb-[9px] pl-[15px]',
         )}
       >
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
         {/* Shown only while the box is unfocused AND empty, so it can never land
-            on the operator's own words — a placeholder line never reaches it. */}
+            on the operator's own words — a placeholder line never reaches it.
+            It names what it does, not just the keys: a bare "⌘/" in the corner of
+            a text field is a puzzle, and the two extra words cost nothing at the
+            moment the field is empty. */}
         {!compact && (
           <span
             className="composer-chord"
@@ -471,7 +497,7 @@ export function ChatComposer({
             data-testid="composer-chord"
             aria-hidden="true"
           >
-            {chordLabel()}
+            {chordLabel()} to focus
           </span>
         )}
         {attachments.dragOver && (
@@ -480,7 +506,7 @@ export function ChatComposer({
               'pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5',
               // Follow the well's own corner, or the drop target reads as a
               // second box laid over the field.
-              compact ? 'rounded-[9px]' : 'rounded-[11px]',
+              compact ? 'rounded-[9px]' : 'rounded-[12px]',
             )}
           >
             <span className="text-sm font-medium text-primary">Drop image to attach</span>
@@ -511,16 +537,14 @@ export function ChatComposer({
                     // this ground Faint is under 4.5:1 and this is the only line
                     // of copy left in the box.
                     'prompt-input min-w-0 flex-1 px-0 shadow-none placeholder:text-text-dim'
-                  : // The vertical padding is NOT decoration: it pads the single
-                    // line out to the 28px (size-7) send button beside it, so
-                    // the row's `items-start` field and its `self-end` action
-                    // cluster land on one centre line. At p-0.5 the field box
-                    // was 22px inside a 28px row and the prompt text sat 3px
-                    // high (POD-791). Derived from the leading rather than
-                    // written as 5px so the compact density (17px) centres too.
-                    // The Superagent's box does the same sum with its own
-                    // numbers: `.prompt-input` pads 3px against 24px buttons.
-                    'block max-h-44 w-full overflow-y-auto px-0.5 py-[calc((28px-var(--shell-leading-primary))/2)] transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
+                  : // THE FIELD IS THE FULL WIDTH OF THE WELL AND NOTHING ELSE
+                    // (POD-993 round 2). The cluster no longer sits beside the
+                    // words — it dropped to the floor below them — so there is
+                    // nothing left to centre against and the padding that used
+                    // to do that centring is gone. What remains is a plain
+                    // 14/24 line box: the same reading size as the transcript
+                    // above it, so what you type looks like what you sent.
+                    'block max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
               )}
               value={draft}
               disabled={!enabled}

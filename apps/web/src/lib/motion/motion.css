@@ -23,7 +23,7 @@
    as text, and a navy badge fill is a hole in the page. Restated here rather
    than tokenized because these five are a closed set the motion grammar owns —
    see index.css for the theme palette they mirror (--live / --attention). */
-[data-theme='superade']:not(.dark) {
+[data-theme="superade"]:not(.dark) {
   --motion-working: #2a62f0;
   --motion-working-bright: #ffffff;
   --motion-badge-bg: #2a62f0;
@@ -301,71 +301,16 @@
   animation: podium-run-sweep 1.6s ease-in-out infinite;
 }
 
-/* THE BREATH (POD-993) — the tail's working mark. See BreathingMark.tsx for
-   why the end of the feed gets its own mark rather than the braille spinner.
-
-   A core dot at full working ink, and a halo that expands out of it and fades.
-   The halo is one radial gradient scaled and faded on a 3.6s cycle, so the whole
-   effect is two compositor properties: nothing reflows, nothing repaints around
-   it, and the rows above are never touched. The curve is symmetric ease-in-out
-   in both directions — a breath has no attack — and the resting frame (the one
-   reduced motion holds) is the small, dim one, so stillness never reads as a
-   state of its own. */
+/* THE BREATH (POD-993) — the tail's working mark, and the tab's. The ring is
+   painted by BreathingMark.tsx (see it for why the end of the feed gets its own
+   mark rather than the braille spinner); all this rule owns is the ink it is
+   painted in, which the component reads back off the element so the mark
+   follows the theme without the paint code knowing anything about tokens. */
 .breath {
-  position: relative;
   display: inline-block;
   flex: none;
   vertical-align: middle;
   color: var(--motion-working);
-}
-.breath::before,
-.breath::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-}
-/* The halo. */
-.breath::before {
-  inset: 0;
-  background: radial-gradient(
-    circle at 50% 50%,
-    color-mix(in oklab, currentcolor 55%, transparent) 0%,
-    color-mix(in oklab, currentcolor 22%, transparent) 42%,
-    transparent 68%
-  );
-  opacity: 0.5;
-  transform: scale(0.62);
-  animation: podium-breath-halo 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-}
-/* The core. It breathes on the same clock at a fraction of the amplitude, so
-   the mark reads as ONE object inhaling rather than a dot inside a pulse. */
-.breath::after {
-  inset: 35%;
-  background: currentcolor;
-  opacity: 0.9;
-  animation: podium-breath-core 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-}
-@keyframes podium-breath-halo {
-  0%,
-  100% {
-    opacity: 0.42;
-    transform: scale(0.62);
-  }
-  50% {
-    opacity: 0.85;
-    transform: scale(1);
-  }
-}
-@keyframes podium-breath-core {
-  0%,
-  100% {
-    opacity: 0.82;
-    transform: scale(0.92);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.06);
-  }
 }
 
 /* Base transition every phase-coloured surface (row, ID square, rail icon)
@@ -381,11 +326,6 @@
   /* The spinner freezes on its first frame — the blue mono glyph alone still
      reads "computing" (colour + the ticking timer carry the state). */
   .spb::before {
-    animation: none;
-  }
-  /* The breath holds its resting frame — the mark stays, the breathing goes. */
-  .breath::before,
-  .breath::after {
     animation: none;
   }
   /* The transit wire stops travelling — the blue carets pointing at the target

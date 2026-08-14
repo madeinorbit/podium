@@ -40,7 +40,7 @@ export function AgentStatusGlyph({
     // whose session is working carries the breath, not a second, differently
     // shaped spinner. List and menu rows keep the braille glyph — they are dense
     // mono lines, and the breath is a mark for a place the eye rests on.
-    if (variant === 'tab') return <BreathingMark size={10} className={cn('flex-none', className)} />
+    if (variant === 'tab') return <BreathingMark size={14} className={cn('flex-none', className)} />
     return <BrailleSpinner size={10} className={cn('flex-none', className)} />
   }
   if (phase !== 'waiting') return null

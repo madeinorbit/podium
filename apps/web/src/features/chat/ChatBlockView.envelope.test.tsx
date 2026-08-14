@@ -47,6 +47,16 @@ function mount(item: TranscriptItem, stickyOperator = false): void {
   })
 }
 
+const toggle = (): HTMLElement | null =>
+  host.querySelector('[data-testid="message-envelope-toggle"]')
+const group = (): HTMLElement | null => host.querySelector('.mail-group')
+
+function click(el: Element | null | undefined): void {
+  act(() => {
+    el?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+}
+
 beforeEach(() => {
   setKnownRefPrefixes(['POD'])
   activations.length = 0
@@ -63,65 +73,100 @@ afterEach(() => {
   setKnownRefPrefixes([])
 })
 
-describe('envelope block', () => {
+describe('podium mail', () => {
+  // FOLDED BY DEFAULT, AND FOLDED AS ONE (POD-993). Mail is provenance: a reader
+  // scanning a conversation should see that notes arrived and from whom without
+  // the paragraphs — and a burst of three should cost one line, not three.
+  it('arrives folded to a single counted line, and opens on a click of it', () => {
+    mount(userItem(frame('msg_5', 'issue:POD-84', 'your session', 'background noise')))
+    expect(group()?.getAttribute('data-open')).toBe('false')
+    expect(host.textContent).toContain('1 note from Podium')
+    expect(toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(host.querySelector('.mail-card')).toBeNull()
+    click(toggle())
+    expect(group()?.getAttribute('data-open')).toBe('true')
+    expect(host.querySelector('.mail-card')).not.toBeNull()
+  })
+
+  it('folds a burst of frames into one object with one row per note', () => {
+    mount(
+      userItem(
+        frame('msg_1', 'issue:POD-84', 'your session', 'Worktree synced') +
+          frame('msg_2', 'issue:POD-90', 'your session', 'Asset path needs confirming'),
+      ),
+    )
+    // One group, one fold line, one count — not two rows.
+    expect(host.querySelectorAll('.mail-group')).toHaveLength(1)
+    expect(host.textContent).toContain('2 notes from Podium')
+    expect(host.textContent).toContain('POD-84 · POD-90')
+    click(toggle())
+    expect(host.querySelectorAll('[data-testid="mail-item"]')).toHaveLength(2)
+    expect(host.textContent).toContain('Worktree synced')
+    expect(host.textContent).toContain('Asset path needs confirming')
+  })
+
+  it('opens on arrival when any frame in the burst asks something', () => {
+    mount(
+      userItem(
+        frame('msg_a', 'issue:POD-84', 'your session', 'background noise') +
+          frame(
+            'msg_6',
+            'issue:POD-90',
+            'your session',
+            'please confirm',
+            '[a response was requested: reply within this thread (`podium mail reply msg_6`) when you have handled it — any substantive reply satisfies it]\n',
+          ),
+      ),
+    )
+    expect(group()?.getAttribute('data-open')).toBe('true')
+    // The frame that asked says so, on its own item, and names the reply target.
+    expect(host.querySelector('.mail-item-reply')?.textContent).toContain('msg_6')
+  })
+
   it('renders a nice-id sender as a clickable ref chip that activates the miniview', () => {
     mount(userItem(frame('msg_1', 'issue:POD-84', 'your session', 'see POD-86 for the race')))
+    click(toggle())
     const env = host.querySelector('[data-testid="message-envelope"]')
     expect(env).not.toBeNull()
     expect(env?.getAttribute('data-internal-message')).toBe('true')
-    expect(env?.textContent).toContain('Mail')
-    const chips = env!.querySelectorAll('a.ref-link')
-    // Header sender chip + body POD-86 chip (linkified by the markdown pass).
-    const refs = [...chips].map((a) => a.getAttribute('data-ref'))
-    expect(refs).toContain('POD-84')
-    expect(refs).toContain('POD-86')
-    act(() => {
-      ;(
-        [...chips].find((a) => a.getAttribute('data-ref') === 'POD-84') as HTMLElement
-      ).dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
+    const chip = env?.querySelector<HTMLElement>('a.ref-link[data-ref="POD-84"]')
+    expect(chip).not.toBeNull()
+    click(chip)
     expect(activations).toEqual(['POD-84'])
   })
 
-  // FOLDED BY DEFAULT (POD-993). Mail is provenance: a reader scanning a
-  // conversation should see that a message arrived and from whom without the
-  // paragraph — unless the frame asks something of them, which is the one kind
-  // of mail that has a consequence and so opens on arrival.
-  it('arrives folded, and opens on a click of its header', () => {
-    mount(userItem(frame('msg_5', 'issue:POD-84', 'your session', 'background noise')))
-    const env = host.querySelector('.message-envelope')
-    expect(env?.getAttribute('data-open')).toBe('false')
-    const toggle = host.querySelector<HTMLElement>('[data-testid="message-envelope-toggle"]')
-    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
-    act(() => {
-      toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    expect(host.querySelector('.message-envelope')?.getAttribute('data-open')).toBe('true')
-  })
-
-  it('opens a reply-requested frame on arrival', () => {
+  it('previews two lines and opens the full frame on a click of the subject', () => {
     mount(
       userItem(
         frame(
-          'msg_6',
+          'msg_7',
           'issue:POD-84',
           'your session',
-          'please confirm',
-          '[a response was requested: reply within this thread (`podium mail reply msg_6`) when you have handled it — any substantive reply satisfies it]\n',
+          'Worktree synced\n\nRebased onto main before your edits landed; see POD-86.',
         ),
       ),
     )
-    expect(host.querySelector('.message-envelope')?.getAttribute('data-open')).toBe('true')
+    click(toggle())
+    const item = host.querySelector('[data-testid="mail-item"]')
+    // Folded: a plain-text preview, no rendered markdown and so no live refs.
+    expect(item?.querySelector('.mail-item-preview')?.textContent).toContain('Rebased onto main')
+    expect(item?.querySelector('.chat-md')).toBeNull()
+    click(item?.querySelector('.mail-item-head'))
+    // Opened: the real markdown, with its refs live.
+    expect(item?.getAttribute('data-full')).toBe('true')
+    expect(item?.querySelector('.chat-md')).not.toBeNull()
+    expect(item?.querySelector('a.ref-link[data-ref="POD-86"]')).not.toBeNull()
   })
 
   it('legacy #seq senders stay plain text (no dead chips)', () => {
     mount(userItem(frame('msg_2', 'issue:#84', 'your session', 'hello')))
+    click(toggle())
     const env = host.querySelector('[data-testid="message-envelope"]')
-    expect(env!.textContent).toContain('task #84 · agent')
-    expect(env!.querySelector('a.ref-link')).toBeNull()
+    expect(env?.textContent).toContain('task #84')
+    expect(env?.querySelector('a.ref-link')).toBeNull()
   })
 
-  it('badges a reply-requested frame and hides the rule line', () => {
+  it('badges a question frame and keeps the binding rule out of the body', () => {
     mount(
       userItem(
         frame(
@@ -134,8 +179,8 @@ describe('envelope block', () => {
       ),
     )
     const env = host.querySelector('[data-testid="message-envelope"]')
-    expect(env!.textContent).toContain('reply requested')
-    expect(env!.textContent).not.toContain('a response was requested')
+    expect(env?.textContent).toContain('reply · msg_3')
+    expect(env?.textContent).not.toContain('a response was requested')
   })
 
   it('renders the cross-machine note as a footer, not body text', () => {
@@ -150,12 +195,16 @@ describe('envelope block', () => {
         ),
       ),
     )
+    click(toggle())
+    click(host.querySelector('.mail-item-head'))
     const env = host.querySelector('[data-testid="message-envelope"]')
-    expect(env!.textContent).toContain('this agent runs on machine "vmi123"')
-    expect(env!.querySelector('.chat-md')!.textContent).not.toContain('runs on machine')
+    expect(env?.querySelector('.mail-item-note')?.textContent).toContain(
+      'this agent runs on machine "vmi123"',
+    )
+    expect(env?.querySelector('.chat-md')?.textContent).not.toContain('runs on machine')
   })
 
-  it('separates a coalesced internal frame from the sticky operator follow-up', () => {
+  it('separates a coalesced internal frame from the operator follow-up', () => {
     mount(
       userItem(
         `${frame(
@@ -172,22 +221,20 @@ describe('envelope block', () => {
     const prompt = host.querySelector<HTMLElement>('[data-operator-prompt="true"]')
     expect(env).not.toBeNull()
     expect(prompt).not.toBeNull()
-    expect(env?.className).not.toContain('sticky')
-    expect(env?.textContent).toContain('PODIUM_INTERNAL_ONLY')
-    expect(prompt?.className).toContain('sticky')
-    expect(prompt?.querySelector('[data-sticky-prompt-backdrop]')).not.toBeNull()
-    // POD-993: no voice label — the card's side is the attribution.
+    // POD-993: no voice label — the card's side is the attribution — and the
+    // brief is a plain in-flow row, never a positioned one.
     expect(prompt?.querySelector('.transcript-you-bubble')).not.toBeNull()
+    expect(prompt?.className).not.toContain('sticky')
     expect(prompt?.textContent).toContain('please tighten the sticky prompt')
     expect(prompt?.textContent).not.toContain('PODIUM_INTERNAL_ONLY')
+    expect(env?.textContent).not.toContain('please tighten the sticky prompt')
   })
 
-  it('never marks a pure internal frame as an operator prompt, even if sticky is requested', () => {
+  it('never marks a pure internal frame as an operator prompt', () => {
     mount(userItem(frame('msg_6', 'system', 'your session', 'system note')), true)
     expect(host.querySelector('[data-internal-message="true"]')).not.toBeNull()
     expect(host.querySelector('[data-operator-prompt="true"]')).toBeNull()
-    expect(host.querySelector('[data-sticky-prompt-backdrop]')).toBeNull()
-    expect(host.querySelector('.sticky')).toBeNull()
+    expect(host.querySelector('.transcript-you-bubble')).toBeNull()
   })
 })
 
@@ -236,7 +283,7 @@ describe('reference activation across transcript kinds', () => {
     } as TranscriptItem)
     const chip = host.querySelector<HTMLElement>('a.ref-link[data-ref="POD-84"]')
     expect(chip).not.toBeNull()
-    act(() => chip?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    click(chip)
     expect(activations).toEqual(['POD-84'])
   })
 })

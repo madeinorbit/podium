@@ -12,6 +12,7 @@ import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
 import { ImageLightbox } from './ImageLightbox'
+import { PinnedBrief } from './PinnedBrief'
 import { TranscriptFeed } from './TranscriptFeed'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatSurface } from './use-chat-surface'
@@ -340,6 +341,11 @@ export function ChatView({
           }}
           issueReferences={issueReferences}
         />
+        {/* The brief that scrolled off the top, held over the column rather than
+            in it — see PinnedBrief for why the pin left the flow. It sits inside
+            the same relative box the rail does and stops short of it, so the
+            shelf and the feed share one measure. */}
+        {!compact && <PinnedBrief brief={chat.scroll.pinnedBrief} />}
         {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
             its bands line up with the scrollable content. For a very long
             transcript that means it reflects the loaded/visible tail, not the

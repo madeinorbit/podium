@@ -7,9 +7,9 @@ import type {
   TranscriptPhase,
   TranscriptSearchState,
 } from '@podium/client-core/viewmodels'
-import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/client-core/viewmodels'
+import { attributionForRole, isInteractiveTool } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
-import { ArrowUp, Clock, Image as ImageIcon, X } from 'lucide-react'
+import { ArrowUp, Image as ImageIcon, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { type IssueReferenceLookup, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
@@ -20,10 +20,10 @@ import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
 import { TranscriptStandby } from './TranscriptStandby'
 import { TranscriptTail, trailingRunIsLive, transcriptTailState } from './TranscriptTail'
+import { transcriptComputeClient } from './transcript-compute-client'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
-import { transcriptComputeClient } from './transcript-compute-client'
 
 const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
 
@@ -274,11 +274,24 @@ export function TranscriptFeed({
       className={cn(
         'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
         // §2.5 feed geometry: 12px/14px padding in the narrow column.
-        // The wide feed is a DOCUMENT (POD-725), so its side margins are set as
-        // a share of the pane rather than a fixed inset: the design's 56px holds
-        // at a full-width stage and gives way gracefully in a split pane, which
-        // a flat 56px would not — it would have eaten a third of a half-pane.
-        compact ? 'px-3.5 pt-3 pb-4' : 'px-[clamp(20px,7.5%,56px)] pt-[26px] pb-5',
+        //
+        // THE MEASURE RETURNS, CENTRED (POD-993 round 2). POD-747 removed every
+        // cap here, and it was right about what it was fixing: there were two
+        // nested caps producing three different right edges inside one pane, with
+        // the composer and the tail running full width underneath them. What it
+        // put in place — the pane IS the measure — reads well up to about a
+        // thousand pixels and then stops: dragged to a 1600px stage the document
+        // sets 150-character lines, which is past the width at which the eye can
+        // find the start of the next one.
+        //
+        // So there is ONE cap, and it is on the column rather than on anything
+        // inside it: an 888px measure, centred, with a 32px gutter that wins
+        // whenever the pane is narrower than the measure. Every voice obeys it
+        // because it is the scroller's own padding — nothing inside sets a width,
+        // so the failure POD-747 documented cannot come back. Below ~950px the
+        // expression collapses to exactly the flat 32px inset, which is the
+        // behaviour of the version this replaces.
+        compact ? 'px-3.5 pt-3 pb-4' : 'px-[max(32px,calc((100%-888px)/2))] pt-[26px] pb-[14px]',
       )}
       ref={scrollerRef}
       onScroll={onScroll}
@@ -349,9 +362,7 @@ export function TranscriptFeed({
               index={idx}
               highlighted={idx === search.activeRow}
               forceOpen={expandRuns || idx === search.activeRow}
-              dimmed={
-                search.filtering && !row.blockIndices.some((bi) => searchMatches.has(bi))
-              }
+              dimmed={search.filtering && !row.blockIndices.some((bi) => searchMatches.has(bi))}
               // The work line reads as LIVE only for the trailing run of a turn
               // with a call actually IN FLIGHT: the spinner and counting timer
               // are the motion grammar's "an agent is computing", and a run that
@@ -432,7 +443,7 @@ export function TranscriptFeed({
             // rather than as a row appearing where there wasn't one. The real
             // row replaces it in the same place, at the same measure, and the
             // swap is invisible.
-            'transcript-pending transcript-arrive',
+            'transcript-pending transcript-arrive-bubble',
             p.state === 'failed' && 'transcript-pending--failed',
           )}
         >
@@ -456,19 +467,24 @@ export function TranscriptFeed({
                 )}
               </div>
             </div>
-            {/* THE DELIVERY STATE IS THE CARD'S OWN CAPTION (POD-993) — no
-                voice label, because the side already said who spoke. Sending is
-                the quiet case and says so once; only a FAILED turn raises its
-                voice, because only a failed turn is asking for something. */}
-            <div className="msg-foot" data-side="right">
-              {p.state === 'sending' && <span className="transcript-delivery">sending…</span>}
-              {p.state === 'queued' && <span className="transcript-delivery">queued</span>}
-              {p.state === 'failed' && (
-                <span className="transcript-delivery transcript-delivery--error">
-                  not delivered
-                </span>
-              )}
-            </div>
+            {/* THE DELIVERY STATE IS THE CARD'S OWN CAPTION (POD-993) — no voice
+                label, because the side already said who spoke.
+
+                A message in flight says NOTHING here: the breath at the end of
+                the feed is already the "this is happening" signal, and a second
+                one under the card would be the same fact twice, competing with
+                it. Only the two states the tail cannot express get a caption —
+                waiting behind another turn, and not arriving at all. */}
+            {p.state !== 'sending' && (
+              <div className="msg-foot" data-side="right">
+                {p.state === 'queued' && <span className="transcript-delivery">queued</span>}
+                {p.state === 'failed' && (
+                  <span className="transcript-delivery transcript-delivery--error">
+                    not delivered
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ))}
@@ -484,7 +500,7 @@ export function TranscriptFeed({
       {restoredQueued.map((message) => (
         <div
           key={message.id}
-          className="transcript-row transcript-turn-open transcript-arrive"
+          className="transcript-row transcript-turn-open transcript-arrive-bubble"
           data-testid="queued-chat-message"
         >
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
@@ -495,10 +511,7 @@ export function TranscriptFeed({
               </div>
             </div>
             <div className="msg-foot" data-side="right">
-              <span className="transcript-delivery">
-                <Clock size={10} aria-hidden="true" />
-                queued · sends after this turn
-              </span>
+              <span className="transcript-delivery">queued · sends after this turn</span>
               <button
                 data-pressable
                 type="button"
@@ -507,7 +520,7 @@ export function TranscriptFeed({
                 title="Retract queued message"
                 onClick={() => void onRetractQueued(message.id)}
               >
-                <X size={12} aria-hidden="true" />
+                <X size={13} aria-hidden="true" />
               </button>
             </div>
           </div>

@@ -2,8 +2,8 @@ import type { useVoiceInput } from '@podium/terminal-client-react'
 import { act, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { UseAttachmentsResult } from './use-attachments'
 import { ChatComposer } from './ChatComposer'
+import type { UseAttachmentsResult } from './use-attachments'
 
 // ---------------------------------------------------------------------------
 // THE COMPOSER'S TWO SKINS (POD-516).
@@ -165,10 +165,11 @@ describe('ChatComposer, non-compact (the main chat)', () => {
     // here cut the document off from the thing it is a reply to.
     expect(dock().className).not.toContain('border-t')
     expect(dock().className).not.toContain('prompt-dock')
+    expect(dock().className).toContain('chat-composer-dock')
     expect(well().className).toContain('chat-composer-well')
     expect(well().className).not.toContain('focus-within:border-primary')
     expect(well().className).not.toContain('prompt-well')
-    expect(ta.className).toContain('max-h-44')
+    expect(ta.className).toContain('max-h-[150px]')
     expect(ta.className).toContain('placeholder:text-text-faint')
     expect(ta.className).not.toContain('prompt-input')
     expect(container.querySelector('.prompt-mark')).toBeNull()
@@ -178,7 +179,9 @@ describe('ChatComposer, non-compact (the main chat)', () => {
   it('keeps empty send neutral and turns it yellow only when actionable', async () => {
     await mount({ compact: false, draft: '' })
     expect(sendButton().disabled).toBe(true)
-    expect(sendButton().className).toContain('bg-secondary')
+    // POD-993 round 2: the resting send takes the chip ground the rest of the
+    // cluster hovers to, not the louder --secondary it had.
+    expect(sendButton().className).toContain('bg-chip')
     expect(sendButton().className).not.toContain('btn-primary-rim')
     expect(sendButton().className).not.toContain('bg-primary')
     expect(sendButton().className).toContain('size-7')

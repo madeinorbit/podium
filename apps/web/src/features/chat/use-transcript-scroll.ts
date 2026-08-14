@@ -1,5 +1,5 @@
 import type { RefObject } from 'react'
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 /**
  * SCROLL ANCHORING AND THE STICKY PROMPT (POD-405, extracted from ChatView).
@@ -43,6 +43,17 @@ export interface UseTranscriptScrollOptions {
   rowsToRender: unknown
 }
 
+/** The brief the pinned shelf is currently carrying, or null when the brief the
+ *  reader is under is still on screen. `key` changes only when a DIFFERENT brief
+ *  takes the shelf, which is what keeps the scroll path free of re-renders. */
+export interface PinnedBrief {
+  key: string
+  /** Sanitized markdown, lifted from the row's own rendered body. */
+  html: string
+  /** The brief's clock, as the row prints it. Empty when the row has no ts. */
+  time: string
+}
+
 export interface UseTranscriptScrollResult {
   /** False once the user scrolls up — drives the "jump to bottom" affordance. */
   atBottom: boolean
@@ -53,6 +64,8 @@ export interface UseTranscriptScrollResult {
   /** Scroll a `[data-block]` row into view — the search jump. */
   scrollToBlock: (index: number) => void
   syncStickyPromptPositions: () => void
+  /** Drives the shelf drawn over the feed. Null → no shelf. */
+  pinnedBrief: PinnedBrief | null
 }
 
 export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTranscriptScrollResult {
@@ -71,67 +84,66 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   } = opts
 
   const [atBottom, setAtBottom] = useState(true)
+  const [pinnedBrief, setPinnedBrief] = useState<PinnedBrief | null>(null)
+  const pinnedKey = useRef<string | null>(null)
 
-  // Native sticky positioning keeps the real prompt row in the transcript.
-  // As the next prompt approaches, translate the current row by exactly the
-  // overlap so the two turns hand off rather than stack on top of one another.
-  // Reading geometry before writing styles keeps the scroll path free of
-  // forced layout loops; transform intentionally has no transition because it
-  // must remain locked to the user's scroll position.
+  /**
+   * THE PINNED BRIEF LEFT THE COLUMN (POD-993 round 2).
+   *
+   * This used to keep the real prompt row in the transcript with `position:
+   * sticky`, and hand consecutive prompts past one another by writing a
+   * `translateY` onto the outgoing row on every scroll frame — plus a
+   * `visibility: hidden` on the ones already gone. It worked, and it meant the
+   * shelf was part of the flow: pinning changed the height of the column the
+   * reader was reading, and a row could be mid-transform when a re-render
+   * replaced it.
+   *
+   * Now the rows never move. This pass only ANSWERS A QUESTION — which brief has
+   * scrolled off the top edge — and the answer drives a shelf drawn over the feed
+   * (see `PinnedBrief` in ChatView), which can appear and leave without touching
+   * a single row.
+   *
+   * It stays cheap on the scroll path by only ever reading geometry, and by
+   * setting state exclusively when a DIFFERENT brief takes the shelf: scrolling
+   * through one long answer re-renders nothing. The shelf's content is lifted
+   * from the row's own already-sanitized body rather than re-rendered from the
+   * source, so what is pinned is by construction what is in the column.
+   */
   const syncStickyPromptPositions = useCallback(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
-    const prompts = Array.from(
-      scroller.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
-    )
-
     if (!stickyEnabled) {
-      for (const prompt of prompts) {
-        prompt.style.removeProperty('transform')
-        prompt.style.removeProperty('visibility')
-        delete prompt.dataset.stuck
+      if (pinnedKey.current !== null) {
+        pinnedKey.current = null
+        setPinnedBrief(null)
       }
       return
     }
-
-    const scrollerTop = scroller.getBoundingClientRect().top
-    const firstPrompt = prompts[0]
-    const stickyOffset = firstPrompt ? Number.parseFloat(getComputedStyle(firstPrompt).top) || 0 : 0
-    const stickyTop =
-      scrollerTop + (Number.parseFloat(getComputedStyle(scroller).paddingTop) || 0) + stickyOffset
-    let activeIndex = -1
-    for (let i = 0; i < prompts.length; i++) {
-      const prompt = prompts[i]
-      if (prompt && prompt.getBoundingClientRect().top <= stickyTop + 1) activeIndex = i
+    const prompts = Array.from(
+      scroller.querySelectorAll<HTMLElement>('[data-operator-prompt="true"][data-pinnable="true"]'),
+    )
+    // The brief is pinned once it has fully left the top of the viewport — its
+    // BOTTOM edge, not its top, so a brief you can still read is never doubled
+    // by a shelf saying the same words.
+    const top = scroller.getBoundingClientRect().top + 6
+    let active: HTMLElement | undefined
+    for (const prompt of prompts) {
+      if (prompt.getBoundingClientRect().bottom < top) active = prompt
+      else break
     }
 
-    const activePrompt = activeIndex >= 0 ? prompts[activeIndex] : undefined
-    const nextPrompt = activeIndex >= 0 ? prompts[activeIndex + 1] : undefined
-    const activeBody = activePrompt?.querySelector<HTMLElement>(':scope > .transcript-body')
-    const nextBody = nextPrompt?.querySelector<HTMLElement>(':scope > .transcript-body')
-    const currentPushY = activePrompt
-      ? Number.parseFloat(
-          /^translateY\((-?[\d.]+)px\)$/.exec(activePrompt.style.transform)?.[1] ?? '0',
-        )
-      : 0
-    const pushY =
-      activeBody && nextBody
-        ? Math.min(
-            0,
-            nextBody.getBoundingClientRect().top -
-              (activeBody.getBoundingClientRect().bottom - currentPushY),
-          )
-        : 0
-
-    for (let i = 0; i < prompts.length; i++) {
-      const prompt = prompts[i]
-      if (!prompt) continue
-      const isActive = i === activeIndex
-      prompt.style.visibility = i < activeIndex ? 'hidden' : ''
-      prompt.style.transform = isActive && pushY < 0 ? `translateY(${pushY}px)` : ''
-      if (isActive) prompt.dataset.stuck = 'true'
-      else delete prompt.dataset.stuck
+    const key = active?.dataset.block ?? null
+    if (key === pinnedKey.current) return
+    pinnedKey.current = key
+    if (!active || key === null) {
+      setPinnedBrief(null)
+      return
     }
+    setPinnedBrief({
+      key,
+      html: active.querySelector<HTMLElement>('.transcript-you-body')?.innerHTML ?? '',
+      time: active.querySelector<HTMLElement>('.chat-clk')?.textContent ?? '',
+    })
   }, [scrollerRef, stickyEnabled])
 
   // Reconcile after row-window changes before paint, including when the
@@ -262,5 +274,6 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     pinToBottom,
     scrollToBlock,
     syncStickyPromptPositions,
+    pinnedBrief,
   }
 }

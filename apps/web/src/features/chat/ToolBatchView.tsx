@@ -256,7 +256,10 @@ export function ToolBatchView({
     <div className={rowClass} data-block={index}>
       {/* No rail — tool activity stays quiet, aligned with prose via the spacer. */}
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-      <div className="transcript-body py-0.5">
+      {/* No padding of its own: the work line carries its own margin, which is
+          wider than the feed's beat — a run of calls is a solid in the document,
+          and it needs air on both sides that plain prose does not. */}
+      <div className="transcript-body">
         <div
           className="work-line"
           data-state={waiting ? 'wait' : live ? 'live' : 'done'}

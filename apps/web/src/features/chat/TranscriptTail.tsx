@@ -277,7 +277,7 @@ export function TranscriptTail({
       <span className="feed-tail-body">
         <span className="feed-tail-mark" aria-hidden="true">
           {working || kind === 'sending' ? (
-            <BreathingMark size={13} />
+            <BreathingMark size={22} />
           ) : waitingOnDependency ? (
             <span className="feed-tail-wait">◇</span>
           ) : kind === 'interrupted' ? (

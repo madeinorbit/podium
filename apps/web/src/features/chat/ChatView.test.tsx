@@ -372,16 +372,18 @@ This is agent mail, not the operator's latest prompt.
     // block index 2 is rendered as row 1. Sticky lookup must use that row index.
     expect(userRow.dataset.block).toBe('1')
     expect(userRow.dataset.operatorPrompt).toBe('true')
-    expect(userRow.className).toContain('sticky')
-    expect(userRow.className).toContain('motion-reduce:transition-none')
+    // POD-993 round 2: the pin left the column. The row stays in flow and is
+    // merely MARKED as one the shelf drawn over the feed may carry.
+    expect(userRow.dataset.pinnable).toBe('true')
+    expect(userRow.className).not.toContain('sticky')
     expect(container.querySelector('[data-testid="sticky-user-message"]')).toBeNull()
 
     const mailRow = [...container.querySelectorAll<HTMLElement>('.transcript-row')].find((el) =>
-      el.textContent?.includes('This is agent mail'),
+      el.textContent?.includes('1 note from Podium'),
     )
     expect(mailRow).toBeDefined()
     expect(mailRow?.dataset.operatorPrompt).toBeUndefined()
-    expect(mailRow?.className).not.toContain('sticky')
+    expect(mailRow?.dataset.pinnable).toBeUndefined()
   })
 
   it('keeps operator prompts in normal flow when the device preference is disabled', async () => {
@@ -407,7 +409,9 @@ This is agent mail, not the operator's latest prompt.
     )
     expect(userRow?.dataset.operatorPrompt).toBe('true')
     expect(userRow?.className).not.toContain('sticky')
-    expect(userRow?.dataset.stuck).toBeUndefined()
+    // With the preference off no row is offered to the shelf at all.
+    expect(userRow?.dataset.pinnable).toBeUndefined()
+    expect(container.querySelector('[data-testid="pinned-brief"]')).toBeNull()
   })
 })
 

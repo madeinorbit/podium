@@ -1,43 +1,35 @@
 import {
-  envelopePrincipal,
   formatChurn,
   isImagePath,
   isInteractiveTool,
   MACHINE_CONTEXT_RE,
   mcpLabel,
-  type ParsedEnvelope,
   parseEnvelopeBatch,
   type TranscriptAttribution,
 } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import {
   Check,
-  ChevronDown,
   Clock,
   Copy,
   FileText,
   Image as ImageIcon,
-  Mail as MailIcon,
   MessageCircleQuestion,
   Quote,
 } from 'lucide-react'
-import type { JSX, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react'
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
-import {
-  type IssueReferenceLookup,
-  isKnownRefPrefix,
-  renderMarkdown,
-  sanitizeRenderedMarkdown,
-} from '@/lib/markdown'
+import { type IssueReferenceLookup, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { AttributionMark } from './AttributionMark'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
+import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
@@ -108,10 +100,13 @@ const COPY_ACK_MS = 1400
  * message — when, and take-a-copy — are in the same place for every voice.
  *
  * It is always present and always the same height, so nothing reflows when the
- * pointer crosses a row. What changes is INK: dimmed at rest so the column stays
- * quiet under a long transcript, full on hover or keyboard focus of that row.
- * Rest is not invisible — the clock is information, and information the reader
- * has to hunt for with a mouse is information they do not have.
+ * pointer crosses a row. What changes is INK, and it changes in two registers.
+ * The CLOCK is information — a reader should be able to answer "when was this?"
+ * without hunting for it with a mouse — so it rests at 40% and comes to full ink
+ * on hover. The BUTTONS are not information; they are a thing you do, and a
+ * transcript with two grey glyphs under every paragraph is a transcript wearing
+ * its toolbar. They rest at nothing, 2px low, and rise into place under the
+ * pointer. One curve, one duration, both directions.
  */
 function MessageActions({
   text,
@@ -153,180 +148,35 @@ function MessageActions({
       {ts && <BlockClock ts={ts} />}
       {children}
       {!empty && (
-        <button
-          data-pressable
-          type="button"
-          className="msg-action"
-          onClick={copy}
-          title="Copy message"
-          aria-label={copied ? 'Message copied' : 'Copy message'}
-        >
-          {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
-        </button>
-      )}
-      {!empty && onQuote && (
-        <button
-          data-pressable
-          type="button"
-          className="msg-action"
-          onClick={quote}
-          title="Quote in composer"
-          aria-label="Quote in composer"
-        >
-          <Quote size={12} aria-hidden="true" />
-        </button>
-      )}
-    </div>
-  )
-}
-
-/** An envelope-header principal: the nice-id issue ref renders as the same
- *  clickable ref-link chip the markdown pass emits, so the sender/recipient
- *  are as navigable as refs in the body. Legacy `#seq` labels and sessions
- *  stay plain text. */
-function PrincipalLabel({
-  label,
-  issueReferences,
-}: {
-  label: string
-  issueReferences: IssueReferenceLookup
-}): JSX.Element {
-  const p = envelopePrincipal(label)
-  const chip = p.ref !== null && isKnownRefPrefix(p.ref.split('-')[0] ?? '')
-  return (
-    <>
-      {p.pre}
-      {p.ref !== null &&
-        (chip ? (
-          <a
-            className="ref-link ref-link--issue"
-            href={`#${p.ref}`}
-            data-ref={p.ref}
-            data-issue-stage={issueReferences.get(p.ref)?.stage}
-            data-issue-availability={issueReferences.get(p.ref)?.availability}
-            aria-label={issueReferences.get(p.ref)?.accessibleLabel}
+        <span className="msg-tools">
+          <button
+            data-pressable
+            type="button"
+            className="msg-action"
+            onClick={copy}
+            title="Copy message"
+            aria-label={copied ? 'Message copied' : 'Copy message'}
           >
-            {p.ref}
-          </a>
-        ) : (
-          p.ref
-        ))}
-      {p.post}
-    </>
-  )
-}
-
-function MessageEnvelopeRow({
-  envelope,
-  className,
-  blockIndex,
-  sessionId,
-  cwd,
-  openFile,
-  issueReferences,
-  markdownHtml,
-  ts,
-}: {
-  envelope: ParsedEnvelope
-  className: string
-  blockIndex?: number
-  sessionId: SessionId
-  cwd: string
-  openFile: (sessionId: SessionId, path: string) => void
-  issueReferences: IssueReferenceLookup
-  markdownHtml?: ReadonlyMap<string, string>
-  ts?: string | undefined
-}): JSX.Element {
-  const html = useMemo(() => {
-    const unsafeHtml = markdownHtml?.get(envelope.body)
-    return unsafeHtml === undefined
-      ? renderMarkdown(envelope.body, issueReferences)
-      : sanitizeRenderedMarkdown(unsafeHtml, issueReferences)
-  }, [envelope.body, issueReferences, markdownHtml])
-  // FOLDED BY DEFAULT (POD-993). System mail is provenance: it explains why the
-  // agent did what it did next, and a reader scanning a conversation should be
-  // able to see that a message arrived, from whom, without the paragraph. So it
-  // folds to one quiet mono line and opens on a click.
-  //
-  // Except when it is addressed AT the reader's attention: a frame that asks a
-  // question or requests a reply is not background, and folding it would hide
-  // the one kind of mail that has a consequence. Those open on arrival.
-  const consequential = envelope.question || envelope.expectsReply
-  const [open, setOpen] = useState(consequential)
-  return (
-    <div
-      className={className}
-      data-block={blockIndex}
-      data-internal-message="true"
-      data-testid="message-envelope"
-    >
-      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-      <div className="transcript-body">
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: delegated clicks activate only semantic links emitted by sanitized markdown */}
-        {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate those generated anchors natively */}
-        <div
-          className="message-envelope"
-          data-open={open ? 'true' : 'false'}
-          onClick={(e) => {
-            handleChatMdClick(e, sessionId, cwd, openFile)
-          }}
-        >
-          <div className="message-envelope-head">
-            {/* The whole header line is the control: a fold whose hit target is
-                a 12px chevron is a fold nobody uses. Refs inside the route stay
-                clickable — they stop the toggle rather than the other way
-                round, so a principal chip still opens its miniview. */}
+            {copied ? (
+              <Check size={13} aria-hidden="true" />
+            ) : (
+              <Copy size={13} aria-hidden="true" />
+            )}
+          </button>
+          {onQuote && (
             <button
+              data-pressable
               type="button"
-              className="message-envelope-toggle"
-              data-testid="message-envelope-toggle"
-              aria-expanded={open}
-              aria-label={open ? 'Fold this message' : 'Unfold this message'}
-              onClick={(e) => {
-                if ((e.target as HTMLElement).closest('a')) return
-                setOpen((v) => !v)
-              }}
+              className="msg-action"
+              onClick={quote}
+              title="Quote in composer"
+              aria-label="Quote in composer"
             >
-              <span className="message-envelope-kind">
-                <MailIcon size={11} aria-hidden="true" />
-                Mail
-              </span>
-              <span aria-hidden="true" className="message-envelope-seam" />
-              <span className="message-envelope-route">
-                <PrincipalLabel label={envelope.from} issueReferences={issueReferences} />
-                <span className="px-1.5 text-muted-foreground/40">→</span>
-                <PrincipalLabel label={envelope.to} issueReferences={issueReferences} />
-              </span>
-              {envelope.question && <span className="message-envelope-badge">question</span>}
-              {envelope.expectsReply && (
-                <span className="message-envelope-badge message-envelope-badge--reply">
-                  reply requested
-                </span>
-              )}
-              <span className="message-envelope-meta">
-                <BlockClock ts={ts} />
-                {envelope.id}
-                <ChevronDown className="message-envelope-chev" size={11} aria-hidden="true" />
-              </span>
+              <Quote size={13} aria-hidden="true" />
             </button>
-          </div>
-          {/* The fold is a grid row travelling 0fr → 1fr: the body keeps its
-              natural height, nothing is measured in JS, and the rows below glide
-              rather than jumping. */}
-          <div className="message-envelope-fold" aria-hidden={!open}>
-            <div className="message-envelope-fold-inner">
-              <div
-                className="chat-md message-envelope-body"
-                // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify in renderMarkdown
-                dangerouslySetInnerHTML={{ __html: html }}
-              />
-              {envelope.machineNote && (
-                <div className="message-envelope-note">{envelope.machineNote}</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+          )}
+        </span>
+      )}
     </div>
   )
 }
@@ -354,95 +204,33 @@ function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
 }
 
 /**
- * THE BRIEF IS CUT ONLY WHILE IT IS PINNED (POD-993).
+ * THE BRIEF IN FLOW IS NEVER CUT AND NEVER MOVES (POD-993, round 2).
  *
- * Two earlier readings of this are both preserved in the design, because the new
- * rule is the seam between them. POD-747 removed a clamp that fired on EVERY
- * collapsed brief — a two-line message arriving pre-truncated behind a "Read
- * more" for the four words it was hiding — and it was right: in the flow of the
- * document a brief is the one thing the reader wrote themselves, and hiding part
- * of it to buy space in their own conversation is not a trade. What POD-747 then
- * had to do about a pasted forty-line spec was refuse it the pin, so the context
- * shelf simply vanished for the exchanges that needed it most.
+ * Two earlier readings are preserved in the design because the current rule is
+ * the seam between them. POD-747 removed a clamp that fired on EVERY collapsed
+ * brief - a two-line message arriving pre-truncated behind a "Read more" for the
+ * four words it was hiding - and it was right: in the flow of the document a
+ * brief is the one thing the reader wrote themselves. What POD-747 then had to do
+ * about a pasted forty-line spec was refuse it the pin, so the context shelf
+ * vanished for exactly the exchanges that needed one.
  *
- * The rule now separates the two states the row actually has. IN FLOW the brief
- * is never cut — every word, no fade, no control, exactly as POD-747 left it.
- * PINNED it is a shelf rather than a message, and a shelf has a height: it
- * clamps to `--prompt-pin-clamp`, fades at its own bottom edge and offers one
- * toggle to open it in place. Nothing is hidden at the moment the reader is
- * reading it — the clamp engages only once the row has scrolled to the top edge
- * and become chrome, and it releases the moment they scroll back to it.
+ * The round-one answer was `position: sticky` on the row itself plus a clamp that
+ * engaged once it stuck. It worked, and it cost the thing a transcript can least
+ * afford: the row was still IN the column, so pinning and unpinning changed the
+ * height of the flow under the reader's eyes, and two consecutive briefs had to
+ * be hand-translated past one another in JS on every scroll frame.
+ *
+ * So the pin left the column. The brief here is now only ever a brief - whole, in
+ * flow, no clamp, no toggle, no sticky, no transform. The pinned state is a
+ * separate SHELF drawn over the feed (see `PinnedBrief`), which can appear and
+ * leave without moving a single row underneath it.
  */
-function PromptBubble({
-  bodyRef,
-  clamped,
-  open,
-  onToggle,
-  children,
-}: {
-  bodyRef: RefObject<HTMLDivElement | null>
-  /** The pinned shelf is taller than the clamp — the reader is owed a control. */
-  clamped: boolean
-  open: boolean
-  onToggle: () => void
-  children: ReactNode
-}): JSX.Element {
+function PromptBubble({ children }: { children: ReactNode }): JSX.Element {
   return (
-    <div className="transcript-you-bubble" data-pin-open={open ? 'true' : undefined}>
-        <div className="transcript-you-body" ref={bodyRef}>
-          {children}
-        </div>
-        {clamped && (
-          <button
-            data-pressable
-            type="button"
-            className="prompt-expand"
-            data-testid="prompt-expand-toggle"
-            aria-expanded={open}
-            onClick={onToggle}
-          >
-          {open ? 'Collapse brief' : 'Show full brief'}
-        </button>
-      )}
+    <div className="transcript-you-bubble">
+      <div className="transcript-you-body">{children}</div>
     </div>
   )
-}
-
-/** The clamp the pinned shelf takes, in px — kept in step with
- *  `--prompt-pin-clamp` in styles.css, which is what actually cuts. Roughly four
- *  lines of the brief's own 13.5/1.6 setting: enough for the whole of an
- *  ordinary message, short enough that a pasted spec cannot become a lid. */
-const PIN_CLAMP_PX = 92
-
-/**
- * Whether a pinned brief is tall enough for the clamp to bite — i.e. whether the
- * reader is owed a control to open it again.
- *
- * Measured on the body itself rather than guessed from character count, because
- * what matters is rendered height at this pane width: the same text is two lines
- * in a full-width stage and six in a split pane. Re-measured through a
- * ResizeObserver so dragging the pane narrower grows the control into existence
- * rather than leaving a silently cut shelf.
- */
-function useClamps(enabled: boolean, ref: RefObject<HTMLElement | null>): boolean {
-  const [clamps, setClamps] = useState(false)
-  useLayoutEffect(() => {
-    if (!enabled) {
-      setClamps(false)
-      return
-    }
-    const el = ref.current
-    if (!el) return
-    const measure = (): void => {
-      setClamps(el.scrollHeight > PIN_CLAMP_PX + 4)
-    }
-    measure()
-    if (typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  })
-  return clamps
 }
 
 // Memoized: ChatView re-renders on every search keystroke, every 700ms
@@ -547,20 +335,13 @@ export const ChatBlockView = memo(function ChatBlockView({
   const hasEnvelopes = (envelopeBatch?.envelopes.length ?? 0) > 0
   const bodyTurnClass = turnClass(hasEnvelopes && turn === 'open' ? 'bind' : turn)
   const rowRef = useRef<HTMLDivElement | null>(null)
-  const promptBodyRef = useRef<HTMLDivElement | null>(null)
-  // Every operator brief takes the pin now (POD-993). It used to yield the pin
-  // above half the viewport, because a long brief pinned at full height is a lid
-  // over the answer; the clamp below is the better answer to that, and it keeps
-  // the context shelf for exactly the exchanges that most need one.
-  const pinned = stickyOperator
-  const [pinOpen, setPinOpen] = useState(false)
-  const clamps = useClamps(pinned, promptBodyRef)
+  // The human's turn arrives as a card and gets the card's entrance; everything
+  // else slides up by six pixels. See the keyframes in styles.css.
+  const isUserRole = item.role === 'user'
   const rowClass = cn(
     'group transcript-row isolate',
     bodyTurnClass,
-    pinned &&
-      'sticky -top-6 z-[3] transition-[box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-    arrived && 'transcript-arrive',
+    arrived && (isUserRole ? 'transcript-arrive-bubble' : 'transcript-arrive'),
     highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
   )
@@ -705,29 +486,26 @@ export const ChatBlockView = memo(function ChatBlockView({
     )
   }
 
-  const envelopeRows = envelopeBatch?.envelopes.map((envelope, envelopeIndex) => (
-    <MessageEnvelopeRow
-      key={envelope.id}
-      envelope={envelope}
-      className={cn(
-        nonStickyRowClass,
-        // Delivered mail arrives as one exchange: the first frame takes the
-        // turn's air, the rest stack under it.
-        turnClass(envelopeIndex === 0 ? turn : 'bind'),
-      )}
-      blockIndex={envelopeBatch.operatorText === '' && envelopeIndex === 0 ? index : undefined}
-      sessionId={sessionId}
-      cwd={cwd}
-      openFile={openFile}
+  // ONE BURST, ONE OBJECT (POD-993). A provider turn can deliver several frames
+  // at once, and each used to take a row and a header of its own. They are one
+  // folded line now — see MessageEnvelopeGroup for why mail reads better as mail.
+  const envelopeRows = hasEnvelopes && envelopeBatch && (
+    <MessageEnvelopeGroup
+      envelopes={envelopeBatch.envelopes}
+      className={cn(nonStickyRowClass, turnClass(turn))}
+      blockIndex={envelopeBatch.operatorText === '' ? index : undefined}
       issueReferences={issueReferences}
       markdownHtml={markdownHtml}
       ts={item.ts}
+      onBodyClick={(e: ReactMouseEvent) => {
+        handleChatMdClick(e, sessionId, cwd, openFile)
+      }}
     />
-  ))
+  )
 
   // A delivered message from another principal is internal traffic, never a
-  // "You" bubble and never sticky. Multiple leading frames may share one
-  // provider turn; any human follow-up continues below as its own prompt row.
+  // "You" bubble. Any human follow-up in the same turn continues below as its
+  // own prompt row.
   if (envelopeBatch && envelopeBatch.operatorText === '') return <>{envelopeRows}</>
 
   // Agent prose lies flat on the chassis; the operator's turn is the only
@@ -815,18 +593,12 @@ export const ChatBlockView = memo(function ChatBlockView({
         className={rowClass}
         data-block={index}
         data-operator-prompt={isUser ? 'true' : undefined}
+        // The shelf's source set (POD-993). `data-operator-prompt` says "the
+        // human spoke here"; this says "and it is a brief the pinned shelf may
+        // carry" — which excludes interrupts, empty turns and machine-authored
+        // context, and is off entirely when the preference is. See `usePinnedBrief`.
+        data-pinnable={isUser && stickyOperator ? 'true' : undefined}
       >
-        {pinned && (
-          <div
-            // The sheet, not the app background (POD-725): the stage is a card
-            // now, and the brief lost its own panel — so this backdrop is the
-            // only thing occluding the transcript that scrolls under a pinned
-            // prompt, and it has to be the exact tone it is pinned against.
-            className="pointer-events-none absolute inset-y-0 left-1/2 -z-10 w-screen -translate-x-1/2 bg-card/90 opacity-0 backdrop-blur-sm transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-data-[stuck=true]:opacity-100 motion-reduce:transition-none"
-            data-sticky-prompt-backdrop
-            aria-hidden="true"
-          />
-        )}
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div
           className={cn(
@@ -862,20 +634,7 @@ export const ChatBlockView = memo(function ChatBlockView({
               side is a card. Below the pane's own narrow threshold the card goes
               full width (see `.transcript-you` in styles.css) — at that width an
               indented bubble is a column of ragged offcuts. */}
-          {isUser ? (
-            <PromptBubble
-              bodyRef={promptBodyRef}
-              clamped={pinned && clamps}
-              open={pinOpen}
-              onToggle={() => {
-                setPinOpen((v) => !v)
-              }}
-            >
-              {turnBody}
-            </PromptBubble>
-          ) : (
-            turnBody
-          )}
+          {isUser ? <PromptBubble>{turnBody}</PromptBubble> : turnBody}
           {/* The foot: when, copy, quote — under the words, on the speaker's own
               side. Machine activity is excluded; a work line is a summary of
               rows that each have their own affordances. */}
