@@ -171,6 +171,19 @@ export interface SocketHubOptions {
    * inject a deterministic scheduler.
    */
   scheduleFeedTask?: (task: () => void) => void
+  /**
+   * Liveness ping cadence. Default {@link HEARTBEAT_INTERVAL_MS} (2.5 s) — the
+   * web value, which is deliberately fast because each ping doubles as this
+   * client's latency probe.
+   *
+   * Mobile native passes 10 s (POD-2055 WP-C5). Its foreground is the only time
+   * the hub runs at all now (see {@link SocketHub.suspend}), and on a phone the
+   * pings are radio wake-ups; the cost of the slower cadence is a half-open
+   * connection detected in ≤20 s rather than ≤12.5 s, which is the right trade
+   * where the alternative is spending battery to notice a socket the OS is
+   * about to kill anyway.
+   */
+  heartbeatIntervalMs?: number
 }
 
 /** The frames the v2 wire carries. Narrowed off the parsed union rather than
@@ -554,6 +567,18 @@ export class SocketHub {
    * one world, and the walk consumes exactly one.
    */
   private wantWorld = false
+  /**
+   * THE CLOSE THAT IS NOT MEANT TO COME BACK.
+   *
+   * `intentionalClose` says "this socket ended on purpose, do not reconnect it",
+   * and since POD-2055 two different callers say it: {@link dispose} (the
+   * runtime is going away) and {@link suspend} (the phone was backgrounded and
+   * WILL be foregrounded). Only the second one is allowed to be undone by
+   * {@link connectNow}, so the distinction gets its own flag rather than being
+   * inferred. Cleared by {@link connect}, which is how a re-started runtime
+   * (React StrictMode's dispose/re-arm) becomes live again.
+   */
+  private disposed = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
@@ -662,6 +687,7 @@ export class SocketHub {
     let reportedError = false
     this.intentionalClose = false
     this.sawTraffic = false
+    this.disposed = false
     this.socket = socket
     socket.onopen = () => {
       opened = true
@@ -848,9 +874,15 @@ export class SocketHub {
    * The `socket !== undefined` guard is load-bearing — `connect()` while a
    * CONNECTING socket exists would otherwise be asked for a second socket, and a
    * foregrounded tab can deliver both signals within the same tick.
+   *
+   * The second guard is `disposed`, NOT `intentionalClose` (POD-2062): both say
+   * "this socket ended on purpose", and only one of them is meant to stay ended.
+   * A backgrounded phone is closed on purpose by {@link suspend} and is exactly
+   * the case this must undo, so refusing every intentional close would leave it
+   * offline until something else called `connect()`.
    */
   connectNow(): void {
-    if (this.socket !== undefined || this.intentionalClose) return
+    if (this.socket !== undefined || this.disposed) return
     if (this.reconnectTimer !== undefined) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
@@ -865,7 +897,10 @@ export class SocketHub {
     // a reconnect, confirms the server is actually answering — an open socket alone
     // already cleared the indicator, and this verifies that optimism within ~1.5s.
     this.sendPing()
-    this.heartbeatTimer = setInterval(() => this.sendPing(), HEARTBEAT_INTERVAL_MS)
+    this.heartbeatTimer = setInterval(
+      () => this.sendPing(),
+      this.opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
+    )
   }
 
   private sendPing(): void {
@@ -981,6 +1016,34 @@ export class SocketHub {
     if (this.socket === undefined) return
     this.forceClose()
     this.scheduleReconnect()
+  }
+
+  /**
+   * THE APP LEFT THE FOREGROUND (POD-2055 WP-C3). Stop being a client until it
+   * comes back: heartbeat off, reconnect timer cleared, socket closed on
+   * purpose.
+   *
+   * This is NOT {@link dispose}. The runtime, the replica and every
+   * subscription survive; only the transport goes quiet, and {@link connectNow}
+   * brings it back on foreground.
+   *
+   * Ordering is the caller's, and it matters: whatever the client wants the
+   * server to KNOW about going away — above all `setVisible(false)`, which is
+   * what un-suppresses ntfy/Telegram push for this person — must be sent before
+   * this runs, because this closes the socket those frames would have left on.
+   */
+  suspend(): void {
+    this.intentionalClose = true
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    // Detach-then-close-then-teardown, as `forceClose` does: a real WebSocket
+    // delivers `onclose` on its own schedule, and a backgrounded process may not
+    // be scheduled again for minutes. The teardown (heartbeat off, sink told it
+    // is disconnected) has to be true the moment the app is backgrounded, not
+    // whenever the platform gets round to it.
+    this.forceClose()
   }
 
   attach(sessionId: SessionId, cb: SessionCallbacks = {}): SessionConnection {
@@ -1483,6 +1546,7 @@ export class SocketHub {
 
   dispose(): void {
     this.intentionalClose = true
+    this.disposed = true
     if (this.reconnectTimer !== undefined) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
