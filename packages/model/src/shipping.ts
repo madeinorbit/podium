@@ -152,7 +152,7 @@ export type ShipOrder = z.infer<typeof ShipOrder>
 const LEGAL_SHIP_ORDER_TRANSITIONS = {
   queued: ['preflight', 'held', 'cancelled'],
   preflight: ['composing', 'held', 'cancelled'],
-  composing: ['validating', 'held', 'cancelled'],
+  composing: ['validating', 'repairing', 'held', 'cancelled'],
   validating: ['repairing', 'landing', 'held', 'cancelled'],
   repairing: ['validating', 'held', 'cancelled'],
   landing: ['publishing', 'verifying', 'held'],

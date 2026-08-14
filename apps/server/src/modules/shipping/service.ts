@@ -33,6 +33,11 @@ import type { ShippingIssueMutation } from '../issues/service/crud'
 import type { ShippingPolicyResolver } from './policy'
 import { shipOrderProjectionRow } from './projection'
 import { shippingQueue, shippingSchedule, type ShippingTrain } from './queue'
+import type {
+  ShippingRepairContext,
+  ShippingRepairDecision,
+  ShippingRepairPort,
+} from './repair-contract'
 
 const LEASE_MS = 45_000
 const SCHEDULER_INTERVAL_MS = 2_000
@@ -229,6 +234,8 @@ export interface ShippingServiceDeps {
   now?: () => string
   audit?: (kind: string, issueId: IssueId, payload: Record<string, unknown>) => void
   beforeCompletionCommit?: (receipt: DeliveryReceipt) => void
+  repair?: ShippingRepairPort
+  beforeRepairAcknowledge?: (resultToken: string) => void
   background?: boolean
 }
 
@@ -248,6 +255,37 @@ interface ResourceLease {
 
 const terminalStep = (step: ShipStep | null): boolean =>
   step?.state === 'succeeded' || step?.state === 'failed' || step?.state === 'cancelled'
+
+const REPAIR_MARKER = 'shipping-repair:v1:'
+
+interface DurableRepairMarker {
+  decision: Exclude<ShippingRepairDecision, { kind: 'not-applicable' }>
+  failure: ShippingRepairContext['failure']
+  order: ShipOrder
+  attempt: ShipAttempt
+}
+
+const repairMarker = (marker: DurableRepairMarker): string =>
+  `${REPAIR_MARKER}${JSON.stringify(marker)}`
+
+const parseRepairMarker = (summary: string): DurableRepairMarker | null => {
+  if (!summary.startsWith(REPAIR_MARKER)) return null
+  try {
+    const parsed = JSON.parse(summary.slice(REPAIR_MARKER.length)) as DurableRepairMarker
+    if (
+      !parsed ||
+      (parsed.decision?.kind !== 'patched' && parsed.decision?.kind !== 'needs-decision') ||
+      !parsed.decision.resultToken ||
+      (parsed.failure?.operation !== 'prepare-merge-group' &&
+        parsed.failure?.operation !== 'validate')
+    ) {
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
 
 export const shippingResourceHolderId = (
   incarnation: string,
@@ -675,6 +713,7 @@ export class ShippingService {
   async reconcile(): Promise<void> {
     this.deps.ledger.reconcile('shipOrder', this.currentProjectionRows())
     for (const order of this.deps.repository.listOrders()) {
+      await this.replayRepairAcknowledgement(order)
       if (order.state === 'shipped' || order.state === 'cancelled' || order.state === 'held')
         continue
       if (order.state === 'queued') continue
@@ -1759,6 +1798,12 @@ export class ShippingService {
       })
       await this.acknowledgeEffect(order, attempt, issue, operation)
     }
+    if (
+      result.state === 'held' &&
+      (await this.handleRepairFailure(order, attempt, issue, result, effect))
+    ) {
+      return result
+    }
     if (result.state === 'held') {
       await this.hold(
         order,
@@ -1788,6 +1833,142 @@ export class ShippingService {
     return result
   }
 
+  private repairContext(
+    order: ShipOrder,
+    attempt: ShipAttempt,
+    issue: IssueWire,
+    failure: ShippingRepairContext['failure'],
+  ): ShippingRepairContext {
+    return {
+      order,
+      attempt,
+      issue,
+      failure,
+      custody: {
+        attemptId: attempt.id,
+        generation: attempt.leaseGeneration,
+        machineId: attempt.machineId,
+      },
+    }
+  }
+
+  private async handleRepairFailure(
+    order: ShipOrder,
+    attempt: ShipAttempt,
+    issue: IssueWire,
+    result: ShippingJobResult,
+    effect: { effectKey: string; operation: ShipStep['kind']; terminalStep: ShipStep },
+  ): Promise<boolean> {
+    const repair = this.deps.repair
+    if (
+      !repair ||
+      (result.operation !== 'prepare-merge-group' && result.operation !== 'validate')
+    ) {
+      return false
+    }
+    const failure: ShippingRepairContext['failure'] = {
+      operation: result.operation,
+      classification: result.classification,
+      summary: result.summary,
+      artifactRefs: result.artifactRefs,
+    }
+    let decision: ShippingRepairDecision
+    try {
+      decision = await repair.consider(this.repairContext(order, attempt, issue, failure))
+    } catch (error) {
+      this.audit('shipping.repair_consider_failed', order.issueId, {
+        orderId: order.id,
+        attemptId: attempt.id,
+        generation: attempt.leaseGeneration,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return false
+    }
+    if (decision.kind === 'not-applicable') return false
+
+    effect.terminalStep = {
+      ...effect.terminalStep,
+      summary: repairMarker({ decision, failure, order, attempt }),
+    }
+    if (decision.kind === 'patched') {
+      const changedAt = result.finishedAt ?? this.now()
+      this.deps.ledger.commit({
+        write: () =>
+          this.deps.repository.commitEffectResult({
+            orderId: order.id,
+            expectedState: order.state,
+            attemptId: attempt.id,
+            generation: attempt.leaseGeneration,
+            ...effect,
+            outcome: { kind: 'transition', nextState: 'repairing', stateChangedAt: changedAt },
+          }),
+        changes: () => this.projectionSpecs(),
+      })
+      this.audit('shipping.order_state_changed', order.issueId, {
+        orderId: order.id,
+        from: order.state,
+        to: 'repairing',
+        repairRef: decision.repairRef,
+        candidateHeadSha: decision.candidateHeadSha,
+      })
+    } else {
+      await this.hold(
+        order,
+        attempt,
+        decision.reasonCode,
+        decision.headline,
+        decision.detail,
+        decision.evidenceRefs,
+        effect,
+        undefined,
+        decision.actions,
+      )
+    }
+    await this.acknowledgeEffect(order, attempt, issue, result.operation)
+    this.deps.beforeRepairAcknowledge?.(decision.resultToken)
+    await repair.acknowledge({
+      resultToken: decision.resultToken,
+      orderId: order.id,
+      attemptId: attempt.id,
+      generation: attempt.leaseGeneration,
+    })
+    return true
+  }
+
+  private async replayRepairAcknowledgement(order: ShipOrder): Promise<void> {
+    const repair = this.deps.repair
+    if (!repair) return
+    const attempt = this.deps.repository.latestAttemptForOrder(order.id)
+    if (!attempt) return
+    const marked = this.deps.repository
+      .stepsForAttempt(attempt.id)
+      .map((step) => ({ step, marker: parseRepairMarker(step.summary) }))
+      .findLast((entry) => entry.marker !== null)
+    if (!marked?.marker) return
+    const issue = this.deps.issues.get(order.issueId)
+    const replay = await repair.consider(
+      this.repairContext(
+        marked.marker.order,
+        marked.marker.attempt,
+        issue,
+        marked.marker.failure,
+      ),
+    )
+    if (
+      replay.kind === 'not-applicable' ||
+      JSON.stringify(replay) !== JSON.stringify(marked.marker.decision)
+    ) {
+      throw new Error(`shipping repair result replay changed for ${attempt.id}`)
+    }
+    this.deps.beforeRepairAcknowledge?.(replay.resultToken)
+    await repair.acknowledge({
+      resultToken: replay.resultToken,
+      orderId: order.id,
+      attemptId: marked.marker.attempt.id,
+      generation: marked.marker.attempt.leaseGeneration,
+    })
+  }
+
   private async hold(
     order: ShipOrder,
     attempt: ShipAttempt,
@@ -1801,6 +1982,7 @@ export class ShippingService {
       terminalStep: ShipStep
     },
     cancellationFailure?: { intentKey: string; terminalStep: ShipStep },
+    actions: ShipHoldAction[] = ['retry', 'return-to-issue'],
   ): Promise<void> {
     const generation =
       Math.max(
@@ -1819,7 +2001,7 @@ export class ShippingService {
       headline,
       detail,
       evidenceRefs,
-      actions: ['retry', 'return-to-issue'],
+      actions,
       raisedAt,
     }
     const heldOrder: ShipOrder = {

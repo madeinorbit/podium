@@ -29,9 +29,10 @@ export interface ShippingRepairContext {
 
 export type ShippingRepairDecision =
   | { kind: 'not-applicable' }
-  | { kind: 'patched'; repairRef: string; candidateHeadSha: string }
+  | { kind: 'patched'; resultToken: string; repairRef: string; candidateHeadSha: string }
   | {
       kind: 'needs-decision'
+      resultToken: string
       reasonCode: ShipHoldCode
       headline: string
       detail: string
@@ -44,4 +45,10 @@ export type ShippingRepairDecision =
  * attempt-scoped candidate; Shipping retains custody and always revalidates it. */
 export interface ShippingRepairPort {
   consider(input: ShippingRepairContext): Promise<ShippingRepairDecision>
+  acknowledge(input: {
+    resultToken: string
+    orderId: ShipOrder['id']
+    attemptId: ShipAttempt['id']
+    generation: number
+  }): Promise<void>
 }

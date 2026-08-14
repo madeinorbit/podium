@@ -21,6 +21,7 @@ import {
   shippingResourceHolderId,
   ShippingService,
 } from './service'
+import type { ShippingRepairPort } from './repair-contract'
 
 const stores: SessionStore[] = []
 afterEach(() => {
@@ -53,6 +54,8 @@ function harness(
       typeof ShippingService
     >[0]['issues']['takeBranchCustody']
     resourceAdmission?: ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
+    repair?: ShippingRepairPort
+    beforeRepairAcknowledge?: (resultToken: string) => void
   } = {},
 ) {
   const store = new SessionStore(':memory:')
@@ -139,6 +142,10 @@ function harness(
     now: () => '2026-08-13T10:00:00.000Z',
     ...(options.beforeCompletionCommit
       ? { beforeCompletionCommit: options.beforeCompletionCommit }
+      : {}),
+    ...(options.repair ? { repair: options.repair } : {}),
+    ...(options.beforeRepairAcknowledge
+      ? { beforeRepairAcknowledge: options.beforeRepairAcknowledge }
       : {}),
     background: false,
   }
@@ -1662,5 +1669,78 @@ describe('ShippingService enqueue transaction', () => {
     ).toMatchObject({ state: 'cancelled' })
     expect(store.issues.getIssue(issue.id)?.stage).toBe('review')
     service.dispose()
+  })
+
+  it('replays an identical repair result and acknowledges only after the hold commits', async () => {
+    let crashBeforeAcknowledgement = true
+    const decision = {
+      kind: 'needs-decision' as const,
+      resultToken: 'repair-result-1',
+      reasonCode: 'policy:behavior-change' as const,
+      headline: 'Behavior changed',
+      detail: 'The repair changes behavior and needs review.',
+      evidenceRefs: ['artifact:repair'],
+      actions: ['return-to-issue' as const],
+    }
+    const consider = vi.fn(async () => decision)
+    const acknowledge = vi.fn(async (input: Parameters<ShippingRepairPort['acknowledge']>[0]) => {
+      if (input.generation !== 1) throw new Error('stale repair generation')
+    })
+    const repair: ShippingRepairPort = { consider, acknowledge }
+    const daemon: Parameters<typeof harness>[0] = async (input, machineId) => {
+      if (input.action === 'start' && input.operation === 'validate') {
+        return {
+          jobId: input.jobId,
+          requestDigest: input.requestDigest,
+          orderId: input.orderId,
+          attemptId: input.attemptId,
+          machineId,
+          generation: input.generation,
+          operation: input.operation,
+          state: 'held',
+          classification: 'validation-failed',
+          summary: 'validation failed',
+          validationProfileId: input.validationProfile.id,
+          validationResult: 'failed',
+          logs: [],
+          artifactRefs: ['artifact:validation'],
+          heartbeatedAt: '2026-08-13T10:00:00.000Z',
+          finishedAt: '2026-08-13T10:00:00.000Z',
+        }
+      }
+      return provedShippingJob(input, machineId)
+    }
+    const { store, issues, service, deps } = harness(daemon, {
+      repair,
+      beforeRepairAcknowledge: () => {
+        if (crashBeforeAcknowledgement) throw new Error('crash before repair ack')
+      },
+    })
+    const issue = issues.create({ repoPath: '/repo', title: 'repair ack', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+
+    await expect(service.runOrder(order.id)).rejects.toThrow(/crash before repair ack/)
+    expect(store.shipping.getOrder(order.id)).toMatchObject({
+      state: 'held',
+      holdCode: 'policy:behavior-change',
+    })
+    expect(acknowledge).not.toHaveBeenCalled()
+    service.dispose()
+
+    crashBeforeAcknowledgement = false
+    const restarted = new ShippingService(deps)
+    await restarted.reconcile()
+    expect(consider).toHaveBeenCalledTimes(2)
+    const firstContext = consider.mock.calls[0]![0]
+    const replayContext = consider.mock.calls[1]![0]
+    expect({ ...replayContext, issue: undefined }).toEqual({ ...firstContext, issue: undefined })
+    expect(acknowledge).toHaveBeenCalledWith({
+      resultToken: decision.resultToken,
+      orderId: order.id,
+      attemptId: `attempt:${order.id}:1`,
+      generation: 1,
+    })
+    restarted.dispose()
   })
 })
