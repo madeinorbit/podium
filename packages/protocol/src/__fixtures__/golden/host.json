@@ -139,14 +139,15 @@
               "fifteen": 1,
               "cpuCount": 1
             },
-            "idleCapUnmet": 1
+            "idleCapUnmet": 1,
+            "reclaimableAttachments": 1
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hostMetricsChanged\",\"hosts\":[{\"hostname\":\"hosts[0].hostname\",\"machineId\":\"hosts[0].machineId\",\"name\":\"hosts[0].name\",\"sampledAt\":\"hosts[0].sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1}]}"
+      "encoded": "{\"type\":\"hostMetricsChanged\",\"hosts\":[{\"hostname\":\"hosts[0].hostname\",\"machineId\":\"hosts[0].machineId\",\"name\":\"hosts[0].name\",\"sampledAt\":\"hosts[0].sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1}]}"
     },
     {
       "schema": "HostMetricsMessage",
@@ -188,12 +189,13 @@
           "fifteen": 1,
           "cpuCount": 1
         },
-        "idleCapUnmet": 1
+        "idleCapUnmet": 1,
+        "reclaimableAttachments": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hostMetrics\",\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1}"
+      "encoded": "{\"type\":\"hostMetrics\",\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1}"
     },
     {
       "schema": "MachineDiagnosticMessage",
@@ -393,6 +395,28 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"memoryBreakdownResult\",\"requestId\":\"requestId\",\"hostname\":\"hostname\",\"sampledAt\":\"sampledAt\",\"supported\":true,\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"agents\":[{\"sessionId\":\"agents[0].sessionId\",\"bytes\":1,\"processCount\":1}],\"projects\":[{\"root\":\"projects[0].root\",\"bytes\":1,\"processCount\":1,\"topProcesses\":[{\"name\":\"projects[0].topProcesses[0].name\",\"bytes\":1}]}],\"otherBytes\":1}"
+    },
+    {
+      "schema": "ReclaimAttachmentsMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "reclaimAttachments"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reclaimAttachments\"}"
+    },
+    {
+      "schema": "ReclaimAttachmentsMessage",
+      "variant": "full",
+      "wire": {
+        "type": "reclaimAttachments"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reclaimAttachments\"}"
     },
     {
       "schema": "UsageRequestMessage",

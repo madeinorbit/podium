@@ -211,6 +211,20 @@ export const HostMetricsWire = z.object({
    *  are an existence leak is deliberately undecided. Marked `SEE` because it is
    *  health-shaped; whoever draws the projection may move it to `USE`. */
   idleCapUnmet: z.number().int().nonnegative().optional(),
+  /**
+   * Client terminals on this machine that nobody is watching — what could be
+   * reclaimed under pressure WITHOUT touching a session (spec §5: attachments
+   * are pure convenience and go first, the session engine is untouched).
+   *
+   * A COUNT, on the same §3.1.2 boundary and for the same reason as
+   * `idleCapUnmet` above: health-shaped, `SEE`, and whether counts are an
+   * existence leak stays deliberately undecided. It names no session — which is
+   * also all the pressure policy needs, since the machine picks WHICH to close
+   * (it holds the ages and the viewer state; the server holds the threshold).
+   * Optional for mixed-version fleets: absent means a daemon that predates
+   * attachments, not a machine with none.
+   */
+  reclaimableAttachments: z.number().int().nonnegative().optional(),
 })
 export type HostMetricsWire = z.infer<typeof HostMetricsWire>
 

@@ -99,7 +99,7 @@ const journalPath = (sessionId: SessionId): string =>
  * operator logged in as, and would do it invisibly. Stripping them makes the
  * session use exactly the credential `opencode auth login` stored.
  */
-const STRIPPED_PROVIDER_KEYS = [
+export const STRIPPED_PROVIDER_KEYS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'OPENAI_API_KEY',
@@ -558,19 +558,36 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     },
 
     async adopt(binding) {
+      /**
+       * A SESSION THAT DID NOT SURVIVE TAKES ITS CLIENT TERMINAL WITH IT.
+       *
+       * Every refusal below means this binding has no live server on this
+       * machine — no journal entry, a different incarnation, or nothing
+       * answering. A client terminal for it is pointed at something gone, and it
+       * is in its OWN scope, so nothing else on this machine would ever reap it:
+       * the durable census only matches labels against session rows and never
+       * kills. That is the "resident until the machine rebooted" outcome the
+       * success path's `adopt` exists to prevent, arrived at through the door
+       * where the client is guaranteed useless. `close()` costs nothing when
+       * there is nothing there — it asks `hasMaster` before spending a signal.
+       */
+      const abandon = async (): Promise<undefined> => {
+        await deps.clientTerminals?.close(binding.sessionId)
+        return undefined
+      }
       const entry = journal.read(binding.sessionId)
-      if (!entry) return undefined
+      if (!entry) return abandon()
       /**
        * EXACT IDENTITY BEFORE LIVENESS. A journal entry whose process key does
        * not match the binding describes a DIFFERENT incarnation of this session,
        * and adopting it would rebind to a server that may be running someone
        * else's conversation.
        */
-      if (entry.process.key !== binding.process.key) return undefined
+      if (entry.process.key !== binding.process.key) return abandon()
       // …and then: is anything still answering, with the secret we stored? A
       // port that has been recycled answers nothing on this credential, which is
       // exactly the discrimination we need.
-      if (!(await probeHealth(entry.baseUrl, entry.secret))) return undefined
+      if (!(await probeHealth(entry.baseUrl, entry.secret))) return abandon()
       // The session survived this daemon, and so may its client terminal: the
       // attachment is in its own scope precisely so a redeploy cannot reach it.
       // Nobody is holding its idle clock any more, so put it back under the
@@ -595,6 +612,22 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
      * the live binding, so its `url` is the authoritative one; the journal is
      * where the conversation id and the credential for it were persisted, and
      * they are written together on every bind so they cannot disagree with it.
+     *
+     * WHICH MEANS THIS PATH NEVER CONSULTS THE SESSION ROW, and that is a
+     * decision rather than an accident of where the fields live (POD-2086
+     * measured a server that outlived the row that describes it: scope active,
+     * `/global/health` answering 200, the row saying 'exited' — POD-2114). An
+     * attach is a request to see A RUNNING SERVER, and the journal plus a live
+     * credential is the only evidence on this machine of whether one is running.
+     * Refusing because the server's bookkeeping has written the session off
+     * would deny the operator the terminal most likely to explain WHY, at
+     * exactly the moment they need it.
+     *
+     * `mode` IS DELIBERATELY NOT FORWARDED. Peek and take-over are the same
+     * screen; who may type is the control lease's question, and the driver has
+     * already settled it (it refuses a take-over the lease holds) before this is
+     * called. Passing a parameter the client host would not read is how a branch
+     * nobody wrote comes to look intentional.
      */
     async attachClient(input) {
       const terminals = deps.clientTerminals
@@ -611,7 +644,6 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       try {
         return await terminals.attach({
           sessionId: input.sessionId,
-          mode: input.mode,
           target: {
             url: input.url,
             username: entry.username,

@@ -1078,6 +1078,7 @@ export const sessionHandlers: Pick<
   | 'agentObservationRebindAck'
   | 'sessionResumeRefAck'
   | 'sessionPriority'
+  | 'reclaimAttachments'
   | 'sessionOpenUrlCallback'
   | 'sessionOpenUrlDismiss'
 > = {
@@ -1163,6 +1164,24 @@ export const sessionHandlers: Pick<
   },
   sessionPriority: (ctx, msg) => {
     ctx.outputScheduler.setPriority(msg.sessionId, msg.priority as Tier)
+    /**
+     * THE SAME FRAME IS THE VIEWER SIGNAL A CLIENT TERMINAL'S IDLE CLOCK NEEDS
+     * (POD-2059). It is computed from the live client set and sent on every
+     * change, so tier 3 — `unwatched` — is precisely "the last viewer left this
+     * session", and anything below it is "somebody has it open". An attachment
+     * belongs to a session, so that is the association: hold the warm window off
+     * while the session is watched, start it when it is not.
+     *
+     * Not a subscription to the attachment's own stream, which does not exist
+     * yet (POD-2108) — but the session is what a user opens and closes, and it
+     * is the signal that keeps a 30-minute idle TTL from behaving as a lifetime.
+     */
+    ctx.clientTerminals?.viewers(msg.sessionId, msg.priority < 3)
+  },
+  reclaimAttachments: (ctx) => {
+    // Host pressure, decided by the server that owns the threshold. Attachments
+    // go BEFORE any session is parked (spec §5) — see the frame's own comment.
+    void ctx.clientTerminals?.reclaimUnwatched()
   },
   sessionOpenUrlCallback: (ctx, msg) => {
     void ctx.browserOpen.callback(msg)

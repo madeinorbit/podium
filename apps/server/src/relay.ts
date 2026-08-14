@@ -1078,6 +1078,7 @@ export class SessionRegistry {
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
         daemonRequest: requestBroker,
+        toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       },
       this.bus,
     )

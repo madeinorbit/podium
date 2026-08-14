@@ -157,7 +157,6 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     })
     const endpoint = await terminals.attach({
       sessionId,
-      mode: 'takeover',
       target: {
         url,
         username: USERNAME,
@@ -208,6 +207,14 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
        */
       const procs = snapshotProcesses()
       expect(procs.some((p) => p.cmdline.includes(label))).toBe(true)
+      /**
+       * THE SECOND NAMED SECURITY PROPERTY, MEASURED RATHER THAN RECORDED.
+       * The unit suite proves the secret is absent from the argv this module
+       * hands its spawn port; this proves it is absent from what the KERNEL
+       * shows every user on the box, for the whole process tree, at the moment
+       * a client is actually running.
+       */
+      expect(procs.every((p) => !p.cmdline.includes(SECRET))).toBe(true)
       const children = new Map<number, number[]>()
       for (const p of procs) children.set(p.ppid, [...(children.get(p.ppid) ?? []), p.pid])
       const serverTree = new Set<number>()

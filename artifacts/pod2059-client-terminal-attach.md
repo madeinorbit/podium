@@ -38,18 +38,26 @@ The same attach, run twice, one string different:
 | correct secret (env only) | 289 bytes of terminal handshake, no error, client alive |
 | wrong secret | `Error: opencode server GET …/session/ses_… → 401 Unauthorized`, then it exits |
 
-## What it does not do yet
+## What it does not do yet — say it plainly
 
-**Nothing renders.** The client starts, connects, and streams — but opencode's
-interface interrogates the terminal (capability and mode queries) and waits for
-answers before it draws, and today nothing types back to it: keystrokes and
-window size have no route to an attachment stream. So a correct attach produces
-its handshake and then holds.
+**Nothing renders this terminal, and nothing types into it.** Both directions are
+dead, not just the keyboard:
 
-That return path is the next piece of work, filed as its own issue
-(*Attach stream input and geometry*). It is attach v2's daemon half — a wire
-frame for attach, viewer connect/disconnect, and routing input to the
-attachment — which this epic scoped out of the current issue.
+* **Out.** The client's frames go onto the daemon's relay under the stream id
+  this work mints. The server looks that id up among its sessions, finds no row —
+  a stream is not a session — and drops them. The frames leave the machine and
+  are discarded one hop later.
+* **In.** Keystrokes and window size are addressed to sessions, and this terminal
+  deliberately is not one, so nothing can reach it either.
+
+Which matters, because opencode's interface interrogates the terminal and waits
+for the answers before it draws anything. With no way back, a correctly connected
+client finishes its handshake and holds. What is real: the process, its scope,
+the warm window, and the daemon's side of the relay. What is not: a picture.
+
+Making a stream id resolvable in **both** directions is the next piece of work,
+filed as its own issue (*Attach stream input and geometry*, POD-2108). It is
+attach v2's daemon half, which this epic scoped out of the current issue.
 
 ## One thing this landing made reachable — since fixed
 
@@ -68,23 +76,31 @@ take-over now refuses with `lease_held` when someone else holds it, and it check
 *before* starting a client rather than after, so a refusal cannot leave an
 orphaned terminal attached to a session it was refused access to.
 
-## Warm-parking
+## Warm-parking, and giving it back under pressure
 
 The client is parked rather than killed: it stays alive under abduco for a
-30-minute idle window, so coming back to a session is a reconnect and not a cold
-start. A client that outlived a daemon restart is adopted back under the reaper
-instead of sitting resident forever, and stopping or killing the session takes
-its client with it.
+30-minute **idle** window — idle meaning nobody has the session open, so a
+terminal you are actually watching is never reaped out from under you. Coming
+back is a reconnect, not a cold start. A client that outlived a daemon restart is
+adopted back under the reaper instead of sitting resident forever, and stopping
+or killing the session takes its client with it — as does a rebind that finds the
+session's server gone.
 
-The idle clock currently runs from the last attach, because there is no detach
-signal to measure from until that same next issue lands one — that limit is
-written where the next reader will meet it, not left to be discovered.
+When the host runs short of memory, these terminals are the **first** thing given
+back — before any agent is parked. The server owns the threshold and asks; the
+machine chooses which to close and never offers up one somebody is watching. If
+freeing them was enough, no agent was touched at all; if it was not, the next
+sample parks one as it always did.
 
 ## Evidence
 
-* `apps/daemon/src/runtime/opencode-attach.test.ts` — 18 cases: the label, the
-  argv, the secret's placement, warm re-attach, the reaper, teardown, and the
-  memory rule asserted against the real attribution function.
+* `apps/daemon/src/runtime/opencode-attach.test.ts` — the label, the argv, the
+  secret's placement, the provider keys stripped as the server half strips them,
+  warm re-attach, the idle clock, the reclaim order, teardown, and the memory
+  rule asserted against the real attribution function.
+* `apps/server/src/modules/hosts/service.test.ts` — terminals given back before
+  any agent is parked, and the old behaviour preserved for a machine that has
+  none to give.
 * `apps/daemon/src/runtime/opencode-attach.live.test.ts` — the live re-proof
   (`PODIUM_OPENCODE_LIVE=1`): real server, real client, real abduco, real
   `/proc`, plus the wrong-secret control above.

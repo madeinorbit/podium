@@ -60,6 +60,26 @@ export const HostMetricsMessage = z.object({
 })
 
 /**
+ * Server→daemon: give back the client terminals nobody is watching (POD-2059).
+ *
+ * THE THRESHOLD IS THE SERVER'S, THE CHOICE IS THE MACHINE'S. Host pressure is
+ * decided where the setting lives (`hosts/service.ts` reads the hibernation
+ * config), and this frame is what spec §5's "attachments are reclaimed FIRST"
+ * looks like on the wire: it is sent INSTEAD OF parking a session, so a
+ * convenience terminal cannot outlive an agent it pushed into hibernation. Which
+ * attachments to close is the daemon's — it holds the viewer state and the ages,
+ * and a watched terminal is never a cheaper trade than an idle agent.
+ *
+ * NO SESSION ID: it is a machine-wide sweep of a machine-wide resource. Naming
+ * one would put the server in the business of choosing between terminals with
+ * none of the facts that decide it.
+ */
+export const ReclaimAttachmentsMessage = z.object({
+  type: z.literal('reclaimAttachments'),
+})
+export type ReclaimAttachmentsMessage = z.infer<typeof ReclaimAttachmentsMessage>
+
+/**
  * A host-local integration degraded in a way that needs a person's attention.
  *
  * Machine identity is deliberately absent: the gateway stamps the authenticated

@@ -13,6 +13,7 @@ import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
+import type { OpencodeClientTerminals } from '../runtime/opencode-attach'
 import type { DaemonOpencodeRuntime } from '../runtime/opencode-driver'
 import type { TerminalRuntime } from '../runtime/terminal-driver'
 import type { SessionBinding } from '../session-binding'
@@ -71,6 +72,17 @@ export interface DaemonContext {
   composerEngine: ComposerSyncEngine
   /** Coalesced, prioritized PTY frame relay. */
   outputScheduler: OutputScheduler
+  /**
+   * Client terminals for server-family sessions (POD-2059), when this daemon
+   * hosts any.
+   *
+   * ON THE CONTEXT rather than reachable only through the opencode host, because
+   * two control frames drive it and neither is about opencode: `sessionPriority`
+   * is the viewer signal its idle clock runs on, and `reclaimAttachments` is the
+   * server's pressure order. A handler that had to reach through a driver's
+   * private deps to answer a machine-wide frame would be the wrong shape.
+   */
+  clientTerminals?: OpencodeClientTerminals
   /** Agent-state trackers, transcript tails, per-harness observers. */
   observers: SessionObservers
   /**

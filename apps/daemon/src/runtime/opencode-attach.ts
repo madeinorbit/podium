@@ -42,32 +42,53 @@
  * and a later attach reconnects to it (`spawnAbducoAgent` adopts a live master
  * that already owns the label).
  *
- * What this build cannot measure is DETACH. `attach` has no wire frame — nothing
- * remote negotiates one yet (see `runtime/handlers.ts`) — so there is no viewer
- * whose disconnect could start an idle clock. So the clock here is the one that
- * is real: time since the last `attach()`, re-armed by every later one. When
- * attach v2 lands a viewer connect/disconnect frame, THAT is what should re-arm
- * {@link OpencodeClientTerminals.attach}'s timer, and this comment is the place
- * that says so.
+ * IDLE MEANS "NOBODY IS WATCHING", AND THE DAEMON CAN SEE THAT. An attachment
+ * belongs to a session, and the server already tells this machine when a
+ * session's viewers come and go: `sessionPriority` (0 focused … 3 unwatched) is
+ * computed from the live client set and sent on every change. So the clock here
+ * is armed while the session is UNWATCHED and held off while a viewer has it
+ * open — {@link OpencodeClientTerminals.viewers}, called from the daemon's
+ * `sessionPriority` handler. Armed is the default: an attachment nobody has said
+ * anything about is one nobody is watching.
+ *
+ * That signal is an association, not a subscription: it says a viewer has the
+ * SESSION open, not that anything is rendering this attachment's stream (see the
+ * gap below). It is the right clock anyway — the alternative, a timer from the
+ * last `attach()`, kills a terminal out from under someone who has watched it
+ * for thirty minutes.
  *
  * ---------------------------------------------------------------------------
- * THE GAP THIS DELIBERATELY LEAVES: NOTHING TYPES BACK YET
+ * THE GAP THIS DELIBERATELY LEAVES: THE STREAM IS DEAD IN BOTH DIRECTIONS
  * ---------------------------------------------------------------------------
  *
- * Frames go OUT on the relay; nothing comes IN. The daemon's `input`/`resize`
- * handlers are keyed by session id off `ctx.bridges`, and this attachment is
- * deliberately NOT registered there — a bridge entry is also a memory-attribution
- * hint (`control/discovery.ts`), so registering one would publish a phantom
- * agent row for a "session" the server has never heard of. The stream id has no
- * viewer to receive input from anyway until attach v2 defines one.
+ * Say it plainly, because "it streams" is the wrong picture: NOTHING RENDERS
+ * THIS TERMINAL TODAY, and nothing types into it.
  *
- * That is not cosmetic, and `opencode-attach.live.test.ts` records why: opencode's
+ * OUT: `ports.frames` hands each frame to the daemon's relay under this
+ * attachment's stream id. The server's handler looks the id up in its session
+ * table (`sessions.get(msg.sessionId)`) and drops the batch when there is no row
+ * — and there is no row, because a stream id is not a session id and nothing
+ * anywhere resolves a `TerminalStreamRef`. The frames leave this machine and are
+ * discarded one hop later.
+ *
+ * IN: the daemon's `input`/`resize` handlers are keyed by session id off
+ * `ctx.bridges`, and this attachment is deliberately NOT registered there — a
+ * bridge entry is also a memory-attribution hint (`control/discovery.ts`), so
+ * registering one would publish a phantom agent row for a "session" the server
+ * has never heard of. No viewer could reach it anyway, for the same missing
+ * resolution.
+ *
+ * Why relay at all, then? Because the alternative is a stream ref that names
+ * nothing at all: this is the daemon's half of the frames path, complete and
+ * exercised, waiting on the registration that makes an id resolvable. What is
+ * NOT claimed is that a picture arrives.
+ *
+ * And it is not cosmetic — `opencode-attach.live.test.ts` records why: opencode's
  * TUI is opentui, which INTERROGATES the terminal (mode/capability queries) and
- * waits for the answers before it draws. With no input path, a live client
- * completes its handshake and then holds — the process, the scope, the warm
- * window and the stream are all real; the picture is what is missing. Wiring a
- * viewer's keystrokes and geometry to an attachment stream is attach v2's daemon
- * half, and it is filed rather than half-built here.
+ * waits for the answers before it draws. With no way back, a live client
+ * completes its handshake and then holds. The process, the scope, the warm
+ * window and this side of the relay are real; a rendered terminal is not.
+ * Resolving a stream ref in the viewer plane — BOTH directions — is POD-2108.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -80,6 +101,7 @@ import {
   killAbducoSession,
   spawnAbducoAgent,
 } from '@podium/pty'
+import { STRIPPED_PROVIDER_KEYS } from './opencode-server'
 
 const log = createLogger('daemon:opencode-attach')
 
@@ -91,10 +113,10 @@ export const WARM_TTL_MS = 30 * 60_000
 /**
  * The size the client is BORN at, not the size it stays.
  *
- * No viewer has told us its grid — the attach request carries no geometry, for
- * the same reason there is no detach signal — so this is a readable default a
- * TUI renders sanely at. The first `resize` for this stream reflows it, once
- * attach v2 routes one.
+ * No viewer has told us its grid: the attach request carries no geometry, and
+ * the viewer signal this module does receive (`sessionPriority`) carries none
+ * either. So this is a readable default a TUI renders sanely at, and the first
+ * `resize` routed to an attachment stream reflows it — POD-2108.
  */
 const DEFAULT_GEOMETRY: Geometry = { cols: 120, rows: 40 }
 
@@ -119,15 +141,16 @@ export interface OpencodeClientTerminals {
   /**
    * Start (or re-warm) this session's client terminal.
    *
-   * ONE PER SESSION. `peek` and `takeover` get the same screen, because they are
-   * the same screen — who may type into it is the control LEASE's question, which
-   * the driver answers before it ever reaches this port, and "spectators are
-   * unlimited" is the contract's own wording.
+   * ONE PER SESSION, AND NO `mode`. `peek` and `takeover` get the same screen,
+   * because it is the same screen — who may type into it is the control LEASE's
+   * question, and the driver settles that before it ever reaches this port
+   * (`attach()` refuses a take-over the lease already holds). A `mode` parameter
+   * here would be one no code consults, which reads as a branch someone forgot
+   * to write.
    */
   attach(input: {
     sessionId: SessionId
     target: OpencodeClientTerminalTarget
-    mode: 'takeover' | 'peek'
   }): Promise<{ streamId: string; warmTtlMs: number }>
   /**
    * Take responsibility for a client terminal that outlived this daemon.
@@ -140,16 +163,46 @@ export interface OpencodeClientTerminals {
   /** The session is going away, or the idle window closed. Attachments are
    *  strictly subordinate: stop/hibernate/kill the session and its client dies. */
   close(sessionId: SessionId): Promise<void>
+  /**
+   * A session's viewers arrived or left — the idle clock this module runs on.
+   *
+   * Fed by the daemon's `sessionPriority` handler, which is the server's
+   * viewer-derived signal for exactly this: `watched` while any client has the
+   * session open, unwatched when the last one leaves.
+   */
+  viewers(sessionId: SessionId, watched: boolean): void
+  /**
+   * What could be reclaimed right now WITHOUT touching a session (spec §5:
+   * attachments are the first thing reclaimed under pressure, because they are
+   * pure convenience and the session engine is untouched).
+   *
+   * A COUNT of the attachments nobody is watching. Watched ones are excluded:
+   * "reclaim the terminal someone is looking at" is not a cheaper trade than
+   * parking an idle agent, it is a worse one.
+   */
+  reclaimable(): number
+  /** Close every attachment nobody is watching, newest last. The machine's
+   *  answer to host pressure, ordered by the server that owns the threshold. */
+  reclaimUnwatched(): Promise<number>
 }
 
 export interface OpencodeClientTerminalPorts {
   /**
    * Where the client's frames go: the daemon's own relay, keyed by the stream id
-   * this module minted. The SAME path the engine variant's endpoint names — an
-   * attach endpoint that pointed at a transport nobody serves would be a promise
-   * this build cannot keep.
+   * this module minted — the same path and the same sink the engine variant's
+   * endpoint names.
+   *
+   * THIS SIDE IS COMPLETE; THE OTHER END IS NOT. The server drops a batch whose
+   * id matches no session row, and a stream id matches none, so today these
+   * frames are relayed and discarded (see the header's gap note). Keeping the
+   * daemon's half real, rather than buffering into a sink of our own, is what
+   * makes POD-2108 a registration rather than a rewrite.
    */
   frames(streamId: string, frameBase64: string): void
+  /** Drop this stream's coalescing state when the attachment ends. Without it a
+   *  daemon accumulates one pending entry per attachment for its whole life, and
+   *  every close/adopt cycle mints a fresh id. */
+  releaseStream?(streamId: string): void
   /** Injection seams. The defaults are the real abduco. */
   spawn?(opts: AbducoSpawnOptions): Promise<AgentSession>
   reclaim?(label: string): Promise<void>
@@ -171,6 +224,9 @@ interface Attachment {
   /** In-flight start, so two concurrent attaches produce ONE client. */
   starting?: Promise<AgentSession>
   timer?: unknown
+  /** Does a client have this session open? Drives the idle clock, and keeps a
+   *  watched terminal out of the reclaim inventory. */
+  watched?: boolean
 }
 
 export function createOpencodeClientTerminals(
@@ -198,8 +254,17 @@ export function createOpencodeClientTerminals(
     record.timer = undefined
   }
 
+  /**
+   * Start the idle countdown, unless somebody is watching.
+   *
+   * The one place the clock's meaning lives: WATCHED IS NOT IDLE. A viewer with
+   * the session open holds the window off entirely rather than extending it,
+   * which is what makes this an idle TTL and not a lifetime — the alternative
+   * kills a terminal out from under someone at the thirty-minute mark.
+   */
   const arm = (sessionId: SessionId, record: Attachment): void => {
     disarm(record)
+    if (record.watched) return
     record.timer = setTimer(() => {
       log.info('reaping a client terminal whose warm window closed', {
         sessionId,
@@ -222,6 +287,17 @@ export function createOpencodeClientTerminals(
       cwd: target.workdir,
       cols: geometry.cols,
       rows: geometry.rows,
+      /**
+       * THE SAME PROVIDER KEYS THE SERVE HALF DELETES, deleted here too.
+       *
+       * It is the same binary reading the same config, and abduco hands the app
+       * the daemon's whole environment — so a daemon carrying `ANTHROPIC_API_KEY`
+       * would have this client resolve a provider the session never chose. The
+       * client is thin today and may never call one, which is exactly why the
+       * asymmetry would go unnoticed: two processes of one binary, opposite
+       * treatment, for no stated reason.
+       */
+      stripEnv: STRIPPED_PROVIDER_KEYS,
       env: {
         // THE SECRET RIDES THE ENV, NEVER ARGV — the same rule, for the same
         // reason, as the server it is connecting to (see `opencode-server.ts`
@@ -247,7 +323,12 @@ export function createOpencodeClientTerminals(
     const record = attachments.get(sessionId)
     const label = record?.label ?? opencodeAttachLabel(sessionId)
     attachments.delete(sessionId)
-    if (record) disarm(record)
+    if (record) {
+      disarm(record)
+      // The relay keeps a coalescing entry per stream id, and every attachment
+      // mints a new one. Nothing else would ever drop it.
+      ports.releaseStream?.(record.streamId)
+    }
     // Nothing of ours, and no master holding the label: do not pay three process
     // spawns per session teardown to reclaim something that was never started.
     if (!record && !hasMaster(label)) return
@@ -317,5 +398,36 @@ export function createOpencodeClientTerminals(
     },
 
     close,
+
+    viewers(sessionId, watched) {
+      const record = attachments.get(sessionId)
+      if (!record || record.watched === watched) return
+      record.watched = watched
+      // Both directions run through `arm`, which knows that watched means no
+      // timer: arriving holds the window off, leaving starts it from now.
+      arm(sessionId, record)
+    },
+
+    reclaimable() {
+      let count = 0
+      for (const record of attachments.values()) if (!record.watched) count += 1
+      return count
+    },
+
+    async reclaimUnwatched() {
+      // Snapshot first: `close` mutates the map, and a watched attachment must
+      // survive the sweep — reclaiming the terminal someone is looking at is not
+      // a cheaper trade than parking an idle agent, it is a worse one.
+      const targets = [...attachments.entries()]
+        .filter(([, record]) => !record.watched)
+        .map(([sessionId]) => sessionId)
+      for (const sessionId of targets) await close(sessionId)
+      if (targets.length > 0) {
+        log.info('reclaimed unwatched client terminals under host pressure', {
+          count: targets.length,
+        })
+      }
+      return targets.length
+    },
   }
 }

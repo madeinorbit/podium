@@ -2731,12 +2731,13 @@
           "fifteen": 1,
           "cpuCount": 1
         },
-        "idleCapUnmet": 1
+        "idleCapUnmet": 1,
+        "reclaimableAttachments": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1}"
+      "encoded": "{\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1}"
     },
     {
       "schema": "HumanSettableIssueStage",

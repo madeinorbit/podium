@@ -1,7 +1,7 @@
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, HostMetricsWire, MachineId, SessionId } from '@podium/model'
 import type { LiveServerMessage, ServerMessage } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
@@ -98,6 +98,9 @@ export interface HostsDeps {
    * default machine, resolved by the broker at send time.
    */
   daemonRequest: DaemonRequestPort
+  /** Send a control frame to one machine — the reclaim order below is the only
+   *  thing this service pushes. */
+  toMachine(machineId: MachineId, message: ControlMessage): void
 }
 
 /**
@@ -191,26 +194,61 @@ export class HostsService {
       now - (this.lastAutoHibernateMsByMachine.get(machineId) ?? 0) >= MEMORY_HIBERNATE_COOLDOWN_MS
 
     if (memoryReady) {
-      // A raced/refused candidate must not spend the cooldown or block the next
-      // safely parkable session. Re-read the live projection after every attempt.
-      while (true) {
-        const target = this.eligibleCandidates(
-          machineId,
-          cfg.idleMinutes,
-          now,
-          failed,
-          cfg.idleShellMinutes,
-        )[0]
-        if (!target) break
-        if (!this.tryHibernateCandidate(target, failed)) continue
+      /**
+       * ATTACHMENTS FIRST, AND NOT AS A PREFERENCE (spec §5).
+       *
+       * A client terminal is a convenience someone opened onto a session; the
+       * session is the work. §5 puts them at the front of the reclaim order for
+       * that reason — "under memory pressure attachments are the FIRST thing
+       * reclaimed … the session engine is untouched" — and the inversion is not
+       * a smaller version of the right behaviour but the opposite of it: a warm
+       * terminal nobody is watching can be what pushes a host over this
+       * threshold, and parking an agent to make room for it is backwards.
+       *
+       * INSTEAD OF a park, not before one: the cooldown is spent, this sample
+       * takes no session, and the NEXT sample re-reads real memory. If freeing
+       * the terminals was enough, no agent was ever touched; if it was not,
+       * pressure is still here in a minute and a session goes then.
+       *
+       * The count is the machine's own (it holds the viewer state, so a WATCHED
+       * terminal is never in it); which ones to close is the machine's too. A
+       * daemon too old to report the field is `undefined`, not 0 — it has no
+       * attachments to give and falls straight through to the session sweep.
+       */
+      const reclaimable = sample.reclaimableAttachments ?? 0
+      if (reclaimable > 0) {
+        this.deps.toMachine(machineId, { type: 'reclaimAttachments' })
         this.lastAutoHibernateMsByMachine.set(machineId, now)
-        log.info('memory pressure — hibernating an idle session', {
+        log.info('memory pressure — reclaiming client terminals before parking anything', {
           hostname: sample.hostname,
           usedPct,
           thresholdPct: cfg.memoryPct,
-          sessionId: target.sessionId,
+          attachments: reclaimable,
         })
-        break
+      } else {
+        // Nothing cheaper to give back, so the session sweep runs as it always
+        // has. A raced/refused candidate must not spend the cooldown or block
+        // the next safely parkable session: re-read the live projection after
+        // every attempt.
+        while (true) {
+          const target = this.eligibleCandidates(
+            machineId,
+            cfg.idleMinutes,
+            now,
+            failed,
+            cfg.idleShellMinutes,
+          )[0]
+          if (!target) break
+          if (!this.tryHibernateCandidate(target, failed)) continue
+          this.lastAutoHibernateMsByMachine.set(machineId, now)
+          log.info('memory pressure — hibernating an idle session', {
+            hostname: sample.hostname,
+            usedPct,
+            thresholdPct: cfg.memoryPct,
+            sessionId: target.sessionId,
+          })
+          break
+        }
       }
     }
 

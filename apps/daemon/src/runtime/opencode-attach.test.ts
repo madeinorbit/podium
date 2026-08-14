@@ -23,7 +23,11 @@ import {
   opencodeAttachLabel,
   WARM_TTL_MS,
 } from './opencode-attach'
-import { createOpencodeHost, opencodeScopeLabel } from './opencode-server'
+import {
+  createOpencodeHost,
+  opencodeScopeLabel,
+  STRIPPED_PROVIDER_KEYS,
+} from './opencode-server'
 import type { OpencodeJournal, OpencodeJournalEntry } from '@podium/agent-runtime'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
@@ -69,8 +73,15 @@ function fakeClient(): AgentSession & { emit(data: string): void; disposed: bool
 }
 
 interface Harness {
-  spawns: { label: string; cmd: string; args: string[]; env?: Record<string, string> }[]
+  spawns: {
+    label: string
+    cmd: string
+    args: string[]
+    env?: Record<string, string>
+    stripEnv?: readonly string[]
+  }[]
   reclaimed: string[]
+  released: string[]
   frames: { streamId: string; data: string }[]
   clients: ReturnType<typeof fakeClient>[]
   fire(): void
@@ -82,6 +93,7 @@ function harness(opts: { hasMaster?: (label: string) => boolean } = {}) {
   const state: Harness = {
     spawns: [],
     reclaimed: [],
+    released: [],
     frames: [],
     clients: [],
     armed: 0,
@@ -90,12 +102,14 @@ function harness(opts: { hasMaster?: (label: string) => boolean } = {}) {
   }
   const terminals = createOpencodeClientTerminals({
     frames: (streamId, data) => state.frames.push({ streamId, data }),
+    releaseStream: (streamId) => state.released.push(streamId),
     spawn: async (o) => {
       state.spawns.push({
         label: o.label,
         cmd: o.cmd,
         args: o.args ?? [],
         ...(o.env ? { env: o.env } : {}),
+        ...(o.stripEnv ? { stripEnv: o.stripEnv } : {}),
       })
       const client = fakeClient()
       state.clients.push(client)
@@ -120,7 +134,7 @@ function harness(opts: { hasMaster?: (label: string) => boolean } = {}) {
 describe('the client terminal a server-family attach produces', () => {
   it("runs opencode's OWN client against this session's server and conversation", async () => {
     const { terminals, state } = harness()
-    const endpoint = await terminals.attach({ sessionId: SESSION, target, mode: 'takeover' })
+    const endpoint = await terminals.attach({ sessionId: SESSION, target })
 
     expect(state.spawns).toHaveLength(1)
     const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
@@ -142,9 +156,19 @@ describe('the client terminal a server-family attach produces', () => {
     expect(sessionLabel).not.toContain(attachLabel)
   })
 
+  it('strips the provider keys the serve half strips, rather than half of them', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
+    // REMOVED, not blanked: an empty ANTHROPIC_API_KEY is still a set one, and
+    // the point is that the client resolves as if the daemon never carried it.
+    expect(spawn.stripEnv).toEqual(STRIPPED_PROVIDER_KEYS)
+    expect(spawn.env?.ANTHROPIC_API_KEY).toBeUndefined()
+  })
+
   it('keeps the secret OUT of argv, exactly as the server it connects to does', async () => {
     const { terminals, state } = harness()
-    await terminals.attach({ sessionId: SESSION, target, mode: 'takeover' })
+    await terminals.attach({ sessionId: SESSION, target })
     const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
     expect(JSON.stringify(spawn.args)).not.toContain(SECRET)
     expect(spawn.env?.OPENCODE_SERVER_PASSWORD).toBe(SECRET)
@@ -185,7 +209,7 @@ describe('the client terminal a server-family attach produces', () => {
 
   it('streams the client’s frames on the daemon’s own relay, under the minted stream id', async () => {
     const { terminals, state } = harness()
-    const endpoint = await terminals.attach({ sessionId: SESSION, target, mode: 'peek' })
+    const endpoint = await terminals.attach({ sessionId: SESSION, target })
     state.clients[0]?.emit('ZnJhbWU=')
     expect(state.frames).toEqual([{ streamId: endpoint.streamId, data: 'ZnJhbWU=' }])
   })
@@ -194,8 +218,8 @@ describe('the client terminal a server-family attach produces', () => {
 describe('warm-parking', () => {
   it('re-attaches to the SAME client and re-arms the reaper, rather than starting a second', async () => {
     const { terminals, state } = harness()
-    const first = await terminals.attach({ sessionId: SESSION, target, mode: 'takeover' })
-    const second = await terminals.attach({ sessionId: SESSION, target, mode: 'peek' })
+    const first = await terminals.attach({ sessionId: SESSION, target })
+    const second = await terminals.attach({ sessionId: SESSION, target })
 
     expect(second.streamId).toBe(first.streamId)
     // The whole point of parking: bouncing back is a reconnect, not a cold start.
@@ -206,8 +230,8 @@ describe('warm-parking', () => {
 
   it('gives ONE screen to a peek and a take-over, because they are the same screen', async () => {
     const { terminals, state } = harness()
-    const peek = await terminals.attach({ sessionId: SESSION, target, mode: 'peek' })
-    const takeover = await terminals.attach({ sessionId: SESSION, target, mode: 'takeover' })
+    const peek = await terminals.attach({ sessionId: SESSION, target })
+    const takeover = await terminals.attach({ sessionId: SESSION, target })
     expect(takeover.streamId).toBe(peek.streamId)
     expect(state.spawns).toHaveLength(1)
   })
@@ -215,8 +239,8 @@ describe('warm-parking', () => {
   it('starts ONE client for two attaches that race', async () => {
     const { terminals, state } = harness()
     const [a, b] = await Promise.all([
-      terminals.attach({ sessionId: SESSION, target, mode: 'takeover' }),
-      terminals.attach({ sessionId: SESSION, target, mode: 'peek' }),
+      terminals.attach({ sessionId: SESSION, target }),
+      terminals.attach({ sessionId: SESSION, target }),
     ])
     expect(state.spawns).toHaveLength(1)
     expect(a.streamId).toBe(b.streamId)
@@ -247,7 +271,7 @@ describe('warm-parking', () => {
       setTimer: () => 1,
       clearTimer: () => {},
     })
-    const attaching = terminals.attach({ sessionId: SESSION, target, mode: 'takeover' })
+    const attaching = terminals.attach({ sessionId: SESSION, target })
     await terminals.close(SESSION)
     release?.()
     await expect(attaching).rejects.toThrow(/closed while it was starting/)
@@ -257,7 +281,7 @@ describe('warm-parking', () => {
 
   it('reaps the client when the warm window closes', async () => {
     const { terminals, state } = harness()
-    await terminals.attach({ sessionId: SESSION, target, mode: 'takeover' })
+    await terminals.attach({ sessionId: SESSION, target })
     state.fire()
     await vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
     expect(state.clients[0]?.disposed).toBe(true)
@@ -282,15 +306,76 @@ describe('warm-parking', () => {
     expect(state.reclaimed).toEqual([])
   })
 
+  it('holds the warm window OFF while somebody is watching the session', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    expect(state.armed).toBe(1)
+
+    // A viewer opened the session (sessionPriority 0-2). An idle TTL that keeps
+    // counting here is a LIFETIME: it would kill the terminal under someone who
+    // has been watching it for thirty minutes.
+    terminals.viewers(SESSION, true)
+    expect(state.cleared).toBe(1)
+    expect(state.armed).toBe(1)
+
+    // …and the last viewer leaving starts the window from now.
+    terminals.viewers(SESSION, false)
+    expect(state.armed).toBe(2)
+  })
+
+  it('does not re-arm on a repeated viewer signal, so a watched terminal cannot be reaped', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    terminals.viewers(SESSION, true)
+    terminals.viewers(SESSION, true)
+    terminals.viewers(SESSION, true)
+    // The frame arrives on every priority change (focused ↔ visible ↔ attached
+    // are all "watched"), so an implementation that re-armed per signal would
+    // put a live viewer back on a countdown.
+    expect(state.armed).toBe(1)
+    expect(state.cleared).toBe(1)
+  })
+
   it('takes the client down with the session it belongs to', async () => {
     const { terminals, state } = harness()
-    await terminals.attach({ sessionId: SESSION, target, mode: 'takeover' })
+    await terminals.attach({ sessionId: SESSION, target })
     await terminals.close(SESSION)
     expect(state.clients[0]?.disposed).toBe(true)
     expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
     // …and the reaper for a closed attachment is disarmed, not left to fire at
     // a session that has since started a new one.
     expect(state.cleared).toBe(1)
+  })
+})
+
+describe('what a machine can give back under pressure (spec §5)', () => {
+  const OTHER = asSessionId('22222222-2222-4222-8222-222222222222')
+
+  it('offers up the terminals nobody is watching, and never the watched one', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    await terminals.attach({ sessionId: OTHER, target })
+    expect(terminals.reclaimable()).toBe(2)
+
+    terminals.viewers(SESSION, true)
+    // Reclaiming the terminal someone is looking at is not a cheaper trade than
+    // parking an idle agent — it is a worse one, so it is not on offer.
+    expect(terminals.reclaimable()).toBe(1)
+
+    expect(await terminals.reclaimUnwatched()).toBe(1)
+    expect(state.reclaimed).toEqual([opencodeAttachLabel(OTHER)])
+    expect(terminals.reclaimable()).toBe(0)
+
+    // …and the watched one is still there, with its window still held off.
+    terminals.viewers(SESSION, false)
+    expect(terminals.reclaimable()).toBe(1)
+  })
+
+  it('frees the relay entry it minted, so attach churn cannot grow the scheduler', async () => {
+    const { terminals, state } = harness()
+    const endpoint = await terminals.attach({ sessionId: SESSION, target })
+    await terminals.close(SESSION)
+    expect(state.released).toEqual([endpoint.streamId])
   })
 })
 
@@ -378,6 +463,9 @@ describe('the daemon’s answer to “host a client terminal”', () => {
         },
         adopt: () => {},
         close: async () => {},
+        viewers: () => {},
+        reclaimable: () => 0,
+        reclaimUnwatched: async () => 0,
       },
     })
     // A throw would surface to the caller as a driver crash; the port's contract
@@ -421,6 +509,42 @@ describe('the session’s lifecycle owns its attachment', () => {
     })
     expect(await host.adopt(binding)).toBeDefined()
     expect(state.armed).toBe(1)
+  })
+
+  /**
+   * THE BRANCH THE FIRST ROUND MISSED. Every refusal below means this binding
+   * has no live server on this machine — and the attachment is in its own scope,
+   * so nothing else would ever reap it: the durable census matches labels
+   * against session rows and never kills. An orphan here is resident until the
+   * machine reboots, in the one case where the client is guaranteed useless.
+   */
+  it.each([
+    ['there is no journal entry', () => memoryJournal()],
+    [
+      'the entry describes a DIFFERENT incarnation',
+      () => memoryJournal(journalEntry({ process: { key: 'podium-oc-someone-else', pid: 7 } })),
+    ],
+  ])('abandons the client when %s', async (_name, journal) => {
+    const { terminals, state } = harness({ hasMaster: () => true })
+    const host = createOpencodeHost({
+      memoryBytes: () => undefined,
+      journal: journal(),
+      clientTerminals: terminals,
+    })
+    expect(await host.adopt(binding)).toBeUndefined()
+    expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
+  })
+
+  it('abandons the client when the journalled server does not answer', async () => {
+    globalThis.fetch = (async () => new Response('nope', { status: 401 })) as typeof fetch
+    const { terminals, state } = harness({ hasMaster: () => true })
+    const host = createOpencodeHost({
+      memoryBytes: () => undefined,
+      journal: memoryJournal(journalEntry()),
+      clientTerminals: terminals,
+    })
+    expect(await host.adopt(binding)).toBeUndefined()
+    expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
   })
 
   it('kills the client when the session is killed', async () => {

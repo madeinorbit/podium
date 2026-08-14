@@ -547,6 +547,30 @@ export async function createDaemonHostRuntime(args: {
     applyUpdateGrant,
     runtimeContractEnabled,
   }
+  /**
+   * Client terminals (POD-2059), built here and put on the CONTEXT as well as
+   * into the opencode host: `sessionPriority` (the viewer signal its idle clock
+   * runs on) and `reclaimAttachments` (the server's pressure order) are control
+   * frames about the machine, not about a driver, and their handlers reach it
+   * through `ctx`.
+   *
+   * NOT GATED ON abduco BEING PRESENT, deliberately. Probing for it here would
+   * make every daemon boot pay for resolving (and on a cold machine, BUILDING)
+   * the vendored binary, for a client most sessions never open. A machine that
+   * cannot start one says so at the attach that asks for it — the spawn fails,
+   * the port answers `undefined`, and the driver refuses with the per-machine
+   * wording.
+   */
+  const clientTerminals = createOpencodeClientTerminals({
+    // The frames path this daemon already runs, keyed by the stream id exactly
+    // as the engine variant's endpoint is keyed by the session id — one relay,
+    // two kinds of terminal. (What the SERVER does with an id it has no row for
+    // is the gap `opencode-attach.ts` declares.)
+    frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),
+    releaseStream: (streamId) => ctx.outputScheduler.remove(asSessionId(streamId)),
+  })
+  ctx.clientTerminals = clientTerminals
+
   // Built AFTER the context, because the driver's host port is that context. The
   // assignment closes the only cycle in this wiring: handlers reach the registry
   // through `ctx.runtime`, and the registry reaches the daemon through `ctx`.
@@ -584,9 +608,7 @@ export async function createDaemonHostRuntime(args: {
        * the spawn fails, the port answers `undefined`, and the driver refuses
        * with the per-machine wording.
        */
-      clientTerminals: createOpencodeClientTerminals({
-        frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),
-      }),
+      clientTerminals,
     }),
   })
   ctx.opencodeRuntime = opencodeRuntime
@@ -606,6 +628,11 @@ export async function createDaemonHostRuntime(args: {
       sampledAt: new Date().toISOString(),
       memory: sampleHostMemory(),
       load: sampleHostLoad(),
+      // What this machine can give back WITHOUT parking a session (spec §5).
+      // Always present, including as 0: the server distinguishes "nothing to
+      // reclaim" from "a daemon too old to have attachments", and only the
+      // second may fall through to hibernating an agent unasked.
+      reclaimableAttachments: clientTerminals.reclaimable(),
     })
   }
 

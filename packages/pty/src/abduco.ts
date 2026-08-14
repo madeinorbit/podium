@@ -742,6 +742,19 @@ export interface AbducoSpawnOptions {
   cols: number
   rows: number
   env?: Record<string, string>
+  /**
+   * Variables to REMOVE from the environment the session app inherits.
+   *
+   * `env` can only add or overwrite, and for a credential that is not the same
+   * thing: an empty `ANTHROPIC_API_KEY` is still a set `ANTHROPIC_API_KEY`, and
+   * what a caller stripping provider keys means is that the child must resolve
+   * as if the daemon had never carried them (POD-2059; the same removal the
+   * non-durable spawn path does with `delete`).
+   *
+   * Applied to the CREATE call — the app's own environment. The attach client is
+   * abduco itself and reads none of this.
+   */
+  stripEnv?: readonly string[]
   backend?: PtyBackend
 }
 
@@ -805,6 +818,9 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     COLORTERM: 'truecolor',
     ...opts.env,
   }
+  // AFTER the merge, so a caller cannot strip a variable it also set — the two
+  // would otherwise depend on key order in an object literal.
+  for (const key of opts.stripEnv ?? []) delete childEnv[key]
   // stdio is execCreate's to set: it captures stderr so a create failure
   // reports abduco's own diagnosis instead of a bare "Command failed".
   const execOpts = {
