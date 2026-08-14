@@ -1,4 +1,6 @@
 import type { PodiumMode } from '@podium/runtime'
+// Browser-safe shared example used by the CLI prompt and telemetry preview too.
+import { EXAMPLE_USAGE_REPORT_DISPLAY as TELEMETRY_EXAMPLE } from '@podium/telemetry/example'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { makeTrpc, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'

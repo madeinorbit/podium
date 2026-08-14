@@ -117,7 +117,7 @@ export class RepoRegistry {
   }
 
   /** Register a checkout whose origin was established by a machine-side clone. */
-  async addKnownOrigin(path: string, machineId: string, originUrl: string): Promise<void> {
+  async addKnownOrigin(path: string, machineId: MachineId, originUrl: string): Promise<void> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)

@@ -876,8 +876,7 @@ export async function startServer(
           const upgrade = ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
           const headers = new Headers(request.headers)
-          const peer = nativeServer.requestIP(request)?.address
-          if (peer) headers.set('x-podium-peer-address', peer)
+          if (peerAddress) headers.set('x-podium-peer-address', peerAddress)
           else headers.delete('x-podium-peer-address')
           const observedRequest = new Request(request, { headers })
           return compressHttpResponse(request, await app.fetch(observedRequest))

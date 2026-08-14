@@ -393,7 +393,7 @@ export class DaemonRpcService {
   /** Live GitHub CLI readiness/list/clone on one machine. No credential is returned. */
   githubCli(
     action: 'status' | 'list' | 'clone',
-    machineId: string,
+    machineId: MachineId,
     input: { repository?: string; destination?: string } = {},
   ): Promise<Payload<GitHubCliResultMessage>> {
     return this.request(

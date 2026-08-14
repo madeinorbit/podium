@@ -16,7 +16,6 @@ export interface NativeServer<T> {
   upgrade(request: Request, options: { data: T }): boolean
   requestIP?(request: Request): { address: string } | null
   stop(closeActiveConnections?: boolean): void | Promise<void>
-  requestIP(request: Request): { address: string; port: number; family: string } | null
 }
 
 interface NativeServerWebSocket<T> {

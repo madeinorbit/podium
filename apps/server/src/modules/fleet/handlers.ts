@@ -290,7 +290,7 @@ export const repoSetPrefixHandler = ({
 export const repoCloneGithubHandler = async ({
   ctx,
   input,
-}: FleetArgs<{ machineId: string; repository: string; destination: string }>) => {
+}: FleetArgs<{ machineId: MachineId; repository: string; destination: string }>) => {
   const result = await mods(ctx).rpc.githubCli('clone', input.machineId, {
     repository: input.repository,
     destination: input.destination,
