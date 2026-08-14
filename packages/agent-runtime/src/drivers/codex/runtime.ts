@@ -246,7 +246,9 @@ interface QueuedTurn {
 interface OpenAsk {
   interaction: PendingInteraction
   requestId: number | string
-  canAlwaysAllow: boolean
+  /** The ask's own `availableDecisions`, kept verbatim so `answerAction` can
+   *  check EVERY decision against it — not just the always-allow. */
+  availableDecisions: readonly unknown[] | undefined
 }
 
 /** The mutable handler box a connection is built around — see `connect()`. */
@@ -283,7 +285,6 @@ interface DriverSession {
   /** A turn we have accepted but whose `turn/started` has not landed yet. This
    *  is the measured window between the ack and the open turn. */
   pendingTurnId: CodexTurnId | undefined
-  interruptPending: boolean
   asks: Map<string, OpenAsk>
   /** Asks this driver saw CLOSE, so a second answer is `already-answered`
    *  rather than `unknown-interaction`. */
@@ -562,13 +563,19 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     const at = iso()
     const base = { requestId: request.id, sessionId: session.sessionId, askedAt: at }
     const params = (request.params ?? {}) as Record<string, unknown>
+    // WHAT THE SERVER SAID IT WOULD ACCEPT, read once and carried onto the ask.
+    // Absent on requests that carry no decision list (the MCP elicitation), and
+    // `offersDecision` treats absence as "the plain decisions only".
+    const offers = Array.isArray(params.availableDecisions)
+      ? (params.availableDecisions as readonly unknown[])
+      : undefined
 
     if (request.method === CODEX_SERVER_REQUESTS.commandApproval) {
-      openAsk(session, request.id, commandApprovalAsk({ ...base, params: params as never }), at)
+      openAsk(session, request.id, commandApprovalAsk({ ...base, params: params as never }), at, offers)
       return
     }
     if (request.method === CODEX_SERVER_REQUESTS.fileChangeApproval) {
-      openAsk(session, request.id, fileChangeApprovalAsk({ ...base, params: params as never }), at)
+      openAsk(session, request.id, fileChangeApprovalAsk({ ...base, params: params as never }), at, offers)
       return
     }
     if (request.method === CODEX_SERVER_REQUESTS.permissionsApproval) {
@@ -577,6 +584,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         request.id,
         permissionsApprovalAsk({ ...base, params: params as never }),
         at,
+        offers,
       )
       return
     }
@@ -606,10 +614,11 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     requestId: number | string,
     interaction: PendingInteraction,
     at: string,
+    /** What the server said it would accept. Carried through so `answer()` can
+     *  check every decision against it, not only the always-allow. */
+    availableDecisions?: readonly unknown[],
   ): void {
-    const canAlwaysAllow =
-      interaction.kind === 'permission' ? interaction.payload.canAlwaysAllow === true : false
-    session.asks.set(interaction.id, { interaction, requestId, canAlwaysAllow })
+    session.asks.set(interaction.id, { interaction, requestId, availableDecisions })
     const need = interaction.kind === 'permission' ? 'permission' : 'question'
     const summary =
       interaction.kind === 'permission' ? interaction.payload.inputSummary : undefined
@@ -694,7 +703,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     const at = iso(turn.completedAt ? turn.completedAt * 1000 : undefined)
     session.openTurnId = undefined
     session.pendingTurnId = undefined
-    session.interruptPending = false
 
     if (turn.status === 'failed') {
       const detail = describeTurnError(turn.error)
@@ -1153,7 +1161,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         const action = answerAction(
           ask.interaction,
           normalizeAnswer(ask.interaction, answer),
-          ask.canAlwaysAllow,
+          ask.availableDecisions,
         )
         if (action.call === 'refuse') {
           // A refusal here leaves the ask OPEN and the JSON-RPC request
@@ -1421,7 +1429,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
   async function interruptOpenTurn(session: DriverSession): Promise<void> {
     const turnId = session.openTurnId ?? session.pendingTurnId
     if (!turnId) return
-    session.interruptPending = true
     try {
       await session.client.call(CODEX_METHODS.turnInterrupt, {
         threadId: session.threadId,
@@ -1703,7 +1710,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       seq: Math.max(carried?.seq ?? 0, journalled?.seq ?? 0),
       openTurnId: undefined,
       pendingTurnId: undefined,
-      interruptPending: false,
       asks: new Map(),
       answered: new Set(),
       queue: [],

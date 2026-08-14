@@ -40,7 +40,7 @@ import {
   type CodexTransport,
   createCodexRuntime,
 } from './index.js'
-import { gateCodexVersion, SUPPORTED_CODEX } from './version.js'
+import { gateCodexVersion, STRIPPED_CODEX_CREDENTIALS, SUPPORTED_CODEX } from './version.js'
 
 const LIVE = process.env.PODIUM_CODEX_LIVE === '1'
 const describeLive = LIVE ? describe : describe.skip
@@ -82,18 +82,16 @@ function liveHost(workdir: string): {
 
     async launch(input) {
       const env = { ...process.env }
-      // THE ENV HYGIENE THE ACCEPTANCE ITEM IS ABOUT. Without this the run below
-      // could pass on an inherited API key and the `authMethod` assertion would
-      // be demonstrating the wrong thing.
-      for (const key of [
-        'OPENAI_API_KEY',
-        'CODEX_API_KEY',
-        'CODEX_ACCESS_TOKEN',
-        'OPENAI_ORGANIZATION',
-        'OPENAI_BASE_URL',
-      ]) {
-        delete env[key]
-      }
+      /**
+       * THE ENV HYGIENE THE ACCEPTANCE ITEM IS ABOUT, from the DAEMON'S OWN LIST.
+       *
+       * This used to restate the keys, and the restatement had already drifted —
+       * it was missing `OPENAI_ORG_ID` while this file's header promised it
+       * mirrored the daemon exactly. Importing the constant is what makes that
+       * promise true rather than aspirational: if the daemon adds a key, this
+       * run strips it too, and the demonstration keeps meaning what it says.
+       */
+      for (const key of STRIPPED_CODEX_CREDENTIALS) delete env[key]
       const child = spawn(
         'codex',
         ['app-server', '-c', 'approval_policy="untrusted"', '-c', 'sandbox_mode="workspace-write"'],

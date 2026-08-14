@@ -40,6 +40,10 @@ describe('env hygiene — the subscription-auth mechanism', () => {
     expect(STRIPPED_CODEX_CREDENTIALS).toContain('CODEX_API_KEY')
     expect(STRIPPED_CODEX_CREDENTIALS).toContain('CODEX_ACCESS_TOKEN')
     expect(STRIPPED_CODEX_CREDENTIALS).toContain('OPENAI_ORGANIZATION')
+    // Asserted BY NAME because the review found this list restated in
+    // `live.test.ts` with this key missing — the one that would have been
+    // dropped silently. There is now one array and both readers import it.
+    expect(STRIPPED_CODEX_CREDENTIALS).toContain('OPENAI_ORG_ID')
     // `OPENAI_BASE_URL` is on the list for the same reason though it is not a
     // credential: it redirects the session to a different provider entirely,
     // which is the same silent substitution wearing a different name.

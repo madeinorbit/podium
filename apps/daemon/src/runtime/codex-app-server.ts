@@ -51,7 +51,11 @@ import type {
   CodexTransport,
   CodexVersionDiagnostic,
 } from '@podium/agent-runtime'
-import { gateCodexVersion, OPENCODE_VERSION_PROBE_TIMEOUT_MS } from '@podium/agent-runtime'
+import {
+  gateCodexVersion,
+  OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+  STRIPPED_CODEX_CREDENTIALS,
+} from '@podium/agent-runtime'
 import { codexMcpArgs } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
@@ -62,28 +66,15 @@ import { stateDir } from '@podium/runtime/config'
 const log = createLogger('daemon:codex-app-server')
 
 /**
- * CREDENTIALS THAT MUST NOT REACH THE CHILD (plan §1, "env hygiene").
+ * RE-EXPORTED, NOT RESTATED (POD-2024 review, finding 8).
  *
- * Codex PREFERS an inherited API key over the stored ChatGPT login. A daemon
- * that happened to carry `OPENAI_API_KEY` — and daemons carry whatever the
- * operator's shell had — would therefore bill an API account while the operator
- * believed they were demonstrating subscription auth, and would do it
- * invisibly. Stripping these makes the session use exactly the credential
- * `codex login` stored in `~/.codex/auth.json`.
- *
- * THE STRIP IS THE MECHANISM, NOT THE PROOF. The driver separately asks the
- * server which credential it actually chose (`getAuthStatus`) and reports it
- * through `reportAuthMode`, because Codex resolves credentials from several
- * places and an env strip only proves what WE did.
+ * The list lives beside the version gate in `@podium/agent-runtime` so that this
+ * host and the live test read ONE array. It was declared here and restated in
+ * `live.test.ts`, and the restatement had already lost `OPENAI_ORG_ID` — while
+ * that test's header promised it mirrored the daemon exactly. Existing importers
+ * keep this name.
  */
-export const STRIPPED_CODEX_CREDENTIALS = [
-  'OPENAI_API_KEY',
-  'CODEX_API_KEY',
-  'CODEX_ACCESS_TOKEN',
-  'OPENAI_ORGANIZATION',
-  'OPENAI_ORG_ID',
-  'OPENAI_BASE_URL',
-] as const
+export { STRIPPED_CODEX_CREDENTIALS }
 
 /** Where a session's journal entry lives. Under the daemon's own state dir, so
  *  it moves with the instance and is swept with it. */
@@ -169,6 +160,11 @@ export function createCodexJournal(): CodexJournal {
  * merely happens to agree today is how the first bug happened.
  */
 const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
+
+/** How long a SIGTERM stop waits for the child to take its stdin EOF before
+ *  signalling. Short: the exit is a process teardown, not model work, and the
+ *  only thing being waited for is the rollout file's last flush. */
+const GRACEFUL_EXIT_MS = 2_000
 
 /**
  * THREE ANSWERS, NOT TWO — adopted wholesale from POD-2023's review round, where
@@ -344,15 +340,55 @@ export const codexScopeLabel = (sessionId: SessionId): string => `podium-cx-${se
 
 export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
   const journal = deps.journal ?? createCodexJournal()
-  const children = new Map<SessionId, ReturnType<typeof spawn>>()
+  /**
+   * EVERY LIVE CHILD OF A SESSION, NOT "THE" CHILD (POD-2024 review, finding 3).
+   *
+   * This was a `Map<SessionId, child>`, on the assumption that a session has one
+   * app-server at a time. `upgradeToFine` breaks that assumption on purpose: it
+   * launches a SECOND child for a session whose first is still live and still
+   * serving, then swaps and stops the old one. With a single-slot map the second
+   * launch overwrote the entry, so `stop()` on the OLD endpoint resolved to the
+   * NEW child and killed the session it had just adopted.
+   *
+   * A set per session fixes that half and is also what makes the scope guards
+   * below answerable: "is any child of this session still running" is a question
+   * a single slot cannot answer once two exist.
+   */
+  const children = new Map<SessionId, Set<ReturnType<typeof spawn>>>()
 
-  async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL'): Promise<void> {
-    const child = children.get(sessionId)
-    children.delete(sessionId)
+  const liveChildren = (sessionId: SessionId): Set<ReturnType<typeof spawn>> => {
+    const existing = children.get(sessionId)
+    if (existing) return existing
+    const created = new Set<ReturnType<typeof spawn>>()
+    children.set(sessionId, created)
+    return created
+  }
+
+  /**
+   * End ONE child — the one this endpoint owns — and reclaim the scope only when
+   * it was the last of its session.
+   *
+   * THE CHILD IS PASSED IN RATHER THAN LOOKED UP, which is the whole fix for the
+   * swap case: an endpoint must terminate the process it was built for, not
+   * whatever is currently registered under its session id.
+   */
+  async function terminate(
+    sessionId: SessionId,
+    signal: 'SIGTERM' | 'SIGKILL',
+    child: ReturnType<typeof spawn> | undefined,
+  ): Promise<void> {
+    const live = liveChildren(sessionId)
+    if (child) live.delete(child)
     /**
      * CLOSING STDIN IS THE GRACEFUL STOP, and it is tried FIRST because it is
      * the ending Codex itself defines: the child exits cleanly (code 0) on EOF.
-     * A signal is the fallback for a child that is wedged, not the primary move.
+     * A signal is the fallback for a child that is wedged, not the primary move
+     * — so a SIGTERM stop gives the EOF a moment to be taken before signalling,
+     * and skips the signal entirely for a child that has already gone.
+     *
+     * It matters for this family specifically: the thing the child is writing on
+     * its way out is the rollout JSONL, and that file is the only thing
+     * `resume()` and `adopt()` have to work from.
      */
     if (signal === 'SIGTERM') {
       try {
@@ -360,16 +396,55 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       } catch {
         // A stdin that is already closed is the state we wanted.
       }
+      if (child && (await exited(child, GRACEFUL_EXIT_MS))) {
+        // It took the EOF. Signalling now would be signalling a corpse.
+        await reclaimIfLast(sessionId, live)
+        return
+      }
     }
     child?.kill(signal)
-    // AND THE SCOPE. Signalling the direct child leaves its cgroup — and any
-    // grandchild the agent spawned — behind, which is exactly the state that
-    // squats the deterministic unit name and pushes the NEXT spawn into the
-    // daemon's own cgroup.
+    /**
+     * AND THE SCOPE — BUT ONLY IF NOTHING ELSE OF THIS SESSION IS IN IT.
+     *
+     * Signalling the direct child leaves its cgroup, and any grandchild the
+     * agent spawned, behind — the state that squats the deterministic unit name
+     * and pushes the next spawn into the daemon's own cgroup. But both children
+     * of an in-daemon upgrade share ONE unit, so reclaiming while the sibling is
+     * still serving stops the whole cgroup and takes the live session with it.
+     */
+    await reclaimIfLast(sessionId, live)
+  }
+
+  async function reclaimIfLast(
+    sessionId: SessionId,
+    live: Set<ReturnType<typeof spawn>>,
+  ): Promise<void> {
+    if (live.size > 0) return
+    children.delete(sessionId)
     if (!canScopeMaster()) return
     const unit = scopeUnitName(codexScopeLabel(sessionId))
     for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
   }
+
+  /** Did this child exit within the window? Resolves `false` on timeout rather
+   *  than waiting forever for a wedged process to notice its stdin. */
+  const exited = (child: ReturnType<typeof spawn>, ms: number): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        resolve(true)
+        return
+      }
+      const timer = setTimeout(() => {
+        child.off('exit', onExit)
+        resolve(false)
+      }, ms)
+      timer.unref?.()
+      function onExit(): void {
+        clearTimeout(timer)
+        resolve(true)
+      }
+      child.once('exit', onExit)
+    })
 
   async function runSystemctl(args: readonly string[]): Promise<void> {
     await new Promise<void>((resolve) => {
@@ -402,20 +477,25 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       const label = codexScopeLabel(input.sessionId)
       const scoped = canScopeMaster()
       const unit = scopeUnitName(label)
-      if (scoped) {
-        /**
-         * RECLAIM UNCONDITIONALLY, WHICH THE OPENCODE HOST COULD NOT DO.
-         *
-         * Its reclaim has to health-probe first, because an opencode server from
-         * a previous daemon life may still be listening and stopping it would
-         * kill a session about to be adopted. There is no such case here: an
-         * app-server child cannot outlive the daemon that forked it, so a unit
-         * still squatting this name belongs to a process that is already gone or
-         * unreachable either way. Leaving it would make `systemd-run` refuse
-         * ("unit already exists"), silently drop the child into the daemon's own
-         * cgroup, and let the next redeploy's KillMode=control-group take the
-         * agent down with the daemon.
-         */
+      /**
+       * RECLAIM A SQUATTED UNIT — BUT NEVER ONE THIS DAEMON IS STILL USING.
+       *
+       * The reclaim used to be unconditional, justified by "an app-server child
+       * cannot outlive the daemon that forked it, so a unit still squatting this
+       * name belongs to a process that is already gone". That is true of a
+       * DAEMON RESTART and false of an in-daemon relaunch: `upgradeToFine`
+       * launches a second child for a session whose first is still live, and
+       * both share this unit, so `systemctl --user stop` took the whole cgroup
+       * and killed the session the upgrade was serving.
+       *
+       * The guard is our own bookkeeping rather than a liveness probe, and that
+       * is the honest instrument here: a child this process forked is a child
+       * this process is holding, so `children` knows. `packages/pty`'s
+       * `reclaimStaleScope` carries the same discipline in writing — "we only
+       * ever clear a zombie scope held open by orphaned grandchildren, never a
+       * live agent."
+       */
+      if (scoped && liveChildren(input.sessionId).size === 0) {
         for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
       }
 
@@ -452,7 +532,12 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: false,
       })
-      children.set(input.sessionId, child)
+      liveChildren(input.sessionId).add(child)
+      // A child that exits on its own leaves the set, so a later `stop()` of a
+      // SIBLING can tell whether it was the last one and reclaim the scope.
+      child.once('exit', () => {
+        children.get(input.sessionId)?.delete(child)
+      })
 
       let banner = ''
       child.stderr?.on('data', (chunk: Buffer) => {
@@ -484,11 +569,13 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
           ...(child.pid !== undefined ? { pid: child.pid } : {}),
           ...(scoped ? { scopeUnit: unit } : {}),
         },
+        // THIS endpoint's child, captured — not "whatever is registered for this
+        // session", which after an upgrade is a different process entirely.
         stop: async () => {
-          await terminate(input.sessionId, 'SIGTERM')
+          await terminate(input.sessionId, 'SIGTERM', child)
         },
         kill: async () => {
-          await terminate(input.sessionId, 'SIGKILL')
+          await terminate(input.sessionId, 'SIGKILL', child)
           journal.clear(input.sessionId)
         },
         memoryBytes: () =>

@@ -625,8 +625,29 @@ async function adoptServerDriverSession(
   ctx: DaemonContext,
   msg: ReattachControl,
 ): Promise<boolean> {
-  const runtime = ctx.opencodeRuntime
-  if (!runtime) return false
+  /**
+   * EVERY SERVER-FAMILY REGISTRY IS ASKED, not just the first one (POD-2024).
+   *
+   * This consulted `ctx.opencodeRuntime` alone, so a codex session — which has
+   * no entry in the OPENCODE journal — answered "not mine" and fell through to
+   * the PTY path below, where the code's own words are that it "assumes a PTY:
+   * it asks whether an abduco socket or a tmux session still holds the durable
+   * label". The session came back `reattachFailed: session not found`, which is
+   * verbatim the failure this function exists to prevent.
+   *
+   * A session appears in exactly ONE journal by construction — the spawn path
+   * chose a driver once and that driver's launch wrote the entry — so this is a
+   * lookup rather than a precedence, and the first entry found is the answer.
+   */
+  const candidates = [
+    { runtime: ctx.opencodeRuntime, what: 'opencode serve' },
+    { runtime: ctx.codexRuntime, what: 'codex app-server' },
+  ] as const
+  const found = candidates.find(
+    (candidate) => candidate.runtime?.journal.read(msg.sessionId) !== undefined,
+  )
+  if (!found?.runtime) return false
+  const { runtime, what } = found
   const entry = runtime.journal.read(msg.sessionId)
   if (!entry) return false
   try {
@@ -642,14 +663,14 @@ async function adoptServerDriverSession(
       ctx.send({
         type: 'reattachFailed',
         sessionId: msg.sessionId,
-        reason: `the opencode server for this session is gone (${entry.baseUrl} did not answer with its recorded credential)`,
+        reason: `the ${what} session recorded in the binding journal could not be rebound`,
       })
       return true
     }
     ctx.send({
       type: 'bind',
       sessionId: msg.sessionId,
-      cmd: `opencode serve (${handle.binding.driver})`,
+      cmd: `${what} (${handle.binding.driver})`,
       cwd: entry.workdir,
       agentKind: msg.agentKind,
       geometry: msg.geometry ?? { cols: 120, rows: 40 },
@@ -659,9 +680,9 @@ async function adoptServerDriverSession(
       runtimeContract: true,
     })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
-    log.info('adopted a surviving opencode server session', {
+    log.info('adopted a surviving server-family session', {
       sessionId: msg.sessionId,
-      baseUrl: entry.baseUrl,
+      driver: handle.binding.driver,
     })
     return true
   } catch (err) {
@@ -698,7 +719,24 @@ async function launchServerDriverSession(
    * here, where the caller's intent is still in hand.
    */
   const probe = opencodeVersionProbe()
-  const codexProbe = codexAppServerVersionProbe()
+  /**
+   * CODEX IS PROBED ONLY WHEN A CODEX DRIVER IS ACTUALLY IN PLAY (POD-2024
+   * review, finding 7).
+   *
+   * This was eager, so an explicit `opencode-server` spawn paid a `codex
+   * --version` that had nothing to do with it. A DEFINITIVE verdict memoizes and
+   * costs one fork per daemon — but an `unprobeable` one deliberately does NOT
+   * (see that constant's own argument), so on a box where codex exists and the
+   * probe keeps losing its race, every opencode spawn blocked on a 60s probe for
+   * a binary it never asked about. The 26s measurement recorded in this very
+   * file is what makes that reachable rather than theoretical.
+   *
+   * Lazy and memoized locally, because two call sites below want the same
+   * answer and neither should pay for it if the other never asks.
+   */
+  let codexVerdict: ReturnType<typeof codexAppServerVersionProbe> | undefined
+  const codexProbe = (): ReturnType<typeof codexAppServerVersionProbe> =>
+    (codexVerdict ??= codexAppServerVersionProbe())
   /**
    * THE PROBE THAT MATTERS IS THE ONE FOR THE DRIVER THAT WAS ASKED FOR.
    *
@@ -717,8 +755,8 @@ async function launchServerDriverSession(
    * that could not answer is a fact about this machine and only a per-spawn
    * instruction outranks it.
    */
-  const probeFor = (driverId: string): typeof probe | typeof codexProbe =>
-    harnessOwningServerDriver(driverId) === 'codex' ? codexProbe : probe
+  const probeFor = (driverId: string): ReturnType<typeof codexAppServerVersionProbe> | typeof probe =>
+    harnessOwningServerDriver(driverId) === 'codex' ? codexProbe() : probe
   const requestedProbe = probeFor(requested)
   /**
    * REFUSED ONLY WHEN *THIS SPAWN* NAMED THE DRIVER — the fix to a defect this
@@ -759,7 +797,12 @@ async function launchServerDriverSession(
       // The SAME three-answer verdict, asked the same way. An UNSUPPORTED codex
       // legitimately drops out of this list and degrades; an UNPROBEABLE one
       // never reaches here, because the check above already refused it.
-      codexDrivable: codexProbe.drivable,
+      // …and asked at all only when this harness DECLARES a server driver. One
+      // that declares none can never resolve to `codex-app-server`, so probing
+      // for it would be paying for an answer that cannot change the outcome.
+      codexDrivable: manifestFor(msg.agentKind)?.runtime.server
+        ? codexProbe().drivable
+        : false,
     }),
     platform: process.platform,
   })

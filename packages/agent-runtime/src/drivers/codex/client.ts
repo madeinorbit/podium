@@ -222,6 +222,15 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
       // The pipe ended. Everything still awaiting an answer will never get one,
       // so they are rejected rather than left to their timeouts.
       if (closed) return
+      /**
+       * AND THE CLIENT IS CLOSED, not merely drained (POD-2024 review nit).
+       *
+       * Only `close()` used to set this, so a `call()` issued AFTER the pipe died
+       * was accepted, written to a dead transport and left to time out — 120
+       * seconds to learn something the client already knew. A dead pipe is a
+       * closed client whoever noticed first.
+       */
+      closed = true
       fail(new CodexProtocolError('codex app-server closed its pipe'))
       config.onClose?.()
     },
@@ -277,9 +286,17 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
       handshakeStarted = true
       const result = await call<unknown>(CODEX_METHODS.initialize, params)
       const parsed = CodexInitializeResponseSchema.parse(result)
-      // `initialized` IS A NOTIFICATION, and it is the gate: the server accepts
-      // no other method until it has been sent. Flipping `ready` before writing
-      // it would let a concurrent caller race in front of it.
+      /**
+       * `initialized` IS A NOTIFICATION, and it is the gate: the server accepts
+       * no other method until it has been sent.
+       *
+       * The comment that used to sit here described the OPPOSITE of the order
+       * below. `ready` is flipped first because the two statements cannot
+       * interleave — this runs synchronously to completion, so no caller can
+       * observe the window — and this order keeps the flag meaning "the
+       * handshake succeeded" rather than "the notification reached a socket
+       * buffer", which is not a fact any caller should be gated on.
+       */
       ready = true
       send({ method: CODEX_METHODS.initialized })
       return parsed

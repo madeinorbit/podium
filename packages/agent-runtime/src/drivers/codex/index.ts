@@ -94,6 +94,7 @@ export {
   createCodexRuntime,
 } from './runtime.js'
 export {
+  STRIPPED_CODEX_CREDENTIALS,
   type CodexVersion,
   type CodexVersionDiagnostic,
   gateCodexVersion,

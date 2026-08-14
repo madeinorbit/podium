@@ -31,12 +31,15 @@
  */
 
 import {
+  CODEX_APP_SERVER_DRIVER_ID,
+  type CodexJournal,
   type CodexRuntime,
   type CodexRuntimeHost,
   createCodexRuntime,
   type PendingInteraction,
   type RuntimeEvent,
 } from '@podium/agent-runtime'
+import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol'
@@ -77,6 +80,33 @@ export interface DaemonCodexRuntime extends CodexRuntime {
   launch(input: CodexSessionLaunch): Promise<void>
   /** Every session this runtime currently holds. */
   has(sessionId: SessionId): boolean
+  /**
+   * THE BINDING JOURNAL, so the reattach path can ask whether a session was
+   * ours before it tries to adopt it.
+   *
+   * Exposed for the same reason the opencode runtime exposes its own: the
+   * ENTRY'S EXISTENCE is the statement that this session was server-driven.
+   * Every terminal session reaches the reattach path too, and none of them has
+   * one, so this is what keeps the adopt attempt silent for sessions it has no
+   * business touching.
+   */
+  journal: CodexJournal
+  /**
+   * Re-bind a session after a daemon restart, from the journal alone.
+   *
+   * FOR THIS FAMILY THAT MEANS RESUMING THE THREAD, NOT REBINDING A PROCESS,
+   * and the difference is measured rather than stylistic: `codex app-server`
+   * exits cleanly on stdin EOF, and its channel IS the child's stdio, so when
+   * the daemon dies its pipes close and every codex child dies with it. There is
+   * never a survivor to find.
+   *
+   * What survives is the conversation — codex writes each thread to its own
+   * rollout JSONL — so `driver.adopt()` starts a fresh child and resumes the
+   * journalled thread id. Session id, thread id, transcript, resume ref, turn
+   * epoch and event seq all hold; the process is new and says so by bumping the
+   * binding version. `undefined` when there is nothing to rebind from.
+   */
+  adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
 }
 
 export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRuntime {
@@ -162,10 +192,49 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
     }
   }
 
+  /** Tell the server the harness-native id this session resumes from, so a
+   *  handoff or a later resume does not have to re-derive it. */
+  function reportResumeRef(sessionId: SessionId, handle: AgentSessionHandle): void {
+    const resume = handle.binding.resume
+    if (!resume) return
+    deps.send({ type: 'sessionResumeRef', sessionId, resume, confidence: 'exact' })
+  }
+
   return {
     ...runtime,
 
     has: (sessionId) => live.has(sessionId),
+
+    journal: deps.host.journal,
+
+    async adoptFromJournal(sessionId) {
+      const entry = deps.host.journal.read(sessionId)
+      if (!entry) return undefined
+      let handle: AgentSessionHandle
+      try {
+        handle = await runtime.driver.adopt({
+          sessionId: entry.sessionId,
+          driver: CODEX_APP_SERVER_DRIVER_ID,
+          family: 'server',
+          harness: 'codex',
+          workdir: entry.workdir,
+          resume: { kind: 'codex-thread', value: entry.threadId },
+          process: entry.process,
+          bindingVersion: entry.bindingVersion,
+        })
+      } catch {
+        // `adopt()` REJECTS when it cannot rebind — for this family that means
+        // the journal is missing or names a different incarnation, or codex
+        // would not resume the thread. Either way it is "gone" to the caller,
+        // which turns it into an honest reattach failure rather than a fall
+        // through to a PTY path that would go looking for an abduco socket.
+        return undefined
+      }
+      live.add(sessionId)
+      pump(sessionId)
+      reportResumeRef(sessionId, handle)
+      return handle
+    },
 
     async launch(input) {
       /**
@@ -208,6 +277,7 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
       })
       live.add(input.sessionId)
       pump(input.sessionId)
+      reportResumeRef(input.sessionId, handle)
       /**
        * `bind` IS WHAT MARKS THE SESSION LIVE, sent with the truth rather than a
        * plausible imitation of a PTY spawn. `cmd` names the process this session

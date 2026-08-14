@@ -167,6 +167,16 @@ turn, and hibernate/resume into a fresh child on the same thread.
 
 ## Known gaps, stated rather than discovered
 
+- **`attach` is declared but no shipped host wires it.** The capability says
+  `supported({kinds:['client']})` and the driver's half is real — it asks its
+  host, refuses a take-over another holder has, and takes the lease only when a
+  host answers. But `createCodexHost` is built with `memoryBytes` alone, so
+  `attach()` in production always answers `unsupported`. Making it true is
+  `codex --remote`, which the plan puts out of scope as attach v2. It is not
+  declared `unsupported` instead because `PERMITTED_FAILURES.server` does not
+  carry `no-attach` (only the embedded family does), and that table belongs to
+  POD-2085 — a driver may not edit it to make its own declaration fit.
+
 - **MCP is built but unfed.** The mount works end to end — `codexAppServerConfigArgs`
   builds the `-c mcp_servers.…` overrides through the manifest's own verified
   `codexMcpArgs`, and `SessionSpec.mcpServers` carries the declaration to it —
@@ -181,6 +191,14 @@ turn, and hibernate/resume into a fresh child on the same thread.
 - **`question` interactions are not declared.** `item/tool/requestUserInput`
   exists in the bindings but never fired in any live run, and declaring a kind
   this driver has never seen would promise an ask it cannot produce.
+- **Restart-adoption is wired end to end, and it RESUMES rather than rebinds.**
+  The daemon's reattach path consults every server-family journal, and a codex
+  entry resumes its thread in a fresh child (`codex-driver.ts`'s
+  `adoptFromJournal`, tested at the daemon layer). It cannot rebind a survivor,
+  because there is never one: `codex app-server` exits on stdin EOF and the
+  channel is the child's stdio. Session id, thread id, transcript, resume ref
+  and turn epoch all hold; the process is new and says so.
+
 - **The web-UI demonstration is by construction, not by observation.** The daemon
   half emits the same `bind` / `transcriptDelta` / `agentState` / `agentExit`
   vocabulary W5 proved against the existing UI; this session verified the driver

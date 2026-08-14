@@ -216,7 +216,10 @@ describe('turn errors → the failure vocabulary', () => {
 })
 
 describe('answers', () => {
-  const ask = (canAlwaysAllow: boolean): PendingInteraction =>
+  const OFFERS_ACCEPT_CANCEL = ['accept', 'cancel'] as const
+  const OFFERS_FULL = ['accept', 'acceptForSession', 'decline', 'cancel'] as const
+
+  const ask = (offers: readonly unknown[]): PendingInteraction =>
     commandApprovalAsk({
       requestId: 0,
       sessionId: 'sess',
@@ -225,7 +228,7 @@ describe('answers', () => {
         turnId: 'tu',
         itemId: 'i',
         command: 'ls',
-        availableDecisions: canAlwaysAllow ? ['accept', 'acceptForSession'] : ['accept', 'cancel'],
+        availableDecisions: [...offers],
       },
       askedAt: AT,
     })
@@ -234,21 +237,67 @@ describe('answers', () => {
     // Zero is a real id, and `String(0)` is `'0'` — the driver's namespace IS the
     // connection's request-id space, because replying means answering that id.
     expect(askIdOf(0)).toBe('0')
-    expect(ask(false).id).toBe('0')
+    expect(ask(OFFERS_ACCEPT_CANCEL).id).toBe('0')
   })
 
-  it('maps allow / deny to the decisions codex accepts', () => {
+  it('sends `accept` for an allow, when accept is on offer', () => {
     expect(
-      answerAction(ask(false), { kind: 'permission', decision: 'allow-once' }, false),
+      answerAction(
+        ask(OFFERS_ACCEPT_CANCEL),
+        { kind: 'permission', decision: 'allow-once' },
+        OFFERS_ACCEPT_CANCEL,
+      ),
     ).toEqual({ call: 'respond', result: { decision: 'accept' } })
-    expect(answerAction(ask(false), { kind: 'permission', decision: 'deny' }, false)).toEqual({
-      call: 'respond',
-      result: { decision: 'decline' },
-    })
+  })
+
+  it('sends `decline` for a deny when the ask offers one', () => {
+    expect(
+      answerAction(ask(OFFERS_FULL), { kind: 'permission', decision: 'deny' }, OFFERS_FULL),
+    ).toEqual({ call: 'respond', result: { decision: 'decline' } })
+  })
+
+  it('FALLS BACK TO `cancel` for a deny the ask did not offer `decline` for', () => {
+    /**
+     * THE RECORDED LIVE ASK OFFERED `['accept', {execpolicy amendment}, 'cancel']`
+     * — no `decline`. This arm used to send `decline` anyway while the
+     * always-allow arm right beside it refused precisely because the field said
+     * the option was not on offer; only one of those can be right.
+     *
+     * It matters more than the always-allow case because of the DIRECTION of the
+     * message: our answer is a JSON-RPC response to a request the server is
+     * blocked on, so the server has no channel to reject it. A decision it does
+     * not accept is not an error anyone sees — it is a turn that quietly does the
+     * wrong thing while Podium reports the deny delivered.
+     *
+     * `cancel` is the honest substitute rather than a convenient one: it is also
+     * a refusal to run the command, and it IS on offer.
+     */
+    expect(
+      answerAction(
+        ask(OFFERS_ACCEPT_CANCEL),
+        { kind: 'permission', decision: 'deny' },
+        OFFERS_ACCEPT_CANCEL,
+      ),
+    ).toEqual({ call: 'respond', result: { decision: 'cancel' } })
+  })
+
+  it('REFUSES a deny when the ask offered neither refusal, leaving it open', () => {
+    // Nothing to say that the server agreed to hear. Refusing leaves the ask
+    // open and the session visibly blocked, which beats sending a decision the
+    // server never offered and reporting it as delivered.
+    const action = answerAction(ask(['accept']), { kind: 'permission', decision: 'deny' }, [
+      'accept',
+    ])
+    expect(action.call).toBe('refuse')
+    if (action.call === 'refuse') expect(action.refusal.reason).toBe('unsupported')
   })
 
   it('REFUSES an always-allow the ask did not offer', () => {
-    const action = answerAction(ask(false), { kind: 'permission', decision: 'allow-always' }, false)
+    const action = answerAction(
+      ask(OFFERS_ACCEPT_CANCEL),
+      { kind: 'permission', decision: 'allow-always' },
+      OFFERS_ACCEPT_CANCEL,
+    )
     expect(action.call).toBe('refuse')
     // Sending `accept` instead would report a persistent grant that was never
     // made — the protocol's own PermissionAnswer note names this case.
@@ -256,21 +305,24 @@ describe('answers', () => {
   })
 
   it('sends `acceptForSession` when it WAS offered', () => {
-    const offered = ask(true)
+    const offered = ask(OFFERS_FULL)
     // The offer is READ OFF `availableDecisions`, not assumed — see ./map.ts.
     expect(offered.kind).toBe('permission')
     if (offered.kind !== 'permission') return
     expect(offered.payload.canAlwaysAllow).toBe(true)
-    expect(answerAction(offered, { kind: 'permission', decision: 'allow-always' }, true)).toEqual({
-      call: 'respond',
-      result: { decision: 'acceptForSession' },
-    })
+    expect(
+      answerAction(offered, { kind: 'permission', decision: 'allow-always' }, OFFERS_FULL),
+    ).toEqual({ call: 'respond', result: { decision: 'acceptForSession' } })
   })
 
   it('REFUSES an answer whose kind does not match the ask', () => {
     // The discriminants exist so a mismatch is caught before it reaches a
     // provider, not after.
-    const action = answerAction(ask(false), { kind: 'recovery', choice: 'full-resume' }, false)
+    const action = answerAction(
+      ask(OFFERS_FULL),
+      { kind: 'recovery', choice: 'full-resume' },
+      OFFERS_FULL,
+    )
     expect(action.call).toBe('refuse')
   })
 })

@@ -467,26 +467,55 @@ export type CodexAnswerAction =
 export function answerAction(
   ask: PendingInteraction,
   answer: InteractionAnswer,
-  canAlwaysAllow: boolean,
+  /**
+   * The ask's own `availableDecisions`, verbatim — NOT a pre-reduced boolean.
+   *
+   * It was `canAlwaysAllow: boolean`, and that shape is what let the deny arm
+   * ignore the offer the always-allow arm respected (POD-2024 review): the
+   * boolean answered one question, so the other arm had nothing to consult and
+   * sent `decline` at an ask whose recorded live list was
+   * `['accept', {acceptWithExecpolicyAmendment: …}, 'cancel']`. Passing the list
+   * means every arm asks the same source, which is the only way the two can
+   * agree.
+   */
+  availableDecisions: readonly unknown[] | undefined,
 ): CodexAnswerAction {
   if (ask.kind === 'permission') {
     if (answer.kind !== 'permission') return mismatch(ask.kind, answer.kind)
-    if (answer.decision === 'allow-always' && !canAlwaysAllow) {
+    /**
+     * EVERY DECISION IS CHECKED AGAINST THE OFFER, and the reason this matters
+     * more here than almost anywhere else is the direction of the message: our
+     * answer is a JSON-RPC RESPONSE to a request the server is blocked on, so
+     * the server has NO CHANNEL to reject it. A decision it does not accept is
+     * not an error we can see — it is a turn that quietly does the wrong thing,
+     * or does nothing, while Podium reports the answer delivered.
+     *
+     * `decline` is not universally on offer: the recorded live ask listed
+     * `accept`, an execpolicy amendment and `cancel`, with neither
+     * `acceptForSession` NOR `decline`. So a deny falls back to `cancel` — which
+     * is also a refusal to run the command, and IS offered — and refuses
+     * outright only when neither is available, leaving the ask open rather than
+     * sending something the server never said it would take.
+     */
+    const wanted: readonly CodexApprovalDecision[] =
+      answer.decision === 'allow-always'
+        ? ['acceptForSession']
+        : answer.decision === 'deny'
+          ? ['decline', 'cancel']
+          : ['accept']
+    const decision = wanted.find((candidate) => offersDecision(availableDecisions, candidate))
+    if (!decision) {
       return {
         call: 'refuse',
         refusal: {
           reason: 'unsupported',
           detail:
-            'this ask did not offer an always-allow; answering once instead would report a grant that was never made',
+            answer.decision === 'allow-always'
+              ? 'this ask did not offer an always-allow; answering once instead would report a grant that was never made'
+              : `this ask offered none of [${wanted.join(', ')}], and answering with a decision it did not offer would be unanswerable — the server is blocked on a response it cannot reject`,
         },
       }
     }
-    const decision: CodexApprovalDecision =
-      answer.decision === 'allow-always'
-        ? 'acceptForSession'
-        : answer.decision === 'deny'
-          ? 'decline'
-          : 'accept'
     return { call: 'respond', result: { decision } }
   }
 

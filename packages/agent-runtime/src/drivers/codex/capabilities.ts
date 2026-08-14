@@ -99,10 +99,30 @@ export function codexAppServerCapabilities(): DriverCapabilities {
     },
     transcript: supported({ history: true }),
     /**
-     * `client`, not `engine`. There is no engine terminal — the session is a
-     * headless JSON-RPC child with no PTY — and Codex ships its own TUI that can
-     * point at a running app-server (`codex --remote unix://…`). That is the
-     * server family's variant, and it is the one this driver would produce.
+     * `client`, not `engine` — TRUE OF THE DRIVER, AND NOT YET TRUE OF ANY
+     * SHIPPED HOST (POD-2024 review, finding 5).
+     *
+     * There is no engine terminal: the session is a headless JSON-RPC child with
+     * no PTY. Codex ships a TUI that can point at a running app-server (`codex
+     * --remote unix://…`), so `client` is the variant this family would produce,
+     * and the driver's own half is real — `attach()` asks its host, refuses a
+     * take-over held by somebody else, and takes the lease only when a host
+     * answers.
+     *
+     * WHAT IS MISSING IS THE HOST. `createCodexHost` is constructed with
+     * `memoryBytes` alone, so `host.attachClient?.()` resolves undefined and
+     * every `attach()` in production answers `unsupported` with the per-machine
+     * wording. The plan puts the thing that would fix it — `codex --remote`,
+     * attach v2 — explicitly out of scope for W6.
+     *
+     * WHY THIS IS NOT DECLARED `unsupported` INSTEAD, which was the first
+     * instinct: `PERMITTED_FAILURES.server` does not carry `no-attach` (only the
+     * embedded family does), so a server driver declaring attach unsupported
+     * fails the corpus's attach property outright. That table is POD-2085's and
+     * a driver may not patch it to make its own declaration fit — the house rule
+     * is to mail the owner the measurement, which is done. So the gap is
+     * recorded where a reader will actually meet it instead: a deferred item on
+     * POD-2024 and a named entry in `docs/agents/pod-2024-codex-app-server.md`.
      */
     attach: supported({ kinds: ['client'] }),
     lease: supported({ humanTakeover: true }),
