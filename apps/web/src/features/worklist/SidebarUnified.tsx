@@ -337,16 +337,30 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   // as an effect over what is actually on screen rather than a timer: the exit's
   // duration is the motion layer's business, not this component's.
   useEffect(() => {
+    // GUARD THE CALL, NOT JUST THE UPDATE — and the difference is a whole render
+    // pass (POD-330 probe: 3.2 commits per publish against a 2.2 ceiling).
+    //
+    // The identity-preserving arm below stops this effect LOOPING, which is what
+    // its old comment claimed and all it ever claimed correctly. It does not stop
+    // the first extra render: React only takes the eager-bailout path on a no-op
+    // setState while the fiber is quiescent, and since POD-781 (9162bb687) re-keyed
+    // this effect from `targetGroups` to `transitionRows` it runs in the passive
+    // phase of `useRowTransitions`' own nested update — never quiescent. So every
+    // publish paid for a third render to be told nothing had changed.
+    //
+    // The set is empty in every frame except the few between an archive press and
+    // its exit finishing, so returning early is the steady state.
+    if (quickArchiveExitIds.size === 0) return
     const onScreen = new Set(transitionRows.map((item) => item.key))
-    // Functional form and an identity-preserving no-op arm: this runs on every
-    // transition list change, and returning `current` unchanged is what stops it
-    // re-rendering itself in a loop.
     setQuickArchiveExitIds((current) => {
       if (current.size === 0) return current
       const next = new Set([...current].filter((id) => onScreen.has(`issue:${id}`)))
       return next.size === current.size ? current : next
     })
-  }, [transitionRows])
+    // `quickArchiveExitIds` is a real dependency — the guard above reads it — and
+    // naming it costs one extra run when the set itself changes, on the archive
+    // press only. The updater stays in functional form against a stale closure.
+  }, [transitionRows, quickArchiveExitIds])
 
   // Grip-drag manual sort (POD-168): drops persist fractional sortKeys through
   // issues.update; crossing the PINNED boundary toggles `pinned`. Outboxed
