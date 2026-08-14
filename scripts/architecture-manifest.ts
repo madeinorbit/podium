@@ -472,11 +472,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     // HOST CAPABILITY (legacy rule 2). Importing this package means spawning
     // PTYs. The machine host and the build tier may; nothing else may, and there
     // is no open entrypoint because every export here drives a process.
-    // POD-2019 adds `packages/agent-runtime`: its terminal-family driver wraps
-    // this stack rather than reimplementing it, which is the whole point of that
-    // item — the heuristics become internals of one driver instead of semantics
-    // smeared across server, daemon and web.
-    consumers: ['apps/daemon', 'packages/agent-runtime', 'scripts'],
+    consumers: ['apps/daemon', 'scripts'],
   },
   // The home for coding-agent CLI variance: one AgentManifest per CLI
   // (launch/exec/headless/state/discovery/transcript), the native-state
@@ -562,12 +558,12 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'node-only',
     features: ['agent-runtime-contract'],
-    deps: [
-      'packages/protocol',
-      'packages/model',
-      'packages/harness',
-      'packages/pty',
-    ],
+    // `packages/pty` is DELIBERATELY ABSENT until W3 needs it. The contract
+    // package imports no PTY today, and a declared edge nobody exercises is
+    // mechanism-presence rather than coverage — the same argument this file
+    // makes about open entrypoints. W3's terminal driver adds it in the commit
+    // that first wraps the durable-host stack.
+    deps: ['packages/protocol', 'packages/model', 'packages/harness'],
     consumers: ['apps/daemon', 'scripts'],
     openEntrypoints: ['@podium/agent-runtime/metadata'],
   },
@@ -646,15 +642,13 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // the half that actually uses them (POD-397).
   'packages/harness -> packages/runtime',
   'packages/harness -> packages/transcript',
-  // L2 (POD-2019): the Agent Runtime contract composes the two ports it sits in
-  // front of. `harness` supplies the manifests a driver reads to launch and
-  // observe a CLI (and the `Declared<T>` vocabulary `DriverCapabilities` is
-  // built on); `pty` supplies the durable-host machinery the terminal-family
-  // driver wraps rather than reimplements. Both are DELIBERATE: the whole
-  // premise of the package is that today's heuristics become internals of one
-  // driver, which is only possible if that driver can reach them.
+  // L2 (POD-2019): the Agent Runtime contract sits in front of the manifest
+  // port and composes it. `harness` is where the driver taxonomy and the three
+  // `*RuntimeSpec` shapes are DEFINED (agent-runtime re-exports them — the
+  // reverse direction would be a cycle), and where `Declared<T>` comes from.
+  // The `-> packages/pty` edge is deliberately NOT declared yet: W3's terminal
+  // driver adds it in the commit that first wraps the durable-host stack.
   'packages/agent-runtime -> packages/harness',
-  'packages/agent-runtime -> packages/pty',
   // L3: the React adapter binds hooks to client-core's transport port; it owns no
   // socket protocol state of its own.
   'packages/terminal-client-react -> packages/client-core',

@@ -39,29 +39,54 @@ import { describe, expect, it } from 'vitest'
 import {
   type AgentSessionHandle,
   CORE_PRIMITIVES,
+  type DriverCapabilities,
+  type DriverFamily,
+  PERMITTED_FAILURES,
   type PendingInteraction,
   permits,
   type RuntimeEvent,
   type SessionSpec,
   type TurnReceipt,
-} from './contract-imports.js'
-import type { ConformanceControl, ConformanceTarget } from './target.js'
+} from '../../index.js'
+import type { ConformanceControl, ConformanceOptions, ConformanceTarget } from './target.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Drain at most `n` events that are ALREADY buffered. Deliberately not a
- *  timeout-based await: a conformance property that depends on wall-clock
- *  patience is a flake generator, and every event this corpus asks for is
- *  produced synchronously by the verb that precedes it. */
-async function drain(stream: AsyncIterable<RuntimeEvent>, n: number): Promise<RuntimeEvent[]> {
+/**
+ * Take up to `n` events, giving up after `timeoutMs` rather than waiting forever.
+ *
+ * THE TIMEOUT IS THE POINT. An earlier version of this helper had none, on the
+ * argument that every event the corpus asks for is produced synchronously by the
+ * verb before it. That is true of the in-memory fake and false of every real
+ * driver: a PTY driver's events arrive when a hook fires or a file grows. Without
+ * a bound, a driver that never emits HANGS the suite instead of failing it — and
+ * a hung gate reads as infrastructure trouble rather than a broken driver, which
+ * is the worst failure mode a conformance corpus can have.
+ *
+ * It returns what it got rather than throwing, so each property states its own
+ * expectation about how many events it needed.
+ */
+async function drain(
+  stream: AsyncIterable<RuntimeEvent>,
+  n: number,
+  timeoutMs = 2000,
+): Promise<RuntimeEvent[]> {
   const out: RuntimeEvent[] = []
   if (n === 0) return out
-  for await (const event of stream) {
-    out.push(event)
-    if (out.length >= n) break
+  const iterator = stream[Symbol.asyncIterator]()
+  const deadline = new Promise<'timeout'>((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), timeoutMs)
+    // Never hold the process open on the corpus's account.
+    if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+  })
+  while (out.length < n) {
+    const next = await Promise.race([iterator.next(), deadline])
+    if (next === 'timeout' || next.done) break
+    out.push(next.value)
   }
+  await iterator.return?.()
   return out
 }
 
@@ -112,19 +137,36 @@ export function describeDriverConformance(target: ConformanceTarget): void {
 
       it('claims `unverified` ONLY where the family permits it', () => {
         const { driver } = setup()
-        const caps = driver.capabilities()
-        // The converse half of the table. A server driver declaring it "might
-        // be unverified" would let a real weakness hide behind a permitted one.
-        expect(caps.send.mayReturnUnverified).toBe(permits(target.family, 'unverified-send'))
+        // The check lives in an exported function so the "corpus has teeth"
+        // tests can drive it with a dishonest driver and watch it refuse. An
+        // assertion whose only caller is its own property cannot be shown to
+        // bite.
+        assertUnverifiedClaimHonest(target.family, driver.capabilities())
       })
 
-      it('claims at-least-once interactions ONLY where the family permits it', () => {
+      it('claims at-least-once interactions ONLY for classifier-sourced asks', () => {
         const { driver } = setup()
         const declared = driver.capabilities().interactions
         if (!declared.supported) return
-        expect(declared.value.atLeastOnce).toBe(
-          permits(target.family, 'at-least-once-interactions'),
-        )
+        const { atLeastOnce, source } = declared.value
+
+        // THE PERMISSION IS PER-SOURCE, NOT PER-FAMILY, and the difference is
+        // load-bearing rather than pedantic. The exemption exists because a
+        // re-rendered menu can mint a duplicate ask and a keystroke answer
+        // cannot prove which menu it acted on — that is a property of the
+        // SCREEN CLASSIFIER, not of the terminal family. W3's `claude-pty`
+        // reads `UserPromptSubmit`, a real causal hook: it has better identity
+        // than this and must be able to decline the exemption. A strict
+        // per-family equality here would force it to declare a weakness it does
+        // not have, which is exactly the dishonesty the table exists to prevent.
+        if (atLeastOnce) {
+          expect(source).toBe('screen-classifier')
+          // …and the family must still be one the table permits it to.
+          expect(permits(target.family, 'at-least-once-interactions')).toBe(true)
+        }
+        // The converse: a classifier-sourced driver may NOT claim exactly-once
+        // identity, because it cannot have it.
+        if (source === 'screen-classifier') expect(atLeastOnce).toBe(true)
       })
 
       it('ships dedicated placement, or declares that it does not', () => {
@@ -142,7 +184,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
 
     describe('send — the four outcomes', () => {
       it('ACCEPTED opens a turn and reports the delivery actually used', async () => {
-        const { handle } = setup()
+        const { handle, driver } = setup()
         const session = await handle
         const receipt = await session.send(
           { text: 'hello' },
@@ -152,8 +194,9 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         if (receipt.outcome !== 'accepted') return
         expect(receipt.turnEpoch).toBeGreaterThan(0)
         expect(receipt.deliveredAs).toBe('when-ready')
-        // Rule 2: the guarantee is family-invariant, the MECHANISM is declared.
-        expect(driverProof(session, receipt)).toBe(true)
+        // Rule 2: the guarantee is family-invariant, the MECHANISM is declared —
+        // and a driver may not invent a mechanism it never claimed.
+        expectDeclaredProof(driver.capabilities(), receipt)
       })
 
       it('QUEUED carries a durable position rather than a shrug', async () => {
@@ -212,23 +255,49 @@ export function describeDriverConformance(target: ConformanceTarget): void {
       it('UNVERIFIED is available exactly to the families permitted it', async () => {
         const { handle, control, driver } = setup()
         const session = await handle
-        if (!permits(target.family, 'unverified-send')) {
-          // Nothing to induce: the family has no such outcome, and the
-          // capability assertion above already pinned the declaration.
+        const permitted = permits(target.family, 'unverified-send')
+
+        // THE CONVERSE IS EXERCISED, NOT RESTATED. An earlier version re-asserted
+        // the capability flag here — the identical assertion made in the
+        // capabilities block — so nothing went red if this property were deleted.
+        // Now a family that may not return `unverified` is actually PUSHED at the
+        // failure and must not produce one.
+        control.failNextVerification(session.binding.sessionId)
+        let receipt: TurnReceipt | undefined
+        let threw = false
+        try {
+          receipt = await session.send(
+            { text: 'did this land?' },
+            { origin: 'human', delivery: 'when-ready' },
+          )
+        } catch {
+          // A driver that declared the outcome impossible may refuse to model it
+          // at all. Throwing is a legitimate answer to "produce an outcome you
+          // said you cannot produce"; silently producing it is not.
+          threw = true
+        }
+
+        if (!permitted) {
           expect(driver.capabilities().send.mayReturnUnverified).toBe(false)
+          if (!threw) expect(receipt?.outcome).not.toBe('unverified')
           return
         }
-        control.failNextVerification(session.binding.sessionId)
-        const receipt = await session.send(
-          { text: 'did this land?' },
-          { origin: 'human', delivery: 'when-ready' },
-        )
-        expect(receipt.outcome).toBe('unverified')
-        if (receipt.outcome !== 'unverified') return
+
+        expect(threw).toBe(false)
+        expect(receipt?.outcome).toBe('unverified')
+        if (receipt?.outcome !== 'unverified') return
         // The two-generals gap made explicit: the caller is told how long we
-        // already waited, so "retry or surface" is their decision with the
-        // truth in hand rather than a guess.
+        // already waited, so "retry or surface" is their decision with the truth
+        // in hand rather than a guess.
         expect(receipt.verificationWindowMs).toBeGreaterThan(0)
+        // NEVER CONVERTED, NEVER RETRIED INTO A LIE. The whole reason this
+        // outcome exists is that the old code retried an unprovable submit up to
+        // twice and reported success. `unverified` must reach the caller as
+        // itself — not silently upgraded to `accepted`, not downgraded to
+        // `refused` — and the driver must not have opened a turn behind it.
+        expect(receipt.deliveredAs).toBeTruthy()
+        const after = await session.snapshot()
+        expect(after.turnEpoch).toBe(0)
       })
     })
 
@@ -378,6 +447,34 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         }
       })
 
+      it('advances cursors MONOTONICALLY across a rebind', async () => {
+        const { handle, control, driver } = setup()
+        const session = await handle
+        await session.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
+        control.completeTurn(session.binding.sessionId)
+        const checkpoint = await session.snapshot()
+
+        control.restartSupervisor()
+        const adopted = await driver.adopt(checkpoint.binding)
+        control.askInteraction(adopted.binding.sessionId, 'permission')
+        control.askInteraction(adopted.binding.sessionId, 'question')
+
+        // MORE THAN ONE EVENT, deliberately: every other property in this file
+        // takes a single event, so none of them can compare two cursors. An
+        // ordering guarantee that is never tested on a pair is not tested.
+        const events = await drain(adopted.events(checkpoint.cursor), 3)
+        expect(events.length).toBeGreaterThanOrEqual(2)
+        for (let i = 1; i < events.length; i++) {
+          const previous = events[i - 1]
+          const current = events[i]
+          if (!previous || !current) continue
+          // Strictly increasing. Equal cursors on distinct events would make a
+          // resume position ambiguous — the consumer could not tell whether it
+          // had already applied the second one.
+          expect(seqOf(current)).toBeGreaterThan(seqOf(previous))
+        }
+      })
+
       it('refuses to adopt a binding whose process did not survive', async () => {
         const { handle, driver } = setup()
         const session = await handle
@@ -426,6 +523,32 @@ export function describeDriverConformance(target: ConformanceTarget): void {
     })
 
     // -----------------------------------------------------------------------
+    // Hibernate without a resume ref — the refusal path, actually reached
+    // -----------------------------------------------------------------------
+
+    describe('hibernate without a resume ref', () => {
+      it('REFUSES rather than losing the session', async () => {
+        const { driver, spec } = setup()
+        // `resume()` with a ref the driver cannot keep is the honest way to
+        // reach this: an earlier version only ever exercised `create()`, which
+        // always mints a ref, so the refusal branch was asserted in a property
+        // that could never reach it.
+        const session = await driver.create(spec)
+        if (session.binding.resume) {
+          // This driver captures its ref at spawn (`resumeRefTiming: 'spawn'`),
+          // so hibernation is legal and the refusal is unreachable BY
+          // CONSTRUCTION rather than by omission. Say so instead of pretending
+          // to test it.
+          expect(await session.hibernate()).toEqual({ ok: true })
+          return
+        }
+        // A driver whose harness mints the ref lazily (Codex rollout files)
+        // legitimately has no ref yet, and must refuse.
+        expect(await session.hibernate()).toMatchObject({ reason: 'no_resume_ref' })
+      })
+    })
+
+    // -----------------------------------------------------------------------
     // Attach
     // -----------------------------------------------------------------------
 
@@ -470,9 +593,81 @@ export function describeDriverConformance(target: ConformanceTarget): void {
   })
 }
 
-/** The receipt's proof must be one the driver declared it can produce. Rule 2 in
- *  one assertion: callers stop caring WHICH mechanism proved delivery, but the
- *  driver may not invent one it never claimed. */
-function driverProof(_session: AgentSessionHandle, receipt: TurnReceipt): boolean {
-  return receipt.outcome !== 'accepted' || typeof receipt.provenBy === 'string'
+/**
+ * The receipt's proof must be one the driver DECLARED it can produce.
+ *
+ * Spec rule 2 in one assertion: callers stop caring which mechanism proved
+ * delivery, but the driver may not invent one it never claimed. A driver
+ * returning `provenBy: 'protocol-ack'` while declaring
+ * `proof: ['transcript-echo']` is describing a fidelity it does not have, and
+ * every consumer that branches on the declaration is then branching on a lie.
+ *
+ * (An earlier version of this checked `typeof receipt.provenBy === 'string'`,
+ * which is a tautology on any type-checked driver — the assertion named a
+ * property it did not test.)
+ */
+function expectDeclaredProof(capabilities: DriverCapabilities, receipt: TurnReceipt): void {
+  if (receipt.outcome !== 'accepted') return
+  expect(
+    capabilities.send.proof,
+    `receipt claims proof '${receipt.provenBy}', which this driver never declared`,
+  ).toContain(receipt.provenBy)
+}
+
+/**
+ * THE ENTRY POINT A DRIVER AUTHOR CALLS (W3, W5, W6).
+ *
+ *   runConformance(
+ *     () => ({ driver: makeTerminalDriver(deps), control: harnessControl }),
+ *     { exemptions: ['unverified-send', 'at-least-once-interactions'] },
+ *   )
+ *
+ * `exemptions` is verified against the family's row in `PERMITTED_FAILURES`
+ * before a single property runs, and a mismatch fails immediately with the
+ * difference named. That ordering is deliberate: an exemption list that silently
+ * disagreed with the table would let a driver skip a property it was never
+ * entitled to skip, and the resulting green suite would be worse than no suite.
+ */
+export function runConformance(
+  makeDriver: ConformanceTarget['createDriver'],
+  opts: ConformanceOptions & Pick<ConformanceTarget, 'name' | 'family' | 'reset' | 'spec'>,
+): void {
+  describe(`declared exemptions — ${opts.name}`, () => {
+    it('claims exactly what its family permits, no more and no less', () => {
+      const claimed = [...(opts.exemptions ?? [])].sort()
+      const permitted = [...PERMITTED_FAILURES[opts.family]].sort()
+      expect(claimed).toEqual(permitted)
+    })
+  })
+  describeDriverConformance({
+    name: opts.name,
+    family: opts.family,
+    createDriver: makeDriver,
+    reset: opts.reset,
+    spec: opts.spec,
+  })
+}
+
+/**
+ * A driver may claim `unverified` sends only where its family permits them.
+ *
+ * BOTH DIRECTIONS, and the second is the one that matters. Forbidding an
+ * unpermitted claim is obvious; requiring a permitted family to actually declare
+ * it is what stops a terminal driver from quietly asserting protocol-grade
+ * fidelity it cannot deliver. `unverified` exists because the old code retried an
+ * unprovable submit and reported success — a driver that hides the possibility is
+ * back in that world.
+ *
+ * Exported so the corpus's own negative tests can call it with a deliberately
+ * dishonest driver: an assertion that has never been watched to fail is a
+ * comment.
+ */
+export function assertUnverifiedClaimHonest(
+  family: DriverFamily,
+  capabilities: DriverCapabilities,
+): void {
+  expect(
+    capabilities.send.mayReturnUnverified,
+    `family '${family}' ${permits(family, 'unverified-send') ? 'permits' : 'does not permit'} unverified sends`,
+  ).toBe(permits(family, 'unverified-send'))
 }

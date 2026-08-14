@@ -172,7 +172,9 @@ export const opencodeManifest: AgentManifest = {
     }),
     embedded: unsupported('opencode ships a server, not a library to host in-process'),
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    select: (ctx) => selectRuntimeDriver(ctx, ['opencode-server', 'generic-pty']),
+    // BEHAVIOR-NEUTRAL IN W1: terminal, because the server driver does not
+    // exist yet. W5 — the pilot — puts 'opencode-server' first once it does.
+    select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },
   headless: supported({
     driver: 'resume-exec',

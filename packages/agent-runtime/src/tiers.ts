@@ -10,10 +10,20 @@
  * A tier recorded in prose grows exactly the same way — nobody's build fails when
  * a new primitive quietly calls itself core.
  *
- * So the boundary is a `satisfies Record<RuntimePrimitive, RuntimeTier>`: TOTAL
- * over the primitive names, which makes adding a primitive without tiering it a
- * COMPILE error, and makes "which primitives must a driver implement or decline"
- * a value the conformance suite reads rather than a list a reviewer remembers.
+ * So the boundary is a `satisfies Record<RuntimePrimitive, RuntimeTier>`, and
+ * `RuntimePrimitive` is the key set of that table: the two cannot drift apart,
+ * and "which primitives must a driver implement or decline" becomes a value the
+ * conformance suite reads rather than a list a reviewer remembers.
+ *
+ * WHAT THIS DOES AND DOES NOT PROVE, stated plainly because the distinction is
+ * easy to overclaim: `satisfies Record<>` makes the table total over the UNION,
+ * not over the SURFACE. Adding a verb to `AgentSessionHandle` or `AgentRuntime`
+ * without adding its name below is not a compile error — the union is maintained
+ * by hand, which is the same weakness a paragraph has. What the table buys is
+ * that the union and the tiering can never disagree, and that the tier is a
+ * value rather than prose. Keeping the union honest against the interfaces is a
+ * review obligation; `packages/agent-runtime/src/testing/manifest-axis.test.ts`
+ * pins the handful the conformance corpus depends on.
  *
  * THE RULE FOR NEW ENTRIES: new primitives default to `extended` and must argue
  * their way into `core`. The argument is: a Podium feature consumes it AND every
@@ -33,6 +43,13 @@ export type RuntimeTier = 'core' | 'extended'
 /** Every primitive on the surface, named. The union is the key set of
  *  {@link RUNTIME_PRIMITIVE_TIER}, so the two cannot drift apart. */
 export type RuntimePrimitive =
+  // runtime-level, per machine (./runtime.ts)
+  | 'import'
+  | 'list'
+  | 'quota'
+  | 'usage'
+  | 'accounts'
+  | 'login'
   // lifecycle & identity
   | 'create'
   | 'resume'
@@ -62,13 +79,20 @@ export type RuntimePrimitive =
   // extended
   | 'draft'
   | 'configure'
-  | 'usage'
-  | 'quota'
   | 'openUrl'
   | 'title'
   | 'accentColor'
 
 export const RUNTIME_PRIMITIVE_TIER = {
+  // ---- CORE: runtime-level (per machine) ---------------------------------
+  // `import` is core because the ARCHIVE GUARANTEE is: an archive must be
+  // sufficient to continue the conversation on any machine with the same
+  // harness, and without this verb that promise has nothing to honour it.
+  import: 'core',
+  // What is ACTUALLY running, read from the process table. Core because adopt
+  // needs it: a supervisor that cannot enumerate survivors cannot rebind them.
+  list: 'core',
+
   // ---- CORE: lifecycle & identity ----------------------------------------
   create: 'core',
   resume: 'core',
@@ -116,8 +140,13 @@ export const RUNTIME_PRIMITIVE_TIER = {
   // board's accent colours all degrade cleanly when a driver declines.
   draft: 'extended',
   configure: 'extended',
+  // Machine accounting and accounts. Extended because every one of them
+  // degrades cleanly: a harness that reports no quota simply shows no quota,
+  // and a driver is not less complete for it.
   usage: 'extended',
   quota: 'extended',
+  accounts: 'extended',
+  login: 'extended',
   openUrl: 'extended',
   title: 'extended',
   accentColor: 'extended',

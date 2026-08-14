@@ -213,11 +213,13 @@ export const claudeCodeManifest: AgentManifest = {
       // fallback, and `unverified` is the honest answer when even that times out.
       sendProof: ['hook', 'transcript-echo'],
     },
-    select: (ctx) =>
-      selectRuntimeDriver(
-        ctx,
-        ctx.auth === 'subscription' ? ['claude-pty'] : ['claude-sdk', 'claude-pty'],
-      ),
+    // BEHAVIOR-NEUTRAL IN W1: terminal everywhere, because no other driver
+    // EXISTS yet and a policy that names one would be a promise this build
+    // cannot keep. The auth axis it will turn on is already written down above —
+    // subscription stays terminal (the compliant path) and api-key/bedrock/
+    // vertex move to `claude-sdk` — and the embedded driver item flips the
+    // order here when there is something to select.
+    select: (ctx) => selectRuntimeDriver(ctx, ['claude-pty']),
   },
   headless: supported({
     // One turn through the Claude Agent SDK; the first turn mints the session id

@@ -18,6 +18,11 @@
       "@podium/source": "./src/metadata.ts",
       "types": "./dist/metadata.d.ts",
       "import": "./dist/metadata.js"
+    },
+    "./testing": {
+      "@podium/source": "./src/testing/index.ts",
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
     }
   },
   "files": [
@@ -30,7 +35,6 @@
     "@podium/harness": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
-    "@podium/pty": "workspace:*",
     "zod": "^3.24.1"
   },
   "scripts": {

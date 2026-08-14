@@ -22,7 +22,7 @@
  * every consumer must branch on it. The spec permits exactly two, both terminal.
  */
 
-import type { DriverFamily } from './contract.js'
+import type { DriverFamily } from './families.js'
 
 /** One named weakness a family may exhibit. */
 export type PermittedFailure =

@@ -12,15 +12,14 @@
 
 import { unsupported } from '@podium/harness'
 import { describe, expect, it } from 'vitest'
-import type { SessionSpec } from '../../src/contract.js'
+import type { SessionSpec } from '../../index.js'
+import { PERMITTED_FAILURES, permits, RUNTIME_PRIMITIVE_TIER } from '../../index.js'
 import {
   createFakeServerDriver,
   createFakeTerminalDriver,
   resetFakeRuntime,
-} from '../../src/fake-driver.js'
-import { PERMITTED_FAILURES, permits } from '../../src/permitted-failures.js'
-import { RUNTIME_PRIMITIVE_TIER } from '../../src/tiers.js'
-import { describeDriverConformance } from './suite.js'
+} from '../fake-driver.js'
+import { assertUnverifiedClaimHonest, describeDriverConformance } from './suite.js'
 import type { ConformanceControl } from './target.js'
 
 const spec = (): SessionSpec => ({
@@ -85,15 +84,29 @@ describe('the corpus has teeth', () => {
   // A green suite proves nothing until you have watched it go red. These pin the
   // two assertions most likely to rot into decoration.
 
-  it('would fail a server driver that claims a weakness its family may not have', () => {
+  it('REFUSES a server driver that claims a weakness its family may not have', () => {
     const dishonest = createFakeServerDriver({ mayReturnUnverified: true })
-    // This is exactly the pair the corpus's "claims `unverified` ONLY where the
-    // family permits it" property compares. Disagreement here is a red suite.
-    expect(dishonest.capabilities().send.mayReturnUnverified).toBe(true)
-    expect(permits('server', 'unverified-send')).toBe(false)
-    expect(dishonest.capabilities().send.mayReturnUnverified).not.toBe(
-      permits('server', 'unverified-send'),
-    )
+    // Calls the corpus's OWN checker, not a recomputation of it. An earlier
+    // version compared the same two values inline, so deleting the property from
+    // the suite would have left this green — a teeth test with no teeth.
+    expect(() => assertUnverifiedClaimHonest('server', dishonest.capabilities())).toThrow()
+  })
+
+  it('REFUSES a terminal driver that hides a weakness its family has', () => {
+    const dishonest = createFakeTerminalDriver({ mayReturnUnverified: false })
+    // The direction that actually protects callers: a terminal driver claiming
+    // it can always prove delivery is claiming protocol-grade fidelity over a
+    // screen scrape.
+    expect(() => assertUnverifiedClaimHonest('terminal', dishonest.capabilities())).toThrow()
+  })
+
+  it('ACCEPTS drivers that declare their family honestly', () => {
+    expect(() =>
+      assertUnverifiedClaimHonest('server', createFakeServerDriver().capabilities()),
+    ).not.toThrow()
+    expect(() =>
+      assertUnverifiedClaimHonest('terminal', createFakeTerminalDriver().capabilities()),
+    ).not.toThrow()
   })
 
   it('refuses to produce an unverified receipt from a driver that declared it cannot', async () => {

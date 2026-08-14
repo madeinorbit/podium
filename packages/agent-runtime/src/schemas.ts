@@ -12,11 +12,11 @@
  * package whose consumers are restricted to the machine host.
  *
  * What lives here is the other half of the bargain: proof that those schemas and
- * `./contract.ts`'s TypeScript types describe THE SAME THING. A hand-written
- * schema beside a hand-written type is two sources of truth that agree only
- * until somebody edits one of them, and the failure is silent — the schema keeps
+ * this package's TypeScript types describe THE SAME THING. A hand-written schema
+ * beside a hand-written type is two sources of truth that agree only until
+ * somebody edits one of them, and the failure is silent — the schema keeps
  * parsing, the type keeps compiling, and a field quietly stops crossing the
- * wire. The `exact` assertions at the bottom make that a COMPILE error instead.
+ * wire. The `exact` assertions below make that a COMPILE error instead.
  *
  * WHY THE TYPE IS AUTHORITATIVE AND THE SCHEMA IS CHECKED (the inverse of
  * protocol's usual infer-from-zod direction, on purpose): the contract's types
@@ -25,45 +25,48 @@
  * those through a lossy round-trip. So the surface is defined as TypeScript and
  * the wire is proved equal to it, arm by arm.
  *
- * ONE PLACE THEY DELIBERATELY DIVERGE, and it is asserted below in the weaker
- * direction rather than not at all: `RuntimeEvent.change` and
- * `SessionSnapshot.state` are open records on the wire, because
- * `AgentStateEvent` and `AgentRuntimeState` are defined in `@podium/harness` and
- * `@podium/model`-adjacent code ABOVE protocol. This package re-narrows them at
- * its own boundary, where that import is legal.
+ * ---------------------------------------------------------------------------
+ * WHAT HAS NO SCHEMA IN W1, AND WHY THAT IS NOT AN OVERSIGHT
+ * ---------------------------------------------------------------------------
+ *
+ * `SessionBinding`, `SessionSnapshot`, `AttachEndpoint`, `SessionLease`,
+ * `SessionHealth` and `UsageSnapshot` are contract TYPES with no wire schema
+ * yet. Their first producer is W3 (the terminal driver) or W5 (attach
+ * negotiation), and a schema nothing can produce is a promise to a client this
+ * build cannot keep. They get schemas — and these assertions — in the item that
+ * gives them a producer.
+ *
+ * THE ONE DELIBERATE DIVERGENCE among what IS projected: `RuntimeEvent.change`
+ * is an open record on the wire, because `AgentStateEvent` is defined in
+ * `@podium/harness`, ABOVE protocol — the same directional constraint that put
+ * these schemas in protocol to begin with. It is asserted below in the weaker
+ * direction, which is the true one.
  */
 
 import type { z } from 'zod'
 import type {
-  AttachEndpoint,
-  CausalEnvelope,
-  DriverFamily,
-  DriverId,
   ExitClassification,
   FailureDisposition,
-  InputOrigin,
+  ProcessEvent,
+  TurnEvent,
+  TurnFailureReason,
+} from './errors.js'
+import type { CausalEnvelope, RuntimeEvent, TranscriptItemDelta } from './events.js'
+import type {
   InteractionAnswerability,
   InteractionAnswerOutcome,
   InteractionKind,
   InteractionSource,
   PendingInteraction,
-  ProcessEvent,
-  ProcessIdentity,
+} from './interactions.js'
+import type {
+  InputOrigin,
   Refusal,
   RefusalReason,
-  RuntimeEvent,
   SendProof,
-  SessionBinding,
-  SessionHealth,
-  SessionLease,
-  TerminalStreamRef,
-  TranscriptItemDelta,
   TurnDelivery,
-  TurnEvent,
-  TurnFailureReason,
   TurnReceipt,
-  UsageSnapshot,
-} from './contract.js'
+} from './turns.js'
 
 // ---------------------------------------------------------------------------
 // Re-export the wire schemas at this package's boundary
@@ -76,10 +79,7 @@ import type {
  * is the house style.
  */
 export {
-  AttachEndpoint as AttachEndpointSchema,
   CausalEnvelope as CausalEnvelopeSchema,
-  DriverFamily as DriverFamilySchema,
-  DriverId as DriverIdSchema,
   ExitClassification as ExitClassificationSchema,
   FailureDisposition as FailureDispositionSchema,
   InteractionAnswerability as InteractionAnswerabilitySchema,
@@ -90,7 +90,6 @@ export {
   ObservationInputOrigin as InputOriginSchema,
   PendingInteraction as PendingInteractionSchema,
   ProcessEvent as ProcessEventSchema,
-  ProcessIdentity as ProcessIdentitySchema,
   Refusal as RefusalSchema,
   RefusalReason as RefusalReasonSchema,
   RUNTIME_FRAME_TYPES,
@@ -100,24 +99,15 @@ export {
   RuntimeEventMessage as RuntimeEventMessageSchema,
   RuntimeMessage as RuntimeMessageSchema,
   SendProof as SendProofSchema,
-  SessionBinding as SessionBindingSchema,
-  SessionHealth as SessionHealthSchema,
-  SessionLease as SessionLeaseSchema,
-  SessionSnapshot as SessionSnapshotSchema,
-  TerminalStreamRef as TerminalStreamRefSchema,
   TranscriptItemDelta as TranscriptItemDeltaSchema,
   TurnDelivery as TurnDeliverySchema,
   TurnEvent as TurnEventSchema,
   TurnFailureReason as TurnFailureReasonSchema,
   TurnReceipt as TurnReceiptSchema,
-  UsageSnapshot as UsageSnapshotSchema,
 } from '@podium/protocol'
 
 import type {
-  AttachEndpoint as AttachEndpointWire,
   CausalEnvelope as CausalEnvelopeWire,
-  DriverFamily as DriverFamilyWire,
-  DriverId as DriverIdWire,
   ExitClassification as ExitClassificationWire,
   FailureDisposition as FailureDispositionWire,
   InteractionAnswerability as InteractionAnswerabilityWire,
@@ -127,21 +117,15 @@ import type {
   ObservationInputOrigin,
   PendingInteraction as PendingInteractionWire,
   ProcessEvent as ProcessEventWire,
-  ProcessIdentity as ProcessIdentityWire,
   RefusalReason as RefusalReasonWire,
   Refusal as RefusalWire,
   RuntimeEvent as RuntimeEventWire,
   SendProof as SendProofWire,
-  SessionBinding as SessionBindingWire,
-  SessionHealth as SessionHealthWire,
-  SessionLease as SessionLeaseWire,
-  TerminalStreamRef as TerminalStreamRefWire,
   TranscriptItemDelta as TranscriptItemDeltaWire,
   TurnDelivery as TurnDeliveryWire,
   TurnEvent as TurnEventWire,
   TurnFailureReason as TurnFailureReasonWire,
   TurnReceipt as TurnReceiptWire,
-  UsageSnapshot as UsageSnapshotWire,
 } from '@podium/protocol'
 
 // ---------------------------------------------------------------------------
@@ -160,8 +144,6 @@ const exact = <A, B>(_proof: Exact<A, B>): void => {}
  *  type: every value the type admits must still be a value the wire accepts. */
 const encodes = <A, B>(_proof: [A] extends [B] ? true : false): void => {}
 
-exact<z.infer<typeof DriverFamilyWire>, DriverFamily>(true)
-exact<z.infer<typeof DriverIdWire>, DriverId>(true)
 exact<z.infer<typeof TurnDeliveryWire>, TurnDelivery>(true)
 exact<z.infer<typeof ObservationInputOrigin>, InputOrigin>(true)
 exact<z.infer<typeof SendProofWire>, SendProof>(true)
@@ -179,23 +161,9 @@ exact<z.infer<typeof TurnReceiptWire>, TurnReceipt>(true)
 exact<z.infer<typeof TurnEventWire>, TurnEvent>(true)
 exact<z.infer<typeof PendingInteractionWire>, PendingInteraction>(true)
 exact<z.infer<typeof ProcessEventWire>, ProcessEvent>(true)
-exact<z.infer<typeof ProcessIdentityWire>, ProcessIdentity>(true)
-exact<z.infer<typeof SessionBindingWire>, SessionBinding>(true)
-exact<z.infer<typeof TerminalStreamRefWire>, TerminalStreamRef>(true)
-exact<z.infer<typeof SessionLeaseWire>, SessionLease>(true)
-exact<z.infer<typeof SessionHealthWire>, SessionHealth>(true)
-exact<z.infer<typeof UsageSnapshotWire>, UsageSnapshot>(true)
 exact<z.infer<typeof TranscriptItemDeltaWire>, TranscriptItemDelta>(true)
 
-// `AttachEndpoint` is exact: the spec's reserved `user-local` and `handover`
-// variants are deliberately NOT arms of this union — they are separate types, so
-// that adding one later is an edit somebody makes on purpose rather than a
-// widening the wire silently already allowed.
-exact<z.infer<typeof AttachEndpointWire>, AttachEndpoint>(true)
-
-// THE ONE DELIBERATE DIVERGENCE, asserted in the direction that still holds.
-// `RuntimeEvent`'s `change` is an open record on the wire because
-// `AgentStateEvent` is defined in `@podium/harness`, ABOVE protocol — the same
-// directional constraint that put these schemas in protocol to begin with. The
-// weaker claim is the true one: every event the contract admits still encodes.
+// See the header: the wire's `change` is an open record because `AgentStateEvent`
+// lives above protocol. The weaker claim is the true one — every event the
+// contract admits still encodes.
 encodes<RuntimeEvent, z.infer<typeof RuntimeEventWire>>(true)

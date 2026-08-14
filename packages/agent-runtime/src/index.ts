@@ -1,18 +1,73 @@
 /**
- * `@podium/agent-runtime` — the Agent Runtime contract (POD-1761).
+ * `@podium/agent-runtime` — THE AGENT RUNTIME CONTRACT (POD-1761).
  *
- * HOST CAPABILITY. Importing this barrel means taking the capability to drive
- * agent processes: the drivers behind this contract spawn PTYs, harness servers
- * and SDK worker children. The architecture manifest restricts this package's
- * consumers to the machine host (`apps/daemon`) and the build tier.
+ * ---------------------------------------------------------------------------
+ * WHAT THIS PACKAGE IS
+ * ---------------------------------------------------------------------------
  *
- * Everyone else — `apps/server` above all — imports `@podium/agent-runtime/metadata`,
- * which carries FACTS ABOUT THE CONTRACT (its tiers, its families, its
- * permitted-failures table, its wire schemas) and no way to act on a host.
+ * The complete set of primitives every harness session sits behind, whatever
+ * drives it (spec §2, §3 — `docs/2026-08-07-agent-runtime-architecture.html`).
+ * Podium features may touch a session ONLY through this surface. That is the
+ * whole point: it is built in FRONT of today's PTY stack rather than after it,
+ * so that codex-terminal → codex-server becomes a driver swap no feature
+ * notices.
+ *
+ * Everything the spec calls "deliberately not in the surface" — raw PTY writes,
+ * hook ingest, transcript file paths, abduco socket names, screen/VT state,
+ * harness settings files — is private to a driver and appears nowhere here. The
+ * one exception is the frame stream, which appears only inside an
+ * `AttachEndpoint`.
+ *
+ * ---------------------------------------------------------------------------
+ * FIVE RULES govern what earns a place (spec §3)
+ * ---------------------------------------------------------------------------
+ *
+ *   1. A primitive earns its place only if a Podium feature consumes it, AND
+ *      every family can implement it or honestly decline it (`Declared<T>` —
+ *      consumers branch and degrade; never a silent substitution).
+ *   2. Guarantees are family-invariant; fidelity is declared. `send()` means the
+ *      same thing on every driver — what varies is the declared mechanism and
+ *      confidence, never the semantics.
+ *   3. Every write returns a receipt or a typed refusal. Never fire-and-hope.
+ *   4. Every read is causally enveloped — see `CausalEnvelope` in ./events.ts.
+ *   5. Machine-transparent: every primitive relays identically over the daemon
+ *      WS for local, remote and cloud machines.
+ *
+ * TWO TIERS, so rule 1 has counter-pressure. The CORE contract is what a new
+ * driver MUST implement or explicitly decline, and is all the conformance suite
+ * pins. The EXTENDED tier is feature seams that never block a driver: a driver
+ * shipping only the core is COMPLETE. New primitives default to extended and
+ * must argue their way into core. The boundary is DATA, not prose — see
+ * ./tiers.ts, which is total over the primitive names, so adding a primitive
+ * without tiering it is a compile error.
+ *
+ * ---------------------------------------------------------------------------
+ * HOST CAPABILITY
+ * ---------------------------------------------------------------------------
+ *
+ * Importing this barrel means taking the capability to drive agent processes:
+ * the drivers behind this contract spawn PTYs, harness servers and SDK worker
+ * children. The architecture manifest restricts this package's consumers to the
+ * machine host (`apps/daemon`) and the build tier.
+ *
+ * Everyone else — `apps/server` above all — imports
+ * `@podium/agent-runtime/metadata`, which carries FACTS ABOUT THE CONTRACT (its
+ * tiers, its families, its permitted-failures table, its wire schemas) and no
+ * way to act on a host. Drivers under test import
+ * `@podium/agent-runtime/testing` for the conformance corpus.
  */
 
-export * from './contract.js'
-export * from './fake-driver.js'
+export * from './attach.js'
+export * from './binding.js'
+export * from './capabilities.js'
+export * from './driver.js'
+export * from './errors.js'
+export * from './events.js'
+export * from './families.js'
+export * from './interactions.js'
 export * from './permitted-failures.js'
+export * from './runtime.js'
 export * from './schemas.js'
+export * from './session-spec.js'
 export * from './tiers.js'
+export * from './turns.js'

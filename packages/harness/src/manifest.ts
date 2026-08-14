@@ -522,35 +522,79 @@ export interface AgentRuntimeAxis {
    * context — no clock, no filesystem, no network — because the server plans a
    * spawn with it and the machine performs one with it, and the two must agree.
    *
-   * It must return an id present in `ctx.available`: a policy that names an
-   * unavailable driver is a bug in the policy, not a runtime fallback.
+   * TOTAL: it always returns an id, because a caller planning a spawn has no
+   * sensible branch for "no answer". When `ctx.available` contains any candidate
+   * the policy ranks, the answer is one of those. When it contains NONE — an
+   * unusable or not-yet-probed machine — the answer is this harness's TERMINAL
+   * driver id, which the caller must treat as a diagnostic ("this machine
+   * reports it cannot run this harness") rather than as a green light.
+   *
+   * The alternative — returning `undefined` and making every caller invent a
+   * fallback — pushes the same decision to N call sites and guarantees they
+   * disagree. See {@link selectRuntimeDriver}, which is where the rule is
+   * implemented once.
    */
-  select(ctx: RuntimeSelectionContext): RuntimeDriverId
+  select(ctx: SelectionContext): DriverId
 }
 
-/** Mirrors `DriverId` in `@podium/agent-runtime`. Restated here rather than
- *  imported because that package sits ABOVE this one — the manifest names the
- *  driver it wants; the runtime package owns what a driver IS. The conformance
- *  package asserts the two lists agree. */
-export type RuntimeDriverId =
-  | 'codex-app-server'
-  | 'opencode-server'
-  | 'claude-sdk'
-  | 'claude-pty'
-  | 'generic-pty'
-  | 'fake'
+/**
+ * THE DRIVER TAXONOMY IS DEFINED HERE, and `@podium/agent-runtime` re-exports it.
+ *
+ * The direction is forced: agent-runtime imports this package, never the
+ * reverse, and a cycle would be rejected by turbo, `declared-deps` and the layer
+ * manifest alike. So the names the MANIFEST needs — the families, the driver
+ * ids, the three `*RuntimeSpec` shapes and the selection context — live beside
+ * the manifest that declares them, and the runtime package aliases them rather
+ * than keeping a second copy reconciled by a test.
+ *
+ * CLOSED on purpose: a driver lands as code in `packages/agent-runtime`, so a
+ * new id is a deliberate edit here rather than a string that typos silently.
+ */
+/**
+ * The three ways a harness can be driven (spec §2). A harness may support
+ * several; `select()` picks one per session at spawn.
+ *
+ * `terminal` IS A PERMANENT TIER, NOT A DEPRECATION PATH: it is the only
+ * subscription-preserving way to run Claude Code and the only way to run a
+ * harness that never grows a protocol. What changes is its RANK — it stops
+ * being the definition of a session and becomes one driver behind one contract.
+ */
+export type DriverFamily = 'server' | 'embedded' | 'terminal'
+
+export const DRIVER_IDS = [
+  /** `codex app-server` over JSON-RPC on a per-session unix socket (W6). */
+  'codex-app-server',
+  /** `opencode serve` over HTTP + SSE on a secret-guarded loopback port (W5). */
+  'opencode-server',
+  /** The Claude Agent SDK loop, hosted in a runtime-owned worker child. */
+  'claude-sdk',
+  /** Today's interactive Claude CLI under abduco, wrapped (W3). */
+  'claude-pty',
+  /** The same terminal mechanism for harnesses with no protocol (grok, cursor). */
+  'generic-pty',
+  /** The in-memory reference driver the conformance corpus runs against. */
+  'fake',
+] as const
+
+/** A CONST ARRAY rather than a bare union, so the set exists at RUN time too:
+ *  the conformance corpus checks that every manifest names a driver this build
+ *  knows, and a type-only union cannot be iterated to do that. */
+export type DriverId = (typeof DRIVER_IDS)[number]
 
 /** What `select()` is allowed to decide on. `auth` is the load-bearing axis:
  *  Claude on a subscription is terminal (the compliant path) and on an API key
  *  is embedded. */
-export interface RuntimeSelectionContext {
+export interface SelectionContext {
   auth: 'subscription' | 'api-key' | 'bedrock' | 'vertex' | 'unknown'
   platform: NodeJS.Platform
-  /** Driver ids this machine can actually run right now. */
-  available: readonly RuntimeDriverId[]
+  /** Driver ids this machine can actually run right now: binary present,
+   *  version in the pinned range. May be EMPTY on a machine that has not been
+   *  probed or cannot run this harness at all — see `select()` for what that
+   *  answers. */
+  available: readonly DriverId[]
   /** The operator's explicit choice, honoured over the policy's own preference —
    *  but still only if it is available. */
-  preference?: RuntimeDriverId
+  preference?: DriverId
   role?: 'interactive' | 'executor'
 }
 
@@ -566,7 +610,7 @@ export interface RuntimeSelectionContext {
  * conformance suite tests.
  */
 export interface ServerRuntimeSpec {
-  driverId: RuntimeDriverId
+  driverId: DriverId
   kind: 'jsonrpc' | 'http-sse'
   /** argv that starts the server. The port/socket is chosen per session by the
    *  driver, so this is the STEM, not a complete command line. */
@@ -609,7 +653,7 @@ export interface ServerRuntimeSpec {
  *  owns — deliberately NOT in the supervisor's heap, so a runaway embedded
  *  session cannot OOM the daemon (spec §6). */
 export interface EmbeddedRuntimeSpec {
-  driverId: RuntimeDriverId
+  driverId: DriverId
   module: string
   /** Auth modes the SDK actually supports headlessly. Subscription OAuth is
    *  absent from every entry today, which is exactly why Claude-on-subscription
@@ -621,7 +665,7 @@ export interface EmbeddedRuntimeSpec {
  *  still the spawn — but the family needs an id and needs to say what it can
  *  prove about a send. */
 export interface TerminalRuntimeSpec {
-  driverId: RuntimeDriverId
+  driverId: DriverId
   /**
    * How this harness's terminal driver proves a send was accepted, in preference
    * order. `hook` is available only where a CAUSAL hook exists — Claude's
@@ -649,16 +693,16 @@ export interface TerminalRuntimeSpec {
  * reading in each manifest.
  */
 export function selectRuntimeDriver(
-  ctx: RuntimeSelectionContext,
-  ranked: readonly [...RuntimeDriverId[], RuntimeDriverId],
-): RuntimeDriverId {
+  ctx: SelectionContext,
+  ranked: readonly [...DriverId[], DriverId],
+): DriverId {
   const available = new Set(ctx.available)
   // An explicit operator choice wins over the policy — but only if the machine
   // can actually run it. Honouring an unavailable preference would turn a
   // settings toggle into a broken session.
   if (ctx.preference && available.has(ctx.preference)) return ctx.preference
   for (const id of ranked) if (available.has(id)) return id
-  return ranked[ranked.length - 1] as RuntimeDriverId
+  return ranked[ranked.length - 1] as DriverId
 }
 
 // ---------------------------------------------------------------------------

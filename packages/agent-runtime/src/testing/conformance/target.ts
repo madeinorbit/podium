@@ -20,14 +20,15 @@
  * nudged differs.
  */
 
+import type { SessionId } from '@podium/model'
 import type {
   DriverFamily,
   InteractionKind,
+  PermittedFailure,
   ProcessEvent,
   RuntimeDriver,
-  SessionId,
   SessionSpec,
-} from './contract-imports.js'
+} from '../../index.js'
 
 /** The out-of-band nudges the corpus needs. Structurally satisfied by the
  *  fake's `control`; real drivers implement it against their own harness. */
@@ -53,4 +54,17 @@ export interface ConformanceTarget {
   reset(): void
   /** A spec the driver can actually start. */
   spec(): SessionSpec
+}
+
+/**
+ * What a caller may say about a driver beyond how to build it.
+ *
+ * `exemptions` is deliberately a CLAIM the suite CHECKS, not a set of skips it
+ * obeys. It must equal the family's row in `PERMITTED_FAILURES` exactly: a
+ * driver claiming a weakness its family does not permit fails, and so does one
+ * that quietly exhibits a weakness it did not claim. A suite whose exemption
+ * list only ever silences things proves nothing about the hardest driver.
+ */
+export interface ConformanceOptions {
+  exemptions?: readonly PermittedFailure[]
 }

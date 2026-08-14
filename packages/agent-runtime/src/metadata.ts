@@ -38,79 +38,70 @@
  * out makes that mistake visible at the import rather than three files later.
  */
 
-// ---- The taxonomy: families, driver ids, tiers -----------------------------
+// ---- The taxonomy and the tier boundary ------------------------------------
 
 // ---- The value types the server projects -----------------------------------
 // Types only: erased at build, carrying nothing at all, and listed by name
 // rather than starred for the same reason as everything above.
+export type { AttachEndpoint, SessionLease } from './attach.js'
 export type {
-  AttachEndpoint,
-  CausalEnvelope,
-  DriverFamily,
-  DriverId,
+  ProcessIdentity,
+  SessionArchive,
+  SessionBinding,
+  SessionSnapshot,
+} from './binding.js'
+export type { SessionHealth, UsageSnapshot } from './capabilities.js'
+export type {
   ExitClassification,
   FailureDisposition,
-  InputOrigin,
+  ProcessEvent,
+  TurnEvent,
+  TurnFailureReason,
+} from './errors.js'
+export type {
+  CausalEnvelope,
+  RuntimeEvent,
+  TranscriptItemDelta,
+  WatchLevel,
+} from './events.js'
+export type { DriverFamily, DriverId } from './families.js'
+export type {
   InteractionAnswerability,
   InteractionAnswerOutcome,
   InteractionKind,
+  InteractionPayload,
   InteractionSource,
   PendingInteraction,
-  ProcessEvent,
-  ProcessIdentity,
-  Refusal,
-  RefusalReason,
-  RuntimeEvent,
-  SendProof,
-  SessionArchive,
-  SessionBinding,
-  SessionHealth,
-  SessionLease,
-  SessionSnapshot,
-  TranscriptItemDelta,
-  TurnDelivery,
-  TurnEvent,
-  TurnFailureReason,
-  TurnReceipt,
-  UsageSnapshot,
-  WatchLevel,
-} from './contract.js'
-export { DRIVER_IDS } from './contract.js'
+} from './interactions.js'
 export type { PermittedFailure } from './permitted-failures.js'
-
 // ---- What each family is permitted to fail ---------------------------------
 // The server reads this to decide whether a weak outcome is a bug worth
 // surfacing or a declared property of the family that produced it.
 export { PERMITTED_FAILURES, permits } from './permitted-failures.js'
 // ---- The wire projection ---------------------------------------------------
-// Pure zod: the server parses and re-serializes these at its boundary.
+// Pure zod, defined in `@podium/protocol` and surfaced here under the contract's
+// own names. The server parses and re-serializes these at its boundary.
 export {
-  AttachEndpointSchema,
   CausalEnvelopeSchema,
-  DriverFamilySchema,
-  DriverIdSchema,
   ExitClassificationSchema,
   FailureDispositionSchema,
   InputOriginSchema,
   InteractionAnswerabilitySchema,
+  InteractionAnswerOutcomeSchema,
   InteractionEventSchema,
   InteractionKindSchema,
   InteractionSourceSchema,
   PendingInteractionSchema,
   ProcessEventSchema,
-  ProcessIdentitySchema,
   RefusalReasonSchema,
   RefusalSchema,
+  RUNTIME_FRAME_TYPES,
   SendProofSchema,
-  SessionBindingSchema,
-  SessionHealthSchema,
-  SessionLeaseSchema,
-  TerminalStreamRefSchema,
+  TranscriptItemDeltaSchema,
   TurnDeliverySchema,
   TurnEventSchema,
   TurnFailureReasonSchema,
   TurnReceiptSchema,
-  UsageSnapshotSchema,
 } from './schemas.js'
 export type { RuntimePrimitive, RuntimeTier } from './tiers.js'
 export {
@@ -119,3 +110,11 @@ export {
   RUNTIME_PRIMITIVE_TIER,
   tierOf,
 } from './tiers.js'
+export type {
+  InputOrigin,
+  Refusal,
+  RefusalReason,
+  SendProof,
+  TurnDelivery,
+  TurnReceipt,
+} from './turns.js'

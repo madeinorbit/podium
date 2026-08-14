@@ -329,7 +329,10 @@ export const codexManifest: AgentManifest = {
     // The permanent fallback: a protocol break degrades Codex sessions to the
     // terminal driver instead of stranding them (spec §3, churn stance).
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    select: (ctx) => selectRuntimeDriver(ctx, ['codex-app-server', 'generic-pty']),
+    // BEHAVIOR-NEUTRAL IN W1: terminal, because the app-server driver does not
+    // exist yet. W6 puts 'codex-app-server' first — and, unusually, for EVERY
+    // auth mode, since ChatGPT subscription auth works headless here.
+    select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },
   headless: supported({
     driver: 'codex-json',

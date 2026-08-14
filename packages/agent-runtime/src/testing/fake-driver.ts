@@ -65,7 +65,7 @@ import type {
   TurnReceipt,
   UsageSnapshot,
   WatchLevel,
-} from './contract.js'
+} from '../index.js'
 
 // ---------------------------------------------------------------------------
 // The surviving-process registry — what makes `adopt()` testable
@@ -193,6 +193,9 @@ interface SessionCore {
   watchers: Map<WatchLevel, number>
   usage: UsageSnapshot
   interruptRequested: boolean
+  /** Bumped on every simulated supervisor restart. A handle minted before the
+   *  bump is stale and refuses — see `restartSupervisor`. */
+  handleGeneration: number
   nextId: number
 }
 
@@ -374,6 +377,17 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
 
   function makeHandle(core: SessionCore): AgentSessionHandle {
     const refuse = (reason: Refusal['reason'], detail?: string): Refusal => ({ reason, detail })
+    // The generation this handle was minted at. A supervisor restart invalidates
+    // it, so holding a stale handle across one is an error the fake REPORTS
+    // rather than tolerates.
+    const mintedAt = core.handleGeneration
+    const assertLive = (): void => {
+      if (core.handleGeneration !== mintedAt) {
+        throw new Error(
+          'fake: this handle was minted before a supervisor restart — adopt() the binding to get a live one',
+        )
+      }
+    }
 
     const handle: AgentSessionHandle = {
       get binding() {
@@ -418,6 +432,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
 
       // ---- identity ----
       async snapshot(): Promise<SessionSnapshot> {
+        assertLive()
         return {
           binding: core.binding,
           state: core.state,
@@ -451,13 +466,14 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
             harness: core.binding.harness,
             workdir: core.binding.workdir,
             resume: core.binding.resume,
-            account: core.binding.account,
+            principal: core.binding.principal,
           },
         }
       },
 
       // ---- turns ----
       async send(_input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        assertLive()
         if (!core.alive) return { outcome: 'refused', refusal: refuse('not_running') }
         if (core.interactions.size > 0) {
           return {
@@ -713,7 +729,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         harness,
         workdir: spec.workdir,
         resume,
-        account: spec.account,
+        principal: spec.principal,
         process: { key: processKey, scopeUnit: `podium-fake-sess-${sessionId}.scope`, pid: 4242 },
         bindingVersion: 1,
       },
@@ -739,6 +755,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       watchers: new Map(),
       usage: {},
       interruptRequested: false,
+      handleGeneration: 0,
       nextId: 1,
     }
     SURVIVORS.set(processKey, core)
@@ -805,7 +822,16 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       // Handles die; survivors do not. The observer generation bump happens on
       // ADOPT, not here — a restart nobody adopted through has not re-observed
       // anything, and pretending otherwise would fabricate a generation.
-      for (const core of SURVIVORS.values()) core.wakers.clear()
+      //
+      // `handleGeneration` is what makes "the handle dies" TRUE rather than
+      // merely narrated. An earlier version only cleared the wakers, so the
+      // pre-restart handle stayed fully usable and a test could have passed by
+      // never letting go of it — which is precisely the mistake `adopt()`
+      // exists to prevent a daemon from making.
+      for (const core of SURVIVORS.values()) {
+        core.wakers.clear()
+        core.handleGeneration += 1
+      }
     },
     connectWithoutSecret(sessionId) {
       const core = coreFor(sessionId)

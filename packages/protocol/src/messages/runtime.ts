@@ -7,21 +7,31 @@ import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from '.
  * contract (POD-1761 W1; docs/2026-08-07-agent-runtime-architecture.html §3, §8).
  *
  * ---------------------------------------------------------------------------
- * WHY THE SCHEMAS LIVE HERE AND NOT IN `packages/agent-runtime`
+ * WHAT IS HERE, AND WHAT IS DELIBERATELY NOT
  * ---------------------------------------------------------------------------
  *
- * `packages/agent-runtime` is L2 and depends on this package; the dependency
- * cannot point the other way. If the contract's value schemas lived up there,
- * every consumer that only needs to PARSE a runtime frame — the server, the
- * clients, the CLI — would have to import a package whose consumers are
- * restricted to the machine host, which is precisely the coupling the boundary
- * exists to prevent.
+ * Exactly three things cross the wire in W1: TURN RECEIPTS, the RUNTIME EVENT
+ * envelope, and PENDING INTERACTIONS with their ask/answer commands. Those are
+ * the shapes W2's interactions aggregate and W3's terminal driver need to speak,
+ * and no more.
  *
- * So the VALUES are defined here, once, and `@podium/agent-runtime/schemas`
- * imports them and asserts them structurally equal to its TypeScript contract.
- * One definition site, one drift guard, and the layering points the right way.
- * `ProviderCursor` above is the standing precedent: the causal observation
- * protocol already lives in this file's neighbour.
+ * NOT HERE, on purpose:
+ *   - The driver TAXONOMY (`DriverFamily`, `DriverId`, the `*RuntimeSpec`
+ *     shapes, `SelectionContext`). Those are defined once in `@podium/harness`,
+ *     beside the manifest that declares them, and re-exported by
+ *     `@podium/agent-runtime`. Protocol sits BELOW harness and must not import
+ *     it, so a copy here would be a third definition site reconciled by hope.
+ *     Nothing on this wire needs them yet.
+ *   - ATTACH NEGOTIATION. Its first consumer is W5, and a schema arm nothing can
+ *     produce is a promise to a client that this build cannot keep.
+ *   - `SessionBinding`, lease, health and usage — same rule: no producer, no
+ *     consumer, no schema.
+ *
+ * WHY HERE AND NOT IN `packages/agent-runtime`: that package is L2 and depends
+ * on this one, and its consumers are restricted to the machine host. A server or
+ * client that only needs to PARSE a runtime frame must be able to do so without
+ * taking a host capability. `ProviderCursor` in this file's neighbour is the
+ * standing precedent — the causal observation protocol already lives there.
  *
  * ---------------------------------------------------------------------------
  * WHY THE FRAMES ARE NOT YET ARMS OF `ControlMessage` / `DaemonMessage`
@@ -62,23 +72,8 @@ import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from '.
  */
 
 // ---------------------------------------------------------------------------
-// Families, drivers, deliveries
+// Deliveries and proof
 // ---------------------------------------------------------------------------
-
-export const DriverFamily = z.enum(['server', 'embedded', 'terminal'])
-export type DriverFamily = z.infer<typeof DriverFamily>
-
-/** CLOSED on purpose: a driver lands as code in `packages/agent-runtime`, so a
- *  new id is a deliberate edit rather than a string that typos silently. */
-export const DriverId = z.enum([
-  'codex-app-server',
-  'opencode-server',
-  'claude-sdk',
-  'claude-pty',
-  'generic-pty',
-  'fake',
-])
-export type DriverId = z.infer<typeof DriverId>
 
 export const TurnDelivery = z.enum(['when-ready', 'queue', 'interrupt', 'steer'])
 export type TurnDelivery = z.infer<typeof TurnDelivery>
@@ -281,36 +276,6 @@ export const ProcessEvent = z.discriminatedUnion('ev', [
 export type ProcessEvent = z.infer<typeof ProcessEvent>
 
 // ---------------------------------------------------------------------------
-// Binding — LIVE identity
-// ---------------------------------------------------------------------------
-
-export const ProcessIdentity = z.object({
-  /** Opaque, driver-private, and EXACT. `adopt()` matches on this; a prefix or
-   *  heuristic match adopts the wrong process, which is worse than not
-   *  adopting at all. */
-  key: z.string().min(1),
-  scopeUnit: z.string().optional(),
-  pid: z.number().int().positive().optional(),
-})
-export type ProcessIdentity = z.infer<typeof ProcessIdentity>
-
-export const SessionBinding = z.object({
-  sessionId: z.string().min(1).pipe(SessionIdField),
-  driver: DriverId,
-  family: DriverFamily,
-  harness: z.string().min(1),
-  workdir: z.string().min(1),
-  /** UNBRANDED BY DECISION: a harness-native resume ref is evidence, not Podium
-   *  identity. Null while the harness has not minted one — which is honest for
-   *  Codex's lazy rollout files and is why `hibernate` can refuse. */
-  resume: ResumeRef.nullable(),
-  account: z.string().optional(),
-  process: ProcessIdentity,
-  bindingVersion: z.number().int().nonnegative(),
-})
-export type SessionBinding = z.infer<typeof SessionBinding>
-
-// ---------------------------------------------------------------------------
 // The causal envelope and the event stream
 // ---------------------------------------------------------------------------
 
@@ -377,76 +342,40 @@ export const RuntimeEvent = z.intersection(CausalEnvelope, RuntimeEventBody)
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 
 // ---------------------------------------------------------------------------
-// Attach, lease, health, usage
-// ---------------------------------------------------------------------------
-
-export const TerminalStreamRef = z.object({ id: z.string().min(1) })
-export type TerminalStreamRef = z.infer<typeof TerminalStreamRef>
-
-/** Only the two LIVE variants. The spec's reserved `user-local` and `handover`
- *  arms are deliberately absent from the wire: a schema arm nothing can produce
- *  is a promise to a client that this build cannot keep. */
-export const AttachEndpoint = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('engine'), stream: TerminalStreamRef }),
-  z.object({
-    kind: z.literal('client'),
-    placement: z.literal('on-machine'),
-    stream: TerminalStreamRef,
-    warm: z.object({ ttlMs: z.number().int().nonnegative() }),
-  }),
-])
-export type AttachEndpoint = z.infer<typeof AttachEndpoint>
-
-/** ONE CONTROL LEASE PER SESSION: one driver-controller or one human-controller,
- *  unlimited spectators. Generalizes `exclusiveInteractiveResume` from a Claude
- *  quirk into the concurrency model. */
-export const SessionLease = z.object({
-  holder: z.string().min(1),
-  kind: z.enum(['driver-controller', 'human-controller']),
-  acquiredAt: z.string().datetime(),
-  expiresAt: z.string().datetime().optional(),
-})
-export type SessionLease = z.infer<typeof SessionLease>
-
-export const SessionHealth = z.object({
-  alive: z.boolean(),
-  memoryBytes: z.number().int().nonnegative().optional(),
-  scopeUnit: z.string().optional(),
-  oomEvents: z.number().int().nonnegative(),
-})
-export type SessionHealth = z.infer<typeof SessionHealth>
-
-export const UsageSnapshot = z.object({
-  inputTokens: z.number().int().nonnegative().optional(),
-  outputTokens: z.number().int().nonnegative().optional(),
-  costUsd: z.number().nonnegative().optional(),
-  contextUsedPercent: z.number().min(0).max(100).optional(),
-})
-export type UsageSnapshot = z.infer<typeof UsageSnapshot>
-
-export const SessionSnapshot = z.object({
-  binding: SessionBinding,
-  /** The normalized runtime state. Typed open here for the same layering reason
-   *  as `RuntimeEventBody.change`. */
-  state: z.record(z.string(), z.unknown()),
-  cursor: ProviderCursor,
-  observerGeneration: z.number().int().positive(),
-  turnEpoch: z.number().int().nonnegative(),
-  interactions: z.array(PendingInteraction).readonly(),
-  draft: z.string().optional(),
-  at: z.string().datetime(),
-})
-export type SessionSnapshot = z.infer<typeof SessionSnapshot>
-
-// ---------------------------------------------------------------------------
 // The frames
 // ---------------------------------------------------------------------------
 //
-// DECLARED, NOT YET ROUTED — see the header. Each carries a `requestId` where it
-// is half of a correlated pair, matching every other session verb on the
-// host edge.
+// DECLARED, NOT YET ROUTED. These are STANDALONE schemas, exactly like
+// `./runtime-state.ts` — they are deliberately NOT arms of `ControlMessage` /
+// `DaemonMessage` and carry no `MESSAGE_SYNC_CLASSES` entry in W1.
+//
+// [decided POD-2019 — recorded so a later pass can re-derive the argument.]
+// Those unions are compile-TOTAL in three places at once: the plane
+// classification tables in `./message-class.ts`, the edge membership sets in
+// `../planes/port-rule.ts`, and every `createDispatcher` over them — including
+// the daemon's control registry, where a mapped type makes a union member
+// without a handler a compile error. Folding these in now would force stub
+// handlers across apps and a plane classification argued from nothing, in a work
+// item whose acceptance criterion is NO BEHAVIOR CHANGE ANYWHERE. A
+// classification is a claim about durability and replay — "a lost one is a
+// permanent invisible gap" versus "the durable truth arrives by another path" —
+// and that claim cannot be made honestly before a producer and a consumer exist.
+//
+// SYNC-CLASS INTENT, as a comment now and a table entry when W2/W3 land a
+// producer:
+//   - `runtimeEvent`             durable-synced (`control.entity`). A lost
+//                                RuntimeEvent is a permanent gap in the causal
+//                                stream — the same argument as `feedDelta`.
+//   - `runtimeInteractionAsked`  durable-synced (`control.entity`). A blocking
+//                                ask nobody recovers is exactly the stuck
+//                                session §4 exists to abolish.
+//   - `runtimeSendRequest` and its result, `runtimeAnswerRequest` and its
+//                                result: command (`control.command`) — correlated
+//                                request/reply, like every other session verb.
+//
+// Attach negotiation is absent entirely: its first consumer is W5.
 
-/** server → daemon: drive one session verb through the contract. */
+/** server → daemon: the two write verbs W2 and W3 need. */
 export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('runtimeSendRequest'),
@@ -457,39 +386,17 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
     delivery: TurnDelivery,
   }),
   z.object({
-    type: z.literal('runtimeInterruptRequest'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-  }),
-  z.object({
     type: z.literal('runtimeAnswerRequest'),
     requestId: z.string(),
     sessionId: z.string().min(1).pipe(SessionIdField),
     interactionId: z.string().min(1),
     answer: z.record(z.string(), z.unknown()),
   }),
-  z.object({
-    type: z.literal('runtimeLifecycleRequest'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    verb: z.enum(['stop', 'hibernate', 'kill']),
-  }),
-  z.object({
-    type: z.literal('runtimeAttachRequest'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    mode: z.enum(['takeover', 'peek']),
-    holder: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal('runtimeSnapshotRequest'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-  }),
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
-/** daemon → server: receipts, results, and the causal event stream. */
+/** daemon → server: receipts, answer outcomes, the causal event stream, and the
+ *  ask that opens an interaction's durable life. */
 export const RuntimeEventMessage = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('runtimeSendResult'),
@@ -498,30 +405,15 @@ export const RuntimeEventMessage = z.discriminatedUnion('type', [
     receipt: TurnReceipt,
   }),
   z.object({
-    type: z.literal('runtimeLifecycleResult'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    /** A refusal is an OUTCOME, not an error: `hibernate` without a resume ref
-     *  is expected and the caller handles it. */
-    result: z.union([z.object({ ok: z.literal(true) }), Refusal]),
-  }),
-  z.object({
     type: z.literal('runtimeAnswerResult'),
     requestId: z.string(),
     sessionId: z.string().min(1).pipe(SessionIdField),
     outcome: InteractionAnswerOutcome,
   }),
   z.object({
-    type: z.literal('runtimeAttachResult'),
-    requestId: z.string(),
+    type: z.literal('runtimeInteractionAsked'),
     sessionId: z.string().min(1).pipe(SessionIdField),
-    endpoint: z.union([AttachEndpoint, Refusal]),
-  }),
-  z.object({
-    type: z.literal('runtimeSnapshotResult'),
-    requestId: z.string(),
-    sessionId: z.string().min(1).pipe(SessionIdField),
-    snapshot: SessionSnapshot,
+    interaction: PendingInteraction,
   }),
   z.object({
     type: z.literal('runtimeEvent'),
@@ -534,19 +426,29 @@ export type RuntimeEventMessage = z.infer<typeof RuntimeEventMessage>
 export const RuntimeMessage = z.union([RuntimeCommandMessage, RuntimeEventMessage])
 export type RuntimeMessage = z.infer<typeof RuntimeMessage>
 
-/** Every frame name this family owns. W2/W3 read it when folding these into the
- *  peer unions, so the fold cannot miss one. */
+/**
+ * Every frame name this family owns. W2/W3 read it when folding these into the
+ * peer unions, so the fold cannot miss one.
+ *
+ * TWO assertions, because `satisfies` alone only gives one of them.
+ * `satisfies readonly RuntimeMessage['type'][]` proves every name listed is a
+ * VALID frame; it says nothing about whether the list is COMPLETE, so a frame
+ * added to the union above and forgotten here would compile — and the comment
+ * promising "the fold cannot miss one" would be false. `Unlisted` below closes
+ * that: it resolves to `never` only when the union is fully covered, and the
+ * `extends never` check fails to compile otherwise.
+ */
 export const RUNTIME_FRAME_TYPES = [
   'runtimeSendRequest',
-  'runtimeInterruptRequest',
   'runtimeAnswerRequest',
-  'runtimeLifecycleRequest',
-  'runtimeAttachRequest',
-  'runtimeSnapshotRequest',
   'runtimeSendResult',
-  'runtimeLifecycleResult',
   'runtimeAnswerResult',
-  'runtimeAttachResult',
-  'runtimeSnapshotResult',
+  'runtimeInteractionAsked',
   'runtimeEvent',
 ] as const satisfies readonly RuntimeMessage['type'][]
+
+/** Frames in the union that {@link RUNTIME_FRAME_TYPES} forgot. `never` when the
+ *  list is complete — which is what the check below requires. */
+type Unlisted = Exclude<RuntimeMessage['type'], (typeof RUNTIME_FRAME_TYPES)[number]>
+const _runtimeFrameListIsComplete: Unlisted extends never ? true : never = true
+void _runtimeFrameListIsComplete
