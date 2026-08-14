@@ -12,6 +12,7 @@ import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import {
   ShipwrightService,
+  type ShipwrightContextInput,
   type ShipwrightEvidenceMaterializer,
   validateShipwrightPatch,
 } from './shipwright'
@@ -119,6 +120,10 @@ describe('durable shipwright model results', () => {
     output: string | string[],
     budget?: typeof DEFAULT_SHIPWRIGHT_BUDGET,
     materialize?: ShipwrightEvidenceMaterializer['materialize'],
+    readContext?: (input: ShipwrightContextInput) => Promise<{
+      output: string
+      relevantDiff: string
+    }>,
   ) {
     const sessions = new Map<string, Record<string, unknown>>()
     const creates: Record<string, unknown>[] = []
@@ -195,7 +200,8 @@ describe('durable shipwright model results', () => {
                 : ['artifact://repair/applied-patch'],
             )),
       },
-      context: async () => ({ output: 'failure output', relevantDiff: 'diff context' }),
+      context:
+        readContext ?? (async () => ({ output: 'failure output', relevantDiff: 'diff context' })),
       applyPatch: async () => ({
         ok: true,
         candidateHeadSha: 'candidate-sha',
@@ -228,6 +234,39 @@ describe('durable shipwright model results', () => {
       kind: 'needs-decision',
       reasonCode: 'policy-refused',
       evidenceRefs: [],
+    })
+    expect(h.turns).toHaveLength(0)
+  })
+
+  it('refuses a cross-context artifact lookup without exposing the raw executor path', async () => {
+    const seen: ShipwrightContextInput[] = []
+    const h = fixture('{}', undefined, undefined, async (input) => {
+      seen.push(input)
+      throw new Error('artifact custody belongs to another attempt')
+    })
+    const result = await h.service.consider({
+      order,
+      attempt,
+      issue,
+      failure,
+      custody: { attemptId: attempt.id, generation: 4, machineId },
+    } as never)
+
+    expect(seen).toEqual([
+      expect.objectContaining({
+        order,
+        attempt,
+        custody: { attemptId: attempt.id, generation: 4, machineId },
+        failure: expect.objectContaining({
+          artifactRefs: ['artifact://validation/gate-log'],
+        }),
+      }),
+    ])
+    expect(JSON.stringify(seen)).not.toContain('/executor/journal/gate.log')
+    expect(result).toMatchObject({
+      kind: 'needs-decision',
+      reasonCode: 'policy-refused',
+      evidenceRefs: ['artifact://validation/gate-log'],
     })
     expect(h.turns).toHaveLength(0)
   })

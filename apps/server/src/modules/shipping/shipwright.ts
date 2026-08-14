@@ -55,11 +55,10 @@ export interface ShipwrightDeps {
   /** Future stable-port seam: copy/register only authorized executor artifacts
    * and return repository-canonical opaque artifact:// references. */
   evidence: ShipwrightEvidenceMaterializer
-  /** Reads only the exact failed-effect artifacts and relevant target-side
-   * hunks. The implementation owns remote-machine access and must honor the
-   * byte limits supplied here. */
+  /** Reads only already-materialized evidence under the exact failure custody.
+   * Raw executor paths never cross this port. */
   context(
-    input: ShipwrightRepairInput,
+    input: ShipwrightContextInput,
     limits: {
       maxContextBytes: number
       maxFailureBytes: number
@@ -121,6 +120,19 @@ export interface ShipwrightEvidenceMaterializer {
     attempt: ShipAttempt
     custody: ShipwrightRepairInput['custody']
   }): Promise<readonly ShipwrightEvidenceRefValue[]>
+}
+
+export interface ShipwrightContextInput {
+  order: ShipOrder
+  attempt: ShipAttempt
+  issue: IssueWire
+  failure: {
+    operation: ShipwrightRepairInput['failure']['operation']
+    classification: ShippingJobClassification
+    summary: string
+    artifactRefs: readonly ShipwrightEvidenceRefValue[]
+  }
+  custody: ShipwrightRepairInput['custody']
 }
 
 export type ShipwrightRepairRecommendation =
@@ -386,10 +398,34 @@ export class ShipwrightService {
       )
     }
     for (const ref of parsedEvidence.data) evidence.add(ref)
-    const context = await this.deps.context(input, {
-      maxContextBytes: this.budget.maxContextBytes,
-      maxFailureBytes: this.budget.maxFailureBytes,
-    })
+    let context: Awaited<ReturnType<ShipwrightDeps['context']>>
+    try {
+      context = await this.deps.context(
+        {
+          order: input.order,
+          attempt: input.attempt,
+          issue: input.issue,
+          failure: {
+            operation: input.failure.operation,
+            classification: input.failure.classification,
+            summary: input.failure.summary,
+            artifactRefs: parsedEvidence.data,
+          },
+          custody: input.custody,
+        },
+        {
+          maxContextBytes: this.budget.maxContextBytes,
+          maxFailureBytes: this.budget.maxFailureBytes,
+        },
+      )
+    } catch {
+      return this.decision(
+        input,
+        'policy-refused',
+        'Repair context could not be resolved from authorized evidence for this attempt.',
+        evidence,
+      )
+    }
     let failure: ShipwrightFailure = {
       kind,
       summary: input.failure.summary,
