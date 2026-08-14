@@ -189,6 +189,21 @@ function makeWorld(): { target: ConformanceTarget } {
       alive.set(label, true)
       phases.set(msg.sessionId, { phase: 'idle', since: iso(), nativeSubagentCount: 0 })
       turnEpochs.set(msg.sessionId, 0)
+      // THE CLI CAME UP. A real daemon says so with a `bind` frame — the same one
+      // `Session.markLive` flips the server's status on — and the queue drain
+      // waits for it, because typing into a session that is still painting is the
+      // POD-549 no-op. A fixture that skipped it would leave every session
+      // permanently `starting` and quietly disable the drain it means to test.
+      queueMicrotask(() =>
+        runtime?.observe({
+          type: 'bind',
+          sessionId: msg.sessionId,
+          cmd: 'fixture',
+          cwd: msg.cwd,
+          agentKind: msg.agentKind,
+          geometry: { cols: 120, rows: 40 },
+        }),
+      )
       bridgeOf.set(msg.sessionId, {
         pid: 4242,
         write: (dataBase64) => {

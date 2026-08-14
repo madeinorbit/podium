@@ -51,7 +51,7 @@
  * outcome.
  */
 
-import type { InputOrigin, TurnDelivery, TurnReceipt } from '../../turns.js'
+import type { ActingPrincipal, InputOrigin, TurnDelivery, TurnReceipt } from '../../turns.js'
 
 // ---------------------------------------------------------------------------
 // The constants, carried over verbatim from apps/server/src/modules/sessions/inbox.ts
@@ -133,6 +133,20 @@ export interface TerminalInjectionPorts {
   /** Is there a live process to type into? `starting` counts — a session whose
    *  CLI is still painting is exactly the one the queue is waiting for. */
   running(): boolean
+  /**
+   * Has the CLI finished starting?
+   *
+   * SEPARATE FROM `running()` ON PURPOSE, and the separation is load-bearing for
+   * the drain below. `SessionInbox.drain` only ever types into a session whose
+   * status is `live`; a `starting` one it keeps polling and, at the deadline,
+   * abandons WITHOUT delivering. That is not fussiness — a grok TUI that has
+   * bound but not finished painting swallows everything typed at it (POD-549),
+   * which is the silent loss the durable row exists to prevent, and it is
+   * precisely why `sendText` queues a `starting` raw-first-turn session in the
+   * first place. A drain that could not tell the two apart would deliver into the
+   * one state the queue was waiting out.
+   */
+  live(): boolean
   /** The session's normalized phase, or undefined while unknown. */
   phase(): string | undefined
   /** USER turns in the harness's own transcript. The submit-verify baseline. */
@@ -154,6 +168,26 @@ export interface TerminalInjectionPorts {
   /** The turn epoch the observer currently reports, when there is an observation
    *  lease. Absent/0 means the driver counts its own — see `nextTurnEpoch`. */
   observedTurnEpoch(): number
+  /**
+   * RE-AUTHORIZE ONE QUEUED TURN, immediately before it is typed.
+   *
+   * The mirror of `SessionInbox.drain`'s `authorizeAtDrain`, whose comment calls
+   * that call site "the security boundary … Nothing accepted at enqueue is
+   * trusted now" — because a turn can sit in a queue across a revocation, an
+   * ownership change or a session moving machines, and the answer that was true
+   * at enqueue is not the answer now.
+   *
+   * ABSENT MEANS THE COMPOSER DOES NOT AUTHORIZE HERE, not that everything is
+   * permitted. Today that is the truth for the daemon: the durable FIFO is the
+   * server's, the server completes `queue` on its own side and re-authorizes at
+   * ITS drain, and nothing forwards a queued turn to the machine. What this port
+   * buys is that the driver-side queue CARRIES the principal (see `QueuedTurn`)
+   * and has the seam to use it, so the day a queue is forwarded the decision is
+   * possible rather than needing the mechanism invented under pressure.
+   */
+  authorizeAtDrain?(turn: QueuedTurn): { ok: true } | { ok: false; reason: string }
+  /** A turn the drain refused. Reported, never silently dropped. */
+  onDrainRejected?(turn: QueuedTurn, reason: string): void
 }
 
 export interface DeliverOptions {
@@ -174,13 +208,19 @@ export interface QueuedTurn {
   id: string
   text: string
   origin: InputOrigin
+  /** WHO ASKED FOR THIS TURN, carried from `send()` to the moment it is typed.
+   *  A queue that forgets its sender can only be drained as somebody else. */
+  principal?: ActingPrincipal
 }
 
 export interface TerminalInjectionMachine {
   /** Type one turn and answer with a receipt. */
   deliver(text: string, options: DeliverOptions): Promise<TurnReceipt>
   /** Enqueue one turn for the ready-poll drain, and answer with its position. */
-  enqueue(text: string, options: { origin: InputOrigin; id: string }): TurnReceipt
+  enqueue(
+    text: string,
+    options: { origin: InputOrigin; id: string; principal?: ActingPrincipal },
+  ): TurnReceipt
   /** REQUEST a fence: one ESC, and nothing else. The fence itself only ever
    *  arrives as a provider-confirmed terminal event on the causal stream. */
   interrupt(): void
@@ -342,6 +382,18 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
         stop()
         return
       }
+      // THE SECURITY BOUNDARY, in the same position `SessionInbox.drain` puts it:
+      // immediately before the bytes go out, not at enqueue. A refused turn is
+      // DROPPED and reported — leaving it at the head would retry a decision that
+      // has already been made against it, forever.
+      const verdict = ports.authorizeAtDrain?.(head) ?? { ok: true as const }
+      if (!verdict.ok) {
+        queue.shift()
+        ports.onDrainRejected?.(head, verdict.reason)
+        if (queue.length > 0) setTimer(deliverNext, QUEUE_MESSAGE_SPACING_MS)
+        else stop()
+        return
+      }
       void deliver(head.text, { origin: head.origin, delivery: 'when-ready' }).then((receipt) => {
         // A refusal leaves the head in place: the session is not running, or a
         // native prompt is open, and re-typing into either would be the silent
@@ -356,22 +408,40 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
       })
     }
 
+    /**
+     * VERBATIM in shape from `SessionInbox.drain`'s tick, including the part that
+     * is easy to lose in a port: the settle test and the delivery are inside the
+     * `live` branch, and `liveAtMs` is stamped when the session became LIVE.
+     *
+     * A `starting` session therefore does not start the floor clock and cannot be
+     * delivered into — it is polled until it goes live, and at the deadline the
+     * drain gives up WITHOUT typing. Flattening this into "running counts" would
+     * type into a CLI that is still painting, which is the POD-549 no-op: the
+     * bytes vanish, the queue row is consumed, and nothing anywhere reports a
+     * loss. `READY_MAX_MS` is a ceiling on waiting for QUIET, never a licence to
+     * type into a session that never became live.
+     */
     const tick = (): void => {
       if (!ports.running()) {
         stop()
         return
       }
       const now = ports.now()
-      if (!liveAtMs) {
-        liveAtMs = now
-        baseOutputMs = ports.lastOutputAtMs()
-      }
-      const settled =
-        ports.lastOutputAtMs() > baseOutputMs &&
-        now - liveAtMs >= READY_FLOOR_MS &&
-        now - ports.lastOutputAtMs() >= READY_QUIET_MS
-      if (settled || now - liveAtMs >= READY_MAX_MS || now >= deadline) {
-        deliverNext()
+      if (ports.live()) {
+        if (!liveAtMs) {
+          liveAtMs = now
+          baseOutputMs = ports.lastOutputAtMs()
+        }
+        const settled =
+          ports.lastOutputAtMs() > baseOutputMs &&
+          now - liveAtMs >= READY_FLOOR_MS &&
+          now - ports.lastOutputAtMs() >= READY_QUIET_MS
+        if (settled || now - liveAtMs >= READY_MAX_MS || now >= deadline) {
+          deliverNext()
+          return
+        }
+      } else if (now >= deadline) {
+        stop()
         return
       }
       setTimer(tick, READY_POLL_MS)
@@ -382,7 +452,12 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
   return {
     deliver,
     enqueue(text, options) {
-      queue.push({ id: options.id, text, origin: options.origin })
+      queue.push({
+        id: options.id,
+        text,
+        origin: options.origin,
+        ...(options.principal ? { principal: options.principal } : {}),
+      })
       drain()
       return {
         outcome: 'queued',

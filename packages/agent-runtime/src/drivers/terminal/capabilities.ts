@@ -80,22 +80,35 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
       // cannot prove which menu it acted on.
       answerable: 'keystroke-emulated',
       /**
-       * PER-SOURCE, NOT PER-FAMILY — and the difference is what makes this
-       * declaration honest rather than merely permitted.
+       * TRUE ON BOTH SOURCES, INCLUDING THE HOOK ONE — reverted from a per-source
+       * claim this driver could not keep (POD-2021 review, F2).
        *
-       * The exemption exists because a re-rendered menu can mint a DUPLICATE
-       * ASK: the classifier sees a screen, and two screens that look the same
-       * are two asks it cannot tell apart. That is a property of the classifier,
-       * not of the terminal family. A driver reading a real hook channel gets
-       * the harness's own causal identity for the ask — this driver keys an
-       * interaction on the observation's `transitionId`, which the causal
-       * protocol already dedupes — so it CAN say exactly-once about the ask, and
-       * saying otherwise would be claiming a weakness it does not have.
+       * The corpus permits a hook-reading terminal driver to decline this, and in
+       * principle it should be able to: a causal hook gives an ask the harness's
+       * own identity. This driver cannot, and the reason is specific rather than
+       * a shrug. Its ask identity is the OBSERVATION's `transitionId`, which is
+       * derived from `[segmentId, turnEpoch, identity, priorPhase, phase]` — a
+       * PHASE-TRANSITION id, not an ask id. Two consequences on the hook path:
        *
-       * The ANSWER stays keystroke-emulated in both cases (see `answerable`
-       * above); that is a separate axis and it is declared separately.
+       *   1. A menu that re-renders (`needs_user` → anything → `needs_user`)
+       *      mints a second transition and therefore a second ask for one
+       *      logical ask — the very re-rendered-menu weakness the table names.
+       *   2. Podium subscribes BOTH `PermissionRequest` and
+       *      `Notification[permission_prompt]`, and both reduce to `needs_user`
+       *      with DIFFERENT summary/ask payloads, so one permission prompt can
+       *      produce two observations with distinct transition ids and distinct
+       *      content. No content-keyed identity collapses those two either.
+       *
+       * A real fix is a stable ask identity keyed on the NEED and deduped across
+       * that double subscription. That belongs with W2, which owns the per-kind
+       * interaction vocabulary this driver would have to key on, and it is filed
+       * as a comment on POD-2021 rather than guessed at here. Until it exists,
+       * declaring `false` would claim a guarantee the code does not deliver —
+       * which is the failure direction the permitted-failures table exists to
+       * prevent, and the more dangerous of the two: a consumer that believes
+       * exactly-once stops deduping.
        */
-      atLeastOnce: !input.interactionsFromHooks,
+      atLeastOnce: true,
     }),
     observation: {
       // `fine` is unclaimed: a PTY produces bytes, not token deltas, and the

@@ -40,6 +40,7 @@ import type {
   TurnDelivery,
   TurnReceipt,
 } from '@podium/protocol'
+import type { InboxPrincipalReference } from './inbox'
 
 /**
  * The durable FIFO, as this gateway needs it.
@@ -54,6 +55,18 @@ export interface RuntimeDurableQueuePort {
     sessionId: SessionId
     text: string
     origin: ObservationInputOrigin
+    /**
+     * WHO THE QUEUED TURN BELONGS TO.
+     *
+     * `SessionInbox.drain` re-authorizes with this immediately before the bytes
+     * cross to the daemon — its own comment calls that call site "the security
+     * boundary … Nothing accepted at enqueue is trusted now", because a row can
+     * sit in the queue across a revocation, an ownership change or a session
+     * moving machines. A queue that forgot its sender can only be drained as
+     * whatever the default is, which grants every deferred turn privileges its
+     * sender never had.
+     */
+    principal: InboxPrincipalReference
   }): { ok: true; position: number } | { ok: false; reason: Refusal['reason']; detail?: string }
 }
 
@@ -88,6 +101,10 @@ export interface RuntimeDaemonRpcPort {
 export interface SessionRuntimeGatewayPorts {
   rpc: RuntimeDaemonRpcPort
   queue: RuntimeDurableQueuePort
+  /** The principal a send that named none is queued as. Supplied by the
+   *  composition root rather than defaulted here, so "who does an unattributed
+   *  turn act as" is answered in one visible place. */
+  systemPrincipal(): InboxPrincipalReference
   /** Which machine holds this session, or undefined when nothing does. */
   machineOf(sessionId: SessionId): MachineId | undefined
   now(): number
@@ -124,12 +141,33 @@ export class SessionRuntimeGateway {
     text: string
     origin: ObservationInputOrigin
     delivery: TurnDelivery
+    /**
+     * The party this send acts for.
+     *
+     * THE SERVER'S OWN PRINCIPAL TYPE, not the contract's reduced
+     * `ActingPrincipal`, and deliberately so: this value's destination is the
+     * durable queue row, which carries an attribution and a delegation
+     * REFERENCE that `authorizeAtDrain` resolves against the live world. Passing
+     * the contract's two-field shape here would mean reconstructing that
+     * reference on the way back out, and a reconstructed delegation is exactly
+     * the kind of guess an authorization boundary must not make.
+     *
+     * OPTIONAL ONLY AS A MIGRATION AFFORDANCE. Every caller W4 moves onto
+     * receipts passes it; the fallback below is the composition root's system
+     * default and is the weakness this field exists to close.
+     */
+    principal?: InboxPrincipalReference
   }): Promise<TurnReceipt> {
     if (input.delivery === 'queue' || input.delivery === 'steer') {
       const queued = this.ports.queue.enqueue({
         sessionId: input.sessionId,
         text: input.text,
         origin: input.origin,
+        // NEVER A LOCAL DEFAULT. When a caller did not name itself the
+        // composition root's own system principal is used — declared there,
+        // where a reader can see what "system" means and W4 can watch it stop
+        // being reached.
+        principal: input.principal ?? this.ports.systemPrincipal(),
       })
       if (!queued.ok) {
         return {

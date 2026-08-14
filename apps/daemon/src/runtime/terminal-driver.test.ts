@@ -91,9 +91,15 @@ interface World {
    * modelled.
    */
   hookOnSubmit(sessionId: SessionId, options?: { prompt?: string }): void
-  /** Post a transcript record, as the harness's own store would. */
-  echo(sessionId: SessionId, text: string): void
+  /** Post a transcript record, as the harness's own store would. `reset` is the
+   *  harness saying its store was REPLACED — a re-tail, a file rewrite, a resume
+   *  rolling onto a new file — which is the case that used to mint a false
+   *  `accepted`. */
+  echo(sessionId: SessionId, text: string, options?: { reset?: boolean }): void
   observe(sessionId: SessionId, observation: Partial<AgentObservation>): void
+  /** The `bind` frame — the daemon saying this session's CLI is up. It is what
+   *  the server flips `status` on, and what the drain waits for. */
+  bind(sessionId: SessionId): void
   setPhase(sessionId: SessionId, phase: AgentRuntimeState['phase']): void
   killHost(label: string): void
   now(): number
@@ -197,14 +203,29 @@ function makeWorld(): World {
     hookOnSubmit: (sessionId, options) => {
       autoHook.set(sessionId, options ?? {})
     },
-    echo: (sessionId, text) => {
+    echo: (sessionId, text, options) => {
       const item: TranscriptItem = {
         id: `item-${++nextId}`,
         role: 'user',
         ts: new Date(clock).toISOString(),
         text,
       }
-      runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+      runtime.observe({
+        type: 'transcriptDelta',
+        sessionId,
+        items: [item],
+        ...(options?.reset ? { reset: true } : {}),
+      })
+    },
+    bind: (sessionId) => {
+      runtime.observe({
+        type: 'bind',
+        sessionId,
+        cmd: 'fixture',
+        cwd: '/tmp/w3',
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+      })
     },
     observe: (sessionId, partial) => {
       const observation: AgentObservation = {
@@ -388,6 +409,122 @@ describe('send receipts', () => {
     expect(world.written[1]).toBe('\x1b[200~stop and do this\x1b[201~')
     expect(resolved.outcome).toBe('accepted')
     if (resolved.outcome === 'accepted') expect(resolved.deliveredAs).toBe('interrupt')
+  })
+})
+
+describe('the echo baseline', () => {
+  it('does NOT credit a send because a reset re-delivered the conversation', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+    // A conversation that already happened.
+    world.echo(sessionId, 'turn one')
+    world.echo(sessionId, 'turn two')
+
+    // A send with no proof of its own, whose window overlaps a RESET — the
+    // harness's store being replaced and re-read from the top. The old count
+    // read an append-only event log, so the reset looked like the whole history
+    // echoing at once and credited whatever send happened to be in flight.
+    const receipt = session.send(
+      { text: 'did this land?' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    world.echo(sessionId, 'turn one', { reset: true })
+    world.echo(sessionId, 'turn two')
+
+    // A FALSE ACCEPT IS STRICTLY WORSE THAN THE `unverified` IT DISPLACES: the
+    // caller stops looking, and the turn never happened.
+    expect((await receipt).outcome).toBe('unverified')
+  })
+
+  it('still credits a genuine new user turn after a reset', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.echo(sessionId, 'turn one')
+
+    const receipt = session.send(
+      { text: 'a real turn' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    // The reset re-delivers the history, and THEN the harness records this turn.
+    // The count follows the server buffer's semantics exactly, so the baseline
+    // moves with the reset and the new turn is still an increase.
+    world.echo(sessionId, 'turn one', { reset: true })
+    world.echo(sessionId, 'a real turn')
+
+    const resolved = await receipt
+    expect(resolved.outcome).toBe('accepted')
+    if (resolved.outcome === 'accepted') expect(resolved.provenBy).toBe('transcript-echo')
+  })
+
+  it('does not type a raw first turn into a grok that is past its first turn', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', {
+      ...GROK,
+      // POD-549/POD-901: grok's fresh TUI ignores bracketed paste until a native
+      // first turn, so the FIRST prompt goes as raw keystrokes and later ones do
+      // not. Reading that from a driver-local event log meant an adopted session
+      // — whose log starts empty — typed raw into a long-running conversation.
+      usesRawFirstTurn: true,
+    })
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    void session.send({ text: 'first' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    // No user turn yet: raw keystrokes, no paste envelope.
+    expect(world.written[0]).toBe('first')
+
+    world.echo(sessionId, 'first')
+    world.written.length = 0
+    void session.send({ text: 'second' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    expect(world.written[0]).toBe('\u001b[200~second\u001b[201~')
+  })
+})
+
+describe('the queue drain', () => {
+  it('does not type into a session that is still starting', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+
+    // Queued while the CLI is still painting. `SessionInbox.drain` only ever
+    // delivers into a `live` session; a `starting` one it polls and, at the
+    // deadline, abandons WITHOUT typing — because a grok TUI that has bound but
+    // not finished painting swallows everything typed at it (POD-549). That is
+    // the silent loss the durable row exists to prevent, and flattening the
+    // distinction into "running" would deliver into exactly that state.
+    const receipt = session.send({ text: 'queued early' }, { origin: 'mail', delivery: 'queue' })
+    expect((await receipt).outcome).toBe('queued')
+
+    // Let the whole drain ladder run — floor, quiet, ceiling and deadline.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let i = 0; i < 400; i++) await Promise.resolve()
+    expect(world.written).toEqual([])
+  })
+
+  it('delivers once the CLI is up', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    expect(
+      (await session.send({ text: 'queued' }, { origin: 'mail', delivery: 'queue' })).outcome,
+    ).toBe('queued')
+    world.bind(sessionId)
+    // The bind is the same fact the server flips `status` on, so the drain and
+    // the session row agree on "started" by construction rather than by having
+    // two opinions.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let i = 0; i < 400; i++) await Promise.resolve()
+    expect(world.written[0]).toBe('\u001b[200~queued\u001b[201~')
   })
 })
 

@@ -80,33 +80,28 @@ describe('the capability declaration', () => {
     expect(caps.placement).toBe('dedicated')
   })
 
-  it('declines the at-least-once exemption when the ASK came from a hook', () => {
-    const caps = terminalCapabilities({ ...PROFILE, sendProof: [...PROFILE.sendProof] })
-    expect(caps.interactions.supported).toBe(true)
-    if (!caps.interactions.supported) return
-    expect(caps.interactions.value.source).toBe('hook')
-    // A causal hook gives the ASK the harness's own identity, so claiming
-    // at-least-once here would be claiming a weakness this driver does not have
-    // — which the table exists to prevent in BOTH directions.
-    expect(caps.interactions.value.atLeastOnce).toBe(false)
-    // The ANSWER is a separate axis, and it is still keystrokes into a menu that
-    // nothing can prove which instance it acted on.
-    expect(caps.interactions.value.answerable).toBe('keystroke-emulated')
-  })
-
-  it('claims it where the ask is a classified screen, because there it is true', () => {
-    const caps = terminalCapabilities({
-      ...PROFILE,
-      sendProof: ['transcript-echo'],
-      interactionsFromHooks: false,
-    })
-    expect(caps.interactions.supported).toBe(true)
-    if (!caps.interactions.supported) return
-    expect(caps.interactions.value.source).toBe('screen-classifier')
-    // A re-rendered menu mints a duplicate ask and the classifier cannot tell
-    // the two apart. Declining the exemption here would be the other half of the
-    // same dishonesty.
-    expect(caps.interactions.value.atLeastOnce).toBe(true)
+  it('claims at-least-once on BOTH sources, because its ask identity is a phase transition', () => {
+    for (const interactionsFromHooks of [true, false]) {
+      const caps = terminalCapabilities({
+        ...PROFILE,
+        sendProof: [...PROFILE.sendProof],
+        interactionsFromHooks,
+      })
+      expect(caps.interactions.supported).toBe(true)
+      if (!caps.interactions.supported) return
+      expect(caps.interactions.value.source).toBe(
+        interactionsFromHooks ? 'hook' : 'screen-classifier',
+      )
+      // The hook path COULD decline this — a causal hook gives an ask the
+      // harness's own identity — but this driver keys asks on the observation's
+      // transitionId, which is a phase-transition id: a re-rendered menu mints a
+      // second one, and the PermissionRequest/Notification double subscription
+      // mints two for a single prompt. Declaring `false` would claim exactly-once
+      // and stop consumers deduping. See the capability's own note.
+      expect(caps.interactions.value.atLeastOnce).toBe(true)
+      // The ANSWER is a separate axis and is emulated on both.
+      expect(caps.interactions.value.answerable).toBe('keystroke-emulated')
+    }
   })
 
   it('declines what this phase did not build, with the reason attached', () => {

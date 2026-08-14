@@ -35,9 +35,48 @@ export interface AttachmentRef {
   mediaType?: string
 }
 
+/**
+ * WHO IS ACTING — carried through queueing so a deferred turn can still be
+ * authorized as its real sender (POD-1761 W3 review, F3).
+ *
+ * OPAQUE ON PURPOSE. The contract does not parse `ref` and does not know what a
+ * principal MEANS: authorization lives on the server, whose own principal record
+ * is richer than anything a driver should see (attribution, delegation chain,
+ * on-behalf-of). What the contract guarantees is only that the value the caller
+ * handed to `send()` is the value that reaches the point where the decision is
+ * made — because the alternative, which W3 shipped and its review caught, is a
+ * queue that re-authorizes every deferred turn as a system default and thereby
+ * grants it privileges its sender never had.
+ *
+ * `kind` is here and not opaque because a receipt and an interaction answer both
+ * need to say what KIND of party acted without decoding a ref they cannot parse.
+ */
+export interface ActingPrincipal {
+  readonly kind: 'user' | 'agent' | 'system'
+  /** An id in the composer's own namespace. Compared, logged and carried —
+   *  never interpreted. */
+  readonly ref: string
+}
+
 export interface SendOptions {
   origin: InputOrigin
   delivery: TurnDelivery
+  /**
+   * The party this send is on behalf of.
+   *
+   * OPTIONAL AT THE TYPE LEVEL, and that is a migration affordance rather than a
+   * blessing: a `queue` whose principal is absent is authorized as whatever the
+   * composer's default is, which is exactly the weakness this field exists to
+   * close. Every caller W4 migrates must pass it.
+   */
+  principal?: ActingPrincipal
+}
+
+/** Options for `answer()`. Same acting principal as a send, for the same reason:
+ *  an answer typed into a native menu is an ACTION, and the event it produces
+ *  claims who took it. */
+export interface AnswerOptions {
+  principal?: ActingPrincipal
 }
 
 /**

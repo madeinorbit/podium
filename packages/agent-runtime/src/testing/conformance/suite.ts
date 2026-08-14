@@ -526,10 +526,29 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           { text: 'nudge' },
           { origin: 'steward', delivery: 'when-ready' },
         )
-        // Exactly one controller. This is what makes "the user attached and
-        // started typing" and "the steward tried to nudge" un-interleavable.
-        expect(receipt.outcome).toBe('refused')
+        /**
+         * EXACTLY ONE CONTROLLER — which is a statement about what must NOT
+         * reach the agent, not about which of two honest answers a driver gives.
+         *
+         * This property used to demand `refused`/`lease_held`. That over-specified
+         * it, and it over-specified it in the direction that loses work: the
+         * contract's own `lease_held` says "headless drivers QUEUE rather than
+         * interleave — exactly what `queueText` does today", and the terminal
+         * plan is explicit that the terminal path has exactly two refusals
+         * (not-running, and `needs_user` without a post-ESC) and that no
+         * lease-based refusal may be invented. A driver that queues under a
+         * human's lease has not interleaved anything: the turn lands after the
+         * takeover ends, which is what a steward asking to nudge actually wants.
+         *
+         * So both answers pass, and what is pinned is the invariant neither may
+         * break — the nudge did not get through. A driver whose family CAN
+         * refuse still may; a driver that queues must report the degradation
+         * through `deliveredAs`, which is not optional for anyone.
+         */
+        expect(receipt.outcome).not.toBe('accepted')
+        expect(receipt.outcome).not.toBe('unverified')
         if (receipt.outcome === 'refused') expect(receipt.refusal.reason).toBe('lease_held')
+        if (receipt.outcome === 'queued') expect(receipt.deliveredAs).toBe('queue')
       })
     })
 

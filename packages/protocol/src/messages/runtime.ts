@@ -69,6 +69,19 @@ import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from '.
  *     the oplog for facts the observation protocol already owns. When W4 makes a
  *     runtime event the SOLE source of a durable fact, that is the moment to
  *     re-argue this — with the fact in hand.
+ *
+ *     A W5 PRECONDITION RIDES ON THIS, and it is written down because the
+ *     argument above is circular the moment the legacy paths retire. The
+ *     recovery mechanism named here is `snapshot()`, and `snapshot()` has no
+ *     wire frame (see the note further down): a server holding a gap cannot
+ *     actually invoke it. That is harmless while every `runtimeEvent` is a
+ *     TRANSLATION of a frame the server also receives on its own durable path —
+ *     `agentObservation`, `transcriptDelta`, `agentExit`, `sessionCwd` — which
+ *     is true for W3 and W4. It stops being true at W5, when `runtimeEvent`
+ *     becomes the only channel and there is no ack, no durable queue and no
+ *     snapshot frame behind it. BEFORE W5 SWITCHES A SESSION TO A SERVER DRIVER,
+ *     this family needs either a snapshot frame or a durable classification —
+ *     not both, but not neither.
  *   - `runtimeInteractionAsked` stays OUT, and is the reason this section says
  *     twelve rather than thirteen. Its producer is W2's interactions aggregate,
  *     and W1's classification for it — durable-synced, because a blocking ask
@@ -405,6 +418,13 @@ export type RuntimeLifecycleRequestMessage = z.infer<typeof RuntimeLifecycleRequ
  * embeds — were deleted from this file by W1's review under the rule stated in
  * the header: no producer, no consumer, no schema. Re-adding them to carry
  * frames nobody sends would undo that decision to buy nothing.
+ *
+ * THE ONE THING THIS COSTS, stated so it is not rediscovered: `runtimeEvent`'s
+ * `stream.live` classification is justified in the header by a gap being
+ * re-readable from `snapshot()`, and with no snapshot frame the server cannot
+ * do that reading. The justification therefore rests on the legacy durable
+ * paths, not on this family — which is exactly why the header records a W5
+ * precondition rather than leaving the argument as though it stood alone.
  */
 
 /** server → daemon: drive one session verb through the contract. */

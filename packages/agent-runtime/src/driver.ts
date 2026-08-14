@@ -16,7 +16,14 @@ import type { EventStreamStart, RuntimeEvent, WatchLevel } from './events.js'
 import type { DriverFamily, DriverId } from './families.js'
 import type { InteractionAnswerOutcome, PendingInteraction } from './interactions.js'
 import type { SessionSpec } from './session-spec.js'
-import type { AttachmentRef, Refusal, SendOptions, TurnInput, TurnReceipt } from './turns.js'
+import type {
+  AnswerOptions,
+  AttachmentRef,
+  Refusal,
+  SendOptions,
+  TurnInput,
+  TurnReceipt,
+} from './turns.js'
 
 // ---------------------------------------------------------------------------
 // The session handle
@@ -51,7 +58,11 @@ export interface AgentSessionHandle {
   /** REQUESTS a fence. The fence is emitted only on provider confirmation and is
    *  never manufactured — so this returns nothing to await. Watch the stream. */
   interrupt(): Promise<void>
-  answer(interactionId: string, answer: unknown): Promise<InteractionAnswerOutcome>
+  answer(
+    interactionId: string,
+    answer: unknown,
+    options?: AnswerOptions,
+  ): Promise<InteractionAnswerOutcome>
 
   // ---- Interactions (CORE) ----
   interactions(): Promise<readonly PendingInteraction[]>

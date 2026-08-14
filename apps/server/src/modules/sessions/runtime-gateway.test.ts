@@ -9,8 +9,10 @@
  */
 
 import type { MachineId, SessionId } from '@podium/model'
+import { asUserId } from '@podium/model'
 import type { TurnDelivery, TurnReceipt } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { SYSTEM_INBOX_PRINCIPAL } from './inbox'
 import {
   type RuntimeDaemonRpcPort,
   type RuntimeDurableQueuePort,
@@ -26,7 +28,11 @@ function makeGateway(
     queue?: Partial<RuntimeDurableQueuePort>
     forwarded?: { delivery: TurnDelivery }[]
   } = {},
-): { gateway: SessionRuntimeGateway; forwarded: { delivery: TurnDelivery }[] } {
+): {
+  gateway: SessionRuntimeGateway
+  forwarded: { delivery: TurnDelivery }[]
+  enqueued: Parameters<RuntimeDurableQueuePort['enqueue']>[0][]
+} {
   const forwarded = overrides.forwarded ?? []
   const rpc: RuntimeDaemonRpcPort = {
     runtimeSend: async (input) => {
@@ -43,17 +49,25 @@ function makeGateway(
     runtimeAnswer: async () => ({ ok: true }),
     runtimeLifecycle: async () => ({ result: { ok: true } }),
   }
+  const enqueued: Parameters<RuntimeDurableQueuePort['enqueue']>[0][] = []
   const queue: RuntimeDurableQueuePort = {
-    enqueue: overrides.queue?.enqueue ?? (() => ({ ok: true, position: 3 })),
+    enqueue:
+      overrides.queue?.enqueue ??
+      ((input) => {
+        enqueued.push(input)
+        return { ok: true, position: 3 }
+      }),
   }
   return {
     gateway: new SessionRuntimeGateway({
       rpc,
       queue,
       machineOf: overrides.machineOf ?? (() => MACHINE),
+      systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
       now: () => Date.UTC(2026, 7, 14),
     }),
     forwarded,
+    enqueued,
   }
 }
 
@@ -121,6 +135,46 @@ describe('send', () => {
       delivery: 'queue',
     })
     expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'no_resume_ref' } })
+  })
+})
+
+describe('the acting principal', () => {
+  it('carries the sender into the durable row rather than defaulting it', async () => {
+    const { gateway, enqueued } = makeGateway()
+    const sender = {
+      kind: 'user' as const,
+      attribution: {
+        actor: { kind: 'user' as const, id: asUserId('user:alice') },
+        onBehalfOf: null,
+      },
+      principalRef: 'user:alice',
+      delegation: null,
+    }
+    await gateway.send({
+      sessionId: SESSION,
+      text: 'mine',
+      origin: 'human',
+      delivery: 'queue',
+      principal: sender,
+    })
+    // `SessionInbox.drain` re-authorizes with exactly this value immediately
+    // before the bytes cross to the daemon. A row that forgot its sender can
+    // only be drained as somebody else — which is a privilege escalation, not a
+    // missing label.
+    expect(enqueued[0]?.principal).toBe(sender)
+  })
+
+  it("falls back to the composition root's system principal, never to a local guess", async () => {
+    const { gateway, enqueued } = makeGateway()
+    await gateway.send({
+      sessionId: SESSION,
+      text: 'unattributed',
+      origin: 'mail',
+      delivery: 'queue',
+    })
+    // The fallback is a PORT, so "who does an unattributed turn act as" is
+    // answered in one visible place — and W4 can watch it stop being reached.
+    expect(enqueued[0]?.principal).toBe(SYSTEM_INBOX_PRINCIPAL)
   })
 })
 

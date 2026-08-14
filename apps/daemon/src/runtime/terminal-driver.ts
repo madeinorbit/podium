@@ -48,6 +48,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type {
+  ActingPrincipal,
   AgentSessionHandle,
   AttachEndpoint,
   AttachmentRef,
@@ -60,6 +61,7 @@ import type {
   HookAcceptWatch,
   InteractionAnswerOutcome,
   PendingInteraction,
+  QueuedTurn,
   Refusal,
   RuntimeDriver,
   RuntimeEvent,
@@ -87,7 +89,7 @@ import {
   terminalCapabilities,
 } from '@podium/agent-runtime'
 
-import type { AgentStateEvent } from '@podium/harness'
+import { type AgentStateEvent, claudePromptHookFingerprint } from '@podium/harness'
 import type {
   AgentKind,
   AgentRuntimeState,
@@ -108,6 +110,16 @@ import type { SpawnControl } from '../session-observers'
  *  CLI key parser's own 50ms byte-run window, so no two keys share a read.
  *  Carried over verbatim from `apps/server/src/modules/sessions/inbox.ts`. */
 const MENU_KEY_DELAY_MS = 120
+
+/**
+ * How many events one session's replay buffer retains.
+ *
+ * SIZED FOR A RESUME, NOT FOR HISTORY. The only consumer is `events(after)`
+ * catching a stream up from a cursor it holds, which in practice is a
+ * reconnect's worth of events, not a session's. History is the transcript, and
+ * it lives where it has always lived.
+ */
+const EVENT_LOG_LIMIT = 512
 
 // ---------------------------------------------------------------------------
 // The host — the narrow slice of the daemon a driver is allowed to reach
@@ -166,6 +178,22 @@ export interface TerminalRuntimeHost {
   now(): number
   setTimer(fn: () => void, delayMs: number): TimerHandle
   clearTimer(handle: TimerHandle): void
+  /**
+   * RE-AUTHORIZE a queued turn immediately before it is typed, if this composer
+   * can. See `TerminalInjectionPorts.authorizeAtDrain`.
+   *
+   * ABSENT ON THE DAEMON TODAY, and honestly so: authorization is a server fact
+   * (owner, delegation, revocation), the durable FIFO is the server's, and the
+   * server re-authorizes at its own drain before anything reaches this machine.
+   * The port exists because the driver-side queue now CARRIES the principal, so
+   * whoever forwards a queue here later has a seam to decide at rather than a
+   * mechanism to invent.
+   */
+  authorizeAtDrain?(input: {
+    sessionId: SessionId
+    turn: QueuedTurn
+  }): { ok: true } | { ok: false; reason: string }
+  onDrainRejected?(input: { sessionId: SessionId; turn: QueuedTurn; reason: string }): void
 }
 
 /** What the daemon knows about a session at the moment it is put behind the
@@ -217,8 +245,30 @@ interface DriverSession {
   injection: TerminalInjectionMachine
   /** Open waiters for a causal accept, keyed by the prompt text they watch. */
   hookWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
+  /**
+   * USER turns in the harness's own transcript — the submit-verify baseline, and
+   * the one number a receipt's `transcript-echo` proof rests on.
+   *
+   * TRACKED SEPARATELY FROM `log` BECAUSE `log` IS APPEND-ONLY. A
+   * `transcriptDelta` carrying `reset: true` means the harness's store was
+   * REPLACED, not appended to — a re-tail, a file rewrite, a resume rolling onto
+   * a new file — and the server's own buffer answers it with
+   * `if (opts.reset) this.transcript = []` (`sessions/terminal.ts`). Counting out
+   * of the event log instead made a reset look like the whole conversation
+   * echoing at once, which credits whatever send happened to be inside its
+   * verification window with an `accepted` it never earned. A false accept is
+   * strictly worse than the `unverified` it displaces, so the count follows the
+   * server's semantics exactly.
+   */
+  userTurns: number
   alive: boolean
   lastOutputAtMs: number
+  /** Has the CLI finished starting? The drain types into `live` only — see
+   *  `TerminalInjectionPorts.live`. */
+  live: boolean
+  /** This driver performed the teardown. The one thing that lets an exit be
+   *  classified `killed` rather than guessed at from a code. */
+  terminatedByDriver: boolean
   watchers: Map<WatchLevel, number>
   disposed: boolean
 }
@@ -400,6 +450,26 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
    * segment, which is what makes a consumer refuse to merge the two rather than
    * silently compare them.
    */
+  /**
+   * The stamp for an event whose FRAME CARRIES NO EVENT TIME.
+   *
+   * Four kinds are in this position — process exit, cwd change, git activity and
+   * a forwarded browser open. Each is derived from a daemon frame that reports
+   * WHAT happened and not WHEN: `agentExit` carries a code, `sessionCwd` a path,
+   * `sessionGitActivity` a list of shas, `sessionOpenUrl` a url. The observation
+   * moment is therefore the only time that exists for them, and the envelope
+   * requires one.
+   *
+   * NAMED RATHER THAN INLINED so the exception is legible as a decision. The
+   * codebase's rule is that `at` is EVENT time, because observe-time stamping is
+   * what makes a reattach re-date every session to "now" — and the transcript
+   * path above honours it by preferring the record's own `ts`. These four have
+   * nothing to prefer. The cost is bounded in the way that matters: none of them
+   * is replayed on a reattach, so none can restamp a session's history. If a
+   * frame later grows a real event time, it stops calling this.
+   */
+  const observedAt = (): string => new Date(host.now()).toISOString()
+
   const cursorFor = (
     session: DriverSession,
     seq: number,
@@ -436,6 +506,19 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       turnEpoch: session.turnEpoch,
     })
     session.log.push({ seq: session.seq, event })
+    // BOUNDED, and the bound is a promise about what `events(after)` can serve
+    // rather than a memory tweak. `log` exists so a consumer can resume from a
+    // cursor; keeping it forever would grow with every transcript item, state
+    // change and interaction for the life of a session — on top of the daemon's
+    // own transcript buffer — and would still not be a durability guarantee,
+    // which is the argument the server-side tail already makes for its own cap.
+    // A consumer whose cursor has fallen off the back re-bootstraps from
+    // `snapshot()`; that is precisely what `provenance: 'bootstrap'` is for, and
+    // `seq` stays monotonic across the trim so a fallen-off cursor is DETECTABLY
+    // behind rather than silently mis-served.
+    if (session.log.length > EVENT_LOG_LIMIT) {
+      session.log.splice(0, session.log.length - EVENT_LOG_LIMIT)
+    }
     for (const wake of [...session.wakers]) wake()
     host.send({ type: 'runtimeEvent', sessionId: session.sessionId, event })
   }
@@ -521,6 +604,11 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     if (!session) return
     switch (msg.type) {
       case 'transcriptDelta': {
+        // REPLACE, don't accumulate, when the harness says its store was reset —
+        // the same answer the server's transcript buffer gives. See
+        // `DriverSession.userTurns` for what counting the other way costs.
+        if (msg.reset) session.userTurns = 0
+        session.userTurns += msg.items.filter((item) => item.role === 'user').length
         for (const item of msg.items) {
           emit(
             session,
@@ -534,8 +622,23 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         }
         return
       }
+      case 'bind': {
+        // THE SAME FACT THE SERVER FLIPS `status` ON. `Session.markLive` runs off
+        // this frame and nothing else, so a driver that took its own view of
+        // "started" would be a second, disagreeing answer to a question the
+        // daemon already publishes. Everything before this is `starting`, which
+        // is the state the queue drain must not type into.
+        session.live = true
+        return
+      }
       case 'agentExit': {
         session.alive = false
+        session.live = false
+        // The process tree is gone. Its stream position dies with it for the
+        // same reason `clear` drops one: a later process under this label is a
+        // different conversation, and carrying a position across would fence out
+        // its first events as already-seen.
+        streamPositions.delete(session.label)
         emit(
           session,
           {
@@ -548,10 +651,19 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
               // 0 and `crashed` otherwise is what the code itself says; `killed`
               // and `oom` are claims the code cannot support, so they are not
               // made here — the OOM path reports itself separately.
-              classification: msg.code === 0 ? 'clean' : 'crashed',
+              // A CODE IS NOT A CAUSE, with one exception we can prove: when
+              // this driver performed the teardown itself, `killed` is a fact
+              // rather than an inference. Otherwise the code is all there is —
+              // `clean` for 0, `crashed` otherwise — and `oom` stays unclaimed
+              // because nothing here can support it.
+              classification: session.terminatedByDriver
+                ? 'killed'
+                : msg.code === 0
+                  ? 'clean'
+                  : 'crashed',
             },
           },
-          new Date(host.now()).toISOString(),
+          observedAt(),
           'live',
         )
         return
@@ -560,7 +672,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         emit(
           session,
           { t: 'workspace', ev: { ev: 'cwd-changed', cwd: msg.cwd } },
-          new Date(host.now()).toISOString(),
+          observedAt(),
           'live',
         )
         return
@@ -576,7 +688,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
               touchedFiles: msg.touched ?? [],
             },
           },
-          new Date(host.now()).toISOString(),
+          observedAt(),
           'live',
         )
         return
@@ -666,14 +778,27 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     const session = sessions.get(sessionId)
     if (!session || session.hookWaiters.size === 0) return
     if (!isPromptSubmitHook(payload)) return
-    const prompt = promptTextOf(payload)
+    // THE HARNESS'S OWN FINGERPRINT, not a comparison invented here. It handles
+    // the shapes a `UserPromptSubmit` prompt actually takes — a plain string, and
+    // an ARRAY of content blocks where the visible text has to be pulled out of
+    // `type: 'text'` entries and `tool_result`s ignored — and it strips Claude's
+    // injected context before hashing, so a prompt that arrives wrapped in a
+    // system reminder still fingerprints as what the caller sent. It is also what
+    // `session-observers.ts` already anchors turn epochs with, so the receipt and
+    // the causal stream agree on which prompt this was by construction.
+    const fingerprint = claudePromptHookFingerprint(payload)
+    // FAIL CLOSED. A payload this cannot fingerprint is one we cannot attribute,
+    // and crediting an arbitrary waiter for it is the exact mis-credit the
+    // content match exists to prevent — worse than the alternative, because the
+    // alternative is `unverified`, which is true. The keystrokes still went out.
+    if (fingerprint === null) return
     for (const waiter of [...session.hookWaiters]) {
       // MATCHED BY CONTENT, not by "the next hook wins". Two sends can be in
       // flight (a queue drain overlapping a chat send), and crediting the wrong
       // one would report an accept for a turn that never landed. An unmatched
       // hook simply leaves the waiter waiting — which resolves as `unverified`,
       // the honest answer.
-      if (prompt !== null && !promptMatches(prompt, waiter.text)) continue
+      if (claudePromptHookFingerprint({ prompt: waiter.text }) !== fingerprint) continue
       session.hookWaiters.delete(waiter)
       waiter.resolve(true)
       return
@@ -706,16 +831,30 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         host.bridge(session.sessionId)?.write(Buffer.from(text, 'utf8').toString('base64'))
       },
       running: () => session.alive && host.bridge(session.sessionId) !== undefined,
+      live: () => session.live && session.alive && host.bridge(session.sessionId) !== undefined,
       phase: () => host.trackedState(session.sessionId)?.phase,
-      userTurnCount: () => session.log.filter(isUserTurnItem).length,
+      userTurnCount: () => session.userTurns,
       lastOutputAtMs: () => session.lastOutputAtMs,
       now: host.now,
       setTimer: host.setTimer,
       clearTimer: host.clearTimer,
       ...(profile?.hookAnchoredAccept ? { hookAccept: hookAcceptFor(session) } : {}),
-      rawFirstTurn: () => (profile?.usesRawFirstTurn ?? false) && !session.log.some(isUserTurnItem),
+      // READS THE SAME RESET-AWARE COUNT as the echo baseline, and for the same
+      // reason: `isRawFirstTurn` in `inbox.ts` asks whether the harness's own
+      // transcript has ANY user turn, so an adopted session whose driver-local
+      // history happened to be empty must not be told to type raw keystrokes
+      // into a grok that is long past its first turn.
+      rawFirstTurn: () => (profile?.usesRawFirstTurn ?? false) && session.userTurns === 0,
       needsSubmitVerification: () => profile?.needsSubmitVerification ?? false,
       observedTurnEpoch: () => session.turnEpoch,
+      ...(host.authorizeAtDrain
+        ? {
+            authorizeAtDrain: (turn: QueuedTurn) =>
+              host.authorizeAtDrain?.({ sessionId: session.sessionId, turn }) ?? { ok: true },
+            onDrainRejected: (turn: QueuedTurn, reason: string) =>
+              host.onDrainRejected?.({ sessionId: session.sessionId, turn, reason }),
+          }
+        : {}),
     })
   }
 
@@ -771,7 +910,13 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       contextUsedPercent: undefined,
       injection: undefined as unknown as TerminalInjectionMachine,
       hookWaiters: new Set(),
+      userTurns: 0,
       alive: true,
+      // STARTS FALSE EVEN ON AN ADOPT. The `bind` frame is what says the CLI is
+      // up, and an adopt produces one — so the drain waits for the same evidence
+      // a fresh spawn waits for rather than assuming a surviving master is ready.
+      live: false,
+      terminatedByDriver: false,
       lastOutputAtMs: 0,
       watchers: new Map(),
       disposed: false,
@@ -819,6 +964,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       // ---- lifecycle ----
       async stop() {
         session.alive = false
+        session.terminatedByDriver = true
         // The PROCESS is gone, so its stream position goes with it: a later
         // process under the same label is a different conversation, and carrying
         // a position across would fence its first events out as already-seen.
@@ -832,12 +978,14 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // gone — data loss wearing a lifecycle verb's name.
         if (!session.resume) return refuse('no_resume_ref')
         session.alive = false
+        session.terminatedByDriver = true
         host.stopSession({ sessionId: session.sessionId, durableLabel: session.label })
         return { ok: true as const }
       },
 
       async kill() {
         session.alive = false
+        session.terminatedByDriver = true
         streamPositions.delete(session.label)
         host.stopSession({ sessionId: session.sessionId, durableLabel: session.label })
       },
@@ -927,23 +1075,33 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         if (!session.alive || !host.bridge(session.sessionId)) {
           return { outcome: 'refused', refusal: refuse('not_running') }
         }
-        // ONE CONTROL LEASE. A human in take-over serializes every other
-        // controller behind them; a headless driver queues rather than
-        // interleaves, which is what makes "the user started typing" and "the
-        // steward nudged" impossible to interleave.
+        const enqueue = (): TurnReceipt =>
+          session.injection.enqueue(input.text, {
+            origin: options.origin,
+            id: randomUUID(),
+            // CARRIED, not defaulted. A queued turn that forgot who asked for it
+            // can only ever be drained as somebody else.
+            ...(options.principal ? { principal: options.principal } : {}),
+          })
+
+        // ONE CONTROL LEASE — AND IT QUEUES, IT DOES NOT REFUSE. A human in
+        // take-over serializes every other controller behind them, and the
+        // contract's own `lease_held` says how: "headless drivers queue rather
+        // than interleave — exactly what `queueText` does today". Refusing here
+        // would have been a THIRD refusal reason this path does not have (the
+        // plan names exactly two: not-running, and needs_user without a
+        // post-ESC), and it would turn a takeover into dropped work for every
+        // caller that is not a person. The queue is what makes "the user started
+        // typing" and "the steward nudged" impossible to interleave; `deliveredAs`
+        // reports the degradation.
         if (session.lease?.kind === 'human-controller' && options.origin !== 'human') {
-          return { outcome: 'refused', refusal: refuse('lease_held', session.lease.holder) }
+          return enqueue()
         }
 
         // DEGRADATION IS REPORTED, NEVER SILENT. A TUI cannot append into an open
         // turn, so `steer` becomes `queue` and `deliveredAs` says so.
         const requested: TurnDelivery = options.delivery
-        if (requested === 'steer' || requested === 'queue') {
-          return session.injection.enqueue(input.text, {
-            origin: options.origin,
-            id: randomUUID(),
-          })
-        }
+        if (requested === 'steer' || requested === 'queue') return enqueue()
 
         if (requested === 'interrupt') {
           // ESC first, then the replacement prompt one CR-delay later — the exact
@@ -984,7 +1142,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         session.injection.interrupt()
       },
 
-      async answer(interactionId, answer): Promise<InteractionAnswerOutcome> {
+      async answer(interactionId, answer, answerOptions): Promise<InteractionAnswerOutcome> {
         // IDEMPOTENT: a second answer is a typed error, never a second script
         // typed into a menu that is no longer there.
         if (session.answered.has(interactionId)) return { ok: false, reason: 'already-answered' }
@@ -1022,7 +1180,23 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         const at = new Date(host.now()).toISOString()
         emit(
           session,
-          { t: 'interaction', ev: { ev: 'answered', id: interactionId, answeredBy: 'human', at } },
+          {
+            t: 'interaction',
+            ev: {
+              ev: 'answered',
+              id: interactionId,
+              // WHO ACTUALLY ANSWERED. This driver typed the digits, so the one
+              // thing this event may NOT say by default is `human` — that value
+              // belongs to `closeOpenInteractions`, where it means a person at
+              // the attached terminal did it themselves and we only watched. Here
+              // the answer arrived through the contract, so it is the acting
+              // principal's, and an absent principal is a programmatic caller
+              // that did not name itself: `policy` is the honest floor, never a
+              // person we cannot point to.
+              answeredBy: answeredByFor(answerOptions?.principal),
+              at,
+            },
+          },
           at,
           'live',
         )
@@ -1197,6 +1371,13 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     if (session) {
       session.disposed = true
       session.injection.dispose()
+      // The PROCESS is gone — `clear` is called from the daemon's teardown path
+      // and on exit — so its stream position goes with it. Retaining it would
+      // leak one entry per session for the daemon's life AND would fence out the
+      // first events of any later process that reused the label. Note the
+      // asymmetry with `restartSupervisor`, which keeps positions on purpose:
+      // there the process SURVIVES and only the handle is dropped.
+      streamPositions.delete(session.label)
       for (const wake of [...session.wakers]) wake()
     }
     sessions.delete(sessionId)
@@ -1349,14 +1530,24 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
 
 const cursorSeqOf = (cursor: ProviderCursor): number => Number(cursor.components.seq ?? 0)
 
-/** A completed USER turn in the event log — the submit-verification baseline,
- *  counted from what the harness's own transcript produced rather than from what
- *  we typed. */
-function isUserTurnItem(entry: LoggedEvent): boolean {
-  const event = entry.event
-  if (event.t !== 'item') return false
-  const delta = event.item
-  return delta.kind === 'complete' && delta.item.role === 'user'
+/**
+ * Who an `answered` event names, from the acting principal that answered.
+ *
+ * `human` requires a HUMAN — a user principal, or a person at the terminal. An
+ * agent answering on a session's behalf is a `superagent`; a server job with no
+ * person behind it is `policy`. The default is `policy` rather than `human`
+ * because a consumer reading `human` believes somebody looked at the menu, and
+ * that belief is exactly what must not be manufactured.
+ */
+function answeredByFor(principal: ActingPrincipal | undefined): 'policy' | 'superagent' | 'human' {
+  switch (principal?.kind) {
+    case 'user':
+      return 'human'
+    case 'agent':
+      return 'superagent'
+    default:
+      return 'policy'
+  }
 }
 
 /** Is this hook payload the causal accept — Claude's `UserPromptSubmit`? */
@@ -1365,31 +1556,6 @@ function isPromptSubmitHook(payload: unknown): boolean {
   const record = payload as Record<string, unknown>
   const name = record.hook_event_name ?? record.hookEventName
   return name === 'UserPromptSubmit'
-}
-
-/** The prompt text a `UserPromptSubmit` carries, or null when it carries none in
- *  a shape we can compare. */
-function promptTextOf(payload: unknown): string | null {
-  if (typeof payload !== 'object' || payload === null) return null
-  const record = payload as Record<string, unknown>
-  const prompt = record.prompt ?? record.message ?? record.content
-  return typeof prompt === 'string' ? prompt : null
-}
-
-/**
- * Does this hook's prompt belong to the send we are waiting on?
- *
- * NOT EQUALITY. The CLI is entitled to trim, to strip its own injected context,
- * and to normalize newlines, so an exact match would reject accepts that really
- * happened. Containment in either direction over the trimmed text is the
- * loosest comparison that still cannot credit a DIFFERENT prompt — which is the
- * property that matters when two sends are in flight.
- */
-function promptMatches(hookPrompt: string, sent: string): boolean {
-  const a = hookPrompt.trim()
-  const b = sent.trim()
-  if (a === '' || b === '') return false
-  return a === b || a.includes(b) || b.includes(a)
 }
 
 /**

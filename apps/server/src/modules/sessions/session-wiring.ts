@@ -471,7 +471,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           sessionId: input.sessionId,
           text: input.text,
           inputOrigin: input.origin,
-          principal: SYSTEM_INBOX_PRINCIPAL,
+          // THE SENDER'S OWN PRINCIPAL, carried into the durable row so
+          // `authorizeAtDrain` re-resolves the right delegation immediately
+          // before the bytes cross. Hardcoding the system principal here — which
+          // this did until POD-2021's review — authorized every contract-routed
+          // turn as system, which is a privilege escalation the moment W4 routes
+          // a real caller.
+          principal: input.principal,
         })
         if (!queued.ok) {
           return {
@@ -490,6 +496,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       },
     },
     machineOf: (sessionId: SessionId) => bag.sessions.get(sessionId)?.machineId,
+    // The one place "an unattributed turn acts as the system" is written down.
+    systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
   })
   bag.daemonLifecycle = new SessionDaemonLifecycle({
