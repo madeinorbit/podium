@@ -205,8 +205,10 @@ export const SAMPLE_FIXUPS = new Map<z.ZodTypeAny, SampleFixup>([
       const first = isRecord(members[0]) ? members[0] : undefined
       if (!first) return value
       const lane = isRecord(value.lane) ? value.lane : undefined
+      const orderId = first.orderId
       const member = {
         ...first,
+        orderId,
         // The frozen target is the lane's, so the member's approval base is
         // READ FROM the lane rather than restated.
         approvedBaseSha: lane?.expectedTargetSha ?? first.approvedBaseSha,
@@ -218,7 +220,7 @@ export const SAMPLE_FIXUPS = new Map<z.ZodTypeAny, SampleFixup>([
         members: [member],
         memberCount: 1,
         // The leader is the final ordered member — with one member, that member.
-        leaderOrderId: member.orderId,
+        leaderOrderId: orderId,
       }
     },
   ],
