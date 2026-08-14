@@ -65,20 +65,6 @@ export interface FlightDeckRow {
    * motion in the app must never do.
    */
   workingAgentCount: number
-  /**
-   * How many things in this subtree stopped and asked the operator something.
-   *
-   * Counted per SESSION, not per task (POD-516 round 2 §5): a task does not need
-   * you — a session did. A task that is itself the exception (review, or an
-   * explicit `needsHuman`) with no session asking still counts once, because the
-   * operator has to answer it and nothing else would say so. Sessions are
-   * de-duplicated across the subtree: one agent that is a member of two issues
-   * asked once.
-   *
-   * Deliberately alongside {@link actionableCount} rather than replacing it —
-   * that one counts TASKS and is what column 1 and the portfolio badge promise.
-   */
-  attentionCount: number
   collapsedSummary: CollapsedSummary
 }
 
@@ -109,7 +95,6 @@ function sameFlightDeckRow(a: FlightDeckRow, b: FlightDeckRow): boolean {
     a.actionableCount === b.actionableCount &&
     a.liveAgentCount === b.liveAgentCount &&
     a.workingAgentCount === b.workingAgentCount &&
-    a.attentionCount === b.attentionCount &&
     sameCollapsedSummary(a.collapsedSummary, b.collapsedSummary)
   )
 }
@@ -199,6 +184,13 @@ export function issueNeedsHuman(
   sessions: readonly SessionMeta[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): boolean {
+  // A CLOSED TASK NEVER NEEDS YOU (POD-1072). Closing is the operator's own
+  // "this is finished" flip, and nothing downstream of it may keep demanding a
+  // decision: not a standing offer the agent posted a beat AFTER closing (which
+  // the close-time sweep cannot see), not a session parked in `needs_user`, not
+  // a question nobody got round to answering. The server retires those offers
+  // too — this is the rule that holds even when a race beats it.
+  if (issue.stage === 'done' || issue.closedReason) return false
   if (issue.needsHuman === true) return true
   if (sessions.some((session) => !session.archived && sessionNeedsHuman(session))) return true
   // An empty review whose session hopscotched is a signpost, not a review item.
@@ -756,18 +748,6 @@ export function buildFlightDeckRows(
     const hidden = descendantIds
       .map((issueId) => byId.get(issueId))
       .filter((candidate): candidate is IssueNavigationModel => Boolean(candidate))
-    // Sessions asking, de-duplicated; plus the tasks that are the exception
-    // themselves. See FlightDeckRow.attentionCount.
-    const askingSessionIds = new Set<string>()
-    let askingTasks = 0
-    for (const issueId of [id, ...descendantIds]) {
-      const candidate = byId.get(issueId)
-      if (!candidate) continue
-      const own = sessionsByIssue.get(issueId) ?? []
-      const asking = own.filter((session) => !session.archived && sessionNeedsHuman(session))
-      for (const session of asking) askingSessionIds.add(session.sessionId)
-      if (asking.length === 0 && issueNeedsHuman(candidate, own)) askingTasks += 1
-    }
     rows.push({
       issue,
       depth,
@@ -778,7 +758,6 @@ export function buildFlightDeckRows(
       workingAgentCount: subtreeSessions.filter(
         (session) => openSession(session) && motionPhase(session) === 'working',
       ).length,
-      attentionCount: askingSessionIds.size + askingTasks,
       collapsedSummary: {
         tasks: hidden.length,
         done: hidden.filter((child) => child.stage === 'done' || child.closedReason).length,

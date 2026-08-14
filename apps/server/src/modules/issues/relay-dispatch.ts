@@ -330,6 +330,32 @@ export function makeAgentRelayDispatch(
             return path
           })
         }
+        // The agent's OWN issue — explicit attachment first, else cwd
+        // containment (see `capabilityForSession`). Both the retirement guard
+        // and the self-reference nudge below are about that one issue.
+        const ownIssueId = capability.scope.kind === 'subtree' ? capability.scope.rootId : null
+        const ownRow = ownIssueId ? issues.getMeta(ownIssueId) : null
+        const ownRef = ownRow ? issues.niceRef(ownRow) : null
+        // RETIRE ON CLOSE, IN EITHER ORDER (POD-1072). `retireIssueOffers`
+        // sweeps standing offers when the issue closes, but the common shape is
+        // the reverse: an agent closes and THEN posts its closing offer, which
+        // the sweep has already run past. That offer then stands forever —
+        // finished work still demanding a decision, which is exactly what
+        // POD-290 set out to stop. Refusing to store it is that same
+        // retirement, applied to the one order the sweep cannot reach.
+        // ADVISORY, NOT AN ERROR: this lands at the very end of a long turn and
+        // a closing report must not fail over it, so the reason rides back on
+        // the result instead of throwing.
+        if (ownRow && (ownRow.stage === 'done' || ownRow.closedReason)) {
+          return Promise.resolve({
+            ok: true,
+            retired: true,
+            notice:
+              `Offer not set: ${ownRef} is already closed, and a closed issue never asks for ` +
+              `a decision. Post the offer BEFORE closing — or, if this is a decision about ` +
+              `NEW work, file that work as its own issue and offer from there.`,
+          })
+        }
         sessionsSvc.setOffer({
           sessionId: actorSessionId,
           message,
@@ -342,9 +368,6 @@ export function makeAgentRelayDispatch(
         // and the headline is written at the far end of a long one — so remind
         // at the moment of the mistake instead. Advisory only: the offer is
         // already set; the notice just rides back on the result.
-        const ownIssueId = capability.scope.kind === 'subtree' ? capability.scope.rootId : null
-        const ownRow = ownIssueId ? issues.getMeta(ownIssueId) : null
-        const ownRef = ownRow ? issues.niceRef(ownRow) : null
         const notice =
           ownRef && bareSelfRefCount(message, ownRef) > 0
             ? selfRefNudge(ownRef, 'offer message')

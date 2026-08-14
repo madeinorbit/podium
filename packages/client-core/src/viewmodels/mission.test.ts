@@ -1256,6 +1256,30 @@ describe('issueNeedsHuman', () => {
       false,
     ],
     ['nothing is pending', issue('i'), [sess('a', { agentState: workingState })], false],
+    // A CLOSED TASK NEVER NEEDS YOU (POD-1072) — whatever is still standing on
+    // it. The offer case is the one that bit: agents close and then post their
+    // closing offer, which the close-time sweep has already run past.
+    [
+      'closed, with an offer posted after the close',
+      issue('i', { stage: 'done' }),
+      [sess('a', { offer })],
+      false,
+    ],
+    [
+      'closed by reason while a session sits in needs_user',
+      issue('i', { closedReason: 'done' }),
+      [sess('a', { agentState: needsUserState })],
+      false,
+    ],
+    [
+      'closed with the needsHuman flag still set',
+      issue('i', { stage: 'done', needsHuman: true }),
+      [],
+      false,
+    ],
+    // The same offer on an OPEN issue is still a real ask — the gate is the
+    // close, not the offer.
+    ['open, with a standing offer', issue('i'), [sess('a', { offer })], true],
   ]
 
   it.each(cases)('is %s', (_name, target, sessions, expected) => {

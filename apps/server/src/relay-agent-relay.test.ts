@@ -127,6 +127,46 @@ describe('server agent relay handler (P1b)', () => {
     expect(clean.notice).toBeUndefined()
   })
 
+  /**
+   * Retire on close, in EITHER order (POD-1072). Closing sweeps standing offers
+   * (POD-290), but agents overwhelmingly close and THEN post the closing offer —
+   * arriving one beat after the sweep, where it stood forever and kept a finished
+   * mission reading "needs you". The set is refused instead, and refused SOFTLY:
+   * a closing report must not fail over its own last line.
+   */
+  it('refuses an offer once the calling session own issue is closed', async () => {
+    const setOffer = async (requestId: string) => {
+      const reply = captureReply(registry, machineId)
+      registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId,
+        sessionId: asSessionId(sA),
+        router: 'offer',
+        proc: 'set',
+        input: { message: 'Merged and closed — next?', actions: [] },
+      })
+      return await reply
+    }
+    const offerOf = () =>
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sA)?.offer
+
+    const before = await setOffer('ir-offer-open')
+    expect((before.result as { retired?: boolean }).retired).toBeUndefined()
+    expect(offerOf()?.message).toBe('Merged and closed — next?')
+
+    // The close sweep takes the standing offer with it (POD-290) …
+    registry.issues.close(A.id)
+    expect(offerOf()).toBeUndefined()
+
+    // … and the one posted afterwards never lands at all.
+    const after = await setOffer('ir-offer-closed')
+    const result = after.result as { ok: boolean; retired?: boolean; notice?: string }
+    expect(after.ok).toBe(true) // soft: the turn does not fail
+    expect(result.retired).toBe(true)
+    expect(result.notice).toContain('already closed')
+    expect(offerOf()).toBeUndefined()
+  })
+
   it('override lets a scoped op write outside its subtree', async () => {
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {

@@ -23,7 +23,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { applyFolds } from '../lib/deck-rows'
 import { stageColor } from '../theme/stage'
-import { color, font, mono, radius, sans, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import {
@@ -247,9 +247,6 @@ export function MissionDeck({
                 <Text style={[styles.segLabel, on ? styles.segLabelOn : null]} numberOfLines={1}>
                   {m.label}
                 </Text>
-                {m.id === 'needs-you' && (rootRow?.attentionCount ?? 0) > 0 ? (
-                  <Text style={styles.segCount}>{rootRow?.attentionCount}</Text>
-                ) : null}
               </PressableScale>
             )
           })}
@@ -595,16 +592,6 @@ const styles = StyleSheet.create({
   },
   segLabel: { ...sans(600), fontSize: font.tiny, color: color.textFaint, flexShrink: 1 },
   segLabelOn: { color: color.text },
-  segCount: {
-    ...mono(600),
-    fontSize: 10,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-    overflow: 'hidden',
-    backgroundColor: color.accent,
-    color: color.onAccent,
-  },
   ctlBtn: {
     width: 32,
     height: 32,

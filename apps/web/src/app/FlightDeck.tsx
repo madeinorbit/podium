@@ -2065,10 +2065,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   )
   const liveCount = rows[0]?.liveAgentCount ?? 0
   const workingCount = rows[0]?.workingAgentCount ?? 0
-  // The Needs-you badge counts what the filter SHOWS — sessions that stopped and
-  // asked, plus the tasks that are the exception themselves. Counting tasks here
-  // and listing sessions there is how a badge comes to disagree with its column.
-  const needsCount = rows[0]?.attentionCount ?? 0
+  // NO COUNT ON "Needs you" (POD-1072). A mission is almost always ONE issue with
+  // one agent, so the roll-up had nothing to roll up: it was a boolean printed as
+  // a number, and the "1" it printed was the same fact the row's own amber mark
+  // already carries. The view bar names the view; the tree says how much.
   // Every session anywhere in the mission, so a spawn edge can be named ("by
   // Spine designer") and one pointing outside the mission is left unnamed rather
   // than rendered as a raw id.
@@ -2531,15 +2531,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 // device the selected strip wears on its left edge, turned
                 // through ninety degrees, so both say "this one" in one voice.
                 className={cn(
-                  'shell-type-micro inline-flex items-center gap-1 self-stretch px-2 font-medium text-text-faint hover:text-text-strong',
+                  'shell-type-micro inline-flex items-center self-stretch px-2 font-medium text-text-faint hover:text-text-strong',
                   mode === option.id && 'text-text-strong shadow-[inset_0_-2px_0_var(--issue)]',
                 )}
                 onClick={() => setMode(option.id)}
               >
                 {option.label}
-                {option.id === 'needs-you' && needsCount > 0 && (
-                  <span className="font-mono font-semibold text-attention">{needsCount}</span>
-                )}
               </button>
             ))}
             <div className="ml-auto flex flex-none items-center gap-0.5">
