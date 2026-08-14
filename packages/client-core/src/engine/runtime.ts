@@ -59,7 +59,7 @@ import type {
 import { asUserId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
-import type { OutboxEntry } from '../outbox'
+import type { OnlineEvents, OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
 import type { ClientPrincipal } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
@@ -100,7 +100,6 @@ import {
   type EngineState,
   type EngineStatics,
   initialEngineState,
-  tabIsVisible,
   userFocus,
   type WorkspacePatch,
   workspaceFor,
@@ -117,6 +116,8 @@ import {
   type StoreServerConfig,
   type UserFocus,
 } from './types'
+import { hasDomWindow } from '../platform-globals'
+import { domVisibility, type VisibilitySource } from './visibility'
 import {
   type CreateEngineOutbox,
   type CreateHub,
@@ -176,6 +177,20 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   feed?: FeedSinkPort
   /** Platform queue factory. Web injects the real kernel Outbox opened over IndexedDB. */
   createOutboxFn?: CreateEngineOutbox
+  /**
+   * PLATFORM SEAMS (POD-2055 WP-C). Each has a browser default and each of
+   * those defaults is wrong on React Native, where `document` is missing,
+   * `window` has no DOM events and `navigator.onLine` does not exist. The
+   * composition root that knows the platform supplies the real ones.
+   */
+  /** Where visibility comes from. Default: `document.visibilityState`. */
+  visibility?: VisibilitySource
+  /** Connectivity transitions for the outbox. Default: the window's `online`. */
+  onlineEvents?: OnlineEvents
+  /** Connectivity probe for the outbox. Default: `navigator.onLine`. */
+  isOnline?: () => boolean
+  /** Liveness ping cadence. Default: the hub's own (2.5 s). Native passes 10 s. */
+  heartbeatIntervalMs?: number
   /** Test seam: overrides SPAWN_CONFIRM_GRACE_MS (#263 review finding 4). */
   spawnConfirmGraceMs?: number
   /** Test seam: overrides WORKSPACE_PRUNE_GRACE_MS (POD-710). */
@@ -248,6 +263,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly formatError: (error: unknown, fallback: string) => string
   private readonly httpOrigin: string
 
+  /** Where this client learns whether it is on screen (POD-2055 WP-C4). */
+  private readonly visibility: VisibilitySource
   private readonly state: EngineState
   private readonly subStore: SubscriptionStore<Store<TApi>>
   /** The action methods + constant handles, spread into every snapshot so their
@@ -310,6 +327,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // the hub's first changesSince; entity hydration happens async in start().
     this.replica = init.createReplicaFn(init.principal)
     this.replicaBinding = createReplicaBinding({ replica: this.replica })
+    this.visibility = init.visibility ?? domVisibility()
     this.hub = createEngineHub({
       wsClientUrl: init.config.wsClientUrl,
       api: this.api,
@@ -317,11 +335,18 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       onFatalError: (m) => this.onFatalError(m),
       createHub: init.createHub,
       feed: init.feed,
+      ...(init.heartbeatIntervalMs !== undefined
+        ? { heartbeatIntervalMs: init.heartbeatIntervalMs }
+        : {}),
     })
     this.onFeed = init.feed !== undefined
     this.outbox = (init.createOutboxFn ?? createEngineOutbox)({
       api: this.api,
       replica: this.replica,
+      // Platform connectivity, when the root knows better than the browser
+      // defaults `createEngineOutbox` would reach for (native: NetInfo).
+      ...(init.onlineEvents !== undefined ? { onlineEvents: init.onlineEvents } : {}),
+      ...(init.isOnline !== undefined ? { isOnline: init.isOnline } : {}),
       notices: { error: (m) => this.notices.error(m), info: (m, d) => this.notices.info(m, d) },
       // Overlay lifecycle (#263): drain success hands the entry's overlay to
       // the awaiting-truth stage; a poison drop repaints without it.
@@ -394,6 +419,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       publish: (patch) => this.apply(patch),
       hub: this.hub,
       notices: this.notices,
+      isVisible: () => this.visibility.isVisible(),
       markSessionRead: (sessionId) => void this.statics.markSessionRead(sessionId),
       markIssueRead: (issueId) => void this.statics.markIssueRead(issueId),
       ...(init.workspacePruneGraceMs !== undefined
@@ -643,7 +669,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // a visible Podium window IS the notification.
     offs.push(
       this.hub.on('attention', (e) => {
-        if (tabIsVisible()) return
+        if (this.visibility.isVisible()) return
         if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
         try {
           new Notification(e.title, { body: e.body, tag: e.sessionId })
@@ -665,21 +691,22 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
     // Presence feeds the server's smart router (skip mobile push while visible).
     // Re-report view-state too so hiding the tab clears it (and showing re-asserts).
-    if (typeof document !== 'undefined') {
-      const onVisibilityChange = (): void => {
+    // The SOURCE is injected (POD-2055 WP-C4): web reads the document, native
+    // reads AppState, and only the source knows which transition just happened.
+    offs.push(
+      this.visibility.subscribe(() => {
         this.reactions.onVisibilityChange()
-        // A tab that slept through its heartbeat deadline reconnects the moment it
-        // is foregrounded, instead of waiting out up to 10s of backoff with the
-        // feed and every terminal dark.
-        if (tabIsVisible()) this.hub.connectNow()
-      }
-      document.addEventListener('visibilitychange', onVisibilityChange)
-      offs.push(() => document.removeEventListener('visibilitychange', onVisibilityChange))
-    }
+        // A client that slept through its heartbeat deadline reconnects the
+        // moment it is looked at again, instead of waiting out up to 10s of
+        // backoff with the feed and every terminal dark.
+        if (this.visibility.isVisible()) this.hub.connectNow()
+      }),
+    )
     // The OS knows the network came back long before the backoff timer does.
     // Feature-detected rather than assumed: React Native defines `window` as the
-    // global object, without DOM listeners on it (POD-2055 F4).
-    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    // global object, without DOM listeners on it (POD-2055 F4) — where this
+    // declines, the platform's own signal is injected instead (mobile: NetInfo).
+    if (hasDomWindow()) {
       const dom = window
       const onOnline = (): void => this.hub.connectNow()
       dom.addEventListener('online', onOnline)
