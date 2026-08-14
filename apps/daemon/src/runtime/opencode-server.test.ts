@@ -25,7 +25,12 @@ import {
   opencodeVersionProbe,
   resetOpencodeVersionProbe,
 } from './opencode-server'
-import { availableDriverIds, isServerDriver, resolveRuntimeDriver } from './registry'
+import {
+  availableDriverIds,
+  isServerDriver,
+  resolveRuntimeDriver,
+  unhonouredSpawnDriver,
+} from './registry'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 
@@ -98,6 +103,46 @@ describe('driver resolution', () => {
       platform: 'linux',
     })
     expect(resolved).toEqual({ ok: true, driverId: 'generic-pty' })
+  })
+
+  it('…but the SPAWN that named it is told, rather than handed a terminal session', () => {
+    /**
+     * THE OTHER HALF OF THE DEGRADE ABOVE (POD-2113). `resolveRuntimeDriver`
+     * still answers `generic-pty` — the resolution is unchanged and stays a
+     * degrade — and the spawn path then asks whether the ID CAME FROM THIS
+     * SPAWN. It did, so the session is refused instead of quietly started.
+     *
+     * The two are not in tension. Resolution answers "what can run here", which
+     * is a fact about the machine; this answers "may I quietly substitute it",
+     * which is a fact about who asked and how recently.
+     */
+    expect(unhonouredSpawnDriver({ perSpawn: 'opencode-server', resolved: 'generic-pty' })).toBe(
+      'opencode-server',
+    )
+    // A MACHINE-WIDE DEFAULT IS NOT A PER-SPAWN REQUEST, and this is the line
+    // that keeps the degrade alive. `PODIUM_RUNTIME_DRIVER` reaches resolution
+    // through `machineDefault`, never through `perSpawn`, so a stale env var on
+    // a box whose opencode fell out of range degrades every spawn instead of
+    // failing every spawn.
+    expect(unhonouredSpawnDriver({ perSpawn: undefined, resolved: 'generic-pty' })).toBeUndefined()
+    // `true` names no driver, so there is no request to break.
+    expect(unhonouredSpawnDriver({ perSpawn: true, resolved: 'generic-pty' })).toBeUndefined()
+    // Honoured is honoured.
+    expect(
+      unhonouredSpawnDriver({ perSpawn: 'opencode-server', resolved: 'opencode-server' }),
+    ).toBeUndefined()
+    // A SERVER DRIVER ASKED OF A HARNESS THAT DECLARES NONE is refused for the
+    // same reason, and it is the case a typo in `agentKind` produces: claude
+    // resolves to `claude-pty` and the opencode request evaporates.
+    expect(unhonouredSpawnDriver({ perSpawn: 'opencode-server', resolved: 'claude-pty' })).toBe(
+      'opencode-server',
+    )
+    // TERMINAL IDS DO NOT REFUSE. Both reach the same PTY launch, so a spawn
+    // that named one and resolved to the other got what it asked for in every
+    // way it can observe — refusing would be pedantry about a label, and it
+    // would turn `PODIUM_RUNTIME_DRIVER=claude-pty` on an opencode session into
+    // a dead spawn.
+    expect(unhonouredSpawnDriver({ perSpawn: 'claude-pty', resolved: 'generic-pty' })).toBeUndefined()
   })
 
   it('REFUSES an unknown id rather than quietly giving it a terminal session', () => {

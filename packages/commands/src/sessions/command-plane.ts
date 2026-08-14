@@ -203,6 +203,23 @@ const create: CommandDef = {
   decision: `${PLACEMENT_DECISION} Ownership on create is resolved from the principal, not the transport: an agent-created session is owned by its onBehalfOf HUMAN with the agent as actor (A4), and one spawned under an issue inherits THAT issue's owner and grants — otherwise sharing an issue does not share its work and retiring an agent orphans what it made. The draftIssue vessel resolves the same owner, so the low-friction start path produces an OWNED draft. No relay exposure: agents spawn through messages.spawnAgent, which carries its own budget and parent-scope rules.`,
 }
 
+/**
+ * NO `runtimeContract` HERE, AND THAT IS THE POINT (POD-2113).
+ *
+ * Adding it would have been one line and would have reproduced the very bug
+ * this issue is about, one layer deeper. `resumeSession` has no such parameter
+ * — not on the revival service, not on the frame it sends — so the field would
+ * pass the schema, be spread into a call that ignores it, and produce the same
+ * healthy-session-that-obeyed-nothing an operator cannot tell from success.
+ *
+ * The semantics are also not the create ones. A resume USUALLY lands on an
+ * existing row, which it reuses or resurrects; that session's driver was chosen
+ * at its spawn and a reattach cannot re-choose it. Only the fresh-spawn fallback
+ * could honour a driver id, and a field honoured on one of three outcomes is a
+ * worse contract than a field that is not offered. Wiring resume means deciding
+ * what an override MEANS for a session that already has a driver, which is a
+ * design question and not a schema key.
+ */
 const resumeInput = z.object({
   agentKind,
   cwd: z.string(),

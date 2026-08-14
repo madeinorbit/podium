@@ -187,3 +187,38 @@ export function isServerDriverId(driverId: string): boolean {
     (manifest) => declaredValue(manifest.runtime.server)?.driverId === driverId,
   )
 }
+
+/**
+ * Did THIS SPAWN name a server driver that resolution did not give it? Returns
+ * the id it named, for the refusal message; undefined when there is nothing to
+ * refuse (POD-2113).
+ *
+ * WHY THIS IS NOT INSIDE `resolveRuntimeDriver`. That function is handed a
+ * preference with the machine-wide default already folded in, and the whole
+ * decision here turns on which of the two the id came from:
+ *
+ *   - A MACHINE-WIDE `PODIUM_RUNTIME_DRIVER` degrades. It is a setting, it can
+ *     go stale under a machine whose opencode moved out of range, and refusing
+ *     on it would break every spawn on that box at once.
+ *   - A PER-SPAWN ID REFUSES. Nobody puts a driver id on one spawn frame by
+ *     accident; it is the operator testing whether that driver works, and the
+ *     honest answer to "it cannot run here" is to say so. Answering with a
+ *     working terminal session instead is the one reply indistinguishable from
+ *     the success they were looking for — which is exactly how the dropped
+ *     override survived so long.
+ *
+ * SERVER FAMILY ONLY. The terminal ids all reach the same PTY launch, so a spawn
+ * that named one and resolved to its sibling got what it asked for in every
+ * observable way, and refusing there would be pedantry about a label.
+ */
+export function unhonouredSpawnDriver(input: {
+  /** The per-spawn field ONLY. Folding the env default in here defeats the
+   *  point — see above. */
+  perSpawn: RuntimeContractRequest | undefined
+  resolved: DriverId
+}): string | undefined {
+  const { perSpawn, resolved } = input
+  if (typeof perSpawn !== 'string') return undefined
+  if (perSpawn === resolved) return undefined
+  return isServerDriverId(perSpawn) ? perSpawn : undefined
+}

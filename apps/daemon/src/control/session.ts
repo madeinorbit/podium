@@ -38,6 +38,7 @@ import {
   isServerDriverId,
   resolveRuntimeDriver,
   terminalProfileFor,
+  unhonouredSpawnDriver,
 } from '../runtime/registry'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
@@ -568,21 +569,32 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
  * Start this session on a server-family driver, or answer `false` for "not
  * mine".
  *
- * THREE OUTCOMES FOR A REQUEST THAT CANNOT BE HONOURED, and the split is
- * deliberate — an earlier version of this comment claimed they were all
- * refusals, which was the opposite of what the code does on the case it named
- * (POD-2023 review, 7.1; the third arrived with POD-2056's measurement):
+ * A REQUEST THAT CANNOT BE HONOURED EITHER REFUSES OR DEGRADES, and each case
+ * below says which and why. This comment has been wrong in both directions: it
+ * once claimed every outcome was a refusal, which was the opposite of what the
+ * code did on the case it named (POD-2023 review, 7.1; a third case arrived with
+ * POD-2056's measurement), and the code then degraded on a case that should
+ * always have refused (POD-2113). The rule the cases share is that a fact about
+ * the MACHINE may be papered over, and an instruction from THIS SPAWN may not:
  *
  *   - AN UNKNOWN DRIVER ID REFUSES, loudly, with the id in the message. This
  *     build ships no such driver, so it is a typo or a spawn from a newer
  *     server, and an operator who asked for `opencode-sever` and got a working
  *     terminal session would read it as proof the override works.
- *   - AN UNSUPPORTED DRIVER DEGRADES to whatever the manifest ranks next, which
- *     today is terminal. The machine's opencode answered and the gate refused
- *     its version; `selectRuntimeDriver` already drops a preference the machine
- *     cannot run, and honouring it anyway would turn a stale settings value into
- *     a session that cannot start. Pinned by `opencode-server.test.ts`'s
- *     "DEGRADES an opt-in the machine cannot run".
+ *   - AN UNSUPPORTED DRIVER FROM THE MACHINE-WIDE DEFAULT DEGRADES to whatever
+ *     the manifest ranks next, which today is terminal. The machine's opencode
+ *     answered and the gate refused its version; `selectRuntimeDriver` already
+ *     drops a preference the machine cannot run, and honouring it anyway would
+ *     turn a stale `PODIUM_RUNTIME_DRIVER` into a machine where NO session can
+ *     start. Pinned by `opencode-server.test.ts`'s "DEGRADES an opt-in the
+ *     machine cannot run".
+ *   - THE SAME REQUEST MADE PER-SPAWN REFUSES (POD-2113). An id on the spawn
+ *     frame is not a setting anyone forgot; it is this session's reason for
+ *     existing, and every operator who sends one is testing whether the driver
+ *     works. Silently answering with a terminal session gave them the one
+ *     outcome that looks exactly like the answer they wanted. Degrading is right
+ *     for a value inherited from a machine and wrong for a value typed for a
+ *     session, so the split is on WHERE the id came from, not on what it says.
  *   - A DRIVER WE COULD NOT PROBE REFUSES, when the spawn named it explicitly.
  *     Added after POD-2056 measured `opencode --version` at 11–15s on the build
  *     host against a 15s budget: losing that race made an explicit
@@ -698,7 +710,67 @@ async function launchServerDriverSession(
     ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: resolution.reason })
     return true
   }
-  if (!isServerDriver(msg.agentKind, resolution.driverId)) return false
+  /**
+   * THIS SPAWN NAMED A SERVER DRIVER AND DID NOT GET IT — REFUSED (POD-2113).
+   *
+   * Without this the request dies right here, in silence: `resolution.driverId`
+   * is a terminal driver, `isServerDriver` is false, the function answers "not
+   * mine", and the spawn falls through to the PTY launch. The operator gets a
+   * healthy session that obeyed nothing — and no signal afterwards either, since
+   * the row records `runtimeContract: true` (the TERMINAL driver registered) and
+   * no read surface carries a driver id at all.
+   *
+   * The refuse/degrade split itself lives in {@link unhonouredSpawnDriver},
+   * where it can be tested without a daemon.
+   */
+  const unhonoured = unhonouredSpawnDriver({
+    perSpawn: msg.runtimeContract,
+    resolved: resolution.driverId,
+  })
+  if (unhonoured !== undefined) {
+    // WHY, not just WHAT. The two reasons want different fixes — upgrade this
+    // machine's opencode, or stop asking a harness for a driver it does not
+    // declare — and "could not honour it" alone sends an operator to neither.
+    const why = probe.drivable
+      ? `harness '${msg.agentKind}' does not declare it (this spawn resolved to '${resolution.driverId}')`
+      : `${probe.diagnostic.title}: ${probe.diagnostic.body}`
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: `this spawn asked for runtime driver '${unhonoured}' and it cannot be honoured here — ${why}`,
+    })
+    return true
+  }
+  if (!isServerDriver(msg.agentKind, resolution.driverId)) {
+    /**
+     * THE DEGRADE THAT SURVIVES, SAID OUT LOUD.
+     *
+     * A machine-wide `PODIUM_RUNTIME_DRIVER` naming a server driver this box
+     * cannot run still degrades — deliberately, so one stale env var cannot kill
+     * every spawn on the machine — and until this line it did so with no trace
+     * anywhere. An operator who set the variable, watched every session come up
+     * terminal, and went looking had nothing to find: no error, no warning, and
+     * no driver id on any read surface.
+     *
+     * A log line is not a read surface and does not pretend to be one; it is the
+     * one place a degrade can be recorded without a protocol change, and it
+     * names the machine's own reason so the next step is obvious.
+     */
+    // Only for a SERVER-family preference that was dropped. A terminal id
+    // resolving to its sibling is not a degrade, and `true` names no driver at
+    // all — warning on either would train an operator to ignore the line that
+    // matters. Per-spawn server ids never reach here; they were refused above.
+    if (isServerDriverId(requested) && requested !== resolution.driverId) {
+      log.warn('a machine-wide runtime driver preference was not honoured', {
+        sessionId: msg.sessionId,
+        preferred: requested,
+        resolved: resolution.driverId,
+        agentKind: msg.agentKind,
+        reason: probe.drivable ? 'the harness does not declare it' : probe.diagnostic.title,
+      })
+    }
+    return false
+  }
   const runtime = ctx.opencodeRuntime
   if (!runtime) {
     ctx.send({

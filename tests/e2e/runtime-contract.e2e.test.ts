@@ -38,8 +38,8 @@
  * than implying coverage it does not have.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -47,8 +47,10 @@ import {
   readOrCreateLocalMachineId,
   stateDir,
 } from '@podium/runtime/local-machine'
+import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
+import type { AppRouter } from '../../apps/server/src/router'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
@@ -304,4 +306,150 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       rmSync(tmp, { recursive: true, force: true })
     }
   }, 60_000)
+
+  /**
+   * THROUGH THE DOOR EXTERNAL CALLERS ACTUALLY USE (POD-2113).
+   *
+   * Every other lane in this file — and the opencode-server one next door —
+   * spawns with `sessions.createSession(...)`, an in-process call on the service
+   * object. That is a fine way to test the daemon and a useless way to test the
+   * API, and the difference cost this epic its headline feature: `sessions.create`'s
+   * zod input did not declare `runtimeContract`, so the field was stripped at the
+   * boundary and the override worked for NOBODY outside the server process —
+   * CLI, web, mobile and scripts alike — while every test above kept passing.
+   *
+   * So this lane goes over HTTP, through the real router, with a real tRPC
+   * client. It asserts on a session that must NOT come up, because that is the
+   * only shape of assertion the bug could not have satisfied: the whole failure
+   * was a healthy session.
+   */
+  it('carries a per-spawn driver id across the tRPC boundary, and REFUSES a bogus one', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'podium-runtime-contract-trpc-'))
+    mkdirSync(join(tmp, 'hooks'), { recursive: true })
+    // NO FLAG. A driver id implies the contract is on, so an operator trying a
+    // driver never has to find `PODIUM_RUNTIME_CONTRACT` first — and this lane
+    // would quietly stop testing the per-spawn field if it set one.
+    const previousFlag = process.env.PODIUM_RUNTIME_CONTRACT
+    delete process.env.PODIUM_RUNTIME_CONTRACT
+
+    const srv = await startServer()
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${srv.port}`,
+      bootstrapToken: readOrCreateDaemonSecret(stateDir()),
+      machineId: hostMachineId(),
+      identityDir: tmp,
+      launch: fixtureLaunch,
+      backend: 'none',
+      // THE REAL HOME, UNLIKE EVERY OTHER LANE HERE, because this one spawns
+      // through the door that checks. `sessions.create` refuses a harness the
+      // MACHINE does not report installed, and that inventory comes from
+      // discovery — pointed at an empty tmp home it finds nothing, and the
+      // refusal arrives at the server before the daemon is ever asked. The lanes
+      // above call `createSession` on an already-warm machine record and never
+      // meet the check. Nothing is executed either way: `fixtureLaunch` is still
+      // what runs, so this reads the box's harness list without trusting its
+      // binaries.
+      discovery: { background: false, cachePath: join(tmp, 'discovery.db'), homeDir: homedir() },
+      metrics: { background: false },
+      hooks: { port: 0, settingsDir: join(tmp, 'hooks') },
+      agentRelay: { port: 0 },
+    })
+    const trpc = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url: `http://127.0.0.1:${srv.port}/trpc` })],
+    })
+    const sessions = srv.registry.modules.sessions
+
+    try {
+      // ONLINE IS NOT ENOUGH HERE. The spawn gate reads the machine's INVENTORY,
+      // which discovery reports after the connection is up, so waiting only for
+      // `online` races it — and loses as a "harness is not installed" error that
+      // says nothing about the driver id this lane is actually about.
+      await waitFor(() => {
+        const machine = srv.registry.modules.machines
+          .listMachines()
+          .find((m) => m.id === hostMachineId())
+        return (
+          machine?.online === true &&
+          machine.inventory?.agents.some((a) => a.kind === 'opencode' && a.installed) === true
+        )
+      }, 60_000)
+
+      // THE CONTROL EXPERIMENT FROM THE BUG REPORT, run as a test. A driver id
+      // this build does not ship is refused BY NAME at the daemon's registry —
+      // and it can only get there if the schema, the service, the spawn frame
+      // and the daemon all carried the string intact. One assertion, the whole
+      // chain, and it is unsatisfiable by a session that came up fine.
+      const { sessionId } = await trpc.sessions.create.mutate({
+        agentKind: 'opencode',
+        cwd: tmp,
+        runtimeContract: 'not-a-real-driver',
+      })
+      // GENEROUS, BECAUSE THE SPAWN PATH PROBES BEFORE IT REFUSES. The daemon
+      // asks `opencode --version` on the way to resolution, and POD-2056
+      // measured that at 11–15s on the build host (budget 60s). A tighter
+      // deadline here would fail on a loaded box and read as a broken refusal.
+      await waitFor(
+        () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'exited',
+        90_000,
+      )
+      // Read back through the wire projection too, because that is where an
+      // operator would look: a spawn refusal an operator cannot see is barely
+      // better than the silent degrade it replaced.
+      const meta = (await trpc.sessions.list.query()).find((s) => s.sessionId === sessionId)
+      expect(meta?.status).toBe('exited')
+      // THE ID, IN THE MESSAGE. `resolveRuntimeDriver` names what it refused so
+      // an operator who typo'd `opencode-sever` sees their own string back;
+      // asserting only that SOMETHING failed would pass for any spawn error.
+      expect(meta?.spawnFailure).toContain('not-a-real-driver')
+      // A SPAWN REFUSAL, NOT A DEATH. `-1` is the code `markSpawnError` stamps;
+      // a session that came up on a PTY and then exited would carry the
+      // harness's own code and no `spawnFailure` at all. The pair is what
+      // separates "never started" from "started and lost", and the bug's whole
+      // signature was a session that started.
+      expect(meta?.exitCode).toBe(-1)
+
+      // ---- THE POSITIVE HALF: A NAMED DRIVER ACTUALLY RUNS ---------------
+      //
+      // A refusal test alone can be satisfied by a build that refuses
+      // EVERYTHING, so the override is only proven by also spawning one that
+      // must succeed — through the same external door.
+      //
+      // GATED ON THE SAME `PODIUM_OPENCODE_LIVE` AS THE NEIGHBOURING LANE,
+      // because this half starts a real opencode server and cannot be faked:
+      // the fixture launcher above is a PTY, and a PTY is precisely the thing
+      // this assertion has to rule out. The refusal half above needs no such
+      // gate and always runs.
+      if (process.env.PODIUM_OPENCODE_LIVE === '1') {
+        const live = await trpc.sessions.create.mutate({
+          agentKind: 'opencode',
+          cwd: tmp,
+          runtimeContract: 'opencode-server',
+        })
+        await waitFor(
+          () =>
+            sessions.listSessions().find((s) => s.sessionId === live.sessionId)?.status === 'live',
+          90_000,
+        )
+        // THE JOURNAL IS THE FAMILY TEST, not `runtimeContract: true` — the
+        // terminal driver sets that too, so a spawn that asked for
+        // `opencode-server` and silently got a PTY passes the boolean and fails
+        // four steps later as an `unverified` receipt. The journal file is
+        // written by exactly one thing, this driver's own launch, so its
+        // presence is the fact. (Learned by `daemon-restart-adoption.e2e.ts`,
+        // which says it cost a run.)
+        expect(
+          existsSync(
+            join(stateDir(), 'opencode-servers', `${encodeURIComponent(live.sessionId)}.json`),
+          ),
+          'the session is live but has no opencode binding journal, so the driver named through tRPC did NOT take',
+        ).toBe(true)
+      }
+    } finally {
+      await daemon.close({ reapSessions: true })
+      await srv.close()
+      if (previousFlag === undefined) delete process.env.PODIUM_RUNTIME_CONTRACT
+      else process.env.PODIUM_RUNTIME_CONTRACT = previousFlag
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  }, 150_000)
 })
