@@ -29,8 +29,14 @@ import {
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
-import { runtimeContractEnabledFor } from '../runtime/flag'
-import { terminalProfileFor } from '../runtime/registry'
+import { runtimeContractEnabledFor, runtimeDriverByEnv, runtimeDriverFor } from '../runtime/flag'
+import { opencodeVersionDiagnostic } from '../runtime/opencode-server'
+import {
+  availableDriverIds,
+  isServerDriver,
+  resolveRuntimeDriver,
+  terminalProfileFor,
+} from '../runtime/registry'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -533,7 +539,86 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
       return
     }
   }
+  /**
+   * THE FORK BETWEEN A PTY SESSION AND A SERVER SESSION (POD-1761 W5).
+   *
+   * It is HERE and not inside `launchSpawn`, and the placement is the point: a
+   * server-family session has no PTY to launch, no durable master to reclaim and
+   * no bridge to wire, so routing it through the PTY spawn path and then undoing
+   * the parts that do not apply would be worse than a branch. The binding
+   * transition ABOVE still ran, because who owns a session is not a question
+   * about how it is driven.
+   *
+   * A spawn that says nothing never reaches this branch — `resolveRuntimeDriver`
+   * only ever answers with a server driver when the spawn (or the machine-wide
+   * default) explicitly named one AND this machine reports it available. That is
+   * the whole of the "default-path sessions are byte-identical" claim on this
+   * path.
+   */
+  if (await launchServerDriverSession(ctx, msg)) return
   await launchSpawn(ctx, msg)
+}
+
+/**
+ * Start this session on a server-family driver, or answer `false` for "not
+ * mine".
+ *
+ * REFUSES LOUDLY RATHER THAN DEGRADING. If a spawn names `opencode-server` and
+ * the resolution comes back with something else — an unknown id, a machine whose
+ * opencode is out of the pinned range — the session does NOT silently become a
+ * terminal one. An operator testing the server driver would otherwise read a
+ * perfectly working terminal session as proof the driver works.
+ */
+async function launchServerDriverSession(
+  ctx: DaemonContext,
+  msg: SpawnControl,
+): Promise<boolean> {
+  const requested = runtimeDriverFor(runtimeDriverByEnv(), msg.runtimeContract)
+  if (!requested) return false
+  const resolution = resolveRuntimeDriver({
+    agentKind: msg.agentKind,
+    requested: msg.runtimeContract,
+    machineDefault: runtimeDriverByEnv(),
+    // The gate's own verdict, memoized for the daemon's life — a machine whose
+    // opencode is missing or out of the pinned range does not list the driver,
+    // so an explicit preference for it falls through rather than producing a
+    // session that cannot start.
+    available: availableDriverIds({ opencodeDrivable: opencodeVersionDiagnostic() === null }),
+    platform: process.platform,
+  })
+  if (!resolution.ok) {
+    ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: resolution.reason })
+    return true
+  }
+  if (!isServerDriver(msg.agentKind, resolution.driverId)) return false
+  const runtime = ctx.opencodeRuntime
+  if (!runtime) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: `driver '${resolution.driverId}' is not wired on this daemon`,
+    })
+    return true
+  }
+  try {
+    await runtime.launch({
+      sessionId: msg.sessionId,
+      cwd: msg.cwd,
+      ...(msg.model ? { model: msg.model } : {}),
+      ...(msg.effort ? { effort: msg.effort } : {}),
+      ...(msg.env ? { env: msg.env } : {}),
+    })
+  } catch (err) {
+    // A server that would not start is a SPAWN ERROR, reported on the frame the
+    // UI already renders. The alternative — falling back to a PTY — would hide
+    // exactly the failure the operator is trying to see.
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: err instanceof Error ? err.message : String(err),
+    })
+  }
+  return true
 }
 
 // Reattach is the hot path on (re)connect: a burst of ~30 arrives at once. Each is

@@ -44,8 +44,10 @@ import { AgentRelayRequestMessage } from './issues'
 import {
   RuntimeAnswerResultMessage,
   RuntimeEventMessage,
+  RuntimeInteractionAskedMessage,
   RuntimeLifecycleResultMessage,
   RuntimeSendResultMessage,
+  RuntimeSnapshotResultMessage,
 } from './runtime'
 import {
   AgentObservationMessage,
@@ -230,6 +232,12 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RuntimeSendResultMessage,
   RuntimeLifecycleResultMessage,
   RuntimeAnswerResultMessage,
+  // POD-2023 (W5) gives both of these a producer, which is what W1's rule asked
+  // for before they could join the union: the opencode driver's protocol asks
+  // reach the interactions aggregate through `runtimeInteractionAsked`, and a
+  // server holding a stream gap re-bootstraps through `runtimeSnapshotResult`.
+  RuntimeInteractionAskedMessage,
+  RuntimeSnapshotResultMessage,
   RuntimeEventMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

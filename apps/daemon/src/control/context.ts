@@ -13,6 +13,7 @@ import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
+import type { DaemonOpencodeRuntime } from '../runtime/opencode-driver'
 import type { TerminalRuntime } from '../runtime/terminal-driver'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
@@ -83,6 +84,17 @@ export interface DaemonContext {
    * registry's own per-session question, not this field's.
    */
   runtime?: TerminalRuntime
+  /**
+   * THE SERVER-FAMILY REGISTRY (POD-1761 W5).
+   *
+   * A SECOND FIELD, not a widened one, and the reason is that they are not
+   * interchangeable: `runtime` is the terminal driver's registry and carries
+   * terminal-only verbs (`observe`, `onHookPayload`, `register`) that the
+   * daemon's frame tap and hook ingest call directly. What the two DO share is
+   * `handleFor`, and every place that only needs that goes through
+   * `runtime/handlers.ts`'s one lookup rather than asking both in its own order.
+   */
+  opencodeRuntime?: DaemonOpencodeRuntime
   /** The machine-wide `PODIUM_RUNTIME_CONTRACT` switch, read ONCE at bootstrap.
    *  OR-ed with each session's own `runtimeContract` field — see
    *  `runtime/flag.ts` for why both exist and why neither wins. */

@@ -2368,7 +2368,44 @@ export class SessionRegistry {
       readTranscript: (input) =>
         rpc.readTranscript(input, { kind: 'system', id: 'interaction-synthesis' }),
       policyPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
+      /**
+       * STRUCTURED DELIVERY (POD-2023) — the route W2 declared and W5 shipped.
+       *
+       * A `structured` ask came from a protocol driver, so answering it means
+       * replying over that driver's own protocol rather than typing at a menu.
+       * The runtime gateway already owns that round-trip (`runtimeAnswer` →
+       * `runtimeAnswerRequest` → the session's driver), so this is the wiring
+       * and nothing else — which is why the aggregate takes a port instead of
+       * learning what a driver is.
+       *
+       * `answer as Record<string, unknown>` is the contract's own signature at
+       * this seam: the frame carries an open record and the DRIVER narrows it
+       * against the ask it holds, because only the driver knows which harness
+       * request id this answers. Narrowing here would mean the server deciding
+       * the shape of a reply it does not send.
+       */
+      deliverStructured: (input) =>
+        sessionsSvc.runtimeGateway.answer({
+          sessionId: input.sessionId,
+          interactionId: input.interactionId,
+          answer: input.answer as unknown as Record<string, unknown>,
+        }),
     })
+    /**
+     * THE PROTOCOL ASK INGRESS, BOUND (POD-2023).
+     *
+     * A server-family driver's asks arrive as `runtimeInteractionAsked` frames
+     * and land in the aggregate with the DRIVER's own id, `source: 'protocol'`
+     * and `answerable: 'structured'` — the fields the driver already set,
+     * carried rather than re-derived. Nothing here synthesizes: a protocol ask
+     * has a real request id, which is the identity `hasReliableIdentity`
+     * branches on when it decides whether to dedupe by fingerprint.
+     */
+    sessionsSvc.interactionAsk = (msg) => {
+      void interactions.ask({
+        interaction: { ...msg.interaction, sessionId: msg.sessionId },
+      })
+    }
     this.bus.on('session.stateChanged', (e) => {
       void interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
     })

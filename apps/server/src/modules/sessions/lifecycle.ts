@@ -48,7 +48,7 @@ export interface SessionRoutingFacts {
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { MachinePrincipal, Principal } from '@podium/protocol'
+import type { MachinePrincipal, PendingInteraction, Principal } from '@podium/protocol'
 import {
   type AgentInstruction,
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -281,6 +281,24 @@ export class SessionLifecycle {
     onReceipt?: (receipt: TurnReceipt) => void,
   ): { ok: boolean; queued?: boolean; reason?: string } =>
     this.receiptSender.send(via, input, onReceipt ? (receipt) => onReceipt(receipt) : undefined)
+  /**
+   * THE PROTOCOL ASK SINK (POD-2023), assigned by the composition root once the
+   * interactions aggregate exists.
+   *
+   * LATE-BOUND, and it has to be: the aggregate is built after session wiring
+   * (it takes `sessionById` and the delivery gate, which are session-owned), so
+   * a constructor argument here would be a cycle. The daemon lifecycle reads it
+   * through a closure, which the construction-order audit permits precisely
+   * because a deferred read cannot observe the unassigned value.
+   *
+   * `undefined` until then, and a frame that arrives first is dropped rather
+   * than queued — a server-family session cannot exist before the aggregate
+   * does, because nothing can spawn one until the server is serving.
+   */
+  interactionAsk?: (msg: {
+    sessionId: SessionId
+    interaction: PendingInteraction
+  }) => void
   private readonly daemonLifecycle!: SessionDaemonLifecycle
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView

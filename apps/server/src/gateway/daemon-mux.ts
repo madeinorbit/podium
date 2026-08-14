@@ -137,6 +137,10 @@ const DISPATCH: Dispatcher = {
   sessionOpenUrlResult: toSessions,
   // AGENT RUNTIME CONTRACT (POD-1761 W3) — the driver's causal stream.
   runtimeEvent: toSessions,
+  /** POD-2023 — a protocol driver's ask, on its way to the interactions
+   *  aggregate. `toSessions` because the sessions feature owns the per-session
+   *  fan-out and already holds the interaction service. */
+  runtimeInteractionAsked: toSessions,
 
   // ---- machines: the machine's own reported inventory, scoped by principal ----
   inventoryReport: (ports, principal, msg) =>
@@ -219,6 +223,7 @@ const DISPATCH: Dispatcher = {
   runtimeSendResult: toRpc,
   runtimeLifecycleResult: toRpc,
   runtimeAnswerResult: toRpc,
+  runtimeSnapshotResult: toRpc,
   // ---- headless ----
   headlessTurnEvent: (ports, _p, msg) => ports.headless.onTurnEvent(msg),
   headlessTurnResult: (ports, _p, msg) => ports.headless.onTurnResult(msg),

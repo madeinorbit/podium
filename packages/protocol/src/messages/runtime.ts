@@ -913,25 +913,115 @@ export const RuntimeLifecycleRequestMessage = z.object({
 export type RuntimeLifecycleRequestMessage = z.infer<typeof RuntimeLifecycleRequestMessage>
 
 /**
- * ATTACH AND SNAPSHOT HAVE NO FRAMES HERE, and that is a W3 decision rather than
- * an omission.
+ * ATTACH STILL HAS NO FRAME. SNAPSHOT NOW DOES (POD-2023, discharging the W5
+ * precondition recorded above).
  *
- * The terminal driver implements both verbs on the contract — the conformance
- * corpus exercises them, and the daemon reads them locally. What they do not
- * have is a REMOTE caller: nothing on the server asks a machine to negotiate an
- * attach (W5's consumer) or to bootstrap an observation over the wire (W4's).
- * Their payload schemas — `AttachEndpoint`, `SessionSnapshot` and the binding it
- * embeds — were deleted from this file by W1's review under the rule stated in
- * the header: no producer, no consumer, no schema. Re-adding them to carry
- * frames nobody sends would undo that decision to buy nothing.
+ * ---------------------------------------------------------------------------
+ * WHY THE PRECONDITION HAD TO BE DISCHARGED HERE
+ * ---------------------------------------------------------------------------
  *
- * THE ONE THING THIS COSTS, stated so it is not rediscovered: `runtimeEvent`'s
- * `stream.live` classification is justified in the header by a gap being
- * re-readable from `snapshot()`, and with no snapshot frame the server cannot
- * do that reading. The justification therefore rests on the legacy durable
- * paths, not on this family — which is exactly why the header records a W5
- * precondition rather than leaving the argument as though it stood alone.
+ * The header's classification argument is that `runtimeEvent` may be
+ * `stream.live` because a consumer that missed events re-reads from `snapshot()`
+ * and its cursor. W3 could hold that argument on the legacy durable paths
+ * instead, because every `runtimeEvent` it produced was a TRANSLATION of a frame
+ * the server also received on its own durable path. W5 is where that stops being
+ * automatic: a server-family session has no observer, no bridge and no PTY, so
+ * nothing else is producing those facts.
+ *
+ * W5 answers it on BOTH halves, deliberately, because either alone is thin:
+ *
+ *   1. The daemon still puts a server session's items and state onto the
+ *      DURABLE paths (`transcriptDelta`, `agentState`) — see
+ *      `apps/daemon/src/runtime/opencode-driver.ts`. So the header's original
+ *      argument keeps standing rather than being replaced.
+ *   2. And the recovery mechanism the argument NAMES is now actually reachable:
+ *      `runtimeSnapshotRequest` lets a server holding a gap ask the machine for
+ *      the bootstrap and resume from its cursor. Without it the sentence
+ *      "re-reads from `snapshot()`" described a call no remote caller could make.
+ *
+ * The plan offered a choice — an ack plus a durable queue on this family, or a
+ * wire representation for `snapshot()`. The second is what landed: it is the
+ * mechanism the existing argument already cites, it adds no delivery semantics
+ * to a stream whose whole point is that it needs none, and it is two frames
+ * rather than a protocol.
+ *
+ * ATTACH STAYS OUT for W1's original reason, unchanged: `attach()` is
+ * implemented on the driver and exercised by the corpus, and nothing on the
+ * server negotiates one. `AttachEndpoint` gets a schema in the item that gives
+ * it a remote caller.
  */
+
+/**
+ * The live identity half of the identity triangle — WHO and WHERE the process
+ * is. Re-added under the header's rule (no producer, no schema) because W5's
+ * snapshot frame carries one and the daemon produces it.
+ *
+ * `process.key` is OPAQUE AND DRIVER-PRIVATE by contract: an abduco label, a
+ * scope unit name, a socket path. The wire carries it without interpreting it,
+ * which is what lets one schema serve every family.
+ */
+export const SessionBinding = z.object({
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  driver: z.string().min(1),
+  family: z.enum(['server', 'embedded', 'terminal']),
+  harness: z.string().min(1),
+  workdir: z.string(),
+  /** NULLABLE, not optional: a harness that mints its resume ref lazily (Codex
+   *  rollout files) genuinely has none yet, and `null` says so where an absent
+   *  key would read as "not carried on this wire". */
+  resume: ResumeRef.nullable(),
+  principal: z.string().optional(),
+  process: z.object({
+    key: z.string().min(1),
+    scopeUnit: z.string().optional(),
+    pid: z.number().int().optional(),
+  }),
+  bindingVersion: z.number().int().nonnegative(),
+})
+export type SessionBinding = z.infer<typeof SessionBinding>
+
+/**
+ * OBSERVATION BOOTSTRAP: what the causal contract needs to resume WATCHING.
+ *
+ * Exactly one of these opens an event stream, and everything after it is a
+ * cursor-fenced live delta. That is the property the whole `stream.live`
+ * classification rests on, and this schema is what makes it invocable across the
+ * wire.
+ */
+export const SessionSnapshot = z.object({
+  binding: SessionBinding,
+  /** The folded projection. An open record for the same directional reason
+   *  `RuntimeEventBody.change` is: `AgentRuntimeState` is `@podium/model`'s and
+   *  is re-narrowed at `@podium/agent-runtime`'s boundary. */
+  state: z.record(z.string(), z.unknown()),
+  cursor: ProviderCursor,
+  observerGeneration: z.number().int().positive(),
+  turnEpoch: z.number().int().nonnegative(),
+  interactions: z.array(PendingInteraction).readonly(),
+  draft: z.string().optional(),
+  at: z.string().datetime(),
+})
+export type SessionSnapshot = z.infer<typeof SessionSnapshot>
+
+/** server → daemon: give me this session's observation bootstrap, so I can
+ *  resume the stream from its cursor rather than from nothing. */
+export const RuntimeSnapshotRequestMessage = z.object({
+  type: z.literal('runtimeSnapshotRequest'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+})
+export type RuntimeSnapshotRequestMessage = z.infer<typeof RuntimeSnapshotRequestMessage>
+
+/** daemon → server: the bootstrap, or a typed refusal for a session that is not
+ *  behind the contract. A refusal is an OUTCOME here exactly as it is on the
+ *  lifecycle path — `not_running` is the honest answer, not an error. */
+export const RuntimeSnapshotResultMessage = z.object({
+  type: z.literal('runtimeSnapshotResult'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  result: z.union([z.object({ snapshot: SessionSnapshot }), Refusal]),
+})
+export type RuntimeSnapshotResultMessage = z.infer<typeof RuntimeSnapshotResultMessage>
 
 /** server → daemon: drive one session verb through the contract. */
 export const RuntimeCommandMessage = z.discriminatedUnion('type', [
@@ -939,6 +1029,7 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeInterruptRequestMessage,
   RuntimeAnswerRequestMessage,
   RuntimeLifecycleRequestMessage,
+  RuntimeSnapshotRequestMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -1001,6 +1092,7 @@ export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
   RuntimeLifecycleResultMessage,
   RuntimeAnswerResultMessage,
   RuntimeInteractionAskedMessage,
+  RuntimeSnapshotResultMessage,
   RuntimeEventMessage,
 ])
 export type RuntimeDaemonMessage = z.infer<typeof RuntimeDaemonMessage>
@@ -1025,10 +1117,12 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeInterruptRequest',
   'runtimeAnswerRequest',
   'runtimeLifecycleRequest',
+  'runtimeSnapshotRequest',
   'runtimeSendResult',
   'runtimeLifecycleResult',
   'runtimeAnswerResult',
   'runtimeInteractionAsked',
+  'runtimeSnapshotResult',
   'runtimeEvent',
 ] as const satisfies readonly RuntimeMessage['type'][]
 

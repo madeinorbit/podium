@@ -376,6 +376,33 @@ export type SessionBindingAdoptLaunchInstruction = z.infer<
   typeof SessionBindingAdoptLaunchInstruction
 >
 
+/**
+ * HOW A SPAWN ASKS TO BE DRIVEN THROUGH THE CONTRACT (POD-1761 W3, widened by W5).
+ *
+ * `true` — drive this session through the contract with whatever driver the
+ * harness manifest's `select()` policy picks, which today means the terminal
+ * one for every harness. This is W3's meaning, unchanged.
+ *
+ * A DRIVER ID — drive it through the contract with THAT driver specifically.
+ * This is the operator's explicit per-spawn override (spec §9 phase 3): it is
+ * how one session runs on `opencode-server` while every other session on the
+ * same daemon stays terminal, and it is why the default needs no change at all.
+ *
+ * WIDENED RATHER THAN JOINED BY A SECOND FIELD, deliberately. The two would
+ * always have to be read together — "contract on, and also this driver" — and a
+ * pair of independently-optional fields has a fourth state ("a driver, but the
+ * contract off") that means nothing and that every reader would have to decide
+ * about separately.
+ *
+ * TYPED AS A BARE STRING HERE, and validated at the daemon. `DriverId` is
+ * defined in `@podium/harness`, which sits ABOVE this package — the same
+ * direction that keeps the driver taxonomy out of the `runtime` message family.
+ * An unknown id is refused where the driver registry is, which is the only place
+ * that can tell a typo from a driver this build does not ship.
+ */
+export const RuntimeContractRequest = z.union([z.boolean(), z.string().min(1)])
+export type RuntimeContractRequest = z.infer<typeof RuntimeContractRequest>
+
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
   sessionId: SessionIdField,
@@ -442,7 +469,7 @@ export const SpawnMessage = z.object({
    * of the two, which is what lets the e2e lane prove the flag-on path while
    * every other session on the same daemon stays on the legacy one.
    */
-  runtimeContract: z.boolean().optional(),
+  runtimeContract: RuntimeContractRequest.optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -492,7 +519,7 @@ export const ReattachMessage = z.object({
    * of the two, which is what lets the e2e lane prove the flag-on path while
    * every other session on the same daemon stays on the legacy one.
    */
-  runtimeContract: z.boolean().optional(),
+  runtimeContract: RuntimeContractRequest.optional(),
 })
 export const KillMessage = z.object({
   type: z.literal('kill'),

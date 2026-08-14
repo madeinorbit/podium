@@ -249,6 +249,10 @@ export const CONTROL_PLANE_CLASS = {
   runtimeInterruptRequest: 'control.command',
   runtimeAnswerRequest: 'control.command',
   runtimeLifecycleRequest: 'control.command',
+  /** The observation bootstrap request (POD-2023) — a correlated round-trip
+   *  like every other session verb, so the same class for the same reason: a
+   *  lost one is a failed RPC the caller already handles. */
+  runtimeSnapshotRequest: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**
@@ -339,6 +343,19 @@ export const DAEMON_PLANE_CLASS = {
   runtimeSendResult: 'control.command',
   runtimeLifecycleResult: 'control.command',
   runtimeAnswerResult: 'control.command',
+  /**
+   * DURABLE-SYNCED, and W1's argument for it is now backed by a durable row
+   * (POD-2023). "A blocking ask nobody recovers is exactly the stuck session §4
+   * exists to abolish" — the aggregate W2 landed is where the row lives, and
+   * this frame is how a protocol driver's ask reaches it. A dropped one would
+   * leave a session blocked with nothing on any surface saying so, which is the
+   * failure mode `stream.live` tolerates and this one must not.
+   */
+  runtimeInteractionAsked: 'control.entity',
+  /** The correlated reply to a snapshot request — the same class as every other
+   *  session verb's reply, for the same reason: a lost one is a failed RPC the
+   *  caller already has to handle. */
+  runtimeSnapshotResult: 'control.command',
   runtimeEvent: 'stream.live',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 

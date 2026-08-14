@@ -41,6 +41,7 @@ import type {
   PortableCredentialKind,
   RepoOp,
   RuntimeLifecycleResultMessage,
+  RuntimeSnapshotResultMessage,
   ServerTransferManifest,
   ServerTransferManifestEntry,
   ServerTransferResultMessage,
@@ -219,6 +220,10 @@ const SHIPPING_REPAIR_APPLY = daemonRequestKind<Payload<ShippingRepairApplyResul
 const RUNTIME_SEND = daemonRequestKind<TurnReceipt>('rs')
 const RUNTIME_LIFECYCLE = daemonRequestKind<Payload<RuntimeLifecycleResultMessage>>('rl')
 const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
+/** The observation bootstrap (POD-2023). Its result is the union the frame
+ *  carries — a snapshot, or the typed refusal for a session that is not behind
+ *  the contract. */
+const RUNTIME_SNAPSHOT = daemonRequestKind<Payload<RuntimeSnapshotResultMessage>>('rn')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
@@ -336,6 +341,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(RUNTIME_LIFECYCLE, msg.requestId, machineId, payloadOf(msg)),
   runtimeAnswerResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_ANSWER, msg.requestId, machineId, msg.outcome),
+  runtimeSnapshotResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_SNAPSHOT, msg.requestId, machineId, payloadOf(msg)),
 }
 
 /**
@@ -711,6 +718,34 @@ export class DaemonRpcService {
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId, result: { reason: 'not_running' as const } }),
       (requestId) => ({ type: 'runtimeInterruptRequest', requestId, sessionId }),
+      machineId,
+    )
+  }
+
+  /**
+   * THE OBSERVATION BOOTSTRAP, ACROSS THE WIRE (POD-2023).
+   *
+   * `runtimeEvent` is classified `stream.live` on the argument that a consumer
+   * which missed events re-reads from `snapshot()` and its cursor. Until this
+   * method existed that sentence described a call no remote caller could make,
+   * which is the precondition W3's review recorded against W5. This is it: ask
+   * the machine for the session's snapshot, resume the stream from its cursor.
+   *
+   * A TIMEOUT IS `not_running`, and that is the honest default rather than a
+   * convenient one: what a caller learns is "I could not obtain a bootstrap",
+   * and the only safe reading of that is that this machine is not driving the
+   * session. Manufacturing an empty snapshot would hand a consumer a cursor that
+   * silently discards everything before it.
+   */
+  runtimeSnapshot(
+    sessionId: SessionId,
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeSnapshotResultMessage>> {
+    return this.request(
+      RUNTIME_SNAPSHOT,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({ type: 'runtimeSnapshotRequest', requestId, sessionId }),
       machineId,
     )
   }

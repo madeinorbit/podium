@@ -64,7 +64,13 @@ import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { createReattachGates } from './reattach-gates'
+import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { runtimeContractEnabledByEnv } from './runtime/flag'
+import {
+  createDaemonOpencodeRuntime,
+  type DaemonOpencodeRuntime,
+} from './runtime/opencode-driver'
+import { createOpencodeHost } from './runtime/opencode-server'
 import { daemonRuntimeHost } from './runtime/host'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
 import { SessionBinding } from './session-binding'
@@ -117,6 +123,7 @@ export async function createDaemonHostRuntime(args: {
    * driver's event source rather than a set of new observer callbacks.
    */
   let terminalRuntime: TerminalRuntime | undefined
+  let opencodeRuntime: DaemonOpencodeRuntime | undefined
   const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
   /**
    * Every outbound daemon frame, past the driver's observation tap.
@@ -544,6 +551,29 @@ export async function createDaemonHostRuntime(args: {
   // through `ctx.runtime`, and the registry reaches the daemon through `ctx`.
   terminalRuntime = createTerminalRuntime(daemonRuntimeHost(ctx, send))
   ctx.runtime = terminalRuntime
+  /**
+   * THE SERVER-FAMILY RUNTIME (POD-1761 W5), built the same way and for the same
+   * reason: its host port is this context.
+   *
+   * UNCONDITIONAL, and it costs nothing. Constructing it allocates two maps; a
+   * session only reaches it if its spawn explicitly asked for `opencode-server`,
+   * and no `opencode serve` is started until then. Gating the CONSTRUCTION on a
+   * flag would mean the flag had to be read before the context existed, which is
+   * how the terminal path's own wiring cycle got its comment above.
+   */
+  opencodeRuntime = createDaemonOpencodeRuntime({
+    send,
+    host: createOpencodeHost({
+      memoryBytes: ({ sessionId, label, pid }) =>
+        attributeMemory(
+          snapshotProcesses(),
+          [{ sessionId, label, ...(pid !== undefined ? { pid } : {}) }],
+          [],
+          { selfPid: process.pid },
+        ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+    }),
+  })
+  ctx.opencodeRuntime = opencodeRuntime
   const frameGuard = createFrameGuard(ctx)
 
   const metricsBackground = opts.metrics?.background ?? true
@@ -650,6 +680,7 @@ export async function createDaemonHostRuntime(args: {
     }
     ctx.runningHeadlessTurns.clear()
     terminalRuntime?.dispose()
+    opencodeRuntime?.dispose()
     observers.disposeObservers()
     composerEngine.disposeAll()
     await Promise.all(durableReaps)

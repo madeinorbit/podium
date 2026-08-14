@@ -70,6 +70,14 @@ export const DAEMON_FRAME_PORTS = {
   // session's driver produces. Session-owned like every other per-session
   // observation, and attributed to the machine that sent it.
   runtimeEvent: ['sessions'],
+  /**
+   * THE PROTOCOL ASK (POD-2023). Session-owned like every other per-session
+   * observation: it names a session, it is attributed to the machine that sent
+   * it, and it is the ingress by which a server-family driver's `permission` and
+   * `question` asks reach the interactions aggregate. W1 held it out of the
+   * union because it had no producer; W5 is the producer.
+   */
+  runtimeInteractionAsked: ['sessions'],
 
   // ---- machine-owned ----
   inventoryReport: ['machines'],
@@ -120,6 +128,10 @@ export const DAEMON_FRAME_PORTS = {
   runtimeSendResult: ['rpc'],
   runtimeLifecycleResult: ['rpc'],
   runtimeAnswerResult: ['rpc'],
+  /** The correlated reply to a snapshot request — the observation bootstrap a
+   *  server re-reads after a stream gap (POD-2023). Same correlator, no new
+   *  port. */
+  runtimeSnapshotResult: ['rpc'],
 
   // ---- headless-owned ----
   headlessTurnEvent: ['headless'],

@@ -63,6 +63,18 @@ export interface SessionDaemonLifecyclePorts {
   runtimeEvents?: {
     record(machineId: MachineId, msg: Extract<SessionsDaemonFrame, { type: 'runtimeEvent' }>): void
   }
+  /**
+   * THE PROTOCOL ASK INGRESS (POD-2023).
+   *
+   * Bound at the composition root to the interactions aggregate's `ask()`.
+   * Optional for the same reason as the sink above — a build with no contract
+   * wired receives none of these frames, so an absent handler drops nothing —
+   * and NOT optional in spirit: once a server-family session is running, this is
+   * the only way its asks become visible on any surface.
+   */
+  runtimeInteractions?: {
+    ask(msg: Extract<SessionsDaemonFrame, { type: 'runtimeInteractionAsked' }>): void
+  }
 }
 
 function isAttentionPhase(state: AgentRuntimeState | undefined): boolean {
@@ -672,6 +684,22 @@ export class SessionDaemonLifecycle {
         ) {
           this.clearOffer(msg.sessionId)
         }
+        break
+      }
+      case 'runtimeInteractionAsked': {
+        /**
+         * A PROTOCOL DRIVER'S ASK, ON ITS WAY TO THE DURABLE AGGREGATE
+         * (POD-2023).
+         *
+         * The same ownership check every session-owned frame gets, and then the
+         * W2 ingress — `ask()` with the driver's own id, `source: 'protocol'`
+         * and `answerable: 'structured'`. Nothing is synthesized here: the
+         * driver observed a real `permission.asked`/`question.asked` with a real
+         * request id, which is precisely why this path does not go anywhere near
+         * the screen classifier's at-least-once machinery.
+         */
+        const owner = this.sessions.get(msg.sessionId)
+        if (owner?.machineId === machineId) this.ports.runtimeInteractions?.ask(msg)
         break
       }
       case 'runtimeEvent': {

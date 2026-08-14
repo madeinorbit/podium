@@ -582,6 +582,23 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     onDurableSessionCensus: (principal, labels) =>
       bag.machineReconciler.onDurableSessionCensus(principal, labels),
     runtimeEvents: bag.runtimeGateway,
+    /**
+     * THE PROTOCOL ASK INGRESS (POD-2023).
+     *
+     * A server-family driver's `permission`/`question` asks arrive as
+     * `runtimeInteractionAsked` and go straight into W2's durable aggregate with
+     * the DRIVER's own id, `source: 'protocol'` and `answerable: 'structured'`.
+     * Nothing is synthesized and nothing is fingerprint-deduped into an existing
+     * row by content: a protocol ask has a real request id, which is exactly the
+     * identity `hasReliableIdentity` branches on.
+     */
+    runtimeInteractions: {
+      // DEFERRED READ, deliberately: `interactionAsk` is assigned by the
+      // composition root after the interactions aggregate is built, which is
+      // after this function runs. Reading it inside the closure is what the
+      // construction-order audit permits and what makes the cycle unnecessary.
+      ask: (msg) => bag.interactionAsk?.(msg),
+    },
   })
   // Teardown needs repository/view/state and autoContinue/daemonProjection.
   // Built here so every port target already exists. Early constructor ports

@@ -158,22 +158,46 @@ export const opencodeManifest: AgentManifest = {
     server: supported({
       driverId: 'opencode-server',
       kind: 'http-sse',
-      spawn: ['opencode', 'serve', '--port', '0'],
+      // THE DAEMON PICKS THE PORT and substitutes it here. `--port 0` works, but
+      // reading back which port opencode chose means scraping its stdout banner,
+      // and a binding that depends on a log line breaks when the log line does.
+      spawn: ['opencode', 'serve', '--port', '<daemon-picked>', '--hostname', '127.0.0.1'],
       // Loopback TCP, so a per-session secret is MANDATORY rather than advisory:
       // every local process and user can reach a loopback port, and this one
-      // fronts a credentialed agent (spec §6). The variable it rides in is left
-      // for W5 to fill once it has verified it against the pinned version.
+      // fronts a credentialed agent (spec §6). W5 verified the mechanism against
+      // a live server: HTTP Basic from `OPENCODE_SERVER_USERNAME` /
+      // `OPENCODE_SERVER_PASSWORD` in the child's ENV — never argv — and a
+      // client without it gets 401 on every route, `/global/health` included.
       transport: 'loopback-tcp',
       requiresPerSessionSecret: true,
       openapiPath: '/doc',
-      versionRange: unsupported(
-        'W5 pins the range against recorded fixtures once the client exists; the API is still settling and a guessed range would read as a citation',
-      ),
+      // PINNED AGAINST RECORDED FIXTURES, not guessed (W5). Every shape the
+      // driver reads was captured from 1.18.16 and replays in
+      // `packages/agent-runtime/src/drivers/opencode/__fixtures__`; the gate that
+      // enforces this range is `gateOpencodeVersion`, and widening it means
+      // re-recording those fixtures first.
+      versionRange: supported('>=1.18 <1.25'),
     }),
     embedded: unsupported('opencode ships a server, not a library to host in-process'),
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    // BEHAVIOR-NEUTRAL IN W1: terminal, because the server driver does not
-    // exist yet. W5 — the pilot — puts 'opencode-server' first once it does.
+    /**
+     * THE DEFAULT STAYS TERMINAL, AND THE SERVER DRIVER IS OPT-IN (spec §9
+     * phase 3; POD-2023).
+     *
+     * The ranking is unchanged from W1 — `generic-pty` and nothing above it — so
+     * a spawn that expresses no preference gets exactly what it got before this
+     * driver existed. What makes the server driver reachable is
+     * `ctx.preference`, which `selectRuntimeDriver` already honours ahead of the
+     * ranking AND only when the machine reports the driver available. That is
+     * the whole opt-in: an operator names `opencode-server` per spawn (or
+     * machine-wide via `PODIUM_RUNTIME_DRIVER`), and a machine whose opencode is
+     * missing or out of the pinned range simply does not list it, so the
+     * preference falls through to terminal instead of producing a broken
+     * session.
+     *
+     * Promoting it in the RANKING is a separate decision from shipping it, and
+     * it belongs to whoever has run it long enough to argue for it.
+     */
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },
   headless: supported({

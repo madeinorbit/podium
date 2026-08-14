@@ -92,6 +92,27 @@ export interface InteractionServiceDeps {
   }): Promise<{ items: Array<{ role: string; toolName?: string; toolInputJson?: string }> }>
   /** The principal an auto-answer acts as. */
   policyPrincipal(): InboxPrincipalReference
+  /**
+   * STRUCTURED DELIVERY — the seam W2 left for a protocol driver, filled by W5
+   * (POD-2023).
+   *
+   * Bound at the composition root to the runtime gateway's `runtimeAnswer`,
+   * which reaches the session's driver and replies over the harness's own
+   * protocol: for opencode, `POST /permission/{id}/reply` with once/always/
+   * reject, or `POST /question/{id}/reply` with the selected labels.
+   *
+   * OPTIONAL, and the optionality is honest rather than defensive: a build with
+   * no daemon RPC wired cannot deliver a structured answer, and
+   * {@link unsupportedAnswerReason} refuses in that case exactly as it did
+   * before this existed. What must never happen is accepting the answer and
+   * doing nothing, which is why the refusal is keyed on this being ABSENT rather
+   * than on a hardcoded "not yet".
+   */
+  deliverStructured?(input: {
+    sessionId: SessionId
+    interactionId: string
+    answer: InteractionAnswer
+  }): Promise<InteractionAnswerOutcome>
 }
 
 /** Everything a caller needs to answer, without knowing the payload union. */
@@ -348,7 +369,9 @@ export class InteractionService {
     // on a permission prompt would vanish from the one list whose promise is
     // that a blocked session appears in it. The ask stays open and the refusal
     // is typed.
-    const unsupported = unsupportedAnswerReason(row)
+    const unsupported = unsupportedAnswerReason(row, {
+      structuredDelivery: this.deps.deliverStructured !== undefined,
+    })
     if (unsupported) return { ok: false, reason: 'not-yet-supported', detail: unsupported }
 
     const spec = { kind: row.kind, payload: row.payload } as InteractionAskSpec
@@ -413,6 +436,33 @@ export class InteractionService {
     via: NonNullable<PendingInteractionWire['deliveredVia']>
     detail?: string
   }> {
+    /**
+     * THE STRUCTURED PATH GOES FIRST, and it never falls back to keystrokes.
+     *
+     * A `structured` ask came from a protocol driver and is answered over that
+     * protocol; if the round-trip fails, the honest report is that delivery
+     * failed and the row stays `unverified`. Degrading to typing digits at a
+     * session that has no terminal would be answering a menu that does not
+     * exist.
+     */
+    if (row.answerable === 'structured' && this.deps.deliverStructured) {
+      try {
+        const outcome = await this.deps.deliverStructured({
+          sessionId: row.sessionId,
+          interactionId: row.id,
+          answer,
+        })
+        return outcome.ok
+          ? { ok: true, via: 'structured' }
+          : { ok: false, via: 'unverified', detail: outcome.reason }
+      } catch (err) {
+        return {
+          ok: false,
+          via: 'unverified',
+          detail: err instanceof Error ? err.message : String(err),
+        }
+      }
+    }
     const text = deliverableText(answer)
     if (text === null) {
       return {
@@ -470,12 +520,22 @@ export class InteractionService {
  * terminal, which is strictly better than a silent wrong keystroke reported as
  * success.
  */
-export function unsupportedAnswerReason(row: {
-  kind: InteractionRow['kind']
-  answerable: InteractionRow['answerable']
-}): string | null {
+export function unsupportedAnswerReason(
+  row: {
+    kind: InteractionRow['kind']
+    answerable: InteractionRow['answerable']
+  },
+  capabilities: { structuredDelivery: boolean } = { structuredDelivery: false },
+): string | null {
   if (row.answerable === 'structured') {
-    return 'structured answering needs a protocol driver, which does not exist yet (W5/W6)'
+    // W5 (POD-2023) SHIPPED THE FIRST PROTOCOL DRIVER, so this is no longer a
+    // blanket refusal — it is a refusal for a build with no route to one. An
+    // opencode server session's ask is answered over REST against the harness's
+    // own request id, which is the whole reason its `answerable` says
+    // `structured` in the first place.
+    return capabilities.structuredDelivery
+      ? null
+      : 'structured answering needs a protocol driver, and no structured delivery route is wired on this server'
   }
   if (row.kind === 'permission') {
     return (

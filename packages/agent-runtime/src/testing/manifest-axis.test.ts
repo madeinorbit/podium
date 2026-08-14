@@ -15,6 +15,7 @@
 
 import { AGENT_MANIFESTS, DRIVER_IDS } from '@podium/harness'
 import { describe, expect, it } from 'vitest'
+import { SUPPORTED_OPENCODE } from '../drivers/opencode/version.js'
 
 const MANIFESTS = Object.entries(AGENT_MANIFESTS)
 
@@ -176,20 +177,47 @@ describe('server specs carry their security posture', () => {
     expect(server.value.requiresPerSessionSecret).toBe(false)
   })
 
-  it('pins NO version range yet, and says why', () => {
-    for (const kind of ['codex', 'opencode'] as const) {
-      const server = AGENT_MANIFESTS[kind].runtime.server
-      if (!server.supported) continue
-      // A range is a claim about which wire shapes this build was tested
-      // against. W1 has no client to test with, and an invented range would let
-      // a driver start against a protocol nobody verified while LOOKING
-      // checked. W5/W6 pin it against recorded fixtures.
-      expect(server.value.versionRange.supported).toBe(false)
-      if (server.value.versionRange.supported) continue
+  it('pins a version range ONLY where a driver has recorded fixtures behind it', () => {
+    /**
+     * THE RULE, UNCHANGED SINCE W1; WHAT MOVED IS WHO SATISFIES IT (POD-2023).
+     *
+     * A range is a claim about which wire shapes this build was TESTED against,
+     * and an invented one is worse than none — it lets a driver start against a
+     * protocol nobody verified while looking checked. W1 pinned neither because
+     * it had no client to test with, and named W5/W6 as the items that would.
+     *
+     * W5 landed opencode's, so its range is now `supported` and the evidence is
+     * `packages/agent-runtime/src/drivers/opencode/__fixtures__` — frames
+     * recorded from a live 1.18.16, replayed by `protocol.test.ts`, and enforced
+     * at runtime by `gateOpencodeVersion`. Codex has no driver yet, so it must
+     * still decline, and this test is what keeps a future item from pinning a
+     * range ahead of the fixtures that justify it.
+     */
+    const codex = AGENT_MANIFESTS.codex.runtime.server
+    expect(codex.supported).toBe(true)
+    if (codex.supported) {
+      expect(codex.value.versionRange.supported).toBe(false)
       // Assert a reason EXISTS, not what it says. Pinning the prose would break
-      // this test when W5/W6 reword the reason while pinning the range, which is
-      // the opposite of what it should react to.
-      expect(server.value.versionRange.reason.length).toBeGreaterThan(0)
+      // this test when W6 rewords it while pinning the range, which is the
+      // opposite of what it should react to.
+      if (!codex.value.versionRange.supported) {
+        expect(codex.value.versionRange.reason.length).toBeGreaterThan(0)
+      }
+    }
+
+    const opencode = AGENT_MANIFESTS.opencode.runtime.server
+    expect(opencode.supported).toBe(true)
+    if (opencode.supported) {
+      expect(opencode.value.versionRange.supported).toBe(true)
+      if (opencode.value.versionRange.supported) {
+        // The range the driver's own gate enforces. Both sides moving together
+        // is the point: a manifest that advertised a wider range than
+        // `SUPPORTED_OPENCODE` admits would promise a version the driver refuses
+        // to drive.
+        expect(opencode.value.versionRange.value).toBe(
+          `>=${SUPPORTED_OPENCODE.major}.${SUPPORTED_OPENCODE.minMinor} <${SUPPORTED_OPENCODE.major}.${SUPPORTED_OPENCODE.maxMinor + 1}`,
+        )
+      }
     }
   })
 })
