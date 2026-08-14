@@ -253,6 +253,8 @@ describe('shipping machine protocol', () => {
     })
     if (result.type !== 'shippingJobResult') throw new Error('expected shipping result')
     expect(shippingTrainProofsMatch(verifyRequest, result)).toBe(true)
+    const { type: _type, requestId: _requestId, action: _action, ...durableRequest } = verifyRequest
+    expect(shippingTrainProofsMatch(durableRequest, result)).toBe(true)
     expect(shippingTrainProofsMatch(verifyRequest, { ...result, trainProofs: [] })).toBe(false)
     expect(
       shippingTrainProofsMatch(verifyRequest, {

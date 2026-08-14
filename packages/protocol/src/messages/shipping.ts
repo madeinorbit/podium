@@ -373,10 +373,18 @@ export const ShippingJobResult = z.object({
 })
 export type ShippingJobResult = z.infer<typeof ShippingJobResult>
 
+/** Durable effect authority excludes transport-only routing fields. Proof
+ * validation binds every effect/result field, including the request digest,
+ * without requiring an invented envelope after journal recovery. */
+export type ShippingJobProofRequest = Omit<
+  ShippingJobRequestMessage,
+  'type' | 'requestId' | 'action'
+>
+
 /** Exact request/result membership equality plus phase-appropriate proof
  * completeness. Receipt settlement calls this on a verified result. */
 export const shippingTrainProofsMatch = (
-  request: ShippingJobRequestMessage,
+  request: ShippingJobProofRequest,
   result: ShippingJobResult,
 ): boolean => {
   if (

@@ -80,6 +80,7 @@ const issuePort = {
   },
   children: (id: string, recursive?: boolean) => issues.children(id, recursive),
   shippingCommit: issues.shippingCommit.bind(issues),
+  shippingCommitMany: issues.shippingCommitMany.bind(issues),
 }
 const compatibilityPolicy = new CompatibilityShippingPolicyResolver(() => 'main')
 const recoveryPolicy = {
