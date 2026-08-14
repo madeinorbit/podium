@@ -8386,3 +8386,38 @@ a.ref-link--session::before {
     display: none;
   }
 }
+
+/* ── GHOST PREVIEW [POD-1058] ────────────────────────────────────────────────
+   The fade an empty surface draws its own dead copy behind. Same shapes as a
+   skeleton, opposite meaning: a skeleton says WAIT, a ghost preview says THIS
+   IS WHAT WILL BE HERE. Two rules keep them apart, and both live here rather
+   than at the call sites so no surface can quietly break one.
+
+   NEVER ANIMATE. No shimmer, no pulse. Motion is what makes a reader classify
+   bars as loading and then wait for something that is never going to arrive —
+   the ghost is decoration for a state that is already settled.
+
+   ALWAYS FADE OUT. The bottom mask is what tells the eye "hint, not content".
+   A hard cut reads as a list that was truncated. `--ghost-hold` is how far down
+   the block stays at full strength and `--ghost-end` where it reaches zero;
+   the defaults are the work list's, and the deck and dock nudge `--ghost-end`
+   in because their blocks run to the bottom of a taller column.
+
+   Nothing in here is focusable and every wrapper carries aria-hidden — the
+   heading and body beside it carry the meaning. */
+.ghost-fade {
+  --ghost-hold: 34%;
+  --ghost-end: 100%;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 var(--ghost-hold),
+    transparent var(--ghost-end)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 var(--ghost-hold),
+    transparent var(--ghost-end)
+  );
+}

@@ -63,6 +63,7 @@ import { motion, useReducedMotion } from 'motion/react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { UnreadDot } from '@/components/UnreadMark'
 import { Button } from '@/components/ui/button'
 import {
@@ -1831,6 +1832,124 @@ function IntakeCanvas({
   )
 }
 
+/**
+ * A dead session row, hung under a ghost task at the tree's own indent.
+ *
+ * The DOT IS THE POINT. Two coloured dots — one working, one waiting on you —
+ * are the fastest way for this column to say "I am a status readout" before
+ * there is any status to read. They take the semantic status tokens and nothing
+ * else: never an issue colour, the same rule the live rows follow, because a
+ * hue that means "stage" in one row and "which task" in another means neither.
+ */
+function GhostSessionRow({
+  tone,
+  width,
+  tier,
+  meta,
+}: {
+  tone: string
+  width: string
+  tier: 1 | 2 | 3 | 4
+  meta?: number
+}): JSX.Element {
+  return (
+    <div className="flex items-center gap-2.5" style={{ paddingLeft: GUTTER + DEPTH_STEP }}>
+      <GhostDot tone={tone} />
+      <GhostBar tier={tier} width={width} height={8} />
+      {meta !== undefined && <GhostBar tier={4} width={`${meta}px`} height={8} />}
+    </div>
+  )
+}
+
+/** A dead task strip: fold square, id chip, title, and the meta a live strip
+ *  carries on its right. */
+function GhostTaskRow({
+  tier,
+  dashed,
+}: {
+  tier: 1 | 2 | 3 | 4
+  /** The last row stands for a PROPOSED task — the deck's own dashed id chip.
+   *  Proposals are part of what this pane is for, so the ghost says so. */
+  dashed?: boolean
+}): JSX.Element {
+  return (
+    <div className="flex items-center gap-2.5" style={{ paddingLeft: GUTTER }}>
+      {dashed ? (
+        <span className="block h-[13px] w-[34px] flex-none rounded-[4px] border border-dashed border-(--ghost-1)" />
+      ) : (
+        <>
+          <GhostSquare tier={tier} className="rounded-[2px]" />
+          <GhostBar tier={tier} width="34px" height={13} className="flex-none" />
+        </>
+      )}
+      <GhostBar tier={(tier + 1) as 1 | 2 | 3 | 4} height={9} className="min-w-0 flex-1" />
+      {!dashed && <GhostBar tier={4} width="14px" height={9} className="flex-none" />}
+    </div>
+  )
+}
+
+/**
+ * THE DECK WITH NO MISSION IN IT (POD-1058, "ADE Empty States" 2a/2b).
+ *
+ * A GHOST TREE, NOT A GHOST STREAM. What this column is — `buildFlightDeckRows`
+ * — is a tree of tasks with their agent sessions hanging under them, plus the
+ * proposals they throw off. It is not a message log and not a diff feed; those
+ * live in the panel. So the ghost draws two task strips with sessions under a
+ * guide line and one dashed proposal, at the tree's real indents (GUTTER,
+ * DEPTH_STEP), and a reader who has never seen a loaded deck still learns the
+ * shape.
+ *
+ * NO BUTTON, AND NO HEADER TITLE. The work list and the composer own both ways
+ * in; a third one here would be a third thing to explain. And there is no
+ * session to name yet — `IntakeCanvas` below still handles the case where there
+ * IS one (a session open with no mission around it), which is a different state
+ * wearing different words.
+ */
+function EmptyDeck(): JSX.Element {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="flight-empty">
+      <div className="flex-none px-[26px] pt-6 pr-11">
+        <h2 className="shell-type-column-title font-semibold tracking-[-.02em] text-text-strong">
+          Every agent, in one tree
+        </h2>
+        {/* Names BOTH ways in, like the work list: picking a task is the
+            everyday case, starting one is the first-run case. */}
+        <p className="mt-2 text-[13px] leading-[1.55] text-muted-foreground text-pretty">
+          Pick a task on the left or start a new one. You’ll see the agents on it, what each is
+          doing, and the follow-ups they propose.
+        </p>
+      </div>
+      <GhostPreview
+        className="mt-6 flex min-h-0 flex-1 flex-col gap-[15px] pr-6"
+        fadeTo="92%"
+        testId="flight-ghost-tree"
+      >
+        <GhostTaskRow tier={1} />
+        <div className="relative flex flex-col gap-[15px]">
+          {/* The guide line the live tree draws, on the live tree's own rail —
+              a ghost that mirrors the component it stands in has to land on the
+              same x, or the first real row will visibly step sideways. */}
+          <span
+            className="absolute w-px bg-(--ghost-4)"
+            style={{ left: GUTTER + RAIL_INSET, top: -6, bottom: 9 }}
+          />
+          <GhostSessionRow tone="var(--success)" width="46%" tier={2} meta={22} />
+          <GhostSessionRow tone="var(--attention)" width="60%" tier={3} />
+        </div>
+        <GhostTaskRow tier={3} />
+        <div className="relative flex flex-col gap-[15px]">
+          <span
+            className="absolute w-px bg-(--ghost-4)"
+            style={{ left: GUTTER + RAIL_INSET, top: -6, bottom: 9 }}
+          />
+          <GhostSessionRow tone="var(--ghost-3)" width="52%" tier={4} />
+        </div>
+        <GhostTaskRow tier={4} dashed />
+      </GhostPreview>
+    </div>
+  )
+}
+
 export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Element {
   const {
     sessions,
@@ -2694,8 +2813,13 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             <DepartureTicks departures={departures} onOpen={openDeparture} />
           </div>
         </>
-      ) : (
+      ) : focusedSession ? (
+        // A session with no mission around it: the intake canvas names THAT
+        // session and shows what it has learned so far. Different state,
+        // different words — see `EmptyDeck` for the one below it.
         <IntakeCanvas session={focusedSession} draft={focusedDraft} repoName={repoName} />
+      ) : (
+        <EmptyDeck />
       )}
       {issueMenu && menuIssue && (
         <IssueContextMenu

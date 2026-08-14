@@ -548,8 +548,8 @@ function PaneChrome({
   /** Tabs living in OTHER panes — what an empty pane can adopt. */
   otherTabs: WTab[]
   focused: boolean
-  /** The only pane on screen: no pane-level close, and the empty state is the
-   *  workspace's, not this pane's. */
+  /** The only pane on screen: no pane-level close. It no longer decides which
+   *  empty state shows — `otherTabs` does (POD-1058). */
   alone: boolean
   previewTabId: string | null
   splitting: boolean
@@ -604,6 +604,7 @@ function PaneChrome({
       >
         <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
           <div className="flex min-w-0 flex-1 items-stretch gap-[2px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {tabs.length === 0 && <GhostTabs />}
             {tabs.map((t) => (
               <SortableTab
                 key={t.id}
@@ -679,7 +680,17 @@ function PaneChrome({
       </div>
       {!hasPanel && (
         <div className="pointer-events-auto flex min-h-0 flex-1">
-          {alone ? <Empty /> : <PanePicker tabs={otherTabs} onPick={onAdopt} />}
+          {/* WHAT THERE IS TO ADOPT decides this, not whether the pane is alone
+              (POD-1058). When another pane holds tabs, the picker is strictly
+              the better state — it offers the actual views. `alone` got the
+              same answer right in the common case and wrong in one: the empty
+              half of a split whose sibling had nothing in it drew an empty
+              picker, a heading over no choices. */}
+          {otherTabs.length === 0 ? (
+            <Empty worktree={panelTarget} issueId={issueId} onOpened={onOpened} />
+          ) : (
+            <PanePicker tabs={otherTabs} onPick={onAdopt} />
+          )}
         </div>
       )}
     </div>
@@ -1173,10 +1184,88 @@ function TabContextMenu({
   )
 }
 
-function Empty(): JSX.Element {
+/**
+ * NOTHING OPEN IN THIS PANE (POD-1058, "ADE Empty States" 2d/2e).
+ *
+ * A TAB IS A VIEW, and the copy has to say so. Closing a tab closes the view
+ * and never touches the session — sessions live in the flight deck — so an
+ * empty state that promised "open a tab to start an agent" would be describing
+ * a different product. It is also NOT a first-run state: this is equally the
+ * moment after closing the last tab, so it must never read like onboarding.
+ *
+ * THE BUTTON IS THE ＋ MENU, not a hidden tab factory. It is labelled "New
+ * panel" because that is the menu's own title and because it OPENS a menu
+ * rather than silently creating something; the footnote lists what the menu
+ * offers, which is the honest version of a promise this button cannot keep on
+ * its own. No shortcut is claimed — nothing in the code registers one for it,
+ * and a made-up chord on an empty state is worse than none.
+ */
+function Empty({
+  worktree,
+  issueId,
+  onOpened,
+}: {
+  worktree: WorktreeView
+  issueId?: IssueId
+  onOpened: (sessionId: SessionId) => void
+}): JSX.Element {
   return (
-    <div className="m-auto text-[13px] text-muted-foreground/70">
-      No tab open — pick a session in the flight deck, or use + to start one.
+    <div className="m-auto flex max-w-[430px] flex-col items-center px-12 text-center">
+      <p className="text-[21px] leading-[1.3] font-semibold tracking-[-.02em] text-text-strong">
+        Nothing open in this pane
+      </p>
+      <p className="mt-2.5 text-[13.5px] leading-[1.6] text-muted-foreground text-pretty">
+        A tab is a view — one agent at work, or one file. Pick an agent in the flight deck to watch
+        it here, or open a new panel.
+      </p>
+      <NewPanelMenu
+        worktree={worktree}
+        issueId={issueId}
+        onOpened={onOpened}
+        trigger={
+          <button
+            data-pressable
+            type="button"
+            data-testid="pane-empty-new-panel"
+            className="mt-5 flex h-[34px] cursor-pointer items-center justify-center gap-2 rounded-[9px] bg-attention/12 px-[15px] text-[12.5px] font-semibold text-attention ring-1 ring-attention/30 ring-inset hover:bg-attention/20"
+          >
+            <Plus size={16} aria-hidden="true" />
+            New panel
+          </button>
+        }
+      />
+      <p className="mt-3 font-mono text-[11px] text-text-faint">agent · shell · file</p>
+    </div>
+  )
+}
+
+/**
+ * Two dead tabs where the real ones appear.
+ *
+ * The first wears a status dot and the second a file glyph, because the one
+ * thing the strip has to teach is that BOTH kinds live in it — a strip ghosted
+ * with two identical pills would teach the shape and lose the point.
+ *
+ * No fade here, unlike every other ghost in the shell: these are 28px tall in a
+ * 38px strip, so a vertical mask would read as a rendering bug rather than as a
+ * hint. The strip's own short height already stops them being mistaken for a
+ * list that continues.
+ */
+function GhostTabs(): JSX.Element {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none flex select-none items-center gap-1"
+      data-testid="pane-ghost-tabs"
+    >
+      <span className="flex h-[28px] items-center gap-2.5 rounded-lg border border-dashed border-(--ghost-1) px-3">
+        <span className="size-[7px] rounded-full bg-(--success) opacity-40" />
+        <span className="h-[7px] w-[70px] rounded-[4px] bg-(--ghost-2)" />
+      </span>
+      <span className="flex h-[28px] items-center gap-2.5 rounded-lg px-3 opacity-55">
+        <span className="h-[11px] w-[9px] rounded-[2px] bg-(--ghost-3)" />
+        <span className="h-[7px] w-[52px] rounded-[4px] bg-(--ghost-3)" />
+      </span>
     </div>
   )
 }

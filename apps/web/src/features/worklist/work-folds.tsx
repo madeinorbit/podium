@@ -36,6 +36,19 @@ const TAIL_FOLD_CLASS =
  * user (`fold-keys.ts`). The chevron is revealed, not resident — but a COLLAPSED
  * band keeps it, since a shut band that looked like an empty open one is a trap.
  */
+/** The band's own geometry and ground, without the affordances of a control.
+ *  Shared because the empty work list wears a band too (POD-1058) and there is
+ *  nothing there to fold: a STATIC band, so it takes the shape and the tone but
+ *  none of the hover, focus or transition a button needs. Two spellings of
+ *  34px/`--muted`/hairline would drift the moment one of them is retuned. */
+export const SECTION_BAND_CLASS =
+  'flex h-[34px] w-full flex-none items-center gap-2 border-y border-hairline-bar bg-muted px-[13px] text-left'
+
+/** The band's label voice — mono, tracked, `--muted-foreground` because the band
+ *  is a header rather than a floating caption. */
+export const SECTION_BAND_LABEL_CLASS =
+  'label-mono min-w-0 flex-1 truncate tracking-[.16em] text-muted-foreground'
+
 function SectionBand({
   label,
   count,
@@ -63,14 +76,15 @@ function SectionBand({
       aria-expanded={!collapsed}
       onClick={onToggle}
       title={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
-      className="group/band flex h-[34px] w-full flex-none items-center gap-2 border-y border-hairline-bar bg-muted px-[13px] text-left transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
+      className={cn(
+        SECTION_BAND_CLASS,
+        'group/band transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]',
+      )}
     >
       {icon}
       {/* --muted-foreground, not --label: the band is a HEADER now, not a
           floating caption, and the design sets it a step darker to match. */}
-      <span className="label-mono min-w-0 flex-1 truncate tracking-[.16em] text-muted-foreground">
-        {label}
-      </span>
+      <span className={SECTION_BAND_LABEL_CLASS}>{label}</span>
       <ChevronRight
         size={11}
         aria-hidden="true"

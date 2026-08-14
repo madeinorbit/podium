@@ -24,6 +24,7 @@ import { UnifiedIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
+import { WorkListEmpty } from './WorkListEmpty'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
@@ -590,13 +591,11 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     }
   })
 
-  if (transitionRows.length === 0) {
-    return (
-      <div className="p-3 text-xs text-muted-foreground/70">
-        Nothing yet — start an agent or create an issue above.
-      </div>
-    )
-  }
+  // Zero work, and not a loading frame: the ghost preview (POD-1058) shows the
+  // shape of the list this column is about to become, under a label that names
+  // WHICH project is empty.
+  if (transitionRows.length === 0) return <WorkListEmpty />
+
   // Pinned issues MOVE above all project groups (POD-166, R3) — they leave
   // their group entirely; unpinning returns them to its banded order.
   return (

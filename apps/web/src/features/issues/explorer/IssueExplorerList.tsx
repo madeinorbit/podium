@@ -6,6 +6,7 @@ import { Search, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { GhostBar, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
 import { DOCK_ROW, DOCK_STAMP } from '../IssueCompactControls'
 import { issueIdTitle } from '../issue-card'
@@ -89,8 +90,29 @@ export function IssueExplorerList(): JSX.Element {
     node.dispatchEvent(new Event('scroll'))
   }, [scrollScope, listScrollTop])
 
+  // NOTHING LISTABLE IN THE REPO — not "this stage is empty" and not "that
+  // search found nothing" (POD-1058). The three need different words, and only
+  // this one gets an explanation of what the pane is for: the dock is closed on
+  // a fresh install, so this is the state behind the first click and it has to
+  // earn the click.
+  const barren = total === 0
+
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="explorer-list">
+      {barren && (
+        <div className="flex-none px-2.5 pt-4 pb-1" data-testid="explorer-empty-copy">
+          <p className="text-[15px] leading-[1.3] font-semibold tracking-[-.02em] text-text-strong">
+            No tasks yet
+          </p>
+          {/* Says what the PANE is, not what the selected task is. Level 0 here
+              is every task in the repo — an empty state that talked about "the
+              task you picked" would be describing the level below it. */}
+          <p className="mt-1.5 text-[12px] leading-[1.55] text-muted-foreground text-pretty">
+            Every task in the project lives here — yours and everyone else’s. Search it, browse it
+            by stage, open one for the detail.
+          </p>
+        </div>
+      )}
       <div className="flex-none px-2.5 pt-2 pb-1.5">
         <div className="flex h-7 items-center gap-1.5 rounded-md border border-input bg-background px-2 focus-within:ring-2 focus-within:ring-ring/40">
           <Search size={12} className="flex-none text-text-faint" aria-hidden="true" />
@@ -106,7 +128,11 @@ export function IssueExplorerList(): JSX.Element {
             }}
             spellCheck={false}
             aria-label="Search tasks"
-            placeholder={`Search all ${total} tasks`}
+            // The field stays ENABLED at zero — typing a ref is how people
+            // arrive here, and a disabled input would make this look like a
+            // different pane from the one that appears once tasks exist. Only
+            // the promise of a count goes, because "all 0 tasks" is a joke.
+            placeholder={barren ? 'Search tasks' : `Search all ${total} tasks`}
             className="min-w-0 flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-text-faint"
           />
           {searching && (
@@ -177,7 +203,11 @@ export function IssueExplorerList(): JSX.Element {
           </div>
         )}
         {rows.length === 0 ? (
-          <EmptyList searching={searching} onClear={() => setQuery('')} tab={tab} />
+          barren && !searching ? (
+            <GhostRows />
+          ) : (
+            <EmptyList searching={searching} onClear={() => setQuery('')} tab={tab} />
+          )
         ) : (
           <ul
             ref={listRef}
@@ -208,6 +238,45 @@ export function IssueExplorerList(): JSX.Element {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * The ghost list under the stage strip (POD-1058).
+ *
+ * Mirrors `ExplorerRow` exactly — 30px band, hairline rule, stage glyph, ref
+ * chip, title, right-hand stamp — so the first real task lands on the slot its
+ * ghost was holding. Top-aligned, filling downward, because that is the
+ * direction rows arrive from.
+ *
+ * The honest `0` on every stage tab directly above it is what stops these five
+ * bands from being read as five tasks.
+ */
+function GhostRows(): JSX.Element {
+  const rows: Array<{ tier: 1 | 2 | 3 | 4; width: string; meta?: number }> = [
+    { tier: 1, width: '72%', meta: 20 },
+    { tier: 2, width: '84%', meta: 14 },
+    { tier: 3, width: '58%' },
+    { tier: 4, width: '77%' },
+    { tier: 4, width: '46%' },
+  ]
+  return (
+    <GhostPreview className="flex flex-col" hold="40%" fadeTo="94%" testId="explorer-ghost-rows">
+      {rows.map(({ tier, width, meta }) => (
+        <div
+          key={`${tier}-${width}`}
+          className="flex h-[30px] min-w-0 items-center gap-2 border-b border-hairline-soft px-2.5"
+        >
+          <GhostSquare tier={tier} size={11} />
+          <GhostBar tier={tier} width="38px" height={9} className="flex-none" />
+          <GhostBar tier={Math.min(tier + 1, 4) as 1 | 2 | 3 | 4} width={width} height={9} />
+          <span className="flex-1" />
+          {meta !== undefined && (
+            <GhostBar tier={4} width={`${meta}px`} height={9} className="flex-none" />
+          )}
+        </div>
+      ))}
+    </GhostPreview>
   )
 }
 

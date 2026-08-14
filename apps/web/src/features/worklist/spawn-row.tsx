@@ -59,7 +59,19 @@ import { NewAgentMenu } from './NewAgentMenu'
  * Default spawn target + spawn/persist actions shared by the wide `New <Agent>
  * in <Repo>` row and the rail's compact new-Claude button (#41).
  */
-export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
+export function useDefaultSpawn(
+  sectionsOverride?: SidebarSections,
+  /**
+   * Whether this caller owns the ⌘N chord. Exactly ONE mounted caller may
+   * (POD-1058): the binding below is a window keydown listener plus a global
+   * `__PODIUM_NEW_AGENT__` slot, so two live callers spawn two agents from one
+   * press. It defaulted to "always" while the only callers were the wide row
+   * and the collapsed rail, which are never mounted together — the work list's
+   * empty state IS mounted under the row, so it takes the same spawn without
+   * taking the chord.
+   */
+  { bindChord = true }: { bindChord?: boolean } = {},
+) {
   const {
     repos,
     sessions,
@@ -216,6 +228,7 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
     if (defaultRepo) spawn(defaultAgent, defaultRepo)
   }
   useEffect(() => {
+    if (!bindChord) return
     if (!nativeDesktopBridge()) return
     const g = globalThis as { __PODIUM_NEW_AGENT__?: () => void }
     const handler = (): void => newAgentRef.current()
@@ -238,7 +251,7 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
       if (g.__PODIUM_NEW_AGENT__ === handler) delete g.__PODIUM_NEW_AGENT__
       window.removeEventListener('keydown', onKey)
     }
-  }, [])
+  }, [bindChord])
 
   return {
     defaultAgent,

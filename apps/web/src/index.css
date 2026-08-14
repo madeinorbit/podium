@@ -235,6 +235,19 @@
   /* Issue-accent channel: components override --issue per shell subtree
      (style={{ '--issue': hex }}); default is the neutral slate flow. */
   --issue: var(--flow);
+
+  /* GHOST-PREVIEW RAMP (POD-1058). The four greys an empty surface draws its
+     dead copy of itself in, brightest first. They are MIXES OVER TRANSPARENT
+     rather than flat values so one ramp serves every surface a ghost lands on —
+     the work list, the deck and the dock are three different tones, and a fixed
+     hex tuned against one of them is a visible patch on the other two.
+     Light needs a heavier dose than dark for the same apparent step: ink on
+     stone loses contrast faster than light on ink (the dark block re-states
+     these four at roughly two-thirds the mix). */
+  --ghost-1: color-mix(in srgb, var(--foreground) 18%, transparent);
+  --ghost-2: color-mix(in srgb, var(--foreground) 14%, transparent);
+  --ghost-3: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --ghost-4: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 
 /* Popover ink, dark only. The `:root` carve values above are shared with light
@@ -304,6 +317,14 @@
   --claude: #d97757;
   --flow: #94a3b8;
   --flow-foreground: #141a24;
+
+  /* The ghost ramp's dark half — see :root. Light ink over a near-black ground
+     separates at a much lower dose than dark ink over stone does, so the same
+     four visible steps cost about two-thirds of the mix. */
+  --ghost-1: color-mix(in srgb, var(--foreground) 12%, transparent);
+  --ghost-2: color-mix(in srgb, var(--foreground) 9%, transparent);
+  --ghost-3: color-mix(in srgb, var(--foreground) 5.5%, transparent);
+  --ghost-4: color-mix(in srgb, var(--foreground) 2.5%, transparent);
 }
 
 /* ── Podium preset — light (derived from the brand palette) ─────────────────────── */
