@@ -55,6 +55,7 @@ import {
   ResumeRef,
   SessionIdField,
 } from '@podium/model'
+import { RuntimeContractRequest } from '@podium/protocol'
 import { z } from 'zod'
 import type { CommandDef } from '../framework'
 import { defineCommands } from '../framework'
@@ -168,6 +169,25 @@ const createInput = z.object({
    *  be the one in the chain. */
   sessionId: z.string().uuid().pipe(SessionIdField).optional(),
   draftIssue: z.object({ repoPath: z.string(), issueId: IssueIdField.optional() }).optional(),
+  /**
+   * THE PER-SPAWN AGENT-RUNTIME OVERRIDE (POD-1761 W5; spec §9 phase 3).
+   *
+   * `true` drives this session through the contract with whatever the harness
+   * manifest's `select()` policy picks; a DRIVER ID names one explicitly, which
+   * is how a single opencode session runs on `opencode-server` while every other
+   * session on the same daemon stays terminal. Absent is the default and changes
+   * nothing.
+   *
+   * ADDED BECAUSE ITS ABSENCE MADE THE WHOLE FEATURE UNREACHABLE (POD-2113,
+   * found by POD-2086 driving a real instance). Every layer below this was
+   * written and tested — the daemon resolves it, refuses an unknown id by name,
+   * degrades an unavailable one — and zod stripped the field here, so none of it
+   * ever ran. The tell was that spawning with a deliberately bogus driver id
+   * returned 200 and started a healthy PTY session, when the registry is
+   * documented to refuse exactly that. A schema is a boundary in both
+   * directions: what it does not name, it deletes.
+   */
+  runtimeContract: RuntimeContractRequest.optional(),
   mutationId,
 })
 

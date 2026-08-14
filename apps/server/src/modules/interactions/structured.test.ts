@@ -66,7 +66,13 @@ function harness(opts: { structured?: boolean; structuredFails?: boolean } = {})
     publish: (row) => published.push(row.id),
     deliver: async (input) => {
       keystrokes.push({ sessionId: input.sessionId, answer: input.answer })
-      return { ok: true, via: 'menu' }
+      // `choices` is REQUIRED on the menu arm of `AnswerDeliveryResult` — it is
+      // what the digit path actually pressed, and the audit trail reads it. An
+      // earlier version of this fake omitted it and took the epic's whole-graph
+      // typecheck red (caught by POD-2059's review); a per-package run had gone
+      // green because the fake's inferred type only meets the real one at this
+      // seam.
+      return { ok: true, via: 'menu', choices: [] }
     },
     readTranscript: async () => ({ items: [] }),
     policyPrincipal: () => SYSTEM_INBOX_PRINCIPAL,

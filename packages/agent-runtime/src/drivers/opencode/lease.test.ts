@@ -140,3 +140,61 @@ describe('attach(takeover) and lease.acquire agree about who holds the lease', (
     }
   })
 })
+
+describe('releasing the lease drains what was queued behind it', () => {
+  it('lands a turn queued under a take-over once the human RELEASES', async () => {
+    /**
+     * W3's F6 in one property (POD-2059's review). A `queue` that arrives while
+     * a human holds the take-over lease is PARKED rather than refused — the
+     * contract's own note is that headless drivers queue rather than interleave,
+     * and the nudge is supposed to land after the takeover ends.
+     *
+     * It did not. `drainQueue` only ran from `closeTurn`, so on an IDLE session
+     * the parked turn waited for a turn edge that might never come: release the
+     * lease with nothing running and the steward's nudge sat there indefinitely.
+     * "After the takeover ends" has to mean the release itself.
+     */
+    const runtime = createOpencodeRuntime(makeOpencodeTestHost())
+    try {
+      const handle = await runtime.driver.create(spec())
+      await handle.lease.acquire('operator', 'human-controller')
+
+      const receipt = await handle.send(
+        { text: 'land this after the human is done' },
+        { origin: 'steward', delivery: 'when-ready' },
+      )
+      // Parked, not refused, and it says so with a durable position.
+      expect(receipt.outcome).toBe('queued')
+
+      await handle.lease.release('operator')
+
+      // The turn reaches opencode without anything else having to happen. The
+      // session was IDLE throughout, which is exactly the case the old code
+      // could not serve.
+      await expect
+        .poll(() => runtime.handleFor(handle.binding.sessionId) !== undefined, { timeout: 2000 })
+        .toBe(true)
+      await expect
+        .poll(async () => (await handle.snapshot()).turnEpoch, { timeout: 5000 })
+        .toBeGreaterThan(0)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('does not drain for a release by somebody who never held it', async () => {
+    // The guard the drain sits behind: a stray release must not become a way to
+    // push somebody else's queued turn at the agent.
+    const runtime = createOpencodeRuntime(makeOpencodeTestHost())
+    try {
+      const handle = await runtime.driver.create(spec())
+      await handle.lease.acquire('operator', 'human-controller')
+      await handle.send({ text: 'parked' }, { origin: 'steward', delivery: 'when-ready' })
+      await handle.lease.release('a-stranger')
+      expect(await handle.lease.state()).toMatchObject({ holder: 'operator' })
+      expect((await handle.snapshot()).turnEpoch).toBe(0)
+    } finally {
+      runtime.dispose()
+    }
+  })
+})

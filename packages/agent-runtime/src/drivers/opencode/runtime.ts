@@ -1265,7 +1265,24 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
           return session.lease
         },
         async release(holder) {
-          if (session.lease?.holder === holder) session.lease = null
+          if (session.lease?.holder !== holder) return
+          session.lease = null
+          /**
+           * RELEASING THE LEASE IS A DRAIN EDGE (POD-2059's review).
+           *
+           * A `queue` that arrived while a human held the take-over lease was
+           * parked here rather than refused — the contract's own note says
+           * headless drivers queue rather than interleave, and W3's F6 is
+           * explicit that the nudge lands AFTER the takeover ends. But
+           * `drainQueue` only ran from `closeTurn`, so on an IDLE session the
+           * queued turn waited for a turn edge that may never come: the human
+           * releases, nothing is running, and the steward's nudge sits there
+           * until some unrelated turn happens to complete.
+           *
+           * "After the takeover ends" has to mean this moment, or the promise is
+           * only kept on sessions that happen to be busy.
+           */
+          void drainQueue(session)
         },
         async state() {
           return session.lease

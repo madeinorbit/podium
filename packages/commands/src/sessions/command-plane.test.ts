@@ -185,3 +185,49 @@ describe('the command-plane table', () => {
     },
   )
 })
+
+/**
+ * THE SCHEMA IS A BOUNDARY IN BOTH DIRECTIONS (POD-2113).
+ *
+ * `sessions.create`'s input schema strips what it does not name, so a field
+ * absent here is a field the server never sees — however correct everything
+ * downstream is. The agent-runtime per-spawn override was written end to end
+ * (the daemon resolves it, refuses an unknown id by name, degrades an
+ * unavailable one) and none of it ever ran, because zod deleted the field at
+ * this line. POD-2086 found it by driving a real instance: spawning with a
+ * deliberately bogus driver id returned 200 and started a healthy PTY session,
+ * when the registry is documented to refuse exactly that.
+ *
+ * These parse the SCHEMA rather than the handler, because the schema is where
+ * the field was lost and a handler test would have passed throughout.
+ */
+describe('sessions.create carries the agent-runtime override', () => {
+  const parse = (extra: Record<string, unknown>) =>
+    sessionCommandPlaneInputs.create.parse({ cwd: '/w', mutationId: 'm1', ...extra })
+
+  it('keeps a DRIVER ID, which is the explicit per-spawn opt-in', () => {
+    expect(parse({ runtimeContract: 'opencode-server' }).runtimeContract).toBe('opencode-server')
+  })
+
+  it('keeps `true`, which means "the contract, with the manifest\'s own choice"', () => {
+    expect(parse({ runtimeContract: true }).runtimeContract).toBe(true)
+  })
+
+  it('keeps an UNKNOWN id so the daemon can refuse it BY NAME', () => {
+    // The tell that exposed the bug. If this is stripped, a typo silently
+    // produces a working terminal session and the operator reads that as proof
+    // the override works. The daemon owns the refusal; the schema's only job is
+    // to let the typo reach it.
+    expect(parse({ runtimeContract: 'not-a-real-driver' }).runtimeContract).toBe(
+      'not-a-real-driver',
+    )
+  })
+
+  it('leaves it ABSENT when nothing asked, which is the unchanged default', () => {
+    expect('runtimeContract' in parse({})).toBe(false)
+  })
+
+  it('REFUSES an empty string rather than passing a meaningless override on', () => {
+    expect(() => parse({ runtimeContract: '' })).toThrow()
+  })
+})

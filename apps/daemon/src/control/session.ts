@@ -568,10 +568,10 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
  * Start this session on a server-family driver, or answer `false` for "not
  * mine".
  *
- * TWO OUTCOMES FOR A REQUEST THAT CANNOT BE HONOURED, and the split is
- * deliberate — an earlier version of this comment claimed both were refusals,
- * which was the opposite of what the code does on the case it named (POD-2023
- * review, 7.1):
+ * THREE OUTCOMES FOR A REQUEST THAT CANNOT BE HONOURED, and the split is
+ * deliberate — an earlier version of this comment claimed they were all
+ * refusals, which was the opposite of what the code does on the case it named
+ * (POD-2023 review, 7.1; the third arrived with POD-2056's measurement):
  *
  *   - AN UNKNOWN DRIVER ID REFUSES, loudly, with the id in the message. This
  *     build ships no such driver, so it is a typo or a spawn from a newer
