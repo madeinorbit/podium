@@ -610,6 +610,37 @@ export class ShippingExecutionPlane {
     return bytes.subarray(0, Math.min(maxBytes, MAX_OUTPUT_BYTES)).toString('utf8')
   }
 
+  private repairBaseRef(request: Request): string {
+    return `${this.executionRefBase(request)}/failed-${request.operation}-base`
+  }
+
+  private freezeRepairBase(request: Request, base: string): string | null {
+    const ref = this.repairBaseRef(request)
+    const frozen = gitResult(request.repoPath, ['update-ref', ref, base, ZERO_SHA])
+    return frozen.ok || refTip(request.repoPath, ref) === base
+      ? null
+      : frozen.stderr || 'failed repair base raced'
+  }
+
+  private deterministicRepairBase(request: Request): string | null {
+    if (request.operation === 'validate') return refTip(request.repoPath, this.shadowRef(request))
+    const members = this.trainMembers(request)
+    if (members.length === 0) return request.expectedTargetSha
+    let candidate = request.expectedTargetSha
+    for (const [ordinal, member] of members.entries()) {
+      const recorded = refTip(request.repoPath, this.memberResultRef(request, ordinal))
+      if (!recorded) break
+      if (
+        !isAncestor(request.repoPath, candidate, recorded) ||
+        !isAncestor(request.repoPath, member.approvedHeadSha, recorded)
+      ) {
+        return null
+      }
+      candidate = recorded
+    }
+    return candidate
+  }
+
   private validFrozenRepair(input: {
     authority: Request
     base: string
@@ -769,29 +800,12 @@ export class ShippingExecutionPlane {
     ) {
       return { ok: false, summary: 'repair patch path authority failed', artifactRefs: [] }
     }
-    const entry = this.journal
-      .list()
-      .find(
-        (candidate) =>
-          candidate.request.jobId === authority.jobId &&
-          candidate.request.generation === authority.generation &&
-          candidate.request.requestDigest === authority.requestDigest,
-      )
-    if (!entry || entry.result.state !== 'held') {
-      return { ok: false, summary: 'failed shipping effect is not retained', artifactRefs: [] }
-    }
-    const failedPath = join(this.integrationDir, this.executionKey(authority))
-    const base =
-      entry.result.testedIntegrationSha ??
-      (worktrees(authority.repoPath).some((candidate) => candidate.path === failedPath)
-        ? refTip(failedPath, 'HEAD')
-        : entry.result.classification === 'merge-conflict'
-          ? authority.expectedTargetSha
-          : null)
-    if (!base) {
+    const base = refTip(authority.repoPath, this.repairBaseRef(authority))
+    const expectedBase = this.deterministicRepairBase(authority)
+    if (!base || !expectedBase || base !== expectedBase) {
       return {
         ok: false,
-        summary: 'failed integration has no repairable candidate',
+        summary: 'failed shipping effect has no exact immutable repair base',
         artifactRefs: [],
       }
     }
@@ -1081,6 +1095,10 @@ export class ShippingExecutionPlane {
     if (members.length > 0) return this.prepareTrain(request, members)
     const candidate = request.repair?.candidateHeadSha ?? request.approvedHeadSha
     if (!isAncestor(request.repoPath, request.expectedTargetSha, candidate)) {
+      const freezeError = this.freezeRepairBase(request, request.expectedTargetSha)
+      if (freezeError) {
+        return this.observed(request, 'held', 'invalid-request', freezeError)
+      }
       return this.observed(
         request,
         'held',
@@ -1296,6 +1314,10 @@ export class ShippingExecutionPlane {
           ])
           if (!merged.ok) {
             gitResult(path, ['merge', '--abort'])
+            const freezeError = this.freezeRepairBase(request, candidate)
+            if (freezeError) {
+              return this.observed(request, 'held', 'invalid-request', freezeError)
+            }
             return this.observed(
               request,
               'held',
@@ -1386,6 +1408,12 @@ export class ShippingExecutionPlane {
         'invalid-request',
         'train candidate has no exact preparation proof',
       )
+    }
+    if (!passed) {
+      const freezeError = this.freezeRepairBase(request, candidate)
+      if (freezeError) {
+        return this.observed(request, 'held', 'invalid-request', freezeError)
+      }
     }
     return {
       ...this.observed(

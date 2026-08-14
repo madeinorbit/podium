@@ -127,7 +127,11 @@ import {
   shippingResourceHolderId,
 } from './modules/shipping'
 import { scheduledShipOrderProjectionRows } from './modules/shipping/projection'
-import { ShippingEvidenceRegistry, ShipwrightService } from './modules/shipping/shipwright'
+import {
+  ShippingEvidenceRegistry,
+  shipwrightApplyPatchThroughRelay,
+  ShipwrightService,
+} from './modules/shipping/shipwright'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
@@ -1831,25 +1835,7 @@ export class SessionRegistry {
         }
         return { output: content.join('\n'), relevantDiff: '' }
       },
-      applyPatch: async (input) => {
-        const result = await rpc.shippingRepairApply(
-          {
-            authority: input.authority,
-            contextDigest: input.contextDigest,
-            repairRef: input.repairRef,
-            patch: input.patch,
-            touchedPaths: input.touchedPaths,
-          },
-          input.custody.machineId,
-        )
-        return result.ok && result.candidateHeadSha
-          ? {
-              ok: true,
-              candidateHeadSha: result.candidateHeadSha,
-              evidenceRefs: result.artifactRefs,
-            }
-          : { ok: false, summary: result.summary, evidenceRefs: result.artifactRefs }
-      },
+      applyPatch: shipwrightApplyPatchThroughRelay(rpc),
     })
     shipping = new ShippingService({
       repository: this.store.shipping,

@@ -1,21 +1,31 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   asAccountId,
   asMachineId,
   asSessionId,
+  asShipAttemptId,
+  asShipOrderId,
   asUserId,
   DEFAULT_SHIPWRIGHT_BUDGET,
   ShipwrightEvidenceRef,
   ShipwrightPatchContract,
   shipRepairRef,
 } from '@podium/model'
+import {
+  shippingJobRequestFingerprint,
+  type ShippingJobRequestMessage,
+} from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
+import { ShippingExecutionPlane } from '../../../../daemon/src/shipping/executor'
 import { SessionStore } from '../../store'
 import {
   ShippingEvidenceRegistry,
+  shipwrightApplyPatchThroughRelay,
   ShipwrightService,
   type ShipwrightContextInput,
   type ShipwrightEvidenceMaterializer,
@@ -195,6 +205,14 @@ describe('durable shipwright model results', () => {
     summary: 'named gate failed',
     artifactRefs: ['/executor/journal/gate.log'],
   }
+  const validationProfile = {
+    id: 'frozen-gate',
+    argv: ['bun', 'run', 'frozen-gate'],
+    cwd: 'integration-root',
+    timeoutMs: 30_000,
+    resourceLocks: ['frozen-lock'],
+  }
+  const authority = { validationProfile } as never
 
   function fixture(
     output: string | string[],
@@ -206,6 +224,11 @@ describe('durable shipwright model results', () => {
     }>,
     nativeAccountId: ConstructorParameters<typeof ShipwrightService>[0]['nativeAccountId'] = () =>
       asAccountId('native:claude-code:fingerprint-1'),
+    applyPatch: ConstructorParameters<typeof ShipwrightService>[0]['applyPatch'] = async () => ({
+      ok: true,
+      candidateHeadSha: 'candidate-sha',
+      evidenceRefs: ['/executor/journal/applied.patch'],
+    }),
   ) {
     const sessions = new Map<string, Record<string, unknown>>()
     const creates: Record<string, unknown>[] = []
@@ -217,6 +240,7 @@ describe('durable shipwright model results', () => {
       accountId: string
     }[] = []
     let quotaReads = 0
+    let validationProfileReads = 0
     let outputIndex = 0
     const service = new ShipwrightService({
       headless: {
@@ -271,7 +295,10 @@ describe('durable shipwright model results', () => {
         return []
       },
       nativeAccountId,
-      validationProfile: () => ({ id: 'gate' }) as never,
+      validationProfile: () => {
+        validationProfileReads += 1
+        return { id: 'drifted-live-gate' } as never
+      },
       evidence: {
         materialize:
           materialize ??
@@ -284,11 +311,7 @@ describe('durable shipwright model results', () => {
       },
       context:
         readContext ?? (async () => ({ output: 'failure output', relevantDiff: 'diff context' })),
-      applyPatch: async () => ({
-        ok: true,
-        candidateHeadSha: 'candidate-sha',
-        evidenceRefs: ['/executor/journal/applied.patch'],
-      }),
+      applyPatch,
       ...(budget ? { budget } : {}),
     })
     return {
@@ -298,6 +321,9 @@ describe('durable shipwright model results', () => {
       acknowledgements,
       get quotaReads() {
         return quotaReads
+      },
+      get validationProfileReads() {
+        return validationProfileReads
       },
     }
   }
@@ -311,7 +337,7 @@ describe('durable shipwright model results', () => {
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
       contextDigest: 'c'.repeat(64),
-      authority: {} as never,
+      authority,
     } as never)
 
     expect(result).toMatchObject({
@@ -335,7 +361,7 @@ describe('durable shipwright model results', () => {
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
       contextDigest: 'c'.repeat(64),
-      authority: {} as never,
+      authority,
     } as never)
 
     expect(result).toMatchObject({
@@ -355,7 +381,7 @@ describe('durable shipwright model results', () => {
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
       contextDigest: 'c'.repeat(64),
-      authority: {} as never,
+      authority,
     } as never)
 
     expect(result).toMatchObject({
@@ -378,7 +404,7 @@ describe('durable shipwright model results', () => {
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
       contextDigest: 'c'.repeat(64),
-      authority: {} as never,
+      authority,
     } as never)
 
     expect(seen).toEqual([
@@ -386,7 +412,7 @@ describe('durable shipwright model results', () => {
         order,
         attempt,
         custody: { attemptId: attempt.id, generation: 4, machineId },
-        authority: {} as never,
+        authority,
         failure: expect.objectContaining({
           artifactRefs: ['artifact://validation/gate-log'],
         }),
@@ -401,7 +427,7 @@ describe('durable shipwright model results', () => {
     expect(h.turns).toHaveLength(0)
   })
 
-  it('replays the attempt-scoped result and acknowledges it only after durable consumption', async () => {
+  it('replays the attempt-scoped result under its frozen validation policy', async () => {
     const h = fixture(
       JSON.stringify({
         kind: 'patch',
@@ -420,7 +446,7 @@ describe('durable shipwright model results', () => {
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
       contextDigest: 'c'.repeat(64),
-      authority: {} as never,
+      authority,
     } as never
 
     const first = await h.service.consider(input)
@@ -441,6 +467,11 @@ describe('durable shipwright model results', () => {
       requireNoTools: true,
     })
     expect(h.turns[0]).toMatchObject({ toolPolicy: 'none' })
+    expect(h.turns[0]).toMatchObject({
+      prompt: expect.stringContaining('Validation profile: frozen-gate'),
+    })
+    expect(JSON.stringify(h.turns[0])).not.toContain('drifted-live-gate')
+    expect(h.validationProfileReads).toBe(0)
     expect(h.quotaReads).toBe(1)
     expect(h.acknowledgements).toEqual([])
     if (first.kind !== 'patched') throw new Error('expected a patch result')
@@ -465,6 +496,106 @@ describe('durable shipwright model results', () => {
     ])
   })
 
+  it('repairs through the production relay adapter after daemon journal loss', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-shipwright-restart-'))
+    const repo = join(root, 'repo')
+    const runtime = join(root, 'runtime')
+    const git = (...argv: string[]): string =>
+      execFileSync('git', ['-C', repo, ...argv], { encoding: 'utf8' }).trim()
+    execFileSync('git', ['init', '--initial-branch=main', repo])
+    git('config', 'user.email', 'shipping@test.invalid')
+    git('config', 'user.name', 'Shipping Test')
+    writeFileSync(join(repo, 'value.txt'), 'base\n')
+    git('add', 'value.txt')
+    git('commit', '-m', 'base')
+    const base = git('rev-parse', 'HEAD')
+    git('switch', '-c', 'issue/conflict')
+    writeFileSync(join(repo, 'value.txt'), 'source\n')
+    git('commit', '-am', 'source')
+    const source = git('rev-parse', 'HEAD')
+    git('switch', 'main')
+    writeFileSync(join(repo, 'value.txt'), 'target\n')
+    git('commit', '-am', 'target')
+    const target = git('rev-parse', 'HEAD')
+    const unsigned = {
+      type: 'shippingJobRequest' as const,
+      requestId: 'request-shipwright-restart',
+      action: 'start' as const,
+      jobId: 'attempt:shipwright:prepare-merge-group',
+      orderId: asShipOrderId(order.id),
+      attemptId: asShipAttemptId(attempt.id),
+      generation: attempt.leaseGeneration,
+      operation: 'prepare-merge-group' as const,
+      shippingProtocolVersion: 1 as const,
+      repoPath: repo,
+      repoId: 'repo-shipping' as ShippingJobRequestMessage['repoId'],
+      sourceBranch: 'issue/conflict',
+      targetBranch: 'main',
+      approvedBaseSha: base,
+      approvedHeadSha: source,
+      expectedTargetSha: target,
+      destination: 'local:main',
+      policyId: 'frozen-policy',
+      validationProfile,
+    }
+    const { type: _type, requestId: _requestId, action: _action, ...facts } = unsigned
+    const request: ShippingJobRequestMessage = {
+      ...unsigned,
+      requestDigest: createHash('sha256')
+        .update(shippingJobRequestFingerprint(facts))
+        .digest('hex'),
+    }
+    const plane = new ShippingExecutionPlane(runtime, machineId)
+    expect(plane.handle(request)).toMatchObject({
+      state: 'held',
+      classification: 'merge-conflict',
+    })
+    rmSync(runtime, { recursive: true, force: true })
+    const recoveredPlane = new ShippingExecutionPlane(runtime, machineId)
+    const h = fixture(
+      JSON.stringify({
+        kind: 'patch',
+        summary: 'restore the merge base before composing the approved head',
+        behaviorImpact: 'none',
+        touchedPaths: ['value.txt'],
+        patch:
+          'diff --git a/value.txt b/value.txt\n' +
+          '--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-target\n+base\n',
+        concerns: [],
+      }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      shipwrightApplyPatchThroughRelay({
+        shippingRepairApply: async (input, requestedMachineId) => {
+          expect(requestedMachineId).toBe(machineId)
+          return recoveredPlane.applyPatch(input)
+        },
+      }),
+    )
+    const result = await h.service.consider({
+      order,
+      attempt,
+      issue: { ...issue, repoPath: repo },
+      failure: {
+        ...failure,
+        operation: 'prepare-merge-group',
+        classification: 'merge-conflict',
+        summary: 'the frozen approved head conflicts with the frozen target',
+      },
+      custody: { attemptId: attempt.id, generation: 4, machineId },
+      contextDigest: 'e'.repeat(64),
+      authority: request,
+    } as never)
+
+    expect(result).toMatchObject({ kind: 'patched', candidateHeadSha: expect.any(String) })
+    if (result.kind !== 'patched') throw new Error('expected a repaired candidate')
+    expect(git('merge-base', '--is-ancestor', target, result.candidateHeadSha)).toBe('')
+    expect(git('merge-base', '--is-ancestor', source, result.candidateHeadSha)).toBe('')
+    rmSync(root, { recursive: true, force: true })
+  })
+
   it('keeps free-form model concerns out of typed hold evidence', async () => {
     const h = fixture(
       JSON.stringify({
@@ -484,7 +615,7 @@ describe('durable shipwright model results', () => {
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
       contextDigest: 'c'.repeat(64),
-      authority: {} as never,
+      authority,
     } as never)
     expect(result).toMatchObject({
       kind: 'needs-decision',
@@ -529,7 +660,7 @@ describe('durable shipwright model results', () => {
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
       contextDigest: 'c'.repeat(64),
-      authority: {} as never,
+      authority,
     } as never)
     expect(result.kind).toBe('patched')
     expect(h.turns.map((turn) => turn.turnId)).toEqual([
@@ -565,7 +696,7 @@ describe('durable shipwright model results', () => {
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
       contextDigest: 'c'.repeat(64),
-      authority: {} as never,
+      authority,
     } as never)
     expect(result).toMatchObject({
       kind: 'needs-decision',

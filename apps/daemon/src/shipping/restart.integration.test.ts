@@ -91,6 +91,8 @@ describe('shipping daemon restart recovery', () => {
     })
     const plane = new ShippingExecutionPlane(journal, asMachineId('machine-1'))
     expect(plane.handle(request)).toMatchObject({ state: 'held', classification: 'merge-conflict' })
+    resetFixture(journal)
+    const recoveredPlane = new ShippingExecutionPlane(journal, asMachineId('machine-1'))
     const contextDigest = 'c'.repeat(64)
     const repairRef = shipRepairRef(
       request.orderId,
@@ -101,7 +103,7 @@ describe('shipping daemon restart recovery', () => {
     const patch =
       'diff --git a/value.txt b/value.txt\n' +
       '--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-target\n+base\n'
-    const repaired = plane.applyPatch({
+    const repaired = recoveredPlane.applyPatch({
       authority: request,
       contextDigest,
       repairRef,
@@ -123,7 +125,7 @@ describe('shipping daemon restart recovery', () => {
     )
     git('update-ref', repairRef, extraDescendant, repaired.candidateHeadSha!)
     expect(
-      plane.applyPatch({
+      recoveredPlane.applyPatch({
         authority: request,
         contextDigest,
         repairRef,
@@ -134,7 +136,7 @@ describe('shipping daemon restart recovery', () => {
 
     git('update-ref', repairRef, source, extraDescendant)
     expect(
-      plane.applyPatch({
+      recoveredPlane.applyPatch({
         authority: request,
         contextDigest,
         repairRef,

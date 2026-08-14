@@ -128,6 +128,51 @@ export interface ShipwrightEvidenceMaterializer {
   }): Promise<readonly ShipwrightEvidenceRefValue[]>
 }
 
+export interface ShippingRepairApplyRelay {
+  shippingRepairApply(
+    input: {
+      authority: ShipwrightRepairInput['authority']
+      contextDigest: string
+      repairRef: string
+      patch: string
+      touchedPaths: string[]
+    },
+    machineId: ShipAttempt['machineId'],
+  ): Promise<{
+    ok: boolean
+    summary: string
+    candidateHeadSha?: string
+    artifactRefs: string[]
+  }>
+}
+
+/** Exact production adapter between frozen Shipwright input and the daemon's
+ * deterministic repair effect. Keeping it here makes the relay incapable of
+ * substituting live order or policy state at repair time. */
+export function shipwrightApplyPatchThroughRelay(
+  rpc: ShippingRepairApplyRelay,
+): ShipwrightDeps['applyPatch'] {
+  return async (input) => {
+    const result = await rpc.shippingRepairApply(
+      {
+        authority: input.authority,
+        contextDigest: input.contextDigest,
+        repairRef: input.repairRef,
+        patch: input.patch,
+        touchedPaths: input.touchedPaths,
+      },
+      input.custody.machineId,
+    )
+    return result.ok && result.candidateHeadSha
+      ? {
+          ok: true,
+          candidateHeadSha: result.candidateHeadSha,
+          evidenceRefs: result.artifactRefs,
+        }
+      : { ok: false, summary: result.summary, evidenceRefs: result.artifactRefs }
+  }
+}
+
 export interface ShipwrightContextInput {
   order: ShipOrder
   attempt: ShipAttempt
@@ -586,7 +631,7 @@ export class ShipwrightService {
       summary: input.failure.summary,
       output: context.output,
       relevantDiff: context.relevantDiff,
-      validationProfile: this.deps.validationProfile(input.issue),
+      validationProfile: input.authority.validationProfile,
     }
     const priorFamilies: string[] = []
     let turns = 0
