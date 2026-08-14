@@ -57,19 +57,23 @@ test('Windows and Linux render draggable custom controls', async ({ page }) => {
     )
     .toEqual(['minimize', 'maximize', 'close'])
 
+  // The bar is the chassis, not a card: POD-365 dropped the command bar's
+  // surface to the frame tier `--bar` (remeasured POD-725/POD-737), so the
+  // custom-chrome header must sit on that token — an opaque surface, unlike
+  // macOS where the same band goes transparent over NSVisualEffectView.
   const theme = await header.evaluate((element) => {
-    const cardSample = document.createElement('div')
-    cardSample.style.background = 'var(--card)'
-    document.body.append(cardSample)
-    const card = getComputedStyle(cardSample).backgroundColor
-    cardSample.remove()
+    const barSample = document.createElement('div')
+    barSample.style.background = 'var(--bar)'
+    document.body.append(barSample)
+    const bar = getComputedStyle(barSample).backgroundColor
+    barSample.remove()
     return {
       background: getComputedStyle(element).backgroundColor,
-      card,
+      bar,
       paddingLeft: getComputedStyle(element).paddingLeft,
     }
   })
-  expect(theme.background).toBe(theme.card)
+  expect(theme.background).toBe(theme.bar)
   expect(theme.paddingLeft).toBe('14px')
 })
 
@@ -109,5 +113,8 @@ test('macOS reserves traffic-light space and keeps native controls', async ({ pa
     }
   })
   expect(geometry.paddingLeft).toBe('84px')
-  expect(geometry.logoToNav).toBe(16)
+  // POD-365's single 18px zone gap plus the 6px macOS nav inset
+  // (html[data-podium-platform="macos"] .desktop-topbar-nav) — the POD-666-era
+  // 16px this suite froze predates the command bar's one-rhythm respacing.
+  expect(geometry.logoToNav).toBe(24)
 })
