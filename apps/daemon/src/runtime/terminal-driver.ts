@@ -91,6 +91,7 @@ import {
 } from '@podium/agent-runtime'
 
 import { type AgentStateEvent, claudePromptHookFingerprint } from '@podium/harness'
+import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
   AgentRuntimeState,
@@ -106,6 +107,8 @@ import type {
   ProviderCursor,
 } from '@podium/protocol'
 import type { SpawnControl } from '../session-observers'
+
+const log = createLogger('daemon:terminal-driver')
 
 /** Gap between two keystrokes typed into a native menu — comfortably above the
  *  CLI key parser's own 50ms byte-run window, so no two keys share a read.
@@ -126,6 +129,20 @@ const MENU_KEY_DELAY_MS = 120
  * bound moved.
  */
 export const EVENT_LOG_LIMIT = 512
+
+/**
+ * How many frames one not-yet-registered session may hold (POD-2107).
+ *
+ * The window is one `await` wide — a launch or a `durableHostAlive` probe — so a
+ * healthy one holds a handful of frames at most. The cap is a backstop against a
+ * create that never resolves turning a per-session buffer into a leak, and it is
+ * generous rather than tight because the frames it protects are the session's
+ * FIRST: `bind`, the opening transcript records, an early exit. Overflow drops
+ * the newest and says so, which is the same order of preference the replay
+ * buffer above uses — the oldest frames are the ones the session cannot
+ * reconstruct.
+ */
+const PENDING_FRAME_LIMIT = 256
 
 // ---------------------------------------------------------------------------
 // The host — the narrow slice of the daemon a driver is allowed to reach
@@ -435,6 +452,39 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   const profiles = new Map<SessionId, TerminalHarnessProfile>()
   const registrations = new Map<SessionId, TerminalSessionRegistration>()
   const handles = new Map<SessionId, AgentSessionHandle>()
+  /**
+   * FRAMES FOR A SESSION THIS DRIVER HAS CLAIMED BUT NOT YET REGISTERED (POD-2107).
+   *
+   * `observe()` matches a frame against `sessions`, and `create()`/`resume()`/
+   * `adopt()` each register one AWAIT after they commit to a session id. A frame
+   * naming that id in between used to be discarded, and the frame that matters
+   * most in that window is `bind` — the one fact that flips `live`, which is the
+   * one thing the queue drain waits for. A dropped bind therefore left `live`
+   * false for the life of the session, and the ready-poll drain abandoned every
+   * queued turn at its 25s deadline WITHOUT typing and WITHOUT an event, while
+   * the sender held a receipt that said `queued`. That is the POD-549-class
+   * silent loss the durable queue exists to prevent.
+   *
+   * WHY BUFFER RATHER THAN REGISTER FIRST. Registering before the await would
+   * close the same window, but it puts a session record in the map for a process
+   * that may never exist: `create()` would leave a phantom behind when
+   * `host.launch` throws, and `adopt()` MUST NOT hold a record when
+   * `durableHostAlive` says no — refusing is its whole contract, and a phantom
+   * would then answer `not_running` to everything until something called
+   * `clear()`. Buffering keeps registration exactly where it is and only changes
+   * what happens to frames that arrive early: they are replayed, in arrival
+   * order, through the same `observe()` the daemon would have called.
+   *
+   * IT DOES NOT SET `live` OPTIMISTICALLY, which is the trap this fix has to
+   * avoid. The buffered `bind` is the same evidence a punctual one is; it is
+   * merely delivered late. Typing into a still-painting CLI is the no-op
+   * `DriverSession.live` exists to prevent, and nothing here fabricates it.
+   *
+   * KEYED ON CLAIMED IDS ONLY, so an unknown session id is still dropped on the
+   * floor as before — this map holds one entry per in-flight create/adopt, never
+   * one per frame the daemon sends about somebody else's session.
+   */
+  const pendingFrames = new Map<SessionId, DaemonMessage[]>()
 
   // -- event plumbing -------------------------------------------------------
 
@@ -627,6 +677,48 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
   // -- the outbound-frame tap ----------------------------------------------
 
+  /**
+   * Hold one frame for a session id this driver has claimed but not registered.
+   *
+   * A NO-OP FOR EVERY OTHER ID, which is what keeps this cheap and bounded: the
+   * daemon's outbound sink carries every session on the machine past this tap,
+   * and only the one or two ids with a create/adopt in flight have an entry to
+   * push onto. See {@link pendingFrames}.
+   */
+  function holdUntilRegistered(sessionId: SessionId, msg: DaemonMessage): void {
+    const held = pendingFrames.get(sessionId)
+    if (!held) return
+    if (held.length >= PENDING_FRAME_LIMIT) {
+      // SAID, NOT SWALLOWED. Dropping a frame here is the very failure this
+      // buffer exists to end, so the one case where it still happens is the one
+      // case that gets a line in the log.
+      log.warn('dropped a frame for a session whose registration never arrived', {
+        sessionId,
+        type: msg.type,
+        held: held.length,
+      })
+      return
+    }
+    held.push(msg)
+  }
+
+  /**
+   * Claim a session id for the length of one create/resume/adopt, so frames
+   * naming it are held rather than dropped until `register()` replays them.
+   *
+   * The `finally` is for the paths that never reach `register()` — a launch that
+   * throws, an adopt whose durable host is gone. `register()` removes the entry
+   * itself on the success path, so this only ever cleans up after a failure.
+   */
+  async function claiming<T>(sessionId: SessionId, open: () => Promise<T>): Promise<T> {
+    pendingFrames.set(sessionId, [])
+    try {
+      return await open()
+    } finally {
+      pendingFrames.delete(sessionId)
+    }
+  }
+
   function observe(msg: DaemonMessage): void {
     // `agentObservation` is keyed by `observation.podiumSessionId`, not by a
     // top-level `sessionId` — it is the one frame whose session id lives inside
@@ -634,11 +726,15 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     if (msg.type === 'agentObservation') {
       const observed = sessions.get(msg.observation.podiumSessionId)
       if (observed) applyObservation(observed, msg.observation)
+      else holdUntilRegistered(msg.observation.podiumSessionId, msg)
       return
     }
     if (!('sessionId' in msg) || typeof msg.sessionId !== 'string') return
     const session = sessions.get(msg.sessionId as SessionId)
-    if (!session) return
+    if (!session) {
+      holdUntilRegistered(msg.sessionId as SessionId, msg)
+      return
+    }
     switch (msg.type) {
       case 'transcriptDelta': {
         // REPLACE, don't accumulate, when the harness says its store was reset —
@@ -1419,7 +1515,53 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     const session = openSession(registration, profile)
     const handle = makeHandle(session)
     handles.set(registration.sessionId, handle)
+    replayHeldFrames(registration.sessionId)
     return handle
+  }
+
+  /**
+   * Deliver whatever arrived while this session was being created or adopted.
+   *
+   * ORDER MATTERS TWICE. The entry is removed BEFORE the replay so a frame going
+   * back through `observe()` cannot re-enter the buffer it just left; and the
+   * frames go out in ARRIVAL order, through the same `observe()` that would have
+   * taken them live, so a `bind` followed by an `agentExit` still means the
+   * session came up and then died rather than the reverse.
+   */
+  /**
+   * Register a freshly minted session, unless the host's own launch already did.
+   *
+   * THE DAEMON'S LAUNCH PATH REGISTERS (POD-2107). `host.launch` is
+   * `launchSpawn`, which puts a flagged session behind the contract itself
+   * before it announces the bind — so by the time `create()` resolves there is
+   * already a record, and calling `register()` again reaches `openSession`'s
+   * REBIND branch: the binding version and observer generation jump and an
+   * `adopted` process event goes out, for a session that was born one await ago
+   * and has been adopted by nobody. A consumer reading that stream is told the
+   * binding changed under it before the first turn.
+   *
+   * Only `create()` and `resume()` use this, and only because they MINTED the
+   * id: a record under an id nothing else has seen yet can only be the one this
+   * call's own launch made. `adopt()` deliberately does not — its whole purpose
+   * is to rebind an existing conversation, and the version bump is the point.
+   */
+  function registerOrReuse(
+    registration: TerminalSessionRegistration,
+    profile: TerminalHarnessProfile,
+  ): AgentSessionHandle {
+    const already = handles.get(registration.sessionId)
+    if (already) {
+      replayHeldFrames(registration.sessionId)
+      return already
+    }
+    return register(registration, profile)
+  }
+
+  function replayHeldFrames(sessionId: SessionId): void {
+    const held = pendingFrames.get(sessionId)
+    if (!held) return
+    pendingFrames.delete(sessionId)
+    for (const msg of held) observe(msg)
   }
 
   function clear(sessionId: SessionId): void {
@@ -1440,6 +1582,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     handles.delete(sessionId)
     profiles.delete(sessionId)
     registrations.delete(sessionId)
+    // A session torn down mid-create has nothing left to replay INTO, and
+    // holding its frames would deliver them to whatever registered next under
+    // the same id.
+    pendingFrames.delete(sessionId)
   }
 
   const control: TerminalRuntimeControl = {
@@ -1489,21 +1635,28 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         async create(spec: SessionSpec): Promise<AgentSessionHandle> {
           const sessionId = asSessionId(randomUUID())
           profiles.set(sessionId, profile)
-          await host.launch(spawnControlFor(sessionId, harness, spec))
-          return register(
-            { sessionId, agentKind: harness, cwd: spec.workdir, resume: null },
-            profile,
-          )
+          // CLAIMED BEFORE THE AWAIT (POD-2107). The daemon's own launch path
+          // reaches `bind` while this promise is still pending — see
+          // `pendingFrames` for what dropping that frame costs.
+          return claiming(sessionId, async () => {
+            await host.launch(spawnControlFor(sessionId, harness, spec))
+            return registerOrReuse(
+              { sessionId, agentKind: harness, cwd: spec.workdir, resume: null },
+              profile,
+            )
+          })
         },
 
         async resume(ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle> {
           const sessionId = asSessionId(randomUUID())
           profiles.set(sessionId, profile)
-          await host.launch({ ...spawnControlFor(sessionId, harness, spec), resume: ref })
-          return register(
-            { sessionId, agentKind: harness, cwd: spec.workdir, resume: ref },
-            profile,
-          )
+          return claiming(sessionId, async () => {
+            await host.launch({ ...spawnControlFor(sessionId, harness, spec), resume: ref })
+            return registerOrReuse(
+              { sessionId, agentKind: harness, cwd: spec.workdir, resume: ref },
+              profile,
+            )
+          })
         },
 
         async adopt(bound: RuntimeSessionBinding): Promise<AgentSessionHandle> {
@@ -1511,39 +1664,45 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
           // against our own memory: the durable master either still holds this
           // label or it does not. A heuristic match here adopts the wrong
           // process, which is worse than not adopting at all.
-          if (!(await host.durableHostAlive(bound.process.key))) {
-            throw new Error(`terminal driver: no surviving durable host for ${bound.process.key}`)
-          }
-          profiles.set(bound.sessionId, profile)
-          const handle = register(
-            {
-              sessionId: bound.sessionId,
-              agentKind: harness,
-              cwd: bound.workdir,
-              resume: bound.resume,
-              bindingVersion: bound.bindingVersion + 1,
-              rebind: true,
-            },
-            profile,
-          )
-          const session = sessions.get(bound.sessionId)
-          if (session) {
-            // A rebind is a NEW observer generation and a NEW binding version, so
-            // a stale one is rejectable. The conversation position — turn epoch,
-            // cursor — does not move.
-            session.observerGeneration = Math.max(
-              session.observerGeneration,
-              bound.bindingVersion + 1,
+          //
+          // CLAIMED ACROSS THE PROBE, not after it: this is the window in which a
+          // surviving master's frames — the reattach `bind` above all — name a
+          // session this driver has just lost to a supervisor restart.
+          return claiming(bound.sessionId, async () => {
+            if (!(await host.durableHostAlive(bound.process.key))) {
+              throw new Error(`terminal driver: no surviving durable host for ${bound.process.key}`)
+            }
+            profiles.set(bound.sessionId, profile)
+            const handle = register(
+              {
+                sessionId: bound.sessionId,
+                agentKind: harness,
+                cwd: bound.workdir,
+                resume: bound.resume,
+                bindingVersion: bound.bindingVersion + 1,
+                rebind: true,
+              },
+              profile,
             )
-            session.bindingVersion = bound.bindingVersion + 1
-            emit(
-              session,
-              { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
-              new Date(host.now()).toISOString(),
-              'live',
-            )
-          }
-          return handle
+            const session = sessions.get(bound.sessionId)
+            if (session) {
+              // A rebind is a NEW observer generation and a NEW binding version,
+              // so a stale one is rejectable. The conversation position — turn
+              // epoch, cursor — does not move.
+              session.observerGeneration = Math.max(
+                session.observerGeneration,
+                bound.bindingVersion + 1,
+              )
+              session.bindingVersion = bound.bindingVersion + 1
+              emit(
+                session,
+                { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
+                new Date(host.now()).toISOString(),
+                'live',
+              )
+            }
+            return handle
+          })
         },
       }
     },

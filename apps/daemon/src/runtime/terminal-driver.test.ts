@@ -125,6 +125,23 @@ interface World {
   /** The `bind` frame — the daemon saying this session's CLI is up. It is what
    *  the server flips `status` on, and what the drain waits for. */
   bind(sessionId: SessionId): void
+  /**
+   * Say the CLI comes up DURING the launch, before `create()` resolves.
+   *
+   * That is what the real daemon does — `host.launch` is `launchSpawn`, which
+   * announces the bind before its promise settles — and it is the window
+   * POD-2107 is about: the driver registers the session after the await, so a
+   * bind arriving here names a session the driver has not recorded yet.
+   */
+  bindDuringLaunch(): void
+  /**
+   * Say the launch REGISTERS the session itself, the way the real one does.
+   *
+   * `host.launch` is `launchSpawn`, and `launchSpawn` calls
+   * `bindRuntimeContract` — so a flagged session is already behind the contract
+   * before `create()` gets its turn to register it.
+   */
+  registerDuringLaunch(): void
   setPhase(sessionId: SessionId, phase: AgentRuntimeState['phase']): void
   killHost(label: string): void
   now(): number
@@ -142,6 +159,19 @@ function makeWorld(): World {
   const autoHook = new Map<SessionId, { prompt?: unknown; payload?: Record<string, unknown> }>()
   const pendingPaste = new Map<SessionId, string>()
   let runtime!: TerminalRuntime
+  let bindOnLaunch = false
+  let registerOnLaunch = false
+
+  const bindFrame = (sessionId: SessionId): void => {
+    runtime.observe({
+      type: 'bind',
+      sessionId,
+      cmd: 'fixture',
+      cwd: '/tmp/w3',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+  }
 
   const pump = (): void => {
     if (draining) return
@@ -204,6 +234,21 @@ function makeWorld(): World {
         since: new Date(clock).toISOString(),
         nativeSubagentCount: 0,
       })
+      // IN THE ORDER `launchSpawn` USES: it puts the session behind the contract
+      // and then announces the bind, and both happen BEFORE the promise settles
+      // — so both reach the driver while `create()` is still awaiting.
+      if (registerOnLaunch) {
+        runtime.register(
+          {
+            sessionId: msg.sessionId,
+            agentKind: msg.agentKind,
+            cwd: msg.cwd,
+            resume: msg.resume ?? null,
+          },
+          msg.agentKind === 'claude-code' ? CLAUDE : GROK,
+        )
+      }
+      if (bindOnLaunch) bindFrame(msg.sessionId)
     },
     readTranscript: async () => [],
     archiveTranscript: async () => ({ path: '/tmp/session.jsonl' }),
@@ -245,15 +290,12 @@ function makeWorld(): World {
         ...(options?.reset ? { reset: true } : {}),
       })
     },
-    bind: (sessionId) => {
-      runtime.observe({
-        type: 'bind',
-        sessionId,
-        cmd: 'fixture',
-        cwd: '/tmp/w3',
-        agentKind: 'claude-code',
-        geometry: { cols: 80, rows: 24 },
-      })
+    bind: bindFrame,
+    bindDuringLaunch: () => {
+      bindOnLaunch = true
+    },
+    registerDuringLaunch: () => {
+      registerOnLaunch = true
     },
     observe: (sessionId, partial) => {
       const observation: AgentObservation = {
@@ -795,6 +837,85 @@ describe('the queue drain', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (let i = 0; i < 400; i++) await Promise.resolve()
     expect(world.written[0]).toBe('\u001b[200~queued\u001b[201~')
+  })
+
+  it('delivers when the CLI bound BEFORE create() resolved (POD-2107)', async () => {
+    const world = makeWorld()
+    // The bind lands inside `launch`, one await ahead of registration — exactly
+    // where the real daemon puts it. The driver used to drop that frame, because
+    // no session was recorded under the id yet; `live` then stayed false for the
+    // life of the session and the ready-poll drain abandoned every queued turn at
+    // its 25s deadline WITHOUT typing and WITHOUT an event, while the sender held
+    // a receipt that said `queued`.
+    world.bindDuringLaunch()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+
+    expect(
+      (await session.send({ text: 'queued' }, { origin: 'mail', delivery: 'queue' })).outcome,
+    ).toBe('queued')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let i = 0; i < 400; i++) await Promise.resolve()
+    // NO SECOND BIND ARRIVES, which is the whole point: the frame that was
+    // dropped is the only evidence this session will ever get that its CLI came
+    // up, so the turn drains on that one or it never drains at all.
+    expect(world.written.map(pastedText).filter((text) => text !== undefined)).toEqual(['queued'])
+  })
+
+  it('does not report a fresh session as adopted (POD-2107)', async () => {
+    const world = makeWorld()
+    // The full production ordering: the launch registers the session and then
+    // announces the bind, both before `create()` resolves. `create()` then
+    // registered a SECOND time over its own launch's record, which is the rebind
+    // branch — the binding version and observer generation jumped and an
+    // `adopted` process event went out, telling a consumer the binding changed
+    // under it before the session's first turn.
+    world.registerDuringLaunch()
+    world.bindDuringLaunch()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+
+    const snapshot = await session.snapshot()
+    expect(snapshot.binding.bindingVersion).toBe(1)
+    expect(snapshot.observerGeneration).toBe(1)
+    expect(
+      world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'process'),
+    ).toHaveLength(0)
+    // And the bind its launch announced still counts: a session that came up is
+    // one the queue drains into.
+    expect(
+      (await session.send({ text: 'after launch' }, { origin: 'mail', delivery: 'queue' })).outcome,
+    ).toBe('queued')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let i = 0; i < 400; i++) await Promise.resolve()
+    expect(world.written.map(pastedText).filter((text) => text !== undefined)).toEqual([
+      'after launch',
+    ])
+  })
+
+  it('holds a bind for the session it named, never for the next one (POD-2107)', async () => {
+    const world = makeWorld()
+    world.bindDuringLaunch()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const first = await driver.create(SPEC)
+    const second = await driver.create(SPEC)
+    expect(first.binding.sessionId).not.toBe(second.binding.sessionId)
+
+    // Two sessions, two binds, one buffer keyed per claimed id. A buffer shared
+    // across in-flight creates would have replayed the first session's bind into
+    // the second and left the first one starting forever.
+    expect((await first.send({ text: 'one' }, { origin: 'mail', delivery: 'queue' })).outcome).toBe(
+      'queued',
+    )
+    expect((await second.send({ text: 'two' }, { origin: 'mail', delivery: 'queue' })).outcome).toBe(
+      'queued',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let i = 0; i < 800; i++) await Promise.resolve()
+    const delivered = world.written.map(pastedText).filter((text) => text !== undefined)
+    expect(delivered).toContain('one')
+    expect(delivered).toContain('two')
   })
 })
 
