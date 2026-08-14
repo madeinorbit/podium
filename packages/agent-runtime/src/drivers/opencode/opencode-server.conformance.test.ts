@@ -332,6 +332,24 @@ const { target } = makeWorld()
  * `attachClient`, so a second whole-corpus pass would re-prove ~90 properties to
  * reach one branch. The suite exports this assertion for precisely this — see
  * its own note about the teeth tests.
+ *
+ * WHAT THIS STILL DOES NOT REACH, SAID PLAINLY, because this file's own thesis
+ * is that undocumented dormancy is what goes stale. The refusal arm has two
+ * assertions and only the weaker one runs here. A refused PEEK is judged for a
+ * TYPED reason and for leaving the lease alone — but no mode-guarded
+ * implementation can fail the second, since a peek never touches the lease. The
+ * assertion with real teeth is the refused TAKEOVER at `suite.ts:1171-1176`
+ * ("the refusal landed after the client started"), and this world cannot reach
+ * it: `assertAttachHonoursOneControlLease` returns at the refused peek and never
+ * asks for a takeover.
+ *
+ * Reaching it needs a host that hosts a SPECTATOR STREAM but no control
+ * terminal, so the peek succeeds and only the takeover is refused — the shape
+ * `attachLease: 'refuses-after-taking'` drives in `fake.test.ts:291`. That is a
+ * machine this driver has no reason to model yet, so the corpus's own teeth test
+ * is what proves the assertion bites, and THIS driver's attach ORDERING stays
+ * unpinned. Filed as deferred on POD-2121 rather than left for a reader to
+ * discover.
  */
 describe('opencode-server on a host with nowhere to run a terminal', () => {
   it('refuses the attach, typed, and does not walk off with the lease', async () => {
@@ -349,8 +367,14 @@ describe('opencode-server on a host with nowhere to run a terminal', () => {
        *
        * `supported` stays TRUE: this is a declared attach being refused by a
        * particular machine, not a family that has no terminal. The two reach
-       * different branches of the property and only this one carries the
-       * "a refused attach is not holding the lease" invariant.
+       * different branches of the property — the declared-gap arm asserts the
+       * family may have no attach at all, and would say nothing about a machine
+       * that simply cannot host one today.
+       *
+       * What the pin buys, exactly: it forces the classification path — a
+       * refusal must be TYPED — to run. It does NOT reach the ordering
+       * invariant; see the block above this `describe` for why, and for what
+       * would.
        */
       expect(driver.capabilities().attach.supported).toBe(true)
       expect(await handle.attach({ mode: 'peek', holder: 'probe' })).toMatchObject({

@@ -1175,7 +1175,25 @@ export async function assertAttachHonoursOneControlLease(
     ).toEqual(before)
     return
   }
-  expect(await session.lease.state()).toMatchObject({ holder: 'operator' })
+  /**
+   * THE KIND, NOT ONLY THE HOLDER, because the kind is what `send` branches on.
+   *
+   * This read used to check `holder` alone, and a driver-level test in the
+   * opencode family was the only thing pinning that `attach({mode:'takeover'})`
+   * produces a HUMAN-controller lease. When POD-2121 removed that test as
+   * duplicated, the kind went unpinned for every family — mutation-proven: flip
+   * the attach path to `'driver-controller'` and the whole suite stays green,
+   * while a steward's nudge then reaches the agent with a human at the TUI.
+   * That is the §5 interleaving POD-2059 existed to stop.
+   *
+   * `lease.acquire` is NOT a substitute: the steward-exclusion property above
+   * establishes its lease through `acquire`, so the ATTACH path's kind is only
+   * ever observed here.
+   */
+  expect(await session.lease.state()).toMatchObject({
+    holder: 'operator',
+    kind: 'human-controller',
+  })
 
   // A SECOND CONTROLLER IS REFUSED — and the lease DOES NOT MOVE.
   expect(await session.attach({ mode: 'takeover', holder: 'intruder' })).toMatchObject({
