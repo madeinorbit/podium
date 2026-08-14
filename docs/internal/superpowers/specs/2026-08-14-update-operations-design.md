@@ -1,8 +1,8 @@
-# Update runs: one durable update process
+# Update operations: one durable update process
 
 - **Date:** 2026-08-14 (facts verified against `cf9ec8c2b`)
 - **Issue:** POD-2087 (Updater architecture redesign)
-- **Status:** Proposal
+- **Status:** Approved 2026-08-14; the recommended answers in §9 are adopted as decisions
 - **Relation to prior art:** Builds on `2026-08-04-coherent-update-story-design.md` (POD-1670).
   That design's *plumbing* — authority vs delivery, signed artifacts, converge-to-target,
   crash-safe daemon swap, the wire window — is sound and is kept. This spec replaces its
@@ -16,11 +16,14 @@ deliberately restarts the server, and three different pieces of code compute thr
 progress numbers for the same panel. Nothing has a beginning, an end, or an identity, so
 nothing can be resumed, deduplicated, or honestly reported.
 
-The fix is one concept: the **update run** — a durable, server-persisted state machine with an
-id, a plan of named steps, per-step liveness, and a terminal outcome. Exactly one run can be
-active per server. Every client, on every surface, is a *renderer* of the run; the only thing a
+The fix is one concept: the **operation** — a durable, server-persisted state machine with an
+id, a plan of named steps, per-step liveness, and a terminal outcome. The framework is
+general (server moves and other long-running lifecycle work will reuse it, §3.0); the
+**update operation** is its first kind. At most one exclusive operation can be active per
+server. Every client, on every surface, is a *renderer* of the operation; the only thing a
 client ever computes locally is "does my surface still need its local action (reload /
-restart)?" Everything else — progress, liveness, errors, completion — comes from the run object.
+restart)?" Everything else — progress, liveness, errors, completion — comes from the
+operation object.
 
 ## 1. Diagnosis: why the updater is unstable today
 
@@ -50,9 +53,9 @@ Grounded in the current code, most user-visible symptoms trace to five structura
    because the system itself cannot.
 
 4. **Edge-driven UI over instantaneous facts.** The dialog is a pure function of the latest
-   polls. Any transient — the server restarting (by design!), a failed poll, a mid-run target
-   change — changes the story mid-flight. This is why a full dev update is experienced as
-   *multiple rounds*: dialog → reload → up to two silent guard hard-reloads
+   polls. Any transient — the server restarting (by design!), a failed poll, a mid-update
+   target change — changes the story mid-flight. This is why a full dev update is experienced
+   as *multiple rounds*: dialog → reload → up to two silent guard hard-reloads
    (`version-guard.ts:85-155`) → possibly a second dialog for whatever place moved last.
 
 5. **No single-flight, no queueing.** Nothing represents "an update is running, don't offer
@@ -61,7 +64,7 @@ Grounded in the current code, most user-visible symptoms trace to five structura
    panel describes.
 
 On top of these, the survey found real defects that any redesign must not carry forward — see
-§10.3 (they are filed as independent issues).
+§10.3 (they are tracked as sub-issues of this epic).
 
 ## 2. First principles
 
@@ -72,32 +75,54 @@ A good updater for a multi-place product must satisfy:
 - **P2 — One writer of truth.** The server computes all shared state (progress, liveness,
   outcome). Clients render; they do not re-derive.
 - **P3 — Survives its own medicine.** The process being updated includes the orchestrator.
-  The run must be persisted and *adopted* by the successor process, reconciled against
+  The operation must be persisted and *adopted* by the successor process, reconciled against
   observable reality, not remembered state.
 - **P4 — Liveness is part of the contract.** Every running step carries "last progress at".
   Deadlines fire on timers. A stalled step is a visible state, not an indistinguishable hang.
 - **P5 — Local actions are local.** The only thing a surface owns is its own reload/restart.
   A browser never restarts someone's native app; a fleet wave never rewrites a signed app
   bundle.
-- **P6 — Single-flight with a queue.** One active run per server. Newer versions wait their
-  turn and are offered only after the run terminates.
+- **P6 — Single-flight with a queue.** One active exclusive operation per server. Newer
+  versions wait their turn and are offered only after the operation terminates.
 - **P7 — Errors speak user, carry engineer.** Every failure has: what happened (places, plain
   language), the one next action, and collapsed technical detail.
-- **P8 — The run contract is frozen,** exactly like `/version`: additive fields only, every
-  consumer tolerates absence and unknowns. An old web bundle must be able to render a new
-  server's run, because a bundle swap happens *during* the run.
+- **P8 — The operation contract is frozen,** exactly like `/version`: additive fields only,
+  every consumer tolerates absence and unknowns. An old web bundle must be able to render a
+  new server's operation, because a bundle swap happens *during* the update.
 
-## 3. The update run
+## 3. The operation
+
+### 3.0 A general operations framework
+
+The persistence, engine, liveness, and rendering contract are deliberately **not
+update-specific**. An operation is `{ id, kind, state, steps, awaiting, deferred, error,
+timestamps, details }` where `kind` selects a registered definition providing three hooks:
+
+- `plan(context)` — compute the step list at creation time;
+- `reconcile(operation, reality)` — called on server boot to re-derive step states from
+  observable facts (P3);
+- per-step `ensure()` runners — idempotent, check-reality-first executors.
+
+Kind-specific data lives under `details` and follows the same frozen-contract law. Kinds
+declare an **exclusion group**; at most one operation per group can be active. `update`
+belongs to group `lifecycle` — a future `server-move` operation will join the same group, so
+an update and a server move can never interleave. The generic layer owns: the `operations`
+table, single-flight per group, timer-driven deadlines and heartbeat staleness, adoption on
+boot, history/retention, and the `operations.active` / `operations.history` exposure.
+
+Everything below specifies the `update` kind; where it says "the engine", that is the
+generic layer.
 
 ### 3.1 The object
 
-Persisted server-side (SQLite, additive migration; one row per run, JSON payload plus a few
-indexed columns). Exposed verbatim to clients (`updates.activeRun` + history).
+Persisted server-side (SQLite, additive migration; one row per operation, JSON payload plus a
+few indexed columns). Exposed verbatim to clients.
 
 ```jsonc
 {
-  "id": "run_01j…",
-  "target": { "version": "0.4.3", "channel": "dev", "notes": { "summary": "…", "url": "…" } },
+  "id": "op_01j…",
+  "kind": "update",
+  "details": { "target": { "version": "0.4.3", "channel": "dev", "notes": { "summary": "…", "url": "…" } } },
   "state": "running",            // pending | running | waiting | done | failed | canceled
   "createdBy": "user",            // user | policy (future)
   "startedAt": 1765700000000,
@@ -124,13 +149,13 @@ indexed columns). Exposed verbatim to clients (`updates.activeRun` + history).
 
 Rules:
 
-- The **step list is the plan**, computed once at run creation from the target's per-artifact
-  digests and the fleet snapshot. Steps that don't apply are omitted, never shown as skipped
-  noise. Step ids are stable API; titles are presentation.
-- `updatedAt` is the run's heartbeat. Any UI can render "last progress 40 s ago" from it
-  without knowing what the step does (P4).
-- The run object is **plain JSON with `/version`'s frozen-contract law** (P8): fields are
-  added, never removed or retyped; absent is never an error; unknown is ignored. A
+- The **step list is the plan**, computed once at operation creation from the target's
+  per-artifact digests and the fleet snapshot. Steps that don't apply are omitted, never
+  shown as skipped noise. Step ids are stable API; titles are presentation.
+- `updatedAt` is the operation's heartbeat. Any UI can render "last progress 40 s ago" from
+  it without knowing what the step does (P4).
+- The operation object is **plain JSON with `/version`'s frozen-contract law** (P8): fields
+  are added, never removed or retyped; absent is never an error; unknown is ignored. A
   conformance test enforces it, like the `/version` one.
 
 ### 3.2 Lifecycle
@@ -138,28 +163,29 @@ Rules:
 ```
             offer                    start                steps complete
   target ─────────► offered ──────────► running ─┬──────────► done
-  published         (no run yet)        │        │
+  published         (no operation)      │        │
                                         │        ├─► waiting  (only surface-local asks left)
                                         │        │        └──► done (asks satisfied / expired)
                                         │        ├─► failed   (typed error, retryable)
                                         │        └─► canceled (only from safe steps)
 ```
 
-- **Offered is not a run.** An available target is just the offer surface (§6.1). A run is
-  created only by an explicit start (the one human click, or a future policy).
-- **Single-flight (P6):** `updates.start` refuses while a run is active (`ALREADY_RUNNING`
-  with the active run id — the second tab simply renders the same run). A target published
-  mid-run is stored as `nextTarget` and surfaces only after the run terminates. Mid-run
-  target mutation of the wave (today's `setTarget` re-publish behavior) is removed.
+- **Offered is not an operation.** An available target is just the offer surface (§6.1). An
+  operation is created only by an explicit start (the one human click, or a future policy).
+- **Single-flight (P6):** `updates.start` refuses while an exclusive operation is active
+  (`ALREADY_RUNNING` with the active operation id — the second tab simply renders the same
+  operation). A target published mid-update is stored as `nextTarget` and surfaces only
+  after the operation terminates. Mid-update target mutation of the wave (today's
+  `setTarget` re-publish behavior) is removed.
 - **Cancel** is allowed while every started step is still reversible (preparing, machine wave
   not yet granted / individual machines finish their in-flight grant). From the server swap
-  onward the run cannot be canceled, only fail forward — the panel says so.
-- **Retry** on a failed run creates a *new* run whose plan is the remainder (places not yet at
-  target), linked via `retryOf`. History stays honest.
+  onward the operation cannot be canceled, only fail forward — the panel says so.
+- **Retry** on a failed operation creates a *new* operation whose plan is the remainder
+  (places not yet at target), linked via `retryOf`. History stays honest.
 
 ### 3.3 The engine
 
-A small server-side engine owns transitions:
+The generic engine owns transitions:
 
 - **Timer-driven, not poll-driven.** Step deadlines and heartbeat staleness fire from a
   timer, independent of anyone polling (fixes the fleet()-ages-grants design). Deadlines are
@@ -177,111 +203,111 @@ A small server-side engine owns transitions:
   `lastProgressAt` on every accepted report. A step whose heartbeat goes stale shows
   "no progress for N s" (UI) and, past its deadline, transitions to a visible `stalled`
   sub-state → one automatic retry → `failed` (P4). Stalled-then-recovered is logged into the
-  run, not lost.
+  operation, not lost.
 
 ### 3.4 Surviving the coordinator restart (P3)
 
-The server updating itself is a *step of the run*, not the end of the world:
+The server updating itself is a *step of the operation*, not the end of the world:
 
 1. Before requesting its own restart, the engine marks step `server` as
    `running / restarting` and persists.
-2. The successor server, on boot, loads the active run and **reconciles against reality**:
-   its own `appVersion` equals the run target → step `server` is `done`; the served web dist
-   stamp matches → `web` is `done`; the machine directory says who is where. Memory is never
-   trusted over facts.
+2. The successor server, on boot, loads the active operation and **reconciles against
+   reality**: its own `appVersion` equals the target → step `server` is `done`; the served
+   web dist stamp matches → `web` is `done`; the machine directory says who is where. Memory
+   is never trusted over facts.
 3. The engine resumes remaining steps (typically: finish the machine wave for late
    reconnecters, then `waiting` on surface reloads).
 4. If the successor boots at the *wrong* version (failed swap, rollback), reconciliation
-   marks the run `failed` with `server-did-not-reach-target` — today this case silently
-   produces a fresh dialog.
+   marks the operation `failed` with `server-did-not-reach-target` — today this case
+   silently produces a fresh dialog.
 
 Clients experience one continuous process: the page reloads (its own local step), re-fetches
-`updates.activeRun`, finds the same run id at a later step, and keeps rendering the same
-panel. No second dialog, no second decision.
+the active operation, finds the same operation id at a later step, and keeps rendering the
+same panel. No second dialog, no second decision.
 
 ### 3.5 Surface-local actions (`awaiting`)
 
-The run's shared steps end at "the new build is being served". What remains is per-surface:
+The operation's shared steps end at "the new build is being served". What remains is
+per-surface:
 
-- Each client computes exactly one local fact: *my running build vs the run's target* (via
-  the existing build stamp). If behind, the panel shows its own ask: **Reload** (browser /
-  webview) or **Restart Podium** (desktop shell, §5).
+- Each client computes exactly one local fact: *my running build vs the operation's target*
+  (via the existing build stamp). If behind, the panel shows its own ask: **Reload**
+  (browser / webview) or **Restart Podium** (desktop shell, §5).
 - `awaiting` lists surface-scoped asks the *server* knows about (e.g. all-in-one: "waiting
   for Podium Desktop on `macbook` to install and restart"). Other clients render these
   honestly but cannot act on them (P5) — a browser sees "waiting for the desktop app", never
   a button that restarts someone else's app.
-- A run in `waiting` with only voluntary asks left (e.g. other idle tabs that haven't
+- An operation in `waiting` with only voluntary asks left (e.g. other idle tabs that haven't
   reloaded) **completes** after a short grace; stragglers self-serve via the version guard on
-  their next load. `waiting` only holds the run open for asks that gate correctness (the
-  all-in-one install).
+  their next load. `waiting` only holds the operation open for asks that gate correctness
+  (the all-in-one install).
 
 ### 3.6 Core vs eventual places
 
-A run must be finishable even when part of the fleet is asleep (laptop closed, VPS down):
+An update must be finishable even when part of the fleet is asleep (laptop closed, VPS down):
 
 - **Core places** gate the outcome: the server, the served web/mobile bundles, and machines
   currently connected.
-- **Eventual places** — machines offline at run time — go to `deferred`, and the run can
-  reach `done` with an honest note: "2 machines will update when they reconnect."
+- **Eventual places** — machines offline at start time — go to `deferred`, and the operation
+  can reach `done` with an honest note: "2 machines will update when they reconnect."
 - A **standing reconciliation** (small, always-on) converges any daemon that reconnects
-  behind the current target — the same grant path, one machine at a time, no run needed.
-  This replaces today's behavior where an offline machine either hangs the wave into the
-  poll-aged 10-minute timeout or needs a manual per-row Apply later.
+  behind the current target — the same grant path, one machine at a time, no operation
+  needed. This replaces today's behavior where an offline machine either hangs the wave into
+  the poll-aged 10-minute timeout or needs a manual per-row Apply later.
 
-### 3.7 Run history
+### 3.7 Operation history
 
-Runs are retained (last 20) and listed in Settings → Updates: target, when, outcome, error,
-duration. This is the audit trail that today does not exist — "did the update finish last
-night?" becomes answerable. It also feeds support: "share the last failed run" replaces
-screenshots of toasts.
+Operations are retained (last 20) and listed in Settings → Updates: target, when, outcome,
+error, duration. This is the audit trail that today does not exist — "did the update finish
+last night?" becomes answerable. It also feeds support: "share the last failed update"
+replaces screenshots of toasts.
 
 ## 4. Surfaces: who sees what, who may do what
 
-The same run renders everywhere; only the *local action* and some copy differ.
+The same operation renders everywhere; only the *local action* and some copy differ.
 
 | Surface | What the offer means | Local action | Never |
 |---|---|---|---|
 | **Browser → normal server** | Update the server + its fleet + served bundles | Reload when asked | Touch any native desktop app |
 | **Browser → all-in-one server** | The server lives inside Podium Desktop on that machine | None — panel says "finish this in Podium Desktop on `<machine>`" | Remote-restart the app |
 | **Desktop shell, all-in-one** | One update: the shell (which carries server + daemon + web atomically) | Restart the app (Tauri install) | Bundle-swap inside the signed app |
-| **Desktop shell, remote mode** | Two independently updatable things, sequenced in one panel: (1) the remote server's run, (2) this app's shell update | Reload (for the run); Restart the app (for the shell) | Conflate the two versions |
+| **Desktop shell, remote mode** | Two independently updatable things, sequenced in one panel: (1) the remote server's update, (2) this app's shell update | Reload (for the server update); Restart the app (for the shell) | Conflate the two versions |
 | **Mobile web** (deferred) | Same as browser | Reload | — |
-| **CLI** (deferred) | `podium update` stays the unattached escape hatch | — | Race an attached server's runs |
+| **CLI** (deferred) | `podium update` stays the unattached escape hatch | — | Race an attached server's operations |
 
-Decisions this table encodes (the questions from the brief):
+Decisions this table encodes:
 
 - **"Update this app" inside the Tauri shell updates the shell** when the shell has an
   update. In all-in-one that *is* the update — one click, one restart, atomically carrying
   server + daemon + web. In remote mode the shell update is its own clearly-labeled item in
   the same panel ("This app has its own update"), offered after (or independent of) the
-  server run; a server update never silently forces a shell update unless the wire window
+  server update; a server update never silently forces a shell update unless the wire window
   requires it, in which case the panel sequences them and says why.
 - **A browser prompt never updates a native desktop app** — not its shell, not its embedded
   daemon. A *desktop-supervised* daemon is part of the signed app bundle and is updated only
-  by the shell update; it must be excluded from convergence waves (today it is not — that is
-  a filed bug, §10.3). A *standalone-installed* local daemon on the same machine as the
+  by the shell update; it must be excluded from convergence waves (today it is not — tracked
+  as a sub-issue, §10.3). A *standalone-installed* local daemon on the same machine as the
   native app is just a fleet machine: server authority, updated by the wave, regardless of
   which surface clicked.
-- **All-in-one viewed from a browser** cannot be driven remotely in v1; the run is created
-  in `waiting` with the desktop ask, and the browser renders honest state. (Remote-trigger
-  is an open question, §9.)
+- **All-in-one viewed from a browser** cannot be driven remotely in v1; the operation is
+  created in `waiting` with the desktop ask, and the browser renders honest state.
 
 ## 5. The desktop shell's role
 
-- The shell update becomes a **run step / companion item** driven from the page over the
-  existing bridge (`checkUpdate` / `installUpdate`), with two fixes: `installUpdate` reports
-  progress (the Tauri callbacks currently discarded at `updater.rs:196`) via a bridge event
-  the panel renders, and its errors surface in the panel (today they vanish into an
-  unhandled rejection).
-- **All-in-one flow:** the embedded server creates the run (state `waiting`, awaiting
+- The shell update becomes an **operation step / companion item** driven from the page over
+  the existing bridge (`checkUpdate` / `installUpdate`), with two fixes: `installUpdate`
+  reports progress (the Tauri callbacks currently discarded at `updater.rs:196`) via a
+  bridge event the panel renders, and its errors surface in the panel (today they vanish
+  into an unhandled rejection).
+- **All-in-one flow:** the embedded server creates the operation (state `waiting`, awaiting
   `desktop-install`), the page invokes `installUpdate`, the shell installs and restarts, the
-  *new* embedded server adopts the run (§3.4), marks the shell/server/web steps done from
-  observed reality, then converges fleet machines as eventual places. One model, no special
-  case.
-- **The native fallback gets a decision** instead of dead code: the
-  ownership-claim machinery stays, but the unclaimed path shows a real minimal native dialog
-  (check → install → restart) rather than today's log line behind
-  `PODIUM_UPDATE_AUTOCONFIRM`. A shell whose webview cannot load must still be updatable.
+  *new* embedded server adopts the operation (§3.4), marks the shell/server/web steps done
+  from observed reality, then converges fleet machines as eventual places. One model, no
+  special case.
+- **The native fallback gets a decision** instead of dead code: the ownership-claim
+  machinery stays, but the unclaimed path shows a real minimal native dialog (check →
+  install → restart) rather than today's log line behind `PODIUM_UPDATE_AUTOCONFIRM`. A
+  shell whose webview cannot load must still be updatable.
 - **Channel is resolved in exactly one place** (the server the shell is attached to; the
   shell's own config only for a shell with no server), fixing the current disagreement
   between `check_update` (page-supplied) and `install_update`'s re-check (shell config).
@@ -291,9 +317,9 @@ Decisions this table encodes (the questions from the brief):
 ### 6.1 One panel, one indicator, no dead ends
 
 - **Status-bar indicator (new).** A persistent affordance in the bottom toolbar whenever an
-  offer is pending or a run is active/failed: idle dot ("update available"), animated while
-  running, warning on failed/stalled. Clicking toggles the panel. **Hiding the panel only
-  collapses it to the indicator** — nothing about an update is ever unreachable (fixes
+  offer is pending or an operation is active/failed: idle dot ("update available"), animated
+  while running, warning on failed/stalled. Clicking toggles the panel. **Hiding the panel
+  only collapses it to the indicator** — nothing about an update is ever unreachable (fixes
   dismiss-forever, and the in-progress panel that never comes back).
 - **One non-modal panel** (the existing bottom-right `aside` position is right). All states
   render into it; it never turns into a toast, a banner, or a second dialog.
@@ -304,8 +330,8 @@ Decisions this table encodes (the questions from the brief):
   the primary; anything else (e.g. the shell's independent update in remote mode) is a listed
   secondary item with its own row, not a competing primary.
 - The wire-skew banner remains as the last-resort backstop but its remedy is unified: it
-  opens the panel (the run/offer view), instead of prescribing a different button than the
-  panel does.
+  opens the panel (the operation/offer view), instead of prescribing a different button than
+  the panel does.
 
 ### 6.2 The linear flow the user sees
 
@@ -325,10 +351,10 @@ One update, one panel, states in order — never a second round:
    remains only as the corruption backstop, and when it fires the post-reload panel explains
    what happened.
 4. **Done.** "Podium is on 0.4.3 everywhere" (or "…2 machines will follow when they
-   reconnect"). Auto-collapses after a few seconds; the indicator clears; the run lands in
-   history.
-5. **Failed.** §7. Primary: **Try again** (a remainder run); the failure is never a dead end
-   and never a toast that evaporates.
+   reconnect"). Auto-collapses after a few seconds; the indicator clears; the operation
+   lands in history.
+5. **Failed.** §7. Primary: **Try again** (a remainder operation); the failure is never a
+   dead end and never a toast that evaporates.
 
 The step counter is honest because steps are the plan's named steps, not synthesized counts:
 the user sees *what* step 2 of 4 is, and each step names its substatus.
@@ -347,8 +373,8 @@ needed" said explicitly; never promise more than session-survival guarantees) pl
 
 ## 7. Error taxonomy (P7)
 
-Typed codes on the run, each mapped to three layers — what happened / the one next action /
-collapsed technical detail (copyable, includes run id):
+Typed codes on the operation, each mapped to three layers — what happened / the one next
+action / collapsed technical detail (copyable, includes the operation id):
 
 | Code | User sees (example) |
 |---|---|
@@ -362,46 +388,47 @@ collapsed technical detail (copyable, includes run id):
 | `preparation-failed` | "The server couldn't prepare this update: <public reason from the dev publisher>." |
 
 The existing `describeUpdateFailure` copy is close in spirit and is largely reusable; the
-change is that errors attach to a durable run (retryable, inspectable in history) instead of
-to a transient panel state.
+change is that errors attach to a durable operation (retryable, inspectable in history)
+instead of to a transient panel state.
 
 ## 8. Hard cases, walked through
 
 | Case | How the design handles it |
 |---|---|
-| Server restarts mid-update (by design) | Run persisted; successor adopts and reconciles from observed reality (§3.4). |
-| Client reloads mid-update | Re-fetch `activeRun` by id; same panel, later step. Reloading is itself a planned step. |
-| The web bundle rendering the UI is replaced mid-run | Frozen run contract (P8): the old bundle renders the new server's run; the guard reload is one planned step, not a loop. |
-| A new version lands mid-run | Stored as `nextTarget`; offered only after the run terminates. The running wave is never mutated. |
-| Two tabs / two users click Update | Single-flight; the second start returns the active run; both tabs render it. |
-| A machine is offline during the wave | Becomes `deferred`; run completes honestly; standing reconciliation converges it on reconnect (§3.6). |
-| Update fails half-applied (server new, machines old) | Run `failed` records exactly which places moved; wire window keeps the mixed fleet functional; Retry runs the remainder. |
+| Server restarts mid-update (by design) | Operation persisted; successor adopts and reconciles from observed reality (§3.4). |
+| Client reloads mid-update | Re-fetch the active operation by id; same panel, later step. Reloading is itself a planned step. |
+| The web bundle rendering the UI is replaced mid-update | Frozen operation contract (P8): the old bundle renders the new server's operation; the guard reload is one planned step, not a loop. |
+| A new version lands mid-update | Stored as `nextTarget`; offered only after the operation terminates. The running wave is never mutated. |
+| Two tabs / two users click Update | Single-flight; the second start returns the active operation; both tabs render it. |
+| A machine is offline during the wave | Becomes `deferred`; the operation completes honestly; standing reconciliation converges it on reconnect (§3.6). |
+| Update fails half-applied (server new, machines old) | Operation `failed` records exactly which places moved; wire window keeps the mixed fleet functional; Retry runs the remainder. |
 | Server comes back on the wrong version | Reconciliation detects it (`server-did-not-reach-target`) instead of silently re-offering. |
 | Download hangs with no error | Heartbeat staleness visible in UI; step deadline on a timer → stalled → one retry → typed failure. Never an indefinite spinner. |
 | Browser user vs someone's native app | Surfaces only act locally (P5); desktop-supervised daemons are shell-owned and excluded from waves. |
-| All-in-one: who updates the server inside the app? | The shell does, as the run's awaited step; the new embedded server adopts and finishes the run (§5). |
+| All-in-one: who updates the server inside the app? | The shell does, as the operation's awaited step; the new embedded server adopts and finishes the operation (§5). |
 | Hidden dialog | Collapse-to-indicator; state is server-side; nothing is lost (§6.1). |
-| Update offered while viewing through an old bundle | Offer and run are served state, not build state — an old bundle can still start and render a run. |
+| Update offered while viewing through an old bundle | Offer and operation are served state, not build state — an old bundle can still start and render an operation. |
 | Cancel mid-update | Allowed until the first irreversible step; afterwards the panel says "can't be canceled now, will finish or fail". |
-| Fleet on mixed channels | The plan is computed per channel authority (unchanged); the panel scopes places to the run's channel and never counts other-channel machines against it. |
+| Fleet on mixed channels | The plan is computed per channel authority (unchanged); the panel scopes places to the operation's channel and never counts other-channel machines against it. |
 
-## 9. Open questions
+## 9. Decisions (formerly open questions)
 
-1. **Straggler auto-convergence.** §3.6 converges reconnecting machines to the *current*
-   target without a click. Recommended: yes — the human decision was made when the run
-   started; a laptop that slept through it shouldn't need a second decision. Confirm.
-2. **Background target refresh cadence.** Today edge/stable resolve at boot and on manual
-   actions only. Proposal: daily timer + on-panel-open + manual check, cadence stated in
-   Settings ("checked 2 h ago"). The cadence is part of the contract and shown, not implied.
-3. **Remote-triggering an all-in-one update from a browser.** v1 says "finish in Podium
-   Desktop". A later shell command channel could allow it; is that wanted at all?
-4. **Native fallback scope.** Minimal native check/install dialog when the page never claims
-   ownership (recommended), or delete the fallback machinery entirely?
-5. **Required updates.** Keep `required` (blocking) only for wire-window violations and
-   explicitly-flagged critical releases? Note: desktop `critical` is currently never
-   produced by any release script — either wire it or drop the code path.
-6. **Run retention count and whether history syncs to clients or stays server-side query.**
-7. **Windows desktop** remains unreleased; the surface table treats it as future.
+Adopted 2026-08-14 with the epic's approval:
+
+1. **Straggler auto-convergence: yes.** §3.6 converges reconnecting machines to the current
+   target without a click — the human decision was made when the operation started.
+2. **Background target refresh:** daily timer + on-panel-open + manual check, with the
+   checked-at time shown in Settings ("checked 2 h ago"). The cadence is part of the
+   contract and shown, not implied.
+3. **Remote-triggering an all-in-one update from a browser:** not in v1; the panel says
+   "finish this in Podium Desktop on `<machine>`".
+4. **Native fallback:** keep, minimal — a real native check/install dialog when the page
+   never claims ownership; delete the autoconfirm-gated stub.
+5. **Required updates:** blocking only for wire-window violations and explicitly-flagged
+   critical releases. Desktop `critical` is currently never produced by any release script —
+   wire it in the desktop manifest or keep the field dormant; do not invent new blocking.
+6. **History retention: 20 operations**, server-side query (no client sync).
+7. **Windows desktop** stays future; the surface table treats it as such.
 
 ## 10. Today vs this design
 
@@ -416,16 +443,16 @@ engineering and none of it is the problem.
 
 ### 10.2 What changes
 
-| Aspect | Today | Update runs |
+| Aspect | Today | Update operations |
 |---|---|---|
-| Update identity | Emergent from 4 polled facts | One durable run object (P1) |
+| Update identity | Emergent from 4 polled facts | One durable operation object (P1) |
 | Orchestration state | In-memory, lost on the restart the flow itself triggers | Persisted, adopted, reconciled from reality (P3) |
 | Progress | 3 competing computations; counts jump | Server-computed, one source (P2) |
 | Liveness | Indistinguishable from a hang; deadlines age on poll | Heartbeats + timer deadlines + visible `stalled` (P4) |
 | Dismissing | Loses the update (forever, for a PWA) | Collapses to a persistent toolbar indicator |
 | Flow | Multiple rounds: dialog → reloads → guard reloads → second dialog | One linear checklist; reloads are named steps; adoption bridges the restart |
-| Concurrency | Unguarded; mid-run target mutates the wave | Single-flight; `nextTarget` queued (P6) |
-| Errors | Internals leak ("No update target is configured"); shell errors vanish | Typed taxonomy, 3 layers, attached to a retryable run (P7) |
+| Concurrency | Unguarded; mid-update target mutates the wave | Single-flight; `nextTarget` queued (P6) |
+| Errors | Internals leak ("No update target is configured"); shell errors vanish | Typed taxonomy, 3 layers, attached to a retryable operation (P7) |
 | Completion | None — the panel just stops appearing | Terminal state + history ("did last night's update finish?") |
 | Offline machines | Hang the wave into a poll-aged timeout, or manual per-row Apply | `deferred` + standing reconciliation |
 | Desktop-supervised daemon | Included in waves (would rewrite the signed .app) | Shell-owned, excluded — structural, not a patch |
@@ -433,50 +460,46 @@ engineering and none of it is the problem.
 
 Why this is better in one sentence: every symptom in the brief — unclear copy, unknowable
 progress, dismiss-forever, multi-round dialogs, no start/finish, no single-flight, hostile
-errors — is a downstream consequence of the update having no durable identity, and the run
-gives it one; the UX fixes then stop being patches and become renderings of true state.
+errors — is a downstream consequence of the update having no durable identity, and the
+operation gives it one; the UX fixes then stop being patches and become renderings of true
+state.
 
-### 10.3 Defects found during the survey (filed independently)
+### 10.3 Defects found during the survey
 
-These ship regardless of this spec: desktop-supervised daemons not excluded from convergence
-waves; `writePendingGrant`'s non-atomic write immediately before a deliberate exit;
-`isNewer`'s NaN comparison on prerelease versions in unattached self-update; shell
-`installUpdate` rejections disappearing (no catch); the `'dev'` vs `'stable'` default-channel
-disagreement between `UpdatesService.channelOf` and the fleet handlers; edge/stable targets
-never refreshing after boot.
+These ship regardless of this spec and are tracked as sub-issues of the epic:
+desktop-supervised daemons not excluded from convergence waves; `writePendingGrant`'s
+non-atomic write immediately before a deliberate exit; `isNewer`'s NaN comparison on
+prerelease versions in unattached self-update; shell `installUpdate` rejections disappearing
+(no catch); the `'dev'` vs `'stable'` default-channel disagreement between
+`UpdatesService.channelOf` and the fleet handlers; edge/stable targets never refreshing
+after boot.
 
 ## 11. Getting there
 
-Each phase is independently shippable and leaves the system better than before it.
+The epic decomposition (sub-issues of POD-2087, each with its own committed implementation
+plan under `docs/internal/superpowers/plans/`):
 
-- **Phase 0 — bugfixes (now, independent).** The §10.3 list. Small, high-value, no design
-  dependency.
-- **Phase A — the run exists.** Server: `update_runs` table, engine wrapping the existing
-  choreography, single-flight, adoption-on-boot, frozen `updates.activeRun` contract +
-  conformance test. The dev flow's restart-and-resume works end to end. No UI change yet —
-  the current dialog keeps working off its old inputs while the run runs underneath.
-  *This phase alone fixes the worst instability (state loss across the deliberate restart).*
-- **Phase B — the client renders the run.** Panel rewritten as a renderer of
-  `activeRun`/offer; status-bar indicator; collapse-not-dismiss; one primary per state; the
-  three progress models and the in-button wait loops (`waitForWebIdentity`,
-  `waitForCompatibleWebBuild`) deleted; reload becomes a step. *This phase delivers most of
-  the visible UX list.*
-- **Phase C — liveness.** `percent` heartbeats in `updateStatus`; timer-driven deadlines;
-  `stalled` state; elapsed/last-progress rendering. Delete the poll-aged deadline.
-- **Phase D — surfaces.** Desktop: install-progress + surfaced errors over the bridge;
-  all-in-one run adoption through the shell restart; single channel authority; the native
-  fallback decision (§9.4). Browser-vs-all-in-one honest waiting state.
-- **Phase E — eventual places.** `deferred`, standing reconciliation, run history in
-  Settings, background target refresh (§9.2).
-- **Phase F — polish.** Error-copy pass against the taxonomy; retire the skew banner's
-  separate remedy; delete dead paths (autoconfirm fallback, `feed_endpoint`, duplicated
-  `verifyTarball`).
+- **Durable operations framework** — the generic layer of §3.0. No update logic.
+- **Update operation choreography** — the `update` kind: plan, steps, adoption, queueing,
+  typed errors.
+- **Daemon update hardening** — supervised-daemon exclusion, atomic pending marker,
+  prerelease-safe version compare. Independent; can land first.
+- **Channel defaults and target refresh** — one default channel, scheduled + on-demand
+  release-target refresh. Independent; can land first.
+- **Update progress heartbeats** — `percent` reporting, timer deadlines, `stalled`.
+- **Update operation panel** — the renderer, indicator, collapse-not-dismiss, one primary.
+- **Settings updates surface** — history, channel state prose, checked-at.
+- **Desktop shell update integration** — bridge progress/errors, all-in-one adoption,
+  channel authority, native fallback.
+- **Deferred places reconciliation** — core vs eventual, standing reconciliation.
+- **Updater dead-path cleanup** — autoconfirm stub, `feed_endpoint`, duplicated
+  `verifyTarball`, skew-banner remedy unification.
 
-Sequencing rationale: A before B so the UI never renders a contract that can still change;
-C after B because stalled-state UX needs the renderer; D touches Rust and release plumbing
-and benefits from a settled contract; E and F are additive.
+Sequencing rationale: the framework before the choreography before the renderer, so the UI
+never renders a contract that can still change; liveness after the choreography; desktop
+after the panel; cleanup last. The two hardening issues are independent and land first.
 
 Verification rides the existing regimen (`docs/agents/updater-acceptance.md`), extended with:
-run adoption across a coordinator restart (kill mid-wave, verify resume), the frozen-contract
-conformance test for `activeRun`, single-flight under two concurrent starts, and a
-stalled-download drill (throttled feed) proving the timer fires without a poll.
+operation adoption across a coordinator restart (kill mid-wave, verify resume), the
+frozen-contract conformance test for the active operation, single-flight under two concurrent
+starts, and a stalled-download drill (throttled feed) proving the timer fires without a poll.
