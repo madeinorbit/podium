@@ -1,4 +1,5 @@
 import { asMachineId } from '@podium/model'
+import type { ModelChoiceWire } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
@@ -9,6 +10,7 @@ import {
 } from './shipwright-router'
 
 const machineId = asMachineId('machine:shipwright')
+const codexModels: ModelChoiceWire[] = []
 const settings = normalizeSettings({
   roles: {
     shipwright: {
@@ -27,7 +29,7 @@ const catalog: ModelCatalogSnapshot = {
       { value: 'family-a/frontier', label: 'Frontier', efforts: ['medium', 'high'] },
       { value: 'family-b/fast', label: 'Fast', efforts: ['low', 'medium'] },
     ],
-    codex: [],
+    codex: codexModels,
     grok: [{ value: 'fast-repair', label: 'Fast repair', efforts: ['medium', 'high'] }],
   },
 }
@@ -94,7 +96,7 @@ describe('shipwright trait/quota router', () => {
     expect(
       routeShipwright({
         settings,
-        catalog: { ...catalog, byAgent: { codex: catalog.byAgent.codex } },
+        catalog: { ...catalog, byAgent: { codex: codexModels } },
         quota: [],
         level: 'solver',
         resolveAccount,
