@@ -57,8 +57,7 @@ const laneKey = (order: ShipOrder): string =>
     canonicalShippingDestination(order.destination, order.targetBranch),
   ])
 
-const attributionKey = (order: ShipOrder): string =>
-  JSON.stringify({ onBehalfOf: order.requestedBy.onBehalfOf })
+const attributionKey = (order: ShipOrder): string => JSON.stringify(order.requestedBy)
 
 const providerKey = (order: ShipOrder): string => JSON.stringify(order.providerRef ?? null)
 
@@ -68,6 +67,8 @@ const providerKey = (order: ShipOrder): string => JSON.stringify(order.providerR
 export const shippingCompatibilityKey = (order: ShipOrder): string =>
   JSON.stringify([
     order.repoId,
+    order.repoPath ?? null,
+    order.machineId ?? null,
     canonicalShippingDestination(order.destination, order.targetBranch),
     order.targetBranch,
     order.approvedBaseSha,
@@ -106,7 +107,9 @@ const laneDurations = (
 ): Map<string, number[]> => {
   const byId = new Map(orders.map((order) => [order.id, order]))
   const result = new Map<string, number[]>()
-  for (const sample of [...turnSamples].sort((a, b) => a.completedAt.localeCompare(b.completedAt))) {
+  for (const sample of [...turnSamples].sort((a, b) =>
+    a.completedAt.localeCompare(b.completedAt),
+  )) {
     const order = byId.get(sample.orderId)
     if (!order) continue
     if (!Number.isFinite(sample.durationMs) || sample.durationMs < 0) continue
@@ -197,6 +200,8 @@ const buildTrains = (ordered: readonly ShipOrder[]): ShippingTrain[] => {
       const previous = members.at(-1)!
       const successorIndex = remaining.findIndex(
         (order) =>
+          Boolean(order.repoPath && order.machineId && order.validationProfileDigest) &&
+          Boolean(previous.repoPath && previous.machineId && previous.validationProfileDigest) &&
           shippingCompatibilityKey(order) === shippingCompatibilityKey(previous) &&
           directPredecessor(order, previous) &&
           order.deliveryDependsOn.every(
@@ -213,6 +218,12 @@ const buildTrains = (ordered: readonly ShipOrder[]): ShippingTrain[] => {
     const previous = trains.at(-1)
     if (
       previous &&
+      Boolean(run[0]?.repoPath && run[0]?.machineId && run[0]?.validationProfileDigest) &&
+      Boolean(
+        previous.orders[0]?.repoPath &&
+          previous.orders[0]?.machineId &&
+          previous.orders[0]?.validationProfileDigest,
+      ) &&
       shippingCompatibilityKey(previous.orders[0]!) === shippingCompatibilityKey(run[0]!)
     ) {
       const members = [...previous.orders, ...run]

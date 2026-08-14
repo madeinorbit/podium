@@ -76,10 +76,7 @@ export const ShipTrainValidationProfile = z
   .strict()
 export type ShipTrainValidationProfile = z.infer<typeof ShipTrainValidationProfile>
 
-export const canonicalShippingDestination = (
-  destination: string,
-  targetBranch: string,
-): string => {
+export const canonicalShippingDestination = (destination: string, targetBranch: string): string => {
   if (
     destination === targetBranch ||
     destination === `local:${targetBranch}` ||
@@ -115,7 +112,10 @@ export const ShipTrainLane = z
         message: 'train destination must use its canonical lane spelling',
       })
     }
-    if ([...lane.validationProfile.resourceLocks].sort().join('\0') !== lane.validationProfile.resourceLocks.join('\0')) {
+    if (
+      [...lane.validationProfile.resourceLocks].sort().join('\0') !==
+      lane.validationProfile.resourceLocks.join('\0')
+    ) {
       ctx.addIssue({
         code: 'custom',
         path: ['validationProfile', 'resourceLocks'],
@@ -177,7 +177,9 @@ export const ShipTrainManifest = z
         message: 'train member count must match the canonical manifest',
       })
     }
-    if (new Set(manifest.members.map((member) => member.orderId)).size !== manifest.members.length) {
+    if (
+      new Set(manifest.members.map((member) => member.orderId)).size !== manifest.members.length
+    ) {
       ctx.addIssue({ code: 'custom', path: ['members'], message: 'train members must be unique' })
     }
     if (
@@ -189,7 +191,9 @@ export const ShipTrainManifest = z
         message: 'train attempt custody must be unique',
       })
     }
-    if (new Set(manifest.members.map((member) => member.issueId)).size !== manifest.members.length) {
+    if (
+      new Set(manifest.members.map((member) => member.issueId)).size !== manifest.members.length
+    ) {
       ctx.addIssue({
         code: 'custom',
         path: ['members'],
@@ -231,9 +235,7 @@ export const ShipTrainManifest = z
           message: 'train member dependencies must be unique',
         })
       }
-      if (
-        [...member.deliveryDependsOn].sort().join('\0') !== member.deliveryDependsOn.join('\0')
-      ) {
+      if ([...member.deliveryDependsOn].sort().join('\0') !== member.deliveryDependsOn.join('\0')) {
         ctx.addIssue({
           code: 'custom',
           path: ['members', index, 'deliveryDependsOn'],
@@ -369,6 +371,8 @@ export const ShipOrder = z
     issueId: IssueIdField,
     descendantManifest: z.array(DescendantTip),
     repoId: RepoIdField,
+    repoPath: z.string().min(1).optional(),
+    machineId: MachineIdField.optional(),
     targetBranch: z.string().min(1),
     destination: z.string().min(1),
     approvedBaseSha: z.string().min(1),
@@ -381,7 +385,10 @@ export const ShipOrder = z
     requestedAt: z.string(),
     policyId: z.string().min(1),
     validationProfile: ShipTrainValidationProfile.optional(),
-    validationProfileDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    validationProfileDigest: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
     closeMode: z.enum(['after-destination', 'leave-open']),
     state: ShipOrderState,
     stateChangedAt: z.string(),
@@ -400,6 +407,13 @@ export const ShipOrder = z
         code: 'custom',
         path: ['validationProfileDigest'],
         message: 'frozen validation profile and digest must be present together',
+      })
+    }
+    if ((order.repoPath === undefined) !== (order.machineId === undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['machineId'],
+        message: 'frozen repository path and machine custody must be present together',
       })
     }
     if (order.descendantManifest.length > 0 && order.currentIntegrationReceipt === undefined) {
@@ -427,7 +441,7 @@ const LEGAL_SHIP_ORDER_TRANSITIONS = {
   preflight: ['composing', 'held', 'cancelled'],
   composing: ['validating', 'repairing', 'held', 'cancelled'],
   validating: ['repairing', 'landing', 'held', 'cancelled'],
-  repairing: ['validating', 'held', 'cancelled'],
+  repairing: ['composing', 'validating', 'held', 'cancelled'],
   landing: ['publishing', 'verifying', 'held'],
   publishing: ['verifying', 'held'],
   verifying: ['shipped', 'held'],
@@ -578,6 +592,7 @@ export const DeliveryReceipt = z.object({
   orderId: ShipOrderIdField,
   approvedBaseSha: z.string().min(1),
   approvedHeadSha: z.string().min(1),
+  resultCommitSha: z.string().min(1),
   testedIntegrationSha: z.string().min(1),
   landedRefSha: z.string().min(1),
   destinationSha: z.string().min(1),

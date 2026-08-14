@@ -124,6 +124,7 @@ describe('runIssueCli', () => {
       orderId: 'ship_order',
       approvedBaseSha: 'base',
       approvedHeadSha: 'head',
+      resultCommitSha: 'landed',
       testedIntegrationSha: 'tested',
       landedRefSha: 'landed',
       destinationSha: 'destination',

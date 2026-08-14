@@ -471,6 +471,7 @@ describe('Shipping command boundary', () => {
       orderId: input.orderId,
       approvedBaseSha: 'base',
       approvedHeadSha: 'head',
+      resultCommitSha: 'landed',
       testedIntegrationSha: 'tested',
       landedRefSha: 'landed',
       destinationSha: 'destination',
@@ -654,6 +655,7 @@ describe('Shipping command boundary', () => {
     expect(receipt).toMatchObject({
       approvedBaseSha: 'base',
       approvedHeadSha: 'head',
+      resultCommitSha: 'landed',
       testedIntegrationSha: 'tested',
       landedRefSha: 'landed',
       destinationSha: 'destination',
@@ -672,10 +674,7 @@ describe('Shipping command boundary', () => {
     for (const [proc, input] of [
       ['deliveryReceipt', { orderId: 'ship_hidden' }],
       ['cancelShip', { orderId: 'ship_hidden' }],
-      [
-        'resolveShipHold',
-        { orderId: 'ship_hidden', action: 'retry', expectedGeneration: 1 },
-      ],
+      ['resolveShipHold', { orderId: 'ship_hidden', action: 'retry', expectedGeneration: 1 }],
     ] as const) {
       await expect(
         dispatcher.dispatch(agentCaller('iss_root'), 'issues', proc, input),

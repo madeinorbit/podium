@@ -1238,6 +1238,8 @@ export const shipOrders = sqliteTable(
       .notNull()
       .references(() => issues.id, { onDelete: 'restrict' }),
     repoId: text('repo_id').$type<RepoId>().notNull(),
+    repoPath: text('repo_path'),
+    machineId: text('machine_id').$type<MachineId>(),
     targetBranch: text('target_branch').notNull(),
     destination: text().notNull(),
     approvedBaseSha: text('approved_base_sha').notNull(),
@@ -1338,16 +1340,12 @@ export const shipAttempts = sqliteTable(
 export const shipOrderStackEdges = sqliteTable(
   'ship_order_stack_edges',
   {
-    upperOrderId: brandedRef(
-      text('upper_order_id').$type<ShipOrderId>(),
-      () => shipOrders.id,
-      { onDelete: 'restrict' },
-    ).notNull(),
-    lowerOrderId: brandedRef(
-      text('lower_order_id').$type<ShipOrderId>(),
-      () => shipOrders.id,
-      { onDelete: 'restrict' },
-    ).notNull(),
+    upperOrderId: brandedRef(text('upper_order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    lowerOrderId: brandedRef(text('lower_order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     upperApprovedHeadSha: text('upper_approved_head_sha').notNull(),
     lowerApprovedHeadSha: text('lower_approved_head_sha').notNull(),
     recordedAt: text('recorded_at').notNull(),
@@ -1380,23 +1378,21 @@ export const shipTrainManifests = sqliteTable(
     canonicalDigest: text('canonical_digest').notNull(),
     canonicalJson: text('canonical_json').notNull(),
     repoId: text('repo_id').$type<RepoId>().notNull(),
-    repoPath: text('repo_path'),
-    machineId: text('machine_id').$type<MachineId>(),
-    laneKey: text('lane_key'),
-    laneRevision: integer('lane_revision'),
+    repoPath: text('repo_path').notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    laneKey: text('lane_key').notNull(),
+    laneRevision: integer('lane_revision').notNull(),
     targetBranch: text('target_branch').notNull(),
     expectedTargetSha: text('expected_target_sha').notNull(),
     destination: text().notNull(),
     providerRef: text('provider_ref', { mode: 'json' }),
     policyId: text('policy_id').notNull(),
     validationProfile: text('validation_profile', { mode: 'json' }).notNull(),
-    validationProfileDigest: text('validation_profile_digest'),
-    memberCount: integer('member_count'),
-    leaderOrderId: brandedRef(
-      text('leader_order_id').$type<ShipOrderId>(),
-      () => shipOrders.id,
-      { onDelete: 'restrict' },
-    ).notNull(),
+    validationProfileDigest: text('validation_profile_digest').notNull(),
+    memberCount: integer('member_count').notNull(),
+    leaderOrderId: brandedRef(text('leader_order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     leaderAttemptId: brandedRef(
       text('leader_attempt_id').$type<ShipAttemptId>(),
       () => shipAttempts.id,
@@ -1419,6 +1415,8 @@ export const shipTrainManifests = sqliteTable(
     check('ship_train_manifests_version_check', sql`version = 1`),
     check('ship_train_manifests_repair_round_check', sql`repair_round = 0`),
     check('ship_train_manifests_generation_check', sql`leader_generation > 0`),
+    check('ship_train_manifests_lane_revision_check', sql`lane_revision > 0`),
+    check('ship_train_manifests_member_count_check', sql`member_count > 0`),
     check(
       'ship_train_manifests_release_pair_check',
       sql`(released_at IS NULL AND release_reason IS NULL) OR (released_at IS NOT NULL AND release_reason IS NOT NULL)`,
@@ -1429,11 +1427,9 @@ export const shipTrainManifests = sqliteTable(
 export const shipTrainMembers = sqliteTable(
   'ship_train_members',
   {
-    trainId: brandedRef(
-      text('train_id').$type<ShipTrainId>(),
-      () => shipTrainManifests.id,
-      { onDelete: 'restrict' },
-    ).notNull(),
+    trainId: brandedRef(text('train_id').$type<ShipTrainId>(), () => shipTrainManifests.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     ordinal: integer().notNull(),
     issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, {
       onDelete: 'restrict',
@@ -1441,11 +1437,9 @@ export const shipTrainMembers = sqliteTable(
     orderId: brandedRef(text('order_id').$type<ShipOrderId>(), () => shipOrders.id, {
       onDelete: 'restrict',
     }).notNull(),
-    attemptId: brandedRef(
-      text('attempt_id').$type<ShipAttemptId>(),
-      () => shipAttempts.id,
-      { onDelete: 'restrict' },
-    ).notNull(),
+    attemptId: brandedRef(text('attempt_id').$type<ShipAttemptId>(), () => shipAttempts.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     generation: integer().notNull(),
     machineId: text('machine_id').$type<MachineId>().notNull(),
     sourceBranch: text('source_branch').notNull(),
@@ -1529,7 +1523,9 @@ export const shipEffectEnvelopes = sqliteTable(
     resultJson: text('result_json').notNull(),
     recordedAt: text('recorded_at').notNull(),
   },
-  (table) => [uniqueIndex('idx_ship_effect_envelopes_attempt_effect').on(table.attemptId, table.effectKey)],
+  (table) => [
+    uniqueIndex('idx_ship_effect_envelopes_attempt_effect').on(table.attemptId, table.effectKey),
+  ],
 )
 
 export const shipSteps = sqliteTable(
@@ -1614,6 +1610,7 @@ export const deliveryReceipts = sqliteTable(
       .references(() => shipOrders.id, { onDelete: 'restrict' }),
     approvedBaseSha: text('approved_base_sha').notNull(),
     approvedHeadSha: text('approved_head_sha').notNull(),
+    resultCommitSha: text('result_commit_sha').notNull(),
     testedIntegrationSha: text('tested_integration_sha').notNull(),
     landedRefSha: text('landed_ref_sha').notNull(),
     destinationSha: text('destination_sha').notNull(),

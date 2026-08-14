@@ -18,6 +18,7 @@ export type ShippingJobAction = z.infer<typeof ShippingJobAction>
 
 export const ShippingJobOperation = z.enum([
   'preflight',
+  'apply-repair',
   'prepare-merge-group',
   'validate',
   'commit-merge-group',
@@ -25,6 +26,15 @@ export const ShippingJobOperation = z.enum([
   'verify',
 ])
 export type ShippingJobOperation = z.infer<typeof ShippingJobOperation>
+
+export const ShippingRepairCandidate = z
+  .object({
+    round: z.number().int().positive(),
+    repairRef: z.string().min(1),
+    candidateHeadSha: z.string().min(1),
+  })
+  .strict()
+export type ShippingRepairCandidate = z.infer<typeof ShippingRepairCandidate>
 
 /** A trusted, named repository policy profile. The command is resolved by the
  * server; no argv or resource name comes from the ship-order command. */
@@ -54,10 +64,7 @@ export const ShippingTrainExecution = z
   })
   .strict()
   .superRefine((execution, ctx) => {
-    if (
-      (execution.candidate.kind === 'approved') !==
-      (execution.repairRound === 0)
-    ) {
+    if ((execution.candidate.kind === 'approved') !== (execution.repairRound === 0)) {
       ctx.addIssue({
         code: 'custom',
         path: ['candidate'],
@@ -121,9 +128,12 @@ export const shippingTrainSubsetFingerprint = (execution: {
 /** Raw manifests remain parseable for existing journal entries. New effects
  * use ShippingTrainExecution so subset and repair identity are immutable
  * journal facts; the executor rejects legacy multi-member dispatches. */
-const LegacySingleOrderTrain = ShipTrainManifest.refine((manifest) => manifest.members.length === 1, {
-  message: 'raw train manifests are legacy single-order requests only',
-})
+const LegacySingleOrderTrain = ShipTrainManifest.refine(
+  (manifest) => manifest.members.length === 1,
+  {
+    message: 'raw train manifests are legacy single-order requests only',
+  },
+)
 export const ShippingTrainRequest = z.union([LegacySingleOrderTrain, ShippingTrainExecution])
 export type ShippingTrainRequest = z.infer<typeof ShippingTrainRequest>
 
@@ -143,7 +153,7 @@ export const ShippingJobRequestMessage = z
     attemptId: ShipAttemptIdField,
     generation: z.number().int().nonnegative(),
     operation: ShippingJobOperation,
-    shippingProtocolVersion: z.literal(2),
+    shippingProtocolVersion: z.union([z.literal(1), z.literal(2)]),
     repoPath: z.string().min(1),
     repoId: RepoIdField,
     sourceBranch: z.string().min(1),
@@ -154,6 +164,7 @@ export const ShippingJobRequestMessage = z
     destination: z.string().min(1),
     policyId: z.string().min(1),
     validationProfile: ShippingValidationProfile,
+    repair: ShippingRepairCandidate.optional(),
     train: ShippingTrainRequest.optional(),
     providerRef: ProviderPullRequestRef.optional(),
   })
@@ -164,11 +175,20 @@ export type ShippingJobRequestMessage = z.infer<typeof ShippingJobRequestMessage
  * schema so this message remains usable in discriminated unions and `.omit`. */
 export const shippingJobRequestMatchesTrain = (request: ShippingJobRequestMessage): boolean => {
   if (!request.train) return true
+  if ('manifest' in request.train && request.shippingProtocolVersion !== 2) return false
   const manifest = 'manifest' in request.train ? request.train.manifest : request.train
   const leader = manifest.members.at(-1)
   if (!leader) return false
   const equalJson = (left: unknown, right: unknown): boolean =>
     JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+  const trainRepair =
+    'manifest' in request.train && request.train.candidate.kind === 'repair'
+      ? {
+          round: request.train.repairRound,
+          repairRef: request.train.candidate.repairRef,
+          candidateHeadSha: request.train.candidate.candidateHeadSha,
+        }
+      : undefined
   return (
     request.orderId === manifest.leaderOrderId &&
     request.orderId === leader.orderId &&
@@ -185,7 +205,8 @@ export const shippingJobRequestMatchesTrain = (request: ShippingJobRequestMessag
       manifest.lane.destination &&
     request.policyId === manifest.lane.policyId &&
     equalJson(request.providerRef, manifest.lane.providerRef) &&
-    equalJson(request.validationProfile, manifest.lane.validationProfile)
+    equalJson(request.validationProfile, manifest.lane.validationProfile) &&
+    equalJson(request.repair, trainRepair)
   )
 }
 
@@ -217,6 +238,13 @@ export function shippingJobRequestFingerprint(
       timeoutMs: input.validationProfile.timeoutMs,
       resourceLocks: [...input.validationProfile.resourceLocks].sort(),
     },
+    repair: input.repair
+      ? {
+          round: input.repair.round,
+          repairRef: input.repair.repairRef,
+          candidateHeadSha: input.repair.candidateHeadSha,
+        }
+      : null,
     train: input.train
       ? 'manifest' in input.train
         ? {
@@ -244,6 +272,32 @@ export function shippingJobRequestFingerprint(
           url: input.providerRef.url ?? null,
         }
       : null,
+  })
+}
+
+/** Opaque evidence identity for one daemon materialization. The digest binds
+ * repository custody, order/attempt/generation, manifest/subset (when any),
+ * machine, operation and the complete immutable effect request without
+ * exposing the daemon-native path. */
+export function shippingEvidenceFingerprint(
+  request: ShippingJobRequestMessage,
+  machineId: z.infer<typeof MachineIdField>,
+  ordinal: number,
+): string {
+  const train = request.train && 'manifest' in request.train ? request.train : undefined
+  return JSON.stringify({
+    version: 1,
+    machineId,
+    repoId: request.repoId,
+    repoPath: request.repoPath,
+    orderId: request.orderId,
+    attemptId: request.attemptId,
+    generation: request.generation,
+    manifestId: train?.manifest.id ?? null,
+    subsetId: train?.subsetId ?? null,
+    operation: request.operation,
+    requestDigest: request.requestDigest,
+    ordinal,
   })
 }
 
@@ -328,6 +382,13 @@ export const shippingTrainProofsMatch = (
   ) {
     return false
   }
+  if (request.operation === 'apply-repair') {
+    return (
+      result.trainProofs === undefined &&
+      Boolean(request.repair) &&
+      result.testedIntegrationSha === request.repair?.candidateHeadSha
+    )
+  }
   if (!request.train) return result.trainProofs === undefined
   const manifest = 'manifest' in request.train ? request.train.manifest : request.train
   const provedMembers =
@@ -337,7 +398,11 @@ export const shippingTrainProofsMatch = (
         )
       : manifest.members
   const proofs = result.trainProofs
-  if (provedMembers.some((member) => !member) || !proofs || proofs.length !== provedMembers.length) {
+  if (
+    provedMembers.some((member) => !member) ||
+    !proofs ||
+    proofs.length !== provedMembers.length
+  ) {
     return false
   }
   const identitiesMatch = provedMembers.every((member, index) => {
@@ -353,14 +418,48 @@ export const shippingTrainProofsMatch = (
   if (!identitiesMatch) return false
   if (request.operation === 'preflight') return true
   if (proofs.some((proof) => !proof.resultCommitSha)) return false
-  if (request.operation === 'prepare-merge-group') return true
-  if (proofs.some((proof) => !proof.testedIntegrationSha)) return false
-  if (request.operation === 'validate') return true
-  if (proofs.some((proof) => !proof.landedRefSha)) return false
-  if (request.operation === 'commit-merge-group') return true
-  if (proofs.some((proof) => !proof.providerLandedRefSha)) return false
+  if (request.operation === 'prepare-merge-group') {
+    return 'manifest' in request.train && request.train.candidate.kind === 'repair'
+      ? result.testedIntegrationSha === request.train.candidate.candidateHeadSha
+      : proofs.at(-1)?.resultCommitSha === result.testedIntegrationSha
+  }
+  if (
+    !result.testedIntegrationSha ||
+    proofs.some((proof) => proof.testedIntegrationSha !== result.testedIntegrationSha)
+  ) {
+    return false
+  }
+  if (request.operation === 'validate') {
+    return (
+      result.validationProfileId === request.validationProfile.id &&
+      result.validationResult === 'passed'
+    )
+  }
+  if (
+    result.validationProfileId !== request.validationProfile.id ||
+    result.validationResult !== 'passed'
+  ) {
+    return false
+  }
+  if (request.operation === 'commit-merge-group') {
+    return (
+      Boolean(result.landedRefSha) &&
+      proofs.every((proof) => proof.landedRefSha === result.landedRefSha)
+    )
+  }
+  const landedRefs = new Set(proofs.map((proof) => proof.landedRefSha))
+  if (landedRefs.size !== 1 || landedRefs.has(undefined)) return false
+  if (
+    !result.landedRefSha ||
+    proofs.some((proof) => proof.providerLandedRefSha !== result.landedRefSha)
+  ) {
+    return false
+  }
   if (request.operation === 'publish') return true
-  return proofs.every((proof) => Boolean(proof.destinationSha))
+  return (
+    Boolean(result.observedDestinationSha) &&
+    proofs.every((proof) => proof.destinationSha === result.observedDestinationSha)
+  )
 }
 
 export const ShippingJobResultMessage = ShippingJobResult.extend({

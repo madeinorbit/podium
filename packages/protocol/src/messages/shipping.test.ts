@@ -123,6 +123,7 @@ describe('shipping machine protocol', () => {
           timeoutMs: 60_000,
           resourceLocks: ['validation:agent'],
         },
+        repair: null,
         train,
         providerRef: null,
       }),
@@ -194,9 +195,16 @@ describe('shipping machine protocol', () => {
         ShippingJobRequestMessage.parse({ ...request, orderId: 'other-order' }),
       ),
     ).toBe(false)
-    expect(
-      ControlMessage.safeParse({ ...request, shippingProtocolVersion: 1 }).success,
-    ).toBe(false)
+    const v1Train = ControlMessage.parse({ ...request, shippingProtocolVersion: 1 })
+    if (v1Train.type !== 'shippingJobRequest') throw new Error('expected shipping request')
+    expect(shippingJobRequestMatchesTrain(v1Train)).toBe(false)
+    const v1Single = ControlMessage.parse({
+      ...request,
+      shippingProtocolVersion: 1,
+      train: undefined,
+    })
+    if (v1Single.type !== 'shippingJobRequest') throw new Error('expected shipping request')
+    expect(shippingJobRequestMatchesTrain(v1Single)).toBe(true)
   })
 
   it('requires exact ordered member identities and phase-complete verified proofs', () => {
@@ -231,6 +239,11 @@ describe('shipping machine protocol', () => {
       state: 'succeeded',
       classification: 'proved',
       summary: 'verified',
+      observedDestinationSha: 'd'.repeat(40),
+      testedIntegrationSha: 'd'.repeat(40),
+      landedRefSha: 'd'.repeat(40),
+      validationProfileId: 'agent',
+      validationResult: 'passed',
       trainProofs: [proof],
       logs: [],
       artifactRefs: [],

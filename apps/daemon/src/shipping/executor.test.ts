@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asShipAttemptId, asShipOrderId } from '@podium/model'
 import {
   shippingJobRequestFingerprint,
+  shippingEvidenceFingerprint,
   type ShippingJobRequestMessage,
   type ShippingJobResult,
 } from '@podium/protocol/daemon'
@@ -160,5 +161,36 @@ describe('shipping executor journal request identity', () => {
       classification: 'invalid-request',
       summary: 'shipping request digest mismatch',
     })
+  })
+})
+
+describe('shipping evidence authority', () => {
+  const evidenceRef = (request: ShippingJobRequestMessage): string =>
+    `artifact://shipping/${createHash('sha256')
+      .update(shippingEvidenceFingerprint(request, asMachineId('machine-1'), 0))
+      .digest('hex')}`
+
+  it('resolves an opaque log only for its exact effect authority', () => {
+    const { plane, request } = seededPlane('succeeded')
+    const logPath = join(
+      (plane as unknown as { logsDir: string }).logsDir,
+      `${createHash('sha256').update(request.jobId).digest('hex')}.log`,
+    )
+    writeFileSync(logPath, 'validation evidence\n')
+    const ref = evidenceRef(request)
+
+    expect(plane.resolveEvidence(request, ref)).toBe(logPath)
+
+    const { requestDigest: _digest, ...unsigned } = request
+    const crossOrder = signRequest({
+      ...unsigned,
+      orderId: asShipOrderId('another-order'),
+    })
+    const staleGeneration = signRequest({
+      ...unsigned,
+      generation: request.generation + 1,
+    })
+    expect(plane.resolveEvidence(crossOrder, ref)).toBeNull()
+    expect(plane.resolveEvidence(staleGeneration, ref)).toBeNull()
   })
 })

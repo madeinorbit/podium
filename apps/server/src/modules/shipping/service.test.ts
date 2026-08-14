@@ -91,6 +91,12 @@ function harness(
       }),
     },
   })
+  const createIssue = issues.create.bind(issues)
+  issues.create = ((input) =>
+    createIssue({
+      ...input,
+      machineId: input.machineId ?? asMachineId('machine-1'),
+    })) as typeof issues.create
   const issuePort = {
     get(id: string): IssueWire {
       const issue = issues.get(id)
@@ -136,6 +142,7 @@ function harness(
     policy: options.policy ?? new CompatibilityShippingPolicyResolver(() => 'main'),
     ...(options.resourceAdmission ? { resourceAdmission: options.resourceAdmission } : {}),
     machineFor: () => asMachineId('machine-1'),
+    machineCapabilities: () => ['shipping.train.v2'],
     resolveBranchTip: options.resolveBranchTip ?? (async () => 'head-sha'),
     resolveRefTip: options.resolveRefTip ?? (async () => 'base-sha'),
     isAncestor: options.isAncestor ?? (async () => false),
@@ -791,6 +798,25 @@ describe('ShippingService enqueue transaction', () => {
       holdCode: 'policy:branch-custody',
     })
     expect(store.shipping.openHoldForOrder(order.id)?.detail).toContain('unsaved changes')
+    service.dispose()
+  })
+
+  it('refuses daemon-native evidence paths before hold persistence', async () => {
+    const { store, issues, service } = harness(async (input, machineId) => ({
+      ...(await provedShippingJob(input, machineId)),
+      state: 'held',
+      classification: 'validation-failed',
+      artifactRefs: ['/native/daemon/validation.log'],
+    }))
+    const issue = issues.create({ repoPath: '/repo', title: 'opaque evidence', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+
+    await service.runOrder(order.id)
+
+    expect(store.shipping.openHoldForOrder(order.id)?.evidenceRefs).not.toContain(
+      '/native/daemon/validation.log',
+    )
     service.dispose()
   })
 
@@ -1705,7 +1731,7 @@ describe('ShippingService enqueue transaction', () => {
           validationProfileId: input.validationProfile.id,
           validationResult: 'failed',
           logs: [],
-          artifactRefs: ['artifact:validation'],
+          artifactRefs: [],
           heartbeatedAt: '2026-08-13T10:00:00.000Z',
           finishedAt: '2026-08-13T10:00:00.000Z',
         }

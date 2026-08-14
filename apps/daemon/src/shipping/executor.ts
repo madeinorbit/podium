@@ -10,12 +10,18 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { MachineId } from '@podium/model'
-import type { ShippingJobClassification, ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
+import { serializeShipTrainManifest, type MachineId } from '@podium/model'
+import type {
+  ShippingJobClassification,
+  ShippingJobRequestMessage,
+  ShippingJobResult,
+} from '@podium/protocol/daemon'
 import {
   SHIPPING_TRAIN_CAPABILITY,
+  shippingEvidenceFingerprint,
   shippingJobRequestFingerprint,
   shippingJobRequestMatchesTrain,
+  shippingTrainProofsMatch,
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
 import { ShippingJobJournal, type ShippingJournalCrashPoint } from './journal'
@@ -347,6 +353,7 @@ export class ShippingExecutionPlane {
       git(request.repoPath, ['check-ref-format', '--branch', member.sourceBranch])
     }
     if (request.operation === 'preflight') return this.preflight(request)
+    if (request.operation === 'apply-repair') return this.applyRepair(request)
     if (request.operation === 'prepare-merge-group') return this.prepare(request)
     if (request.operation === 'validate') return this.validate(request)
     if (request.operation === 'commit-merge-group') return this.commit(request)
@@ -354,8 +361,82 @@ export class ShippingExecutionPlane {
     return this.verify(request)
   }
 
+  private applyRepair(request: Request): Result {
+    const fenced = this.fence(request)
+    if (fenced) return fenced
+    const repair = request.repair
+    if (!repair) {
+      return this.observed(
+        request,
+        'held',
+        'invalid-request',
+        'repair application has no immutable candidate',
+      )
+    }
+    if (!repair.repairRef.startsWith('refs/podium/repairs/')) {
+      return this.observed(
+        request,
+        'held',
+        'invalid-request',
+        'repair ref is outside daemon repair custody',
+      )
+    }
+    const validRef = gitResult(request.repoPath, ['check-ref-format', repair.repairRef])
+    if (!validRef.ok)
+      return this.observed(request, 'held', 'invalid-request', 'repair ref is invalid')
+    const observed = refTip(request.repoPath, repair.repairRef)
+    if (observed !== repair.candidateHeadSha) {
+      return this.observed(request, 'held', 'source-moved', 'repair candidate ref moved')
+    }
+    const requiredHeads = this.trainMembers(request).map((member) => member.approvedHeadSha)
+    if (requiredHeads.length === 0) requiredHeads.push(request.approvedHeadSha)
+    if (
+      !isAncestor(request.repoPath, request.expectedTargetSha, repair.candidateHeadSha) ||
+      requiredHeads.some(
+        (approvedHeadSha) =>
+          !isAncestor(request.repoPath, approvedHeadSha, repair.candidateHeadSha),
+      )
+    ) {
+      return this.observed(
+        request,
+        'held',
+        'invalid-request',
+        'repair candidate does not contain the frozen target and approved member heads',
+      )
+    }
+    const immutableRef = `${this.executionRefBase(request)}/repair-input`
+    const frozen = gitResult(request.repoPath, [
+      'update-ref',
+      immutableRef,
+      repair.candidateHeadSha,
+      ZERO_SHA,
+    ])
+    if (!frozen.ok && refTip(request.repoPath, immutableRef) !== repair.candidateHeadSha) {
+      return this.observed(
+        request,
+        'held',
+        'source-moved',
+        frozen.stderr || 'repair candidate freeze raced',
+      )
+    }
+    return {
+      ...this.observed(
+        request,
+        'succeeded',
+        'proved',
+        `repair round ${repair.round} candidate frozen`,
+      ),
+      testedIntegrationSha: repair.candidateHeadSha,
+      logs: [`repair ${repair.repairRef} ${repair.candidateHeadSha}`],
+    }
+  }
+
   private trainManifest(request: Request) {
-    return request.train ? ('manifest' in request.train ? request.train.manifest : request.train) : null
+    return request.train
+      ? 'manifest' in request.train
+        ? request.train.manifest
+        : request.train
+      : null
   }
 
   private trainMembers(request: Request) {
@@ -395,6 +476,26 @@ export class ShippingExecutionPlane {
       ...facts
     } = request
     return createHash('sha256').update(shippingJobRequestFingerprint(facts)).digest('hex')
+  }
+
+  private evidenceRef(request: Request, ordinal: number): `artifact://shipping/${string}` {
+    return `artifact://shipping/${createHash('sha256')
+      .update(shippingEvidenceFingerprint(request, this.machineId, ordinal))
+      .digest('hex')}`
+  }
+
+  /** Resolve only the exact effect authority which minted the opaque ref. A
+   * stale generation, another order/subset, or an invented ref cannot become a
+   * native-path oracle. The caller must also authorize the order before serving
+   * the returned file. */
+  resolveEvidence(request: Request, artifactRef: string): string | null {
+    if (request.requestDigest !== this.requestDigest(request)) return null
+    if (artifactRef !== this.evidenceRef(request, 0)) return null
+    const logPath = join(
+      this.logsDir,
+      `${createHash('sha256').update(request.jobId).digest('hex')}.log`,
+    )
+    return existsSync(logPath) ? logPath : null
   }
 
   private sourceAndTarget(request: Request): {
@@ -517,15 +618,26 @@ export class ShippingExecutionPlane {
     if (fenced) return fenced
     const members = this.trainMembers(request)
     if (members.length > 0) return this.prepareTrain(request, members)
-    if (!isAncestor(request.repoPath, request.expectedTargetSha, request.approvedHeadSha)) {
+    const candidate = request.repair?.candidateHeadSha ?? request.approvedHeadSha
+    if (!isAncestor(request.repoPath, request.expectedTargetSha, candidate)) {
       return this.observed(
         request,
         'held',
         'merge-conflict',
-        'approved source is not a fast-forward of the frozen target',
+        'candidate is not a fast-forward of the frozen target',
       )
     }
-    const candidate = request.approvedHeadSha
+    if (request.repair) {
+      const applied = this.proof(request, 'apply-repair')
+      if (applied?.state !== 'succeeded' || applied.testedIntegrationSha !== candidate) {
+        return this.observed(
+          request,
+          'held',
+          'invalid-request',
+          'repair candidate has no exact apply proof',
+        )
+      }
+    }
     const shadow = this.shadowRef(request)
     const existing = refTip(request.repoPath, shadow)
     if (existing && existing !== candidate) {
@@ -560,23 +672,88 @@ export class ShippingExecutionPlane {
     }
   }
 
-  private prepareTrain(request: Request, members: ReturnType<ShippingExecutionPlane['trainMembers']>): Result {
+  private prepareTrain(
+    request: Request,
+    members: ReturnType<ShippingExecutionPlane['trainMembers']>,
+  ): Result {
     const shadow = this.shadowRef(request)
+    if (request.repair) {
+      const applied = this.proof(request, 'apply-repair')
+      const approved = this.approvedPrepareProof(request)
+      if (
+        applied?.state !== 'succeeded' ||
+        applied.testedIntegrationSha !== request.repair.candidateHeadSha ||
+        !approved?.trainProofs
+      ) {
+        return this.observed(
+          request,
+          'held',
+          'invalid-request',
+          'repair candidate lacks apply proof or exact approved member results',
+        )
+      }
+      const created = gitResult(request.repoPath, [
+        'update-ref',
+        shadow,
+        request.repair.candidateHeadSha,
+        ZERO_SHA,
+      ])
+      if (!created.ok && refTip(request.repoPath, shadow) !== request.repair.candidateHeadSha) {
+        return this.observed(
+          request,
+          'held',
+          'source-moved',
+          created.stderr || 'repair shadow raced',
+        )
+      }
+      const integration = this.ensureIntegrationCheckout(request, request.repair.candidateHeadSha)
+      if ('classification' in integration) return integration
+      return {
+        ...this.observed(
+          request,
+          'succeeded',
+          'proved',
+          `repair train prepared at ${request.repair.candidateHeadSha}`,
+        ),
+        testedIntegrationSha: request.repair.candidateHeadSha,
+        trainProofs: approved.trainProofs,
+        logs: [
+          `shadow ${shadow} ${request.repair.candidateHeadSha}`,
+          `integration checkout ${integration.path}`,
+        ],
+      }
+    }
     const existingCandidate = refTip(request.repoPath, shadow)
     if (existingCandidate) {
       const integration = this.ensureIntegrationCheckout(request, existingCandidate)
       if ('classification' in integration) return integration
-      const proofs = members.map((member, ordinal) => ({
-        issueId: member.issueId,
-        orderId: member.orderId,
-        attemptId: member.attemptId,
-        generation: member.generation,
-        sourceApprovedSha: member.approvedHeadSha,
-        resultCommitSha:
-          refTip(request.repoPath, `${shadow}/members/${ordinal}`) ?? existingCandidate,
-      }))
+      const proofs: NonNullable<Result['trainProofs']> = []
+      for (const [ordinal, member] of members.entries()) {
+        const resultCommitSha = refTip(request.repoPath, this.memberResultRef(request, ordinal))
+        if (!resultCommitSha) {
+          return this.observed(
+            request,
+            'held',
+            'invalid-request',
+            `train member proof ${ordinal} is absent; final candidate cannot substitute for it`,
+          )
+        }
+        proofs.push({
+          issueId: member.issueId,
+          orderId: member.orderId,
+          attemptId: member.attemptId,
+          generation: member.generation,
+          sourceApprovedSha: member.approvedHeadSha,
+          resultCommitSha,
+        })
+      }
       return {
-        ...this.observed(request, 'succeeded', 'proved', `immutable train prepared at ${existingCandidate}`),
+        ...this.observed(
+          request,
+          'succeeded',
+          'proved',
+          `immutable train prepared at ${existingCandidate}`,
+        ),
         testedIntegrationSha: existingCandidate,
         trainProofs: proofs,
         logs: [`shadow ${shadow} ${existingCandidate}`, `integration checkout ${integration.path}`],
@@ -587,28 +764,61 @@ export class ShippingExecutionPlane {
     const registered = worktrees(request.repoPath).find((entry) => entry.path === path)
     if (!registered) {
       if (existsSync(path)) {
-        return this.observed(request, 'held', 'dirty-worktree', `integration path exists outside git custody: ${path}`)
+        return this.observed(
+          request,
+          'held',
+          'dirty-worktree',
+          `integration path exists outside git custody: ${path}`,
+        )
       }
-      const added = gitResult(request.repoPath, ['worktree', 'add', '--detach', '--', path, request.expectedTargetSha])
+      const added = gitResult(request.repoPath, [
+        'worktree',
+        'add',
+        '--detach',
+        '--',
+        path,
+        request.expectedTargetSha,
+      ])
       if (!added.ok) {
-        return this.observed(request, 'held', 'invalid-request', added.stderr || added.stdout || 'could not create train checkout')
+        return this.observed(
+          request,
+          'held',
+          'invalid-request',
+          added.stderr || added.stdout || 'could not create train checkout',
+        )
       }
     } else if (registered.branch || !clean(path)) {
-      return this.observed(request, 'held', 'dirty-worktree', `integration checkout is not clean and detached: ${path}`)
+      return this.observed(
+        request,
+        'held',
+        'dirty-worktree',
+        `integration checkout is not clean and detached: ${path}`,
+      )
     }
 
     const proofs: NonNullable<Result['trainProofs']> = []
     let candidate = refTip(path, 'HEAD') ?? request.expectedTargetSha
     for (const [ordinal, member] of members.entries()) {
-      const memberRef = `${shadow}/members/${ordinal}`
+      const memberRef = this.memberResultRef(request, ordinal)
       const recorded = refTip(request.repoPath, memberRef)
       if (recorded) {
         if (!isAncestor(request.repoPath, member.approvedHeadSha, recorded)) {
-          return this.observed(request, 'held', 'invalid-request', `train member proof ${ordinal} contradicts its approved head`)
+          return this.observed(
+            request,
+            'held',
+            'invalid-request',
+            `train member proof ${ordinal} contradicts its approved head`,
+          )
         }
         if (candidate !== recorded) {
           const checkout = gitResult(path, ['checkout', '--detach', recorded])
-          if (!checkout.ok) return this.observed(request, 'held', 'invalid-request', checkout.stderr || 'could not resume train composition')
+          if (!checkout.ok)
+            return this.observed(
+              request,
+              'held',
+              'invalid-request',
+              checkout.stderr || 'could not resume train composition',
+            )
           candidate = recorded
         }
       } else {
@@ -634,9 +844,19 @@ export class ShippingExecutionPlane {
           }
           candidate = refTip(path, 'HEAD') ?? ''
         }
-        const recordedMember = gitResult(request.repoPath, ['update-ref', memberRef, candidate, ZERO_SHA])
+        const recordedMember = gitResult(request.repoPath, [
+          'update-ref',
+          memberRef,
+          candidate,
+          ZERO_SHA,
+        ])
         if (!recordedMember.ok && refTip(request.repoPath, memberRef) !== candidate) {
-          return this.observed(request, 'held', 'invalid-request', recordedMember.stderr || 'train member proof raced')
+          return this.observed(
+            request,
+            'held',
+            'invalid-request',
+            recordedMember.stderr || 'train member proof raced',
+          )
         }
       }
       proofs.push({
@@ -650,7 +870,12 @@ export class ShippingExecutionPlane {
     }
     const created = gitResult(request.repoPath, ['update-ref', shadow, candidate, ZERO_SHA])
     if (!created.ok && refTip(request.repoPath, shadow) !== candidate) {
-      return this.observed(request, 'held', 'target-moved', created.stderr || 'train shadow ref raced')
+      return this.observed(
+        request,
+        'held',
+        'target-moved',
+        created.stderr || 'train shadow ref raced',
+      )
     }
     return {
       ...this.observed(request, 'succeeded', 'proved', `immutable train prepared at ${candidate}`),
@@ -690,8 +915,16 @@ export class ShippingExecutionPlane {
       ...proof,
       testedIntegrationSha: candidate,
     }))
-    if (request.train && (!prepared || prepared.testedIntegrationSha !== candidate || !trainProofs)) {
-      return this.observed(request, 'held', 'invalid-request', 'train candidate has no exact preparation proof')
+    if (
+      request.train &&
+      (!prepared || prepared.testedIntegrationSha !== candidate || !trainProofs)
+    ) {
+      return this.observed(
+        request,
+        'held',
+        'invalid-request',
+        'train candidate has no exact preparation proof',
+      )
     }
     return {
       ...this.observed(
@@ -706,7 +939,7 @@ export class ShippingExecutionPlane {
       validationProfileId: request.validationProfile.id,
       validationResult: passed ? 'passed' : 'failed',
       ...(trainProofs ? { trainProofs } : {}),
-      artifactRefs: [logPath],
+      artifactRefs: [this.evidenceRef(request, 0)],
       logs: [
         `profile ${request.validationProfile.id}`,
         `candidate ${candidate}`,
@@ -761,7 +994,11 @@ export class ShippingExecutionPlane {
     // A composed candidate may rewrite the source prefix. Single-order fast-forward
     // candidates normally equal approvedHeadSha; this CAS makes the recovery rule
     // explicit without ever moving the source before validation.
-    if (!request.train && sourceSha === request.approvedHeadSha && candidate !== request.approvedHeadSha) {
+    if (
+      !request.train &&
+      sourceSha === request.approvedHeadSha &&
+      candidate !== request.approvedHeadSha
+    ) {
       const moved = gitResult(request.repoPath, [
         'update-ref',
         `refs/heads/${request.sourceBranch}`,
@@ -973,11 +1210,14 @@ export class ShippingExecutionPlane {
   }
 
   private proof(request: Request, operation: Request['operation']): Result | null {
-    const { type: _type, requestId: _requestId, action: _action, requestDigest: _digest, ...facts } =
-      request
-    const expectedJobId = request.train && 'manifest' in request.train
-      ? `${request.attemptId}:${operation}:${request.train.subsetId}`
-      : `${request.attemptId}:${operation}`
+    const {
+      type: _type,
+      requestId: _requestId,
+      action: _action,
+      requestDigest: _digest,
+      ...facts
+    } = request
+    const expectedJobId = this.operationJobId(request, operation)
     const expectedDigest = createHash('sha256')
       .update(
         shippingJobRequestFingerprint({
@@ -1010,9 +1250,33 @@ export class ShippingExecutionPlane {
       entry.result.orderId === entry.request.orderId &&
       entry.result.attemptId === entry.request.attemptId &&
       entry.result.generation === entry.request.generation &&
-      entry.result.operation === entry.request.operation
+      entry.result.operation === entry.request.operation &&
+      shippingTrainProofsMatch(entry.request, entry.result)
       ? entry.result
       : null
+  }
+
+  private approvedPrepareProof(request: Request): Result | null {
+    if (!request.train || !('manifest' in request.train)) return null
+    const requestTrain = request.train
+    const orderIds = requestTrain.memberOrderIds
+    const entries = this.journal.list().filter((entry) => {
+      const train = entry.request.train
+      return (
+        entry.request.attemptId === request.attemptId &&
+        entry.request.generation === request.generation &&
+        entry.request.operation === 'prepare-merge-group' &&
+        train !== undefined &&
+        'manifest' in train &&
+        serializeShipTrainManifest(train.manifest) ===
+          serializeShipTrainManifest(requestTrain.manifest) &&
+        train.candidate.kind === 'approved' &&
+        JSON.stringify(train.memberOrderIds) === JSON.stringify(orderIds) &&
+        entry.result.state === 'succeeded' &&
+        shippingTrainProofsMatch(entry.request, entry.result)
+      )
+    })
+    return entries.at(-1)?.result ?? null
   }
 
   private ensureLandingCheckout(request: Request): { path: string } | Result {
@@ -1145,12 +1409,34 @@ export class ShippingExecutionPlane {
   }
 
   private shadowRef(request: Request): string {
-    return `refs/podium/ship/${this.executionKey(request)}/candidate`
+    return `${this.executionRefBase(request)}/candidate`
+  }
+
+  private memberResultRef(request: Request, ordinal: number): string {
+    return `${this.executionRefBase(request)}/members/${ordinal}`
+  }
+
+  private executionRefBase(request: Request): string {
+    return `refs/podium/ship/${this.executionKey(request)}`
   }
 
   private executionKey(request: Request): string {
     const subset = request.train && 'manifest' in request.train ? request.train.subsetId : 'single'
     return `${safePart(request.orderId)}-${request.generation}-${safePart(subset)}`
+  }
+
+  private operationJobId(request: Request, operation: Request['operation']): string {
+    if (request.train && 'manifest' in request.train) {
+      return `${request.attemptId}:${operation}:${request.train.subsetId}`
+    }
+    if (request.repair) {
+      return `${request.attemptId}:${operation}:repair-${request.repair.round}-${createHash(
+        'sha256',
+      )
+        .update(`${request.repair.repairRef}\0${request.repair.candidateHeadSha}`)
+        .digest('hex')}`
+    }
+    return `${request.attemptId}:${operation}`
   }
 
   private status(request: Request): Result {
@@ -1255,9 +1541,8 @@ export class ShippingExecutionPlane {
       ...incomingFacts
     } = request
     const { requestDigest: durableDigest, ...durableFacts } = durable
-    const digest = (
-      facts: Parameters<typeof shippingJobRequestFingerprint>[0],
-    ): string => createHash('sha256').update(shippingJobRequestFingerprint(facts)).digest('hex')
+    const digest = (facts: Parameters<typeof shippingJobRequestFingerprint>[0]): string =>
+      createHash('sha256').update(shippingJobRequestFingerprint(facts)).digest('hex')
     return (
       incomingDigest === digest(incomingFacts) &&
       durableDigest === digest(durableFacts) &&

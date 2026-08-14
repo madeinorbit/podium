@@ -42,6 +42,7 @@ const base = () => ({
   defaultAgent: 'claude-code',
   defaultModel: 'auto',
   defaultEffort: 'auto',
+  machineId: asMachineId('machine-1'),
   linearId: null,
   linearIdentifier: null,
   linearUrl: null,
@@ -332,6 +333,8 @@ const shipOrder = (overrides: Partial<ShipOrder> = {}): ShipOrder => ({
   issueId: asIssueId('iss_1'),
   descendantManifest: [],
   repoId: asRepoId('repo-1'),
+  repoPath: '/r',
+  machineId: asMachineId('machine-1'),
   targetBranch: 'main',
   destination: 'origin/main',
   approvedBaseSha: 'approved-base',
@@ -424,11 +427,11 @@ describe('shipping durable store', () => {
       rawDb(s)
         .prepare(
           `INSERT INTO ship_orders
-            (id, issue_id, repo_id, target_branch, destination, approved_base_sha,
+            (id, issue_id, repo_id, repo_path, machine_id, target_branch, destination, approved_base_sha,
              approved_head_sha, descendant_manifest, delivery_depends_on, provider_ref,
              requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
              requested_at, policy_id, close_mode, state, state_changed_at, hold_code)
-           SELECT ?, issue_id, repo_id, target_branch, destination, approved_base_sha,
+           SELECT ?, issue_id, repo_id, repo_path, machine_id, target_branch, destination, approved_base_sha,
              approved_head_sha, descendant_manifest, delivery_depends_on, provider_ref,
              requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
              requested_at, policy_id, close_mode, state, state_changed_at, hold_code
@@ -599,6 +602,7 @@ describe('shipping durable store', () => {
       orderId: order.id,
       approvedBaseSha: order.approvedBaseSha,
       approvedHeadSha: order.approvedHeadSha,
+      resultCommitSha: 'landed-ref',
       testedIntegrationSha: 'tested-integration',
       landedRefSha: 'landed-ref',
       destinationSha: 'destination-tip',
@@ -780,6 +784,7 @@ describe('shipping durable store', () => {
       orderId: covering.id,
       approvedBaseSha: covering.approvedBaseSha,
       approvedHeadSha: covering.approvedHeadSha,
+      resultCommitSha: 'covering-head',
       testedIntegrationSha: 'covering-head',
       landedRefSha: 'covering-head',
       destinationSha: 'covering-head',
@@ -794,7 +799,8 @@ describe('shipping durable store', () => {
       id: asDeliveryReceiptId('receipt-lower'),
       orderId: lower.id,
       approvedHeadSha: lower.approvedHeadSha,
-      landedRefSha: lower.approvedHeadSha,
+      resultCommitSha: lower.approvedHeadSha,
+      landedRefSha: coveringReceipt.landedRefSha,
     }
     const requestFacts = {
       jobId: `${claimed.attempt.id}:verify`,
@@ -832,7 +838,8 @@ describe('shipping durable store', () => {
       attemptId: member.attemptId,
       generation: member.generation,
       sourceApprovedSha: member.approvedHeadSha,
-      resultCommitSha: member.orderId === lower.id ? lower.approvedHeadSha : covering.approvedHeadSha,
+      resultCommitSha:
+        member.orderId === lower.id ? lower.approvedHeadSha : covering.approvedHeadSha,
       testedIntegrationSha: coveringReceipt.testedIntegrationSha,
       landedRefSha: coveringReceipt.landedRefSha,
       providerLandedRefSha: coveringReceipt.landedRefSha,
@@ -865,9 +872,9 @@ describe('shipping durable store', () => {
       recordedAt: coveringReceipt.completedAt,
     })
 
-    expect(
-      s.shipping.completeCoveredOrder(lowerReceipt, covering.id, envelopeKey),
-    ).toEqual(lowerReceipt)
+    expect(s.shipping.completeCoveredOrder(lowerReceipt, covering.id, envelopeKey)).toEqual(
+      lowerReceipt,
+    )
     expect(s.shipping.getOrder(lower.id)?.state).toBe('shipped')
     s.close()
   })
