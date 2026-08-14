@@ -740,7 +740,7 @@ fn main() {
                     .select_all()
                     .build()?;
                 let toggle_left = MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")
-                    .accelerator("CmdOrCtrl+B")
+                    .accelerator("Shift+CmdOrCtrl+B")
                     .build(app)?;
                 let toggle_flight =
                     MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")
@@ -748,7 +748,7 @@ fn main() {
                         .build(app)?;
                 let toggle_right =
                     MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")
-                        .accelerator("Shift+CmdOrCtrl+B")
+                        .accelerator("CmdOrCtrl+B")
                         .build(app)?;
                 // Session-input commands use one mnemonic pair. Like Cmd+W/N above,
                 // these must be real menu accelerators: WKWebView never receives a

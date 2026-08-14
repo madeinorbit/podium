@@ -17,18 +17,18 @@ export function openAboutPodium(): void {
 }
 
 /**
- * Sidebar chords for the desktop shell. ⌘B / Ctrl+B is the left work list
- * (the same as most editors). ⇧⌘B / Shift+Ctrl+B is the right dock — same
- * letter, one extra modifier, no Option (ISO keyboards, and ⌥⌘B is easy to
- * miss). Option on either chord is refused so it cannot collide with the
- * flight-deck toggle (⌥⌘F).
+ * Sidebar chords for the desktop shell. ⌘B / Ctrl+B is the right dock — the
+ * bare chord goes to the sidebar reached for most often. ⇧⌘B / Shift+Ctrl+B
+ * is the left work list — same letter, one extra modifier, no Option (ISO
+ * keyboards, and ⌥⌘B is easy to miss). Option on either chord is refused so
+ * it cannot collide with the flight-deck toggle (⌥⌘F).
  */
 export function sidebarToggleFromEvent(
   event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>,
 ): 'left' | 'right' | null {
   if (!(event.metaKey || event.ctrlKey) || event.altKey) return null
   if (event.key.toLowerCase() !== 'b') return null
-  return event.shiftKey ? 'right' : 'left'
+  return event.shiftKey ? 'left' : 'right'
 }
 
 type MenuHook = () => void | boolean

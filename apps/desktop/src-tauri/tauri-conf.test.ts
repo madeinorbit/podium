@@ -73,8 +73,13 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain(
       'MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")',
     )
-    expect(mainSource).toContain('.accelerator("CmdOrCtrl+B")')
-    expect(mainSource).toContain('.accelerator("Shift+CmdOrCtrl+B")')
+    // Pin the pairing, not just the two chords: the bare ⌘B belongs to the
+    // right dock and ⇧⌘B to the left work list. Asserting the id and the
+    // accelerator separately stays green through a swap. `[^;]*` keeps each
+    // match inside its own let-statement so it cannot borrow the other
+    // item's accelerator.
+    expect(mainSource).toMatch(/"toggle-right-sidebar"[^;]*\.accelerator\("CmdOrCtrl\+B"\)/)
+    expect(mainSource).toMatch(/"toggle-left-sidebar"[^;]*\.accelerator\("Shift\+CmdOrCtrl\+B"\)/)
     expect(mainSource).toContain('__PODIUM_ABOUT__')
     expect(mainSource).toContain('__PODIUM_CHECK_UPDATES__')
     expect(mainSource).toContain('__PODIUM_ADD_PROJECT__')

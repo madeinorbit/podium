@@ -63,12 +63,12 @@ describe('sidebarToggleFromEvent', () => {
       ...mods,
     })
 
-  it('maps ⌘B to the left sidebar and ⇧⌘B to the right', () => {
-    expect(chord('b', { metaKey: true })).toBe('left')
-    expect(chord('B', { metaKey: true })).toBe('left')
-    expect(chord('b', { ctrlKey: true })).toBe('left')
-    expect(chord('b', { metaKey: true, shiftKey: true })).toBe('right')
-    expect(chord('b', { ctrlKey: true, shiftKey: true })).toBe('right')
+  it('maps ⌘B to the right sidebar and ⇧⌘B to the left', () => {
+    expect(chord('b', { metaKey: true })).toBe('right')
+    expect(chord('B', { metaKey: true })).toBe('right')
+    expect(chord('b', { ctrlKey: true })).toBe('right')
+    expect(chord('b', { metaKey: true, shiftKey: true })).toBe('left')
+    expect(chord('b', { ctrlKey: true, shiftKey: true })).toBe('left')
   })
 
   it('ignores Option, other letters, and an unmodified B', () => {

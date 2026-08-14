@@ -49,7 +49,7 @@ export function DesktopMenuHost({
     })
   })
 
-  // ⌘B / ⇧⌘B — same chords as View > Toggle Left/Right Sidebar. The rebuilt
+  // ⌘B / ⇧⌘B — same chords as View > Toggle Right/Left Sidebar. The rebuilt
   // macOS menu owns them (an unclaimed accelerator never reaches the webview)
   // and evals the hooks above. This keydown covers Linux/Windows and a macOS
   // binary old enough that no menu item claimed them yet. Browser tabs are
