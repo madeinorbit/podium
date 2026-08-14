@@ -204,7 +204,7 @@ export function managedCodingHarnesses(accountId: AccountId): HarnessAgent[] {
  *  (#216). The superagent runs a native harness. Background work is API-only:
  *  managed provider keys plus Codex's local-login Responses API. */
 export function accountOptions(
-  role: 'coding' | 'superagent' | 'background',
+  role: 'coding' | 'superagent' | 'background' | 'shipwright',
   accounts: AccountView[] = [],
 ): { id: AccountId; label: string }[] {
   const native = NATIVE_HARNESSES.map((o) => ({
@@ -225,7 +225,7 @@ export function accountOptions(
   ]
   if (role === 'coding')
     return [...allNative, ...MANAGED_CODING_ACCOUNTS.map((o) => ({ id: o.id, label: o.label }))]
-  if (role === 'superagent') return allNative
+  if (role === 'superagent' || role === 'shipwright') return allNative
   return [
     ...allNative.filter((option) => option.id.startsWith('native:codex')),
     ...MANAGED_PROVIDERS.map((o) => ({ id: asAccountId('managed:' + o.provider), label: o.label })),
@@ -244,7 +244,7 @@ export function RoleBackendEditor({
   accounts,
   onChange,
 }: {
-  role: 'coding' | 'superagent' | 'background'
+  role: 'coding' | 'superagent' | 'background' | 'shipwright'
   backend: RoleBackend
   accounts: AccountView[]
   onChange: (b: RoleBackend) => void
@@ -283,7 +283,7 @@ export function RoleBackendEditor({
   const harnessFor = (id: AccountId, chosen?: HarnessAgent): HarnessAgent | undefined => {
     if (id.startsWith('native:')) {
       const h = id.slice('native:'.length).split(':', 1)[0] as HarnessAgent
-      return role === 'superagent' ? h : undefined
+      return role === 'superagent' || role === 'shipwright' ? h : undefined
     }
     if (role !== 'coding') return undefined
     const allowed = managedCodingHarnesses(id)
@@ -320,7 +320,7 @@ export function RoleBackendEditor({
         provider API directly.
       </>
     )
-  const asDefault = role === 'superagent'
+  const asDefault = role === 'superagent' || role === 'shipwright'
   return (
     <>
       <Row label={asDefault ? 'Default account' : 'Account'} description={accountNote}>

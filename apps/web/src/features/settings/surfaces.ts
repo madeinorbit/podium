@@ -73,7 +73,7 @@ export const SURFACE_COPY: Readonly<Record<SettingsSurface, { label: string }>> 
 export const TAB_PATHS = {
   // — Your preferences ——————————————————————————————————————————————
   sessions: ['roles.coding', 'autoContinue.enabled'],
-  superagent: ['roles.superagent'],
+  superagent: ['roles.superagent', 'roles.shipwright'],
   workllm: ['roles.background'],
   notifications: ['notifications.web', 'notifications.ntfyTopic', 'notifications.telegramChatId'],
   // Self-persisting surfaces: they write config.json, localStorage or their own

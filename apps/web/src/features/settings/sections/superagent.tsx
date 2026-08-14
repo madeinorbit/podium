@@ -27,6 +27,19 @@ export function SuperagentSection({
         onChange={(superagent) => patch({ roles: { ...settings.roles, superagent } })}
       />
       <RestartSuperagentButton />
+      <div className="mt-6 border-t border-border pt-5">
+        <h3 className="mb-1 text-sm font-medium">Shipwright</h3>
+        <p className="settings-prose mb-3">
+          Personal account preference for bounded conflict and gate repair. Live model availability
+          and quota still decide the model used for each safe-fix attempt.
+        </p>
+        <RoleBackendEditor
+          role="shipwright"
+          backend={settings.roles.shipwright}
+          accounts={accounts}
+          onChange={(shipwright) => patch({ roles: { ...settings.roles, shipwright } })}
+        />
+      </div>
     </Section>
   )
 }

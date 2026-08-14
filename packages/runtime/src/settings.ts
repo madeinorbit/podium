@@ -485,6 +485,7 @@ const DEFAULT_ACCOUNT: Record<RoleName, AccountId> = {
   // empty/default account aligned with what the settings UI displays.
   superagent: nativeAccountId('claude-code'),
   background: managedAccountId('openrouter'),
+  shipwright: nativeAccountId('claude-code'),
 }
 
 const BACKGROUND_API_PROVIDERS: Partial<Record<HarnessAgent, ApiProvider>> = {

@@ -121,6 +121,10 @@ export const Roles = z.object({
   coding: CodingRole.default({}),
   superagent: RoleBackend.default({}),
   background: RoleBackend.default({ model: 'google/gemini-2.5-flash' }),
+  /** Personal default for bounded shipping repair. The live router may choose a
+   * different available model for a ladder level, but it always begins with the
+   * requesting human's account preference rather than an instance-wide model. */
+  shipwright: RoleBackend.default({}),
 })
 export type Roles = z.infer<typeof Roles>
 export type RoleName = keyof Roles

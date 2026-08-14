@@ -46,6 +46,7 @@ export * from './entities/machine'
 export * from './entities/session'
 export * from './entities/transcript'
 export * from './shipping'
+export * from './shipwright'
 // The wire-INPUT aliases: the unbranded side of the branded-id boundary, so a
 // producer of plain strings has a name for where it stands (POD-361; POD-362 /
 // POD-363 retire the uses).
