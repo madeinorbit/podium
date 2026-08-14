@@ -11,7 +11,13 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { type ShippingJobRequestMessage as ShippingJobRequest, ShippingJobRequestMessage, ShippingJobResult, type ShippingJobResult as ShippingJobResultValue } from '@podium/protocol/daemon'
+import {
+  type ShippingJobRequestMessage as ShippingJobRequest,
+  ShippingJobRequestMessage,
+  ShippingJobResult,
+  type ShippingJobResult as ShippingJobResultValue,
+  shippingJobRequestFingerprint,
+} from '@podium/protocol/daemon'
 
 const MAX_LOG_LINES = 64
 const MAX_LOG_LINE_BYTES = 2_048
@@ -51,7 +57,19 @@ const durableRequest = (
 const sameRequest = (
   left: ShippingJournalEntry['request'],
   right: ShippingJournalEntry['request'],
-) => JSON.stringify(left) === JSON.stringify(right)
+): boolean => {
+  const digest = (request: ShippingJournalEntry['request']): string => {
+    const { requestDigest: _requestDigest, ...facts } = request
+    return createHash('sha256').update(shippingJobRequestFingerprint(facts)).digest('hex')
+  }
+  const leftDigest = digest(left)
+  const rightDigest = digest(right)
+  return (
+    left.requestDigest === leftDigest &&
+    right.requestDigest === rightDigest &&
+    left.requestDigest === right.requestDigest
+  )
+}
 
 const assertResultBinding = (
   request: ShippingJournalEntry['request'],

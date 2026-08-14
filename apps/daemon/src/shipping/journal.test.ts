@@ -1,17 +1,138 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asShipAttemptId, asShipOrderId } from '@podium/model'
+import {
+  shippingJobRequestFingerprint,
+  type ShippingJobRequestMessage,
+  type ShippingJobResult,
+} from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ShippingExecutionPlane } from './executor'
-import { boundShippingResult, ShippingJobJournal } from './journal'
+import { boundShippingResult, ShippingJobJournal, type ShippingJournalEntry } from './journal'
 
 const dirs: string[] = []
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
+const signRequest = (
+  input: Omit<ShippingJobRequestMessage, 'requestDigest'>,
+): ShippingJobRequestMessage => {
+  const { type: _type, requestId: _requestId, action: _action, ...facts } = input
+  return {
+    ...input,
+    requestDigest: createHash('sha256').update(shippingJobRequestFingerprint(facts)).digest('hex'),
+  }
+}
+
+const unsignedRequest = (
+  input: ShippingJobRequestMessage,
+): Omit<ShippingJobRequestMessage, 'requestDigest'> => {
+  const { requestDigest: _requestDigest, ...request } = input
+  return request
+}
+
+const identityRequest = (): ShippingJobRequestMessage =>
+  signRequest({
+    type: 'shippingJobRequest',
+    requestId: 'request-identity',
+    action: 'start',
+    jobId: 'job-identity',
+    orderId: asShipOrderId('order-identity'),
+    attemptId: asShipAttemptId('attempt-identity'),
+    generation: 1,
+    operation: 'preflight',
+    repoPath: '/repo',
+    sourceBranch: 'issue/identity',
+    targetBranch: 'main',
+    approvedBaseSha: 'a'.repeat(40),
+    approvedHeadSha: 'b'.repeat(40),
+    expectedTargetSha: 'a'.repeat(40),
+    destination: 'local:main',
+    validationProfile: {
+      id: 'proof',
+      argv: ['git', 'diff', '--quiet'],
+      cwd: 'integration-root',
+      timeoutMs: 30_000,
+      resourceLocks: ['validation:proof'],
+    },
+  })
+
+const runningResult = (request: ShippingJobRequestMessage): ShippingJobResult => ({
+  jobId: request.jobId,
+  requestDigest: request.requestDigest,
+  orderId: request.orderId,
+  attemptId: request.attemptId,
+  machineId: asMachineId('machine-1'),
+  generation: request.generation,
+  operation: request.operation,
+  state: 'running',
+  classification: 'observed',
+  summary: 'started',
+  logs: [],
+  artifactRefs: [],
+  heartbeatedAt: '2026-08-13T10:00:00.000Z',
+})
+
 describe('shipping daemon journal', () => {
+  it('accepts canonically identical validation profiles with reordered properties', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-shipping-journal-identity-'))
+    dirs.push(dir)
+    const journal = new ShippingJobJournal(dir)
+    const request = identityRequest()
+    const result = runningResult(request)
+    const reordered = signRequest({
+      ...unsignedRequest(request),
+      requestId: 'request-identity-retry',
+      validationProfile: {
+        resourceLocks: [...request.validationProfile.resourceLocks],
+        timeoutMs: request.validationProfile.timeoutMs,
+        cwd: request.validationProfile.cwd,
+        argv: [...request.validationProfile.argv],
+        id: request.validationProfile.id,
+      },
+    })
+
+    const first = journal.begin(request, result)
+    expect(journal.begin(reordered, runningResult(reordered))).toEqual(first)
+  })
+
+  it('rejects a semantic request drift even when its digest is internally valid', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-shipping-journal-drift-'))
+    dirs.push(dir)
+    const journal = new ShippingJobJournal(dir)
+    const request = identityRequest()
+    journal.begin(request, runningResult(request))
+    const drifted = signRequest({
+      ...unsignedRequest(request),
+      requestId: 'request-identity-drift',
+      validationProfile: {
+        ...request.validationProfile,
+        timeoutMs: request.validationProfile.timeoutMs + 1,
+      },
+    })
+
+    expect(() => journal.begin(drifted, runningResult(drifted))).toThrow('changed inputs')
+  })
+
+  it('rejects a stored request whose declared digest does not match its canonical facts', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-shipping-journal-digest-'))
+    dirs.push(dir)
+    const journal = new ShippingJobJournal(dir)
+    const request = identityRequest()
+    const result = runningResult(request)
+    journal.begin(request, result)
+    const path = join(dir, `${createHash('sha256').update(request.jobId).digest('hex')}.json`)
+    const persisted = JSON.parse(readFileSync(path, 'utf8')) as ShippingJournalEntry
+    persisted.request.requestDigest = 'f'.repeat(64)
+    persisted.result.requestDigest = 'f'.repeat(64)
+    writeFileSync(path, `${JSON.stringify(persisted)}\n`)
+
+    expect(() => journal.begin(request, result)).toThrow('changed inputs')
+  })
+
   it('durably creates the shipping root before the first journal directory', () => {
     const parent = mkdtempSync(join(tmpdir(), 'podium-shipping-root-'))
     dirs.push(parent)
