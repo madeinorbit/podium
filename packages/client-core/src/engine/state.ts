@@ -416,46 +416,114 @@ export function knownTabIds(st: EngineState): Set<string> {
  * belongs to another issue is not "unknown" (that is the grace-period path);
  * it is foreign, and the origin strip must drop it immediately.
  */
-export function knownTabIdsForWorkspace(st: EngineState, key: WorkspaceKey): Set<string> {
+export function knownTabIdsForWorkspace(
+  st: Pick<EngineState, 'issues' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'>,
+  key: WorkspaceKey,
+): Set<string> {
   const ids = new Set<string>()
   for (const id of st.pendingSpawnIds) ids.add(id)
   for (const tab of st.fileTabs) ids.add(tab.id)
+  // ONE resolution of the key, then a membership test per session. The rule is
+  // unchanged; what moved is where the key's own share of the work happens.
+  const belongs = workspaceMembership(st, key)
   for (const session of st.sessions) {
-    if (sessionBelongsToWorkspace(st, key, session)) ids.add(session.sessionId)
+    if (belongs(session)) ids.add(session.sessionId)
   }
   return ids
 }
 
+/**
+ * The issue slice indexed by id, built once per slice and shared by every caller
+ * holding the same array.
+ *
+ * This replaces a `st.issues.find(...)` that ran once per SESSION per WORKSPACE
+ * per publish. A Chrome profile of a live client holding 1,027 issues and 827
+ * sessions put `sessionBelongsToWorkspace` at 47% of all busy main-thread CPU,
+ * essentially all of it that one linear scan.
+ *
+ * KEYED ON THE ARRAY'S IDENTITY, which is a guarantee the replica already
+ * makes rather than one this memo invents: the kernel facade documents that a
+ * kind whose contents did not change keeps the identical `rows` reference, and
+ * its incremental reconcile mints a NEW array for any change instead of
+ * mutating in place (replica/kernel/facade.ts); `foldOverlays` preserves that
+ * identity only when the optimistic ledger folded nothing. The web app's
+ * `useMemo([issues])` calls already bet on the same property. A stale index
+ * here would silently mis-assign sessions to workspaces, so it is worth saying
+ * plainly: a changed issue slice is always a different array.
+ *
+ * FIRST WINS, matching the `find` this replaces. Two rows sharing an id should
+ * be impossible; if it ever happens this must not quietly start answering with
+ * the other one.
+ */
+const issueIndexes = new WeakMap<readonly IssueWire[], ReadonlyMap<string, IssueWire>>()
+
+function issuesById(issues: readonly IssueWire[]): ReadonlyMap<string, IssueWire> {
+  const cached = issueIndexes.get(issues)
+  if (cached) return cached
+  const byId = new Map<string, IssueWire>()
+  for (const issue of issues) if (!byId.has(issue.id)) byId.set(issue.id, issue)
+  issueIndexes.set(issues, byId)
+  return byId
+}
+
+/**
+ * The workspace-membership rule, resolved for ONE key and then asked per session.
+ *
+ * Same rule as {@link sessionBelongsToWorkspace} — that function is now a call
+ * to this one — but everything the rule needs that depends on the KEY rather
+ * than on the session is computed here, once. That is the whole of the fix:
+ * `knownTabIdsForWorkspace` asked the old predicate 827 times per workspace and
+ * every single answer resolved the issue by scanning the slice, or rebuilt the
+ * mission's issue set from scratch. `pruneWorkspaces` runs this for every
+ * workspace on every `sessions` publish, i.e. on every inbound feed frame,
+ * which is how ~651 ms of main-thread time went missing per frame.
+ */
+export function workspaceMembership(
+  st: Pick<EngineState, 'issues' | 'sessions'>,
+  key: WorkspaceKey,
+): (session: SessionMeta) => boolean {
+  if (key === 'none') return () => true
+  if (key.startsWith('wt:')) {
+    const path = key.slice(3)
+    return (session) => session.cwd === path || session.cwd.startsWith(`${path}/`)
+  }
+  if (key.startsWith('issue:')) {
+    const issueId = key.slice(6)
+    // Resolved for the KEY, not for the session: the old code re-found the same
+    // issue for every session that did not name one.
+    const wt = issuesById(st.issues).get(issueId)?.worktreePath
+    return (session) => {
+      if (session.issueId !== undefined) return session.issueId === issueId
+      return Boolean(wt && (session.cwd === wt || session.cwd.startsWith(`${wt}/`)))
+    }
+  }
+  if (key.startsWith('mission:')) {
+    const rootId = key.slice(8)
+    const ids = missionIssueIds(st.issues, rootId, st.sessions)
+    // The mission's worktrees, collected once. The old loop rebuilt this
+    // filtered view of the slice inside every session's test; the SET it walks
+    // is identical, and the answer is a boolean, so order is immaterial.
+    const worktrees: string[] = []
+    for (const issue of st.issues) {
+      if (ids.has(issue.id) && issue.worktreePath) worktrees.push(issue.worktreePath)
+    }
+    return (session) => {
+      if (session.issueId !== undefined) return ids.has(session.issueId)
+      return worktrees.some((wt) => session.cwd === wt || session.cwd.startsWith(`${wt}/`))
+    }
+  }
+  return () => true
+}
+
+/** The membership rule for a SINGLE session. Kept as the one-shot spelling of
+ *  {@link workspaceMembership} — a caller with one session to test should not
+ *  have to know that the rule has a per-key half. */
 export function sessionBelongsToWorkspace(
   st: Pick<EngineState, 'issues' | 'sessions'>,
   key: WorkspaceKey,
   session: SessionMeta,
 ): boolean {
-  if (key === 'none') return true
-  if (key.startsWith('wt:')) {
-    const path = key.slice(3)
-    return session.cwd === path || session.cwd.startsWith(`${path}/`)
-  }
-  if (key.startsWith('issue:')) {
-    const issueId = key.slice(6)
-    if (session.issueId !== undefined) return session.issueId === issueId
-    const issue = st.issues.find((candidate) => candidate.id === issueId)
-    const wt = issue?.worktreePath
-    return Boolean(wt && (session.cwd === wt || session.cwd.startsWith(`${wt}/`)))
-  }
-  if (key.startsWith('mission:')) {
-    const rootId = key.slice(8)
-    const ids = missionIssueIds(st.issues, rootId, st.sessions)
-    if (session.issueId !== undefined) return ids.has(session.issueId)
-    for (const issue of st.issues) {
-      if (!ids.has(issue.id) || !issue.worktreePath) continue
-      if (session.cwd === issue.worktreePath || session.cwd.startsWith(`${issue.worktreePath}/`)) {
-        return true
-      }
-    }
-    return false
-  }
-  return true
+  return workspaceMembership(st, key)(session)
 }
 
 /** Every tab id any workspace on this device has open. */

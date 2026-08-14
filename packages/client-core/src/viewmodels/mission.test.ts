@@ -27,6 +27,7 @@ import {
   type MissionProgress,
   missionCrewLabel,
   missionDepartures,
+  missionIndexStats,
   missionIssueIds,
   missionProgress,
   missionRootFor,
@@ -345,6 +346,54 @@ describe('missionIssueIds', () => {
       block: 0,
       wait: 0,
     })
+  })
+
+  // -------------------------------------------------------------------------
+  // The shared index. `missionIssueIds` used to rebuild its `children` map from
+  // the whole issue slice on EVERY call, and `knownTabIdsForWorkspace` calls it
+  // once per session — 827 sessions x 1,027 issues per inbound feed frame in the
+  // profile that prompted this. The map depends on the issue array alone, so it
+  // is built once per array identity. These cases pin both halves of that: that
+  // it really is once, and that a changed slice really does rebuild.
+  // -------------------------------------------------------------------------
+
+  it('builds its index once per issue slice, not once per call', () => {
+    const { issues, sessions } = mission()
+    // Prime it: the slice may already be indexed from an earlier case.
+    missionIssueIds(issues, 'root', sessions)
+    const before = missionIndexStats().builds
+    for (let i = 0; i < 50; i += 1) missionIssueIds(issues, 'root', sessions)
+    // Different roots over the SAME slice share the index too — the map is
+    // keyed by parentId and knows nothing about which mission is being walked.
+    for (let i = 0; i < 50; i += 1) missionIssueIds(issues, 'c1', sessions)
+    expect(missionIndexStats().builds - before).toBe(0)
+  })
+
+  it('rebuilds when the slice does, so membership can never go stale', () => {
+    const { sessions } = mission()
+    const before = [issue('root'), issue('c1', { parentId: 'root' })]
+    expect([...missionIssueIds(before, 'root', sessions)].sort()).toEqual(['c1', 'root'])
+    // A new array is what the replica publishes for any change (see the
+    // identity contract in replica/kernel/facade.ts), and it is the only signal
+    // this memo has.
+    const after = [...before, issue('c2', { parentId: 'root' })]
+    const builds = missionIndexStats().builds
+    expect([...missionIssueIds(after, 'root', sessions)].sort()).toEqual(['c1', 'c2', 'root'])
+    expect(missionIndexStats().builds - builds).toBe(1)
+  })
+
+  it('still claims an ARCHIVED issue through provenance, as it always did', () => {
+    // The pre-filtered candidate list must not inherit the parent-child walk's
+    // archived/deleted rule: the fallback never had one. `arch` is archived and
+    // was started by root's agent, so it is in the mission — and `deep`, which
+    // ITS agent started, comes with it.
+    const issues = [
+      issue('root'),
+      issue('arch', { startedBySession: 's-root', archived: true }),
+      issue('deep', { startedBySession: 's-arch' }),
+    ]
+    const sessions = [sess('s-root', { issueId: 'root' }), sess('s-arch', { issueId: 'arch' })]
+    expect([...missionIssueIds(issues, 'root', sessions)].sort()).toEqual(['arch', 'deep', 'root'])
   })
 })
 

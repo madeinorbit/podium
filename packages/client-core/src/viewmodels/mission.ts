@@ -324,18 +324,94 @@ export function isVacatedOrigin(
   return (issue.dependents ?? []).some((dep) => dep.type === 'discovered-from')
 }
 
-export function missionIssueIds(
-  issues: readonly IssueNavigationModel[],
-  rootId: string,
-  sessions: readonly SessionMeta[] = [],
-): Set<string> {
+/**
+ * The halves of {@link missionIssueIds} that depend on the ISSUE SLICE ALONE —
+ * not on the root, not on the sessions — so they can be built once and reused.
+ */
+interface MissionIssueIndex {
+  /** Live issues by `parentId`: the formal subtree walk's adjacency list. */
+  children: Map<string, IssueNavigationModel[]>
+  /**
+   * The only issues the provenance fallback can ever claim, in `issues` order.
+   *
+   * Every other clause of that fallback's test depends on the mission being
+   * walked; these two — "was started by a session" and "has not LEFT the
+   * mission" — are facts about the issue on its own, so evaluating them per
+   * pass per call was pure waste. It was expensive waste: `hasLeftMission`
+   * scans `deps` through `spinOffOriginId`, and a live profile put those two
+   * functions at 13% of all main-thread CPU between them.
+   *
+   * ARCHIVED AND DELETED ISSUES STAY IN, deliberately. The parent-child walk
+   * below drops them (an archived branch takes its descendants with it), but
+   * the fallback never filtered them and must not start: an archived issue
+   * still belongs to the mission whose agent started it, and dropping it here
+   * would silently shrink `missionSessions` for anything it started in turn.
+   */
+  startedCandidates: Array<{ id: string; startedBySession: SessionId }>
+}
+
+let missionIndexBuilds = 0
+
+/**
+ * One index per issue slice, KEYED ON THE ARRAY'S IDENTITY.
+ *
+ * `missionIssueIds` rebuilt the whole `children` map on every call. That is
+ * fine when the mission is asked for once per render and ruinous when it is
+ * asked for inside a loop over sessions: `knownTabIdsForWorkspace` did exactly
+ * that, and a Chrome profile of a live client holding 1,027 issues and 827
+ * sessions measured ~849,000 iterations rebuilding one identical map 827 times
+ * per inbound feed frame — 21% of all busy CPU in this function alone, at 4-10
+ * fps.
+ *
+ * The identity key is sound because the replica already promises it: the kernel
+ * facade documents that "a kind whose CONTENTS did not change keeps the
+ * identical `rows` reference … identity stability is part of the contract, not
+ * an optimisation", and its incremental reconcile builds a NEW array for any
+ * change rather than mutating in place (replica/kernel/facade.ts). The
+ * optimistic ledger's `foldOverlays` preserves the array identity only when it
+ * folded nothing. So a changed slice is always a different array — which is the
+ * one property this memo needs, and the same one every `useMemo([issues])` in
+ * the web app and the worklist slice's `sourceEqual` already rest on. A stale
+ * index here would mean wrong mission membership, i.e. wrong tabs, so the memo
+ * deliberately adds no assumption of its own.
+ *
+ * A `WeakMap`, so a superseded slice's index dies with the array that named it.
+ */
+const missionIndexes = new WeakMap<readonly IssueNavigationModel[], MissionIssueIndex>()
+
+function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssueIndex {
+  const cached = missionIndexes.get(issues)
+  if (cached) return cached
+  missionIndexBuilds += 1
   const children = new Map<string, IssueNavigationModel[]>()
+  const startedCandidates: Array<{ id: string; startedBySession: SessionId }> = []
   for (const issue of issues) {
+    if (issue.startedBySession && !hasLeftMission(issue)) {
+      startedCandidates.push({ id: issue.id, startedBySession: issue.startedBySession })
+    }
     if (issue.archived || issue.deletedAt || !issue.parentId) continue
     const siblings = children.get(issue.parentId) ?? []
     siblings.push(issue)
     children.set(issue.parentId, siblings)
   }
+  const index: MissionIssueIndex = { children, startedCandidates }
+  missionIndexes.set(issues, index)
+  return index
+}
+
+/** How many times the shared mission index has been built — the seam the
+ *  regression test uses to assert it is once per issue slice rather than once
+ *  per caller. Same shape as `issueViewModelProjectionStats`. */
+export function missionIndexStats(): { builds: number } {
+  return { builds: missionIndexBuilds }
+}
+
+export function missionIssueIds(
+  issues: readonly IssueNavigationModel[],
+  rootId: string,
+  sessions: readonly SessionMeta[] = [],
+): Set<string> {
+  const { children, startedCandidates } = missionIssueIndex(issues)
   const ids = new Set<string>()
   const stack = [rootId]
   while (stack.length > 0) {
@@ -349,7 +425,12 @@ export function missionIssueIds(
   // provenance is not membership once the operator has started the work on its
   // own. The parent-child walk above is untouched; a spin-off never has a
   // parentId, so only this fallback could ever have claimed one.
-  let changed = true
+  //
+  // The candidates are pre-filtered (see MissionIssueIndex) but the loop is
+  // otherwise the fixpoint it always was, walked in `issues` order: the set's
+  // ITERATION ORDER is the provenance walk, and `buildFlightDeckRows` grafts
+  // rows in that order before sorting them.
+  let changed = startedCandidates.length > 0
   while (changed) {
     changed = false
     const missionSessions = new Set(
@@ -357,14 +438,9 @@ export function missionIssueIds(
         .filter((session) => ids.has(session.issueId ?? ''))
         .map((session) => session.sessionId),
     )
-    for (const issue of issues) {
-      if (
-        !ids.has(issue.id) &&
-        !hasLeftMission(issue) &&
-        issue.startedBySession &&
-        missionSessions.has(issue.startedBySession)
-      ) {
-        ids.add(issue.id)
+    for (const candidate of startedCandidates) {
+      if (!ids.has(candidate.id) && missionSessions.has(candidate.startedBySession)) {
+        ids.add(candidate.id)
         changed = true
       }
     }
