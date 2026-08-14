@@ -90,10 +90,21 @@ function projectionOnLegacySpelling(projection: IssueProjection): Omit<
   }
 }
 
-/** Replica-derived issue world. One pass; the React binding caches this. */
-export function deriveIssueViewsSnapshot(replica: Replica): IssueViewsSnapshot {
+/**
+ * Replica-derived issue world. One pass; the React binding caches this.
+ *
+ * `previous` is the last snapshot derived from this same replica, and it buys
+ * per-issue view IDENTITY, not a skipped pass — see `deriveIssueViews`'s note on
+ * why the derivation stays whole and why handing it back is safe under evict and
+ * rescope. Passing nothing derives a snapshot whose every view is new, which is
+ * the correct answer for a caller with no previous generation to speak of.
+ */
+export function deriveIssueViewsSnapshot(
+  replica: Replica,
+  previous?: IssueViewsSnapshot,
+): IssueViewsSnapshot {
   const { issues, sessions } = readViewInputs(replica)
-  const views = deriveIssueViews(issues, sessions)
+  const views = deriveIssueViews(issues, sessions, { previous: previous?.views })
   const sessionIndex = new Map(sessions.map((s) => [s.sessionId, s]))
   const issueIndex = new Map(issues.map((i) => [i.id, i]))
   const rollupCache = new Map<string, IssueSessionRollups>()

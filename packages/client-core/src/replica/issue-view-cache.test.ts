@@ -11,6 +11,11 @@
  * The counter these tests read is the point: `rowBuilds` is models actually
  * constructed. A one-row patch that moves it by more than one has put the
  * O(project) fan-out back.
+ *
+ * POD-1055 extends the same claim to the SERVER ECHO. Reuse used to require the
+ * replica-derived snapshot to stand still, which no replica write does; now
+ * `deriveIssueViews` retains the `IssueView` of an issue whose derived value did
+ * not move, so a write costs the rows it actually touched.
  */
 import type { IssueProjection, IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -75,6 +80,22 @@ function legacyAt(index: number, over: Partial<IssueWire> = {}): IssueWire {
   } as unknown as IssueWire
 }
 
+function sessionAt(index: number, issueId: string): Record<string, unknown> {
+  return {
+    sessionId: `ses_${index}`,
+    issueId,
+    agentKind: 'claude-code',
+    cwd: '/repo',
+    title: `Session ${index}`,
+    status: 'live',
+    createdAt: '2026-08-14T09:00:00.000Z',
+    lastActiveAt: '2026-08-14T10:00:00.000Z',
+    archived: false,
+    readAt: null,
+    agentState: { phase: 'working', since: '2026-08-14T09:00:00.000Z' },
+  }
+}
+
 /**
  * The rows are read back OUT of the replica rather than kept as written: that is
  * what the store does (`base()` is the replica's own arrays, folded), and the
@@ -96,7 +117,12 @@ function world(): {
     Array.from({ length: COUNT }, (_, index) => legacyAt(index)),
   )
   replica.applySnapshot('repos', [{ id: 'repo', path: '/repo', prefix: 'POD' } as never])
-  replica.applySnapshot('sessions', [])
+  // Two issues carry a session, so the rollup inputs a retained view does NOT
+  // stand for (`phase`, `lastActiveAt`) are actually exercised.
+  replica.applySnapshot('sessions', [
+    sessionAt(0, 'iss_0'),
+    sessionAt(1, 'iss_1'),
+  ] as unknown as never[])
   return {
     replica,
     projections: replica.rows('issueProjections'),
@@ -146,10 +172,11 @@ describe('shared issue view-model cache — incremental rebuild', () => {
     expect(second[7]?.tuckedAt).toBe('2026-08-14T11:00:00.000Z')
   })
 
-  it('reuses nothing and rebuilds everything when the replica itself moved', () => {
-    // A replica write makes every `IssueView` a new object, so no model can be
-    // carried over by input identity — the deep compare is what recovers row
-    // identity there, and this pins that the two paths do not get confused.
+  it('rebuilds one row when the replica itself moved, not the project', () => {
+    // A replica write invalidates the snapshot, and before POD-1055 that alone
+    // meant every `IssueView` was a new object and every model had to be rebuilt
+    // and then deep-compared back to itself. Now the derivation hands unchanged
+    // issues their previous view, so the write costs the row it touched.
     const { replica, projections, legacy } = world()
     allIssueViewModels(replica, projections, legacy)
     const before = issueViewModelProjectionStats(replica)
@@ -158,8 +185,45 @@ describe('shared issue view-model cache — incremental rebuild', () => {
     const rows = replica.rows('issues')
     allIssueViewModels(replica, replica.rows('issueProjections'), rows)
 
-    expect(issueViewModelProjectionStats(replica).rowBuilds - before.rowBuilds).toBe(COUNT)
+    expect(issueViewModelProjectionStats(replica).rowBuilds - before.rowBuilds).toBe(1)
     expect(rows.find((row) => row.id === legacy[3]?.id)?.title).toBe('Renamed by the server')
+  })
+
+  it('rebuilds the models of an issue whose member session changed, and no others', () => {
+    // The one model input a retained view does not stand for: `unread` and
+    // `sessionSummary` read the session ROW, and a stable member id list says
+    // nothing about what is behind those ids.
+    const { replica, projections, legacy } = world()
+    allIssueViewModels(replica, projections, legacy)
+    const before = issueViewModelProjectionStats(replica)
+
+    const sessions = replica.rows('sessions').map((session) => ({ ...session }))
+    const moved = sessions[0]
+    if (!moved) throw new Error('fixture has no sessions')
+    replica.applySnapshot('sessions', [
+      { ...moved, lastActiveAt: '2026-08-14T12:00:00.000Z' },
+      ...sessions.slice(1),
+    ])
+    allIssueViewModels(replica, replica.rows('issueProjections'), replica.rows('issues'))
+
+    expect(issueViewModelProjectionStats(replica).rowBuilds - before.rowBuilds).toBe(1)
+  })
+
+  it('drops an issue the replica stopped sending, however stable its view was', () => {
+    // The evict/rescope bar. The retained snapshot holds a view object for every
+    // issue of the previous pass; the pass iterates the CURRENT projections, so a
+    // row that left the slice is never looked up and cannot come back.
+    const { replica, projections, legacy } = world()
+    allIssueViewModels(replica, projections, legacy)
+
+    const evicted = projections[3]
+    if (!evicted) throw new Error('fixture has no fourth issue')
+    replica.applyChanges('issueProjections', [], [evicted.id])
+    replica.applyChanges('issues', [], [evicted.id])
+    const after = allIssueViewModels(replica, replica.rows('issueProjections'), replica.rows('issues'))
+
+    expect(after).toHaveLength(COUNT - 1)
+    expect(after.some((model) => model.id === evicted.id)).toBe(false)
   })
 
   it('holds the array identity when the server echoes back what optimism painted', () => {

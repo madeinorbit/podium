@@ -16,6 +16,7 @@ import {
   buildIssueTree,
   deriveIssueRollups,
   deriveIssueViews,
+  type IssueView,
   type IssueViewInput,
   indexSessionsByIssue,
   issueDisplayRef,
@@ -214,6 +215,121 @@ describe('dependents — the reverse of deps, derived not embedded [POD-856]', (
     const views = deriveIssueViews([issue({ id: 'a', deps: [{ id: 'gone', type: 'blocks' }] })], [])
     expect(views.has('gone')).toBe(false)
     expect(views.get('a')?.dependents).toEqual([])
+  })
+})
+
+describe('per-issue view identity across passes [POD-1055]', () => {
+  /** A pass over the same world, offered the previous pass's views. */
+  const again = (
+    issues: IssueViewInput[],
+    sessions: SessionViewInput[],
+    previous: ReadonlyMap<string, IssueView>,
+  ) => deriveIssueViews(issues, sessions, { previous })
+
+  it('hands an untouched issue back the SAME view object', () => {
+    const issues = [issue({ id: 'a' }), issue({ id: 'b' })]
+    const first = deriveIssueViews(issues, [])
+    // Fresh input objects carrying the same values — the shape of a server echo.
+    const second = again(
+      issues.map((i) => ({ ...i })),
+      [],
+      first,
+    )
+    expect(second.get('a')).toBe(first.get('a'))
+    expect(second.get('b')).toBe(first.get('b'))
+  })
+
+  it("moves ONLY the issue whose own value moved", () => {
+    const issues = [issue({ id: 'a' }), issue({ id: 'b' }), issue({ id: 'c' })]
+    const first = deriveIssueViews(issues, [])
+    const second = again([issue({ id: 'a' }), issue({ id: 'b', seq: 9 }), issue({ id: 'c' })], [], first)
+    expect(second.get('a')).toBe(first.get('a'))
+    expect(second.get('c')).toBe(first.get('c'))
+    expect(second.get('b')).not.toBe(first.get('b'))
+    expect(second.get('b')?.displayRef).toBe('#9')
+  })
+
+  it('moves the PARENT when a child closes, because childDoneCount is its field', () => {
+    // The reason this is a re-derive-and-compare and not a dependency graph: one
+    // view's inputs reach well past the issue's own row.
+    const open = [issue({ id: 'p' }), issue({ id: 'k', parentId: 'p' })]
+    const first = deriveIssueViews(open, [])
+    const second = again([issue({ id: 'p' }), issue({ id: 'k', parentId: 'p', stage: 'done' })], [], first)
+    expect(second.get('p')).not.toBe(first.get('p'))
+    expect(second.get('p')?.childDoneCount).toBe(1)
+  })
+
+  it("moves the BLOCKED issue when the thing blocking it closes", () => {
+    const open = [issue({ id: 'a', deps: [{ id: 'b', type: 'blocks' }] }), issue({ id: 'b' })]
+    const first = deriveIssueViews(open, [])
+    expect(first.get('a')?.blocked).toBe(true)
+    const second = again(
+      [issue({ id: 'a', deps: [{ id: 'b', type: 'blocks' }] }), issue({ id: 'b', stage: 'done' })],
+      [],
+      first,
+    )
+    expect(second.get('a')).not.toBe(first.get('a'))
+    expect(second.get('a')?.blocked).toBe(false)
+  })
+
+  it('moves BOTH endpoints when a session re-homes, and nothing else', () => {
+    const issues = [issue({ id: 'i1' }), issue({ id: 'i2' }), issue({ id: 'i3' })]
+    const first = deriveIssueViews(issues, [
+      session({ sessionId: asSessionId('s1'), issueId: asIssueId('i1') }),
+    ])
+    const second = again(
+      issues,
+      [session({ sessionId: asSessionId('s1'), issueId: asIssueId('i2') })],
+      first,
+    )
+    expect(second.get('i1')).not.toBe(first.get('i1'))
+    expect(second.get('i2')).not.toBe(first.get('i2'))
+    expect(second.get('i3')).toBe(first.get('i3'))
+  })
+
+  it('moves the TARGET when an edge starts pointing at it', () => {
+    const first = deriveIssueViews([issue({ id: 'a' }), issue({ id: 'b' })], [])
+    const second = again(
+      [issue({ id: 'a', deps: [{ id: 'b', type: 'related' }] }), issue({ id: 'b' })],
+      [],
+      first,
+    )
+    expect(second.get('b')).not.toBe(first.get('b'))
+    expect(second.get('b')?.dependents).toEqual([{ id: 'a', type: 'related' }])
+  })
+
+  it('an issue that left the pass does not come back, however stable its view was', () => {
+    // The evict/rescope bar (`viewmodels/slices/publish.ts`): `previous` is read
+    // BY ID for the rows of the current pass, never enumerated, so a row the
+    // replica stopped sending has nothing that could reintroduce it.
+    const first = deriveIssueViews([issue({ id: 'a' }), issue({ id: 'gone' })], [])
+    expect(first.has('gone')).toBe(true)
+    const second = again([issue({ id: 'a' })], [], first)
+    expect(second.has('gone')).toBe(false)
+    expect(second.size).toBe(1)
+  })
+
+  it('a previous generation from ANOTHER world cannot leak a value into this one', () => {
+    // Reuse is decided by comparing the value this pass just derived; a previous
+    // object that disagrees anywhere is simply not returned.
+    const foreign = deriveIssueViews([issue({ id: 'a', seq: 77, stage: 'done' })], [])
+    const mine = again([issue({ id: 'a', seq: 1, stage: 'backlog' })], [], foreign)
+    expect(mine.get('a')).not.toBe(foreign.get('a'))
+    expect(mine.get('a')?.displayRef).toBe('#1')
+    expect(mine.get('a')?.ready).toBe(true)
+  })
+
+  it('re-derives a deferred issue once its snooze expires', () => {
+    const snoozed = [issue({ id: 'a', deferUntil: '2026-07-18T00:00:00.000Z' })]
+    const before = Date.parse('2026-07-17T00:00:00.000Z')
+    const first = deriveIssueViews(snoozed, [], { now: () => before })
+    expect(first.get('a')?.deferred).toBe(true)
+    const second = deriveIssueViews(snoozed, [], {
+      now: () => Date.parse('2026-07-19T00:00:00.000Z'),
+      previous: first,
+    })
+    expect(second.get('a')).not.toBe(first.get('a'))
+    expect(second.get('a')?.deferred).toBe(false)
   })
 })
 

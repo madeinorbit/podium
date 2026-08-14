@@ -38,11 +38,37 @@
  * rebuilding a row it was handed again unchanged. The per-id memory is discarded
  * and rewritten on every pass rather than accumulated.
  *
- * When the snapshot itself changes — any replica write, including the server
- * echo of our own mutation — every view object is new and every model must be
- * rebuilt. The `sameVisibleValue` deep compare then earns its keep by handing
- * back the PREVIOUS model object wherever nothing visible moved, which is what
- * lets the worklist slice skip its own derivation on the echo.
+ * ---------------------------------------------------------------------------
+ * AND WHY IT SURVIVES A REPLICA WRITE (POD-1055)
+ * ---------------------------------------------------------------------------
+ *
+ * The paragraph above used to end here, with a note that a new snapshot meant
+ * every view object was new and so every model had to be rebuilt and then
+ * `sameVisibleValue`-compared back to the object it already was. That is the
+ * server echo — our own mutation landing as truth — and it was ~27ms per press
+ * at POD-1052's cardinalities, all of it spent proving nothing had changed.
+ *
+ * `deriveIssueViews` now preserves per-issue `IssueView` identity across passes,
+ * so the reuse key is no longer "the same snapshot" but the three inputs of ONE
+ * model, each compared by identity:
+ *
+ *   - the row's `IssueProjection` and its retained `IssueWire`, which the
+ *     replica leaves untouched when a re-applied snapshot is byte-identical, and
+ *   - the row's `IssueView`, now stable when its derived value did not move.
+ *
+ * Plus the one input `buildIssueViewModel` reads THROUGH the snapshot rather
+ * than off the view: `deriveIssueRollups` walks the member sessions' rows for
+ * `phase` and `lastActiveAt`. A stable view proves the member ID LIST is the
+ * same, never that the sessions behind it are — so those rows are compared too.
+ *
+ * The evict/rescope argument is unchanged, and this does not weaken it: reuse is
+ * still decided from objects the CURRENT pass is holding, and the pass still
+ * iterates the CURRENT `projectionRows`. A view that survived is one whose every
+ * field was re-derived from current rows and matched.
+ *
+ * `sameVisibleValue` still earns its keep for the rows that DO rebuild: it hands
+ * back the previous model wherever nothing visible moved, which is what lets the
+ * worklist slice skip its own derivation.
  */
 
 import type { IssueProjection, IssueWire } from '@podium/model'
@@ -52,6 +78,7 @@ import {
   type IssueViewModel,
   type IssueViewsSnapshot,
 } from './issue-view-models'
+import type { IssueView } from './issue-views'
 import type { Replica } from './replica'
 
 export type CachedIssueViewsSnapshot = IssueViewsSnapshot & {
@@ -59,10 +86,14 @@ export type CachedIssueViewsSnapshot = IssueViewsSnapshot & {
   legacyRows: readonly IssueWire[]
 }
 
-/** The two rows one model was built from — the whole reuse key (see the note). */
+/** What one model was built from — the whole reuse key (see the note). The
+ *  member sessions are not here: a retained `view` fixes the member id list, and
+ *  the rows behind those ids are compared against the snapshot that built the
+ *  model, which the projection already holds. */
 interface ModelInputs {
   projection: IssueProjection
   legacy: IssueWire | undefined
+  view: IssueView
 }
 
 export interface IssueModelsProjection {
@@ -79,6 +110,10 @@ export interface IssueModelsProjection {
 interface IssueViewsStore {
   /** Cleared on every relevant replica notification. */
   snapshot: CachedIssueViewsSnapshot | null
+  /** The last snapshot derived, RETAINED across that invalidation — the next
+   *  derivation hands it back so unchanged issues keep their view objects. Read
+   *  only as a source of identities to re-offer, never as data (POD-1055). */
+  lastSnapshot: CachedIssueViewsSnapshot | null
   /** Retained across snapshots so unchanged issue models keep their identity. */
   models: IssueModelsProjection | null
   modelBuilds: number
@@ -93,6 +128,7 @@ function storeFor(replica: Replica): IssueViewsStore {
   if (existing) return existing
   const store: IssueViewsStore = {
     snapshot: null,
+    lastSnapshot: null,
     models: null,
     modelBuilds: 0,
     modelRowBuilds: 0,
@@ -127,8 +163,11 @@ function storeFor(replica: Replica): IssueViewsStore {
   return store
 }
 
-function deriveSnapshot(replica: Replica): CachedIssueViewsSnapshot {
-  const snapshot = deriveIssueViewsSnapshot(replica)
+function deriveSnapshot(
+  replica: Replica,
+  previous: CachedIssueViewsSnapshot | null,
+): CachedIssueViewsSnapshot {
+  const snapshot = deriveIssueViewsSnapshot(replica, previous ?? undefined)
   return {
     ...snapshot,
     projectionRows: replica.rows('issueProjections'),
@@ -138,7 +177,10 @@ function deriveSnapshot(replica: Replica): CachedIssueViewsSnapshot {
 
 export function snapshotFor(replica: Replica): CachedIssueViewsSnapshot {
   const store = storeFor(replica)
-  store.snapshot ??= deriveSnapshot(replica)
+  if (store.snapshot === null) {
+    store.snapshot = deriveSnapshot(replica, store.lastSnapshot)
+    store.lastSnapshot = store.snapshot
+  }
   return store.snapshot
 }
 
@@ -165,6 +207,27 @@ function sameVisibleValue(a: unknown, b: unknown): boolean {
       Object.hasOwn(bRecord, key) &&
       sameVisibleValue((a as Record<string, unknown>)[key], bRecord[key]),
   )
+}
+
+/**
+ * The one model input a retained `IssueView` does NOT stand for.
+ *
+ * `deriveIssueRollups` reads each member session's `phase` and `lastActiveAt`
+ * off the row, and those live outside the view — a view is stable while its
+ * member ID LIST is, which says nothing about the sessions behind the ids. The
+ * ids are the same list in both snapshots (the caller has already established
+ * `prior.view === view`), so this walks that one list rather than the world.
+ */
+function sameMemberSessions(
+  view: IssueView,
+  previous: IssueViewsSnapshot,
+  next: IssueViewsSnapshot,
+): boolean {
+  if (previous === next) return true
+  for (const id of view.memberSessionIds) {
+    if (previous.sessionById.get(id) !== next.sessionById.get(id)) return false
+  }
+  return true
 }
 
 function sameIndex(
@@ -202,17 +265,22 @@ export function modelsFor(
 
   store.modelBuilds++
   const legacyById = new Map(legacyRows.map((issue) => [issue.id, issue]))
-  // Per-row reuse is available only while the replica-derived world stands
-  // still: a new snapshot means new `IssueView` objects for every issue, so
-  // every model genuinely differs and there is nothing to skip.
-  const reusable = current?.snapshot === snapshot ? current : null
   const models = new Map<string, IssueViewModel>()
   const inputs = new Map<string, ModelInputs>()
   for (const projection of projectionRows) {
     const legacy = legacyById.get(projection.id)
-    const prior = reusable?.inputs.get(projection.id)
-    if (prior !== undefined && prior.projection === projection && prior.legacy === legacy) {
-      const reused = reusable?.index.get(projection.id)
+    const view = snapshot.views.get(projection.id)
+    const prior = current === null ? undefined : current.inputs.get(projection.id)
+    if (
+      current !== null &&
+      prior !== undefined &&
+      view !== undefined &&
+      prior.projection === projection &&
+      prior.legacy === legacy &&
+      prior.view === view &&
+      sameMemberSessions(view, current.snapshot, snapshot)
+    ) {
+      const reused = current.index.get(projection.id)
       if (reused !== undefined) {
         models.set(projection.id, reused)
         inputs.set(projection.id, prior)
@@ -220,11 +288,12 @@ export function modelsFor(
       }
     }
     store.modelRowBuilds++
+    if (view === undefined) continue
     const next = buildIssueViewModel(snapshot, projection, legacy)
     if (next === undefined) continue
     const previous = current?.index.get(projection.id)
     models.set(projection.id, previous && sameVisibleValue(previous, next) ? previous : next)
-    inputs.set(projection.id, { projection, legacy })
+    inputs.set(projection.id, { projection, legacy, view })
   }
 
   const unchanged = current !== null && sameIndex(current.index, models)

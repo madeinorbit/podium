@@ -183,6 +183,46 @@ export function issueDisplayRef(issue: Pick<IssueViewInput, 'seq' | 'prefix'>): 
   return issue.prefix ? `${issue.prefix}-${issue.seq}` : `#${issue.seq}`
 }
 
+function sameIdList(a: readonly string[], b: readonly string[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
+function sameDependents(
+  a: readonly { id: IssueId; type: string }[],
+  b: readonly { id: IssueId; type: string }[],
+): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i]
+    const right = b[i]
+    if (left === undefined || right === undefined) return false
+    if (left.id !== right.id || left.type !== right.type) return false
+  }
+  return true
+}
+
+/** Total over {@link IssueView} — every field, compared by value. Typed rather
+ *  than a generic deep walk because it runs once per issue per replica write and
+ *  a missed field would silently freeze a stale view on screen. */
+function sameIssueView(a: IssueView, b: IssueView): boolean {
+  return (
+    a.id === b.id &&
+    a.displayRef === b.displayRef &&
+    a.childCount === b.childCount &&
+    a.childDoneCount === b.childDoneCount &&
+    a.blocked === b.blocked &&
+    a.ready === b.ready &&
+    a.deferred === b.deferred &&
+    sameIdList(a.memberSessionIds, b.memberSessionIds) &&
+    sameIdList(a.childIds, b.childIds) &&
+    sameDependents(a.dependents, b.dependents)
+  )
+}
+
 /**
  * Build every issue's view in one pass.
  *
@@ -190,11 +230,39 @@ export function issueDisplayRef(issue: Pick<IssueViewInput, 'seq' | 'prefix'>): 
  * are what keep it linear, and a nested scan would reintroduce exactly the
  * O(world) shape D7.2 exists to forbid — just on the client instead of the
  * server, which is not an improvement.
+ *
+ * ## `opts.previous` — per-issue identity across passes [POD-1055]
+ *
+ * Linear is not the same as free downstream. Every consumer of these views keys
+ * its own reuse on the identity of the `IssueView` it was handed, so a pass that
+ * mints 1026 new objects for a one-row echo forces 1026 view models to be
+ * rebuilt and then deep-compared back to the objects they already were — the
+ * ~27ms POD-1053 measured on the server echo and deferred.
+ *
+ * Given the previous pass's views, an issue whose derived value did not move
+ * keeps its OBJECT. That is the whole mechanism, and it is deliberately not a
+ * dependency graph: one view depends on its own row, its children's stages, its
+ * deps' targets' stages, every other issue's edges pointing at it, and its
+ * member sessions — a neighbourhood too wide to track incrementally without
+ * building the very fan-out D7.2 forbids. Re-deriving and comparing is linear in
+ * the same pass that was already linear.
+ *
+ * WHY THIS IS SAFE UNDER EVICT AND RESCOPE, the bar `viewmodels/slices/publish.ts`
+ * sets. The reuse is decided by comparing the value this pass just derived from
+ * the CURRENT `issues` and `sessions` against the previous object, and the map
+ * returned is built only from the CURRENT iteration. Two consequences, and both
+ * are what the bar asks for:
+ *
+ *  - An issue that left the replica's scope is not in this iteration, so nothing
+ *    puts it back — `previous` is read by id, never enumerated.
+ *  - A reused object is one whose every field was re-derived and matched, so it
+ *    cannot carry a stale value forward. The only observable difference between
+ *    reusing and rebuilding is the identity, which is exactly what is wanted.
  */
 export function deriveIssueViews(
   issues: readonly IssueViewInput[],
   sessions: readonly SessionViewInput[],
-  opts: { now?: () => number } = {},
+  opts: { now?: () => number; previous?: ReadonlyMap<string, IssueView> } = {},
 ): Map<string, IssueView> {
   const now = opts.now ?? Date.now
   const sessionsByIssue = indexSessionsByIssue(sessions)
@@ -235,7 +303,7 @@ export function deriveIssueViews(
       (dep) => dep.type === 'blocks' && stageById.has(dep.id) && stageById.get(dep.id) !== 'done',
     )
     const deferred = issue.deferUntil != null && Date.parse(issue.deferUntil) > now()
-    views.set(issue.id, {
+    const next: IssueView = {
       id: issueId,
       memberSessionIds: sessionsByIssue.get(issueId) ?? [],
       displayRef: issueDisplayRef(issue),
@@ -246,7 +314,9 @@ export function deriveIssueViews(
       deferred,
       ready: !blocked && !deferred && issue.stage !== 'done',
       dependents: dependentsByIssue.get(issueId) ?? [],
-    })
+    }
+    const previous = opts.previous?.get(issue.id)
+    views.set(issue.id, previous !== undefined && sameIssueView(previous, next) ? previous : next)
   }
   return views
 }
