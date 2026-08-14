@@ -15,6 +15,22 @@ byte-identical behavior. Flag on: every migrated caller's delivery decision come
 receipt (`accepted / queued / refused / unverified`), never from re-reading
 `agentState.phase`.
 
+## Preconditions recorded from W3's reviews (address early, in this item)
+
+1. **Lease-holder identity**: the driver's lease check keys on `lease.kind` + `options.origin`
+   and never compares `lease.holder` — `SendOptions` carries no holder identity, so a second
+   human-origin sender can interleave with a takeover holder. Extend the contract's send
+   surface with the holder identity (or fold it into the acting principal) and enforce the
+   comparison before migrating human-origin callers.
+2. **Driver-side queue authorization**: `host.authorizeAtDrain` has no provider in the daemon
+   (honestly declared at `injection.ts:174-188`) — a forwarded driver-side queue would drain
+   unauthorized. Supply the provider (server-authorized principal reference resolution) before
+   any cluster forwards queued turns to the daemon; until then queue stays server-completed.
+3. **Coverage guard rails**: POD-2042 tracks the four W3 fixes currently pinned by no test
+   (F1 adopted-session rawFirstTurn, F6 terminal-answer, F7 answeredBy, F8 array-prompt
+   fingerprinting) — coordinate: those tests should exist before your clusters rely on the
+   behaviors.
+
 ## Method (same for every cluster)
 
 1. Identify the cluster's send entry points and its delivery-inference logic.
