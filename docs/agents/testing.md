@@ -143,16 +143,26 @@ Measurements and rationale: [POD-520 cache shards](pod-520-server-test-cache-sha
 
 The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe default for a shared development host, so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
 
-Validation has no admission gate and no shared permits. Typecheck, related/changed probes,
-focused web/mobile/package tests, and direct package tests run immediately with their existing
-worker ceilings. They must never wait behind a heavyweight suite.
+Three admission classes, and the shape of each follows what it is protecting:
 
-Only two validation locks remain:
-
+- Typecheck, related/changed probes, focused web/mobile/package tests, and direct package
+  tests take one of a fixed number of **validation slots**. They must never wait behind a
+  heavyweight suite, so this is a counting semaphore rather than a lock: the point is to cap
+  parallelism, not to serialize. `PODIUM_VALIDATION_SLOTS` defaults to half the host's cores
+  (floored, minimum one) and accepts a positive integer, or `off` on a dedicated host with
+  nothing else to protect. A run that finds every slot taken **queues** and prints one line to
+  stderr; it is never refused. The slots are files under
+  `$TMPDIR/podium-validation-slots` (override with `PODIUM_VALIDATION_SLOT_DIR`), so the
+  budget is per HOST — every worktree under `.claude/worktrees/*` competes for the same cores
+  and therefore for the same slots. A slot whose holder process is gone, or whose lease
+  expired, is reclaimed by the next run that wants it.
 - Full package, integration, acceptance, E2E, browser, performance, agent-smoke,
   multi-instance, and full Bun lanes hold `test:heavy`.
 - Watch holds only the singleton `validation:watch` lease and forces
   `PODIUM_TEST_WORKERS=1`; a second watcher is refused.
+
+The slot budget is a run ceiling, not a process ceiling: each admitted run still brings its own
+`PODIUM_TEST_WORKERS` (2 by default), which is why the default sits well under the core count.
 
 Both leases renew while their child runs, terminate the child if renewal fails, and release
 only leases the invocation opened. `PODIUM_VALIDATION_RESOURCE_HELD` lets a child of a heavy
@@ -181,13 +191,19 @@ The wrapper renews each 30-minute lease every 10 minutes while the child runs. I
 fails, it terminates the child rather than allowing an unbudgeted test to continue; an
 interrupted process still has the 30-minute TTL as the recovery path.
 
-Automatic heavy/watch lease acquisition is identity-gated on `PODIUM_SESSION_ID`. CI and
+Automatic heavy/watch lease acquisition is identity-gated on `PODIUM_SESSION_ID`, because the
+advisory lock names its holder by session and cannot record one otherwise. CI and
 other non-session runs retain the safe worker default but do not serialize against live sessions;
 a dedicated host can opt out explicitly with `PODIUM_TEST_WORKERS=auto bun run test:full`.
 
-A human running validation in a terminal without `PODIUM_SESSION_ID` takes no automatic
-budget lease and can still collide with an agent run. On the shared host, run validation
-from a Podium session or coordinate a manual `test:heavy` hold for a heavy command.
+**Validation slots are NOT identity-gated.** A slot's holder is a process on this machine, so it
+needs no session to name it — and a run started from a bare shell burns exactly the same cores.
+Every focused/typecheck run on the host is counted, session or no session.
+
+A human running validation in a terminal without `PODIUM_SESSION_ID` therefore still queues for a
+slot, but takes no automatic heavy budget lease and can still collide with an agent's heavy run.
+On the shared host, run heavyweight validation from a Podium session or coordinate a manual
+`test:heavy` hold.
 
 ### One lane at a time, inside your own session
 
