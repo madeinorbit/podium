@@ -32,7 +32,7 @@ export async function persistVpsActivation(
   const snapshot = await trpc.layout.set.mutate({ values: { [VPS_LAYOUT_KEY]: serialized } })
   const confirmed = parseVpsActivationValue(snapshot[VPS_LAYOUT_KEY])
   if (!confirmed || serializeVpsActivation(confirmed) !== serialized) {
-    throw new Error('The server did not confirm VPS activation progress. Transfer was not started.')
+    throw new Error('The server did not confirm VPS setup progress.')
   }
   return confirmed
 }
@@ -49,15 +49,6 @@ export async function clearVpsActivation(trpc: Pick<Trpc, 'layout'>): Promise<vo
   if (snapshot[VPS_LAYOUT_KEY] !== undefined) {
     throw new Error('The server did not confirm that VPS activation was complete.')
   }
-}
-
-/** The hard transfer fence: the mutation cannot run until the durable route write resolves. */
-export async function startAfterVpsPersistence(
-  persist: () => Promise<unknown>,
-  startTransfer: () => Promise<void>,
-): Promise<void> {
-  await persist()
-  await startTransfer()
 }
 
 /**
@@ -168,7 +159,7 @@ export function useConfirmedVpsActivation(trpc: Trpc): ConfirmedVpsActivation {
           await clearVpsActivation(trpc)
           setOverride({ value: null })
           setAuthoritative(null)
-          setReadyTransport(trpc)
+          setReadyTransport(() => trpc)
         } catch (cause) {
           const message = cause instanceof Error ? cause.message : String(cause)
           setError(message)

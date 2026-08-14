@@ -88,6 +88,7 @@ export const HTML_MODE_MAP_KEY = UI_STATE_KEYS.htmlmode
 export const MD_MODE_MAP_KEY = UI_STATE_KEYS.mdmode
 export const ISSUES_DISPLAY_KEY = UI_STATE_KEYS.issuesDisplay
 export const ONBOARDING_VPS_KEY = UI_STATE_KEYS.onboardingVps
+export const ONBOARDING_VPS_SERVER_DRAFT_KEY = 'podium.onboarding.vpsServerDraft'
 
 export type WorkspaceUiStateKey = (typeof UI_STATE_KEYS)[keyof typeof UI_STATE_KEYS]
 
@@ -227,6 +228,8 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   /** Device-topology drafts for connecting this desktop to an existing Podium. */
   'podium.existingPodium.clientDraft',
   'podium.existingPodium.machineDraft',
+  /** URL printed by a new VPS while this desktop is connecting to it for the first time. */
+  'podium.onboarding.vpsServerDraft',
   /** Project, agent, model, effort, and prompt for first-task activation. */
   'podium.firstTaskActivation.draft',
 ] as const

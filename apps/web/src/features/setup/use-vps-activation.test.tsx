@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
-import { asMachineId } from '@podium/model'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
-import { serializeVpsActivation, vpsIntroState, vpsTransferState } from './vps-activation'
+import { serializeVpsActivation, vpsIntroState } from './vps-activation'
 
 vi.mock('@/lib/use-persisted-ui-state', () => ({
   usePersistedUiValue: () => null,
@@ -36,16 +35,8 @@ function trpcWithLayoutGet(query: () => Promise<Record<string, unknown>>): Trpc 
 
 describe('confirmed VPS activation hydration', () => {
   it('gates stale source state while a replacement transport restores its checkpoint', async () => {
-    const source = vpsTransferState(vpsIntroState('welcome'), {
-      machineId: asMachineId('source-vps'),
-      name: 'Source VPS',
-      publicUrl: 'https://source.example.com',
-    })
-    const destination = vpsTransferState(vpsIntroState('local-project'), {
-      machineId: asMachineId('destination-vps'),
-      name: 'Destination VPS',
-      publicUrl: 'https://destination.example.com',
-    })
+    const source = vpsIntroState('welcome')
+    const destination = vpsIntroState('local-project')
     const pendingDestination = deferred<Record<string, unknown>>()
     const sourceTrpc = trpcWithLayoutGet(async () => ({
       'onboarding.vps': serializeVpsActivation(source),

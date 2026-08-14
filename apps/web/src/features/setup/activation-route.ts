@@ -16,8 +16,6 @@ export type ActivationRoute =
   | 'existing-client'
   | 'existing-machine'
   | 'vps-intro'
-  | 'vps-pairing'
-  | 'vps-transfer'
 
 export type ActivationState = {
   route: ActivationRoute
@@ -38,9 +36,7 @@ function isActivationRoute(value: string | null): value is ActivationRoute {
     value === 'existing-podium' ||
     value === 'existing-client' ||
     value === 'existing-machine' ||
-    value === 'vps-intro' ||
-    value === 'vps-pairing' ||
-    value === 'vps-transfer'
+    value === 'vps-intro'
   )
 }
 
@@ -80,6 +76,38 @@ export function isActivationEligible({
   return (
     loaded &&
     ((repoCount === 0 && sessionCount === 0) || hasActivationCheckpoint || hasVpsCheckpoint)
+  )
+}
+
+/**
+ * A native desktop that has just connected to a brand-new remote authority has already made its
+ * topology choice. Continue at project intake instead of showing the server-choice screen again.
+ */
+export function shouldStartRemoteClientAtProjects({
+  launchMode,
+  loaded,
+  repoCount,
+  sessionCount,
+  route,
+  hasActivationCheckpoint,
+  hasVpsCheckpoint,
+}: {
+  launchMode: string | undefined
+  loaded: boolean
+  repoCount: number
+  sessionCount: number
+  route: ActivationRoute
+  hasActivationCheckpoint: boolean
+  hasVpsCheckpoint: boolean
+}): boolean {
+  return (
+    launchMode === 'client' &&
+    loaded &&
+    repoCount === 0 &&
+    sessionCount === 0 &&
+    route === 'welcome' &&
+    !hasActivationCheckpoint &&
+    !hasVpsCheckpoint
   )
 }
 

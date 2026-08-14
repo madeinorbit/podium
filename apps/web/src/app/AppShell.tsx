@@ -11,7 +11,11 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { ActivationResumeBar } from '@/features/setup/ActivationShell'
-import { hasActivationState, isActivationEligible } from '@/features/setup/activation-route'
+import {
+  hasActivationState,
+  isActivationEligible,
+  shouldStartRemoteClientAtProjects,
+} from '@/features/setup/activation-route'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
@@ -21,6 +25,7 @@ import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { useFeature } from '@/lib/use-feature'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
@@ -282,6 +287,17 @@ function AppBody(): JSX.Element {
   } = useActivationRoute()
   const vpsActivation = useConfirmedVpsActivation(trpc)
   const hasActivationCheckpoint = hasActivationState(window.location.search)
+  const shouldContinueRemoteActivation =
+    vpsActivation.ready &&
+    shouldStartRemoteClientAtProjects({
+      launchMode: nativeDesktopBridge()?.launchMode,
+      loaded: reposLoaded,
+      repoCount: repos.length,
+      sessionCount: sessions.length,
+      route: activationState.route,
+      hasActivationCheckpoint,
+      hasVpsCheckpoint: vpsActivation.state !== null,
+    })
   const activationEligible = isActivationEligible({
     loaded: reposLoaded,
     repoCount: repos.length,
@@ -294,8 +310,11 @@ function AppBody(): JSX.Element {
   const activationResumeVisible =
     activationEligible && (activationState.mode === 'exploring' || !workspaceActive)
 
-  // Desktop transfer retargeting can arrive on a clean destination URL. The replicated VPS
-  // checkpoint is authoritative in that case; reconstruct the exact nested route it names.
+  useEffect(() => {
+    if (shouldContinueRemoteActivation) reconcileActivation('local-project')
+  }, [reconcileActivation, shouldContinueRemoteActivation])
+
+  // A durable setup checkpoint may arrive after the URL; reconstruct the route it names.
   useEffect(() => {
     if (
       activationEligible &&

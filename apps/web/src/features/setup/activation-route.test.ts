@@ -5,6 +5,7 @@ import {
   hasActivationState,
   isActivationEligible,
   readActivationState,
+  shouldStartRemoteClientAtProjects,
 } from './activation-route'
 
 describe('activation route persistence', () => {
@@ -26,10 +27,12 @@ describe('activation route persistence', () => {
     })
   })
 
-  it('restores every nested VPS route exactly', () => {
-    for (const route of ['vps-intro', 'vps-pairing', 'vps-transfer'] as const) {
-      expect(readActivationState(`?activation=${route}`)).toEqual({ route, mode: 'active' })
-    }
+  it('restores the VPS-first route and retires obsolete transfer subroutes', () => {
+    expect(readActivationState('?activation=vps-intro')).toEqual({
+      route: 'vps-intro',
+      mode: 'active',
+    })
+    expect(readActivationState('?activation=vps-transfer')).toEqual(DEFAULT_ACTIVATION_STATE)
   })
 
   it('restores every existing-install route exactly, including while exploring', () => {
@@ -111,5 +114,25 @@ describe('activation route persistence', () => {
         hasVpsCheckpoint: false,
       }),
     ).toBe(true)
+  })
+
+  it('continues a fresh native client at remote project intake', () => {
+    const freshClient = {
+      launchMode: 'client',
+      loaded: true,
+      repoCount: 0,
+      sessionCount: 0,
+      route: 'welcome' as const,
+      hasActivationCheckpoint: false,
+      hasVpsCheckpoint: false,
+    }
+    expect(shouldStartRemoteClientAtProjects(freshClient)).toBe(true)
+    expect(shouldStartRemoteClientAtProjects({ ...freshClient, launchMode: 'all-in-one' })).toBe(
+      false,
+    )
+    expect(shouldStartRemoteClientAtProjects({ ...freshClient, repoCount: 1 })).toBe(false)
+    expect(
+      shouldStartRemoteClientAtProjects({ ...freshClient, hasActivationCheckpoint: true }),
+    ).toBe(false)
   })
 })

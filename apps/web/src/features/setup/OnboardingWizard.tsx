@@ -8,10 +8,10 @@ import {
 } from './ActivationShell'
 import type { ActivationRoute } from './activation-route'
 import { ExistingPodiumActivation, isExistingPodiumRoute } from './ExistingPodiumActivation'
-import { GuidedVpsActivation } from './GuidedVpsActivation'
 import { FirstTaskActivation } from './FirstTaskActivation'
 import { RepoScanFlow } from './RepoScanFlow'
 import type { ConfirmedVpsActivation } from './use-vps-activation'
+import { VpsFirstActivation } from './VpsFirstActivation'
 import { isVpsActivationRoute, type VpsReturnRoute } from './vps-activation'
 
 /**
@@ -53,11 +53,12 @@ export function OnboardingWizard({
 
   if (isVpsActivationRoute(route)) {
     return (
-      <GuidedVpsActivation
-        route={route}
+      <VpsFirstActivation
+        trpc={trpc}
         vps={vps}
         onRouteChange={onRouteChange}
         onExplore={onExplore}
+        onConfigured={onConnectionConfigured}
       />
     )
   }

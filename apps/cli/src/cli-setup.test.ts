@@ -4,7 +4,13 @@ import { join } from 'node:path'
 import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { repairConfig, runCliSetup, runJoinSetup, shouldRunCliSetup } from './cli-setup'
+import {
+  repairConfig,
+  runCliSetup,
+  runJoinSetup,
+  runVpsSetup,
+  shouldRunCliSetup,
+} from './cli-setup'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -57,6 +63,67 @@ describe('runCliSetup', () => {
   }
 
   describe('first run (mode menu)', () => {
+    it('sets up a fresh VPS directly as all-in-one without asking topology or telemetry', async () => {
+      const prompts: string[] = []
+      let index = 0
+      const answers = ['1', 'https://vps.ts.net', 's3cret', '']
+      const startBackend = vi.fn(async () => ({
+        effectivePersistence: 'systemd' as const,
+        message: 'started',
+      }))
+
+      await runVpsSetup(
+        {
+          prompt: async (question) => {
+            prompts.push(question)
+            return answers[index++] ?? ''
+          },
+          print: () => {},
+        },
+        18787,
+        { setPassword: vi.fn(async () => {}), startBackend },
+      )
+
+      expect(prompts).not.toContain('Choose (blank to cancel): ')
+      expect(prompts.some((prompt) => prompt.includes('telemetry'))).toBe(false)
+      expect(loadConfig()).toMatchObject({
+        mode: 'all-in-one',
+        publicUrl: 'https://vps.ts.net',
+        persistence: 'systemd',
+      })
+      expect(startBackend).toHaveBeenCalledWith({
+        persistence: 'systemd',
+        mode: 'all-in-one',
+        port: 18787,
+      })
+    })
+
+    it('restarts once against the effective config when systemd falls back to detached', async () => {
+      const answers = ['1', 'https://vps.ts.net', 's3cret', '']
+      let index = 0
+      const startBackend = vi
+        .fn()
+        .mockResolvedValueOnce({ effectivePersistence: 'detached', message: 'fallback' })
+        .mockResolvedValueOnce({ effectivePersistence: 'detached', message: 'ready' })
+
+      await runVpsSetup({ prompt: async () => answers[index++] ?? '', print: () => {} }, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend,
+      })
+
+      expect(startBackend).toHaveBeenNthCalledWith(1, {
+        persistence: 'systemd',
+        mode: 'all-in-one',
+        port: 18787,
+      })
+      expect(startBackend).toHaveBeenNthCalledWith(2, {
+        persistence: 'detached',
+        mode: 'all-in-one',
+        port: 18787,
+      })
+      expect(loadConfig().persistence).toBe('detached')
+    })
+
     it('host a server here (all-in-one) → set URL then password', async () => {
       const setPw = vi.fn(async () => {})
       await run(['1', '1', 'https://box.ts.net', 's3cret', 'n'], setPw)

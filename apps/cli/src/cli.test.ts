@@ -106,6 +106,14 @@ describe('ordinary local setup inference', () => {
 })
 
 describe('resolvePlan — launch matrix', () => {
+  it('routes fresh VPS setup only through an interactive terminal', () => {
+    expect(plan({}, ['setup', '--vps'], {}, true)).toEqual({
+      kind: 'interactive-vps-setup',
+      port: 18787,
+    })
+    expect(plan({}, ['setup', '--vps'])).toMatchObject({ kind: 'usage-error' })
+  })
+
   it('systemd-recorded box, bare invocation → start both units (all-in-one)', () => {
     expect(plan({ mode: 'all-in-one', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',

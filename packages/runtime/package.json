@@ -17,6 +17,7 @@
     "./crash-store": "./src/crash-store.ts",
     "./join": "./src/join.ts",
     "./setup": "./src/setup.ts",
+    "./vps-bootstrap": "./src/vps-bootstrap.ts",
     "./transfer-lifecycle": "./src/transfer-lifecycle.ts",
     "./loop-metrics": "./src/loop-metrics.ts",
     "./task-attribution": "./src/task-attribution.ts",

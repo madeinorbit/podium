@@ -261,6 +261,7 @@ async function persistenceStep(
   port: number,
   mode: HostMode | 'daemon',
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
+  options: { activateImmediately?: boolean } = {},
 ): Promise<void> {
   const ans = (
     (await io.prompt('\nKeep Podium running as a systemd service (survives reboot)? [Y/n]: ')) ?? ''
@@ -268,8 +269,18 @@ async function persistenceStep(
     .trim()
     .toLowerCase()
   const wantSystemd = ans === '' || ans === 'y' || ans === 'yes'
-  const res = await startBackend({ persistence: wantSystemd ? 'systemd' : 'detached', mode, port })
+  const requestedPersistence = wantSystemd ? 'systemd' : 'detached'
+  // A new VPS must boot against its final config, otherwise `/readiness` correctly reports that
+  // the server still needs a restart. Record the requested value before its first process starts.
+  // If systemd is unavailable and the engine falls back, restart the detached stack once after
+  // recording that effective value so the one-command onboarding path still finishes ready.
+  if (options.activateImmediately) savePersistence(requestedPersistence)
+  let res = await startBackend({ persistence: requestedPersistence, mode, port })
   savePersistence(res.effectivePersistence)
+  if (options.activateImmediately && res.effectivePersistence !== requestedPersistence) {
+    res = await startBackend({ persistence: res.effectivePersistence, mode, port })
+    savePersistence(res.effectivePersistence)
+  }
   io.print(res.message)
 }
 
@@ -318,6 +329,7 @@ async function hostStep(
   mode: HostMode,
   setPassword: (password: string) => Promise<void>,
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
+  options: { askTelemetry?: boolean; activateImmediately?: boolean } = {},
 ): Promise<void> {
   const publicUrl = await reachabilityStep(io, port, mode, { save: false })
   if (!publicUrl) return
@@ -327,12 +339,38 @@ async function hostStep(
   }
   saveConfig({ ...loadConfig(), mode, publicUrl })
   io.print(`\nSaved. This instance is reachable at ${publicUrl}.`)
-  await persistenceStep(io, port, mode, startBackend)
+  await persistenceStep(io, port, mode, startBackend, {
+    activateImmediately: options.activateImmediately,
+  })
   // LAST, deliberately (step 8): the backend is already running and the install
   // already works, so this question can be abandoned at no cost [spec:SP-f933].
   // The backend being up first is why consent must be read fresh at flush (D9) —
   // and that is the right behavior independently.
-  await telemetryStep(io)
+  if (options.askTelemetry !== false) await telemetryStep(io)
+}
+
+/**
+ * Fresh-VPS setup used by desktop onboarding. This is intentionally NOT the reconfiguration menu:
+ * the machine is a new all-in-one Podium authority, so topology is already decided. Reachability,
+ * login protection, and persistence remain because they are required for a safe usable server.
+ * Telemetry stays in the desktop activation finish screen instead of being asked twice.
+ */
+export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
+  const inspection = inspectConfig()
+  if (inspection.state === 'corrupt') {
+    io.print(`Your config file (${configPath()}) exists but is invalid: ${inspection.error}`)
+    io.print('Refusing to set up over it. Fix the file, or run `podium setup --repair`.')
+    return
+  }
+  io.print('Set up this VPS as your always-on Podium.')
+  await hostStep(
+    io,
+    port,
+    'all-in-one',
+    deps.setPassword ?? realSetPassword,
+    deps.startBackend ?? startBackendEngine,
+    { askTelemetry: false, activateImmediately: true },
+  )
 }
 
 /** Daemon mode: paste the one-line join code (it carries the server URL + pairing code), then

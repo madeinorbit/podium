@@ -166,6 +166,7 @@ export type LaunchPlan =
   /** Malformed invocation: print `message` to stderr and exit 2. */
   | { kind: 'usage-error'; message: string }
   | { kind: 'interactive-setup'; port: number; reason: 'explicit' | 'first-run' }
+  | { kind: 'interactive-vps-setup'; port: number }
   | { kind: 'client'; serverUrl: string | undefined }
   /** Headless-managed install: this box runs the backend as INDEPENDENT processes.
    *  `mode` and `port` travel with the plan because ENSURING the split is up may
@@ -505,6 +506,19 @@ export function resolvePlan(
     }
     return { kind: 'join-setup', token, persistence, port }
   }
+  // Fresh desktop onboarding already decided the topology: this VPS becomes the standalone
+  // all-in-one authority. Keep it out of the generic reconfiguration menu.
+  if (argv[0] === 'setup' && argv.includes('--vps')) {
+    if (argv.length !== 2) {
+      return { kind: 'usage-error', message: 'usage: podium setup --vps' }
+    }
+    return tty
+      ? { kind: 'interactive-vps-setup', port }
+      : {
+          kind: 'usage-error',
+          message: 'podium setup --vps requires an interactive terminal (run it over SSH)',
+        }
+  }
   if (argv[0] === 'issue') return { kind: 'issue', args: argv.slice(1) }
   if (argv[0] === 'session') return { kind: 'session', args: argv.slice(1) }
   if (argv[0] === 'mail') return { kind: 'mail', args: argv.slice(1) }
@@ -656,6 +670,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '',
     'Setup & config:',
     '  setup                 Interactive setup (TTY) or serve the web setup UI',
+    '  setup --vps           Set up a new always-on VPS (interactive SSH)',
     '  setup --repair        Back up an invalid config.json',
     '  setup --join <TOKEN> [--persist systemd|detached]',
     '                        Non-interactive join to a server',
@@ -1399,6 +1414,14 @@ export async function main(
       const { createInterface } = await import('node:readline/promises')
       const rl = createInterface({ input: process.stdin, output: process.stdout })
       await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
+      rl.close()
+      return
+    }
+    case 'interactive-vps-setup': {
+      const { runVpsSetup } = await import('./cli-setup')
+      const { createInterface } = await import('node:readline/promises')
+      const rl = createInterface({ input: process.stdin, output: process.stdout })
+      await runVpsSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
       rl.close()
       return
     }
