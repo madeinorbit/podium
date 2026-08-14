@@ -169,11 +169,29 @@ describe('server specs carry their security posture', () => {
     expect(server.value.requiresPerSessionSecret).toBe(true)
   })
 
-  it('needs no secret for Codex, because a 0600 unix socket already authenticates', () => {
+  it('needs no secret for Codex, because an inherited pipe has no other end to reach', () => {
+    /**
+     * THE POSTURE IS THE SAME; THE MECHANISM IS NOT WHAT W1 EXPECTED (POD-2024).
+     *
+     * W1 declared `unix-socket` and justified the absent secret with "a 0600
+     * socket already authenticates". W6 measured the pinned binary and found
+     * that socket is not the client surface at all: `codex app-server --listen
+     * unix://PATH` does create one at 0600, and it CLOSES THE CONNECTION on a
+     * JSON-RPC `initialize` — including through codex's own `app-server proxy
+     * --sock` bridge. Codex's own log calls it the app-server CONTROL socket,
+     * and `app-server daemon` puts one at a fixed, machine-global path for
+     * `daemon version`/`stop` to speak.
+     *
+     * The client channel is the child's inherited stdio, which reaches the same
+     * conclusion by a stronger route: there is no filesystem object to find, no
+     * port, no mode bits to get wrong, and no name by which a process that did
+     * not fork the child could reach it. So `requiresPerSessionSecret: false`
+     * survives the correction — for a better reason than the one it shipped with.
+     */
     const server = AGENT_MANIFESTS.codex.runtime.server
     expect(server.supported).toBe(true)
     if (!server.supported) return
-    expect(server.value.transport).toBe('unix-socket')
+    expect(server.value.transport).toBe('stdio')
     expect(server.value.requiresPerSessionSecret).toBe(false)
   })
 
@@ -189,19 +207,34 @@ describe('server specs carry their security posture', () => {
      * W5 landed opencode's, so its range is now `supported` and the evidence is
      * `packages/agent-runtime/src/drivers/opencode/__fixtures__` — frames
      * recorded from a live 1.18.16, replayed by `protocol.test.ts`, and enforced
-     * at runtime by `gateOpencodeVersion`. Codex has no driver yet, so it must
-     * still decline, and this test is what keeps a future item from pinning a
-     * range ahead of the fixtures that justify it.
+     * at runtime by `gateOpencodeVersion`.
+     *
+     * W6 has now landed codex's, so BOTH sides of the rule are satisfied rather
+     * than one being the negative case (POD-2024). Its evidence is
+     * `drivers/codex/__fixtures__` — frames recorded from a live 0.147.0
+     * app-server, replayed by that driver's `protocol.test.ts`, and enforced at
+     * runtime by `gateCodexVersion`. The pin is deliberately NARROW (two minors)
+     * because codex is pre-1.0 and has renamed app-server approval methods
+     * before, and a wrong method name there does not error: the approval simply
+     * never arrives and the session hangs on its first tool call.
+     *
+     * THE RULE THIS TEST ENFORCES IS UNCHANGED — a range may be `supported` only
+     * where recorded fixtures justify it. What it can no longer do is catch a
+     * range pinned ahead of its fixtures by asserting codex declines, because
+     * codex no longer declines. That guard now lives where it can still bite:
+     * each driver's own fixture test, which fails if the recorded frames stop
+     * parsing with the schemas the driver ships.
      */
     const codex = AGENT_MANIFESTS.codex.runtime.server
     expect(codex.supported).toBe(true)
     if (codex.supported) {
-      expect(codex.value.versionRange.supported).toBe(false)
-      // Assert a reason EXISTS, not what it says. Pinning the prose would break
-      // this test when W6 rewords it while pinning the range, which is the
-      // opposite of what it should react to.
-      if (!codex.value.versionRange.supported) {
-        expect(codex.value.versionRange.reason.length).toBeGreaterThan(0)
+      expect(codex.value.versionRange.supported).toBe(true)
+      // Assert a range EXISTS, not what it says. Pinning the prose would break
+      // this test on every re-record, which is the opposite of what it should
+      // react to — the fixtures are what make the number true, and they have
+      // their own test.
+      if (codex.value.versionRange.supported) {
+        expect(codex.value.versionRange.value.length).toBeGreaterThan(0)
       }
     }
 
