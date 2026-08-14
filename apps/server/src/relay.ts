@@ -1772,17 +1772,24 @@ export class SessionRegistry {
     })
     // Commands are assembled immediately before Shipping, but handlers run only
     // after construction. Bind the narrow service port through one initialized-
-    // once cell instead of making either module construct the other.
-    let shipping!: ShippingService
+    // once cell instead of making either module construct the other. The cell
+    // is a declaration like any other, so the audit still orders this edge —
+    // a definite-assignment `!` would have hidden it (POD-1411).
+    const shippingCell: { current?: ShippingService } = {}
+    const shippingPort = (): ShippingService => {
+      const service = shippingCell.current
+      if (!service) throw new Error('shipping port used before the service was constructed')
+      return service
+    }
     const issueCommands = new IssueCommandDispatcher({
       arbitration: issueArbitration,
       attachSession: (caller, input) => issueAttach.execute(caller, input),
       issues,
       shipping: {
-        enqueueCurrent: (input) => shipping.enqueueCurrent(input),
-        resolveHold: (input) => shipping.resolveHold(input),
-        cancel: (input) => shipping.cancel(input),
-        deliveryReceipt: (input) => shipping.deliveryReceipt(input),
+        enqueueCurrent: (input) => shippingPort().enqueueCurrent(input),
+        resolveHold: (input) => shippingPort().resolveHold(input),
+        cancel: (input) => shippingPort().cancel(input),
+        deliveryReceipt: (input) => shippingPort().deliveryReceipt(input),
       },
       deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
       restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
@@ -1928,7 +1935,7 @@ export class SessionRegistry {
       },
       applyPatch: shipwrightApplyPatchThroughRelay(rpc),
     })
-    shipping = new ShippingService({
+    const shipping = new ShippingService({
       repository: this.store.shipping,
       issues: {
         get: (id) => {
@@ -2157,12 +2164,13 @@ export class SessionRegistry {
           { ref: `refs/heads/${issue.branch}` },
           machineId,
         )
-        if (!result.ok || !result.output.trim()) {
+        const tip = result.ok ? result.output.trim().split(/\s+/)[0] : undefined
+        if (!tip) {
           throw new Error(
             `could not freeze ${issue.displayRef ?? issue.id} branch tip: ${result.output}`,
           )
         }
-        return result.output.trim().split(/\s+/)[0]!
+        return tip
       },
       resolveRefTip: async (issue, ref) => {
         const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
@@ -2172,10 +2180,11 @@ export class SessionRegistry {
           { ref: `refs/heads/${ref}` },
           machineId,
         )
-        if (!result.ok || !result.output.trim()) {
+        const tip = result.ok ? result.output.trim().split(/\s+/)[0] : undefined
+        if (!tip) {
           throw new Error(`could not freeze target ${ref}: ${result.output}`)
         }
-        return result.output.trim().split(/\s+/)[0]!
+        return tip
       },
       isAncestor: async (issue, ancestorSha, descendantSha) => {
         const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
@@ -2200,6 +2209,8 @@ export class SessionRegistry {
         } catch {}
       },
     })
+    // Close the late-bound edge the command dispatcher above reaches through.
+    shippingCell.current = shipping
     this.shipping = shipping
     this.bus.on('machine.connected', () => {
       void shipping
