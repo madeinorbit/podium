@@ -57,6 +57,9 @@ UPDATE `ship_train_manifests`
        `lane_revision` = COALESCE(`lane_revision`, 1),
        `validation_profile_digest` = COALESCE(`validation_profile_digest`, '0000000000000000000000000000000000000000000000000000000000000000'),
        `member_count` = COALESCE(`member_count`, (SELECT COUNT(*) FROM `ship_train_members` tm WHERE tm.`train_id` = `ship_train_manifests`.`id`));--> statement-breakpoint
+DROP TRIGGER `ship_train_members_final_leader`;--> statement-breakpoint
+DROP TRIGGER `ship_train_active_claims_insert_guard`;--> statement-breakpoint
+DROP TRIGGER `ship_train_active_claims_release_guard`;--> statement-breakpoint
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
 CREATE TABLE `__new_ship_train_manifests` (
 	`id` text PRIMARY KEY,
@@ -122,6 +125,18 @@ BEGIN SELECT RAISE(ABORT, 'ship train manifest is immutable except for one relea
 CREATE TRIGGER `ship_train_manifests_delete_immutable`
 BEFORE DELETE ON `ship_train_manifests`
 BEGIN SELECT RAISE(ABORT, 'ship train manifest history is immutable'); END;--> statement-breakpoint
+CREATE TRIGGER `ship_train_members_final_leader`
+AFTER INSERT ON `ship_train_members`
+WHEN NEW.`ordinal` + 1 = (SELECT `member_count` FROM `ship_train_manifests` WHERE `id` = NEW.`train_id`)
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM `ship_train_manifests` m
+     WHERE m.`id` = NEW.`train_id`
+       AND m.`leader_order_id` = NEW.`order_id`
+       AND m.`leader_attempt_id` = NEW.`attempt_id`
+       AND m.`leader_generation` = NEW.`generation`
+  ) THEN RAISE(ABORT, 'ship train final member must be its leader') END;
+END;--> statement-breakpoint
 CREATE TRIGGER `ship_orders_lane_custody_insert`
 BEFORE INSERT ON `ship_orders`
 WHEN NEW.`repo_path` IS NULL OR NEW.`machine_id` IS NULL
@@ -129,7 +144,6 @@ BEGIN SELECT RAISE(ABORT, 'new ship order requires frozen lane custody'); END;--
 CREATE TRIGGER `ship_orders_lane_custody_immutable`
 BEFORE UPDATE OF `repo_path`, `machine_id` ON `ship_orders`
 BEGIN SELECT RAISE(ABORT, 'ship order lane custody is immutable'); END;--> statement-breakpoint
-DROP TRIGGER `ship_train_active_claims_insert_guard`;--> statement-breakpoint
 CREATE TRIGGER `ship_train_active_claims_insert_guard`
 BEFORE INSERT ON `ship_train_active_claims`
 BEGIN
@@ -155,4 +169,10 @@ BEGIN
             AND generation_member.`generation` <= 0
        )
   ) THEN RAISE(ABORT, 'active train claim requires complete normalized leader authority') END;
+END;--> statement-breakpoint
+CREATE TRIGGER `ship_train_active_claims_release_guard`
+BEFORE DELETE ON `ship_train_active_claims`
+WHEN EXISTS (SELECT 1 FROM `ship_train_manifests` m WHERE m.`id` = OLD.`train_id` AND m.`released_at` IS NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'active train claims release manifest-wide only');
 END;
