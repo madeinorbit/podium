@@ -107,6 +107,11 @@ export function ResizableColumn({
   const rootRef = useRef<HTMLDivElement>(null)
   const collapseAnimation = useRef<Animation | null>(null)
   const wasOpen = useRef(open)
+  // A drawer surface must use the width the shell actually granted its root,
+  // not the persisted wish. The root can be narrower because of a responsive
+  // max-width or flex pressure; keeping `width` here makes a right-anchored
+  // surface disappear under its own left clip edge.
+  const [renderedWidth, setRenderedWidth] = useState(width)
   const reduceMotion = useReducedMotion()
   // Read through a ref so a fresh closure from the owner cannot re-run the
   // animation effect.
@@ -117,9 +122,8 @@ export function ResizableColumn({
   // over it for 280ms. Layout effect so the animation is attached in the same
   // frame the new width lands — a passive effect lets one frame paint open.
   //
-  // Deps carry `width` (a drag changes it), but the guard makes that a no-op:
-  // only a change in OPENNESS animates, never a resize, and never the first
-  // render — a drawer restored open on load is simply there.
+  // The guard means only a change in OPENNESS animates, never a resize and
+  // never the first render — a drawer restored open on load is simply there.
   useLayoutEffect(() => {
     if (wasOpen.current === open) return
     wasOpen.current = open
@@ -130,8 +134,18 @@ export function ResizableColumn({
       return
     }
     collapseAnimation.current?.cancel()
+    // On open, React has already committed the end-state root width. Read it
+    // before WAAPI paints the collapsed first frame, then hold that exact width
+    // inside the clip for the whole motion. On close the committed root is 0,
+    // so retain the last settled measurement.
+    const measuredOpenWidth = open ? root.getBoundingClientRect().width : 0
+    const animationWidth = measuredOpenWidth > 0 ? measuredOpenWidth : renderedWidth
+    if (measuredOpenWidth > 0) setRenderedWidth(measuredOpenWidth)
     const animation = root.animate(
-      [{ width: `${open ? 0 : width}px` }, { width: `${open ? width : 0}px` }],
+      [
+        { width: `${open ? 0 : animationWidth}px` },
+        { width: `${open ? animationWidth : 0}px` },
+      ],
       { duration: COLLAPSE_MS, easing: COLLAPSE_EASE, fill: 'both' },
     )
     collapseAnimation.current = animation
@@ -140,9 +154,35 @@ export function ResizableColumn({
     animation.onfinish = () => {
       animation.cancel()
       if (collapseAnimation.current === animation) collapseAnimation.current = null
-      if (!open) onCollapsedRef.current?.()
+      if (!open) {
+        onCollapsedRef.current?.()
+        return
+      }
+      // A viewport can change during the 280ms motion. Settle against the
+      // browser's final answer instead of retaining the opening-frame width.
+      const settledWidth = root.getBoundingClientRect().width
+      if (settledWidth > 0) setRenderedWidth(settledWidth)
     }
-  }, [open, width, reduceMotion])
+  }, [open, renderedWidth, reduceMotion])
+  // Outside the open/close motion, follow the root's USED width. This includes
+  // viewport caps, flex shrinkage, and pointer resizing. ResizeObserver is the
+  // boundary that knows the browser's resolved width; reading the saved pixel
+  // value again would recreate the clipping bug on narrow shells.
+  useLayoutEffect(() => {
+    if (!isDrawer || !open) return
+    const root = rootRef.current
+    if (!root) return
+    const measure = (): void => {
+      if (collapseAnimation.current) return
+      const next = root.getBoundingClientRect().width
+      if (next > 0) setRenderedWidth((current) => (current === next ? current : next))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [isDrawer, open, width])
   const onHandlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
     const handle = e.currentTarget
@@ -197,7 +237,7 @@ export function ResizableColumn({
         <div className="absolute inset-0 overflow-hidden">
           <div
             className={cn('absolute inset-y-0 flex', handleSide === 'right' ? 'left-0' : 'right-0')}
-            style={{ width }}
+            style={{ width: renderedWidth }}
           >
             {children}
           </div>

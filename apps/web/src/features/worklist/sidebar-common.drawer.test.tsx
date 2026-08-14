@@ -49,4 +49,34 @@ describe('ResizableColumn drawer anchoring', () => {
     expect(surface.classList.contains('left-0')).toBe(true)
     expect(surface.classList.contains('right-0')).toBe(false)
   })
+
+  it('fits the fixed drawer surface to the width the shell actually grants', () => {
+    const rects = vi
+      .spyOn(Element.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: Element): DOMRect {
+        const width = this.hasAttribute('data-resizable-column') ? 240 : 0
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          right: width,
+          bottom: 600,
+          left: 0,
+          width,
+          height: 600,
+          toJSON: () => ({}),
+        }
+      })
+
+    try {
+      const surface = renderDrawer('left')
+
+      // The saved/default width is 316px, but a responsive shell may resolve
+      // the root smaller. The right-anchored surface must shrink with that
+      // settled root or its leading content is clipped off-screen.
+      expect(surface.style.width).toBe('240px')
+    } finally {
+      rects.mockRestore()
+    }
+  })
 })
