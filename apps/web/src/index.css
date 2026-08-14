@@ -124,6 +124,11 @@
   --carve-drop: rgb(0 0 0 / 0.9);
   --carve-popover-far: rgb(0 0 0 / 0.65);
   --carve-popover-near: rgb(0 0 0 / 0.5);
+  /* The sheet's long cast used to borrow --carve-popover-far. It is a different
+     surface on a different tier, so it gets its own ink — otherwise retuning
+     popovers silently retunes the stage's elevation. Same value per theme as
+     the popover ink had before that split. */
+  --carve-sheet-far: rgb(0 0 0 / 0.65);
   --shadow-engraved:
     inset 3px 0 6px -3px var(--carve-engraved),
     inset -3px 0 6px -3px var(--carve-engraved),
@@ -146,7 +151,7 @@
   --shadow-sheet:
     0 0 0 1px color-mix(in srgb, var(--carve-drop) 70%, transparent),
     0 2px 4px color-mix(in srgb, var(--carve-drop) 50%, transparent),
-    0 20px 44px -20px var(--carve-popover-far);
+    0 20px 44px -20px var(--carve-sheet-far);
 
   /* The command bar's wells (POD-365) — same contract as --carve-*: the bevel
      GEOMETRY is constant, the two inks are not. A groove is a dark lip along the
@@ -230,6 +235,17 @@
   /* Issue-accent channel: components override --issue per shell subtree
      (style={{ '--issue': hex }}); default is the neutral slate flow. */
   --issue: var(--flow);
+}
+
+/* Popover ink, dark only. The `:root` carve values above are shared with light
+   presets that never overrode them, so the softer cast is scoped to `.dark`
+   rather than folded into the defaults. Geometry is untouched — this is the
+   same lift, printed with less black, because at 0.65 the cast read as a
+   second dark panel under the popover instead of a shadow. Each dark preset
+   that restates the carve ink restates this too. */
+.dark {
+  --carve-popover-far: rgb(0 0 0 / 0.45);
+  --carve-popover-near: rgb(0 0 0 / 0.32);
 }
 
 /* ── shadcn (Nova) preset — dark ────────────────────────────────────────────────── */
@@ -532,6 +548,7 @@
      smudge. 0.3 is the design's own value for the sheet's long cast. */
   --carve-popover-far: rgb(29 28 25 / 0.3);
   --carve-popover-near: rgb(29 28 25 / 0.12);
+  --carve-sheet-far: rgb(29 28 25 / 0.3);
 
   /* The wells, inverted for paper. On navy the groove's floor sits a hair ABOVE
      the bar because a recess catches ambient light against a near-black ground;
@@ -658,8 +675,11 @@
   --primary-rim: #f5c518;
   --carve-engraved: rgb(0 0 0 / 0.85);
   --carve-drop: rgb(0 0 0 / 0.9);
-  --carve-popover-far: rgb(0 0 0 / 0.65);
-  --carve-popover-near: rgb(0 0 0 / 0.5);
+  /* Softened with the shared dark ink above — this selector outranks `.dark`,
+     so leaving 0.65/0.5 here would keep the heavy cast on superade alone. */
+  --carve-popover-far: rgb(0 0 0 / 0.45);
+  --carve-popover-near: rgb(0 0 0 / 0.32);
+  --carve-sheet-far: rgb(0 0 0 / 0.65);
   /* The wells cut DOWNWARD now (rule 2). On navy the frame was the darkest thing
      in the window, so a groove had to sit ABOVE its bar to show at all; with the
      bar lifted to #1b1d21 the floor can go where a groove actually goes — the
