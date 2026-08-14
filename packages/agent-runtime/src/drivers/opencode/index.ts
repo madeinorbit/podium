@@ -64,6 +64,7 @@ export {
 } from './runtime.js'
 export {
   gateOpencodeVersion,
+  OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   type OpencodeVersion,
   type OpencodeVersionDiagnostic,
   parseOpencodeVersion,

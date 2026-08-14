@@ -39,7 +39,11 @@ import type { AddressInfo } from 'node:net'
 import { afterAll, describe, expect, it } from 'vitest'
 import authMatrix from './__fixtures__/auth-matrix.json'
 import { createOpencodeClient } from './client.js'
-import { gateOpencodeVersion, SUPPORTED_OPENCODE } from './version.js'
+import {
+  gateOpencodeVersion,
+  OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+  SUPPORTED_OPENCODE,
+} from './version.js'
 
 describe('spec §6 — the recorded refusal matrix from a real opencode', () => {
   it('was recorded from the version the driver pins', () => {
@@ -121,7 +125,12 @@ const liveRequested = process.env.PODIUM_OPENCODE_LIVE === '1'
 
 function opencodeVersion(): string | null {
   try {
-    return execFileSync('opencode', ['--version'], { encoding: 'utf8', timeout: 15_000 }).trim()
+    // The shared budget — a short one here makes this lane skip itself on a
+    // loaded box, which is the one failure mode an opt-in proof must not have.
+    return execFileSync('opencode', ['--version'], {
+      encoding: 'utf8',
+      timeout: OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+    }).trim()
   } catch {
     return null
   }

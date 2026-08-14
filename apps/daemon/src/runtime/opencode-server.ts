@@ -55,7 +55,11 @@ import type {
   OpencodeRuntimeHost,
   OpencodeServerEndpoint,
 } from '@podium/agent-runtime'
-import { gateOpencodeVersion, type OpencodeVersionDiagnostic } from '@podium/agent-runtime'
+import {
+  gateOpencodeVersion,
+  OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+  type OpencodeVersionDiagnostic,
+} from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
@@ -306,20 +310,9 @@ export function resetOpencodeVersionProbe(): void {
   versionVerdict = undefined
 }
 
-/**
- * How long to wait for `opencode --version`.
- *
- * SIXTY SECONDS, AND THAT IS NOT PARANOIA. POD-2056 measured this command at
- * 11–15s on the project's build host across three consecutive runs — the cost is
- * bun's startup for a ~180MB single-file bundle, it is CPU-bound, and warming
- * the page cache does not move it (run 3 was still 15.0s after two warm runs).
- * The old 15s budget therefore raced the thing it was measuring, and losing that
- * race silently turned an explicit server-driver override into a PTY session.
- *
- * The cost of a generous budget is paid ONCE per daemon, on the first spawn that
- * asks for this driver, and only when the answer is not already cached.
- */
-const VERSION_PROBE_TIMEOUT_MS = 60_000
+/** The shared probe budget — see `OPENCODE_VERSION_PROBE_TIMEOUT_MS` for the
+ *  measurement behind it and for why all three probe sites read one constant. */
+const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
 
 function defaultVersionProbe(): { output: string; ok: boolean } {
   const result = spawnSyncVersion()

@@ -132,3 +132,24 @@ export function gateOpencodeVersion(output: string): OpencodeVersionDiagnostic |
     observedVersion: version.raw,
   }
 }
+
+/**
+ * HOW LONG `opencode --version` MAY TAKE BEFORE WE GIVE UP ON IT.
+ *
+ * SIXTY SECONDS, AND IT IS A MEASUREMENT RATHER THAN A GUESS. POD-2056 timed
+ * this command at 11–15s on the project's build host across three consecutive
+ * runs: the cost is bun's startup for a ~180MB single-file bundle, it is
+ * CPU-bound, and warming the page cache does not move it. POD-2024 then measured
+ * codex's ~250MB binary at 26s. Any budget in the low tens of seconds is a race
+ * with the thing it is measuring.
+ *
+ * IT LIVES HERE, BESIDE THE GATE, SO IT CANNOT DRIFT. Three places probe this
+ * binary — the daemon, the opt-in §6 lane, and the acceptance e2e — and they
+ * had picked their own numbers. That is not a tidiness point: the daemon's
+ * too-short budget silently downgraded an explicit server-driver override to a
+ * PTY session, and the two TEST budgets did something worse, because a gating
+ * probe that times out makes the lane decide it cannot run and SKIP ITSELF. A
+ * green suite that quietly stopped testing the thing is the one failure mode an
+ * acceptance lane must not have.
+ */
+export const OPENCODE_VERSION_PROBE_TIMEOUT_MS = 60_000

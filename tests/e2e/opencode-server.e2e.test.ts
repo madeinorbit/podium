@@ -39,7 +39,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { gateOpencodeVersion } from '@podium/agent-runtime'
+import { gateOpencodeVersion, OPENCODE_VERSION_PROBE_TIMEOUT_MS } from '@podium/agent-runtime'
 import {
   readOrCreateDaemonSecret,
   readOrCreateLocalMachineId,
@@ -62,9 +62,14 @@ const hostMachineId = (): string => readOrCreateLocalMachineId()
 function drivableOpencode(): boolean {
   if (process.env.PODIUM_OPENCODE_LIVE !== '1') return false
   try {
+    // THE SHARED BUDGET, not a number picked here. A gating probe that times
+    // out makes this lane decide it cannot run and SKIP ITSELF — so a 15s budget
+    // against a command measured at 11–15s meant the acceptance lane opted out
+    // on exactly the loaded machines where it mattered most, and reported green
+    // while testing nothing.
     const version = execFileSync('opencode', ['--version'], {
       encoding: 'utf8',
-      timeout: 15_000,
+      timeout: OPENCODE_VERSION_PROBE_TIMEOUT_MS,
     }).trim()
     return gateOpencodeVersion(version) === null
   } catch {
