@@ -9,6 +9,11 @@ protocol to), an **embedded/resume-exec-style** driver, or does it stay **termin
 in the `server` family. (I make no claim about Cursor; it was not in scope.) This is a spec change
 only the coordinator can make — flagged as such, not made here.
 
+> **Status: actioned.** The coordinator amended the spec in `00d7310ba` — the row is split, grok now
+> reads "terminal today; server verified possible via ACP, driver deferred behind the opencode
+> pilot", the family blurb no longer calls grok a harness with "no server/SDK mode", and Cursor keeps
+> its own row flagged unverified.
+
 Probed against **grok 0.2.118 (1e1687c1cf) [stable]**, logged in via grok.com, Linux, 2026-08-13.
 Everything below marked "verified" was executed. Where I only read docs, or only saw a capability
 advertised without exercising it, it says so.
@@ -48,7 +53,7 @@ Driving `grok agent stdio` from a hand-written ACP client (`initialize` → `ses
 | **(a) Resume an existing session by id** | **Yes.** `SIGKILL` the process, start a fresh one, `session/load` the same id → **329 ms**, transcript replayed as `session/update` notifications, and the model still recalled the pre-kill codeword |
 | **(b) Structured permission asks + structured answers** | **Yes.** Server→client JSON-RPC request `session/request_permission`, carrying the tool call, a structured `rawInput`, and typed options. Answering it let the tool run |
 | **(c) Interrupt an in-flight turn** | **Yes.** `session/cancel` → the pending `session/prompt` returned `{stopReason: "cancelled"}` in **10 ms** |
-| **(d) Cursor-fenced updates** | **Yes.** Every notification carries `_meta.eventId` = `<sessionId>-<n>`, monotonic per session — a ready-made contract cursor. `updates.jsonl` offsets remain available as a second cursor |
+| **(d) Cursor-fenced updates** | **Yes, on the stream that matters.** `session/update` and `_x.ai/session/update` carry `_meta.eventId` = `<sessionId>-<n>`, monotonic per session — and the numbering **continues across process restart** (a resumed session ran `-2` → `-130` on a fresh process), which is exactly the durable-cursor property the contract needs. **Not universal**: ~10 `_x.ai/*` method families carry no cursor — see below. `updates.jsonl` offsets remain available as a second cursor |
 | **Turn receipt** | **Yes.** `session/prompt` *returns* `{stopReason: "end_turn"}` — a protocol-level receipt, not a heuristic. A grok ACP driver would never need the contract's `unverified` outcome |
 
 Captured traffic, permission request (elided for width):
@@ -65,6 +70,29 @@ Captured traffic, permission request (elided for width):
 answered with `{"outcome":{"outcome":"selected","optionId":"allow-once"}}`, after which the tool ran
 and the turn closed `end_turn`.
 
+Resume, after `SIGKILL`ing the first process and starting a fresh `grok agent stdio`:
+
+```json
+→ {"jsonrpc":"2.0","id":2,"method":"session/load",
+   "params":{"sessionId":"019ffd59-…","cwd":"/tmp/grok-probe-ws","mcpServers":[]}}
+← ok in 329 ms, then the transcript replays as session/update notifications
+  (hook_execution, user_message_chunk, tool_call, turn_completed,
+   available_commands_update, model_changed)
+```
+
+and the next `session/prompt` on that reloaded session still recalled the codeword written before
+the kill.
+
+Interrupt, sent as a notification while a long turn was streaming:
+
+```json
+→ {"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"019ffd59-…"}}
+← the pending session/prompt returns {"stopReason":"cancelled"} 10 ms later
+```
+
+corroborated on disk by `events.jsonl`:
+`{"type":"turn_ended","outcome":"cancelled","cancellation_category":"mid_turn_abort"}`.
+
 `agentCapabilities` from `initialize`: `loadSession: true`, `sessionCapabilities.list`,
 `mcpCapabilities: {http: true, sse: true}`, `promptCapabilities.embeddedContext: true` (no
 image/audio).
@@ -79,23 +107,39 @@ image/audio).
 auto-approve into prompting — **permission behaviour is settable per session over the protocol**,
 not just per config file. That matters: the driver controls it, not the user's `config.toml`.
 
+**Cursor caveat (driver authors read this).** `_meta.eventId` covers the `session/update` and
+`_x.ai/session/update` stream — the one that feeds the existing reducer — but it is *not* on every
+frame. In the reviewer's independent run, 93 of 123 notifications carried it; these families carried
+none: `_x.ai/mcp/servers_updated`, `_x.ai/mcp/init_progress`, `_x.ai/mcp_initialized`,
+`_x.ai/mcp/server_status`, `_x.ai/sessions/changed`, `_x.ai/queue/changed`, `_x.ai/models/update`,
+`_x.ai/announcements/update`, `_x.ai/session/prompt_complete`, and some `_x.ai/session_notification`.
+Cursor the session-update stream; treat the rest as uncursored side-channel.
+
 ### `grok agent serve` (WebSocket)
 
 Defaults to `127.0.0.1:2419`. `--secret` sets the token (env `GROK_AGENT_SECRET`); **if omitted the
 server generates one and prints it**. The banner prints the URL form, which is not documented
 elsewhere: `ws://127.0.0.1:<port>/ws?server-key=<secret>`.
 
-Auth is enforced — four connections tested against a live server:
+Auth is enforced — connections tested against a live server:
 
 | Attempt | Result |
 | --- | --- |
-| `/ws`, no key | **refused** |
-| `/ws?server-key=WRONG` | **refused** |
-| `Authorization: Bearer <secret>` on `/` | **refused** (query param is the only accepted form) |
-| `/ws?server-key=<correct>` | **connected**; ACP `initialize` returned the same capabilities as stdio |
+| `/ws`, no key | **refused** (401) |
+| `/ws?server-key=WRONG` | **refused** (401) |
+| `/ws?server-key=<correct>` | **connected** (101); ACP `initialize` returned the same capabilities as stdio |
+| `Authorization: Bearer <secret>` on `/ws` | **accepted** (101) — the query param is *not* the only form |
 
 So spec §6's connect-without-secret conformance test passes against grok's server mode **as
 shipped**, with no work on our side. Sequential reconnects handshake cleanly.
+
+> **Corrected after review.** My original probe tested the Bearer header against `/`, got a 404, and
+> concluded Bearer was refused. `/` 404s because that path does not exist — not because auth failed.
+> This report's reviewer tested Bearer against the real `/ws` endpoint and got HTTP 101: grok accepts
+> **both** the `server-key` query param and a Bearer header. The inverted conclusion had been staged
+> to enter `docs/agent-harness-reference/grok.md` via POD-2028; that brief has been corrected too.
+> This marginally softens the stdio-vs-serve contrast — it does not touch the "no port, no secret,
+> OS process isolation" argument stdio actually rests on, so the recommendation is unaffected.
 
 ### `grok agent leader` — available, deliberately rejected
 
@@ -138,6 +182,18 @@ one-off, and it bears directly on **W6 (Codex)**, which currently plans a bespok
 JSON-RPC client. Whether codex's ACP surface is first-party and equivalent to its app-server is a
 real question I did **not** investigate (out of scope: "anything about codex/opencode"). I flag it
 as a lead for the coordinator, not a conclusion.
+
+**Update from the review pass, and it matters for W6:** the public listings separate *native* ACP
+implementers (Gemini CLI, GitHub Copilot CLI, Goose, Cline, OpenHands, Mistral Vibe) from
+*adapter-based* ones — and **Codex CLI and Claude Code are adapter-based, not first-party**. So do
+not read the paragraph above as "codex ships an ACP server". The shared-substrate argument still
+holds for the genuinely native implementers; for codex specifically, W6's bespoke app-server client
+remains the right plan unless someone verifies the adapter is good enough.
+
+Release-notes sweep (checklist item 3, second half): **nothing found, which is itself the answer.**
+The local `~/.grok/CHANGELOG.md` at 0.2.118 (2026-07-31) contains no ACP, agent-mode, or leader
+entries at all — the agent modes predate the shipped changelog window, so release notes neither
+confirm nor date them. The `--help` surface and the bundled README are the load-bearing sources.
 
 One caution: ACP's own introduction notes "full support for remote agents is a work in progress",
 and grok layers private `_x.ai/*` extension methods over the core (`_x.ai/session/update`,
@@ -298,8 +354,11 @@ Filed as **POD-2028**.
    `session_summary_generated`, `pending_interaction`, `interaction_resolved`.
 3. **§8 "passive Stop output is ignored by Grok"** — contradicted by what `initialize` advertises
    (`blockingEvents` includes `stop`). Unverified either way; see POD-2026.
-4. **§2/§15 `agent serve`** — record the URL form `/ws?server-key=<secret>` (Bearer headers are
-   refused), and that omitting `--secret` **auto-generates and prints one** rather than disabling auth.
+4. **§2/§15 `agent serve`** — record the URL form `/ws?server-key=<secret>`, that an
+   `Authorization: Bearer <secret>` header on `/ws` is **also accepted**, and that omitting
+   `--secret` **auto-generates and prints one** rather than disabling auth. (An earlier draft of
+   this report claimed Bearer was refused; that was a bad probe against `/` and has been retracted —
+   see the note in §2. POD-2028's brief was corrected before anyone edited grok.md.)
 5. Minor drift: §1 verifies 0.2.101; §5's catalog (`grok-4.5` + `grok-composer-2.5-fast`) is now
    `grok-4.6` (default) + `grok-4.5`.
 
@@ -320,6 +379,22 @@ Answer any server→client `session/request_permission` with
 `{"outcome":{"outcome":"selected","optionId":"allow-once"}}`. Keep `fs` capabilities `false` or you
 will deadlock on `fs/read_text_file`. For the permission path, `session/set_mode {modeId:"default"}`
 first, or a config with `[ui] permission_mode = "auto"` will auto-approve and you will see nothing.
+
+For the two headline claims, extend that client rather than trusting the table:
+
+- **Resume** — `SIGKILL` the child, spawn a new `grok agent stdio`, `initialize` again, then
+  `session/load {sessionId, cwd, mcpServers: []}` with the *same* id, and prompt it for something
+  only the pre-kill turns established.
+- **Interrupt** — start a turn long enough to stream (a "write 3000 words" prompt works), wait a few
+  seconds, then write `session/cancel` as a **notification** (no `id`) and watch the pending
+  `session/prompt` resolve `cancelled`.
+
+Both were re-derived from scratch by this report's reviewer on an independently written client, with
+matching outcomes and the same order-of-magnitude timings (606 ms load, 23 ms cancel against my
+329 ms and 10 ms — machine noise, not disagreement).
+
+When testing `agent serve` auth, probe `/ws`, not `/` — `/` is not a route and 404s regardless of
+credentials. That mistake is what produced the retracted Bearer claim above.
 
 **Scope note.** Investigation only, per W7 — no implementation, no manifest changes, and nothing
 outside this document changed.
