@@ -1,4 +1,5 @@
 export * from './policy'
 export * from './projection'
 export * from './queue'
+export * from './repair-contract'
 export * from './service'
