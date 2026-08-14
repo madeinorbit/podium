@@ -9,8 +9,10 @@
  * matters is a mismatch between them.
  *
  * `dev+<sha7>` is the server's own convention (`apps/server/src/build-version.ts`)
- * and is greppable against `git log`; the app side is the Expo build-time
- * `EXPO_PUBLIC_APP_VERSION`, or `dev` when it has none to claim.
+ * and is greppable against `git log`. The app side is the same string, taken
+ * from the `<meta name="podium-version">` the phone's own build stamped into
+ * index.html (see `appVersion`) — so the two halves of the line are comparable
+ * currency rather than one real version beside a placeholder.
  */
 import { parseServerVersion } from '@podium/protocol'
 import { useCallback, useEffect, useRef, useState } from 'react'

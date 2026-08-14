@@ -43,18 +43,42 @@ import {
   type LogTransport,
 } from '@podium/client-core/logging'
 import { createLogger, type LogLevel } from '@podium/logger'
+import { PRODUCT_VERSION_META } from '@podium/protocol'
 
 /**
- * Build-time version, the same convention the server family uses
- * (`PODIUM_APP_VERSION` → `dev`). Expo inlines `EXPO_PUBLIC_*` at build time, so
- * a release build carries its version into every forwarded record and a dev
- * build says `dev` rather than claiming one it does not have.
+ * WHICH BUILD OF THE PHONE IS RUNNING — read off the page first, the environment
+ * second.
+ *
+ * `EXPO_PUBLIC_APP_VERSION` was the only source, and NOTHING IN THIS REPOSITORY
+ * EVER SET IT: not `build:web`, not the redeploy path, not CI. So every phone
+ * build reported `dev` — on the Pulse build stamp and in the `v` field of every
+ * forwarded log record — while the artefact it was running knew perfectly well
+ * what it was. `build:web` ends in `write-web-build-stamp.ts`, which injects
+ * `<meta name="podium-version">` into index.html exactly so a running page can
+ * answer this synchronously. Ask that first, the same way `apps/web` does
+ * (`pageBuildVersion`).
+ *
+ * THE ENV VAR IS STILL THE FALLBACK and still matters: a NATIVE build has no
+ * index.html to carry a meta tag, so there the inline is the only channel, and
+ * an unset one honestly reports `dev` rather than claiming a version it cannot
+ * substantiate.
  */
 declare const process: { env?: Record<string, string | undefined> } | undefined
 
-export function appVersion(): string {
-  if (typeof process === 'undefined') return 'dev'
-  return process.env?.EXPO_PUBLIC_APP_VERSION ?? 'dev'
+export function appVersion(
+  doc: Pick<Document, 'querySelector'> | undefined = typeof document === 'undefined'
+    ? undefined
+    : document,
+  declared: string | undefined = typeof process === 'undefined'
+    ? undefined
+    : process.env?.EXPO_PUBLIC_APP_VERSION,
+): string {
+  const stamped = doc
+    ?.querySelector(`meta[name="${PRODUCT_VERSION_META}"]`)
+    ?.getAttribute('content')
+    ?.trim()
+  if (stamped) return stamped
+  return declared?.trim() || 'dev'
 }
 
 /** The subset of React Native's `ErrorUtils` this module uses. */
