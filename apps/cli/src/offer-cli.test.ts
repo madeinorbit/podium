@@ -122,6 +122,18 @@ describe('podium offer CLI (behavior)', () => {
     })
   })
 
+  it('expands literal \\n sequences in the offer message into line breaks', async () => {
+    const c = client()
+    await runOfferCli(
+      ['--message', String.raw`Header ready\nReview the spacing.\r\nThen choose an action.`],
+      c,
+    )
+    expect(c.offer.set.mutate).toHaveBeenCalledWith({
+      message: 'Header ready\nReview the spacing.\nThen choose an action.',
+      actions: [],
+    })
+  })
+
   it('passes --artifact paths through to offer.set, omitting the key when none [POD-120]', async () => {
     const c = client()
     await runOfferCli(

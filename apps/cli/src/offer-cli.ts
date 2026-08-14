@@ -34,6 +34,13 @@ export interface OfferClient {
 
 export class OfferCliError extends Error {}
 
+/** Shell double quotes preserve `\n` as two characters. Accept that convenient
+ * spelling at the CLI boundary so offer messages reach every renderer with the
+ * real line breaks the offer contract describes. */
+function expandMessageNewlines(message: string): string {
+  return message.replace(/\\r\\n|\\n/g, '\n')
+}
+
 /** One action button parsed from a `--action`/`--action-input` token. */
 export interface ParsedAction {
   label: string
@@ -125,6 +132,7 @@ function helpText(): string {
     'and any user turn (including a button click) clears it.',
     '',
     '  --message "…"            The freeform message shown above the buttons (required to set).',
+    '                           A literal \\n starts a new line.',
     '  --action "Label::Prompt" A button: its label, then ::, then the prompt sent on click.',
     '                           Repeat --action for more buttons (up to 6).',
     '  --action-input "Label::Prompt"',
@@ -205,7 +213,7 @@ export async function runOfferCli(argv: string[], client: OfferClient): Promise<
   })
   const parsed = actions.map((a) => parseAction(a.token, a.input))
   const r = (await client.offer.set.mutate({
-    message: message.trim(),
+    message: expandMessageNewlines(message).trim(),
     actions: parsed,
     ...(artifactPaths.length > 0 ? { artifacts: artifactPaths } : {}),
   })) as {
