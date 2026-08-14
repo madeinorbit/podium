@@ -220,7 +220,11 @@ describe('shared issue view-model cache — incremental rebuild', () => {
     if (!evicted) throw new Error('fixture has no fourth issue')
     replica.applyChanges('issueProjections', [], [evicted.id])
     replica.applyChanges('issues', [], [evicted.id])
-    const after = allIssueViewModels(replica, replica.rows('issueProjections'), replica.rows('issues'))
+    const after = allIssueViewModels(
+      replica,
+      replica.rows('issueProjections'),
+      replica.rows('issues'),
+    )
 
     expect(after).toHaveLength(COUNT - 1)
     expect(after.some((model) => model.id === evicted.id)).toBe(false)

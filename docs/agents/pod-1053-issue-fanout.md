@@ -104,6 +104,11 @@ below.
 
 ## What is left, and why it is not in this issue
 
+> **Done, on POD-1055** — `docs/agents/pod-1055-issue-view-identity.md`. The
+> derivation still runs whole; what changed is that it hands an unchanged issue
+> back its previous `IssueView`, so the per-row reuse below applies to the echo
+> too. Echo view models 29.8 ms → 10.8 ms; whole press ~61 ms → ~39 ms.
+
 **The replica-derived snapshot is still rebuilt whole on any replica write.**
 `deriveIssueViewsSnapshot` re-derives every `IssueView` when a single issue row
 echoes back, so every model must be rebuilt (and then deep-compared back to its

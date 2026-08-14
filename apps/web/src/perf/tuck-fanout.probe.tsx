@@ -296,9 +296,9 @@ describe('tuck fan-out probe', () => {
       // work — a row moved, so the sidebar has to be re-laid out.
       paintModelsMsMedian: round(median(paintModels)),
       paintSliceMsMedian: round(median(paintSlice)),
-      // The echo: the replica-derived world rebuilds (still O(project) — see the
-      // deferred note in docs/agents/pod-1053-issue-fanout.md), but the slice
-      // sees that nothing moved and skips entirely.
+      // The echo: the replica-derived world is re-derived whole, but POD-1055
+      // hands each unchanged issue back its previous `IssueView`, so the models
+      // reuse row by row and the slice sees that nothing moved and skips.
       echoModelsMsMedian: round(median(echoModels)),
       echoSliceMsMedian: round(median(echoSlice)),
       pressMsMedian: round(

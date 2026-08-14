@@ -239,10 +239,14 @@ describe('per-issue view identity across passes [POD-1055]', () => {
     expect(second.get('b')).toBe(first.get('b'))
   })
 
-  it("moves ONLY the issue whose own value moved", () => {
+  it('moves ONLY the issue whose own value moved', () => {
     const issues = [issue({ id: 'a' }), issue({ id: 'b' }), issue({ id: 'c' })]
     const first = deriveIssueViews(issues, [])
-    const second = again([issue({ id: 'a' }), issue({ id: 'b', seq: 9 }), issue({ id: 'c' })], [], first)
+    const second = again(
+      [issue({ id: 'a' }), issue({ id: 'b', seq: 9 }), issue({ id: 'c' })],
+      [],
+      first,
+    )
     expect(second.get('a')).toBe(first.get('a'))
     expect(second.get('c')).toBe(first.get('c'))
     expect(second.get('b')).not.toBe(first.get('b'))
@@ -254,12 +258,16 @@ describe('per-issue view identity across passes [POD-1055]', () => {
     // view's inputs reach well past the issue's own row.
     const open = [issue({ id: 'p' }), issue({ id: 'k', parentId: 'p' })]
     const first = deriveIssueViews(open, [])
-    const second = again([issue({ id: 'p' }), issue({ id: 'k', parentId: 'p', stage: 'done' })], [], first)
+    const second = again(
+      [issue({ id: 'p' }), issue({ id: 'k', parentId: 'p', stage: 'done' })],
+      [],
+      first,
+    )
     expect(second.get('p')).not.toBe(first.get('p'))
     expect(second.get('p')?.childDoneCount).toBe(1)
   })
 
-  it("moves the BLOCKED issue when the thing blocking it closes", () => {
+  it('moves the BLOCKED issue when the thing blocking it closes', () => {
     const open = [issue({ id: 'a', deps: [{ id: 'b', type: 'blocks' }] }), issue({ id: 'b' })]
     const first = deriveIssueViews(open, [])
     expect(first.get('a')?.blocked).toBe(true)
