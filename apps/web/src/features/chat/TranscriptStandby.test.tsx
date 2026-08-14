@@ -1,6 +1,7 @@
 import type { SessionMeta } from '@podium/model'
-import { describe, expect, it } from 'vitest'
-import { shortPath, standbyCopy } from './TranscriptStandby'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
+import { shortPath, standbyCopy, TranscriptStandby } from './TranscriptStandby'
 
 const session = (over: Partial<SessionMeta>): SessionMeta =>
   ({ agentKind: 'claude-code', status: 'live', ...over }) as SessionMeta
@@ -29,6 +30,38 @@ describe('standbyCopy', () => {
 
   it('falls back to the question with no session at all', () => {
     expect(standbyCopy(undefined).asking).toBe(true)
+  })
+})
+
+describe('the ghost harness mark', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  const ghost = (): Element | null => document.querySelector('.transcript-standby-ghost')
+
+  it('grounds the question in the mark of the harness that is waiting', () => {
+    render(<TranscriptStandby session={session({ agentKind: 'claude-code' })} cwd="/w" />)
+    expect(ghost()).not.toBeNull()
+    // Decorative: the coordinates line already NAMES the harness, so a second
+    // announcement of it is noise to a screen reader.
+    expect(ghost()?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('gives a shell none — it never asks, and its glyph is not a brand mark', () => {
+    render(<TranscriptStandby session={session({ agentKind: 'shell' })} cwd="/w" />)
+    expect(ghost()).toBeNull()
+  })
+
+  it('gives a stopped session none — there is no question to sit behind', () => {
+    render(<TranscriptStandby session={session({ status: 'exited' })} cwd="/w" />)
+    expect(ghost()).toBeNull()
+  })
+
+  it('gives the orchestrator none — it is not a harness', () => {
+    render(<TranscriptStandby session={undefined} cwd="/w" superagent />)
+    expect(screen.getByText('What do you want to work on?')).toBeTruthy()
+    expect(ghost()).toBeNull()
   })
 })
 

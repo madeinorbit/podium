@@ -2,6 +2,7 @@ import { panelLabel } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { modelLabel } from '@/lib/agent-models'
+import { agentIconFor } from '@/lib/agent-tone'
 
 /**
  * STANDBY (POD-701, redrawn POD-746) — the chat that has not started.
@@ -118,6 +119,19 @@ export function TranscriptStandby({
   superagent?: boolean
 }): JSX.Element {
   const copy = standbyCopy(session, superagent)
+  // GHOST MARK (POD-1006). The harness's own logo, kept solid but taken to a few
+  // percent and enlarged into the ground the question sits on. It says which
+  // harness is waiting in the one register the coordinates line cannot — you
+  // read "Claude", you RECOGNISE the mark — and at this weight it is felt on the
+  // way to the composer rather than read, which is the only thing that survives
+  // a screen opened fifty times a day.
+  //
+  // Gated on `asking` twice over. It is the state that has a question to sit
+  // behind, and it is also the gate that keeps `shell` out: a shell never asks,
+  // and its icon is a lucide terminal glyph rather than a brand mark, so it has
+  // nothing to ghost. The orchestrator gets none either — it is not a harness,
+  // which is the same reason its coordinates are suppressed below.
+  const Mark = copy.asking && session ? agentIconFor(session.agentKind) : undefined
   // The orchestrator's coordinates are noise: its cwd is the home directory (it
   // works ACROSS checkouts rather than in one), and "the wrong worktree" — the
   // expensive mistake this line exists to prevent — is not a mistake it can make.
@@ -128,6 +142,11 @@ export function TranscriptStandby({
       className={copy.asking ? 'transcript-standby is-asking' : 'transcript-standby'}
       data-testid="transcript-empty-state"
     >
+      {Mark && (
+        <span className="transcript-standby-ghost" aria-hidden="true">
+          <Mark />
+        </span>
+      )}
       <p className="transcript-standby-ask shell-type-column-title">
         {copy.asking && (
           <span className="transcript-standby-caret" aria-hidden="true">

@@ -4183,6 +4183,28 @@ html[data-density="balanced"] .header-quota-pools {
   font-weight: 500;
   color: var(--attention);
 }
+/* GHOST MARK (POD-1006): the harness's logo as the ground the question sits on.
+   In FLOW, not absolutely positioned into the empty scrollport above — the feed
+   is the scroll container, and anything overflowing past its start edge is
+   clipped and unreachable. Occupying real space keeps the block bottom-anchored
+   on the composer and the mark whole at every pane height.
+   Ink, not a colour: the brand fills (`--claude` and the rest) are dropped for
+   the surrounding text ink, which is what stops five harnesses turning the pane
+   into a colour chart and what lets one opacity read correctly on paper and in
+   the dark. It takes the container's one authored moment rather than an
+   animation of its own — it is ground, and ground does not arrive. */
+.transcript-standby-ghost {
+  display: block;
+  margin-bottom: 10px;
+  line-height: 0;
+  color: var(--text-strong, var(--foreground));
+  opacity: 0.05;
+  pointer-events: none;
+}
+.transcript-standby-ghost svg {
+  width: 96px;
+  height: 96px;
+}
 .transcript-standby-note {
   margin-top: 4px;
   max-width: 52ch;
@@ -4241,6 +4263,12 @@ html[data-density="balanced"] .header-quota-pools {
 .chat-compact .transcript-standby-caret {
   width: 16px;
   margin-left: -16px;
+}
+/* The dock is half a pane wide; the mark comes down with it rather than eating
+   the air the question needs. */
+.chat-compact .transcript-standby-ghost svg {
+  width: 64px;
+  height: 64px;
 }
 
 .transcript-pager {
