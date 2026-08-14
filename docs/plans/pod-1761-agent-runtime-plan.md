@@ -80,6 +80,24 @@ Grok headless feasibility investigation.
 - Keep your issue's stage current (`in_progress` while working, `review` when your merge is in,
   then `close` after the reviewer pass — see review loop below).
 
+## Lessons the epic has paid for (read before building on the landed layers)
+
+- **A port fronting a legacy verb must be a superset of its payload.** W4's queue port
+  dropped `mutationId`/`sourceMessageId` and every retry would have become a duplicate turn.
+  When you wrap an existing verb behind a contract port, diff the FULL payload first.
+- **"The server stops predicting readiness" must not eat ordering.** Readiness is the
+  driver's question; FIFO ordering of the durable queue is a fact about the server's own
+  table. Do not let a migration that removes a heuristic also remove an invariant.
+- **apps/server test shards are GENERATED.** After adding/moving any server test file, run
+  `bun scripts/server-test-shards.ts --write` or four lanes fail via `verify()` — and never
+  read a suite's exit code through a pipe (`| tail` returns tail's exit, not the suite's).
+- **The messages delivery pins, the C5 guard and steward tests live in the STORE shard** —
+  a "services" run looks green while touching none of them. Know which shard your tests
+  landed in before you claim a lane green.
+- **`runtimeContract` is a daemon-reported bind fact.** Branch on the recorded per-session
+  fact; never re-derive it server-side, and treat it as transient (POD-2050 tracks clearing
+  it on unbind).
+
 ## Work items (= subissues), scope and acceptance
 
 Sized so one agent can hold each in its head: one architectural concern per item, with the
