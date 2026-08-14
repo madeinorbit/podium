@@ -13,13 +13,22 @@
 import { unsupported } from '@podium/harness'
 import { describe, expect, it } from 'vitest'
 import type { SessionSpec } from '../../index.js'
-import { PERMITTED_FAILURES, permits, RUNTIME_PRIMITIVE_TIER } from '../../index.js'
+import {
+  NO_NATIVE_STEER_DRIVERS,
+  PERMITTED_FAILURES,
+  permits,
+  RUNTIME_PRIMITIVE_TIER,
+} from '../../index.js'
 import {
   createFakeServerDriver,
   createFakeTerminalDriver,
   resetFakeRuntime,
 } from '../fake-driver.js'
-import { assertUnverifiedClaimHonest, describeDriverConformance } from './suite.js'
+import {
+  assertNoNativeSteerEntitled,
+  assertUnverifiedClaimHonest,
+  describeDriverConformance,
+} from './suite.js'
 import type { ConformanceControl } from './target.js'
 
 const spec = (): SessionSpec => ({
@@ -91,6 +100,27 @@ describe('the permitted-failures table', () => {
     expect(PERMITTED_FAILURES.terminal).toContain('at-least-once-interactions')
   })
 
+  it('pins WHICH DRIVERS may decline native steer, because the family row cannot', () => {
+    /**
+     * THE VACUITY, WRITTEN DOWN (POD-2085).
+     *
+     * `no-native-steer` is on all three rows, so the family predicate answers
+     * yes for everyone — this loop is not a check, it is the EVIDENCE that the
+     * family gate stopped gating. What replaced it is the driver-id pin, and the
+     * equality below is what makes widening it show up in a diff next to the
+     * measurement it has to bring. `manifest-axis.test.ts` pins a version range
+     * per driver on the same argument.
+     */
+    for (const family of ['server', 'embedded', 'terminal'] as const) {
+      expect(permits(family, 'no-native-steer')).toBe(true)
+    }
+    expect([...NO_NATIVE_STEER_DRIVERS]).toEqual(['generic-pty', 'opencode-server'])
+    // The absence with a date on it: W6's driver has `turn/steer` in its own
+    // protocol, so a codex-server declining steer is a bug in the driver, not a
+    // weakness of its harness.
+    expect(NO_NATIVE_STEER_DRIVERS).not.toContain('codex-app-server')
+  })
+
   it('lets only the embedded family decline attach', () => {
     // Terminal has a real terminal by definition; server gets a TUI client. An
     // embedded session has neither, and chat is the honest answer.
@@ -118,6 +148,23 @@ describe('the corpus has teeth', () => {
     // it can always prove delivery is claiming protocol-grade fidelity over a
     // screen scrape.
     expect(() => assertUnverifiedClaimHonest('terminal', dishonest.capabilities())).toThrow()
+  })
+
+  it('REFUSES a driver that declines native steer without being entitled to', () => {
+    // The future this exists for: a codex-server that simply leaves `steer` out
+    // of `send.native` and inherits the family's permission in silence. Its
+    // app-server has `turn/steer`, so the corpus must not let it.
+    expect(() => assertNoNativeSteerEntitled('server', 'codex-app-server')).toThrow()
+    // And the embedded family, whose row carries the permission with no measured
+    // driver behind it at all.
+    expect(() => assertNoNativeSteerEntitled('embedded', 'claude-sdk')).toThrow()
+  })
+
+  it('ACCEPTS the two drivers somebody actually measured', () => {
+    // opencode 1.18.16 has no steer verb and a TUI has no way to append into an
+    // open turn. Both arguments are in `../../permitted-failures.ts`.
+    expect(() => assertNoNativeSteerEntitled('server', 'opencode-server')).not.toThrow()
+    expect(() => assertNoNativeSteerEntitled('terminal', 'generic-pty')).not.toThrow()
   })
 
   it('ACCEPTS drivers that declare their family honestly', () => {

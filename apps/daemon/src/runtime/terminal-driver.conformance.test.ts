@@ -105,14 +105,25 @@ function makeWorld(): { target: ConformanceTarget } {
   /**
    * Fire timers one at a time, advancing the clock to each.
    *
-   * ONE PER MICROTASK, earliest first: the injection machine interleaves awaits
-   * with timers, so firing a batch synchronously would run a later timer before
-   * the promise the earlier one resolved had a chance to continue.
+   * ONE PER TASK, earliest first: the injection machine interleaves awaits with
+   * timers, so firing a batch synchronously would run a later timer before the
+   * promise the earlier one resolved had a chance to continue.
+   *
+   * A MACROTASK RATHER THAN A MICROTASK, and the difference is the whole reason
+   * the queue drain was untestable here (POD-2085). On `queueMicrotask` the
+   * virtual clock ran to exhaustion inside one turn of the event loop, so
+   * anything the WORLD scheduled in real time — the `bind` frame below is the
+   * one that matters — was infinitely late: the drain burned its entire 25s
+   * virtual deadline and abandoned the queue before the session was ever live.
+   * Yielding to the macrotask queue lets real-time fixture events interleave
+   * with virtual ones while keeping the ordering guarantee above, and it made
+   * this file FASTER (838ms of test time against 3s), because the properties
+   * that were waiting out a doomed 25s drain now stop waiting.
    */
   const pump = (): void => {
     if (draining) return
     draining = true
-    queueMicrotask(() => {
+    setTimeout(() => {
       draining = false
       timers = timers.filter((timer) => !timer.cancelled)
       if (timers.length === 0) return
@@ -123,7 +134,7 @@ function makeWorld(): { target: ConformanceTarget } {
         next.fn()
       }
       if (timers.length > 0) pump()
-    })
+    }, 0)
   }
 
   /** The world's own view of a session's transcript, fed back the way a CLI's
@@ -194,7 +205,18 @@ function makeWorld(): { target: ConformanceTarget } {
       // waits for it, because typing into a session that is still painting is the
       // POD-549 no-op. A fixture that skipped it would leave every session
       // permanently `starting` and quietly disable the drain it means to test.
-      queueMicrotask(() =>
+      //
+      // AND IT ARRIVES ON A MACROTASK, WHICH IS NOT A DETAIL (POD-2085). The
+      // driver registers the session AFTER `launch()` resolves, and it drops any
+      // frame naming a session it has not registered yet. A `queueMicrotask`
+      // here therefore delivered the bind BEFORE registration, every time: the
+      // frame was discarded, `live` stayed false, and the ready-poll drain
+      // abandoned every queued turn at its deadline without typing — the exact
+      // silent loss this fixture's own comment says it exists to prevent. It went
+      // unnoticed because no property looked at what a queued turn DOES until
+      // POD-2085 added one. A real bind crosses a socket long after the spawn
+      // call returns; one macrotask is the smallest honest way to say so.
+      setTimeout(() =>
         runtime?.observe({
           type: 'bind',
           sessionId: msg.sessionId,

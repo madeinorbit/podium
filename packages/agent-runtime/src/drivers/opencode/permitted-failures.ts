@@ -18,6 +18,13 @@
 
 import { PERMITTED_FAILURES, type PermittedFailure } from '../../permitted-failures.js'
 
+/**
+ * AND THE ROW IS NOT ENOUGH ON ITS OWN (POD-2085). `no-native-steer` sits on all
+ * three family rows, so what actually entitles THIS driver to decline `steer` is
+ * its id being in `NO_NATIVE_STEER_DRIVERS` — the opencode 1.18.16 measurement,
+ * written where a future server driver has to walk past it. A codex-server
+ * sharing this row does not share the entitlement.
+ */
 export const SERVER_PERMITTED_FAILURES: readonly PermittedFailure[] = PERMITTED_FAILURES.server
 
 /**

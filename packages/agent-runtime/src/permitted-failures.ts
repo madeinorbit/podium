@@ -22,7 +22,7 @@
  * every consumer must branch on it. The spec permits exactly two, both terminal.
  */
 
-import type { DriverFamily } from './families.js'
+import type { DriverFamily, DriverId } from './families.js'
 
 /** One named weakness a family may exhibit. */
 export type PermittedFailure =
@@ -85,11 +85,15 @@ export const PERMITTED_FAILURES: Readonly<Record<DriverFamily, readonly Permitte
    * carries — `send.native` says, per driver, exactly which deliveries are real.
    *
    * WHAT KEEPS THE PROPERTY FROM GOING VACUOUS now that all three families
-   * permit it: the corpus no longer leans on `permits()` alone. It asserts that
-   * `deliveredAs` is a delivery the driver DECLARED native, in both directions
-   * — a driver listing `steer` must deliver as `steer`, and one that does not
-   * must report the delivery it actually used and never invent a third. That
-   * check bites on every family, which the family-permission never did.
+   * permit it, in two parts. First, the corpus no longer leans on `permits()`
+   * alone: it asserts that `deliveredAs` is a delivery the driver DECLARED
+   * native, in both directions — a driver listing `steer` must deliver as
+   * `steer`, and one that does not must report the delivery it actually used and
+   * never invent a third. Second, and added by POD-2085 after this row's cost
+   * was counted: the ENTITLEMENT is pinned per driver in
+   * {@link NO_NATIVE_STEER_DRIVERS}, so declining `steer` is an edit somebody
+   * makes on purpose rather than a default a new driver inherits. Both bite on
+   * every family, which the family permission never did.
    */
   server: ['no-native-steer'],
   embedded: ['no-native-steer', 'no-attach'],
@@ -98,3 +102,46 @@ export const PERMITTED_FAILURES: Readonly<Record<DriverFamily, readonly Permitte
 
 export const permits = (family: DriverFamily, failure: PermittedFailure): boolean =>
   PERMITTED_FAILURES[family].includes(failure)
+
+/**
+ * WHICH DRIVERS MAY ACTUALLY TAKE `no-native-steer` (POD-2085).
+ *
+ * The row is now on all three families, so `permits(family, 'no-native-steer')`
+ * is true for everyone and answers nothing. That is not merely a weak check, it
+ * is a REGRESSION with a date on it: under `server: []` the corpus's
+ * steer-downgrade property asserted the permission on its non-native branch, so
+ * a server driver without a steer verb failed outright and had to come here and
+ * argue — which is exactly how W5 (POD-2023) came to record the opencode
+ * measurement above. The moment the row went on, that gate opened for the whole
+ * family: a codex-server, whose app-server DOES have `turn/steer`, could simply
+ * not declare `steer` and inherit the pass in silence.
+ *
+ * So the entitlement is pinned per DRIVER, the way `manifest-axis.test.ts` pins
+ * a version range per driver and for the same reason: a claim about what this
+ * build was measured against is worth something only where the measurement
+ * exists. Steering is a per-HARNESS protocol verb; this list is the set of
+ * harnesses somebody actually looked at and found no verb in.
+ *
+ *   `generic-pty`     — a TUI has no way to append into an open turn. The
+ *                       terminal driver's own capability declaration says so
+ *                       (`send.native` is `['when-ready','queue','interrupt']`,
+ *                       pinned in `drivers/terminal/terminal.test.ts`).
+ *   `opencode-server` — measured at 1.18.16: a prompt POSTed into an open turn
+ *                       becomes a SECOND turn that runs afterwards. See the
+ *                       `no-native-steer` doc comment above.
+ *
+ * ABSENT ON PURPOSE, and each absence is the point rather than an oversight:
+ * `codex-app-server` has `turn/steer` and must declare it; `claude-sdk` has the
+ * SDK's own interrupt-and-resend and nobody has measured it; `claude-pty` almost
+ * certainly belongs here on the same argument as `generic-pty`, but no target
+ * runs it under the corpus today and a driver id nobody has watched go green is
+ * a claim, not a measurement. Adding one is a one-line edit — the requirement is
+ * only that it be a DELIBERATE one, made next to the argument it has to join.
+ */
+export const NO_NATIVE_STEER_DRIVERS = [
+  'generic-pty',
+  'opencode-server',
+] as const satisfies readonly DriverId[]
+
+export const permitsNoNativeSteer = (driverId: DriverId): boolean =>
+  (NO_NATIVE_STEER_DRIVERS as readonly DriverId[]).includes(driverId)

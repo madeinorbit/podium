@@ -22,6 +22,12 @@ import { PERMITTED_FAILURES, type PermittedFailure } from '../../permitted-failu
  * at-least-once classifier interactions, and no native steer. Nothing else —
  * and in particular NOT `no-attach`, which is the embedded family's exemption:
  * the engine terminal is exactly what a terminal session has.
+ *
+ * `no-native-steer` ALSO needs the driver id (POD-2085). The family row is
+ * carried by all three families and so entitles nobody; `NO_NATIVE_STEER_DRIVERS`
+ * lists `generic-pty` because a TUI has no way to append into an open turn.
+ * `claude-pty` is deliberately not there yet — no target runs it under the
+ * corpus, and the pin is a record of what was measured, not of what is likely.
  */
 export const TERMINAL_PERMITTED_FAILURES: readonly PermittedFailure[] = PERMITTED_FAILURES.terminal
 

@@ -41,9 +41,12 @@ import {
   CORE_PRIMITIVES,
   type DriverCapabilities,
   type DriverFamily,
+  type DriverId,
+  NO_NATIVE_STEER_DRIVERS,
   PERMITTED_FAILURES,
   type PendingInteraction,
   permits,
+  permitsNoNativeSteer,
   type RuntimeEvent,
   type SessionSpec,
   type TurnReceipt,
@@ -74,21 +77,8 @@ async function drain(
   n: number,
   timeoutMs = 2000,
 ): Promise<RuntimeEvent[]> {
-  const out: RuntimeEvent[] = []
-  if (n === 0) return out
-  const iterator = stream[Symbol.asyncIterator]()
-  const deadline = new Promise<'timeout'>((resolve) => {
-    const timer = setTimeout(() => resolve('timeout'), timeoutMs)
-    // Never hold the process open on the corpus's account.
-    if (typeof timer === 'object' && 'unref' in timer) timer.unref()
-  })
-  while (out.length < n) {
-    const next = await Promise.race([iterator.next(), deadline])
-    if (next === 'timeout' || next.done) break
-    out.push(next.value)
-  }
-  await iterator.return?.()
-  return out
+  if (n === 0) return []
+  return collectUntil(stream, (_event, taken) => taken >= n, timeoutMs)
 }
 
 /**
@@ -108,26 +98,111 @@ async function drain(
  * and it stays fast, because it stops at the match instead of waiting out a
  * quota that may never fill.
  */
-async function drainUntil(
+const drainUntil = (
   stream: AsyncIterable<RuntimeEvent>,
   match: (event: RuntimeEvent) => boolean,
   timeoutMs = 2000,
+): Promise<RuntimeEvent[]> => collectUntil(stream, (event) => match(event), timeoutMs)
+
+/**
+ * The one read loop both drains are, with the deadline handled properly
+ * (POD-2085, from POD-2023's review 4d).
+ *
+ * THREE THINGS THE TWO HAND-WRITTEN COPIES GOT WRONG, all invisible in the
+ * corpus today and none of them invisible for long:
+ *
+ *   1. The deadline timer was created once at entry and never cleared, so an
+ *      early match left a live timer holding a resolve nobody would read. The
+ *      `unref` kept that from wedging the process, which is a mitigation, not a
+ *      fix — and `unref` does not exist in every runtime the contract package
+ *      claims to support.
+ *   2. When the timeout won, the in-flight `iterator.next()` was ABANDONED —
+ *      still pending, and now the only thing holding the generator. If it later
+ *      rejects, the rejection is unhandled and lands on whichever test happens
+ *      to be running when it fires.
+ *   3. `await iterator.return?.()` then ran against that pending read. An async
+ *      generator queues `return()` behind the read it is suspended in, so
+ *      awaiting it on a driver parked waiting for an event NEVER RESOLVES — the
+ *      helper hangs past the very deadline the timeout exists to enforce, which
+ *      is the hung-gate failure mode {@link drain}'s own header calls the worst
+ *      one a conformance corpus can have.
+ *
+ * So: the timer is always cleared, the abandoned read is explicitly disowned,
+ * and `return()` is awaited only on the paths where nothing is in flight.
+ */
+async function collectUntil(
+  stream: AsyncIterable<RuntimeEvent>,
+  stop: (event: RuntimeEvent, taken: number) => boolean,
+  timeoutMs: number,
 ): Promise<RuntimeEvent[]> {
   const out: RuntimeEvent[] = []
   const iterator = stream[Symbol.asyncIterator]()
+  let timer: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<'timeout'>((resolve) => {
-    const timer = setTimeout(() => resolve('timeout'), timeoutMs)
+    timer = setTimeout(() => resolve('timeout'), timeoutMs)
+    // Never hold the process open on the corpus's account.
     if (typeof timer === 'object' && 'unref' in timer) timer.unref()
   })
-  while (true) {
-    const next = await Promise.race([iterator.next(), deadline])
-    if (next === 'timeout' || next.done) break
-    out.push(next.value)
-    if (match(next.value)) break
+  try {
+    while (true) {
+      const pending = iterator.next()
+      const next = await Promise.race([pending, deadline])
+      if (next === 'timeout') {
+        // Disowned, not awaited: the read may never resolve, and a rejection
+        // with no handler would surface inside an unrelated property.
+        void pending.catch(() => {})
+        void iterator.return?.().catch(() => {})
+        return out
+      }
+      if (next.done) break
+      out.push(next.value)
+      if (stop(next.value, out.length)) break
+    }
+    // No read in flight here, so `return()` runs against a generator suspended
+    // at a yield and settles immediately.
+    await iterator.return?.()
+    return out
+  } finally {
+    clearTimeout(timer)
   }
-  await iterator.return?.()
-  return out
 }
+
+/**
+ * Wait for something a driver reaches ASYNCHRONOUSLY, or give up and let the
+ * property state what it found.
+ *
+ * WHY POLLING RATHER THAN AN AWAIT. A queue drains when the PROVIDER goes idle:
+ * the fake does it inside `completeTurn`, opencode does it when the SSE frame
+ * announcing idle comes back over a real loopback socket, and the terminal
+ * driver does it from a ready-poll that watches PTY output timing. There is no
+ * promise the corpus can hold for that, and inventing a control verb for it
+ * would be asking every driver to expose its own drain — the thing the contract
+ * deliberately keeps private. The bound is the same 2s the drains use, for the
+ * same reason: a driver that never gets there must FAIL rather than hang.
+ */
+async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (!condition()) {
+    if (Date.now() > deadline) return false
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 5)
+      if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+    })
+  }
+  return true
+}
+
+/**
+ * Give an asynchronous drain room to happen, so a property that asserts it did
+ * NOT happen is stating a behaviour rather than winning a race.
+ *
+ * A FIXED WAIT IS THE HONEST SHAPE HERE, unlike {@link waitUntil}: there is no
+ * condition to poll for, because the property is about something that must never
+ * arrive. The length is a trade — long enough for a drain that starts at the
+ * fence and crosses a loopback socket, short enough that every target does not
+ * pay it — and it bounds how slow an impostor would have to be to hide.
+ */
+const settle = (ms = 250): Promise<void> => waitUntil(() => false, ms).then(() => undefined)
 
 const seqOf = (event: RuntimeEvent): number => Number(event.cursor.components.seq ?? 0)
 
@@ -288,7 +363,13 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         }
         // The permitted failure is the DOWNGRADE, never the silence. Whatever
         // the outcome, `deliveredAs` must say what really happened.
-        expect(permits(target.family, 'no-native-steer')).toBe(true)
+        //
+        // AND THE EXEMPTION IS THIS DRIVER'S, NOT ITS FAMILY'S (POD-2085). The
+        // family row alone stopped meaning anything the moment `no-native-steer`
+        // went on all three of them; the driver-id pin is what makes inheriting
+        // it an edit somebody has to make on purpose. See
+        // `../../permitted-failures.ts`.
+        assertNoNativeSteerEntitled(target.family, driver.id)
         expect(receipt.outcome === 'queued' || receipt.outcome === 'accepted').toBe(true)
         if (receipt.outcome === 'queued' || receipt.outcome === 'accepted') {
           expect(receipt.deliveredAs).not.toBe('steer')
@@ -304,7 +385,9 @@ export function describeDriverConformance(target: ConformanceTarget): void {
          * opencode and found steering to be a per-HARNESS protocol verb rather
          * than a family property (see `../../permitted-failures.ts`). That makes
          * `permits(family, 'no-native-steer')` above true for everyone and
-         * therefore worth nothing on its own.
+         * therefore worth nothing on its own. POD-2085 put a gate back where the
+         * fact lives, by pinning the DRIVER IDS entitled to the row; this
+         * property is the other half, and it stayed as written.
          *
          * What is worth something is the DECLARATION: `send.native` says, per
          * driver, which deliveries are real. This property pins both directions
@@ -326,6 +409,100 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         if (capabilities.send.native.includes('when-ready') && first.outcome !== 'refused') {
           expect(first.deliveredAs).toBe('when-ready')
         }
+      })
+
+      it('DOES what `deliveredAs: steer` says — the substitution nothing else catches', async () => {
+        /**
+         * DELIVERY SEMANTICS, NOT DELIVERY VOCABULARY (POD-2085).
+         *
+         * Everything above this line checks what a receipt SAYS.
+         * `expectDeclaredDelivery` catches a driver naming a mode absent from its
+         * own `send.native`, and the downgrade property catches a driver that
+         * says `steer` having declared it cannot. Neither catches the case in
+         * between, which is the one that costs a caller work: a driver that
+         * declares `steer` native, answers a steer request with
+         * `deliveredAs: 'steer'`, and QUEUES the words. Every property passes.
+         * The steward believes its correction reached the running turn; the
+         * agent finishes the turn without it and reads the correction afterwards
+         * as a fresh instruction, which for a "stop, you're editing the wrong
+         * file" is the difference between a nudge and a second wrong edit.
+         *
+         * THE TURN EPOCH IS THE DISCRIMINATOR, and the corpus already has it.
+         * Steering means the words joined the OPEN turn: no epoch is opened for
+         * them, then or later. Queueing means they wait and become a turn of
+         * their own once this one fences. So complete the open turn and look at
+         * the epoch — an impostor's queued words surface exactly there, and no
+         * amount of honest-looking receipt fields can hide it.
+         */
+        const { handle, control, driver } = setup()
+        const session = await handle
+        const sessionId = session.binding.sessionId
+        const opened = await session.send(
+          { text: 'open a turn' },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        expect(opened.outcome).toBe('accepted')
+        if (opened.outcome !== 'accepted') return
+        const openEpoch = opened.turnEpoch
+        const deliveredBefore = control.deliveryAttempts(sessionId)
+
+        const receipt = await session.send(
+          { text: 'and this too' },
+          { origin: 'mail', delivery: 'steer' },
+        )
+        // A refusal delivered nothing, so there are no semantics to check. The
+        // downgrade property above already pins which outcomes are legal here.
+        if (receipt.outcome === 'refused' || receipt.outcome === 'unverified') return
+
+        if (receipt.deliveredAs === 'steer') {
+          expect(receipt.outcome).toBe('accepted')
+          if (receipt.outcome !== 'accepted') return
+          // The receipt names the turn it JOINED. A new epoch here would be a
+          // new turn wearing the steer label.
+          expect(receipt.turnEpoch).toBe(openEpoch)
+          // The words went somewhere. A driver that reported a steer and typed
+          // nothing at all would otherwise pass every assertion below by doing
+          // less than the impostor does.
+          expect(control.deliveryAttempts(sessionId)).toBeGreaterThan(deliveredBefore)
+
+          control.completeTurn(sessionId)
+          // NOT A POLL FOR SUCCESS — a poll for the FAILURE. The impostor's
+          // queue drains asynchronously, so reading the epoch immediately after
+          // the fence would let it through on timing rather than on behaviour.
+          // This waits out the window a drain would need and then insists
+          // nothing opened.
+          await settle()
+          const after = await session.snapshot()
+          expect(
+            after.turnEpoch,
+            'a steer opened a turn of its own — the words were queued, not steered',
+          ).toBeLessThanOrEqual(openEpoch)
+          return
+        }
+
+        // THE OTHER HALF: a reported queue must be a real queue. `deliveredAs`
+        // said the words are waiting behind this turn, so once it fences they
+        // must actually be handed over — a driver that answers `queued` and
+        // drops the text has told the caller its work is safe when it is gone.
+        expect(receipt.deliveredAs).toBe('queue')
+        control.completeTurn(sessionId)
+        const delivered = await waitUntil(
+          () => control.deliveryAttempts(sessionId) > deliveredBefore,
+        )
+        expect(delivered, 'a queued turn was never delivered after the turn fenced').toBe(true)
+        /**
+         * WHY THE EPOCH IS NOT ASSERTED ON THIS SIDE, deliberately and after
+         * measuring it (POD-2085). The mirror of the steer branch would be "a
+         * queued turn MUST open a new epoch", and it is true of the drivers that
+         * mint their own — the fake and opencode both advance on the drained
+         * delivery. It is NOT observable on the terminal family: there the epoch
+         * is minted by the causal observer from the harness's own signals, and a
+         * `snapshot()` taken between the drain and the next observation honestly
+         * reports the epoch nobody has revised yet. Asserting it would fail a
+         * driver for the observer's latency, which says nothing about delivery.
+         * The delivery counter is what the terminal family CAN prove, and it
+         * proves the part that matters: the words were handed over.
+         */
       })
 
       it('UNVERIFIED is available exactly to the families permitted it', async () => {
@@ -787,6 +964,33 @@ export function runConformance(
     reset: opts.reset,
     spec: opts.spec,
   })
+}
+
+/**
+ * A driver may decline native `steer` only if it is on the pinned list.
+ *
+ * BOTH GATES, AND THE SECOND IS THE ONE WITH TEETH. The family row is checked
+ * first because a family that was never granted the weakness must not exhibit it
+ * at all — but that row is now on all three families, so on its own it is a
+ * tautology. The pin in `NO_NATIVE_STEER_DRIVERS` is what a new driver has to
+ * pass through: steering is a per-HARNESS protocol verb, so "does this harness
+ * have one?" has exactly one honest answer per driver and somebody has to have
+ * looked. A codex-server that quietly omitted `steer` from `send.native` fails
+ * here, which is the whole point — its app-server HAS `turn/steer`.
+ *
+ * Exported so the corpus's own negative tests can drive it with an unlisted
+ * driver id and watch it refuse: an assertion nobody has watched fail is a
+ * comment.
+ */
+export function assertNoNativeSteerEntitled(family: DriverFamily, driverId: DriverId): void {
+  expect(
+    permits(family, 'no-native-steer'),
+    `family '${family}' is not permitted to decline native steer`,
+  ).toBe(true)
+  expect(
+    permitsNoNativeSteer(driverId),
+    `driver '${driverId}' declined native steer without being on the entitled list (${NO_NATIVE_STEER_DRIVERS.join(', ')}) — steering is a per-harness protocol verb, so add it there WITH the measurement or declare 'steer' native`,
+  ).toBe(true)
 }
 
 /**
