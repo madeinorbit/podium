@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from 'vitest'
-import { hasDomWindow } from './platform-globals'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { hasDomWindow, hasMessageChannel } from './platform-globals'
 
 /** React Native's `window`: the object exists (it IS `global`), the DOM does not. */
 function installNativeWindow(extra: Record<string, unknown> = {}): void {
@@ -8,6 +8,7 @@ function installNativeWindow(extra: Record<string, unknown> = {}): void {
 
 afterEach(() => {
   delete (globalThis as { window?: unknown }).window
+  vi.unstubAllGlobals()
 })
 
 describe('hasDomWindow', () => {
@@ -23,5 +24,16 @@ describe('hasDomWindow', () => {
   test('is true once the window carries addEventListener', () => {
     installNativeWindow({ addEventListener: () => {}, removeEventListener: () => {} })
     expect(hasDomWindow()).toBe(true)
+  })
+})
+
+describe('hasMessageChannel', () => {
+  test('is true where the host can post a message to itself', () => {
+    expect(hasMessageChannel()).toBe(true)
+  })
+
+  test('is false on a host without it — React Native, which ships no MessageChannel', () => {
+    vi.stubGlobal('MessageChannel', undefined)
+    expect(hasMessageChannel()).toBe(false)
   })
 })

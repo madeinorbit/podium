@@ -46,6 +46,7 @@ import {
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { FeedHelloFields } from './feed-hello'
+import { createFeedTaskScheduler, type FeedTaskScheduler } from './feed-scheduler'
 import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
 import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
 
@@ -169,6 +170,10 @@ export interface SocketHubOptions {
    * Schedule one feed envelope. Production uses a macrotask so the
    * browser can service input and paint between bootstrap chunks; tests may
    * inject a deterministic scheduler.
+   *
+   * The default is NOT a timer — see {@link createFeedTaskScheduler}. A hidden
+   * tab clamps `setTimeout` to ≥1 s, which used to throttle this whole queue to
+   * one frame per second (POD-2058 F6).
    */
   scheduleFeedTask?: (task: () => void) => void
   /**
@@ -500,6 +505,9 @@ export class SocketHub {
   private readonly makeSocket: (url: string) => WebSocketLike
   private readonly legacyFeed: LegacyFeedSinkPort | undefined
   private readonly scheduleFeedTask: (task: () => void) => void
+  /** Only set when this hub built its own scheduler — an injected one belongs to
+   *  the caller and is not this class's to tear down. */
+  private readonly ownFeedScheduler: FeedTaskScheduler | undefined
   private readonly subscriptionRegistry: ClientSubscriptionRegistry
   private readonly feedIngressQueue: Array<{
     raw: string
@@ -649,7 +657,14 @@ export class SocketHub {
     )
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
     this.legacyFeed = opts.legacyFeed
-    this.scheduleFeedTask = opts.scheduleFeedTask ?? ((task) => setTimeout(task, 0))
+    if (opts.scheduleFeedTask !== undefined) {
+      this.ownFeedScheduler = undefined
+      this.scheduleFeedTask = opts.scheduleFeedTask
+    } else {
+      const scheduler = createFeedTaskScheduler()
+      this.ownFeedScheduler = scheduler
+      this.scheduleFeedTask = (task) => scheduler.schedule(task)
+    }
     this.legacyFeed?.bind({
       apply: (changes) => this.applyChanges(changes),
       replace: (projection) => this.replaceMetadataSnapshot(projection),
@@ -1555,6 +1570,12 @@ export class SocketHub {
     this.socket?.close()
     this.socket = undefined
     this.clearFeedIngress()
+    // The MessageChannel this hub owns (POD-2058) closes with the hub, beside
+    // `legacyFeed` below. Not inside `clearFeedIngress`: that helper also runs
+    // on the backlog resync, which clears the queue and keeps draining, and a
+    // scheduler disposed there would leave the next frame with nothing to wake
+    // it.
+    this.ownFeedScheduler?.dispose()
     this.connectedFlag = false
     this.inputQueue.length = 0
     this.preOpenQueue.length = 0
