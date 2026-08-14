@@ -145,7 +145,7 @@ if (phase === 'crash') {
   const started = await issues.start(created.id)
   if (!started.branch) throw new Error('started recovery issue has no branch')
   git('branch', started.branch, 'main')
-  issues.update(created.id, { stage: 'review' })
+  issues.update(created.id, { stage: 'review', machineId })
   const head = git('rev-parse', started.branch)
   store.shipping.recordRootIntegrationReceipt({
     rootIssueId: created.id,
