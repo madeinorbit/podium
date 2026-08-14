@@ -48,6 +48,11 @@ Grok headless feasibility investigation.
   contain this plan or the spec. Run `git merge --ff-only issue/1761-agent-runtime` in your
   worktree first (later, if the integration branch has moved, `git rebase
   issue/1761-agent-runtime` instead). Only then read the docs and start.
+  **If the ff-merge fails because the branches have DIVERGED** (your worktree was cut from a
+  main that moved past the epic's merge base): your branch has no unique commits yet, so
+  repoint it — `git reset --hard issue/1761-agent-runtime` — BEFORE making any commits.
+  NEVER resolve the divergence with `--no-ff` or by rebasing main's commits onto the epic;
+  either pulls main's post-base history in sideways. (Learned on POD-2049.)
 - Never touch `main`. Never use `podium issue action <id> merge|pr` on this epic — it targets
   `main`. Landing is manual, into the integration branch only:
   1. `podium lock acquire integration:1761 --wait --ttl 10m` (the epic's merge mutex —
