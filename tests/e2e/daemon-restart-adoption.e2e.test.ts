@@ -131,10 +131,26 @@ const live = gate.live
 /** A free model on opencode's own gateway — plumbing, not a bill. */
 const MODEL = process.env.PODIUM_OPENCODE_TEST_MODEL ?? 'opencode/laguna-s-2.1-free'
 
-async function waitFor(pred: () => boolean, timeoutMs: number, what: string): Promise<void> {
+/**
+ * `detail` is a THUNK, evaluated only on the timeout path.
+ *
+ * A wait that fails across a process boundary has nothing to say for itself —
+ * the thing that did not happen happened (or did not) in another process. So
+ * every wait that is really waiting on the DAEMON passes its log here. Lazy
+ * because attaching a 6KB tail to every poll of a 120s wait is a cost paid
+ * 2400 times to be read zero.
+ */
+async function waitFor(
+  pred: () => boolean,
+  timeoutMs: number,
+  what: string,
+  detail?: () => string,
+): Promise<void> {
   const start = Date.now()
   while (!pred()) {
-    if (Date.now() - start > timeoutMs) throw new Error(`waitFor(${what}): timed out`)
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`waitFor(${what}): timed out after ${timeoutMs}ms${detail ? `\n${detail()}` : ''}`)
+    }
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
 }
@@ -315,6 +331,9 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
         () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live',
         120_000,
         'session live',
+        // A spawn that REFUSED never reaches `live`, and the refusal is a frame
+        // this wait cannot see. The daemon's own log is where it said why.
+        () => `daemon log (tail):\n${daemon.output(6000)}`,
       )
 
       // ASSERTED BEFORE THE FIRST TURN, and the ordering is the whole point.
@@ -348,6 +367,13 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
           'the session is live but has no opencode binding journal, so the `opencode-server` override did NOT take and this lane would be measuring the PTY path.',
           `row runtimeContract: ${sessions.sessions.get(sessionId)?.runtimeContract} (true here means SOME contract, not necessarily this family)`,
           `this process probed \`opencode --version\` in ${gate.live ? gate.probeMs : -1}ms; the daemon allows ${DAEMON_VERSION_PROBE_BUDGET_MS}ms before reporting the driver unavailable`,
+          // DISCOUNT THE LOG LINE BELOW BEFORE ANYONE ACTS ON IT. When the probe
+          // loses its race the daemon warns "opencode is outside the server
+          // driver range" with `observedVersion: "(no output)"` — for a binary
+          // that is squarely inside the range and answers correctly when asked
+          // with more patience. It is the first thing anyone will grep, and it
+          // sends them to inspect a good binary, so this lane says so here.
+          'NOTE: a daemon warning of "opencode is outside the server driver range" with observedVersion "(no output)" is NOT a bad binary — it is the version probe timing out. Check the version by hand before touching PATH.',
           `daemon log (tail):\n${daemon.output(6000)}`,
         ].join('\n'),
       ).toBe(true)
