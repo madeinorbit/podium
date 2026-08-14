@@ -932,9 +932,9 @@ html[data-density="balanced"] .header-quota-pools {
   width: 356px;
   border-color: var(--border-strong);
   border-radius: 10px;
-  box-shadow:
-    0 14px 34px color-mix(in srgb, var(--text-strong) 22%, transparent),
-    0 2px 8px color-mix(in srgb, var(--text-strong) 10%, transparent);
+  /* No shadow of its own: mixing from `--text-strong` reads as a halo on dark,
+     where the strong text token is near-white. `.health-popover` already casts
+     the one popover shadow (`--shadow-popover`), which is theme-correct. */
 }
 .health-popover-quota .hp-header {
   align-items: center;
