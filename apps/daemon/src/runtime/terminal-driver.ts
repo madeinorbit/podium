@@ -119,8 +119,13 @@ const MENU_KEY_DELAY_MS = 120
  * catching a stream up from a cursor it holds, which in practice is a
  * reconnect's worth of events, not a session's. History is the transcript, and
  * it lives where it has always lived.
+ *
+ * EXPORTED FOR THE TESTS THAT PIN WHAT IT MUST NOT AFFECT. A bounded replay
+ * buffer is exactly the reason no injection decision may be read out of this
+ * log — a test that hardcoded the bound would stop discriminating the day the
+ * bound moved.
  */
-const EVENT_LOG_LIMIT = 512
+export const EVENT_LOG_LIMIT = 512
 
 // ---------------------------------------------------------------------------
 // The host — the narrow slice of the daemon a driver is allowed to reach

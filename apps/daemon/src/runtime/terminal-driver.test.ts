@@ -13,9 +13,18 @@
  * internals: if a later change reorganizes the state machine but keeps the
  * receipts honest, these stay green — which is the only way a test earns its
  * place next to a mechanism this old.
+ *
+ * A SECOND ROUND (POD-2042) added the four the review round's fixes left
+ * unpinned, and each one was checked by REVERTING the fix and watching it go red
+ * — a test that passes both ways is a comment: hook accepts matched by
+ * fingerprint across the shapes a prompt really takes and failing closed when it
+ * cannot be attributed, the `answered` event's attribution per acting principal,
+ * this family's required answer to a send under a human's lease (the shared
+ * property accepts refuse OR queue, so it cannot pin ours), and a `rawFirstTurn`
+ * predicate that survives the bounded replay buffer.
  */
 
-import type { PendingInteraction, RuntimeEvent } from '@podium/agent-runtime'
+import type { ActingPrincipal, PendingInteraction, RuntimeEvent } from '@podium/agent-runtime'
 import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation, DaemonMessage } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -26,6 +35,7 @@ import {
 } from './flag'
 import {
   createTerminalRuntime,
+  EVENT_LOG_LIMIT,
   stateEventForObservation,
   type TerminalHarnessProfile,
   type TerminalRuntime,
@@ -89,13 +99,28 @@ interface World {
    * driver and everything about the test's timing. `prompt` overrides what the
    * hook claims to be about, which is how a hook for somebody ELSE's send is
    * modelled.
+   *
+   * `prompt` IS `unknown`, NOT `string`. A `UserPromptSubmit` prompt is a plain
+   * string on the common path and an ARRAY OF CONTENT BLOCKS whenever the CLI
+   * has anything to attach — the shape the accept matcher has to handle and the
+   * one a `string`-only fixture cannot even express. `payload` replaces the whole
+   * hook body, which is how a payload carrying no attributable prompt at all is
+   * modelled.
    */
-  hookOnSubmit(sessionId: SessionId, options?: { prompt?: string }): void
+  hookOnSubmit(
+    sessionId: SessionId,
+    options?: { prompt?: unknown; payload?: Record<string, unknown> },
+  ): void
   /** Post a transcript record, as the harness's own store would. `reset` is the
    *  harness saying its store was REPLACED — a re-tail, a file rewrite, a resume
    *  rolling onto a new file — which is the case that used to mint a false
-   *  `accepted`. */
-  echo(sessionId: SessionId, text: string, options?: { reset?: boolean }): void
+   *  `accepted`. `role` defaults to `user`; the other roles are what a
+   *  conversation puts BETWEEN two user turns. */
+  echo(
+    sessionId: SessionId,
+    text: string,
+    options?: { reset?: boolean; role?: TranscriptItem['role'] },
+  ): void
   observe(sessionId: SessionId, observation: Partial<AgentObservation>): void
   /** The `bind` frame — the daemon saying this session's CLI is up. It is what
    *  the server flips `status` on, and what the drain waits for. */
@@ -114,7 +139,7 @@ function makeWorld(): World {
   const phases = new Map<SessionId, AgentRuntimeState>()
   const written: string[] = []
   const frames: DaemonMessage[] = []
-  const autoHook = new Map<SessionId, { prompt?: string }>()
+  const autoHook = new Map<SessionId, { prompt?: unknown; payload?: Record<string, unknown> }>()
   const pendingPaste = new Map<SessionId, string>()
   let runtime!: TerminalRuntime
 
@@ -154,10 +179,13 @@ function makeWorld(): World {
               pendingPaste.delete(sessionId)
               const hook = autoHook.get(sessionId)
               if (!hook || pasted === undefined) return
-              runtime.onHookPayload(sessionId, {
-                hook_event_name: 'UserPromptSubmit',
-                prompt: hook.prompt ?? pasted,
-              })
+              runtime.onHookPayload(
+                sessionId,
+                hook.payload ?? {
+                  hook_event_name: 'UserPromptSubmit',
+                  prompt: hook.prompt ?? pasted,
+                },
+              )
             },
           }
         : undefined,
@@ -206,7 +234,7 @@ function makeWorld(): World {
     echo: (sessionId, text, options) => {
       const item: TranscriptItem = {
         id: `item-${++nextId}`,
-        role: 'user',
+        role: options?.role ?? 'user',
         ts: new Date(clock).toISOString(),
         text,
       }
@@ -265,6 +293,18 @@ function makeWorld(): World {
     now: () => clock,
   }
 }
+
+/** Every `answered` event the driver put on the wire, in order — read from the
+ *  FRAMES rather than from the driver's own map, because the attribution is a
+ *  claim made to a consumer and that is where a consumer reads it. */
+const answeredEvents = (world: World): Array<{ id: string; answeredBy: string }> =>
+  world.frames.flatMap((frame) =>
+    frame.type === 'runtimeEvent' &&
+    frame.event.t === 'interaction' &&
+    frame.event.ev.ev === 'answered'
+      ? [{ id: frame.event.ev.id, answeredBy: frame.event.ev.answeredBy }]
+      : [],
+  )
 
 const SPEC = {
   harness: 'claude-code',
@@ -342,6 +382,84 @@ describe('send receipts', () => {
     expect(resolved.outcome).toBe('unverified')
   })
 
+  it('credits the send a content-block hook NAMES, with another send in flight', async () => {
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    // THE SHAPE A REAL `UserPromptSubmit` TAKES whenever the CLI has anything to
+    // attach: an ARRAY of content blocks, with the visible text in a `type: 'text'`
+    // entry, a `tool_result` alongside it that is no part of what the person
+    // typed, and Claude's own injected context wrapped around the text. A matcher
+    // that only understands `typeof prompt === 'string'` sees no prompt here at
+    // all — and what follows is not a missed accept but a MIS-credit, because
+    // "no prompt to compare" degrades to "the next waiter wins".
+    world.hookOnSubmit(sessionId, {
+      prompt: [
+        { type: 'tool_result', tool_use_id: 'toolu_1', content: 'previous output' },
+        { type: 'text', text: 'ship it<system-reminder>be careful</system-reminder>' },
+      ],
+    })
+    // TWO SENDS IN FLIGHT — a queue drain overlapping a chat send, which is the
+    // only arrangement that can tell "matched by content" apart from "credited
+    // whoever was waiting". The hook names the second one.
+    const other = session.send({ text: 'first' }, { origin: 'mail', delivery: 'when-ready' })
+    const named = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    const [otherReceipt, namedReceipt] = await Promise.all([other, named])
+
+    expect(namedReceipt.outcome).toBe('accepted')
+    if (namedReceipt.outcome !== 'accepted') return
+    expect(namedReceipt.provenBy).toBe('hook')
+    // And the send the hook did NOT name gets the honest answer rather than the
+    // accept that was lying around.
+    expect(otherReceipt.outcome).toBe('unverified')
+  })
+
+  it('does not credit a content-block hook that belongs to a different prompt', async () => {
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    // The same array shape, for somebody else's send. This is the case a
+    // string-only matcher gets EXACTLY BACKWARDS: unable to read the prompt, it
+    // falls through to crediting whatever waiter is open, so a queue drain
+    // overlapping a chat send reports an accept for a turn that never landed.
+    world.hookOnSubmit(sessionId, {
+      prompt: [{ type: 'text', text: 'something else entirely' }],
+    })
+    const resolved = await session.send(
+      { text: 'first' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(resolved.outcome).toBe('unverified')
+  })
+
+  it('leaves the waiter open for a payload it cannot fingerprint at all', async () => {
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    // A submit whose only block is a tool result — nothing a person typed, so
+    // nothing to attribute. FAILING CLOSED is the whole point: an unattributable
+    // hook must not credit an arbitrary waiter, and it must not credit one by
+    // accident either (a `null === null` comparison inside the match loop is how
+    // a fail-closed check like this usually leaks).
+    world.hookOnSubmit(sessionId, {
+      payload: {
+        hook_event_name: 'UserPromptSubmit',
+        prompt: [{ type: 'tool_result', tool_use_id: 'toolu_2', content: 'output only' }],
+      },
+    })
+    const resolved = await session.send(
+      { text: 'did this land?' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    // `unverified` IS THE TRUE ANSWER, and it is not the same as "not sent": the
+    // keystrokes went out and the caller is told exactly that much.
+    expect(resolved.outcome).toBe('unverified')
+    expect(world.written[0]).toBe(`${PASTE_START}did this land?${PASTE_END}`)
+  })
+
   it('answers `unverified` when the window closes with no proof, and says how long it waited', async () => {
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
@@ -409,6 +527,75 @@ describe('send receipts', () => {
     expect(world.written[1]).toBe('\x1b[200~stop and do this\x1b[201~')
     expect(resolved.outcome).toBe('accepted')
     if (resolved.outcome === 'accepted') expect(resolved.deliveredAs).toBe('interrupt')
+  })
+})
+
+/**
+ * WHY THESE ARE HERE AND NOT IN THE CORPUS. The shared conformance property for a
+ * held lease pins the FAMILY-NEUTRAL invariant — a lease-held send is neither
+ * `accepted` nor `unverified`, and a driver that refuses must say `lease_held` —
+ * because a headless driver refusing is as correct as a terminal driver queueing.
+ * That formulation deliberately accepts either answer, so it cannot pin THIS
+ * family's required one. The plan is explicit that the terminal driver queues:
+ * refusing would turn a takeover into dropped work for every caller that is not
+ * a person, and would add a third refusal reason to a path the plan gives exactly
+ * two. Re-introducing that refusal would pass every property in the corpus.
+ */
+describe('the human-controller lease', () => {
+  it('QUEUES a non-human send rather than refusing it, and says so', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    await session.lease.acquire('human:mgw', 'human-controller')
+
+    const receipt = await session.send(
+      { text: 'a nudge from the steward' },
+      { origin: 'mail', delivery: 'when-ready' },
+    )
+    expect(receipt.outcome).toBe('queued')
+    if (receipt.outcome !== 'queued') return
+    // THE DEGRADATION IS REPORTED. The work is held, not dropped — which is the
+    // difference between a takeover that serializes other controllers and one
+    // that loses their messages.
+    expect(receipt.deliveredAs).toBe('queue')
+    expect(receipt.position).toBe(1)
+    // And nothing was typed into the person's session while they hold it: the
+    // queue is what makes "the user started typing" and "the steward nudged"
+    // impossible to interleave.
+    expect(world.written).toEqual([])
+  })
+
+  it('queues an interrupt too — an ESC into a session someone else is driving IS the interleaving', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    await session.lease.acquire('human:mgw', 'human-controller')
+
+    const receipt = await session.send(
+      { text: 'stop that' },
+      { origin: 'steward', delivery: 'interrupt' },
+    )
+    expect(receipt.outcome).toBe('queued')
+    // The lease check sits AHEAD of the delivery-mode dispatch, so the escape
+    // key never reaches a terminal somebody else is driving.
+    expect(world.written).toEqual([])
+  })
+
+  it('does not queue the kind of send the lease holder themselves makes', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+    await session.lease.acquire('human:mgw', 'human-controller')
+
+    // A human-origin send under a human's lease is the person themselves. Queueing
+    // it would make the takeover lease a lock against its own holder.
+    world.hookOnSubmit(sessionId)
+    const receipt = await session.send(
+      { text: 'typed by the person holding it' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt.outcome).toBe('accepted')
   })
 })
 
@@ -485,6 +672,38 @@ describe('the echo baseline', () => {
     void session.send({ text: 'second' }, { origin: 'human', delivery: 'when-ready' })
     await Promise.resolve()
     expect(world.written[0]).toBe('\u001b[200~second\u001b[201~')
+  })
+
+  it('does not type a raw first turn into an ADOPTED conversation whose replay buffer has rolled', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', { ...GROK, usesRawFirstTurn: true })
+    const created = await driver.create(SPEC)
+    const sessionId = created.binding.sessionId
+    const binding = created.binding
+
+    // A daemon restart: handles die, the CLI does not. What comes back has no
+    // driver-local history at all — the case the predicate has to survive, and the
+    // reason it may not be read out of the driver's own event log.
+    world.runtime.control.restartSupervisor()
+    const session = await driver.adopt(binding)
+
+    // Everything the adopted driver learns about turns that happened before it
+    // arrives as the harness's OWN transcript, re-tailed and re-delivered.
+    world.echo(sessionId, 'a turn from before the restart', { reset: true })
+    // Then the conversation goes on. The replay buffer is BOUNDED — sized for a
+    // reconnect, not for history — so a long enough conversation rolls that user
+    // record off the back of it. Reading "has this session ever had a user turn"
+    // out of a buffer that forgets means a grok hours into a conversation gets raw
+    // keystrokes typed at it (POD-549/POD-901), which its TUI takes and then
+    // mangles. The harness's own turn count is the thing that does not forget.
+    for (let index = 0; index < EVENT_LOG_LIMIT + 4; index++) {
+      world.echo(sessionId, `assistant chatter ${index}`, { role: 'assistant' })
+    }
+
+    world.written.length = 0
+    void session.send({ text: 'next' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    expect(world.written[0]).toBe(`${PASTE_START}next${PASTE_END}`)
   })
 })
 
@@ -741,6 +960,70 @@ describe('interactions', () => {
     expect(ask.payload).toEqual({ toolName: 'Bash wants to run tests', canAlwaysAllow: false })
   })
 
+  /**
+   * WHO THE `answered` EVENT NAMES, per acting principal.
+   *
+   * A consumer reading `answeredBy: 'human'` believes somebody looked at the
+   * menu. This driver TYPED the digits, so the one value it may not claim by
+   * default is the one that says a person did — `policy` is the floor for a
+   * caller that did not name itself, and `human` is reachable only when the
+   * caller points at a user. The hardcoded `'human'` this replaced is invisible
+   * to every other test in the repo.
+   */
+  const ATTRIBUTION: ReadonlyArray<{
+    label: string
+    principal: ActingPrincipal | undefined
+    answeredBy: string
+  }> = [
+    { label: 'a user principal', principal: { kind: 'user', ref: 'u_1' }, answeredBy: 'human' },
+    {
+      label: 'an agent answering on behalf of the session',
+      principal: { kind: 'agent', ref: 'sess_1' },
+      answeredBy: 'superagent',
+    },
+    {
+      label: 'a server job with no person behind it',
+      principal: { kind: 'system', ref: 'autoresponder' },
+      answeredBy: 'policy',
+    },
+    // THE DEFAULT IS THE FLOOR, not the ceiling: a programmatic caller that did
+    // not name itself is not a person we can point to.
+    { label: 'a caller that named no principal', principal: undefined, answeredBy: 'policy' },
+  ]
+
+  for (const attribution of ATTRIBUTION) {
+    it(`attributes an answer from ${attribution.label} as ${attribution.answeredBy}`, async () => {
+      const world = makeWorld()
+      const driver = world.runtime.driverFor('claude-code', CLAUDE)
+      const session = await driver.create(SPEC)
+      world.observe(session.binding.sessionId, {
+        transitionKind: 'needs_user',
+        nextPhase: 'needs_user',
+        state: {
+          phase: 'needs_user',
+          since: '2026-08-14T00:00:00.000Z',
+          nativeSubagentCount: 0,
+          need: {
+            kind: 'permission',
+            summary: 'Bash',
+            ask: { toolName: 'Bash', detail: 'bun test', canAlwaysAllow: true },
+          },
+        },
+      })
+      const ask = (await session.interactions())[0] as PendingInteraction
+
+      const outcome = await session.answer(
+        ask.id,
+        { decision: 'allow' },
+        attribution.principal ? { principal: attribution.principal } : undefined,
+      )
+      expect(outcome).toEqual({ ok: true })
+      expect(answeredEvents(world)).toEqual([
+        expect.objectContaining({ id: ask.id, answeredBy: attribution.answeredBy }),
+      ])
+    })
+  }
+
   it('closes an ask that a person answered at the terminal', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
@@ -766,6 +1049,11 @@ describe('interactions', () => {
     // when a person at the attached terminal answered it — which is the one
     // thing a TUI session always allows.
     expect(await session.interactions()).toHaveLength(0)
+    // AND THIS IS WHERE `human` GENUINELY MEANS A PERSON: nobody typed through
+    // the contract, the ask closed anyway, so somebody at the terminal closed it.
+    // The two sites have to stay distinguishable, which is the whole point of the
+    // attribution above.
+    expect(answeredEvents(world)).toEqual([expect.objectContaining({ answeredBy: 'human' })])
   })
 })
 
