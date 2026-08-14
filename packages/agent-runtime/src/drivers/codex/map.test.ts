@@ -256,8 +256,12 @@ describe('answers', () => {
   })
 
   it('sends `acceptForSession` when it WAS offered', () => {
-    expect(ask(true).kind === 'permission' && ask(true).payload.canAlwaysAllow).toBe(true)
-    expect(answerAction(ask(true), { kind: 'permission', decision: 'allow-always' }, true)).toEqual({
+    const offered = ask(true)
+    // The offer is READ OFF `availableDecisions`, not assumed — see ./map.ts.
+    expect(offered.kind).toBe('permission')
+    if (offered.kind !== 'permission') return
+    expect(offered.payload.canAlwaysAllow).toBe(true)
+    expect(answerAction(offered, { kind: 'permission', decision: 'allow-always' }, true)).toEqual({
       call: 'respond',
       result: { decision: 'acceptForSession' },
     })
