@@ -463,8 +463,14 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
           [
             'No `adopted` event arrived. The daemon came back and the opencode server survived — the two facts this lane checked before this point — so what is missing is the rebind between them.',
             `journal still readable: ${existsSync(journalPath(sessionId))}; server still answering: awaited above`,
-            'If the daemon log below shows a reattach looking for an abduco socket, that is the known gap: nothing calls the driver adopt() on boot, so a session with no PTY is reattached down the PTY path and reported missing.',
-            `daemon log (tail):\n${daemon.output(8000)}`,
+            `session status after restart: ${sessions.listSessions().find((s) => s.sessionId === sessionId)?.status}`,
+            // AN EMPTY LOG BELOW IS A CLUE, NOT AN ABSENCE OF ONE. Verified by
+            // disabling the adopt caller and watching this failure: the daemon
+            // refuses a reattach it cannot serve with a `reattachFailed` FRAME,
+            // and a frame is not a log line — so the tail stays empty while the
+            // session quietly never comes back. If it is empty, suspect the
+            // reattach path rather than concluding the daemon was idle.
+            `daemon log since restart (tail, may legitimately be empty — see above):\n${daemon.output(8000)}`,
           ].join('\n'),
       )
       // EXACTLY ONE. The contract's words are "emit one bootstrap snapshot", and
