@@ -556,6 +556,12 @@ describe('Shipping command boundary', () => {
     await expect(
       dispatcher.run(agentCaller(root.id), 'ship', issueRegistry.defs.ship, {}),
     ).resolves.toBeDefined()
+    // `run` is the ALREADY-guarded, ALREADY-parsed entry point and returns the
+    // handler's own return value unwrapped — unlike `dispatch`, which defers into
+    // `Promise.resolve().then(...)` and so rejects. `requirePrincipal` refuses while
+    // the handler is still building its argument, so the refusal arrives as a
+    // synchronous throw and has to be asserted as one; `.rejects` never saw it,
+    // because the throw escaped before `expect` was ever called.
     expect(() =>
       dispatcher.run(
         { capability: agentCaller(root.id).capability },
