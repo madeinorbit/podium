@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+  asShipHoldId,
   asShipTrainId,
   asShipTrainSubsetId,
   type ActorKind,
@@ -30,22 +31,16 @@ import {
   serializeShipTrainManifest,
 } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import {
+  ShippingJobRequestMessage,
+  ShippingJobResult,
+  shippingJobRequestFingerprint,
+  shippingTrainProofsMatch,
+  shippingTrainSubsetFingerprint,
+} from '@podium/protocol/daemon'
 
 type SqlRow = Record<string, unknown>
 const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
-
-export interface CoveredTrainMemberProof {
-  issueId: ShipTrainManifestValue['members'][number]['issueId']
-  orderId: ShipTrainManifestValue['members'][number]['orderId']
-  attemptId: ShipTrainManifestValue['members'][number]['attemptId']
-  generation: number
-  sourceApprovedSha: string
-  resultCommitSha: string
-  testedIntegrationSha: string
-  landedRefSha: string
-  providerLandedRefSha: string
-  destinationSha: string
-}
 
 const frozenOrderFacts = (order: ShipOrderValue) => ({
   issueId: order.issueId,
@@ -61,6 +56,8 @@ const frozenOrderFacts = (order: ShipOrderValue) => ({
   providerRef: order.providerRef,
   requestedBy: order.requestedBy,
   policyId: order.policyId,
+  validationProfile: order.validationProfile,
+  validationProfileDigest: order.validationProfileDigest,
   closeMode: order.closeMode,
 })
 
@@ -96,6 +93,37 @@ const jsonObject = (value: unknown): Record<string, unknown> | undefined => {
 const optionalString = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined
 
+const canonicalValidationProfile = (input: ShipTrainValidationProfile) =>
+  ShipTrainValidationProfile.parse({
+    ...input,
+    resourceLocks: [...new Set(input.resourceLocks)].sort(),
+  })
+
+const validationProfileDigest = (profile: ShipTrainValidationProfile): string =>
+  createHash('sha256').update(JSON.stringify(canonicalValidationProfile(profile))).digest('hex')
+
+const shippingLaneKey = (
+  order: ShipOrderValue,
+  issue: { repoPath: string; machineId: string },
+): string =>
+  createHash('sha256')
+    .update(
+      JSON.stringify({
+        repoId: order.repoId,
+        repoPath: issue.repoPath,
+        machineId: issue.machineId,
+        targetBranch: order.targetBranch,
+        expectedTargetSha: order.approvedBaseSha,
+        destination: canonicalShippingDestination(order.destination, order.targetBranch),
+        providerRef: order.providerRef ?? null,
+        policyId: order.policyId,
+        validationProfileDigest: order.validationProfileDigest ?? null,
+        closeMode: order.closeMode,
+        requestedBy: order.requestedBy,
+      }),
+    )
+    .digest('hex')
+
 const canonicalIntegrationReceipt = (
   input: RootIntegrationReceiptValue,
 ): RootIntegrationReceiptValue => {
@@ -127,6 +155,7 @@ function mapOrder(row: SqlRow): ShipOrderValue {
   )
   const providerRef = jsonObject(row.providerRef)
   const currentIntegrationReceipt = jsonObject(row.currentIntegrationReceipt)
+  const validationProfile = jsonObject(row.validationProfile)
   return ShipOrder.parse({
     id: row.id,
     issueId: row.issueId,
@@ -145,6 +174,10 @@ function mapOrder(row: SqlRow): ShipOrderValue {
     requestedBy: { actor, onBehalfOf: row.requestedByOnBehalfOf ?? null },
     requestedAt: row.requestedAt,
     policyId: row.policyId,
+    ...(validationProfile ? { validationProfile } : {}),
+    ...(optionalString(row.validationProfileDigest)
+      ? { validationProfileDigest: row.validationProfileDigest }
+      : {}),
     closeMode: row.closeMode,
     state: row.state,
     stateChangedAt: row.stateChangedAt,
@@ -239,7 +272,8 @@ const orderSelect = `SELECT id, issue_id AS issueId, repo_id AS repoId,
   requested_by_actor_kind AS requestedByActorKind,
   requested_by_actor_id AS requestedByActorId,
   requested_by_on_behalf_of AS requestedByOnBehalfOf, requested_at AS requestedAt,
-  policy_id AS policyId, close_mode AS closeMode, state,
+  policy_id AS policyId, validation_profile AS validationProfile,
+  validation_profile_digest AS validationProfileDigest, close_mode AS closeMode, state,
   state_changed_at AS stateChangedAt, hold_code AS holdCode FROM ship_orders`
 
 const attemptSelect = `SELECT id, order_id AS orderId,
@@ -388,6 +422,26 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (active) {
         throw new Error(`issue ${order.issueId} already has active ship order ${active.id}`)
       }
+      if (!order.validationProfile || !order.validationProfileDigest) {
+        throw new Error(`ship order ${order.id} has no frozen validation policy`)
+      }
+      const profile = canonicalValidationProfile(order.validationProfile)
+      if (
+        JSON.stringify(profile) !== JSON.stringify(order.validationProfile) ||
+        validationProfileDigest(profile) !== order.validationProfileDigest
+      ) {
+        throw new Error(`ship order ${order.id} validation policy digest does not match`)
+      }
+      const issue = this.db
+        .prepare('SELECT repo_path AS repoPath, machine_id AS machineId FROM issues WHERE id = ?')
+        .get(order.issueId) as { repoPath?: string; machineId?: string } | undefined
+      if (!issue?.repoPath || !issue.machineId) {
+        throw new Error(`ship order ${order.id} issue has no durable lane custody`)
+      }
+      const laneKey = shippingLaneKey(order, {
+        repoPath: issue.repoPath,
+        machineId: issue.machineId,
+      })
       const actor = actorColumns(order.requestedBy.actor)
       this.db
         .prepare(
@@ -396,8 +450,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
              approved_head_sha, descendant_manifest, delivery_depends_on,
              evidence_manifest_ref, current_integration_receipt, provider_ref,
              requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
-             requested_at, policy_id, close_mode, state, state_changed_at, hold_code)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             requested_at, policy_id, validation_profile, validation_profile_digest,
+             close_mode, state, state_changed_at, hold_code)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           order.id,
@@ -417,11 +472,23 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           order.requestedBy.onBehalfOf,
           order.requestedAt,
           order.policyId,
+          JSON.stringify(profile),
+          order.validationProfileDigest,
           order.closeMode,
           order.state,
           order.stateChangedAt,
           order.holdCode ?? null,
         )
+      this.db
+        .prepare(
+          `INSERT INTO ship_lane_revisions (lane_key, revision, updated_at)
+           VALUES (?, 1, ?)
+           ON CONFLICT(lane_key) DO UPDATE SET
+             revision = ship_lane_revisions.revision + 1,
+             updated_at = excluded.updated_at`,
+        )
+        .run(laneKey, order.requestedAt)
+      this.invalidateActiveLane(laneKey, order.requestedAt, 'lane-enqueue')
       return this.getOrder(order.id) as ShipOrderValue
     })
   }
@@ -560,7 +627,6 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     leaderOrderId: ShipOrderValue['id']
     startedAt: string
     members: { orderId: ShipOrderValue['id'] }[]
-    validationProfile: ShipTrainValidationProfile
   }): {
     manifest: ShipTrainManifestValue
     claimed: { order: ShipOrderValue; attempt: ShipAttemptValue }[]
@@ -587,17 +653,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       )
       const providerKey = JSON.stringify(leaderOrder.providerRef ?? null)
       const attributionKey = JSON.stringify(leaderOrder.requestedBy)
-      const sameLane = (order: ShipOrderValue): boolean =>
-        order.state === 'queued' &&
+      const compatible = (order: ShipOrderValue): boolean =>
         order.repoId === leaderOrder.repoId &&
         order.targetBranch === leaderOrder.targetBranch &&
         order.approvedBaseSha === leaderOrder.approvedBaseSha &&
         canonicalShippingDestination(order.destination, order.targetBranch) === laneDestination &&
         JSON.stringify(order.providerRef ?? null) === providerKey &&
         order.policyId === leaderOrder.policyId &&
+        order.validationProfileDigest === leaderOrder.validationProfileDigest &&
         order.closeMode === leaderOrder.closeMode &&
         JSON.stringify(order.requestedBy) === attributionKey
-      if (selected.some((order) => !sameLane(order))) {
+      if (selected.some((order) => !compatible(order))) {
         throw new Error('ship train members cross an immutable delivery lane')
       }
       const issueFacts = new Map(
@@ -627,6 +693,32 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (new Set([...issueFacts.values()].map((facts) => facts.repoPath)).size !== 1) {
         throw new Error('ship train members cross repository paths')
       }
+      const laneKey = shippingLaneKey(leaderOrder, issueFacts.get(leaderOrder.id)!)
+      if (
+        selected.some(
+          (order) => shippingLaneKey(order, issueFacts.get(order.id)!) !== laneKey,
+        )
+      ) {
+        throw new Error('ship train members cross canonical lane authority')
+      }
+      const laneRevisionRow = this.db
+        .prepare('SELECT revision FROM ship_lane_revisions WHERE lane_key = ?')
+        .get(laneKey) as { revision: number } | undefined
+      if (!laneRevisionRow || laneRevisionRow.revision < 1) {
+        throw new Error('ship train lane has no durable revision')
+      }
+      const occupiedLane = this.listOrders().find(
+        (order) =>
+          compatible(order) &&
+          !isTerminalShipOrderState(order.state) &&
+          order.state !== 'held' &&
+          order.state !== 'queued',
+      )
+      if (occupiedLane) {
+        throw new Error(
+          `ship train lane is already occupied by earlier ${occupiedLane.state} order ${occupiedLane.id}`,
+        )
+      }
       const stackEdges = this.db
         .prepare(
           `SELECT upper_order_id AS upperOrderId, lower_order_id AS lowerOrderId
@@ -646,7 +738,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             ...(stackLower.get(order.id) ?? []),
           ]),
         ].sort()
-      const laneOrders = this.listOrders().filter(sameLane)
+      const laneOrders = this.listOrders().filter(
+        (order) => order.state === 'queued' && compatible(order),
+      )
       const allOrders = new Map(this.listOrders().map((order) => [order.id, order]))
       const remaining = new Map(laneOrders.map((order) => [order.id, order]))
       const topological: ShipOrderValue[] = []
@@ -697,10 +791,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error('ship train claim is not the canonical contiguous dependency/FIFO prefix')
       }
-      const profile = ShipTrainValidationProfile.parse({
-        ...input.validationProfile,
-        resourceLocks: [...input.validationProfile.resourceLocks].sort(),
-      })
+      if (!leaderOrder.validationProfile || !leaderOrder.validationProfileDigest) {
+        throw new Error(`ship train leader ${leaderOrder.id} has no frozen validation policy`)
+      }
+      const profile = canonicalValidationProfile(leaderOrder.validationProfile)
+      if (validationProfileDigest(profile) !== leaderOrder.validationProfileDigest) {
+        throw new Error(`ship train leader ${leaderOrder.id} validation policy drifted`)
+      }
       const machineId = issueFacts.get(prefix[0]!.id)!.machineId as ShipAttemptValue['machineId']
       const claimed = prefix.map((order) => {
         const previous = this.latestAttemptForOrder(order.id)
@@ -734,30 +831,30 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           ].sort(),
         }
       })
-      const validationProfileDigest = createHash('sha256')
-        .update(JSON.stringify(profile))
-        .digest('hex')
       const lane = {
         repoId: leaderOrder.repoId,
         repoPath: issueFacts.get(leaderOrder.id)!.repoPath,
         machineId,
+        laneKey,
+        laneRevision: laneRevisionRow.revision,
         targetBranch: leaderOrder.targetBranch,
         expectedTargetSha: leaderOrder.approvedBaseSha,
         destination: laneDestination,
         ...(leaderOrder.providerRef ? { providerRef: leaderOrder.providerRef } : {}),
         policyId: leaderOrder.policyId,
         validationProfile: profile,
-        validationProfileDigest,
+        validationProfileDigest: leaderOrder.validationProfileDigest,
       }
       const identity = JSON.stringify({ version: 1, repairRound: 0, lane, members })
       const id = asShipTrainId(`train:${createHash('sha256').update(identity).digest('hex')}`)
       const subsetId = asShipTrainSubsetId(
         `subset:${createHash('sha256')
           .update(
-            JSON.stringify({
-              trainId: id,
+            shippingTrainSubsetFingerprint({
+              manifest: { id },
               repairRound: 0,
-              orderIds: members.map((member) => member.orderId),
+              memberOrderIds: members.map((member) => member.orderId),
+              candidate: { kind: 'approved' },
             }),
           )
           .digest('hex')}`,
@@ -768,6 +865,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         subsetId,
         repairRound: 0,
         lane,
+        memberCount: members.length,
         leaderOrderId: input.leaderOrderId,
         members,
       })
@@ -781,9 +879,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             (id, version, subset_id, repair_round, canonical_digest, canonical_json,
              repo_id, repo_path, machine_id, target_branch, expected_target_sha,
              destination, provider_ref, policy_id, validation_profile,
-             validation_profile_digest, leader_order_id, leader_attempt_id,
-             leader_generation, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             validation_profile_digest, lane_key, lane_revision, member_count,
+             leader_order_id, leader_attempt_id, leader_generation, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           manifest.id,
@@ -802,6 +900,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           manifest.lane.policyId,
           JSON.stringify(manifest.lane.validationProfile),
           manifest.lane.validationProfileDigest,
+          manifest.lane.laneKey,
+          manifest.lane.laneRevision,
+          manifest.memberCount,
           manifest.leaderOrderId,
           leader.attempt.id,
           leader.attempt.leaseGeneration,
@@ -828,6 +929,18 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             member.approvedHeadSha,
             JSON.stringify(member.deliveryDependsOn),
           )
+        this.db
+          .prepare(
+            `INSERT INTO ship_train_active_claims
+              (train_id, order_id, attempt_id, generation) VALUES (?, ?, ?, ?)`,
+          )
+          .run(manifest.id, member.orderId, member.attemptId, member.generation)
+      }
+      const finalRevision = this.db
+        .prepare('SELECT revision FROM ship_lane_revisions WHERE lane_key = ?')
+        .get(laneKey) as { revision: number } | undefined
+      if (finalRevision?.revision !== laneRevisionRow.revision) {
+        throw new Error('ship train lane changed during claim')
       }
       const effectKey = `train-membership:${manifest.id}:${canonicalDigest}`
       this.appendStep({
@@ -856,11 +969,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       .prepare(
         `SELECT m.id, m.canonical_json AS canonicalJson, m.canonical_digest AS canonicalDigest,
                 m.repo_id AS repoId, m.repo_path AS repoPath, m.machine_id AS machineId,
+                m.lane_key AS laneKey, m.lane_revision AS laneRevision,
                 m.target_branch AS targetBranch,
                 m.expected_target_sha AS expectedTargetSha, m.destination,
                 m.provider_ref AS providerRef, m.policy_id AS policyId,
                 m.validation_profile AS validationProfile,
                 m.validation_profile_digest AS validationProfileDigest,
+                m.member_count AS memberCount,
                 m.leader_order_id AS leaderOrderId,
                 m.leader_attempt_id AS leaderAttemptId, m.leader_generation AS leaderGeneration
            FROM ship_train_manifests m
@@ -883,6 +998,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       manifest.lane.repoId !== row.repoId ||
       manifest.lane.repoPath !== row.repoPath ||
       manifest.lane.machineId !== row.machineId ||
+      manifest.lane.laneKey !== row.laneKey ||
+      manifest.lane.laneRevision !== row.laneRevision ||
       manifest.lane.targetBranch !== row.targetBranch ||
       manifest.lane.expectedTargetSha !== row.expectedTargetSha ||
       manifest.lane.destination !== row.destination ||
@@ -890,6 +1007,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       manifest.lane.policyId !== row.policyId ||
       JSON.stringify(manifest.lane.validationProfile) !== row.validationProfile ||
       manifest.lane.validationProfileDigest !== row.validationProfileDigest ||
+      manifest.memberCount !== row.memberCount ||
       manifest.leaderOrderId !== row.leaderOrderId ||
       manifest.members.at(-1)?.attemptId !== row.leaderAttemptId ||
       manifest.members.at(-1)?.generation !== row.leaderGeneration
@@ -949,10 +1067,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   private claimedTrainForOrder(orderId: ShipOrderValue['id']): ShipTrainManifestValue | null {
     const row = this.db
       .prepare(
-        `SELECT tm.attempt_id AS attemptId
-           FROM ship_train_members tm
-           JOIN ship_train_manifests m ON m.id = tm.train_id
-          WHERE tm.order_id = ? AND tm.released_at IS NULL AND m.released_at IS NULL`,
+        `SELECT c.attempt_id AS attemptId
+           FROM ship_train_active_claims c
+           JOIN ship_train_manifests m ON m.id = c.train_id
+          WHERE c.order_id = ? AND m.released_at IS NULL`,
       )
       .get(orderId) as { attemptId: ShipAttemptValue['id'] } | undefined
     if (!row) return null
@@ -962,6 +1080,26 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   activeTrainForOrder(orderId: ShipOrderValue['id']): ShipTrainManifestValue | null {
     const manifest = this.claimedTrainForOrder(orderId)
     if (!manifest) return null
+    const authority = this.db
+      .prepare(
+        `SELECT m.released_at AS releasedAt, lr.revision, lr.updated_at AS updatedAt,
+                (SELECT COUNT(*) FROM ship_train_active_claims c WHERE c.train_id = m.id) AS claimCount
+           FROM ship_train_manifests m
+           JOIN ship_lane_revisions lr ON lr.lane_key = m.lane_key
+          WHERE m.id = ?`,
+      )
+      .get(manifest.id) as { releasedAt?: string; revision: number; updatedAt: string; claimCount: number } | undefined
+    if (
+      !authority ||
+      authority.releasedAt ||
+      authority.revision !== manifest.lane.laneRevision ||
+      authority.claimCount !== manifest.memberCount
+    ) {
+      if (authority && !authority.releasedAt) {
+        this.invalidateActiveLane(manifest.lane.laneKey, authority.updatedAt, 'stale-authority')
+      }
+      return null
+    }
     for (const member of manifest.members) {
       const order = this.getOrder(member.orderId)
       const attempt = this.getAttempt(member.attemptId)
@@ -977,6 +1115,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         attempt.machineId !== member.machineId ||
         this.hasCancellationIntent(member.attemptId, member.generation)
       ) {
+        this.invalidateActiveLane(
+          manifest.lane.laneKey,
+          attempt?.finishedAt ?? order?.stateChangedAt ?? new Date().toISOString(),
+          'stale-member',
+        )
         return null
       }
     }
@@ -996,12 +1139,6 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         if (row.releasedAt === releasedAt && row.releaseReason === reason) return
         throw new Error(`ship train ${trainId} was already released differently`)
       }
-      this.db
-        .prepare(
-          `UPDATE ship_train_members SET released_at = ?
-            WHERE train_id = ? AND released_at IS NULL`,
-        )
-        .run(releasedAt, trainId)
       const changed = this.db
         .prepare(
           `UPDATE ship_train_manifests SET released_at = ?, release_reason = ?
@@ -1009,7 +1146,142 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         )
         .run(releasedAt, reason, trainId)
       if (changed.changes !== 1) throw new Error(`ship train ${trainId} release fence failed`)
+      const claims = this.db
+        .prepare('DELETE FROM ship_train_active_claims WHERE train_id = ?')
+        .run(trainId)
+      const memberCount = this.db
+        .prepare('SELECT member_count AS memberCount FROM ship_train_manifests WHERE id = ?')
+        .get(trainId) as { memberCount?: number } | undefined
+      if (claims.changes !== memberCount?.memberCount) {
+        throw new Error(`ship train ${trainId} did not release every active member claim`)
+      }
     })
+  }
+
+  isolateTrainFailure(input: {
+    trainId: ShipTrainManifestValue['id']
+    leaderOrderId: ShipOrderValue['id']
+    leaderAttemptId: ShipAttemptValue['id']
+    generation: number
+    terminalStep: ShipStepValue
+    failureOrderIds: ShipOrderValue['id'][]
+    isolatedAt: string
+    detail: string
+  }): void {
+    transaction(this.db, () => {
+      const manifest = this.claimedTrainForOrder(input.leaderOrderId)
+      if (
+        !manifest ||
+        manifest.id !== input.trainId ||
+        manifest.leaderOrderId !== input.leaderOrderId ||
+        manifest.members.at(-1)?.attemptId !== input.leaderAttemptId ||
+        manifest.members.at(-1)?.generation !== input.generation
+      ) {
+        throw new Error(`ship train ${input.trainId} isolation custody fence failed`)
+      }
+      const failures = new Set(input.failureOrderIds)
+      if (failures.size === 0 || [...failures].some((id) => !manifest.members.some((m) => m.orderId === id))) {
+        throw new Error(`ship train ${input.trainId} isolation set is invalid`)
+      }
+      this.appendStep(input.terminalStep)
+      this.releaseTrain(manifest.id, input.isolatedAt, 'validation-isolated')
+      for (const member of manifest.members) {
+        const order = this.getOrder(member.orderId)
+        const attempt = this.getAttempt(member.attemptId)
+        if (!order || isTerminalShipOrderState(order.state)) continue
+        if (attempt && !attempt.finishedAt) {
+          this.finishAttempt(member.attemptId, member.generation, {
+            finishedAt: input.isolatedAt,
+            outcome: 'failed',
+          })
+        }
+        if (!failures.has(member.orderId)) {
+          const changed = this.db
+            .prepare(
+              `UPDATE ship_orders SET state = 'queued', state_changed_at = ?, hold_code = NULL
+                WHERE id = ? AND state NOT IN ('shipped', 'cancelled', 'held')`,
+            )
+            .run(input.isolatedAt, member.orderId)
+          if (changed.changes !== 1) throw new Error(`ship train ${manifest.id} green member reset failed`)
+          continue
+        }
+        const generationRow = this.db
+          .prepare('SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?')
+          .get(member.orderId) as { generation: number }
+        this.raiseHold({
+          id: asShipHoldId(`hold:${member.orderId}:isolation:${generationRow.generation + 1}`),
+          orderId: member.orderId,
+          generation: generationRow.generation + 1,
+          reasonCode: 'validation-failed',
+          headline: failures.size > 1 ? 'Delivery changes interact' : 'Delivery validation failed',
+          detail: input.detail,
+          evidenceRefs: [manifest.id],
+          actions: ['open-repair', 'retry'],
+          raisedAt: input.isolatedAt,
+        })
+      }
+    })
+  }
+
+  private invalidateActiveLane(laneKey: string, at: string, reason: string): void {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM ship_train_manifests
+          WHERE lane_key = ? AND released_at IS NULL ORDER BY created_at, id`,
+      )
+      .all(laneKey) as { id: ShipTrainManifestValue['id'] }[]
+    for (const row of rows) {
+      const memberRows = this.db
+        .prepare(
+          `SELECT tm.order_id AS orderId, tm.attempt_id AS attemptId, tm.generation
+             FROM ship_train_members tm
+             JOIN ship_train_active_claims c
+               ON c.train_id = tm.train_id AND c.order_id = tm.order_id
+            WHERE tm.train_id = ? ORDER BY tm.ordinal`,
+        )
+        .all(row.id) as { orderId: ShipOrderValue['id']; attemptId: ShipAttemptValue['id']; generation: number }[]
+      const orders = memberRows.map((member) => this.getOrder(member.orderId))
+      const resettable =
+        memberRows.length > 0 &&
+        orders.every((order) => order?.state === 'preflight') &&
+        memberRows.every((member) => !this.getAttempt(member.attemptId)?.finishedAt)
+      this.releaseTrain(row.id, at, reason)
+      if (resettable) {
+        for (const member of memberRows) {
+          this.finishAttempt(member.attemptId, member.generation, { finishedAt: at, outcome: 'failed' })
+          const changed = this.db
+            .prepare(
+              `UPDATE ship_orders SET state = 'queued', state_changed_at = ?, hold_code = NULL
+                WHERE id = ? AND state = 'preflight'`,
+            )
+            .run(at, member.orderId)
+          if (changed.changes !== 1) throw new Error(`ship train ${row.id} reset was not manifest-wide`)
+        }
+        continue
+      }
+      for (const member of memberRows) {
+        const order = this.getOrder(member.orderId)
+        const attempt = this.getAttempt(member.attemptId)
+        if (!order || isTerminalShipOrderState(order.state)) continue
+        if (attempt && !attempt.finishedAt) {
+          this.finishAttempt(member.attemptId, member.generation, { finishedAt: at, outcome: 'failed' })
+        }
+        const generationRow = this.db
+          .prepare('SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?')
+          .get(member.orderId) as { generation: number }
+        this.raiseHold({
+          id: asShipHoldId(`hold:${member.orderId}:lane:${generationRow.generation + 1}`),
+          orderId: member.orderId,
+          generation: generationRow.generation + 1,
+          reasonCode: 'approval-stale',
+          headline: 'Delivery lane changed during execution',
+          detail: 'A newly admitted order or native stack edge changed the immutable train prefix.',
+          evidenceRefs: [row.id],
+          actions: ['retry'],
+          raisedAt: at,
+        })
+      }
+    }
   }
 
   recordNativeStackEdge(input: {
@@ -1028,6 +1300,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           canonicalShippingDestination(lower.destination, lower.targetBranch)
       ) {
         throw new Error('native stack edge crosses a delivery lane')
+      }
+      const issueRows = [upper, lower].map((order) => {
+        const issue = this.db
+          .prepare('SELECT repo_path AS repoPath, machine_id AS machineId FROM issues WHERE id = ?')
+          .get(order.issueId) as { repoPath?: string; machineId?: string } | undefined
+        if (!issue?.repoPath || !issue.machineId) throw new Error('native stack edge has no lane custody')
+        return { repoPath: issue.repoPath, machineId: issue.machineId }
+      })
+      const laneKey = shippingLaneKey(upper, issueRows[0]!)
+      if (shippingLaneKey(lower, issueRows[1]!) !== laneKey) {
+        throw new Error('native stack edge crosses immutable compatibility')
       }
       const existing = this.db
         .prepare(
@@ -1055,6 +1338,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
            VALUES (?, ?, ?, ?, ?)`,
         )
         .run(upper.id, lower.id, upper.approvedHeadSha, lower.approvedHeadSha, input.recordedAt)
+      this.db
+        .prepare(
+          `INSERT INTO ship_lane_revisions (lane_key, revision, updated_at)
+           VALUES (?, 1, ?)
+           ON CONFLICT(lane_key) DO UPDATE SET
+             revision = ship_lane_revisions.revision + 1,
+             updated_at = excluded.updated_at`,
+        )
+        .run(laneKey, input.recordedAt)
+      this.invalidateActiveLane(laneKey, input.recordedAt, 'native-stack-change')
     })
   }
 
@@ -1458,7 +1751,44 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         })
       }
       const cancelled = this.transitionOrder(orderId, expectedState, 'cancelled', cancelledAt)
-      if (activeTrain) this.releaseTrain(activeTrain.id, cancelledAt, 'cancelled')
+      if (activeTrain) {
+        this.releaseTrain(activeTrain.id, cancelledAt, 'cancelled')
+        for (const member of activeTrain.members) {
+          if (member.orderId === orderId) continue
+          const sibling = this.getOrder(member.orderId)
+          const siblingAttempt = this.getAttempt(member.attemptId)
+          if (!sibling || isTerminalShipOrderState(sibling.state)) continue
+          if (siblingAttempt && !siblingAttempt.finishedAt) {
+            this.finishAttempt(member.attemptId, member.generation, {
+              finishedAt: cancelledAt,
+              outcome: 'failed',
+            })
+          }
+          if (sibling.state === 'preflight') {
+            this.db
+              .prepare(
+                `UPDATE ship_orders SET state = 'queued', state_changed_at = ?, hold_code = NULL
+                  WHERE id = ? AND state = 'preflight'`,
+              )
+              .run(cancelledAt, sibling.id)
+          } else {
+            const holdGeneration = this.db
+              .prepare('SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?')
+              .get(sibling.id) as { generation: number }
+            this.raiseHold({
+              id: asShipHoldId(`hold:${sibling.id}:train:${holdGeneration.generation + 1}`),
+              orderId: sibling.id,
+              generation: holdGeneration.generation + 1,
+              reasonCode: 'approval-stale',
+              headline: 'Delivery train was cancelled',
+              detail: `Train peer ${orderId} was cancelled after shared execution began.`,
+              evidenceRefs: [activeTrain.id],
+              actions: ['retry'],
+              raisedAt: cancelledAt,
+            })
+          }
+        }
+      }
       return cancelled
     })
   }
@@ -1618,7 +1948,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (!isLegalShipOrderTransition(order.state, 'held')) {
         throw new Error(`illegal ship order transition ${order.state} → held`)
       }
-      const activeTrain = this.activeTrainForOrder(order.id)
+      const activeTrain = this.claimedTrainForOrder(order.id)
       const generationRow = this.db
         .prepare(
           'SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?',
@@ -1657,6 +1987,41 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       if (activeTrain) {
         this.releaseTrain(activeTrain.id, hold.raisedAt, `held:${hold.reasonCode}`)
+        for (const member of activeTrain.members) {
+          if (member.orderId === hold.orderId) continue
+          const sibling = this.getOrder(member.orderId)
+          const attempt = this.getAttempt(member.attemptId)
+          if (!sibling || isTerminalShipOrderState(sibling.state)) continue
+          if (attempt && !attempt.finishedAt) {
+            this.finishAttempt(member.attemptId, member.generation, {
+              finishedAt: hold.raisedAt,
+              outcome: 'failed',
+            })
+          }
+          if (sibling.state === 'preflight') {
+            this.db
+              .prepare(
+                `UPDATE ship_orders SET state = 'queued', state_changed_at = ?, hold_code = NULL
+                  WHERE id = ? AND state = 'preflight'`,
+              )
+              .run(hold.raisedAt, sibling.id)
+            continue
+          }
+          const siblingGeneration = this.db
+            .prepare('SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?')
+            .get(sibling.id) as { generation: number }
+          this.raiseHold({
+            id: asShipHoldId(`hold:${sibling.id}:train:${siblingGeneration.generation + 1}`),
+            orderId: sibling.id,
+            generation: siblingGeneration.generation + 1,
+            reasonCode: hold.reasonCode,
+            headline: hold.headline,
+            detail: `Train peer ${hold.orderId} was held. ${hold.detail}`,
+            evidenceRefs: [...new Set([...hold.evidenceRefs, activeTrain.id])],
+            actions: hold.actions,
+            raisedAt: hold.raisedAt,
+          })
+        }
       }
       return this.openHoldForOrder(hold.orderId) as ShipHoldValue
     })
@@ -1722,6 +2087,83 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     )
   }
 
+  recordEffectEnvelope(input: {
+    request: unknown
+    result: unknown
+    recordedAt: string
+  }): string {
+    const rawRequest = input.request as Record<string, unknown>
+    const request = ShippingJobRequestMessage.parse({
+      type: 'shippingJobRequest',
+      requestId: `envelope:${String(rawRequest.jobId ?? 'unknown')}`,
+      ...rawRequest,
+    })
+    const result = ShippingJobResult.parse(input.result)
+    const {
+      type: _type,
+      requestId: _requestId,
+      action: _action,
+      requestDigest: _requestDigest,
+      ...fingerprintInput
+    } = request
+    const calculatedDigest = createHash('sha256')
+      .update(shippingJobRequestFingerprint(fingerprintInput))
+      .digest('hex')
+    if (
+      request.requestDigest !== calculatedDigest ||
+      result.state !== 'succeeded' ||
+      result.classification !== 'proved' ||
+      !result.finishedAt ||
+      !request.train ||
+      !('manifest' in request.train) ||
+      !shippingTrainProofsMatch(request, result)
+    ) {
+      throw new Error(`shipping effect ${request.jobId} has no exact successful train proof`)
+    }
+    const manifest = request.train.manifest
+    const stored = this.trainManifestForAttempt(request.attemptId)
+    if (!stored || serializeShipTrainManifest(stored) !== serializeShipTrainManifest(manifest)) {
+      throw new Error(`shipping effect ${request.jobId} has no matching durable manifest`)
+    }
+    const effectKey = `${request.jobId}:${request.requestDigest}`
+    const requestJson = JSON.stringify(request)
+    const resultJson = JSON.stringify(result)
+    return transaction(this.db, () => {
+      const existing = this.db
+        .prepare(
+          `SELECT request_json AS requestJson, result_json AS resultJson, recorded_at AS recordedAt
+             FROM ship_effect_envelopes WHERE effect_key = ?`,
+        )
+        .get(effectKey) as { requestJson: string; resultJson: string; recordedAt: string } | undefined
+      if (existing) {
+        if (
+          existing.requestJson === requestJson &&
+          existing.resultJson === resultJson &&
+          existing.recordedAt === input.recordedAt
+        ) {
+          return effectKey
+        }
+        throw new Error(`shipping effect envelope ${effectKey} is immutable`)
+      }
+      this.db
+        .prepare(
+          `INSERT INTO ship_effect_envelopes
+            (effect_key, train_id, attempt_id, request_digest, request_json, result_json, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          effectKey,
+          manifest.id,
+          request.attemptId,
+          request.requestDigest,
+          requestJson,
+          resultJson,
+          input.recordedAt,
+        )
+      return effectKey
+    })
+  }
+
   /** Settle an earlier immutable train prefix from a later order's exact
    * destination proof. The covering order must durably depend on this member;
    * this is the only path which may cross queued → shipped without fabricating
@@ -1729,17 +2171,41 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   completeCoveredOrder(
     input: DeliveryReceiptValue,
     coveringOrderId: ShipOrderValue['id'],
-    proof: CoveredTrainMemberProof,
+    effectEnvelopeKey: string,
   ): DeliveryReceiptValue {
     const receipt = DeliveryReceipt.parse(input)
     return transaction(this.db, () => {
       const order = this.getOrder(receipt.orderId)
       const covering = this.getOrder(coveringOrderId)
       const coveringReceipt = this.receiptForOrder(coveringOrderId)
-      const coveringAttempt = this.latestAttemptForOrder(coveringOrderId)
-      const manifest = coveringAttempt
-        ? this.trainManifestForAttempt(coveringAttempt.id)
-        : null
+      const envelope = this.db
+        .prepare(
+          `SELECT request_json AS requestJson, result_json AS resultJson
+             FROM ship_effect_envelopes WHERE effect_key = ?`,
+        )
+        .get(effectEnvelopeKey) as { requestJson: string; resultJson: string } | undefined
+      if (!envelope) throw new Error(`unknown shipping effect envelope ${effectEnvelopeKey}`)
+      const request = ShippingJobRequestMessage.parse(JSON.parse(envelope.requestJson))
+      const result = ShippingJobResult.parse(JSON.parse(envelope.resultJson))
+      if (
+        request.operation !== 'verify' ||
+        result.state !== 'succeeded' ||
+        result.classification !== 'proved' ||
+        !shippingTrainProofsMatch(request, result) ||
+        !request.train ||
+        !('manifest' in request.train)
+      ) {
+        throw new Error(`shipping effect envelope ${effectEnvelopeKey} is not verified train proof`)
+      }
+      const manifest = request.train.manifest
+      const proof = result.trainProofs?.find((candidate) => candidate.orderId === receipt.orderId)
+      const manifestAuthority = this.db
+        .prepare(
+          `SELECT released_at AS releasedAt,
+                  (SELECT COUNT(*) FROM ship_train_active_claims c WHERE c.train_id = m.id) AS claimCount
+             FROM ship_train_manifests m WHERE id = ?`,
+        )
+        .get(manifest.id) as { releasedAt?: string; claimCount: number } | undefined
       if (!order || !covering || !coveringReceipt || covering.state !== 'shipped') {
         throw new Error(`covered delivery receipt ${receipt.id} has no shipped covering order`)
       }
@@ -1755,11 +2221,18 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       const memberAttempt = member ? this.getAttempt(member.attemptId) : null
       if (
         !manifest ||
+        !proof ||
+        !manifestAuthority ||
+        manifestAuthority.releasedAt ||
+        manifestAuthority.claimCount !== manifest.memberCount ||
         manifest.leaderOrderId !== covering.id ||
         !member ||
         !memberAttempt ||
         memberAttempt.finishedAt ||
         memberAttempt.leaseGeneration !== member.generation ||
+        this.latestAttemptForOrder(member.orderId)?.id !== member.attemptId ||
+        this.hasCancellationIntent(member.attemptId, member.generation) ||
+        this.openHoldForOrder(member.orderId) !== null ||
         member.approvedBaseSha !== order.approvedBaseSha ||
         member.approvedHeadSha !== order.approvedHeadSha ||
         proof.issueId !== member.issueId ||
@@ -1778,6 +2251,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         receipt.approvedBaseSha !== order.approvedBaseSha ||
         receipt.approvedHeadSha !== order.approvedHeadSha ||
         receipt.destination !== order.destination ||
+        !proof.resultCommitSha ||
+        !proof.testedIntegrationSha ||
+        !proof.landedRefSha ||
+        !proof.providerLandedRefSha ||
+        !proof.destinationSha ||
         receipt.landedRefSha !== proof.resultCommitSha ||
         receipt.testedIntegrationSha !== proof.testedIntegrationSha ||
         proof.testedIntegrationSha !== coveringReceipt.testedIntegrationSha ||

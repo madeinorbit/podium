@@ -1,11 +1,24 @@
 import { createHash } from 'node:crypto'
-import type { DeliveryReceipt, ShipOrder, ShipOrderId } from '@podium/model'
+import {
+  canonicalShippingDestination,
+  type DeliveryReceipt,
+  type ShipOrder,
+  type ShipOrderId,
+} from '@podium/model'
+
+export { canonicalShippingDestination } from '@podium/model'
 
 export interface ShippingWaitEstimate {
   lowerBoundMs: number
   upperBoundMs: number
   sampleSize: number
   basis: 'lane-history'
+}
+
+export interface ShippingTurnSample {
+  orderId: ShipOrderId
+  durationMs: number
+  completedAt: string
 }
 
 export interface ShippingQueueEntry {
@@ -38,7 +51,11 @@ export interface ShippingSchedule {
   trains: ShippingTrain[]
 }
 
-const laneKey = (order: ShipOrder): string => JSON.stringify([order.repoId, order.destination])
+const laneKey = (order: ShipOrder): string =>
+  JSON.stringify([
+    order.repoId,
+    canonicalShippingDestination(order.destination, order.targetBranch),
+  ])
 
 const attributionKey = (order: ShipOrder): string =>
   JSON.stringify({ onBehalfOf: order.requestedBy.onBehalfOf })
@@ -51,9 +68,11 @@ const providerKey = (order: ShipOrder): string => JSON.stringify(order.providerR
 export const shippingCompatibilityKey = (order: ShipOrder): string =>
   JSON.stringify([
     order.repoId,
-    order.destination,
+    canonicalShippingDestination(order.destination, order.targetBranch),
     order.targetBranch,
+    order.approvedBaseSha,
     order.policyId,
+    order.validationProfileDigest ?? null,
     order.closeMode,
     attributionKey(order),
     providerKey(order),
@@ -83,18 +102,17 @@ const percentile = (sorted: readonly number[], fraction: number): number => {
 
 const laneDurations = (
   orders: readonly ShipOrder[],
-  receipts: readonly DeliveryReceipt[],
+  turnSamples: readonly ShippingTurnSample[],
 ): Map<string, number[]> => {
   const byId = new Map(orders.map((order) => [order.id, order]))
   const result = new Map<string, number[]>()
-  for (const receipt of receipts) {
-    const order = byId.get(receipt.orderId)
+  for (const sample of [...turnSamples].sort((a, b) => a.completedAt.localeCompare(b.completedAt))) {
+    const order = byId.get(sample.orderId)
     if (!order) continue
-    const duration = Date.parse(receipt.completedAt) - Date.parse(order.requestedAt)
-    if (!Number.isFinite(duration) || duration < 0) continue
+    if (!Number.isFinite(sample.durationMs) || sample.durationMs < 0) continue
     const key = laneKey(order)
     const samples = result.get(key) ?? []
-    samples.push(duration)
+    samples.push(sample.durationMs)
     result.set(key, samples)
   }
   for (const [key, samples] of result) {
@@ -107,17 +125,13 @@ const laneDurations = (
 }
 
 const estimateWait = (
-  order: ShipOrder,
   rank: number,
   samples: readonly number[],
-  now: number,
 ): ShippingWaitEstimate | undefined => {
   // Fewer than three same-lane completions is not evidence for a useful range.
   if (samples.length < 3) return undefined
-  const requestedAt = Date.parse(order.requestedAt)
-  const elapsed = Number.isFinite(requestedAt) ? Math.max(0, now - requestedAt) : 0
-  const lowerBoundMs = Math.max(0, percentile(samples, 0.25) * rank - elapsed)
-  const upperBoundMs = Math.max(lowerBoundMs, percentile(samples, 0.9) * rank - elapsed)
+  const lowerBoundMs = percentile(samples, 0.25) * rank
+  const upperBoundMs = Math.max(lowerBoundMs, percentile(samples, 0.9) * rank)
   return {
     lowerBoundMs,
     upperBoundMs,
@@ -173,28 +187,9 @@ const topologicalLane = (
 }
 
 const buildTrains = (ordered: readonly ShipOrder[]): ShippingTrain[] => {
-  const trains: ShippingTrain[] = []
+  const dependencyRuns: ShipOrder[][] = []
   const remaining = [...ordered]
   const scheduledIds = new Set(ordered.map((order) => order.id))
-  const flush = (members: ShipOrder[]): void => {
-    const prefixes = members.map((_, index) => {
-      const prefix = members.slice(0, index + 1)
-      return {
-        id: prefixId(prefix),
-        orderIds: prefix.map((order) => order.id),
-        approvedHeads: prefix.map((order) => order.approvedHeadSha),
-      }
-    })
-    const first = members[0]!
-    trains.push({
-      id: prefixes.at(-1)!.id,
-      repoId: first.repoId,
-      destination: first.destination,
-      targetBranch: first.targetBranch,
-      orders: members,
-      prefixes,
-    })
-  }
 
   while (remaining.length > 0) {
     const members = [remaining.shift()!]
@@ -211,7 +206,45 @@ const buildTrains = (ordered: readonly ShipOrder[]): ShippingTrain[] => {
       if (successorIndex < 0) break
       members.push(remaining.splice(successorIndex, 1)[0]!)
     }
-    flush(members)
+    dependencyRuns.push(members)
+  }
+  const trains: ShippingTrain[] = []
+  for (const run of dependencyRuns) {
+    const previous = trains.at(-1)
+    if (
+      previous &&
+      shippingCompatibilityKey(previous.orders[0]!) === shippingCompatibilityKey(run[0]!)
+    ) {
+      const members = [...previous.orders, ...run]
+      previous.orders = members
+      previous.prefixes = members.map((_, index) => {
+        const prefix = members.slice(0, index + 1)
+        return {
+          id: prefixId(prefix),
+          orderIds: prefix.map((order) => order.id),
+          approvedHeads: prefix.map((order) => order.approvedHeadSha),
+        }
+      })
+      previous.id = previous.prefixes.at(-1)!.id
+      continue
+    }
+    const first = run[0]!
+    const prefixes = run.map((_, index) => {
+      const prefix = run.slice(0, index + 1)
+      return {
+        id: prefixId(prefix),
+        orderIds: prefix.map((order) => order.id),
+        approvedHeads: prefix.map((order) => order.approvedHeadSha),
+      }
+    })
+    trains.push({
+      id: prefixes.at(-1)!.id,
+      repoId: first.repoId,
+      destination: first.destination,
+      targetBranch: first.targetBranch,
+      orders: run,
+      prefixes,
+    })
   }
   return trains
 }
@@ -223,7 +256,10 @@ export function shippingSchedule(
   orders: readonly ShipOrder[],
   receipts: readonly DeliveryReceipt[] = [],
   now = Date.now(),
+  turnSamples: readonly ShippingTurnSample[] = [],
 ): ShippingSchedule {
+  void receipts
+  void now
   const byId = new Map(orders.map((order) => [order.id, order]))
   const shipped = new Set(
     orders.filter((order) => order.state === 'shipped').map((order) => order.id),
@@ -252,7 +288,7 @@ export function shippingSchedule(
     }
   }
 
-  const durations = laneDurations(orders, receipts)
+  const durations = laneDurations(orders, turnSamples)
   return {
     entries: orders.map((order) => {
       const queueRank = rank.get(order.id)
@@ -260,7 +296,7 @@ export function shippingSchedule(
       const waitEstimate =
         queueRank === undefined
           ? undefined
-          : estimateWait(order, queueRank, durations.get(laneKey(order)) ?? [], now)
+          : estimateWait(queueRank, durations.get(laneKey(order)) ?? [])
       return {
         order,
         ...(queueRank === undefined ? {} : { queueRank }),
@@ -286,8 +322,9 @@ export function shippingQueue(
   orders: readonly ShipOrder[],
   receipts: readonly DeliveryReceipt[] = [],
   now = Date.now(),
+  turnSamples: readonly ShippingTurnSample[] = [],
 ): ShippingQueueEntry[] {
-  return shippingSchedule(orders, receipts, now).entries
+  return shippingSchedule(orders, receipts, now, turnSamples).entries
 }
 
 export interface PrefixValidationResult {
@@ -295,18 +332,51 @@ export interface PrefixValidationResult {
   summary?: string
 }
 
+export interface ShippingValidationCacheScope {
+  repoId: ShipOrder['repoId']
+  targetBranch: string
+  targetSha: string
+  destination: string
+  provider: ShipOrder['providerRef'] | null
+  validationProfile: unknown
+  members: {
+    orderId: ShipOrderId
+    attemptId: string
+    generation: number
+    approvedHeadSha: string
+  }[]
+}
+
+const validationScopeKey = (scope: ShippingValidationCacheScope): string =>
+  JSON.stringify({
+    ...scope,
+    destination: canonicalShippingDestination(scope.destination, scope.targetBranch),
+  })
+
 export class GreenPrefixCache {
   private readonly green = new Map<
     string,
     { result: PrefixValidationResult; orderIds: ShipOrderId[] }
   >()
 
-  get(prefix: ImmutableShippingPrefix): PrefixValidationResult | undefined {
-    return this.green.get(prefix.id)?.result
+  get(
+    prefix: ImmutableShippingPrefix,
+    scope: ShippingValidationCacheScope,
+  ): PrefixValidationResult | undefined {
+    return this.green.get(`${validationScopeKey(scope)}\0${prefix.id}`)?.result
   }
 
-  record(prefix: ImmutableShippingPrefix, result: PrefixValidationResult): void {
-    if (result.passed) this.green.set(prefix.id, { result, orderIds: prefix.orderIds })
+  record(
+    prefix: ImmutableShippingPrefix,
+    scope: ShippingValidationCacheScope,
+    result: PrefixValidationResult,
+  ): void {
+    if (result.passed) {
+      this.green.set(`${validationScopeKey(scope)}\0${prefix.id}`, {
+        result,
+        orderIds: prefix.orderIds,
+      })
+    }
   }
 
   invalidateOrder(orderId: ShipOrderId): void {
@@ -330,6 +400,8 @@ export async function isolateShippingTrain(
   orders: readonly ShipOrder[],
   validate: (subset: readonly ShipOrder[]) => Promise<PrefixValidationResult>,
   cache = new GreenPrefixCache(),
+  scope: ShippingValidationCacheScope,
+  fullAlreadyFailed = false,
 ): Promise<AdaptiveIsolationResult> {
   const green: ShipOrderId[][] = []
   const failures: ShipOrderId[][] = []
@@ -337,40 +409,78 @@ export async function isolateShippingTrain(
   let validationCount = 0
   if (orders.length === 0) return { green, failures, interactions, validationCount }
 
+  // Direct dependency components are indivisible validation units. Splitting
+  // one would test a delivery shape that can never land and would mislabel a
+  // missing predecessor as a product failure.
+  const byId = new Map(orders.map((order) => [order.id, order] as const))
+  const parent = new Map(orders.map((order) => [order.id, order.id] as const))
+  const root = (id: ShipOrderId): ShipOrderId => {
+    const current = parent.get(id)!
+    if (current === id) return id
+    const resolved = root(current)
+    parent.set(id, resolved)
+    return resolved
+  }
+  const unite = (left: ShipOrderId, right: ShipOrderId): void => {
+    const a = root(left)
+    const b = root(right)
+    if (a !== b) parent.set(b, a)
+  }
+  for (const order of orders) {
+    for (const dependency of order.deliveryDependsOn) {
+      if (byId.has(dependency)) unite(order.id, dependency)
+    }
+  }
+  const grouped = new Map<ShipOrderId, ShipOrder[]>()
+  for (const order of orders) {
+    const id = root(order.id)
+    const unit = grouped.get(id) ?? []
+    unit.push(order)
+    grouped.set(id, unit)
+  }
+  const units = [...grouped.values()].sort(
+    (left, right) => orders.indexOf(left[0]!) - orders.indexOf(right[0]!),
+  )
+
   const run = async (subset: readonly ShipOrder[]): Promise<boolean> => {
     const prefix: ImmutableShippingPrefix = {
       id: prefixId(subset),
       orderIds: subset.map((order) => order.id),
       approvedHeads: subset.map((order) => order.approvedHeadSha),
     }
-    const cached = cache.get(prefix)
-    if (cached) return true
+    const cached = cache.get(prefix, scope)
+    if (cached) {
+      green.push(prefix.orderIds)
+      return true
+    }
     validationCount += 1
     const result = await validate(subset)
-    cache.record(prefix, result)
+    cache.record(prefix, scope, result)
     if (result.passed) green.push(prefix.orderIds)
     return result.passed
   }
 
-  const isolate = async (subset: readonly ShipOrder[], knownFailed = false): Promise<void> => {
-    if (!knownFailed && (await run(subset))) return
+  const isolate = async (subset: readonly ShipOrder[][], knownFailed = false): Promise<void> => {
+    const flattened = subset.flat()
+    if (!knownFailed && (await run(flattened))) return
     if (subset.length === 1) {
-      failures.push([subset[0]!.id])
+      if (flattened.length === 1) failures.push([flattened[0]!.id])
+      else interactions.push(flattened.map((order) => order.id))
       return
     }
     const middle = Math.ceil(subset.length / 2)
     const left = subset.slice(0, middle)
     const right = subset.slice(middle)
-    const leftGreen = await run(left)
-    const rightGreen = await run(right)
+    const leftGreen = await run(left.flat())
+    const rightGreen = await run(right.flat())
     if (leftGreen && rightGreen) {
-      interactions.push(subset.map((order) => order.id))
+      interactions.push(flattened.map((order) => order.id))
       return
     }
     if (!leftGreen) await isolate(left, true)
     if (!rightGreen) await isolate(right, true)
   }
 
-  await isolate(orders)
+  await isolate(units, fullAlreadyFailed)
   return { green, failures, interactions, validationCount }
 }

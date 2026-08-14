@@ -44,6 +44,27 @@ const receipt = (item: ShipOrder, completedAt: string): DeliveryReceipt => ({
   completedAt,
 })
 
+const cacheScope = (orders: readonly ShipOrder[]) => ({
+  repoId: orders[0]!.repoId,
+  targetBranch: orders[0]!.targetBranch,
+  targetSha: orders[0]!.approvedBaseSha,
+  destination: orders[0]!.destination,
+  provider: orders[0]!.providerRef ?? null,
+  validationProfile: {
+    id: 'podium-agent',
+    argv: ['bun', 'run', 'test'],
+    cwd: 'integration-root',
+    timeoutMs: 60_000,
+    resourceLocks: [],
+  },
+  members: orders.map((item, index) => ({
+    orderId: item.id,
+    attemptId: `attempt-${item.id}`,
+    generation: index + 1,
+    approvedHeadSha: item.approvedHeadSha,
+  })),
+})
+
 describe('shippingSchedule', () => {
   it('groups dependency prefixes before FIFO peers without creating a global lane rank', () => {
     const a = order('a', '2026-08-14T10:00:00.000Z')
@@ -61,13 +82,12 @@ describe('shippingSchedule', () => {
 
     const schedule = shippingSchedule([c, b, blocked, otherLane, a])
     expect(schedule.trains.map((train) => train.orders.map((item) => item.id))).toEqual([
-      [a.id, b.id],
-      [c.id],
+      [a.id, b.id, c.id],
       [otherLane.id],
     ])
     expect(
       Object.fromEntries(schedule.entries.map((entry) => [entry.order.id, entry.queueRank])),
-    ).toEqual({ a: 1, b: 1, c: 2, blocked: undefined, other: 1 })
+    ).toEqual({ a: 1, b: 1, c: 1, blocked: undefined, other: 1 })
     expect(schedule.entries.find((entry) => entry.order.id === blocked.id)?.blockedBy).toEqual([
       missing,
     ])
@@ -87,15 +107,29 @@ describe('shippingSchedule', () => {
       [waiting, ...history],
       receipts,
       Date.parse('2026-08-14T10:05:00.000Z'),
+      history.map((item) => ({
+        orderId: item.id,
+        durationMs: 10 * 60_000,
+        completedAt: new Date(Date.parse(item.requestedAt) + 10 * 60_000).toISOString(),
+      })),
     ).entries.find((candidate) => candidate.order.id === waiting.id)
 
     expect(entry?.waitEstimate).toEqual({
-      lowerBoundMs: 5 * 60_000,
-      upperBoundMs: 5 * 60_000,
+      lowerBoundMs: 10 * 60_000,
+      upperBoundMs: 10 * 60_000,
       sampleSize: 3,
       basis: 'lane-history',
     })
     expect(shippingSchedule([waiting]).entries[0]?.waitEstimate).toBeUndefined()
+  })
+
+  it('canonicalizes equivalent local destination aliases into one lane', () => {
+    const first = order('first', '2026-08-14T10:00:00.000Z', { destination: 'main' })
+    const second = order('second', '2026-08-14T10:01:00.000Z', {
+      destination: 'refs/heads/main',
+    })
+    const entries = shippingSchedule([first, second]).entries
+    expect(entries.map((entry) => entry.queueRank)).toEqual([1, 2])
   })
 })
 
@@ -104,10 +138,15 @@ describe('isolateShippingTrain', () => {
     const a = order('a', '2026-08-14T10:00:00.000Z')
     const b = order('b', '2026-08-14T10:01:00.000Z')
     const seen: string[][] = []
-    const result = await isolateShippingTrain([a, b], async (subset) => {
-      seen.push(subset.map((item) => item.id))
-      return { passed: subset.length === 1 }
-    })
+    const result = await isolateShippingTrain(
+      [a, b],
+      async (subset) => {
+        seen.push(subset.map((item) => item.id))
+        return { passed: subset.length === 1 }
+      },
+      new GreenPrefixCache(),
+      cacheScope([a, b]),
+    )
 
     expect(seen).toEqual([[a.id, b.id], [a.id], [b.id]])
     expect(result.interactions).toEqual([[a.id, b.id]])
@@ -122,11 +161,33 @@ describe('isolateShippingTrain', () => {
       validations += 1
       return { passed: true }
     }
-    await isolateShippingTrain([a], validate, cache)
-    await isolateShippingTrain([a], validate, cache)
+    await isolateShippingTrain([a], validate, cache, cacheScope([a]))
+    await isolateShippingTrain([a], validate, cache, cacheScope([a]))
     expect(validations).toBe(1)
     cache.invalidateOrder(a.id)
-    await isolateShippingTrain([a], validate, cache)
+    await isolateShippingTrain([a], validate, cache, cacheScope([a]))
     expect(validations).toBe(2)
+  })
+
+  it('keeps direct dependency components indivisible during isolation', async () => {
+    const lower = order('lower', '2026-08-14T10:00:00.000Z')
+    const upper = order('upper', '2026-08-14T10:01:00.000Z', {
+      deliveryDependsOn: [lower.id],
+    })
+    const independent = order('independent', '2026-08-14T10:02:00.000Z')
+    const seen: string[][] = []
+    const result = await isolateShippingTrain(
+      [lower, upper, independent],
+      async (subset) => {
+        seen.push(subset.map((item) => item.id))
+        return { passed: subset.length === 1 }
+      },
+      new GreenPrefixCache(),
+      cacheScope([lower, upper, independent]),
+      true,
+    )
+    expect(seen).toEqual([[lower.id, upper.id], [independent.id]])
+    expect(result.interactions).toEqual([[lower.id, upper.id]])
+    expect(result.green).toContainEqual([independent.id])
   })
 })

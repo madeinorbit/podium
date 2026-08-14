@@ -68,10 +68,14 @@ describe('buildReport', () => {
 
 describe('deliveryCaps', () => {
   it('offers feed and bundle for an installed build', () => {
-    expect(deliveryCaps('installed')).toEqual(['update.delivery.feed', 'update.delivery.bundle'])
+    expect(deliveryCaps('installed')).toEqual([
+      'update.delivery.feed',
+      'update.delivery.bundle',
+      'shipping.train.v2',
+    ])
   })
 
   it('offers only git for a source run, which cannot swap a bundle', () => {
-    expect(deliveryCaps('source')).toEqual(['update.delivery.git'])
+    expect(deliveryCaps('source')).toEqual(['update.delivery.git', 'shipping.train.v2'])
   })
 })

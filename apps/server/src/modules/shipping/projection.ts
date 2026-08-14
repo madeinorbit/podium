@@ -5,7 +5,7 @@ import {
   ShipOrderProjection,
   type ShipOrderProjection as ShipOrderProjectionValue,
 } from '@podium/model'
-import { shippingQueue } from './queue'
+import { shippingQueue, type ShippingTurnSample } from './queue'
 
 const humanState = (
   state: Exclude<ShipOrder['state'], 'cancelled'>,
@@ -116,6 +116,7 @@ export function scheduledShipOrderProjectionRows(
   holds: Iterable<ShipHold>,
   receipts: Iterable<DeliveryReceipt>,
   now = Date.now(),
+  turnSamples: readonly ShippingTurnSample[] = [],
 ): { id: string; value: ShipOrderProjectionValue }[] {
   const orderList = [...orders]
   const holdByOrder = new Map(
@@ -123,7 +124,7 @@ export function scheduledShipOrderProjectionRows(
   )
   const receiptList = [...receipts]
   const receiptByOrder = new Map(receiptList.map((receipt) => [receipt.orderId, receipt]))
-  return shippingQueue(orderList, receiptList, now).flatMap(
+  return shippingQueue(orderList, receiptList, now, turnSamples).flatMap(
     ({ order, queueRank, waitEstimate, trainId, trainIndex, trainSize }) => {
       const train =
         trainId && trainIndex !== undefined && trainSize !== undefined

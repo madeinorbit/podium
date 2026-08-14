@@ -12,10 +12,12 @@ import {
   type DeliveryReceipt,
   type ShipOrder,
 } from '@podium/model'
+import { createHash } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 import type { RootIntegrationReceiptStore } from './store/shipping'
@@ -341,6 +343,24 @@ const shipOrder = (overrides: Partial<ShipOrder> = {}): ShipOrder => ({
   },
   requestedAt: '2026-08-12T10:00:00.000Z',
   policyId: 'default',
+  validationProfile: {
+    id: 'default',
+    argv: ['bun', 'run', 'test'],
+    cwd: 'integration-root',
+    timeoutMs: 60_000,
+    resourceLocks: [],
+  },
+  validationProfileDigest: createHash('sha256')
+    .update(
+      JSON.stringify({
+        id: 'default',
+        argv: ['bun', 'run', 'test'],
+        cwd: 'integration-root',
+        timeoutMs: 60_000,
+        resourceLocks: [],
+      }),
+    )
+    .digest('hex'),
   closeMode: 'after-destination',
   state: 'queued',
   stateChangedAt: '2026-08-12T10:00:00.000Z',
@@ -700,13 +720,6 @@ describe('shipping durable store', () => {
     const train = s.shipping.claimTrain({
       leaderOrderId: covering.id,
       startedAt: '2026-08-12T10:01:00.000Z',
-      validationProfile: {
-        id: 'default',
-        argv: ['bun', 'run', 'test'],
-        cwd: 'integration-root',
-        timeoutMs: 60_000,
-        resourceLocks: [],
-      },
       members: [lower, covering].map((order) => ({
         orderId: order.id,
       })),
@@ -783,20 +796,77 @@ describe('shipping durable store', () => {
       approvedHeadSha: lower.approvedHeadSha,
       landedRefSha: lower.approvedHeadSha,
     }
-
-    expect(
-      s.shipping.completeCoveredOrder(lowerReceipt, covering.id, {
-        issueId: lower.issueId,
-        orderId: lower.id,
-        attemptId: train.manifest.members[0]!.attemptId,
-        generation: train.manifest.members[0]!.generation,
-        sourceApprovedSha: lower.approvedHeadSha,
-        resultCommitSha: lower.approvedHeadSha,
+    const requestFacts = {
+      jobId: `${claimed.attempt.id}:verify`,
+      orderId: covering.id,
+      attemptId: claimed.attempt.id,
+      generation: claimed.attempt.leaseGeneration,
+      operation: 'verify' as const,
+      shippingProtocolVersion: 2 as const,
+      repoPath: train.manifest.lane.repoPath,
+      repoId: covering.repoId,
+      sourceBranch: 'issue/covering',
+      targetBranch: covering.targetBranch,
+      approvedBaseSha: covering.approvedBaseSha,
+      approvedHeadSha: covering.approvedHeadSha,
+      expectedTargetSha: covering.approvedBaseSha,
+      destination: 'origin/main',
+      policyId: covering.policyId,
+      validationProfile: covering.validationProfile!,
+      train: {
+        version: 2 as const,
+        capability: 'shipping.train.v2' as const,
+        manifest: train.manifest,
+        subsetId: train.manifest.subsetId,
+        memberOrderIds: train.manifest.members.map((member) => member.orderId),
+        repairRound: 0,
+        candidate: { kind: 'approved' as const },
+      },
+    }
+    const requestDigest = createHash('sha256')
+      .update(shippingJobRequestFingerprint(requestFacts))
+      .digest('hex')
+    const trainProofs = train.manifest.members.map((member) => ({
+      issueId: member.issueId,
+      orderId: member.orderId,
+      attemptId: member.attemptId,
+      generation: member.generation,
+      sourceApprovedSha: member.approvedHeadSha,
+      resultCommitSha: member.orderId === lower.id ? lower.approvedHeadSha : covering.approvedHeadSha,
+      testedIntegrationSha: coveringReceipt.testedIntegrationSha,
+      landedRefSha: coveringReceipt.landedRefSha,
+      providerLandedRefSha: coveringReceipt.landedRefSha,
+      destinationSha: coveringReceipt.destinationSha,
+    }))
+    const envelopeKey = s.shipping.recordEffectEnvelope({
+      request: { action: 'start', requestDigest, ...requestFacts },
+      result: {
+        jobId: requestFacts.jobId,
+        requestDigest,
+        orderId: covering.id,
+        attemptId: claimed.attempt.id,
+        machineId: claimed.attempt.machineId,
+        generation: claimed.attempt.leaseGeneration,
+        operation: 'verify',
+        state: 'succeeded',
+        classification: 'proved',
+        summary: 'verified',
+        observedDestinationSha: coveringReceipt.destinationSha,
         testedIntegrationSha: coveringReceipt.testedIntegrationSha,
         landedRefSha: coveringReceipt.landedRefSha,
-        providerLandedRefSha: coveringReceipt.landedRefSha,
-        destinationSha: coveringReceipt.destinationSha,
-      }),
+        validationProfileId: 'default',
+        validationResult: 'passed',
+        trainProofs,
+        logs: [],
+        artifactRefs: [],
+        heartbeatedAt: coveringReceipt.completedAt,
+        finishedAt: coveringReceipt.completedAt,
+      },
+      recordedAt: coveringReceipt.completedAt,
+    })
+
+    expect(
+      s.shipping.completeCoveredOrder(lowerReceipt, covering.id, envelopeKey),
     ).toEqual(lowerReceipt)
     expect(s.shipping.getOrder(lower.id)?.state).toBe('shipped')
     s.close()
@@ -897,18 +967,10 @@ describe('shipping durable store', () => {
       requestedAt: '2026-08-12T10:02:00.000Z',
     })
     for (const order of [a, b, c]) s.shipping.createOrder(order)
-    const validationProfile = {
-      id: 'default',
-      argv: ['bun', 'run', 'test'],
-      cwd: 'integration-root' as const,
-      timeoutMs: 60_000,
-      resourceLocks: [] as string[],
-    }
     expect(() =>
       s.shipping.claimTrain({
         leaderOrderId: b.id,
         startedAt: '2026-08-12T10:03:00.000Z',
-        validationProfile,
         members: [a, b].map((order) => ({ orderId: order.id })),
       }),
     ).toThrow(/cross an immutable delivery lane/)
@@ -916,7 +978,6 @@ describe('shipping durable store', () => {
       s.shipping.claimTrain({
         leaderOrderId: c.id,
         startedAt: '2026-08-12T10:03:00.000Z',
-        validationProfile,
         members: [{ orderId: c.id }],
       }),
     ).toThrow(/canonical contiguous dependency\/FIFO prefix/)
@@ -925,7 +986,6 @@ describe('shipping durable store', () => {
     const claimed = s.shipping.claimTrain({
       leaderOrderId: c.id,
       startedAt: '2026-08-12T10:04:00.000Z',
-      validationProfile,
       members: [a, c].map((order) => ({ orderId: order.id })),
     })
     expect(s.shipping.activeTrainForOrder(a.id)?.id).toBe(claimed.manifest.id)
@@ -961,7 +1021,6 @@ describe('shipping durable store', () => {
       cyclic.shipping.claimTrain({
         leaderOrderId: upperId,
         startedAt: '2026-08-12T10:06:00.000Z',
-        validationProfile,
         members: [{ orderId: upperId }, { orderId: lowerId }],
       }),
     ).toThrow(/canonical contiguous dependency\/FIFO prefix/)

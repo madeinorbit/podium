@@ -1,6 +1,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type PeerBuild, wireSchemaDigest } from '@podium/protocol'
+import { SHIPPING_TRAIN_CAPABILITY } from '@podium/protocol/daemon'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 
 const DEVELOPMENT_SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -44,6 +45,6 @@ export function captureDaemonBootBuild(
 
 export function deliveryCaps(installKind: PeerBuild['installKind']): string[] {
   return installKind === 'source'
-    ? ['update.delivery.git']
-    : ['update.delivery.feed', 'update.delivery.bundle']
+    ? ['update.delivery.git', SHIPPING_TRAIN_CAPABILITY]
+    : ['update.delivery.feed', 'update.delivery.bundle', SHIPPING_TRAIN_CAPABILITY]
 }

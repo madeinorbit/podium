@@ -10,7 +10,7 @@ import {
 
 const train = {
   version: 2 as const,
-  capability: 'shipping.train.v1' as const,
+  capability: 'shipping.train.v2' as const,
   manifest: {
     version: 1 as const,
     id: 'train-1',
@@ -20,6 +20,8 @@ const train = {
       repoId: 'repo-1',
       repoPath: '/repo',
       machineId: 'machine-1',
+      laneKey: 'f'.repeat(64),
+      laneRevision: 1,
       targetBranch: 'main',
       expectedTargetSha: 'a'.repeat(40),
       destination: 'local:main',
@@ -33,6 +35,7 @@ const train = {
       },
       validationProfileDigest: 'e'.repeat(64),
     },
+    memberCount: 1,
     leaderOrderId: 'order-1',
     members: [
       {
@@ -172,6 +175,7 @@ describe('shipping machine protocol', () => {
       members: train.manifest.members,
       leaderOrderId: train.manifest.leaderOrderId,
       lane: train.manifest.lane,
+      memberCount: train.manifest.memberCount,
       repairRound: train.manifest.repairRound,
       subsetId: train.manifest.subsetId,
       id: train.manifest.id,

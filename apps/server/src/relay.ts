@@ -533,6 +533,13 @@ export class SessionRegistry {
         this.store.shipping.listHolds(),
         this.store.shipping.listReceipts(),
         this.now(),
+        this.store.shipping.listAttempts().flatMap((attempt) => {
+          if (!attempt.finishedAt || attempt.outcome !== 'succeeded') return []
+          const durationMs = Date.parse(attempt.finishedAt) - Date.parse(attempt.startedAt)
+          return Number.isFinite(durationMs) && durationMs >= 0
+            ? [{ orderId: attempt.orderId, durationMs, completedAt: attempt.finishedAt }]
+            : []
+        }),
       ),
     )
     const issueArbitration = new IssueAuthorityArbitration(ledger)
@@ -1978,6 +1985,8 @@ export class SessionRegistry {
       },
       machineFor: (issue) =>
         issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath),
+      machineCapabilities: (machineId) =>
+        machines.listMachines().find((machine) => machine.id === machineId)?.deliveryCaps ?? [],
       resolveBranchTip: async (issue) => {
         if (!issue.branch) throw new Error(`issue ${issue.id} has no branch`)
         const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)

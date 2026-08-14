@@ -31,7 +31,7 @@ export type ShippingJobOperation = z.infer<typeof ShippingJobOperation>
 export const ShippingValidationProfile = ShipTrainValidationProfile
 export type ShippingValidationProfile = z.infer<typeof ShippingValidationProfile>
 
-export const SHIPPING_TRAIN_CAPABILITY = 'shipping.train.v1' as const
+export const SHIPPING_TRAIN_CAPABILITY = 'shipping.train.v2' as const
 
 export const ShippingTrainExecution = z
   .object({
@@ -95,6 +95,28 @@ export const ShippingTrainExecution = z
     }
   })
 export type ShippingTrainExecution = z.infer<typeof ShippingTrainExecution>
+
+/** Canonical preimage for subsetId. Hash these bytes with SHA-256 and prefix
+ * the hex digest with `subset:`; candidate key order is never caller-defined. */
+export const shippingTrainSubsetFingerprint = (execution: {
+  manifest: { id: string }
+  memberOrderIds: z.infer<typeof ShipOrderIdField>[]
+  repairRound: number
+  candidate: z.infer<typeof ShippingTrainExecution>['candidate']
+}): string =>
+  JSON.stringify({
+    manifestId: execution.manifest.id,
+    memberOrderIds: [...execution.memberOrderIds],
+    repairRound: execution.repairRound,
+    candidate:
+      execution.candidate.kind === 'approved'
+        ? { kind: 'approved' }
+        : {
+            kind: 'repair',
+            repairRef: execution.candidate.repairRef,
+            candidateHeadSha: execution.candidate.candidateHeadSha,
+          },
+  })
 
 /** Raw manifests remain parseable for existing journal entries. New effects
  * use ShippingTrainExecution so subset and repair identity are immutable
@@ -184,14 +206,14 @@ export function shippingJobRequestFingerprint(
     approvedBaseSha: input.approvedBaseSha,
     approvedHeadSha: input.approvedHeadSha,
     expectedTargetSha: input.expectedTargetSha,
-    destination: input.destination,
+    destination: canonicalShippingDestination(input.destination, input.targetBranch),
     policyId: input.policyId,
     validationProfile: {
       id: input.validationProfile.id,
       argv: [...input.validationProfile.argv],
       cwd: input.validationProfile.cwd,
       timeoutMs: input.validationProfile.timeoutMs,
-      resourceLocks: [...input.validationProfile.resourceLocks],
+      resourceLocks: [...input.validationProfile.resourceLocks].sort(),
     },
     train: input.train
       ? 'manifest' in input.train
@@ -202,7 +224,14 @@ export function shippingJobRequestFingerprint(
             subsetId: input.train.subsetId,
             memberOrderIds: [...input.train.memberOrderIds],
             repairRound: input.train.repairRound,
-            candidate: input.train.candidate,
+            candidate:
+              input.train.candidate.kind === 'approved'
+                ? { kind: 'approved' }
+                : {
+                    kind: 'repair',
+                    repairRef: input.train.candidate.repairRef,
+                    candidateHeadSha: input.train.candidate.candidateHeadSha,
+                  },
           }
         : JSON.parse(serializeShipTrainManifest(input.train))
       : null,
@@ -299,16 +328,24 @@ export const shippingTrainProofsMatch = (
   }
   if (!request.train) return result.trainProofs === undefined
   const manifest = 'manifest' in request.train ? request.train.manifest : request.train
+  const provedMembers =
+    'manifest' in request.train
+      ? request.train.memberOrderIds.map((orderId) =>
+          manifest.members.find((member) => member.orderId === orderId),
+        )
+      : manifest.members
   const proofs = result.trainProofs
-  if (!proofs || proofs.length !== manifest.members.length) return false
-  const identitiesMatch = manifest.members.every((member, index) => {
+  if (provedMembers.some((member) => !member) || !proofs || proofs.length !== provedMembers.length) {
+    return false
+  }
+  const identitiesMatch = provedMembers.every((member, index) => {
     const proof = proofs[index]
     return (
-      proof?.issueId === member.issueId &&
-      proof.orderId === member.orderId &&
-      proof.attemptId === member.attemptId &&
-      proof.generation === member.generation &&
-      proof.sourceApprovedSha === member.approvedHeadSha
+      proof?.issueId === member!.issueId &&
+      proof.orderId === member!.orderId &&
+      proof.attemptId === member!.attemptId &&
+      proof.generation === member!.generation &&
+      proof.sourceApprovedSha === member!.approvedHeadSha
     )
   })
   if (!identitiesMatch) return false

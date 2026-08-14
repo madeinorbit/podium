@@ -96,6 +96,8 @@ export const ShipTrainLane = z
     repoId: RepoIdField,
     repoPath: z.string().min(1),
     machineId: MachineIdField,
+    laneKey: z.string().regex(/^[a-f0-9]{64}$/),
+    laneRevision: z.number().int().positive(),
     targetBranch: z.string().min(1),
     expectedTargetSha: z.string().min(1),
     destination: z.string().min(1),
@@ -155,6 +157,7 @@ export const ShipTrainManifest = z
     subsetId: ShipTrainSubsetIdField,
     repairRound: z.literal(0),
     lane: ShipTrainLane,
+    memberCount: z.number().int().positive(),
     leaderOrderId: ShipOrderIdField,
     members: z.array(ShipTrainMember).min(1),
   })
@@ -165,6 +168,13 @@ export const ShipTrainManifest = z
         code: 'custom',
         path: ['leaderOrderId'],
         message: 'train leader must be the final ordered member',
+      })
+    }
+    if (manifest.memberCount !== manifest.members.length) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['memberCount'],
+        message: 'train member count must match the canonical manifest',
       })
     }
     if (new Set(manifest.members.map((member) => member.orderId)).size !== manifest.members.length) {
@@ -271,6 +281,8 @@ export const serializeShipTrainManifest = (input: ShipTrainManifest): string => 
       repoId: manifest.lane.repoId,
       repoPath: manifest.lane.repoPath,
       machineId: manifest.lane.machineId,
+      laneKey: manifest.lane.laneKey,
+      laneRevision: manifest.lane.laneRevision,
       targetBranch: manifest.lane.targetBranch,
       expectedTargetSha: manifest.lane.expectedTargetSha,
       destination: manifest.lane.destination,
@@ -293,6 +305,7 @@ export const serializeShipTrainManifest = (input: ShipTrainManifest): string => 
       },
       validationProfileDigest: manifest.lane.validationProfileDigest,
     },
+    memberCount: manifest.memberCount,
     leaderOrderId: manifest.leaderOrderId,
     members: manifest.members.map((member) => ({
       orderId: member.orderId,
@@ -367,6 +380,8 @@ export const ShipOrder = z
     requestedBy: Attribution,
     requestedAt: z.string(),
     policyId: z.string().min(1),
+    validationProfile: ShipTrainValidationProfile.optional(),
+    validationProfileDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     closeMode: z.enum(['after-destination', 'leave-open']),
     state: ShipOrderState,
     stateChangedAt: z.string(),
@@ -378,6 +393,13 @@ export const ShipOrder = z
         code: 'custom',
         path: ['holdCode'],
         message: 'holdCode is required exactly while the order is held',
+      })
+    }
+    if ((order.validationProfile === undefined) !== (order.validationProfileDigest === undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['validationProfileDigest'],
+        message: 'frozen validation profile and digest must be present together',
       })
     }
     if (order.descendantManifest.length > 0 && order.currentIntegrationReceipt === undefined) {

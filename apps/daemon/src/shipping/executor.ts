@@ -12,7 +12,11 @@ import {
 import { dirname, join } from 'node:path'
 import type { MachineId } from '@podium/model'
 import type { ShippingJobClassification, ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
-import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
+import {
+  SHIPPING_TRAIN_CAPABILITY,
+  shippingJobRequestFingerprint,
+  shippingTrainSubsetFingerprint,
+} from '@podium/protocol/daemon'
 import { ShippingJobJournal, type ShippingJournalCrashPoint } from './journal'
 
 type Request = ShippingJobRequestMessage
@@ -44,6 +48,7 @@ export interface ShippingProviderContext {
   repoPath: string
   testedIntegrationSha: string
   landedRefSha: string
+  trainProofs?: NonNullable<Result['trainProofs']>
 }
 
 export interface ShippingProviderProof {
@@ -266,6 +271,8 @@ export class ShippingExecutionPlane {
     if (this.requestDigest(request) !== request.requestDigest) {
       return this.base(request, 'held', 'invalid-request', 'shipping request digest mismatch')
     }
+    const trainError = this.trainRequestError(request)
+    if (trainError) return this.base(request, 'held', 'invalid-request', trainError)
     let latestGeneration: number | null
     try {
       latestGeneration = this.journal.latestGeneration(request.orderId)
@@ -332,12 +339,49 @@ export class ShippingExecutionPlane {
     }
     git(request.repoPath, ['check-ref-format', '--branch', request.sourceBranch])
     git(request.repoPath, ['check-ref-format', '--branch', request.targetBranch])
+    for (const member of this.trainMembers(request)) {
+      if (member.sourceBranch.startsWith('-')) {
+        return this.base(request, 'held', 'invalid-request', 'train source branch is option-like')
+      }
+      git(request.repoPath, ['check-ref-format', '--branch', member.sourceBranch])
+    }
     if (request.operation === 'preflight') return this.preflight(request)
     if (request.operation === 'prepare-merge-group') return this.prepare(request)
     if (request.operation === 'validate') return this.validate(request)
     if (request.operation === 'commit-merge-group') return this.commit(request)
     if (request.operation === 'publish') return this.publish(request)
     return this.verify(request)
+  }
+
+  private trainManifest(request: Request) {
+    return request.train ? ('manifest' in request.train ? request.train.manifest : request.train) : null
+  }
+
+  private trainMembers(request: Request) {
+    const manifest = this.trainManifest(request)
+    if (!manifest) return []
+    if (!request.train || !('manifest' in request.train)) return manifest.members
+    const byId = new Map(manifest.members.map((member) => [member.orderId, member] as const))
+    return request.train.memberOrderIds.map((orderId) => byId.get(orderId)!)
+  }
+
+  private trainRequestError(request: Request): string | null {
+    if (!request.train) return null
+    const manifest = this.trainManifest(request)!
+    if (!('manifest' in request.train)) {
+      return manifest.members.length === 1 ? null : 'multi-member trains require shipping.train.v2'
+    }
+    if (request.train.capability !== SHIPPING_TRAIN_CAPABILITY) {
+      return `unsupported shipping train capability ${request.train.capability}`
+    }
+    const subsetId = `subset:${createHash('sha256')
+      .update(shippingTrainSubsetFingerprint(request.train))
+      .digest('hex')}`
+    if (request.train.subsetId !== subsetId) return 'shipping train subset identity mismatch'
+    if (manifest.members.length > 1 && request.shippingProtocolVersion !== 2) {
+      return 'multi-member trains require protocol v2'
+    }
+    return null
   }
 
   private requestDigest(request: Request): string {
@@ -363,6 +407,42 @@ export class ShippingExecutionPlane {
 
   private fence(request: Request): Result | null {
     const { sourceSha, targetSha } = this.sourceAndTarget(request)
+    const manifest = this.trainManifest(request)
+    const trainMembers = this.trainMembers(request)
+    if (manifest) {
+      const leader = manifest.members.at(-1)
+      if (
+        manifest.leaderOrderId !== request.orderId ||
+        leader?.orderId !== request.orderId ||
+        leader.attemptId !== request.attemptId ||
+        leader.generation !== request.generation
+      ) {
+        return this.observed(
+          request,
+          'held',
+          'invalid-request',
+          'train leader does not match executor custody',
+          sourceSha,
+          targetSha,
+        )
+      }
+      for (const member of trainMembers) {
+        const observed = refTip(request.repoPath, `refs/heads/${member.sourceBranch}`)
+        if (
+          observed !== member.approvedHeadSha ||
+          !isAncestor(request.repoPath, member.approvedBaseSha, observed ?? '')
+        ) {
+          return this.observed(
+            request,
+            'held',
+            'source-moved',
+            `train member ${member.orderId} source fence changed`,
+            sourceSha,
+            targetSha,
+          )
+        }
+      }
+    }
     if (
       sourceSha !== request.approvedHeadSha ||
       !isAncestor(request.repoPath, request.approvedBaseSha, sourceSha ?? '')
@@ -433,6 +513,8 @@ export class ShippingExecutionPlane {
   private prepare(request: Request): Result {
     const fenced = this.fence(request)
     if (fenced) return fenced
+    const members = this.trainMembers(request)
+    if (members.length > 0) return this.prepareTrain(request, members)
     if (!isAncestor(request.repoPath, request.expectedTargetSha, request.approvedHeadSha)) {
       return this.observed(
         request,
@@ -476,6 +558,106 @@ export class ShippingExecutionPlane {
     }
   }
 
+  private prepareTrain(request: Request, members: ReturnType<ShippingExecutionPlane['trainMembers']>): Result {
+    const shadow = this.shadowRef(request)
+    const existingCandidate = refTip(request.repoPath, shadow)
+    if (existingCandidate) {
+      const integration = this.ensureIntegrationCheckout(request, existingCandidate)
+      if ('classification' in integration) return integration
+      const proofs = members.map((member, ordinal) => ({
+        issueId: member.issueId,
+        orderId: member.orderId,
+        attemptId: member.attemptId,
+        generation: member.generation,
+        sourceApprovedSha: member.approvedHeadSha,
+        resultCommitSha:
+          refTip(request.repoPath, `${shadow}/members/${ordinal}`) ?? existingCandidate,
+      }))
+      return {
+        ...this.observed(request, 'succeeded', 'proved', `immutable train prepared at ${existingCandidate}`),
+        testedIntegrationSha: existingCandidate,
+        trainProofs: proofs,
+        logs: [`shadow ${shadow} ${existingCandidate}`, `integration checkout ${integration.path}`],
+      }
+    }
+
+    const path = join(this.integrationDir, this.executionKey(request))
+    const registered = worktrees(request.repoPath).find((entry) => entry.path === path)
+    if (!registered) {
+      if (existsSync(path)) {
+        return this.observed(request, 'held', 'dirty-worktree', `integration path exists outside git custody: ${path}`)
+      }
+      const added = gitResult(request.repoPath, ['worktree', 'add', '--detach', '--', path, request.expectedTargetSha])
+      if (!added.ok) {
+        return this.observed(request, 'held', 'invalid-request', added.stderr || added.stdout || 'could not create train checkout')
+      }
+    } else if (registered.branch || !clean(path)) {
+      return this.observed(request, 'held', 'dirty-worktree', `integration checkout is not clean and detached: ${path}`)
+    }
+
+    const proofs: NonNullable<Result['trainProofs']> = []
+    let candidate = refTip(path, 'HEAD') ?? request.expectedTargetSha
+    for (const [ordinal, member] of members.entries()) {
+      const memberRef = `${shadow}/members/${ordinal}`
+      const recorded = refTip(request.repoPath, memberRef)
+      if (recorded) {
+        if (!isAncestor(request.repoPath, member.approvedHeadSha, recorded)) {
+          return this.observed(request, 'held', 'invalid-request', `train member proof ${ordinal} contradicts its approved head`)
+        }
+        if (candidate !== recorded) {
+          const checkout = gitResult(path, ['checkout', '--detach', recorded])
+          if (!checkout.ok) return this.observed(request, 'held', 'invalid-request', checkout.stderr || 'could not resume train composition')
+          candidate = recorded
+        }
+      } else {
+        if (!isAncestor(request.repoPath, member.approvedHeadSha, candidate)) {
+          const merged = gitResult(path, [
+            '-c',
+            'user.name=Podium Shipping',
+            '-c',
+            'user.email=shipping@podium.local',
+            'merge',
+            '--no-edit',
+            '--',
+            member.approvedHeadSha,
+          ])
+          if (!merged.ok) {
+            gitResult(path, ['merge', '--abort'])
+            return this.observed(
+              request,
+              'held',
+              'merge-conflict',
+              merged.stderr || merged.stdout || `train member ${member.orderId} conflicts`,
+            )
+          }
+          candidate = refTip(path, 'HEAD') ?? ''
+        }
+        const recordedMember = gitResult(request.repoPath, ['update-ref', memberRef, candidate, ZERO_SHA])
+        if (!recordedMember.ok && refTip(request.repoPath, memberRef) !== candidate) {
+          return this.observed(request, 'held', 'invalid-request', recordedMember.stderr || 'train member proof raced')
+        }
+      }
+      proofs.push({
+        issueId: member.issueId,
+        orderId: member.orderId,
+        attemptId: member.attemptId,
+        generation: member.generation,
+        sourceApprovedSha: member.approvedHeadSha,
+        resultCommitSha: candidate,
+      })
+    }
+    const created = gitResult(request.repoPath, ['update-ref', shadow, candidate, ZERO_SHA])
+    if (!created.ok && refTip(request.repoPath, shadow) !== candidate) {
+      return this.observed(request, 'held', 'target-moved', created.stderr || 'train shadow ref raced')
+    }
+    return {
+      ...this.observed(request, 'succeeded', 'proved', `immutable train prepared at ${candidate}`),
+      testedIntegrationSha: candidate,
+      trainProofs: proofs,
+      logs: [`shadow ${shadow} ${candidate}`, `integration checkout ${path}`],
+    }
+  }
+
   private validate(request: Request): Result {
     const fenced = this.fence(request)
     if (fenced) return fenced
@@ -501,6 +683,14 @@ export class ShippingExecutionPlane {
       { mode: 0o600 },
     )
     const passed = validation.ok
+    const prepared = this.proof(request, 'prepare-merge-group')
+    const trainProofs = prepared?.trainProofs?.map((proof) => ({
+      ...proof,
+      testedIntegrationSha: candidate,
+    }))
+    if (request.train && (!prepared || prepared.testedIntegrationSha !== candidate || !trainProofs)) {
+      return this.observed(request, 'held', 'invalid-request', 'train candidate has no exact preparation proof')
+    }
     return {
       ...this.observed(
         request,
@@ -513,6 +703,7 @@ export class ShippingExecutionPlane {
       testedIntegrationSha: candidate,
       validationProfileId: request.validationProfile.id,
       validationResult: passed ? 'passed' : 'failed',
+      ...(trainProofs ? { trainProofs } : {}),
       artifactRefs: [logPath],
       logs: [
         `profile ${request.validationProfile.id}`,
@@ -568,7 +759,7 @@ export class ShippingExecutionPlane {
     // A composed candidate may rewrite the source prefix. Single-order fast-forward
     // candidates normally equal approvedHeadSha; this CAS makes the recovery rule
     // explicit without ever moving the source before validation.
-    if (sourceSha === request.approvedHeadSha && candidate !== request.approvedHeadSha) {
+    if (!request.train && sourceSha === request.approvedHeadSha && candidate !== request.approvedHeadSha) {
       const moved = gitResult(request.repoPath, [
         'update-ref',
         `refs/heads/${request.sourceBranch}`,
@@ -640,6 +831,10 @@ export class ShippingExecutionPlane {
         'landing checkout did not converge on the exact tested candidate',
       )
     }
+    const trainProofs = validation.trainProofs?.map((proof) => ({
+      ...proof,
+      landedRefSha: candidate,
+    }))
     return {
       ...this.observed(
         request,
@@ -651,6 +846,7 @@ export class ShippingExecutionPlane {
       landedRefSha: candidate,
       validationProfileId: request.validationProfile.id,
       validationResult: 'passed',
+      ...(trainProofs ? { trainProofs } : {}),
     }
   }
 
@@ -667,6 +863,10 @@ export class ShippingExecutionPlane {
       )
     try {
       const proof = adapter.publish(context)
+      const trainProofs = context.trainProofs?.map((member) => ({
+        ...member,
+        providerLandedRefSha: proof.landedRefSha,
+      }))
       return {
         ...this.observed(request, 'succeeded', 'proved', `published through ${adapter.id}`),
         testedIntegrationSha: context.testedIntegrationSha,
@@ -674,6 +874,7 @@ export class ShippingExecutionPlane {
         ...(proof.destinationSha ? { observedDestinationSha: proof.destinationSha } : {}),
         validationProfileId: request.validationProfile.id,
         validationResult: 'passed',
+        ...(trainProofs ? { trainProofs } : {}),
         logs: proof.logs ?? [`provider ${adapter.id} accepted publication`],
       }
     } catch (error) {
@@ -701,6 +902,10 @@ export class ShippingExecutionPlane {
       const proof = adapter.verify(context)
       if (!proof.destinationSha)
         throw new Error('provider returned no configured-destination proof')
+      const trainProofs = context.trainProofs?.map((member) => ({
+        ...member,
+        destinationSha: proof.destinationSha,
+      }))
       return {
         ...this.observed(
           request,
@@ -713,6 +918,7 @@ export class ShippingExecutionPlane {
         observedDestinationSha: proof.destinationSha,
         validationProfileId: request.validationProfile.id,
         validationResult: 'passed',
+        ...(trainProofs ? { trainProofs } : {}),
         logs: proof.logs ?? [`provider ${adapter.id} proved destination ${proof.destinationSha}`],
       }
     } catch (error) {
@@ -754,6 +960,9 @@ export class ShippingExecutionPlane {
       repoPath: request.repoPath,
       testedIntegrationSha: validation.testedIntegrationSha,
       landedRefSha: committed.landedRefSha,
+      ...((published?.trainProofs ?? committed.trainProofs)
+        ? { trainProofs: published?.trainProofs ?? committed.trainProofs }
+        : {}),
     }
   }
 
@@ -764,7 +973,9 @@ export class ShippingExecutionPlane {
   private proof(request: Request, operation: Request['operation']): Result | null {
     const { type: _type, requestId: _requestId, action: _action, requestDigest: _digest, ...facts } =
       request
-    const expectedJobId = `${request.attemptId}:${operation}`
+    const expectedJobId = request.train && 'manifest' in request.train
+      ? `${request.attemptId}:${operation}:${request.train.subsetId}`
+      : `${request.attemptId}:${operation}`
     const expectedDigest = createHash('sha256')
       .update(
         shippingJobRequestFingerprint({
@@ -892,7 +1103,7 @@ export class ShippingExecutionPlane {
     request: Request,
     candidate: string,
   ): { path: string } | Result {
-    const path = join(this.integrationDir, `${safePart(request.orderId)}-${request.generation}`)
+    const path = join(this.integrationDir, this.executionKey(request))
     const existing = worktrees(request.repoPath).find((entry) => entry.path === path)
     if (existing) {
       if (existing.head !== candidate || existing.branch || !clean(path)) {
@@ -932,7 +1143,12 @@ export class ShippingExecutionPlane {
   }
 
   private shadowRef(request: Request): string {
-    return `refs/podium/ship/${safePart(request.orderId)}/${request.generation}/candidate`
+    return `refs/podium/ship/${this.executionKey(request)}/candidate`
+  }
+
+  private executionKey(request: Request): string {
+    const subset = request.train && 'manifest' in request.train ? request.train.subsetId : 'single'
+    return `${safePart(request.orderId)}-${request.generation}-${safePart(subset)}`
   }
 
   private status(request: Request): Result {

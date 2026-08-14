@@ -1252,6 +1252,8 @@ export const shipOrders = sqliteTable(
     requestedByOnBehalfOf: text('requested_by_on_behalf_of'),
     requestedAt: text('requested_at').notNull(),
     policyId: text('policy_id').notNull(),
+    validationProfile: text('validation_profile', { mode: 'json' }),
+    validationProfileDigest: text('validation_profile_digest'),
     closeMode: text('close_mode').notNull(),
     state: text().notNull(),
     stateChangedAt: text('state_changed_at').notNull(),
@@ -1259,6 +1261,7 @@ export const shipOrders = sqliteTable(
   },
   (table) => [
     index('idx_ship_orders_issue').on(table.issueId),
+    unique('idx_ship_orders_id_issue').on(table.id, table.issueId),
     index('idx_ship_orders_lane').on(table.repoId, table.destination, table.requestedAt, table.id),
     uniqueIndex('idx_ship_orders_one_active_issue')
       .on(table.issueId)
@@ -1308,6 +1311,7 @@ export const shipAttempts = sqliteTable(
   },
   (table) => [
     index('idx_ship_attempts_order').on(table.orderId, table.startedAt),
+    unique('idx_ship_attempts_id_order').on(table.id, table.orderId),
     check('ship_attempts_generation_check', sql`lease_generation >= 0`),
     check(
       'ship_attempts_terminal_pair_check',
@@ -1358,6 +1362,14 @@ export const shipOrderStackEdges = sqliteTable(
   ],
 )
 
+/** One compare-and-swap counter for the exact immutable compatibility lane.
+ * Admission and native-stack discovery both advance it; a manifest freezes it. */
+export const shipLaneRevisions = sqliteTable('ship_lane_revisions', {
+  laneKey: text('lane_key').primaryKey(),
+  revision: integer().notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const shipTrainManifests = sqliteTable(
   'ship_train_manifests',
   {
@@ -1370,6 +1382,8 @@ export const shipTrainManifests = sqliteTable(
     repoId: text('repo_id').$type<RepoId>().notNull(),
     repoPath: text('repo_path'),
     machineId: text('machine_id').$type<MachineId>(),
+    laneKey: text('lane_key'),
+    laneRevision: integer('lane_revision'),
     targetBranch: text('target_branch').notNull(),
     expectedTargetSha: text('expected_target_sha').notNull(),
     destination: text().notNull(),
@@ -1377,6 +1391,7 @@ export const shipTrainManifests = sqliteTable(
     policyId: text('policy_id').notNull(),
     validationProfile: text('validation_profile', { mode: 'json' }).notNull(),
     validationProfileDigest: text('validation_profile_digest'),
+    memberCount: integer('member_count'),
     leaderOrderId: brandedRef(
       text('leader_order_id').$type<ShipOrderId>(),
       () => shipOrders.id,
@@ -1446,9 +1461,6 @@ export const shipTrainMembers = sqliteTable(
     unique('idx_ship_train_members_attempt').on(table.trainId, table.attemptId),
     uniqueIndex('idx_ship_train_members_attempt_global').on(table.attemptId),
     unique('idx_ship_train_members_source').on(table.trainId, table.sourceBranch),
-    uniqueIndex('idx_ship_train_members_one_active_order')
-      .on(table.orderId)
-      .where(sql`released_at IS NULL`),
     index('idx_ship_train_members_live_custody').on(
       table.orderId,
       table.attemptId,
@@ -1457,7 +1469,67 @@ export const shipTrainMembers = sqliteTable(
     ),
     check('ship_train_members_ordinal_check', sql`ordinal >= 0`),
     check('ship_train_members_generation_check', sql`generation > 0`),
+    foreignKey({
+      columns: [table.attemptId, table.orderId],
+      foreignColumns: [shipAttempts.id, shipAttempts.orderId],
+      name: 'fk_ship_train_members_attempt_order',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.orderId, table.issueId],
+      foreignColumns: [shipOrders.id, shipOrders.issueId],
+      name: 'fk_ship_train_members_order_issue',
+    }).onDelete('restrict'),
   ],
+)
+
+/** Mutable claim authority is separate from immutable manifest history. The
+ * whole set is inserted and removed in the same manifest transaction. */
+export const shipTrainActiveClaims = sqliteTable(
+  'ship_train_active_claims',
+  {
+    trainId: brandedRef(text('train_id').$type<ShipTrainId>(), () => shipTrainManifests.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    orderId: text('order_id').$type<ShipOrderId>().notNull(),
+    attemptId: text('attempt_id').$type<ShipAttemptId>().notNull(),
+    generation: integer().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.trainId, table.orderId], name: 'ship_train_active_claims_pk' }),
+    uniqueIndex('idx_ship_train_active_claims_order').on(table.orderId),
+    uniqueIndex('idx_ship_train_active_claims_attempt').on(table.attemptId),
+    foreignKey({
+      columns: [table.trainId, table.orderId],
+      foreignColumns: [shipTrainMembers.trainId, shipTrainMembers.orderId],
+      name: 'fk_ship_train_active_claims_member_order',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.trainId, table.attemptId],
+      foreignColumns: [shipTrainMembers.trainId, shipTrainMembers.attemptId],
+      name: 'fk_ship_train_active_claims_member_attempt',
+    }).onDelete('restrict'),
+    check('ship_train_active_claims_generation_check', sql`generation > 0`),
+  ],
+)
+
+/** Exact daemon boundary evidence. Receipt settlement reads this immutable
+ * request/result pair inside its transaction instead of accepting proof DTOs. */
+export const shipEffectEnvelopes = sqliteTable(
+  'ship_effect_envelopes',
+  {
+    effectKey: text('effect_key').primaryKey(),
+    trainId: brandedRef(text('train_id').$type<ShipTrainId>(), () => shipTrainManifests.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    attemptId: brandedRef(text('attempt_id').$type<ShipAttemptId>(), () => shipAttempts.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    requestDigest: text('request_digest').notNull(),
+    requestJson: text('request_json').notNull(),
+    resultJson: text('result_json').notNull(),
+    recordedAt: text('recorded_at').notNull(),
+  },
+  (table) => [uniqueIndex('idx_ship_effect_envelopes_attempt_effect').on(table.attemptId, table.effectKey)],
 )
 
 export const shipSteps = sqliteTable(
