@@ -95,7 +95,7 @@ export async function fetchArtifact(
     if (!('repo' in asset) || !('sha' in asset) || !deps.git) {
       throw new Error('git delivery requires a configured checkout runner')
     }
-    const result = convergeViaGit({ repo: asset.repo, sha: asset.sha }, deps.git)
+    const result = await convergeViaGit({ repo: asset.repo, sha: asset.sha }, deps.git)
     if (!result.ok) throw new Error('git delivery failed: ' + result.reason)
     return { git: true }
   }

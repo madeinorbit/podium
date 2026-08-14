@@ -127,9 +127,10 @@ export async function applyGrant(
  * NEWER grant cancels the one in flight before taking over.
  *
  * "Cancels" is bounded by what the delivery can honour — a network download
- * aborts, a synchronous git checkout runs to its own timeout — but the
- * superseded run is always AWAITED before the new one starts, so two
- * applications can never swap a binary or write a rollback marker concurrently.
+ * aborts, and since POD-2046 so do the git steps, which are awaited rather than
+ * blocking — but the superseded run is always AWAITED before the new one
+ * starts, so two applications can never swap a binary or write a rollback
+ * marker concurrently.
  */
 export function createGrantRunner(deps: GrantApplyDeps): {
   apply(grant: UpdateGrantMessage): Promise<void>

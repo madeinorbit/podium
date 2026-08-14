@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process'
 import { mkdir, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
@@ -24,11 +23,7 @@ import {
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
-import {
-  GIT_CONVERGENCE_BUDGET_MS,
-  GIT_TIMED_OUT_STATUS,
-  withGitBudget,
-} from '@podium/runtime/update-delivery-git'
+import { withGitBudget } from '@podium/runtime/update-delivery-git'
 import type { RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { provisionedAccountHome, type ProvisionedAccountHomeSource } from './account-home'
@@ -44,6 +39,7 @@ import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
+import { createGitRunner } from './git-runner'
 import { createGrantRunner } from './grant-apply'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
@@ -317,39 +313,6 @@ export async function createDaemonHostRuntime(args: {
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
 
-  /**
-   * Git delivery runs SYNCHRONOUSLY and therefore cannot be cancelled: while a
-   * step is running this thread is blocked, so an abort signal cannot be
-   * observed until it returns. The bound that actually protects the daemon is
-   * the timeout — without it a hung `git fetch` against an unreachable remote
-   * blocks the whole process indefinitely, and no server deadline or grant
-   * runner can do anything about it.
-   *
-   * The caller passes the REMAINING whole-convergence budget, so three steps
-   * cannot add up past the server's silence deadline.
-   */
-  const runGit = (
-    command: string,
-    args: string[],
-    timeoutMs?: number,
-  ): { status: number | null; stdout: string } => {
-    const result = spawnSync(command, args, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: Math.max(
-        1,
-        Math.min(timeoutMs ?? GIT_CONVERGENCE_BUDGET_MS, GIT_CONVERGENCE_BUDGET_MS),
-      ),
-      killSignal: 'SIGKILL',
-    })
-    return {
-      // A timed-out step is killed with no exit code; name it as a timeout so
-      // the convergence refuses with that reason rather than reading empty
-      // output as success or blaming the command.
-      status: result.status ?? (result.error ? GIT_TIMED_OUT_STATUS : null),
-      stdout: typeof result.stdout === 'string' ? result.stdout : '',
-    }
-  }
   const reconcilePendingUpdate = (): void => {
     const pending = readPendingGrant(instance.runtimeDir)
     if (!pending) return
@@ -409,13 +372,15 @@ export async function createDaemonHostRuntime(args: {
         pubkey: PODIUM_UPDATE_PUBKEY,
         pinnedPubkey: identity.updatePubkey,
         // One budget per convergence, established at the moment delivery
-        // starts rather than once for the life of the daemon.
-        git: { run: withGitBudget(runGit) },
+        // starts rather than once for the life of the daemon — and bound to
+        // THIS grant's abort, so a superseding grant cancels the git steps
+        // instead of waiting out their timeout.
+        git: { run: withGitBudget(createGitRunner(signal)) },
         ...(signal ? { signal } : {}),
       }),
     swap: (bytes) => {
       if (!installDir) throw new Error('binary delivery requires an installed daemon')
-      swapHeadlessBundle(bytes, installDir)
+      return swapHeadlessBundle(bytes, installDir)
     },
     writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
     restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
