@@ -235,7 +235,12 @@ export function registerVersionRoute(
      * fires on every stripped-down deployment.
      */
     visibilityGrade?: () => string
-    updateTarget?: () => UpdateTarget | undefined
+    /**
+     * May answer asynchronously: on a development server, naming the target
+     * means reading HEAD, and this process serves every client of the instance
+     * — so that git call is off its event loop (POD-2048).
+     */
+    updateTarget?: () => UpdateTarget | undefined | Promise<UpdateTarget | undefined>
     appVersion?: () => string
     /**
      * The phone website on disk, so Update can tell whether the phone is on this
@@ -249,10 +254,10 @@ export function registerVersionRoute(
     mobileWeb?: () => MobileWebIdentity
   },
 ): void {
-  app.get('/version', (c) => {
+  app.get('/version', async (c) => {
     let target: UpdateTarget | undefined
     try {
-      target = deps.updateTarget?.()
+      target = await deps.updateTarget?.()
     } catch {
       target = undefined
     }
@@ -564,9 +569,9 @@ export async function startServer(
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
-    updateTarget: () => {
+    updateTarget: async () => {
       void devPublisher.requestBuild(false).catch(() => {})
-      return devPublisher.publishTarget() ?? registry.modules.updates.target()
+      return (await devPublisher.publishTarget()) ?? registry.modules.updates.target()
     },
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
   })

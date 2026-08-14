@@ -734,7 +734,7 @@ describe('buildDevBundle', () => {
       'podium-headless-dev+6666666-20260812T190000Z.tar.gz.meta.json',
       'podium-headless-dev+6666666-20260812T190000Z.tar.gz.sig',
     ])
-    expect(publisher.target()?.version).toBe('dev+6666666')
+    expect((await publisher.target())?.version).toBe('dev+6666666')
   })
 
   it('reclaims a backlog on restart, from the restore path, without compiling', async () => {
@@ -835,7 +835,7 @@ describe('buildDevBundle', () => {
       signature,
     })
     expect(restored?.digest).toBe(digestOf(bytes))
-    expect(publisher.target()?.version).toBe('dev+aaaaaaa')
+    expect((await publisher.target())?.version).toBe('dev+aaaaaaa')
   })
 
   it('rebuilds rather than restore an artifact this server did not publish', async () => {
@@ -930,16 +930,16 @@ describe('buildDevBundle', () => {
     })
 
     await publisher.requestBuild(true)
-    expect(publisher.target()?.version).toBe('dev+aaaaaaa')
+    expect((await publisher.target())?.version).toBe('dev+aaaaaaa')
     head = 'bbbbbbb'
     await expect(publisher.requestBuild(true)).rejects.toThrow('second compile failed')
     // The signed bytes for the old commit survive — a later request at that sha
     // can still restore them — but they are no longer offered as the target,
     // because they are not what this server is running.
     expect(publisher.current()?.version).toBe('dev+aaaaaaa')
-    expect(publisher.target()?.version).toBe('dev+bbbbbbb')
-    expect(publisher.target()?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
-    expect(publisher.target()?.artifacts.headless).toBeUndefined()
+    expect((await publisher.target())?.version).toBe('dev+bbbbbbb')
+    expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
+    expect((await publisher.target())?.artifacts.headless).toBeUndefined()
   })
 
   it('settles the website before the compile that requires it', async () => {
@@ -1026,7 +1026,7 @@ describe('buildDevBundle', () => {
     await expect(publisher.requestBuild(true)).rejects.toThrow('vite blew up')
     // The whole point of hoisting the precondition: nothing expensive runs.
     expect(builds).toBe(0)
-    expect(publisher.readiness()).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
+    expect((await publisher.readiness())).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
   })
 
   it('refuses to build or restore anything from a dirty checkout', async () => {
@@ -1068,7 +1068,7 @@ describe('buildDevBundle', () => {
     expect(builds).toBe(0)
     expect(reads).toBe(0)
     expect(publisher.current()).toBeNull()
-    expect(publisher.target()).toBeUndefined()
+    expect(await publisher.target()).toBeUndefined()
     expect(publisher.unavailable()).toContain('apps/server/src/server.ts')
     // And nothing was reclaimed: a refusal is not a licence to touch the disk.
     expect(store.names()).toContain('podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz')
@@ -1115,6 +1115,16 @@ describe('buildDevBundle', () => {
     expect(publisher.unavailable()).toBeUndefined()
   })
 
+  /**
+   * The one build at a time rule, under the shape that can actually break it.
+   *
+   * Deciding whether to build now takes awaits — HEAD and the two tree walks
+   * are `git` subprocesses, off the server's event loop (POD-2048) — so the
+   * `inFlight` check and the assignment that satisfies it no longer happen in
+   * one synchronous turn. Both seams here are asynchronous ON PURPOSE: with
+   * synchronous stand-ins the two requests could not interleave and the test
+   * would pass whether or not admissions are serialised.
+   */
   it('coalesces concurrent explicit requests into one build', async () => {
     let resolveBuildStarted!: () => void
     const buildStarted = new Promise<void>((resolve) => {
@@ -1128,9 +1138,9 @@ describe('buildDevBundle', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       isSourceRun: true,
-      headSha: () => 'aaaaaaa',
-      readSourceStatus: () => '',
-      readIgnoredSourceInputs: () => '',
+      headSha: async () => 'aaaaaaa',
+      readSourceStatus: async () => '',
+      readIgnoredSourceInputs: async () => '',
       fs: stubFs(),
       lock: lockFixture([]),
       spawnBuild: async ({ version }) => {
@@ -1143,11 +1153,13 @@ describe('buildDevBundle', () => {
 
     const first = publisher.requestBuild(true)
     const second = publisher.requestBuild(true)
-    expect(second).toBe(first)
     await buildStarted
     expect(builds).toBe(1)
     resolveBuild()
-    await first
+    // The second request is answered by the first one's compile — the same
+    // descriptor, not a second quarter-gigabyte tarball.
+    expect(await second).toBe(await first)
+    expect(builds).toBe(1)
   })
 })
 
@@ -1180,20 +1192,20 @@ describe('development bundle readiness', () => {
     }
   }
 
-  it('is idle before anything has been built for this HEAD', () => {
+  it('is idle before anything has been built for this HEAD', async () => {
     const { publisher } = readinessFixture()
-    expect(publisher.readiness()).toEqual({ state: 'idle', headSha: 'aaaaaaa' })
+    expect(await publisher.readiness()).toEqual({ state: 'idle', headSha: 'aaaaaaa' })
   })
 
   it('is ready, with the version, once HEAD is built', async () => {
     const { publisher } = readinessFixture()
     await publisher.requestBuild(true)
-    expect(publisher.readiness()).toEqual({
+    expect((await publisher.readiness())).toEqual({
       state: 'ready',
       headSha: 'aaaaaaa',
       version: 'dev+aaaaaaa',
     })
-    expect(publisher.target()?.version).toBe('dev+aaaaaaa')
+    expect((await publisher.target())?.version).toBe('dev+aaaaaaa')
   })
 
   it('withdraws the old target the moment HEAD advances', async () => {
@@ -1204,10 +1216,10 @@ describe('development bundle readiness', () => {
     // The bundle still exists and is still dev+aaaaaaa; it is simply not the
     // target for the commit this server is now running.
     expect(publisher.current()?.version).toBe('dev+aaaaaaa')
-    expect(publisher.target()?.version).toBe('dev+bbbbbbb')
-    expect(publisher.target()?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
-    expect(publisher.target()?.artifacts.headless).toBeUndefined()
-    expect(publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+    expect((await publisher.target())?.version).toBe('dev+bbbbbbb')
+    expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
+    expect((await publisher.target())?.artifacts.headless).toBeUndefined()
+    expect((await publisher.readiness())).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
   })
 
   it('reports failed for the new HEAD, not ready from the old one', async () => {
@@ -1217,15 +1229,15 @@ describe('development bundle readiness', () => {
     failNextBuild('compile blew up')
     await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
 
-    const readiness = publisher.readiness()
+    const readiness = (await publisher.readiness())
     expect(readiness.state).toBe('failed')
     expect(readiness).toMatchObject({
       headSha: 'bbbbbbb',
       reason: 'compile blew up',
       publicReason: 'Building the development bundle for dev+bbbbbbb failed. See the server log.',
     })
-    expect(publisher.target()?.version).toBe('dev+bbbbbbb')
-    expect(publisher.target()?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
+    expect((await publisher.target())?.version).toBe('dev+bbbbbbb')
+    expect((await publisher.target())?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
   })
 
   it('keeps a dirty checkout out of the public reason while the log gets the paths', async () => {
@@ -1234,7 +1246,7 @@ describe('development bundle readiness', () => {
     })
     await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
 
-    const readiness = publisher.readiness()
+    const readiness = (await publisher.readiness())
     expect(readiness).toMatchObject({
       state: 'failed',
       headSha: 'aaaaaaa',
@@ -1251,10 +1263,10 @@ describe('development bundle readiness', () => {
     const { publisher, moveHead, failNextBuild } = readinessFixture()
     failNextBuild('compile blew up')
     await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
-    expect(publisher.readiness().state).toBe('failed')
+    expect((await publisher.readiness()).state).toBe('failed')
 
     moveHead('bbbbbbb')
-    expect(publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+    expect((await publisher.readiness())).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
   })
 
   it('is preparing while a build for this HEAD is in flight', async () => {
@@ -1263,13 +1275,20 @@ describe('development bundle readiness', () => {
     const buildDone = new Promise<void>((resolve) => {
       resolveBuild = resolve
     })
+    let announceAdmitted!: () => void
+    const admitted = new Promise<void>((resolve) => {
+      announceAdmitted = resolve
+    })
     const publisher = createDevBundlePublisher({
       isSourceRun: true,
-      headSha: () => 'aaaaaaa',
-      readSourceStatus: () => '',
-      readIgnoredSourceInputs: () => '',
+      headSha: async () => 'aaaaaaa',
+      readSourceStatus: async () => '',
+      readIgnoredSourceInputs: async () => '',
       fs: stubFs(),
       lock: lockFixture([]),
+      onAdmitted: () => {
+        announceAdmitted()
+      },
       spawnBuild: async ({ version }) => {
         await buildDone
         return { path: '/stage/' + version, bytes, signature }
@@ -1277,10 +1296,15 @@ describe('development bundle readiness', () => {
     })
 
     const built = publisher.requestBuild(true)
-    expect(publisher.readiness()).toEqual({ state: 'preparing', headSha: 'aaaaaaa' })
+    // `onAdmitted`, not the call returning: admission reads HEAD and walks the
+    // tree off the loop, so a request is not yet in flight when `requestBuild`
+    // hands back its promise. This is the moment the read model is told to stop
+    // advertising the previous commit's target.
+    await admitted
+    expect(await publisher.readiness()).toEqual({ state: 'preparing', headSha: 'aaaaaaa' })
     resolveBuild()
     await built
-    expect(publisher.readiness().state).toBe('ready')
+    expect((await publisher.readiness()).state).toBe('ready')
   })
 })
 
@@ -1306,7 +1330,7 @@ describe('ignored source inputs gate the build', () => {
       /ignored source files.*apps\/server\/src\/local-override\.ts/s,
     )
     expect(builds).toBe(0)
-    expect(publisher.readiness()).toMatchObject({
+    expect((await publisher.readiness())).toMatchObject({
       state: 'failed',
       publicReason:
         'The source checkout has 1 ignored source file that could be compiled into ' +
@@ -1328,7 +1352,7 @@ describe('ignored source inputs gate the build', () => {
     })
 
     await publisher.requestBuild(true)
-    expect(publisher.readiness().state).toBe('ready')
+    expect((await publisher.readiness()).state).toBe('ready')
   })
 
   it('refuses when the ignored-source query itself cannot be run', async () => {

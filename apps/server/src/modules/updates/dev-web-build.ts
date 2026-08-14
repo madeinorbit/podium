@@ -185,8 +185,13 @@ export interface DevWebBuilder {
 export interface DevWebBuilderDeps {
   root: string
   instanceId: string
-  /** Only for `requestRebuild`, which has no caller to take the sha from. */
-  headSha: () => string
+  /**
+   * Only for `requestRebuild`, which has no caller to take the sha from.
+   *
+   * Asynchronous because reading HEAD spawns `git` and this runs in the server
+   * process, which serves every client of the instance (POD-2048).
+   */
+  headSha: () => string | Promise<string>
   /** Seam for tests; defaults to reading `apps/web/dist/podium-build.json`. */
   readStamp?: (root: string) => DevWebBuildStamp | null
   /** Seam for tests; defaults to reading `apps/mobile/dist`. */
@@ -305,14 +310,17 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
     isCurrent: websiteAtHead,
     ensure,
     requestRebuild: () => {
-      let headSha: string
-      try {
-        headSha = deps.headSha()
-      } catch (error) {
-        log.warn('could not determine HEAD for a web rebuild', { err: error })
-        return
+      const start = async (): Promise<void> => {
+        let headSha: string
+        try {
+          headSha = await deps.headSha()
+        } catch (error) {
+          log.warn('could not determine HEAD for a web rebuild', { err: error })
+          return
+        }
+        await ensure(headSha)
       }
-      void ensure(headSha).catch(() => {})
+      void start().catch(() => {})
     },
     state: () => state,
   }

@@ -34,8 +34,13 @@ import { createDevWebBuilder, type DevWebBuildState, decideWebDist } from './dev
 const log = createLogger('server:updates')
 
 export interface DevPublisherWiring {
-  /** Publish the current development target, if there is one. */
-  readonly publishTarget: () => UpdateTarget | undefined
+  /**
+   * Publish the current development target, if there is one.
+   *
+   * Asynchronous because naming the target means reading HEAD, and every git
+   * call this server makes is off its event loop (POD-2048).
+   */
+  readonly publishTarget: () => Promise<UpdateTarget | undefined>
   /**
    * Ask for a build. `/version` voids the promise so a compile never blocks a
    * read. Update awaits it. `explicit` bypasses the debounce for a
@@ -156,6 +161,14 @@ export function wireDevBundlePublisher(deps: {
         headSha: () => developmentHeadSha(sourceRoot),
         signingKey: deps.signingKey,
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
+        // The instant a build is admitted, the read model must say `preparing`
+        // rather than keep offering the previous commit's target for the length
+        // of a compile. Admission is decided asynchronously (it reads HEAD and
+        // walks the tree off the loop), so the publisher announces it — a
+        // caller cannot infer it from `requestBuild` having returned.
+        onAdmitted: () => {
+          void publishReadiness()
+        },
         prepareWebDist: (headSha, explicit) => {
           if (!webBuilder) return Promise.resolve()
           const decision = decideWebDist({
@@ -211,8 +224,8 @@ export function wireDevBundlePublisher(deps: {
   let bundleFailureDetail: string | undefined
 
   /** Cache publisher readiness at lifecycle transitions; fleet polling must not spawn git. */
-  const observeBundleReadiness = () => {
-    const readiness = publisher?.readiness()
+  const observeBundleReadiness = async () => {
+    const readiness = await publisher?.readiness()
     bundleReady = readiness?.state === 'ready'
     bundleFailureDetail = readiness?.state === 'failed' ? readiness.publicReason : undefined
     return readiness
@@ -230,16 +243,16 @@ export function wireDevBundlePublisher(deps: {
    * because the headless compile failed hides Update — operators then have no
    * button to rebuild yesterday's website.
    */
-  const publishReadiness = (): void => {
+  const publishReadiness = async (): Promise<void> => {
     if (!publisher) return
-    const identity = publisher.target()
+    const identity = await publisher.target()
     if (identity) {
       setSharedTarget(identity)
       publishedReason = undefined
       return
     }
     if (!deps.setTargetUnavailable) return
-    const readiness = observeBundleReadiness()
+    const readiness = await observeBundleReadiness()
     if (!readiness) return
     const reason =
       readiness.state === 'failed'
@@ -257,14 +270,14 @@ export function wireDevBundlePublisher(deps: {
     deps.setTargetUnavailable(reason)
   }
 
-  const publishTarget = (): UpdateTarget | undefined => {
+  const publishTarget = async (): Promise<UpdateTarget | undefined> => {
     try {
-      const target = publisher?.target()
+      const target = await publisher?.target()
       if (target) {
         setSharedTarget(target)
         publishedReason = undefined
       } else {
-        publishReadiness()
+        await publishReadiness()
       }
       unavailableDiagnostic = undefined
       return target
@@ -297,23 +310,19 @@ export function wireDevBundlePublisher(deps: {
     publishTarget,
     requestBuild: (explicit) => {
       if (!publisher) return Promise.resolve()
-      const requested = publisher.requestBuild(explicit)
-      observeBundleReadiness()
-      // Before awaiting anything: if that admitted a build, the state is now
-      // `preparing` and the read model should say so rather than sit on the
-      // previous commit's target for the length of a compile.
-      publishReadiness()
-      return requested.then(
-        (built) => {
-          observeBundleReadiness()
-          publishTarget()
+      // `preparing` is published by the publisher's `onAdmitted` above, not
+      // from here: this call returns before admission has been decided.
+      return publisher.requestBuild(explicit).then(
+        async (built) => {
+          await observeBundleReadiness()
+          await publishTarget()
           return built
         },
-        (error: unknown) => {
-          observeBundleReadiness()
+        async (error: unknown) => {
+          await observeBundleReadiness()
           // The failure must reach the read model, or a stale target stays
           // published while the only trace of the problem is this log line.
-          publishReadiness()
+          await publishReadiness()
           // A refused build is a normal state on a working checkout (`/version`
           // asks on every read), so log each distinct reason once rather than
           // once per request. This full text — offending paths included — is
