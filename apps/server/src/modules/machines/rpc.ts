@@ -532,6 +532,7 @@ export class DaemonRpcService {
     input: {
       authority: ShippingJobRequestMessage
       contextDigest: string
+      repairBaseSha: string
       repairRef: string
       patch: string
       touchedPaths: string[]

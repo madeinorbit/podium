@@ -14,6 +14,7 @@ export interface ShippingRepairFailure {
   classification: ShippingJobClassification
   summary: string
   artifactRefs: string[]
+  repairBaseSha: string
 }
 
 export interface ShippingRepairContext {
@@ -58,6 +59,7 @@ export function shippingRepairContextDigest(
         classification: input.failure.classification,
         summary: input.failure.summary,
         artifactRefs: [...input.failure.artifactRefs],
+        repairBaseSha: input.failure.repairBaseSha,
         authorityRequestDigest: input.authority.requestDigest,
       }),
     )

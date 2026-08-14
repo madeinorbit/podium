@@ -73,6 +73,7 @@ export interface ShipwrightDeps {
     custody: ShipwrightRepairInput['custody']
     authority: ShipwrightRepairInput['authority']
     contextDigest: string
+    repairBaseSha: string
     repairRef: string
     patch: string
     touchedPaths: string[]
@@ -107,6 +108,7 @@ export interface ShipwrightRepairInput {
     classification: ShippingJobClassification
     summary: string
     artifactRefs: string[]
+    repairBaseSha: string
   }
   custody: {
     attemptId: ShipAttempt['id']
@@ -133,6 +135,7 @@ export interface ShippingRepairApplyRelay {
     input: {
       authority: ShipwrightRepairInput['authority']
       contextDigest: string
+      repairBaseSha: string
       repairRef: string
       patch: string
       touchedPaths: string[]
@@ -157,6 +160,7 @@ export function shipwrightApplyPatchThroughRelay(
       {
         authority: input.authority,
         contextDigest: input.contextDigest,
+        repairBaseSha: input.repairBaseSha,
         repairRef: input.repairRef,
         patch: input.patch,
         touchedPaths: input.touchedPaths,
@@ -719,6 +723,7 @@ export class ShipwrightService {
         custody: input.custody,
         authority: input.authority,
         contextDigest: input.contextDigest,
+        repairBaseSha: input.failure.repairBaseSha,
         repairRef: proposed.attempt.repairRef,
         patch: patch.patch,
         touchedPaths: patch.touchedPaths,

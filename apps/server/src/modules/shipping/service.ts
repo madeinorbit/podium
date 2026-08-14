@@ -334,6 +334,8 @@ const parseRepairMarker = (summary: string): DurableRepairMarker | null => {
       parsed.context?.authority?.orderId !== parsed.context?.order?.id ||
       parsed.context?.authority?.attemptId !== parsed.context?.attempt?.id ||
       parsed.context?.authority?.generation !== parsed.context?.attempt?.leaseGeneration ||
+      typeof parsed.context?.failure?.repairBaseSha !== 'string' ||
+      parsed.context.failure.repairBaseSha.length === 0 ||
       shippingRepairContextDigest({
         order: parsed.context.order,
         attempt: parsed.context.attempt,
@@ -2761,7 +2763,8 @@ export class ShippingService {
     const repair = this.deps.repair
     if (
       !repair ||
-      (result.operation !== 'prepare-merge-group' && result.operation !== 'validate')
+      (result.operation !== 'prepare-merge-group' && result.operation !== 'validate') ||
+      !result.repairBaseSha
     ) {
       return false
     }
@@ -2770,6 +2773,7 @@ export class ShippingService {
       classification: result.classification,
       summary: result.summary,
       artifactRefs: result.artifactRefs,
+      repairBaseSha: result.repairBaseSha,
     }
     const context = this.repairContext(order, attempt, issue, failure)
     let decision: ShippingRepairDecision

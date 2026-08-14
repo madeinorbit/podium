@@ -774,6 +774,7 @@ export class ShippingExecutionPlane {
   applyPatch(input: {
     authority: Request
     contextDigest: string
+    repairBaseSha: string
     repairRef: string
     patch: string
     touchedPaths: string[]
@@ -802,7 +803,7 @@ export class ShippingExecutionPlane {
     }
     const base = refTip(authority.repoPath, this.repairBaseRef(authority))
     const expectedBase = this.deterministicRepairBase(authority)
-    if (!base || !expectedBase || base !== expectedBase) {
+    if (!base || !expectedBase || base !== expectedBase || base !== input.repairBaseSha) {
       return {
         ok: false,
         summary: 'failed shipping effect has no exact immutable repair base',
@@ -1099,12 +1100,15 @@ export class ShippingExecutionPlane {
       if (freezeError) {
         return this.observed(request, 'held', 'invalid-request', freezeError)
       }
-      return this.observed(
-        request,
-        'held',
-        'merge-conflict',
-        'candidate is not a fast-forward of the frozen target',
-      )
+      return {
+        ...this.observed(
+          request,
+          'held',
+          'merge-conflict',
+          'candidate is not a fast-forward of the frozen target',
+        ),
+        repairBaseSha: request.expectedTargetSha,
+      }
     }
     if (request.repair) {
       const applied = this.proof(request, 'apply-repair')
@@ -1318,12 +1322,15 @@ export class ShippingExecutionPlane {
             if (freezeError) {
               return this.observed(request, 'held', 'invalid-request', freezeError)
             }
-            return this.observed(
-              request,
-              'held',
-              'merge-conflict',
-              merged.stderr || merged.stdout || `train member ${member.orderId} conflicts`,
-            )
+            return {
+              ...this.observed(
+                request,
+                'held',
+                'merge-conflict',
+                merged.stderr || merged.stdout || `train member ${member.orderId} conflicts`,
+              ),
+              repairBaseSha: candidate,
+            }
           }
           candidate = refTip(path, 'HEAD') ?? ''
         }
@@ -1425,6 +1432,7 @@ export class ShippingExecutionPlane {
           : `validation profile ${request.validationProfile.id} failed for ${candidate}`,
       ),
       testedIntegrationSha: candidate,
+      ...(passed ? {} : { repairBaseSha: candidate }),
       validationProfileId: request.validationProfile.id,
       validationResult: passed ? 'passed' : 'failed',
       ...(trainProofs ? { trainProofs } : {}),

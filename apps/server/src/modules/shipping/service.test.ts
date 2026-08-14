@@ -1755,6 +1755,7 @@ describe('ShippingService enqueue transaction', () => {
           state: 'held',
           classification: 'validation-failed',
           summary: 'validation failed',
+          repairBaseSha: input.approvedHeadSha,
           validationProfileId: input.validationProfile.id,
           validationResult: 'failed',
           logs: [],
@@ -1852,6 +1853,7 @@ describe('ShippingService enqueue transaction', () => {
           state: 'held',
           classification: 'merge-conflict',
           summary: 'train composition conflicted',
+          repairBaseSha: 'partial-train-candidate',
           logs: [],
           artifactRefs: [daemonEvidenceRef],
           heartbeatedAt: '2026-08-13T10:00:00.000Z',
@@ -1887,6 +1889,7 @@ describe('ShippingService enqueue transaction', () => {
     expect(hold.actions).toContain('open-repair')
     expect(store.shipping.activeTrainForOrder(leader.receipt.order.id)).toBeNull()
     expect(originalContext?.authority.train).toBeDefined()
+    expect(originalContext?.failure.repairBaseSha).toBe('partial-train-candidate')
     service.dispose()
 
     issues.update(leader.issue.id, { branch: 'issue/drifted-after-train-release' })

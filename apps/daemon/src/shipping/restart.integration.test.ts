@@ -4,9 +4,18 @@ import { once } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asShipAttemptId, asShipOrderId, shipRepairRef } from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asShipAttemptId,
+  asShipOrderId,
+  asShipTrainId,
+  asShipTrainSubsetId,
+  shipRepairRef,
+} from '@podium/model'
 import {
   shippingJobRequestFingerprint,
+  shippingTrainSubsetFingerprint,
   type ShippingJobRequestMessage,
 } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -106,6 +115,7 @@ describe('shipping daemon restart recovery', () => {
     const repaired = recoveredPlane.applyPatch({
       authority: request,
       contextDigest,
+      repairBaseSha: target,
       repairRef,
       patch,
       touchedPaths: ['value.txt'],
@@ -128,6 +138,7 @@ describe('shipping daemon restart recovery', () => {
       recoveredPlane.applyPatch({
         authority: request,
         contextDigest,
+        repairBaseSha: target,
         repairRef,
         patch,
         touchedPaths: ['value.txt'],
@@ -139,11 +150,258 @@ describe('shipping daemon restart recovery', () => {
       recoveredPlane.applyPatch({
         authority: request,
         contextDigest,
+        repairBaseSha: target,
         repairRef,
         patch,
         touchedPaths: ['value.txt'],
       }),
     ).toMatchObject({ ok: false, summary: expect.stringMatching(/deterministic patch result/) })
+  })
+
+  it('refuses coordinated shadow/base and partial-member/base movement', () => {
+    resetFixture(repo, journal)
+    execFileSync('git', ['init', '--initial-branch=main', repo])
+    git('config', 'user.email', 'shipping@test.invalid')
+    git('config', 'user.name', 'Shipping Test')
+    writeFileSync(join(repo, 'value.txt'), 'base\n')
+    git('add', 'value.txt')
+    git('commit', '-m', 'base')
+    const base = git('rev-parse', 'HEAD')
+    git('switch', '-c', 'issue/validation')
+    writeFileSync(join(repo, 'value.txt'), 'approved\n')
+    git('commit', '-am', 'approved')
+    const approved = git('rev-parse', 'HEAD')
+    git('switch', 'main')
+    const validationFacts = {
+      type: 'shippingJobRequest' as const,
+      requestId: 'request-validation-base',
+      action: 'start' as const,
+      orderId: asShipOrderId('order-validation-base'),
+      attemptId: asShipAttemptId('attempt-validation-base'),
+      generation: 1,
+      shippingProtocolVersion: 1 as const,
+      repoPath: repo,
+      repoId: 'repo-shipping' as ShippingJobRequestMessage['repoId'],
+      sourceBranch: 'issue/validation',
+      targetBranch: 'main',
+      approvedBaseSha: base,
+      approvedHeadSha: approved,
+      expectedTargetSha: base,
+      destination: 'local:main',
+      policyId: 'proof-policy',
+      validationProfile: {
+        id: 'always-fails',
+        argv: ['git', 'diff', '--quiet', 'HEAD^', 'HEAD'],
+        cwd: 'integration-root' as const,
+        timeoutMs: 30_000,
+        resourceLocks: [],
+      },
+    }
+    const plane = new ShippingExecutionPlane(journal, asMachineId('machine-1'))
+    expect(
+      plane.handle(
+        signed({
+          ...validationFacts,
+          jobId: 'attempt-validation-base:prepare-merge-group',
+          operation: 'prepare-merge-group',
+        }),
+      ),
+    ).toMatchObject({ state: 'succeeded', testedIntegrationSha: approved })
+    const validationRequest = signed({
+      ...validationFacts,
+      jobId: 'attempt-validation-base:validate',
+      operation: 'validate',
+    })
+    const validationFailure = plane.handle(validationRequest)
+    expect(validationFailure).toMatchObject({
+      state: 'held',
+      classification: 'validation-failed',
+      repairBaseSha: approved,
+    })
+    const unapproved = git(
+      'commit-tree',
+      git('rev-parse', `${approved}^{tree}`),
+      '-p',
+      approved,
+      '-m',
+      'unapproved validation descendant',
+    )
+    const validationRefs = git('for-each-ref', '--format=%(refname)', 'refs/podium/ship').split(
+      '\n',
+    )
+    const shadowRef = validationRefs.find((ref) => ref.endsWith('/candidate'))!
+    const validationBaseRef = validationRefs.find((ref) => ref.endsWith('/failed-validate-base'))!
+    git('update-ref', shadowRef, unapproved, approved)
+    git('update-ref', validationBaseRef, unapproved, approved)
+    resetFixture(journal)
+    expect(
+      new ShippingExecutionPlane(journal, asMachineId('machine-1')).applyPatch({
+        authority: validationRequest,
+        contextDigest: 'a'.repeat(64),
+        repairBaseSha: approved,
+        repairRef: shipRepairRef(
+          validationRequest.orderId,
+          validationRequest.attemptId,
+          validationRequest.generation,
+          'a'.repeat(64),
+        ),
+        patch:
+          'diff --git a/value.txt b/value.txt\n--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-approved\n+fixed\n',
+        touchedPaths: ['value.txt'],
+      }),
+    ).toMatchObject({ ok: false, summary: expect.stringMatching(/exact immutable repair base/) })
+
+    resetFixture(repo, journal)
+    execFileSync('git', ['init', '--initial-branch=main', repo])
+    git('config', 'user.email', 'shipping@test.invalid')
+    git('config', 'user.name', 'Shipping Test')
+    writeFileSync(join(repo, 'value.txt'), 'base\n')
+    git('add', 'value.txt')
+    git('commit', '-m', 'base')
+    const trainBase = git('rev-parse', 'HEAD')
+    git('switch', '-c', 'issue/member-1')
+    writeFileSync(join(repo, 'value.txt'), 'member one\n')
+    git('commit', '-am', 'member one')
+    const memberOne = git('rev-parse', 'HEAD')
+    git('switch', '-c', 'issue/member-2', trainBase)
+    writeFileSync(join(repo, 'value.txt'), 'member two\n')
+    git('commit', '-am', 'member two')
+    const memberTwo = git('rev-parse', 'HEAD')
+    git('switch', 'main')
+    const memberOrderIds = [asShipOrderId('order-member-1'), asShipOrderId('order-member-2')]
+    const trainId = asShipTrainId('train-partial-conflict')
+    const subsetId = asShipTrainSubsetId(
+      `subset:${createHash('sha256')
+        .update(
+          shippingTrainSubsetFingerprint({
+            manifest: { id: trainId },
+            memberOrderIds,
+            repairRound: 0,
+            candidate: { kind: 'approved' },
+          }),
+        )
+        .digest('hex')}`,
+    )
+    const machineId = asMachineId('machine-1')
+    const validationProfile = {
+      id: 'train-proof',
+      argv: ['git', 'diff', '--quiet'],
+      cwd: 'integration-root' as const,
+      timeoutMs: 30_000,
+      resourceLocks: [],
+    }
+    const manifest = {
+      version: 1 as const,
+      id: trainId,
+      subsetId,
+      repairRound: 0 as const,
+      lane: {
+        repoId: 'repo-shipping' as ShippingJobRequestMessage['repoId'],
+        repoPath: repo,
+        machineId,
+        laneKey: 'b'.repeat(64),
+        laneRevision: 1,
+        targetBranch: 'main',
+        expectedTargetSha: trainBase,
+        destination: 'local:main',
+        policyId: 'proof-policy',
+        validationProfile,
+        validationProfileDigest: 'c'.repeat(64),
+      },
+      memberCount: 2,
+      leaderOrderId: memberOrderIds[1]!,
+      members: [
+        {
+          orderId: memberOrderIds[0]!,
+          issueId: asIssueId('issue-member-1'),
+          attemptId: asShipAttemptId('attempt-member-1'),
+          generation: 1,
+          machineId,
+          sourceBranch: 'issue/member-1',
+          approvedBaseSha: trainBase,
+          approvedHeadSha: memberOne,
+          deliveryDependsOn: [],
+        },
+        {
+          orderId: memberOrderIds[1]!,
+          issueId: asIssueId('issue-member-2'),
+          attemptId: asShipAttemptId('attempt-member-2'),
+          generation: 1,
+          machineId,
+          sourceBranch: 'issue/member-2',
+          approvedBaseSha: trainBase,
+          approvedHeadSha: memberTwo,
+          deliveryDependsOn: [memberOrderIds[0]!],
+        },
+      ],
+    }
+    const trainRequest = signed({
+      type: 'shippingJobRequest',
+      requestId: 'request-partial-train',
+      action: 'start',
+      jobId: 'attempt-member-2:prepare-merge-group',
+      orderId: memberOrderIds[1]!,
+      attemptId: asShipAttemptId('attempt-member-2'),
+      generation: 1,
+      operation: 'prepare-merge-group',
+      shippingProtocolVersion: 2,
+      repoPath: repo,
+      repoId: manifest.lane.repoId,
+      sourceBranch: 'issue/member-2',
+      targetBranch: 'main',
+      approvedBaseSha: trainBase,
+      approvedHeadSha: memberTwo,
+      expectedTargetSha: trainBase,
+      destination: 'local:main',
+      policyId: 'proof-policy',
+      validationProfile,
+      train: {
+        version: 2,
+        capability: 'shipping.train.v2',
+        manifest,
+        subsetId,
+        memberOrderIds,
+        repairRound: 0,
+        candidate: { kind: 'approved' },
+      },
+    })
+    const trainPlane = new ShippingExecutionPlane(journal, machineId)
+    const trainFailure = trainPlane.handle(trainRequest)
+    expect(trainFailure).toMatchObject({
+      state: 'held',
+      classification: 'merge-conflict',
+      repairBaseSha: memberOne,
+    })
+    const unapprovedMember = git(
+      'commit-tree',
+      git('rev-parse', `${memberOne}^{tree}`),
+      '-p',
+      memberOne,
+      '-m',
+      'unapproved member descendant',
+    )
+    const trainRefs = git('for-each-ref', '--format=%(refname)', 'refs/podium/ship').split('\n')
+    const memberRef = trainRefs.find((ref) => ref.endsWith('/members/0'))!
+    const trainBaseRef = trainRefs.find((ref) => ref.endsWith('/failed-prepare-merge-group-base'))!
+    git('update-ref', memberRef, unapprovedMember, memberOne)
+    git('update-ref', trainBaseRef, unapprovedMember, memberOne)
+    resetFixture(journal)
+    expect(
+      new ShippingExecutionPlane(journal, machineId).applyPatch({
+        authority: trainRequest,
+        contextDigest: 'd'.repeat(64),
+        repairBaseSha: memberOne,
+        repairRef: shipRepairRef(
+          trainRequest.orderId,
+          trainRequest.attemptId,
+          trainRequest.generation,
+          'd'.repeat(64),
+        ),
+        patch:
+          'diff --git a/value.txt b/value.txt\n--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-member one\n+fixed\n',
+        touchedPaths: ['value.txt'],
+      }),
+    ).toMatchObject({ ok: false, summary: expect.stringMatching(/exact immutable repair base/) })
   })
 
   it('proves or holds without mutating refs and resumes from its journal', () => {

@@ -204,6 +204,7 @@ describe('durable shipwright model results', () => {
     classification: 'validation-failed',
     summary: 'named gate failed',
     artifactRefs: ['/executor/journal/gate.log'],
+    repairBaseSha: 'frozen-repair-base',
   }
   const validationProfile = {
     id: 'frozen-gate',
@@ -583,6 +584,7 @@ describe('durable shipwright model results', () => {
         operation: 'prepare-merge-group',
         classification: 'merge-conflict',
         summary: 'the frozen approved head conflicts with the frozen target',
+        repairBaseSha: target,
       },
       custody: { attemptId: attempt.id, generation: 4, machineId },
       contextDigest: 'e'.repeat(64),

@@ -343,6 +343,7 @@ export const ShippingJobResult = z.object({
   observedSourceSha: z.string().min(1).optional(),
   observedTargetSha: z.string().min(1).optional(),
   observedDestinationSha: z.string().min(1).optional(),
+  repairBaseSha: z.string().min(1).optional(),
   testedIntegrationSha: z.string().min(1).optional(),
   landedRefSha: z.string().min(1).optional(),
   validationProfileId: z.string().min(1).optional(),
@@ -533,6 +534,7 @@ export const ShippingRepairApplyRequestMessage = z
     requestId: z.string().min(1),
     authority: ShippingJobRequestMessage,
     contextDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    repairBaseSha: z.string().min(1),
     repairRef: z.string().regex(/^refs\/podium\/ship-repair\//),
     patch: z
       .string()
