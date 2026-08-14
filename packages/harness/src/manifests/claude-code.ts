@@ -162,6 +162,7 @@ export const claudeCodeManifest: AgentManifest = {
     driver: 'claude-sdk',
     outputFormat: 'claude-stream-json',
     resumeIdAllocation: 'sdk-session-uuid',
+    noTools: 'enforced',
     buildExec: unsupported('the Claude Agent SDK builds its own invocation in-process'),
   }),
 

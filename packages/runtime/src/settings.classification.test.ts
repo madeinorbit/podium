@@ -16,7 +16,7 @@
  * between two broken walkers is the most convincing green there is (POD-363,
  * POD-640). So the equality is preceded by:
  *
- *   - a CARDINALITY a broken walk cannot reach (39, split 24/10/5);
+ *   - a CARDINALITY a broken walk cannot reach (48, split 28/15/5);
  *   - NAMED members, including one nested two levels deep and one on each side
  *     of the `notifications` seam;
  *   - a PLANTED leaf, asserted to break the equality and to be named as the
@@ -41,9 +41,10 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
     // 42 + the shell-idle and backstop hibernation controls.
-    expect(blobLeaves().length).toBe(44)
+    expect(blobLeaves().length).toBe(48)
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
+    expect(blobLeaves()).toContain('roles.shipwright.accountId')
     expect(blobLeaves()).toContain('notifications.telegramBotToken')
     expect(blobLeaves()).toContain('notifications.telegramChatId')
     expect(blobLeaves()).toContain('experimental')

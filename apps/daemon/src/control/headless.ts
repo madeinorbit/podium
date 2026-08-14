@@ -89,6 +89,7 @@ function runHeadlessTurnRequest(
       ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
       ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
       ...(msg.permissionMode ? { permissionMode: msg.permissionMode } : {}),
+      ...(msg.toolPolicy ? { toolPolicy: msg.toolPolicy } : {}),
       ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
       ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
       ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),

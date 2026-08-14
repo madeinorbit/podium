@@ -1,16 +1,29 @@
-import type { AgentQuotaWire, HarnessAgent, ShipwrightLevel, ShipwrightRoute } from '@podium/model'
-import { resolveRole, type PodiumSettings } from '@podium/runtime'
+import {
+  DEFAULT_SHIPWRIGHT_BUDGET,
+  type AgentQuotaWire,
+  type HarnessAgent,
+  type ShipwrightBudget,
+  type ShipwrightLevel,
+  type ShipwrightRoute,
+} from '@podium/model'
+import { nativeAccountId, resolveRole, type PodiumSettings } from '@podium/runtime'
+import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
 
 type Tier = 'fast' | 'balanced' | 'frontier'
 
-interface Candidate {
-  agent: HarnessAgent
-  model: string
-  efforts?: string[]
+export interface ShipwrightTraitCandidate {
+  id: string
   family: string
   tier: Tier
   preferred: boolean
+  available: boolean
+}
+
+interface Candidate extends ShipwrightTraitCandidate {
+  agent: HarnessAgent
+  model: string
+  efforts?: string[]
 }
 
 export interface ShipwrightRouteInput {
@@ -21,7 +34,7 @@ export interface ShipwrightRouteInput {
   priorFamilies?: readonly string[]
 }
 
-function modelFamily(agent: HarnessAgent, model: string): string {
+export function shipwrightModelFamily(agent: HarnessAgent, model: string): string {
   const value = model.toLowerCase()
   if (/claude/.test(value)) return 'anthropic'
   if (/gemini/.test(value)) return 'google'
@@ -40,14 +53,17 @@ function modelTier(model: string): Tier {
   return 'balanced'
 }
 
-function quotaAllows(agent: HarnessAgent, model: string, quota: readonly AgentQuotaWire[]): boolean {
+function quotaAllows(
+  agent: HarnessAgent,
+  model: string,
+  quota: readonly AgentQuotaWire[],
+): boolean {
   const reading = quota.find((item) => item.agent === agent)
   if (!reading) return true
   if (reading.status !== 'ok') return false
   return !reading.windows.some(
     (window) =>
-      window.usedPercent >= 98 &&
-      (window.scopeModel === undefined || window.scopeModel === model),
+      window.usedPercent >= 98 && (window.scopeModel === undefined || window.scopeModel === model),
   )
 }
 
@@ -62,7 +78,11 @@ function effortFor(level: ShipwrightLevel, available: readonly string[] | undefi
   return wanted.find((effort) => available.includes(effort)) ?? available[0] ?? 'auto'
 }
 
-function rank(level: ShipwrightLevel, candidate: Candidate, prior: ReadonlySet<string>): number {
+function rank(
+  level: ShipwrightLevel,
+  candidate: ShipwrightTraitCandidate,
+  prior: ReadonlySet<string>,
+): number {
   const tierScore =
     level === 'mechanic'
       ? candidate.tier === 'fast'
@@ -79,6 +99,31 @@ function rank(level: ShipwrightLevel, candidate: Candidate, prior: ReadonlySet<s
   return tierScore + familyPenalty + (candidate.preferred ? -1 : 0)
 }
 
+export function selectShipwrightCandidate(
+  level: ShipwrightLevel,
+  candidates: readonly ShipwrightTraitCandidate[],
+  priorFamilies: readonly string[] = [],
+): string | null {
+  const prior = new Set(priorFamilies)
+  return (
+    candidates
+      .filter((candidate) => candidate.available)
+      .sort(
+        (left, right) =>
+          rank(level, left, prior) - rank(level, right, prior) || left.id.localeCompare(right.id),
+      )[0]?.id ?? null
+  )
+}
+
+export function shipwrightTurnCeiling(
+  budget: ShipwrightBudget = DEFAULT_SHIPWRIGHT_BUDGET,
+): number {
+  return Math.min(
+    budget.maxTurns,
+    (budget.maxMechanicTurns + budget.maxSolverTurns) * (1 + budget.maxInspectorTurns),
+  )
+}
+
 /** Resolve at use time from one person's role, one machine's live catalog, and
  * that machine's current quota. A spent or unauthenticated harness is skipped;
  * an Inspector is kept on a different family whenever one is available. */
@@ -90,42 +135,22 @@ export function routeShipwright(input: ShipwrightRouteInput): ShipwrightRoute | 
       (agent) => agent === agentRaw,
     )
     if (!parsed) continue
+    if (!harnessSupportsNoTools(parsed)) continue
     for (const model of models) {
       candidates.push({
+        id: `${parsed}:${model.value}`,
         agent: parsed,
         model: model.value,
         efforts: model.efforts,
-        family: modelFamily(parsed, model.value),
+        family: shipwrightModelFamily(parsed, model.value),
         tier: modelTier(model.value),
         preferred: parsed === preferred.harness && model.value === preferred.model,
+        available: quotaAllows(parsed, model.value, input.quota),
       })
     }
   }
-  if (
-    preferred.model !== 'auto' &&
-    !candidates.some(
-      (candidate) =>
-        candidate.agent === preferred.harness && candidate.model === preferred.model,
-    )
-  ) {
-    candidates.push({
-      agent: preferred.harness,
-      model: preferred.model,
-      family: modelFamily(preferred.harness, preferred.model),
-      tier: modelTier(preferred.model),
-      preferred: true,
-    })
-  }
-  const prior = new Set(input.priorFamilies ?? [])
-  const usable = candidates
-    .filter((candidate) => quotaAllows(candidate.agent, candidate.model, input.quota))
-    .sort(
-      (left, right) =>
-        rank(input.level, left, prior) - rank(input.level, right, prior) ||
-        left.agent.localeCompare(right.agent) ||
-        left.model.localeCompare(right.model),
-    )
-  const selected = usable[0]
+  const selectedId = selectShipwrightCandidate(input.level, candidates, input.priorFamilies)
+  const selected = candidates.find((candidate) => candidate.id === selectedId)
   if (!selected) return null
   return {
     level: input.level,
@@ -133,14 +158,66 @@ export function routeShipwright(input: ShipwrightRouteInput): ShipwrightRoute | 
     model: selected.model,
     effort: effortFor(input.level, selected.efforts),
     family: selected.family,
+    accountId:
+      selected.agent === preferred.harness ? preferred.accountId : nativeAccountId(selected.agent),
   }
 }
 
 /** Small stable corpus used to prevent trait changes from quietly collapsing
  * every failure onto one model tier. It contains shapes, never provider names. */
 export const SHIPWRIGHT_ROUTER_EVAL_SET = [
-  { id: 'local-import-conflict', failure: 'merge-conflict', expectedFirst: 'mechanic' },
-  { id: 'single-test-expectation', failure: 'validation-failed', expectedFirst: 'mechanic' },
-  { id: 'cross-module-contract', failure: 'validation-failed', expectedEscalation: 'solver' },
-  { id: 'two-valid-behaviors', failure: 'merge-conflict', expectedEscalation: 'inspector' },
+  {
+    id: 'throughput-first',
+    level: 'mechanic',
+    priorFamilies: [],
+    candidates: [
+      { id: 'fast-a', family: 'family-a', tier: 'fast', preferred: false, available: true },
+      { id: 'frontier-b', family: 'family-b', tier: 'frontier', preferred: true, available: true },
+    ],
+    expected: 'fast-a',
+    expectedTurnCeiling: 3,
+  },
+  {
+    id: 'capability-first',
+    level: 'solver',
+    priorFamilies: [],
+    candidates: [
+      { id: 'fast-a', family: 'family-a', tier: 'fast', preferred: true, available: true },
+      { id: 'frontier-b', family: 'family-b', tier: 'frontier', preferred: false, available: true },
+    ],
+    expected: 'frontier-b',
+    expectedTurnCeiling: 3,
+  },
+  {
+    id: 'independent-review',
+    level: 'inspector',
+    priorFamilies: ['family-a'],
+    candidates: [
+      { id: 'frontier-a', family: 'family-a', tier: 'frontier', preferred: true, available: true },
+      { id: 'balanced-b', family: 'family-b', tier: 'balanced', preferred: false, available: true },
+    ],
+    expected: 'balanced-b',
+    expectedTurnCeiling: 3,
+  },
+  {
+    id: 'quota-fallback',
+    level: 'solver',
+    priorFamilies: [],
+    candidates: [
+      { id: 'frontier-a', family: 'family-a', tier: 'frontier', preferred: true, available: false },
+      { id: 'balanced-b', family: 'family-b', tier: 'balanced', preferred: false, available: true },
+    ],
+    expected: 'balanced-b',
+    expectedTurnCeiling: 3,
+  },
 ] as const
+
+export function evaluateShipwrightRouterCase(input: (typeof SHIPWRIGHT_ROUTER_EVAL_SET)[number]): {
+  route: string | null
+  turnCeiling: number
+} {
+  return {
+    route: selectShipwrightCandidate(input.level, input.candidates, input.priorFamilies),
+    turnCeiling: shipwrightTurnCeiling(),
+  }
+}

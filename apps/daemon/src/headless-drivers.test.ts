@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HarnessBins } from './harness-exec.js'
-import { buildClaudeSdkOptions, buildHeadlessExec } from './headless-drivers.js'
+import { buildClaudeSdkOptions, buildHeadlessExec, runHeadlessTurn } from './headless-drivers.js'
 
 const bins: HarnessBins = { opencode: () => '/opt/opencode', cursor: () => '/opt/cursor-agent' }
 
@@ -22,6 +22,27 @@ describe('buildHeadlessExec argv shapes', () => {
       preset: 'claude_code',
       append: 'NORMAL: HARD LIMIT 80 words total\n\ncurrent context',
     })
+  })
+
+  it('enforces a native no-tools posture and refuses unsupported adapters', () => {
+    const options = buildClaudeSdkOptions({
+      agent: 'claude-code',
+      cwd: '/repo',
+      prompt: 'repair',
+      toolPolicy: 'none',
+      mcpConfig: JSON.stringify({ mcpServers: { podium: { url: 'http://podium.invalid' } } }),
+    })
+    expect(options.tools).toEqual([])
+    expect(options.allowedTools).toEqual([])
+    expect(options).not.toHaveProperty('mcpServers')
+
+    expect(() =>
+      runHeadlessTurn(
+        { agent: 'codex', cwd: '/repo', prompt: 'repair', toolPolicy: 'none' },
+        () => {},
+        bins,
+      ),
+    ).toThrow(/cannot enforce a no-tools headless turn/)
   })
 
   it('codex first turn: exec --json with positional prompt, no resume subcommand', () => {
@@ -95,12 +116,58 @@ describe('buildHeadlessExec argv shapes', () => {
     expect(resumed.args).toEqual(['--resume', 'uuid-1', '--single', 'again'])
   })
 
+  it('grok disables tools, subagents, and web search for repair turns', () => {
+    const { args } = buildHeadlessExec(
+      'grok',
+      { prompt: 'repair', sessionId: 'uuid-1', toolPolicy: 'none' },
+      bins,
+    )
+    expect(args).toEqual([
+      '--session-id',
+      'uuid-1',
+      '--tools',
+      '',
+      '--no-subagents',
+      '--disable-web-search',
+      '--permission-mode',
+      'dontAsk',
+      '--single',
+      'repair',
+    ])
+  })
+
   it('opencode: forwards model and variant on first and resumed turns', () => {
-    const first = buildHeadlessExec('opencode', { prompt: 'hi', model: 'opencode/deepseek-v4-flash-free', effort: 'high' }, bins)
+    const first = buildHeadlessExec(
+      'opencode',
+      { prompt: 'hi', model: 'opencode/deepseek-v4-flash-free', effort: 'high' },
+      bins,
+    )
     expect(first.cmd).toBe('/opt/opencode')
-    expect(first.args).toEqual(['run', '--format', 'json', '-m', 'opencode/deepseek-v4-flash-free', '--variant', 'high', 'hi'])
-    const resumed = buildHeadlessExec('opencode', { prompt: 'go on', resumeValue: 'ses_1', effort: 'max' }, bins)
-    expect(resumed.args).toEqual(['run', '--format', 'json', '-s', 'ses_1', '--variant', 'max', 'go on'])
+    expect(first.args).toEqual([
+      'run',
+      '--format',
+      'json',
+      '-m',
+      'opencode/deepseek-v4-flash-free',
+      '--variant',
+      'high',
+      'hi',
+    ])
+    const resumed = buildHeadlessExec(
+      'opencode',
+      { prompt: 'go on', resumeValue: 'ses_1', effort: 'max' },
+      bins,
+    )
+    expect(resumed.args).toEqual([
+      'run',
+      '--format',
+      'json',
+      '-s',
+      'ses_1',
+      '--variant',
+      'max',
+      'go on',
+    ])
   })
 
   it('cursor: pins Auto unless a named model overrides it', () => {

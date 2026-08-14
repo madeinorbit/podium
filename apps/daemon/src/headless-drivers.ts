@@ -31,6 +31,7 @@ export interface HeadlessTurnSpec {
   mcpConfig?: string
   allowedTools?: string[]
   permissionMode?: string
+  toolPolicy?: 'none'
   /** Harness session id to resume; absent = first turn. */
   resumeValue?: string
   /** Claude only: mint the first-turn session with this UUID. */
@@ -139,6 +140,7 @@ export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
     ...(spec.allowedTools && spec.allowedTools.length > 0
       ? { allowedTools: spec.allowedTools }
       : {}),
+    ...(spec.toolPolicy === 'none' ? { tools: [] as string[], allowedTools: [] } : {}),
     // The orchestrator prompt APPENDS to the claude_code preset — same posture
     // as harness-exec's --append-system-prompt.
     ...([spec.systemPrompt, spec.contextPrompt].filter(Boolean).join('\n\n').trim()
@@ -157,7 +159,7 @@ export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
         : {}),
   }
   const mcpServers = sdkMcpServers(spec.mcpConfig)
-  if (mcpServers) options.mcpServers = mcpServers
+  if (mcpServers && spec.toolPolicy !== 'none') options.mcpServers = mcpServers
   return options
 }
 
@@ -335,6 +337,7 @@ function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnH
       ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
       ...(spec.mcpConfig ? { mcpConfig: spec.mcpConfig } : {}),
       ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
+      ...(spec.toolPolicy ? { toolPolicy: spec.toolPolicy } : {}),
       ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
     },
     { opencode: () => 'opencode', cursor: () => 'cursor-agent' },
@@ -434,6 +437,7 @@ function runResumeExecTurn(
     ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
     ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
     ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
+    ...(spec.toolPolicy ? { toolPolicy: spec.toolPolicy } : {}),
     ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
   }
   emit({ kind: 'status', status: 'starting' })
@@ -541,5 +545,8 @@ export function runHeadlessTurn(
   bins: HarnessBins,
 ): HeadlessTurnHandle {
   const headless = headlessFor(spec.agent)
+  if (spec.toolPolicy === 'none' && headless.noTools !== 'enforced') {
+    throw new Error(`harness ${spec.agent} cannot enforce a no-tools headless turn`)
+  }
   return DRIVER_IMPLS[headless.driver](spec, emit, bins)
 }

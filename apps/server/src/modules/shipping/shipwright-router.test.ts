@@ -1,7 +1,11 @@
 import { asMachineId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
-import { routeShipwright, SHIPWRIGHT_ROUTER_EVAL_SET } from './shipwright-router'
+import {
+  evaluateShipwrightRouterCase,
+  routeShipwright,
+  SHIPWRIGHT_ROUTER_EVAL_SET,
+} from './shipwright-router'
 
 const machineId = asMachineId('machine:shipwright')
 const settings = normalizeSettings({
@@ -22,23 +26,24 @@ const catalog = {
       { value: 'gpt-5.6-codex', label: 'Codex', efforts: ['medium', 'high'] },
       { value: 'gpt-5-mini', label: 'Mini', efforts: ['low', 'medium'] },
     ],
-    'claude-code': [
-      { value: 'claude-opus-5', label: 'Opus', efforts: ['medium', 'high'] },
-    ],
+    'claude-code': [{ value: 'claude-opus-5', label: 'Opus', efforts: ['medium', 'high'] }],
+    grok: [{ value: 'fast-repair', label: 'Fast repair', efforts: ['medium', 'high'] }],
   },
 }
 
 describe('shipwright trait/quota router', () => {
   it('routes mechanic to throughput, solver to frontier, and inspector across families', () => {
     expect(routeShipwright({ settings, catalog, quota: [], level: 'mechanic' })).toMatchObject({
-      agent: 'codex',
-      model: 'gpt-5-mini',
+      agent: 'grok',
+      model: 'fast-repair',
       effort: 'medium',
+      accountId: 'native:grok',
     })
     expect(routeShipwright({ settings, catalog, quota: [], level: 'solver' })).toMatchObject({
-      agent: 'codex',
-      model: 'gpt-5.6-codex',
+      agent: 'claude-code',
+      model: 'claude-opus-5',
       effort: 'high',
+      accountId: 'native:claude-code',
     })
     expect(
       routeShipwright({
@@ -46,9 +51,9 @@ describe('shipwright trait/quota router', () => {
         catalog,
         quota: [],
         level: 'inspector',
-        priorFamilies: ['openai'],
+        priorFamilies: ['anthropic'],
       }),
-    ).toMatchObject({ agent: 'claude-code', model: 'claude-opus-5', family: 'anthropic' })
+    ).toMatchObject({ agent: 'grok', model: 'fast-repair', family: 'xai' })
   })
 
   it('does not route onto exhausted live quota', () => {
@@ -76,9 +81,24 @@ describe('shipwright trait/quota router', () => {
     expect(route).toMatchObject({ agent: 'claude-code', family: 'anthropic' })
   })
 
+  it('does not invent a configured model outside the live no-tools catalog', () => {
+    expect(
+      routeShipwright({
+        settings,
+        catalog: { ...catalog, byAgent: { codex: catalog.byAgent.codex } },
+        quota: [],
+        level: 'solver',
+      }),
+    ).toBeNull()
+  })
+
   it('keeps a provider-name-free eval corpus for every escalation rung', () => {
-    expect(SHIPWRIGHT_ROUTER_EVAL_SET.map((item) => item.expectedFirst ?? item.expectedEscalation))
-      .toEqual(['mechanic', 'mechanic', 'solver', 'inspector'])
+    for (const item of SHIPWRIGHT_ROUTER_EVAL_SET) {
+      expect(evaluateShipwrightRouterCase(item)).toEqual({
+        route: item.expected,
+        turnCeiling: item.expectedTurnCeiling,
+      })
+    }
     expect(JSON.stringify(SHIPWRIGHT_ROUTER_EVAL_SET)).not.toMatch(/codex|claude|gpt|gemini|grok/)
   })
 })

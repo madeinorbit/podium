@@ -117,6 +117,23 @@ describe('durable headless invocation', () => {
       'NORMAL: HARD LIMIT 80 words total',
     )
   })
+
+  it('removes Claude tools and MCP from a durable repair invocation', () => {
+    const exec = buildClaudeDurableExec(
+      {
+        agent: 'claude-code',
+        cwd: '/repo',
+        prompt: 'repair',
+        toolPolicy: 'none',
+        mcpConfig: '{"mcpServers":{"podium":{"url":"http://podium.invalid"}}}',
+      },
+      { mcp: '/tmp/mcp.json' },
+    )
+    expect(exec.args.slice(exec.args.indexOf('--tools'), exec.args.indexOf('--tools') + 2)).toEqual(
+      ['--tools', ''],
+    )
+    expect(exec.args).not.toContain('--mcp-config')
+  })
 })
 
 describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () => {

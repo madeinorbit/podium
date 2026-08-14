@@ -1,6 +1,15 @@
-import { DEFAULT_SHIPWRIGHT_BUDGET, ShipwrightPatchContract, shipRepairRef } from '@podium/model'
+import {
+  asAccountId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  DEFAULT_SHIPWRIGHT_BUDGET,
+  ShipwrightPatchContract,
+  shipRepairRef,
+} from '@podium/model'
+import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
-import { validateShipwrightPatch } from './shipwright'
+import { ShipwrightService, validateShipwrightPatch } from './shipwright'
 
 describe('bounded shipwright patch contract', () => {
   it('accepts an exact text patch and marks test changes for Inspector review', () => {
@@ -68,8 +77,228 @@ describe('bounded shipwright patch contract', () => {
   })
 
   it('mints only attempt and generation scoped refs', () => {
-    expect(shipRepairRef('attempt:one/two', 7)).toBe(
-      'refs/podium/ship-repair/attempt-one-two/7',
+    expect(shipRepairRef('attempt:one/two', 7)).toBe('refs/podium/ship-repair/attempt-one-two/7')
+  })
+})
+
+describe('durable shipwright model results', () => {
+  const owner = asUserId('user:shipwright')
+  const machineId = asMachineId('machine:shipwright')
+  const order = {
+    id: 'order:shipwright',
+    requestedBy: { actor: { kind: 'user', id: owner }, onBehalfOf: owner },
+  }
+  const attempt = { id: 'attempt:shipwright', machineId, leaseGeneration: 4 }
+  const issue = {
+    id: 'issue:shipwright',
+    repoPath: '/repo',
+    title: 'Repair a gate',
+    description: 'Keep behavior stable.',
+  }
+  const failure = {
+    operation: 'validate' as const,
+    classification: 'validation-failed',
+    summary: 'named gate failed',
+    artifactRefs: ['artifact:gate-log'],
+  }
+
+  function fixture(output: string | string[], budget?: typeof DEFAULT_SHIPWRIGHT_BUDGET) {
+    const sessions = new Map<string, Record<string, unknown>>()
+    const creates: Record<string, unknown>[] = []
+    const turns: Record<string, unknown>[] = []
+    const acknowledgements: { sessionId: string; turnId: string }[] = []
+    let quotaReads = 0
+    let outputIndex = 0
+    const service = new ShipwrightService({
+      headless: {
+        headlessSession: (sessionId) => sessions.get(sessionId) as never,
+        createHeadlessSession: (input) => {
+          creates.push(input)
+          if (!sessions.has(input.sessionId as string)) {
+            sessions.set(input.sessionId as string, {
+              ...input,
+              sessionId: input.sessionId,
+              headless: true,
+            })
+          }
+          return { sessionId: input.sessionId ?? asSessionId('unexpected') }
+        },
+        headlessTurn: async (input) => {
+          turns.push(input)
+          const selected = Array.isArray(output)
+            ? output[Math.min(outputIndex++, output.length - 1)]
+            : output
+          return { ok: true, output: selected }
+        },
+        headlessTurnAck: (sessionId, turnId) => {
+          acknowledgements.push({ sessionId, turnId })
+        },
+      },
+      settingsFor: () =>
+        normalizeSettings({
+          roles: {
+            shipwright: {
+              accountId: 'native:claude-code',
+              harness: 'claude-code',
+              model: 'repair-model',
+              effort: 'high',
+            },
+          },
+        }),
+      modelCatalog: () => ({
+        machineId,
+        fetchedAt: 1,
+        byAgent: {
+          'claude-code': [{ value: 'repair-model', label: 'Repair model', efforts: ['high'] }],
+        },
+      }),
+      quota: async () => {
+        quotaReads += 1
+        return []
+      },
+      nativeAccountId: () => asAccountId('native:claude-code:fingerprint-1'),
+      validationProfile: () => ({ id: 'gate' }) as never,
+      context: async () => ({ output: 'failure output', relevantDiff: 'diff context' }),
+      applyPatch: async () => ({
+        ok: true,
+        candidateHeadSha: 'candidate-sha',
+        evidenceRefs: ['artifact:applied-patch'],
+      }),
+      ...(budget ? { budget } : {}),
+    })
+    return {
+      service,
+      creates,
+      turns,
+      acknowledgements,
+      get quotaReads() {
+        return quotaReads
+      },
+    }
+  }
+
+  it('replays the attempt-scoped result and acknowledges it only after durable consumption', async () => {
+    const h = fixture(
+      JSON.stringify({
+        kind: 'patch',
+        summary: 'repair the assertion',
+        behaviorImpact: 'none',
+        touchedPaths: ['src/value.ts'],
+        patch:
+          'diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-old\n+new\n',
+        concerns: [],
+      }),
     )
+    const input = {
+      order,
+      attempt,
+      issue,
+      failure,
+      custody: { attemptId: attempt.id, generation: 4, machineId },
+    } as never
+
+    const first = await h.service.consider(input)
+    const replay = await h.service.consider(input)
+    expect(first).toEqual(replay)
+    expect(first).toMatchObject({
+      kind: 'patched',
+      repairRef: 'refs/podium/ship-repair/attempt-shipwright/4',
+      candidateHeadSha: 'candidate-sha',
+      resultToken: expect.stringMatching(/^shipwright-result:/),
+    })
+    expect(h.creates[0]).toMatchObject({
+      sessionId: 'shipwright:attempt:shipwright:4:mechanic:0',
+      ownerUserId: owner,
+      createdBy: order.requestedBy,
+      issueId: issue.id,
+      accountId: 'native:claude-code:fingerprint-1',
+      requireNoTools: true,
+    })
+    expect(h.turns[0]).toMatchObject({ toolPolicy: 'none' })
+    expect(h.quotaReads).toBe(1)
+    expect(h.acknowledgements).toEqual([])
+    if (first.kind !== 'patched') throw new Error('expected a patch result')
+    await h.service.acknowledge({
+      resultToken: first.resultToken,
+      orderId: order.id,
+      attemptId: attempt.id,
+      generation: 4,
+    } as never)
+    expect(h.acknowledgements).toEqual([
+      {
+        sessionId: 'shipwright:attempt:shipwright:4:mechanic:0',
+        turnId: 'shipwright:attempt:shipwright:4:mechanic:0',
+      },
+    ])
+  })
+
+  it('keeps free-form model concerns out of typed hold evidence', async () => {
+    const h = fixture(
+      JSON.stringify({
+        kind: 'patch',
+        summary: 'two behaviors are possible',
+        behaviorImpact: 'ambiguous',
+        touchedPaths: ['src/value.ts'],
+        patch:
+          'diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-old\n+new\n',
+        concerns: ['model-authored concern must not become an evidence ref'],
+      }),
+    )
+    const result = await h.service.consider({
+      order,
+      attempt,
+      issue,
+      failure,
+      custody: { attemptId: attempt.id, generation: 4, machineId },
+    } as never)
+    expect(result).toMatchObject({
+      kind: 'needs-decision',
+      headline: 'Needs your decision',
+      evidenceRefs: ['artifact:gate-log'],
+    })
+  })
+
+  it('uses the full bounded Inspector allowance before applying a risky repair', async () => {
+    const patch = JSON.stringify({
+      kind: 'patch',
+      summary: 'repair the assertion',
+      behaviorImpact: 'none',
+      touchedPaths: ['src/value.test.ts'],
+      patch:
+        'diff --git a/src/value.test.ts b/src/value.test.ts\n--- a/src/value.test.ts\n+++ b/src/value.test.ts\n@@ -1 +1 @@\n-old\n+new\n',
+      concerns: [],
+    })
+    const h = fixture(
+      [
+        patch,
+        '{"kind":"inspection","verdict":"safe"}',
+        JSON.stringify({
+          kind: 'inspection',
+          verdict: 'safe',
+          summary: 'bounded test-only repair',
+          concerns: [],
+        }),
+      ],
+      {
+        ...DEFAULT_SHIPWRIGHT_BUDGET,
+        maxTurns: 3,
+        maxMechanicTurns: 1,
+        maxSolverTurns: 0,
+        maxInspectorTurns: 2,
+      },
+    )
+    const result = await h.service.consider({
+      order,
+      attempt,
+      issue,
+      failure,
+      custody: { attemptId: attempt.id, generation: 4, machineId },
+    } as never)
+    expect(result.kind).toBe('patched')
+    expect(h.turns.map((turn) => turn.turnId)).toEqual([
+      'shipwright:attempt:shipwright:4:mechanic:0',
+      'shipwright:attempt:shipwright:4:inspector:1',
+      'shipwright:attempt:shipwright:4:inspector:2',
+    ])
   })
 })

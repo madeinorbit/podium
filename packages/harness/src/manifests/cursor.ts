@@ -118,6 +118,7 @@ export const cursorManifest: AgentManifest = {
     // The chat id is pre-allocated with `cursor-agent create-chat` (bare UUID
     // on stdout) so even the first turn runs pinned via --resume.
     resumeIdAllocation: 'create-chat',
+    noTools: 'unsupported',
     buildExec: supported((opts, bins) => {
       // A preallocated chat otherwise inherits Cursor's persisted named model.
       // Pin Auto explicitly when Podium supplied no model override.

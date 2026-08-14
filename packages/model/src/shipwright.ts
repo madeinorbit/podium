@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AccountIdField } from './ids'
 
 /** The bounded escalation ladder used only after deterministic shipping has
  * classified a conflict or named-gate failure. */
@@ -16,10 +17,30 @@ export const ShipwrightBudget = z
     maxMechanicTurns: z.number().int().min(0).max(2).default(1),
     maxSolverTurns: z.number().int().min(0).max(2).default(1),
     maxInspectorTurns: z.number().int().min(0).max(2).default(1),
-    maxContextBytes: z.number().int().min(4_096).max(256 * 1_024).default(64 * 1_024),
-    maxFailureBytes: z.number().int().min(1_024).max(64 * 1_024).default(16 * 1_024),
-    maxPatchBytes: z.number().int().min(1_024).max(512 * 1_024).default(256 * 1_024),
-    timeoutMs: z.number().int().min(10_000).max(20 * 60 * 1_000).default(5 * 60 * 1_000),
+    maxContextBytes: z
+      .number()
+      .int()
+      .min(4_096)
+      .max(256 * 1_024)
+      .default(64 * 1_024),
+    maxFailureBytes: z
+      .number()
+      .int()
+      .min(1_024)
+      .max(64 * 1_024)
+      .default(16 * 1_024),
+    maxPatchBytes: z
+      .number()
+      .int()
+      .min(1_024)
+      .max(512 * 1_024)
+      .default(256 * 1_024),
+    timeoutMs: z
+      .number()
+      .int()
+      .min(10_000)
+      .max(20 * 60 * 1_000)
+      .default(5 * 60 * 1_000),
   })
   .strict()
 export type ShipwrightBudget = z.infer<typeof ShipwrightBudget>
@@ -68,6 +89,7 @@ export const ShipwrightRoute = z
     model: z.string().min(1),
     effort: z.string().min(1),
     family: z.string().min(1),
+    accountId: AccountIdField,
   })
   .strict()
 export type ShipwrightRoute = z.infer<typeof ShipwrightRoute>

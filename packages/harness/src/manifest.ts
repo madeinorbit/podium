@@ -228,6 +228,9 @@ export interface HeadlessExecOptions {
   systemPrompt?: string
   mcpConfig?: string
   permissionMode?: string
+  /** Fail-closed capability request. `none` means the adapter must remove every
+   * built-in, MCP, web, subagent and shell tool. */
+  toolPolicy?: 'none'
   /** Harness session id to resume; absent = first turn. */
   resumeValue?: string
   /** The pinned harness session id (pre-minted for grok/cursor). */
@@ -254,6 +257,8 @@ export interface HarnessHeadless {
    *   'create-chat'      — pre-allocated via a CLI call (cursor create-chat).
    */
   resumeIdAllocation: 'sdk-session-uuid' | 'stream-captured' | 'daemon-minted-uuid' | 'create-chat'
+  /** A native, tested all-tools-off mechanism, or an explicit refusal. */
+  noTools: 'enforced' | 'unsupported'
   /** Pure argv builder for the child-process drivers. Unsupported for
    *  'claude-sdk' (the SDK builds its own invocation). `env` (when present) is
    *  merged over the child's environment — codex passes its MCP bearer token here

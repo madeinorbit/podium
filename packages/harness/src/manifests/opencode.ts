@@ -139,6 +139,7 @@ export const opencodeManifest: AgentManifest = {
     // First turn has no id (opencode mints ses_… internally; captured from the
     // --format json event stream); later turns pin with -s.
     resumeIdAllocation: 'stream-captured',
+    noTools: 'unsupported',
     buildExec: supported((opts, bins) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const sys = opts.systemPrompt?.trim()

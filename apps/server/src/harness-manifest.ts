@@ -21,6 +21,7 @@ export {
   harnessSupportsHandoff,
   harnessSupportsInitialPrompt,
   harnessSupportsMcp,
+  harnessSupportsNoTools,
   harnessUsesPromptTitleFallback,
   transcriptRecordMapperFor,
 } from '@podium/harness/metadata'

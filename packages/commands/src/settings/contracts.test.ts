@@ -275,16 +275,17 @@ describe('a preference patch is gated on the classified path — and can say YES
 })
 
 describe('the derived path sets find something', () => {
-  it('the personal tier has its 24 leaves, including a deep one', () => {
+  it('the personal tier has its 28 leaves, including a deep one', () => {
     const personal = preferencePathsInTier('personal-preference')
-    expect(personal.length).toBe(24)
+    expect(personal.length).toBe(28)
     expect(personal).toContain('roles.coding.model')
+    expect(personal).toContain('roles.shipwright.model')
     expect(personal).toContain('autoContinue.promptDismissed')
   })
 
   it('the writable set is both preference tiers and NOTHING from the secret tier', () => {
-    // 39 = 24 personal + 15 instance. Secrets stay out.
-    expect(WRITABLE_PREFERENCE_PATHS.length).toBe(39)
+    // 43 = 28 personal + 15 instance. Secrets stay out.
+    expect(WRITABLE_PREFERENCE_PATHS.length).toBe(43)
     for (const key of SERVER_SECRET_KEYS) expect(WRITABLE_PREFERENCE_PATHS).not.toContain(key)
     // …and the exclusion is not an empty-set artefact.
     expect(WRITABLE_PREFERENCE_PATHS).toContain('experimental')

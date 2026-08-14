@@ -100,12 +100,12 @@ describe('settingsLeafPaths — the instrument, probed first', () => {
 
 describe('the classification is TOTAL over the split shapes', () => {
   it('classifies every leaf of every tier, and the count is non-trivial', () => {
-    // A cardinality a broken walk cannot reach. 44 = 24 personal + 15 instance
+    // A cardinality a broken walk cannot reach. 48 = 28 personal + 15 instance
     // + 5 secret; the three parts are pinned separately below so a failure names
     // which half moved rather than only that the total did. Instance went 13 →
     // 14 with `hibernation.idleShellMinutes` (POD-565).
-    expect(SETTINGS_CLASSIFICATION.length).toBe(44)
-    expect(settingsPathsInTier('personal-preference').length).toBe(24)
+    expect(SETTINGS_CLASSIFICATION.length).toBe(48)
+    expect(settingsPathsInTier('personal-preference').length).toBe(28)
     expect(settingsPathsInTier('instance-preference').length).toBe(15)
     expect(settingsPathsInTier('server-secret').length).toBe(5)
   })
@@ -120,6 +120,7 @@ describe('the classification is TOTAL over the split shapes', () => {
     expect(classifySettingsPath('sidebar.repoSort')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('notifications.telegramChatId')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('roles.superagent.accountId')?.tier).toBe('personal-preference')
+    expect(classifySettingsPath('roles.shipwright.accountId')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('gitWorkflow.mergeStyle')?.tier).toBe('instance-preference')
     expect(classifySettingsPath('experimental')?.tier).toBe('instance-preference')
     expect(classifySettingsPath('hibernation.memoryPct')?.tier).toBe('instance-preference')

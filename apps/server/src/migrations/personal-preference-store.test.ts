@@ -49,9 +49,9 @@ const MIGRATION = 'personal-preference-store'
 /**
  * The keys the migration's SQL spells out, transcribed. Asserted below to equal
  * POD-418's shipped classification — this is where the frozen-history literals
- * and the live vocabulary are tied together, and a personal preference added to
- * the model with no migration to lift it fails HERE rather than silently staying
- * in the blob forever.
+ * and the live vocabulary are tied together. Preferences introduced after this
+ * one-shot migration are named separately below: they never existed in the old
+ * blob and write directly to the per-user table from their first release.
  */
 const LIFTED_KEYS = [
   'roles.coding.accountId',
@@ -78,6 +78,17 @@ const LIFTED_KEYS = [
   'notifications.web',
   'notifications.ntfyTopic',
   'notifications.telegramChatId',
+] as const
+
+/** Added after the one-shot lift shipped. These keys never existed in the old
+ * instance blob: from their first release writes route directly to the
+ * per-user table, and absence for an upgraded user intentionally means the
+ * personal Shipwright default. Frozen migration SQL must not be rewritten. */
+const POST_MIGRATION_PERSONAL_KEYS = [
+  'roles.shipwright.accountId',
+  'roles.shipwright.model',
+  'roles.shipwright.effort',
+  'roles.shipwright.harness',
 ] as const
 
 /**
@@ -195,10 +206,11 @@ const migrated = (blob?: unknown): Db => {
 
 describe('the migration moves the keys the model classifies — no second list', () => {
   it('the literals the SQL spells out ARE POD-418’s shipped classification', () => {
-    // The frozen-history literals are pinned to the live classification HERE and
-    // nowhere else. A personal preference added to `PersonalPreferences` with no
-    // migration to lift it fails this, instead of quietly remaining in the blob.
-    expect([...LIFTED_KEYS].sort()).toEqual([...settingsPathsInTier('personal-preference')].sort())
+    // The frozen-history literals plus the explicitly post-migration keys are
+    // pinned to the live classification HERE and nowhere else.
+    expect([...LIFTED_KEYS, ...POST_MIGRATION_PERSONAL_KEYS].sort()).toEqual(
+      [...settingsPathsInTier('personal-preference')].sort(),
+    )
     // Twenty-four, asserted, so a classification that collapsed to a handful
     // would not make this suite pass by checking almost nothing.
     expect(LIFTED_KEYS).toHaveLength(24)

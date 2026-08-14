@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import {
   DEFAULT_SHIPWRIGHT_BUDGET,
+  type AccountId,
   type AgentQuotaWire,
   type IssueWire,
   ShipwrightInspectionContract,
@@ -12,9 +13,11 @@ import {
   type ShipwrightBudget,
   type ShipwrightFailureKind,
   type ShipwrightLevel,
+  type ShipwrightRoute,
   ShipwrightPatchContract,
   type ShipwrightPatchContract as ShipwrightPatch,
   type UserId,
+  asSessionId,
   asThreadId,
   shipRepairRef,
 } from '@podium/model'
@@ -23,7 +26,7 @@ import type { ShippingValidationProfile } from '@podium/protocol/daemon'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
 import { jsonSchema } from '../../llm-roles'
 import type { HeadlessService } from '../superagent/headless'
-import { routeShipwright } from './shipwright-router'
+import { routeShipwright, shipwrightModelFamily } from './shipwright-router'
 
 export interface ShipwrightFailure {
   kind: ShipwrightFailureKind
@@ -34,18 +37,29 @@ export interface ShipwrightFailure {
 }
 
 export interface ShipwrightDeps {
-  headless: Pick<HeadlessService, 'createHeadlessSession' | 'headlessTurn' | 'headlessTurnAck'>
+  headless: Pick<
+    HeadlessService,
+    'createHeadlessSession' | 'headlessSession' | 'headlessTurn' | 'headlessTurnAck'
+  >
   settingsFor(userId: UserId): PodiumSettings
   modelCatalog(machineId: ShipAttempt['machineId']): ModelCatalogSnapshot
   quota(machineId: ShipAttempt['machineId']): Promise<AgentQuotaWire[]>
+  nativeAccountId(
+    machineId: ShipAttempt['machineId'],
+    agent: ShipwrightRoute['agent'],
+    requested: AccountId,
+  ): AccountId
   validationProfile(issue: IssueWire): ShippingValidationProfile
   /** Reads only the exact failed-effect artifacts and relevant target-side
    * hunks. The implementation owns remote-machine access and must honor the
    * byte limits supplied here. */
-  context(input: ShippingRepairConsiderInput, limits: {
-    maxContextBytes: number
-    maxFailureBytes: number
-  }): Promise<{ output: string; relevantDiff: string }>
+  context(
+    input: ShippingRepairConsiderInput,
+    limits: {
+      maxContextBytes: number
+      maxFailureBytes: number
+    },
+  ): Promise<{ output: string; relevantDiff: string }>
   /** Deterministic patch boundary. It may create/update only `repairRef`; it has
    * no merge/publish/order authority. The caller revalidates candidateHeadSha. */
   applyPatch(input: {
@@ -63,12 +77,18 @@ export interface ShipwrightDeps {
 }
 
 export type ShipwrightOutcome =
-  | { kind: 'patch'; attempt: ShipwrightAttemptResult; patch: ShipwrightPatch }
+  | {
+      kind: 'patch'
+      attempt: ShipwrightAttemptResult
+      patch: ShipwrightPatch
+      receipt: ShipwrightResultReceipt
+    }
   | {
       kind: 'hold'
       reason: 'ambiguous' | 'rejected' | 'budget-exhausted' | 'unavailable' | 'invalid-output'
       detail: string
       evidence: string[]
+      receipt?: ShipwrightResultReceipt
     }
 
 export interface ShippingRepairConsiderInput {
@@ -89,8 +109,8 @@ export interface ShippingRepairConsiderInput {
 }
 
 export type ShippingRepairConsiderResult =
-  | 'not-applicable'
-  | { kind: 'patched'; repairRef: string; candidateHeadSha: string }
+  | { kind: 'not-applicable' }
+  | { kind: 'patched'; repairRef: string; candidateHeadSha: string; resultToken: string }
   | {
       kind: 'needs-decision'
       reasonCode: ShipHoldCode
@@ -98,7 +118,75 @@ export type ShippingRepairConsiderResult =
       detail: string
       evidenceRefs: string[]
       actions: ShipHoldAction[]
+      resultToken: string
     }
+
+interface ShipwrightResultReceipt {
+  sessionId: ReturnType<typeof asSessionId>
+  turnId: string
+}
+
+interface ShipwrightResultEnvelope {
+  orderId: ShipOrder['id']
+  attemptId: ShipAttempt['id']
+  generation: number
+  receipts: ShipwrightResultReceipt[]
+}
+
+const RESULT_TOKEN_PREFIX = 'shipwright-result:'
+
+function encodeResultToken(
+  input: ShippingRepairConsiderInput,
+  receipts: readonly ShipwrightResultReceipt[],
+): string {
+  const envelope: ShipwrightResultEnvelope = {
+    orderId: input.order.id,
+    attemptId: input.attempt.id,
+    generation: input.custody.generation,
+    receipts: [...receipts],
+  }
+  return `${RESULT_TOKEN_PREFIX}${Buffer.from(JSON.stringify(envelope)).toString('base64url')}`
+}
+
+function decodeResultToken(token: string): ShipwrightResultEnvelope {
+  if (!token.startsWith(RESULT_TOKEN_PREFIX)) throw new Error('invalid shipwright result token')
+  const parsed: unknown = JSON.parse(
+    Buffer.from(token.slice(RESULT_TOKEN_PREFIX.length), 'base64url').toString('utf8'),
+  )
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    typeof (parsed as { orderId?: unknown }).orderId !== 'string' ||
+    typeof (parsed as { attemptId?: unknown }).attemptId !== 'string' ||
+    typeof (parsed as { generation?: unknown }).generation !== 'number' ||
+    !Number.isInteger((parsed as { generation: number }).generation) ||
+    !Array.isArray((parsed as { receipts?: unknown }).receipts) ||
+    (parsed as { receipts: unknown[] }).receipts.some(
+      (item) =>
+        typeof item !== 'object' ||
+        item === null ||
+        typeof (item as { sessionId?: unknown }).sessionId !== 'string' ||
+        typeof (item as { turnId?: unknown }).turnId !== 'string',
+    )
+  ) {
+    throw new Error('invalid shipwright result token')
+  }
+  const value = parsed as {
+    orderId: ShipOrder['id']
+    attemptId: ShipAttempt['id']
+    generation: number
+    receipts: { sessionId: string; turnId: string }[]
+  }
+  return {
+    orderId: value.orderId,
+    attemptId: value.attemptId,
+    generation: value.generation,
+    receipts: value.receipts.map((item) => ({
+      sessionId: asSessionId(item.sessionId),
+      turnId: item.turnId,
+    })),
+  }
+}
 
 function byteSlice(value: string, maxBytes: number): string {
   const bytes = Buffer.from(value)
@@ -120,14 +208,22 @@ function issueContext(issue: IssueWire): string {
 function patchPaths(patch: string): string[] | null {
   if (/GIT binary patch|Binary files .* differ|^diff --(?:cc|combined)/m.test(patch)) return null
   const paths = new Set<string>()
-  for (const match of patch.matchAll(/^diff --git a\/(.+) b\/(.+)$/gm)) {
+  const entries = [...patch.matchAll(/^diff --git a\/(.+) b\/(.+)$/gm)]
+  for (const match of entries) {
     if (match[1] !== match[2]) return null
     const path = match[1]
     if (!path || path.startsWith('/') || path.split('/').some((part) => part === '..')) return null
     if (path === '.git' || path.startsWith('.git/')) return null
     paths.add(path)
   }
-  return paths.size > 0 ? [...paths].sort() : null
+  if (paths.size === 0 || paths.size !== entries.length) return null
+  const oldPaths = [...patch.matchAll(/^--- a\/(.+)$/gm)].map((match) => match[1]).sort()
+  const newPaths = [...patch.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((match) => match[1]).sort()
+  const sorted = [...paths].sort()
+  return JSON.stringify(oldPaths) === JSON.stringify(sorted) &&
+    JSON.stringify(newPaths) === JSON.stringify(sorted)
+    ? sorted
+    : null
 }
 
 export function validateShipwrightPatch(
@@ -148,15 +244,13 @@ export function validateShipwrightPatch(
       path === 'AGENTS.md' ||
       path.startsWith('.podium/') ||
       path.startsWith('docs/proposals/') ||
+      path.startsWith('migrations/') ||
       path.includes('/migrations/') ||
-      /(^|\/)(package|bun\.lock|pnpm-lock|yarn\.lock)/.test(path),
+      /(^|\/)(package\.json|bun\.lockb?|pnpm-lock\.yaml|yarn\.lock)$/.test(path),
   )
   if (forbidden) return { ok: false, reason: `repair policy forbids changing ${forbidden}` }
-  const risky = paths.some(
-    (path) =>
-      /(?:^|\/)(?:.*\.test\.[^/]+|.*\.spec\.[^/]+|__snapshots__\/|packages\/protocol\/)/.test(
-        path,
-      ),
+  const risky = paths.some((path) =>
+    /(?:^|\/)(?:.*\.test\.[^/]+|.*\.spec\.[^/]+|__snapshots__\/|packages\/protocol\/)/.test(path),
   )
   return { ok: true, paths, risky }
 }
@@ -226,13 +320,20 @@ export class ShipwrightService {
             input.failure.classification === 'validation-failed'
           ? 'validation-failed'
           : null
-    if (!kind) return 'not-applicable'
+    if (!kind) return { kind: 'not-applicable' }
+    const receipts: ShipwrightResultReceipt[] = []
+    const evidence = new Set(input.failure.artifactRefs)
     if (
       input.custody.attemptId !== input.attempt.id ||
       input.custody.generation !== input.attempt.leaseGeneration ||
       input.custody.machineId !== input.attempt.machineId
     ) {
-      return this.decision(input, 'policy-refused', 'Repair custody changed before dispatch.')
+      return this.decision(
+        input,
+        'policy-refused',
+        'Repair custody changed before dispatch.',
+        evidence,
+      )
     }
     const context = await this.deps.context(input, {
       maxContextBytes: this.budget.maxContextBytes,
@@ -251,7 +352,7 @@ export class ShipwrightService {
       ...Array.from({ length: this.budget.maxMechanicTurns }, () => 'mechanic' as const),
       ...Array.from({ length: this.budget.maxSolverTurns }, () => 'solver' as const),
     ]
-    for (const level of levels) {
+    for (const [rung, level] of levels.entries()) {
       if (turns >= this.budget.maxTurns) break
       const proposed = await this.run({
         order: input.order,
@@ -259,16 +360,19 @@ export class ShipwrightService {
         issue: input.issue,
         failure,
         level,
+        rung,
         priorFamilies,
       })
       turns += 1
+      if (proposed.receipt) receipts.push(proposed.receipt)
       if (proposed.kind === 'hold') {
         if (proposed.reason === 'ambiguous' || proposed.reason === 'rejected') {
           return this.decision(
             input,
             kind === 'merge-conflict' ? 'landing-conflict' : 'validation-failed',
             proposed.detail,
-            proposed.evidence,
+            evidence,
+            receipts,
           )
         }
         failure = { ...failure, output: `${failure.output}\n${proposed.detail}` }
@@ -277,27 +381,39 @@ export class ShipwrightService {
       priorFamilies.push(proposed.attempt.route.family)
       let patch = proposed.patch
       if (this.requiresInspection(patch) && this.budget.maxInspectorTurns > 0) {
-        if (turns >= this.budget.maxTurns) break
-        const inspected = await this.run({
-          order: input.order,
-          attempt: input.attempt,
-          issue: input.issue,
-          failure,
-          level: 'inspector',
-          priorFamilies,
-          proposedPatch: patch,
-        })
-        turns += 1
-        if (inspected.kind === 'hold') {
-          return this.decision(
-            input,
-            kind === 'merge-conflict' ? 'landing-conflict' : 'validation-failed',
-            inspected.detail,
-            inspected.evidence,
-          )
+        let approved = false
+        let inspectorTurns = 0
+        while (inspectorTurns < this.budget.maxInspectorTurns && turns < this.budget.maxTurns) {
+          const inspected = await this.run({
+            order: input.order,
+            attempt: input.attempt,
+            issue: input.issue,
+            failure,
+            level: 'inspector',
+            rung: levels.length + rung * this.budget.maxInspectorTurns + inspectorTurns,
+            priorFamilies,
+            proposedPatch: patch,
+          })
+          inspectorTurns += 1
+          turns += 1
+          if (inspected.receipt) receipts.push(inspected.receipt)
+          if (inspected.kind === 'patch') {
+            priorFamilies.push(inspected.attempt.route.family)
+            patch = inspected.patch
+            approved = true
+            break
+          }
+          if (inspected.reason === 'ambiguous' || inspected.reason === 'rejected') {
+            return this.decision(
+              input,
+              kind === 'merge-conflict' ? 'landing-conflict' : 'validation-failed',
+              inspected.detail,
+              evidence,
+              receipts,
+            )
+          }
         }
-        priorFamilies.push(inspected.attempt.route.family)
-        patch = inspected.patch
+        if (!approved) continue
       }
       const applied = await this.deps.applyPatch({
         order: input.order,
@@ -307,11 +423,13 @@ export class ShipwrightService {
         patch: patch.patch,
         touchedPaths: patch.touchedPaths,
       })
+      for (const ref of applied.evidenceRefs ?? []) evidence.add(ref)
       if (applied.ok) {
         return {
           kind: 'patched',
           repairRef: proposed.attempt.repairRef,
           candidateHeadSha: applied.candidateHeadSha,
+          resultToken: encodeResultToken(input, receipts),
         }
       }
       failure = {
@@ -324,7 +442,30 @@ export class ShipwrightService {
       input,
       kind === 'merge-conflict' ? 'landing-conflict' : 'validation-failed',
       'Bounded safe-fix attempts were exhausted without a deterministically applicable patch.',
+      evidence,
+      receipts,
     )
+  }
+
+  /** Release daemon journals only after the shipping lifecycle has committed
+   * the transition produced from this exact result token. */
+  async acknowledge(input: {
+    resultToken: string
+    orderId: ShipOrder['id']
+    attemptId: ShipAttempt['id']
+    generation: number
+  }): Promise<void> {
+    const envelope = decodeResultToken(input.resultToken)
+    if (
+      envelope.orderId !== input.orderId ||
+      envelope.attemptId !== input.attemptId ||
+      envelope.generation !== input.generation
+    ) {
+      throw new Error('shipwright result acknowledgement fence mismatch')
+    }
+    for (const receipt of envelope.receipts) {
+      this.deps.headless.headlessTurnAck(receipt.sessionId, receipt.turnId)
+    }
   }
 
   async run(input: {
@@ -333,32 +474,81 @@ export class ShipwrightService {
     issue: IssueWire
     failure: ShipwrightFailure
     level: ShipwrightLevel
+    rung: number
     priorFamilies?: string[]
     proposedPatch?: ShipwrightPatch
   }): Promise<ShipwrightOutcome> {
     const owner = input.order.requestedBy.onBehalfOf
     if (!owner) {
-      return { kind: 'hold', reason: 'unavailable', detail: 'shipping has no personal model owner', evidence: [] }
+      return {
+        kind: 'hold',
+        reason: 'unavailable',
+        detail: 'shipping has no personal model owner',
+        evidence: [],
+      }
     }
-    const quota = await this.deps.quota(input.attempt.machineId)
-    const route = routeShipwright({
-      settings: this.deps.settingsFor(owner),
-      catalog: this.deps.modelCatalog(input.attempt.machineId),
-      quota,
-      level: input.level,
-      priorFamilies: input.priorFamilies,
-    })
+    const sessionId = asSessionId(
+      `shipwright:${input.attempt.id}:${input.attempt.leaseGeneration}:${input.level}:${input.rung}`,
+    )
+    const existing = this.deps.headless.headlessSession(sessionId)
+    let route: ShipwrightRoute | null
+    if (existing?.model && existing.effort && existing.accountId) {
+      route = {
+        level: input.level,
+        agent: existing.agentKind as ShipwrightRoute['agent'],
+        model: existing.model,
+        effort: existing.effort,
+        family: shipwrightModelFamily(
+          existing.agentKind as ShipwrightRoute['agent'],
+          existing.model,
+        ),
+        accountId: existing.accountId,
+      }
+    } else {
+      const quota = await this.deps.quota(input.attempt.machineId)
+      const selected = routeShipwright({
+        settings: this.deps.settingsFor(owner),
+        catalog: this.deps.modelCatalog(input.attempt.machineId),
+        quota,
+        level: input.level,
+        priorFamilies: input.priorFamilies,
+      })
+      route = selected
+        ? {
+            ...selected,
+            accountId: this.deps.nativeAccountId(
+              input.attempt.machineId,
+              selected.agent,
+              selected.accountId,
+            ),
+          }
+        : null
+    }
     if (!route) {
-      return { kind: 'hold', reason: 'unavailable', detail: 'no live shipwright route has usable quota', evidence: [] }
+      return {
+        kind: 'hold',
+        reason: 'unavailable',
+        detail: 'no live shipwright route has usable quota',
+        evidence: [],
+      }
     }
-    const { sessionId } = this.deps.headless.createHeadlessSession({
+    this.deps.headless.createHeadlessSession({
+      sessionId,
       agentKind: route.agent,
       cwd: input.issue.repoPath,
       title: `Shipwright ${input.level}`,
       spawnedBy: `shipping:${input.attempt.id}:${input.level}`,
       machineId: input.attempt.machineId,
+      ownerUserId: owner,
+      createdBy: input.order.requestedBy,
+      issueId: input.issue.id,
+      accountId: route.accountId,
+      model: route.model,
+      effort: route.effort,
+      requireNoTools: true,
     })
-    const turnId = `shipwright:${input.attempt.id}:${input.attempt.leaseGeneration}:${input.level}`
+    const turnId = `shipwright:${input.attempt.id}:${input.attempt.leaseGeneration}:${input.level}:${input.rung}`
+    const receipt = { sessionId, turnId }
     const response = await this.deps.headless.headlessTurn({
       turnId,
       sessionId,
@@ -369,17 +559,16 @@ export class ShipwrightService {
       cwd: input.issue.repoPath,
       prompt: promptFor(input.level, input.issue, input.failure, this.budget, input.proposedPatch),
       systemPrompt: systemPrompt(input.level),
-      allowedTools: [],
-      permissionMode: 'deny',
+      toolPolicy: 'none',
       timeoutMs: this.budget.timeoutMs,
     })
-    this.deps.headless.headlessTurnAck(sessionId, turnId)
     if (!response.ok || !response.output) {
       return {
         kind: 'hold',
         reason: 'unavailable',
         detail: response.error || 'shipwright returned no structured result',
         evidence: [],
+        receipt,
       }
     }
     const parse =
@@ -388,7 +577,13 @@ export class ShipwrightService {
         : jsonSchema(ShipwrightPatchContract)
     const contract = parse(response.output)
     if (!contract) {
-      return { kind: 'hold', reason: 'invalid-output', detail: 'shipwright output did not match its patch contract', evidence: [] }
+      return {
+        kind: 'hold',
+        reason: 'invalid-output',
+        detail: 'shipwright output did not match its patch contract',
+        evidence: [],
+        receipt,
+      }
     }
     if (contract.kind === 'inspection') {
       if (contract.verdict !== 'safe') {
@@ -396,11 +591,18 @@ export class ShipwrightService {
           kind: 'hold',
           reason: contract.verdict === 'ambiguous' ? 'ambiguous' : 'rejected',
           detail: contract.summary,
-          evidence: contract.concerns,
+          evidence: [],
+          receipt,
         }
       }
       if (!input.proposedPatch) {
-        return { kind: 'hold', reason: 'invalid-output', detail: 'inspector had no patch to review', evidence: [] }
+        return {
+          kind: 'hold',
+          reason: 'invalid-output',
+          detail: 'inspector had no patch to review',
+          evidence: [],
+          receipt,
+        }
       }
       return {
         kind: 'patch',
@@ -411,18 +613,26 @@ export class ShipwrightService {
           contract,
         },
         patch: input.proposedPatch,
+        receipt,
       }
     }
     const checked = validateShipwrightPatch(contract, this.budget)
     if (!checked.ok) {
-      return { kind: 'hold', reason: 'invalid-output', detail: checked.reason, evidence: [] }
+      return {
+        kind: 'hold',
+        reason: 'invalid-output',
+        detail: checked.reason,
+        evidence: [],
+        receipt,
+      }
     }
     if (contract.behaviorImpact !== 'none') {
       return {
         kind: 'hold',
         reason: 'ambiguous',
         detail: contract.summary,
-        evidence: contract.concerns,
+        evidence: [],
+        receipt,
       }
     }
     return {
@@ -434,6 +644,7 @@ export class ShipwrightService {
         contract,
       },
       patch: contract,
+      receipt,
     }
   }
 
@@ -446,15 +657,17 @@ export class ShipwrightService {
     input: ShippingRepairConsiderInput,
     reasonCode: ShipHoldCode,
     detail: string,
-    evidence: string[] = [],
+    evidence: ReadonlySet<string>,
+    receipts: readonly ShipwrightResultReceipt[] = [],
   ): Extract<ShippingRepairConsiderResult, { kind: 'needs-decision' }> {
     return {
       kind: 'needs-decision',
       reasonCode,
       headline: 'Needs your decision',
       detail,
-      evidenceRefs: [...new Set([...input.failure.artifactRefs, ...evidence])],
+      evidenceRefs: [...evidence],
       actions: ['retry', 'return-to-issue', 'open-repair'],
+      resultToken: encodeResultToken(input, receipts),
     }
   }
 }

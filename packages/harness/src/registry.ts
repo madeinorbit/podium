@@ -146,6 +146,14 @@ export function harnessPremintsHeadlessResumeId(kind: AgentKind | string): boole
   )
 }
 
+/** True only when the adapter has a native all-tools-off mechanism. Unknown and
+ * merely sandboxed harnesses fail closed. */
+export function harnessSupportsNoTools(kind: AgentKind | string): boolean {
+  const headless = manifestFor(kind)?.headless
+  const value = headless ? declaredValue(headless) : undefined
+  return value?.noTools === 'enforced'
+}
+
 export function harnessDisplayName(kind: AgentKind | string): string {
   return manifestFor(kind)?.displayName ?? kind
 }

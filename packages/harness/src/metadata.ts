@@ -82,6 +82,7 @@ export {
   harnessSupportsHandoff,
   harnessSupportsInitialPrompt,
   harnessSupportsMcp,
+  harnessSupportsNoTools,
   harnessUsesPromptTitleFallback,
   transcriptRecordMapperFor,
 } from './registry.js'

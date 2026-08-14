@@ -301,6 +301,7 @@ export const codexManifest: AgentManifest = {
     // First turn: codex mints the thread id, captured from the `--json` event
     // stream (`thread.started`); turns ≥2 thread on via `exec resume <id>`.
     resumeIdAllocation: 'stream-captured',
+    noTools: 'unsupported',
     buildExec: supported((opts) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const instructions = [opts.systemPrompt, opts.contextPrompt]

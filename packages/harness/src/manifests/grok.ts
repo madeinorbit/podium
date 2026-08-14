@@ -201,6 +201,7 @@ export const grokManifest: AgentManifest = {
     // The daemon mints a UUID for --session-id on the first turn; later turns
     // use --resume with that same id.
     resumeIdAllocation: 'daemon-minted-uuid',
+    noTools: 'enforced',
     buildExec: supported((opts) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const rules = [opts.systemPrompt, opts.contextPrompt]
@@ -214,7 +215,19 @@ export const grokManifest: AgentManifest = {
             ? ['--resume', opts.resumeValue]
             : ['--session-id', opts.sessionId ?? '']),
           ...(model ? ['--model', model] : []),
-          ...(opts.permissionMode === 'auto' ? ['--permission-mode', 'auto'] : []),
+          ...(opts.permissionMode === 'auto' && opts.toolPolicy !== 'none'
+            ? ['--permission-mode', 'auto']
+            : []),
+          ...(opts.toolPolicy === 'none'
+            ? [
+                '--tools',
+                '',
+                '--no-subagents',
+                '--disable-web-search',
+                '--permission-mode',
+                'dontAsk',
+              ]
+            : []),
           ...(rules ? ['--rules', rules] : []),
           '--single',
           opts.prompt,

@@ -4,7 +4,7 @@ import { attachTestClient } from './test-support/client-transport'
 // out as headlessActivity frames, the harness session id becomes the thread's
 // resume value, and "open in terminal" takes a one-writer lock.
 
-import { asThreadId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asAccountId, asIssueId, asSessionId, asThreadId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
@@ -130,6 +130,70 @@ describe('superagent response contract', () => {
     'Why is the walkthrough test failing?',
   ])('does not treat a negated or incidental cue as an opt-in: %s', (prompt) => {
     expect(explicitlyRequestsExpandedResponse(prompt)).toBe(false)
+  })
+})
+
+describe('bounded headless session identity', () => {
+  it('persists personal ownership, attribution, issue, account fingerprint, and launch route', async () => {
+    const h = await harness()
+    const sessionId = asSessionId('shipwright:attempt:3:mechanic:0')
+    const issueId = asIssueId('issue:shipwright')
+    const accountId = asAccountId('native:claude-code:fingerprint-1')
+    const createdBy = {
+      actor: { kind: 'user' as const, id: FIRST_ADMIN_USER_ID },
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+    }
+    const input = {
+      sessionId,
+      agentKind: 'claude-code' as const,
+      cwd: '/r',
+      machineId: h.registry.sessionStore.hostMachineId,
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      createdBy,
+      issueId,
+      accountId,
+      model: 'repair-model',
+      effort: 'high',
+      requireNoTools: true,
+    }
+
+    expect(h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
+    expect(h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
+    expect(
+      h.registry.modules.sessions.listSessions().find((row) => row.sessionId === sessionId),
+    ).toMatchObject({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      createdBy,
+      issueId,
+      accountId,
+      model: 'repair-model',
+      effort: 'high',
+      headless: true,
+    })
+    expect(h.registry.sessionStore.sessions.getSession(sessionId)).toMatchObject({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      createdBy,
+      issueId,
+      accountId,
+    })
+    expect(() =>
+      h.registry.modules.sessions.headless.createHeadlessSession({
+        ...input,
+        accountId: asAccountId('native:claude-code:different'),
+      }),
+    ).toThrow(/mismatched headless session/)
+  })
+
+  it('refuses unsupported no-tools sessions before dispatch', async () => {
+    const h = await harness()
+    expect(() =>
+      h.registry.modules.sessions.headless.createHeadlessSession({
+        agentKind: 'codex',
+        cwd: '/r',
+        requireNoTools: true,
+      }),
+    ).toThrow(/cannot enforce a no-tools headless session/)
+    expect(h.turnReqs).toHaveLength(0)
   })
 })
 
@@ -1135,9 +1199,9 @@ describe('harness switch + effort (#199)', () => {
         model: 'grok-4.5',
       }),
     ).resolves.toMatchObject({ queued: true })
-    expect(h.registry.sessionStore.superagent.listQueuedInputs(asThreadId('global'))[0]?.agentKind).toBe(
-      'grok',
-    )
+    expect(
+      h.registry.sessionStore.superagent.listQueuedInputs(asThreadId('global'))[0]?.agentKind,
+    ).toBe('grok')
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
     await h.settle()
     expect(h.turnReqs[1]?.agent).toBe('grok')

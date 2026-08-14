@@ -77,6 +77,8 @@ export const HeadlessTurnRequestMessage = z.object({
   mcpConfig: z.string().optional(),
   allowedTools: z.array(z.string()).optional(),
   permissionMode: z.string().optional(),
+  /** Requests the adapter's tested all-tools-off mode. */
+  toolPolicy: z.literal('none').optional(),
   /** Harness session id to resume; absent = first turn (mint a new session). */
   resumeValue: z.string().optional(),
   /** Claude only: mint the session with this UUID on the first turn so the

@@ -1,16 +1,26 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type {
+  AccountId,
   AgentKind,
+  Attribution,
   Geometry,
   HarnessAgent,
+  IssueId,
   ResumeRef,
   SessionId,
   ThreadId,
+  UserId,
 } from '@podium/model'
 import { asSessionId, type MachineId } from '@podium/model'
-import type { HeadlessActivityEvent, HeadlessTurnEvent, LiveServerMessage, ServerMessage } from '@podium/protocol'
+import type {
+  HeadlessActivityEvent,
+  HeadlessTurnEvent,
+  LiveServerMessage,
+  ServerMessage,
+} from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { harnessSupportsNoTools } from '../../harness-manifest'
 import { Session } from '../sessions/session'
 
 export interface HeadlessDeps {
@@ -85,16 +95,42 @@ export class HeadlessService {
    * as the thread exists.
    */
   createHeadlessSession(input: {
+    sessionId?: SessionId
     agentKind: AgentKind
     cwd: string
     title?: string
     spawnedBy?: string
     machineId?: MachineId
+    ownerUserId?: UserId
+    createdBy?: Attribution
+    issueId?: IssueId
+    accountId?: AccountId
+    model?: string
+    effort?: string
+    requireNoTools?: boolean
   }): { sessionId: SessionId } {
+    if (input.requireNoTools && !harnessSupportsNoTools(input.agentKind)) {
+      throw new Error(`harness ${input.agentKind} cannot enforce a no-tools headless session`)
+    }
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
-    const sessionId = asSessionId(randomUUID())
+    const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const machineId = this.deps.resolveMachine(input.machineId, input.cwd, input.agentKind)
+    const existing = this.deps.getSession(sessionId)
+    if (existing) {
+      const same =
+        existing.headless &&
+        existing.agentKind === input.agentKind &&
+        existing.cwd === input.cwd &&
+        existing.machineId === machineId &&
+        existing.ownerUserId === input.ownerUserId &&
+        existing.issueId === input.issueId &&
+        existing.accountId === input.accountId &&
+        existing.model === input.model &&
+        existing.effort === input.effort
+      if (!same) throw new Error(`refusing to reuse mismatched headless session ${sessionId}`)
+      return { sessionId }
+    }
     const session = new Session({
       sessionId,
       durableLabel: this.deps.durableLabelFor(sessionId),
@@ -109,12 +145,24 @@ export class HeadlessService {
         this.deps.toMachine(this.deps.getSession(sessionId)?.machineId ?? machineId, msg),
       status: 'live',
       headless: true,
+      ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {}),
+      ...(input.createdBy ? { createdBy: input.createdBy } : {}),
+      ...(input.issueId ? { issueId: input.issueId } : {}),
+      ...(input.accountId ? { accountId: input.accountId } : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.effort ? { effort: input.effort } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
     })
     this.deps.registerSession(session)
     this.deps.persist(session)
     this.deps.broadcastSessions()
     return { sessionId }
+  }
+
+  /** Read immutable launch identity for deterministic headless replay. */
+  headlessSession(sessionId: SessionId): Session | undefined {
+    const session = this.deps.getSession(sessionId)
+    return session?.headless ? session : undefined
   }
 
   /**
@@ -183,6 +231,7 @@ export class HeadlessService {
       mcpConfig?: string
       allowedTools?: string[]
       permissionMode?: string
+      toolPolicy?: 'none'
       resumeValue?: string
       sessionUuid?: string
       timeoutMs?: number
@@ -196,6 +245,9 @@ export class HeadlessService {
     output?: string
     retryable?: boolean
   }> {
+    if (input.toolPolicy === 'none' && !harnessSupportsNoTools(input.agent)) {
+      throw new Error(`harness ${input.agent} cannot enforce a no-tools headless turn`)
+    }
     const machineId = this.deps.getSession(input.sessionId)?.machineId ?? this.deps.defaultMachine()
     const requestId = this.deps.nextRequestId('ht')
     const timeoutMs = (input.timeoutMs ?? 600_000) + 10_000
@@ -230,6 +282,7 @@ export class HeadlessService {
           ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
           ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
           ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+          ...(input.toolPolicy ? { toolPolicy: input.toolPolicy } : {}),
           ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
           ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
           ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),

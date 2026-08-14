@@ -123,14 +123,17 @@ export function buildClaudeDurableExec(
     ...(instructions ? ['--append-system-prompt', instructions] : []),
     ...(spec.model && spec.model !== 'auto' ? ['--model', spec.model] : []),
     ...(spec.effort ? ['--effort', spec.effort] : []),
-    ...(spec.mcpConfig ? ['--mcp-config', paths.mcp] : []),
+    ...(spec.mcpConfig && spec.toolPolicy !== 'none' ? ['--mcp-config', paths.mcp] : []),
     ...(spec.resumeValue
       ? ['--resume', spec.resumeValue]
       : spec.sessionUuid
         ? ['--session-id', spec.sessionUuid]
         : []),
     // Variadic: keep last, and feed the real user prompt on stdin.
-    ...(spec.allowedTools?.length ? ['--allowedTools', spec.allowedTools.join(',')] : []),
+    ...(spec.allowedTools?.length && spec.toolPolicy !== 'none'
+      ? ['--allowedTools', spec.allowedTools.join(',')]
+      : []),
+    ...(spec.toolPolicy === 'none' ? ['--tools', ''] : []),
   ]
   return { cmd: 'claude', args, stdin: spec.prompt }
 }
@@ -167,8 +170,11 @@ function prepareInvocation(
   env?: Record<string, string>
 } {
   const headless = headlessFor(spec.agent)
+  if (spec.toolPolicy === 'none' && headless.noTools !== 'enforced') {
+    throw new Error(`harness ${spec.agent} cannot enforce a no-tools durable headless turn`)
+  }
   if (headless.driver === 'claude-sdk') {
-    if (spec.mcpConfig) writeAtomic(paths.mcp, spec.mcpConfig)
+    if (spec.mcpConfig && spec.toolPolicy !== 'none') writeAtomic(paths.mcp, spec.mcpConfig)
     const exec = buildClaudeDurableExec(spec, paths)
     return {
       ...exec,
@@ -188,6 +194,7 @@ function prepareInvocation(
       ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
       ...(spec.mcpConfig ? { mcpConfig: spec.mcpConfig } : {}),
       ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
+      ...(spec.toolPolicy ? { toolPolicy: spec.toolPolicy } : {}),
       ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
       ...(sessionId ? { sessionId } : {}),
     },
@@ -200,7 +207,7 @@ function writeRunner(
   spec: HeadlessTurnSpec,
   paths: DurablePaths,
   bins: HarnessBins,
-/** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
 ): { knownSessionId?: string; env?: Record<string, string> } {
   mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
   if (!existsSync(paths.createdAt)) writeAtomic(paths.createdAt, String(Date.now()))
