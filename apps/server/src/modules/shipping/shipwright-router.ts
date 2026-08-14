@@ -2,7 +2,7 @@ import {
   DEFAULT_SHIPWRIGHT_BUDGET,
   type AgentQuotaWire,
   type HarnessAgent,
-  type ShipwrightBudget,
+  ShipwrightBudget,
   type ShipwrightLevel,
   type ShipwrightRoute,
 } from '@podium/model'
@@ -179,8 +179,9 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/fast', 'family-b/frontier'],
     exhausted: false,
     supported: true,
+    budget: { maxTurns: 6, maxMechanicTurns: 2, maxSolverTurns: 1, maxInspectorTurns: 1 },
     expected: 'family-a/fast',
-    expectedTurnCeiling: 3,
+    expectedTurnCeiling: 6,
   },
   {
     id: 'capability-first',
@@ -189,8 +190,9 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/fast', 'family-b/frontier'],
     exhausted: false,
     supported: true,
+    budget: { maxTurns: 4, maxMechanicTurns: 1, maxSolverTurns: 1, maxInspectorTurns: 0 },
     expected: 'family-b/frontier',
-    expectedTurnCeiling: 3,
+    expectedTurnCeiling: 2,
   },
   {
     id: 'independent-review',
@@ -199,8 +201,9 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/frontier', 'family-b/balanced'],
     exhausted: false,
     supported: true,
+    budget: { maxTurns: 5, maxMechanicTurns: 1, maxSolverTurns: 1, maxInspectorTurns: 1 },
     expected: 'family-b/balanced',
-    expectedTurnCeiling: 3,
+    expectedTurnCeiling: 4,
   },
   {
     id: 'quota-fallback',
@@ -209,6 +212,7 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/frontier'],
     exhausted: true,
     supported: true,
+    budget: { maxTurns: 3, maxMechanicTurns: 0, maxSolverTurns: 2, maxInspectorTurns: 1 },
     expected: null,
     expectedTurnCeiling: 3,
   },
@@ -219,8 +223,9 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/fast'],
     exhausted: false,
     supported: false,
+    budget: { maxTurns: 2, maxMechanicTurns: 1, maxSolverTurns: 0, maxInspectorTurns: 0 },
     expected: null,
-    expectedTurnCeiling: 3,
+    expectedTurnCeiling: 1,
   },
 ] as const
 
@@ -273,6 +278,6 @@ export function evaluateShipwrightRouterCase(input: (typeof SHIPWRIGHT_ROUTER_EV
   })
   return {
     route: selected?.model ?? null,
-    turnCeiling: shipwrightTurnCeiling(),
+    turnCeiling: shipwrightTurnCeiling(ShipwrightBudget.parse(input.budget)),
   }
 }

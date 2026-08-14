@@ -1,9 +1,12 @@
 import {
   AccountIdField,
   AgentKind,
+  Attribution,
   HarnessAgent,
+  IssueIdField,
   SessionIdField,
   ThreadIdField,
+  UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
 
@@ -73,6 +76,11 @@ export const HeadlessTurnRequestMessage = z.object({
   /** SHA-256 of the canonical immutable turn facts (everything except the
    *  transport request id and this digest). */
   requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  /** Immutable requester/visibility facts. Repair turns require all three and
+   * bind them into requestDigest; legacy generic turns may omit them. */
+  ownerUserId: UserIdField.optional(),
+  createdBy: Attribution.optional(),
+  issueId: IssueIdField.optional(),
   /** Superagent thread this turn belongs to (opaque to the daemon). */
   threadId: ThreadIdField,
   agent: HarnessAgent,

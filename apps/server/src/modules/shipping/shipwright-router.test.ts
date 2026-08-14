@@ -107,6 +107,9 @@ describe('shipwright trait/quota router', () => {
         turnCeiling: item.expectedTurnCeiling,
       })
     }
+    expect(
+      new Set(SHIPWRIGHT_ROUTER_EVAL_SET.map((item) => item.expectedTurnCeiling)).size,
+    ).toBeGreaterThan(1)
     expect(JSON.stringify(SHIPWRIGHT_ROUTER_EVAL_SET)).not.toMatch(/codex|claude|gpt|gemini|grok/)
   })
 

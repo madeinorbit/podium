@@ -9,6 +9,15 @@ export type ShipwrightLevel = z.infer<typeof ShipwrightLevel>
 export const ShipwrightFailureKind = z.enum(['merge-conflict', 'validation-failed'])
 export type ShipwrightFailureKind = z.infer<typeof ShipwrightFailureKind>
 
+/** Human-visible repair evidence is always an opaque reference to a durable
+ * artifact, log, or diff. Paths, prose, and secret-shaped strings are not refs. */
+export const ShipwrightEvidenceRef = z
+  .string()
+  .regex(/^(?:artifact|log|diff):[A-Za-z0-9][A-Za-z0-9._:@-]{0,511}$/)
+  .refine((value) => !/(?:secret|token|password|api[-_]?key|sk-)/i.test(value))
+  .brand<'ShipwrightEvidenceRef'>()
+export type ShipwrightEvidenceRef = z.infer<typeof ShipwrightEvidenceRef>
+
 /** Policy-owned limits. These are snapshotted at the beginning of a repair;
  * models cannot enlarge them in their response. */
 export const ShipwrightBudget = z

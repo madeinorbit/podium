@@ -4,6 +4,8 @@ import {
   type AccountId,
   type AgentQuotaWire,
   type IssueWire,
+  ShipwrightEvidenceRef,
+  type ShipwrightEvidenceRef as ShipwrightEvidenceRefValue,
   ShipwrightInspectionContract,
   type ShipAttempt,
   type ShipHoldAction,
@@ -87,7 +89,7 @@ export type ShipwrightOutcome =
       kind: 'hold'
       reason: 'ambiguous' | 'rejected' | 'budget-exhausted' | 'unavailable' | 'invalid-output'
       detail: string
-      evidence: string[]
+      evidence: ShipwrightEvidenceRefValue[]
       receipt?: ShipwrightResultReceipt
     }
 
@@ -99,7 +101,7 @@ export interface ShipwrightRepairInput {
     operation: 'prepare-merge-group' | 'validate'
     classification: ShippingJobClassification
     summary: string
-    artifactRefs: string[]
+    artifactRefs: ShipwrightEvidenceRefValue[]
   }
   custody: {
     attemptId: ShipAttempt['id']
@@ -116,7 +118,7 @@ export type ShipwrightRepairRecommendation =
       reasonCode: ShipHoldCode
       headline: string
       detail: string
-      evidenceRefs: string[]
+      evidenceRefs: ShipwrightEvidenceRefValue[]
       actions: ShipHoldAction[]
       resultToken: string
     }
@@ -331,7 +333,18 @@ export class ShipwrightService {
           : null
     if (!kind) return { kind: 'not-applicable' }
     const receipts: ShipwrightResultReceipt[] = []
-    const evidence = new Set(input.failure.artifactRefs)
+    const parsedEvidence = ShipwrightEvidenceRef.array().safeParse(input.failure.artifactRefs)
+    const evidence = new Set<ShipwrightEvidenceRefValue>(
+      parsedEvidence.success ? parsedEvidence.data : [],
+    )
+    if (!parsedEvidence.success) {
+      return this.decision(
+        input,
+        'policy-refused',
+        'Repair evidence contained a non-durable or unsafe reference.',
+        evidence,
+      )
+    }
     if (
       input.custody.attemptId !== input.attempt.id ||
       input.custody.generation !== input.attempt.leaseGeneration ||
@@ -441,7 +454,17 @@ export class ShipwrightService {
         patch: patch.patch,
         touchedPaths: patch.touchedPaths,
       })
-      for (const ref of applied.evidenceRefs ?? []) evidence.add(ref)
+      const appliedEvidence = ShipwrightEvidenceRef.array().safeParse(applied.evidenceRefs ?? [])
+      if (!appliedEvidence.success) {
+        return this.decision(
+          input,
+          'policy-refused',
+          'Patch application returned a non-durable or unsafe evidence reference.',
+          evidence,
+          receipts,
+        )
+      }
+      for (const ref of appliedEvidence.data) evidence.add(ref)
       if (applied.ok) {
         return {
           kind: 'patched',
@@ -689,7 +712,7 @@ export class ShipwrightService {
     input: ShipwrightRepairInput,
     reasonCode: ShipHoldCode,
     detail: string,
-    evidence: ReadonlySet<string>,
+    evidence: ReadonlySet<ShipwrightEvidenceRefValue>,
     receipts: readonly ShipwrightResultReceipt[] = [],
   ): Extract<ShipwrightRepairRecommendation, { kind: 'needs-decision' }> {
     return {

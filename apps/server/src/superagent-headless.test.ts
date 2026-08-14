@@ -4,7 +4,14 @@ import { attachTestClient } from './test-support/client-transport'
 // out as headlessActivity frames, the harness session id becomes the thread's
 // resume value, and "open in terminal" takes a one-writer lock.
 
-import { asAccountId, asIssueId, asSessionId, asThreadId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import {
+  asAccountId,
+  asIssueId,
+  asSessionId,
+  asThreadId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+} from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
@@ -178,10 +185,39 @@ describe('bounded headless session identity', () => {
       issueId,
       accountId,
     })
+    const turn = h.registry.modules.sessions.headless.headlessTurn({
+      turnId: 'turn:repair',
+      sessionId,
+      threadId: asThreadId('shipping:order'),
+      agent: 'claude-code',
+      cwd: '/r',
+      prompt: 'bounded repair',
+      toolPolicy: 'none',
+    })
+    await h.settle()
+    const request = h.turnReqs.at(-1)
+    if (!request) throw new Error('repair request was not dispatched')
+    expect(request).toMatchObject({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      createdBy,
+      issueId,
+      accountId,
+    })
+    h.resolveTurn(request, { output: '{}' })
+    await expect(turn).resolves.toMatchObject({ ok: true })
     expect(() =>
       h.registry.modules.sessions.headless.createHeadlessSession({
         ...input,
         accountId: asAccountId('native:claude-code:different'),
+      }),
+    ).toThrow(/mismatched headless session/)
+    expect(() =>
+      h.registry.modules.sessions.headless.createHeadlessSession({
+        ...input,
+        createdBy: {
+          actor: { kind: 'user', id: asUserId('user:different') },
+          onBehalfOf: FIRST_ADMIN_USER_ID,
+        },
       }),
     ).toThrow(/mismatched headless session/)
   })
@@ -204,6 +240,28 @@ describe('bounded headless session identity', () => {
       }),
     ).toThrow(/exact native account fingerprint/)
     expect(h.turnReqs).toHaveLength(0)
+  })
+
+  it('keeps ordinary legacy headless sessions runnable without a bound account', async () => {
+    const h = await harness()
+    const { sessionId } = h.registry.modules.sessions.headless.createHeadlessSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    const turn = h.registry.modules.sessions.headless.headlessTurn({
+      turnId: 'turn:legacy',
+      sessionId,
+      threadId: asThreadId('legacy'),
+      agent: 'claude-code',
+      cwd: '/r',
+      prompt: 'continue',
+    })
+    await h.settle()
+    const request = h.turnReqs.at(-1)
+    if (!request) throw new Error('legacy request was not dispatched')
+    expect(request.accountId).toBe('')
+    h.resolveTurn(request, { output: 'done' })
+    await expect(turn).resolves.toMatchObject({ ok: true, output: 'done' })
   })
 })
 

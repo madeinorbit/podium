@@ -376,7 +376,7 @@
     },
     {
       "schema": "HeadlessTurnRequestMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "headlessTurnRequest",
         "requestId": "requestId",
@@ -384,6 +384,15 @@
         "sessionId": "sessionId",
         "accountId": "accountId",
         "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ownerUserId": "ownerUserId",
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "issueId": "issueId",
         "threadId": "threadId",
         "agent": "claude-code",
         "model": "model",
@@ -403,7 +412,127 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"threadId\":\"threadId\",\"agent\":\"claude-code\",\"model\":\"model\",\"effort\":\"effort\",\"cwd\":\"cwd\",\"prompt\":\"prompt\",\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"timeoutMs\":1}"
+      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ownerUserId\":\"ownerUserId\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"issueId\":\"issueId\",\"threadId\":\"threadId\",\"agent\":\"claude-code\",\"model\":\"model\",\"effort\":\"effort\",\"cwd\":\"cwd\",\"prompt\":\"prompt\",\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"timeoutMs\":1}"
+    },
+    {
+      "schema": "HeadlessTurnRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "headlessTurnRequest",
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "accountId": "accountId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ownerUserId": "ownerUserId",
+        "createdBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "issueId": "issueId",
+        "threadId": "threadId",
+        "agent": "codex",
+        "model": "model",
+        "effort": "effort",
+        "cwd": "cwd",
+        "prompt": "prompt",
+        "contextPrompt": "contextPrompt",
+        "systemPrompt": "systemPrompt",
+        "mcpConfig": "mcpConfig",
+        "allowedTools": ["allowedTools[0]"],
+        "permissionMode": "permissionMode",
+        "toolPolicy": "none",
+        "resumeValue": "resumeValue",
+        "sessionUuid": "sessionUuid",
+        "timeoutMs": 2
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ownerUserId\":\"ownerUserId\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"issueId\":\"issueId\",\"threadId\":\"threadId\",\"agent\":\"codex\",\"model\":\"model\",\"effort\":\"effort\",\"cwd\":\"cwd\",\"prompt\":\"prompt\",\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"timeoutMs\":2}"
+    },
+    {
+      "schema": "HeadlessTurnRequestMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "headlessTurnRequest",
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "accountId": "accountId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ownerUserId": "ownerUserId",
+        "createdBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "issueId": "issueId",
+        "threadId": "threadId",
+        "agent": "grok",
+        "model": "model",
+        "effort": "effort",
+        "cwd": "cwd",
+        "prompt": "prompt",
+        "contextPrompt": "contextPrompt",
+        "systemPrompt": "systemPrompt",
+        "mcpConfig": "mcpConfig",
+        "allowedTools": ["allowedTools[0]"],
+        "permissionMode": "permissionMode",
+        "toolPolicy": "none",
+        "resumeValue": "resumeValue",
+        "sessionUuid": "sessionUuid",
+        "timeoutMs": 3
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ownerUserId\":\"ownerUserId\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"issueId\":\"issueId\",\"threadId\":\"threadId\",\"agent\":\"grok\",\"model\":\"model\",\"effort\":\"effort\",\"cwd\":\"cwd\",\"prompt\":\"prompt\",\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"timeoutMs\":3}"
+    },
+    {
+      "schema": "HeadlessTurnRequestMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "headlessTurnRequest",
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "accountId": "accountId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ownerUserId": "ownerUserId",
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "issueId": "issueId",
+        "threadId": "threadId",
+        "agent": "opencode",
+        "model": "model",
+        "effort": "effort",
+        "cwd": "cwd",
+        "prompt": "prompt",
+        "contextPrompt": "contextPrompt",
+        "systemPrompt": "systemPrompt",
+        "mcpConfig": "mcpConfig",
+        "allowedTools": ["allowedTools[0]"],
+        "permissionMode": "permissionMode",
+        "toolPolicy": "none",
+        "resumeValue": "resumeValue",
+        "sessionUuid": "sessionUuid",
+        "timeoutMs": 4
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ownerUserId\":\"ownerUserId\",\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"issueId\":\"issueId\",\"threadId\":\"threadId\",\"agent\":\"opencode\",\"model\":\"model\",\"effort\":\"effort\",\"cwd\":\"cwd\",\"prompt\":\"prompt\",\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"timeoutMs\":4}"
     },
     {
       "schema": "HeadlessTurnResultMessage",

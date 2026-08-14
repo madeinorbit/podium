@@ -12,7 +12,7 @@ import type {
   ThreadId,
   UserId,
 } from '@podium/model'
-import { asSessionId, type MachineId } from '@podium/model'
+import { asAccountId, asSessionId, type MachineId } from '@podium/model'
 import { canonicalHeadlessTurnFacts } from '@podium/protocol'
 import type {
   HeadlessActivityEvent,
@@ -132,6 +132,7 @@ export class HeadlessService {
         existing.cwd === input.cwd &&
         existing.machineId === machineId &&
         existing.ownerUserId === input.ownerUserId &&
+        JSON.stringify(existing.createdBy) === JSON.stringify(input.createdBy) &&
         existing.issueId === input.issueId &&
         existing.accountId === input.accountId &&
         existing.model === input.model &&
@@ -260,8 +261,19 @@ export class HeadlessService {
     }
     const session = this.deps.getSession(input.sessionId)
     const machineId = session?.machineId ?? this.deps.defaultMachine()
-    const accountId = session?.accountId
-    if (!accountId) throw new Error(`headless session ${input.sessionId} has no account identity`)
+    const accountId = session?.accountId ?? asAccountId('')
+    if (input.toolPolicy === 'none') {
+      if (!accountId.startsWith(`native:${input.agent}:`)) {
+        throw new Error(
+          `tool-less headless session ${input.sessionId} has no exact account identity`,
+        )
+      }
+      if (!session?.ownerUserId || !session.createdBy || !session.issueId) {
+        throw new Error(
+          `tool-less headless session ${input.sessionId} has incomplete requester identity`,
+        )
+      }
+    }
     const requestId = this.deps.nextRequestId('ht')
     const timeoutMs = (input.timeoutMs ?? 600_000) + 10_000
     const unsigned = {
@@ -269,6 +281,9 @@ export class HeadlessService {
       requestId,
       requestDigest: '0'.repeat(64),
       accountId,
+      ...(session?.ownerUserId ? { ownerUserId: session.ownerUserId } : {}),
+      ...(session?.createdBy ? { createdBy: session.createdBy } : {}),
+      ...(session?.issueId ? { issueId: session.issueId } : {}),
       turnId: input.turnId,
       sessionId: input.sessionId,
       threadId: input.threadId,

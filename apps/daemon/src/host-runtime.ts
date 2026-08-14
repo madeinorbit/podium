@@ -118,6 +118,13 @@ export async function createDaemonHostRuntime(args: {
   })
   const sessionBinding = new SessionBinding(bindingStore)
   const homeDir = opts.discovery?.homeDir ?? resolveAgentHomeDir(config)
+  const accountHomeSource = opts.discovery?.homeDir
+    ? ('test-override' as const)
+    : process.env.PODIUM_AGENT_HOME || config.agentHome
+      ? ('configured' as const)
+      : instance.instanceId !== 'default'
+        ? ('named-instance' as const)
+        : undefined
   const replayPendingBindingReceipts = async (): Promise<number> => {
     let replayed = 0
     for (const owner of await bindingStore.ownersWithPendingReceipts()) {
@@ -413,6 +420,7 @@ export async function createDaemonHostRuntime(args: {
     launch,
     settingsDir: instance.settingsDir,
     homeDir,
+    ...(accountHomeSource ? { accountHome: { path: homeDir, source: accountHomeSource } } : {}),
     bridges,
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     composerEngine,

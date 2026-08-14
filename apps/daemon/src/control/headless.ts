@@ -9,6 +9,7 @@ import { acknowledgeDurableHeadlessTurn, runDurableHeadlessTurn } from '../durab
 import {
   HeadlessTurnError,
   type HeadlessTurnHandle,
+  type HeadlessTurnIdentity,
   type HeadlessTurnSpec,
   runHeadlessTurn,
 } from '../headless-drivers.js'
@@ -17,13 +18,27 @@ import { sessionRelayEnv } from './session'
 
 const log = createLogger('daemon:headless')
 
+export function headlessTurnIdentityMatches(
+  left: HeadlessTurnIdentity | undefined,
+  right: HeadlessTurnIdentity,
+): boolean {
+  return (
+    left?.sessionId === right.sessionId &&
+    left.turnId === right.turnId &&
+    left.requestDigest === right.requestDigest &&
+    left.accountId === right.accountId
+  )
+}
+
 export function assertNativeHeadlessAccount(input: {
   agent: HarnessAgent
   accountId: AccountId
-  homeDir: string | undefined
+  accountHome: DaemonContext['accountHome']
   inventory: Pick<Inventory, 'agents'>
 }): void {
-  if (!input.homeDir) throw new Error('tool-less headless turns require an isolated account HOME')
+  if (!input.accountHome) {
+    throw new Error('tool-less headless turns require a separately provisioned account HOME')
+  }
   const identity = input.inventory.agents.find((agent) => agent.kind === input.agent)?.login
     .identity
   const expected = identity?.fingerprint
@@ -76,16 +91,22 @@ async function runHeadlessTurnRequest(
     return
   }
   if (msg.toolPolicy === 'none') {
-    const inventory = await buildInventory(ctx.homeDir ? { homeDir: ctx.homeDir } : {})
+    const inventory = await buildInventory(ctx.accountHome ? { homeDir: ctx.accountHome.path } : {})
     assertNativeHeadlessAccount({
       agent: msg.agent,
       accountId: msg.accountId,
-      homeDir: ctx.homeDir,
+      accountHome: ctx.accountHome,
       inventory,
     })
   }
+  const identity: HeadlessTurnIdentity = {
+    sessionId: msg.sessionId,
+    turnId: msg.turnId,
+    requestDigest: msg.requestDigest,
+    accountId: msg.accountId,
+  }
   const existing = ctx.runningHeadlessTurns.get(msg.sessionId)
-  if (existing?.turnId === msg.turnId) {
+  if (existing?.turnId === msg.turnId && headlessTurnIdentityMatches(existing.identity, identity)) {
     wireTurnResult(ctx, msg, existing)
     return
   }
@@ -94,7 +115,10 @@ async function runHeadlessTurnRequest(
       type: 'headlessTurnResult',
       requestId: msg.requestId,
       ok: false,
-      error: 'turn already running',
+      error:
+        existing.turnId === msg.turnId
+          ? 'running headless turn identity mismatch'
+          : 'turn already running',
       accountId: msg.accountId,
       requestDigest: msg.requestDigest,
     })
@@ -148,8 +172,11 @@ async function runHeadlessTurnRequest(
           msg.agent,
         ),
         ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-        ...(msg.toolPolicy === 'none' && ctx.homeDir
-          ? { CLAUDE_CONFIG_DIR: join(ctx.homeDir, '.claude') }
+        ...(msg.toolPolicy === 'none' && ctx.accountHome
+          ? {
+              HOME: ctx.accountHome.path,
+              CLAUDE_CONFIG_DIR: join(ctx.accountHome.path, '.claude'),
+            }
           : {}),
       },
       durableLabel: ctx.durableLabelFor(msg.sessionId),
@@ -187,6 +214,7 @@ async function runHeadlessTurnRequest(
     return
   }
   handle.turnId = msg.turnId
+  handle.identity = identity
   ctx.runningHeadlessTurns.set(msg.sessionId, handle)
   if (!msg.resumeValue && msg.sessionUuid) {
     bindFirstTurn(msg.sessionUuid)
@@ -200,20 +228,27 @@ function wireTurnResult(
   handle: HeadlessTurnHandle,
   isFirstTurnBound: () => boolean = () => false,
 ): void {
+  const identity = handle.identity
+  if (!identity) throw new Error('running headless turn has no established identity')
   void handle.done
     .then(({ harnessSessionId, output }) => {
       // First turn: start the transcript tail immediately so streaming-to-chat
       // works from turn 1 without waiting for a bind round-trip.
       if (!msg.resumeValue && !isFirstTurnBound()) {
         recordHeadlessAllocation(ctx, {
-          sessionId: msg.sessionId,
-          transitionId: `headless:${msg.turnId}:${harnessSessionId}`,
-          attemptId: msg.turnId,
+          sessionId: identity.sessionId,
+          transitionId: `headless:${identity.turnId}:${harnessSessionId}`,
+          attemptId: identity.turnId,
           nativeKind: msg.agent,
           value: harnessSessionId,
         })
         try {
-          ctx.observers.bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, harnessSessionId)
+          ctx.observers.bindHeadlessSession(
+            identity.sessionId,
+            msg.agent,
+            msg.cwd,
+            harnessSessionId,
+          )
         } catch {
           // tail setup is best-effort here; a later headlessBind can retry
         }
@@ -224,8 +259,8 @@ function wireTurnResult(
         ok: true,
         harnessSessionId,
         output,
-        accountId: msg.accountId,
-        requestDigest: msg.requestDigest,
+        accountId: identity.accountId,
+        requestDigest: identity.requestDigest,
       })
     })
     .catch((err) => {
@@ -236,14 +271,19 @@ function wireTurnResult(
       const harnessSessionId = err instanceof HeadlessTurnError ? err.harnessSessionId : undefined
       if (!msg.resumeValue && harnessSessionId && !isFirstTurnBound()) {
         recordHeadlessAllocation(ctx, {
-          sessionId: msg.sessionId,
-          transitionId: `headless:${msg.turnId}:${harnessSessionId}`,
-          attemptId: msg.turnId,
+          sessionId: identity.sessionId,
+          transitionId: `headless:${identity.turnId}:${harnessSessionId}`,
+          attemptId: identity.turnId,
           nativeKind: msg.agent,
           value: harnessSessionId,
         })
         try {
-          ctx.observers.bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, harnessSessionId)
+          ctx.observers.bindHeadlessSession(
+            identity.sessionId,
+            msg.agent,
+            msg.cwd,
+            harnessSessionId,
+          )
         } catch {
           // tail setup is best-effort; a later headlessBind can retry
         }
@@ -254,13 +294,13 @@ function wireTurnResult(
         ok: false,
         error: err instanceof Error ? err.message : String(err),
         ...(harnessSessionId ? { harnessSessionId } : {}),
-        accountId: msg.accountId,
-        requestDigest: msg.requestDigest,
+        accountId: identity.accountId,
+        requestDigest: identity.requestDigest,
       })
     })
     .finally(() => {
-      if (ctx.runningHeadlessTurns.get(msg.sessionId) === handle) {
-        ctx.runningHeadlessTurns.delete(msg.sessionId)
+      if (ctx.runningHeadlessTurns.get(identity.sessionId) === handle) {
+        ctx.runningHeadlessTurns.delete(identity.sessionId)
       }
     })
 }

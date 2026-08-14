@@ -4,6 +4,7 @@ import {
   asSessionId,
   asUserId,
   DEFAULT_SHIPWRIGHT_BUDGET,
+  ShipwrightEvidenceRef,
   ShipwrightPatchContract,
   shipRepairRef,
 } from '@podium/model'
@@ -78,6 +79,13 @@ describe('bounded shipwright patch contract', () => {
 
   it('mints only attempt and generation scoped refs', () => {
     expect(shipRepairRef('attempt:one/two', 7)).toBe('refs/podium/ship-repair/attempt-one-two/7')
+  })
+
+  it('accepts only opaque durable evidence references', () => {
+    expect(ShipwrightEvidenceRef.safeParse('artifact:gate-log').success).toBe(true)
+    expect(ShipwrightEvidenceRef.safeParse('/tmp/gate.log').success).toBe(false)
+    expect(ShipwrightEvidenceRef.safeParse('the gate failed here').success).toBe(false)
+    expect(ShipwrightEvidenceRef.safeParse('log:api-key-secret').success).toBe(false)
   })
 })
 

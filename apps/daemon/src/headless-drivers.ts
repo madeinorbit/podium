@@ -13,7 +13,7 @@ import {
   type HeadlessExecOptions,
   harnessAdapterFor,
 } from '@podium/harness'
-import type { AccountId, HarnessAgent } from '@podium/model'
+import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import type { HarnessBins } from './harness-exec.js'
 
@@ -73,10 +73,20 @@ export type HeadlessEmit = (event: HeadlessTurnEvent) => void
 export interface HeadlessTurnHandle {
   /** Stable durable turn id when the control layer assigned one. */
   turnId?: string
+  /** Established by the control layer before this handle enters the live map.
+   * Reuse is legal only for a byte-identical durable identity. */
+  identity?: HeadlessTurnIdentity
   done: Promise<HeadlessTurnOutcome>
   interrupt(): void
   /** Detach local resources without killing a durable master. */
   dispose?(): void
+}
+
+export interface HeadlessTurnIdentity {
+  sessionId: SessionId
+  turnId: string
+  requestDigest: string
+  accountId: AccountId
 }
 
 const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])

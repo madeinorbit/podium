@@ -46,6 +46,12 @@ export interface DaemonContext {
   settingsDir: string
   /** Discovery homeDir override (tests / isolated HOME); undefined = real home. */
   homeDir: string | undefined
+  /** Separately provisioned native-account HOME. Ambient/default HOME is never
+   * sufficient for tool-less repair execution. */
+  accountHome?: {
+    path: string
+    source: 'configured' | 'named-instance' | 'test-override'
+  }
 
   // -- per-session runtime state ---------------------------------------------
   /** Live PTY bridges by Podium session id. */

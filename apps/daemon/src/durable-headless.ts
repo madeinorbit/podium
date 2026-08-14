@@ -4,6 +4,7 @@ import {
   chmodSync,
   closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -13,7 +14,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { declaredValue, type HarnessHeadless, harnessAdapterFor } from '@podium/harness'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
@@ -93,8 +94,24 @@ function pathsFor(sessionId: SessionId, turnId: string): DurablePaths {
 
 function writeAtomic(path: string, content: string): void {
   const tmp = `${path}.tmp-${process.pid}`
-  writeFileSync(tmp, content, { mode: 0o600 })
+  const fd = openSync(tmp, 'w', 0o600)
+  try {
+    writeFileSync(fd, content)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
   renameSync(tmp, path)
+  fsyncDirectory(dirname(path))
+}
+
+function fsyncDirectory(path: string): void {
+  const fd = openSync(path, 'r')
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
 }
 
 function sameIdentity(left: DurableIdentity, right: DurableIdentity): boolean {
@@ -111,6 +128,7 @@ function sameIdentity(left: DurableIdentity, right: DurableIdentity): boolean {
 function establishIdentity(paths: DurablePaths, expected: DurableIdentity): void {
   const existed = existsSync(paths.dir)
   mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
+  if (!existed) fsyncDirectory(dirname(paths.dir))
   if (!existsSync(paths.identity)) {
     if (existed) throw new Error('durable headless journal has no request identity')
     writeAtomic(paths.identity, JSON.stringify(expected))
@@ -262,10 +280,12 @@ ${command}${stdin} > ${shellQuote(paths.stdout)} 2> ${shellQuote(paths.stderr)}
 code=$?
 tmp=${shellQuote(paths.exit)}.tmp-$$
 printf '%s\\n' "$code" > "$tmp"
+sync "$tmp" 2>/dev/null || sync
 mv "$tmp" ${shellQuote(paths.exit)}
+sync ${shellQuote(paths.dir)} 2>/dev/null || sync
 exit "$code"
 `
-  writeFileSync(paths.script, script, { mode: 0o700 })
+  writeAtomic(paths.script, script)
   chmodSync(paths.script, 0o700)
   return {
     ...(invocation.knownSessionId ? { knownSessionId: invocation.knownSessionId } : {}),
@@ -724,4 +744,5 @@ export function acknowledgeDurableHeadlessTurn(identity: DurableIdentity): void 
     throw new Error('refusing mismatched durable headless acknowledgement')
   }
   rmSync(dir, { recursive: true, force: true })
+  fsyncDirectory(dirname(dir))
 }
