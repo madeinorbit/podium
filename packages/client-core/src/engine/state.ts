@@ -23,15 +23,15 @@ import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
-  IssueId,
   IssueEventWire,
+  IssueId,
   IssueProjection,
   IssueWire,
   MachineWire,
   SessionId,
   SessionMeta,
-  ThreadId,
   ShipOrderProjection,
+  ThreadId,
 } from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
@@ -88,6 +88,19 @@ export interface EngineState {
   openIssueId: IssueId | null
   superThreadId: ThreadId
   superOpen: boolean
+  /**
+   * THE SESSION "ASK SUPERAGENT (BTW)" ATTACHED, awaiting the next turn
+   * (POD-1069).
+   *
+   * The action used to point {@link superThreadId} at a `btw_<sessionId>` thread.
+   * Nothing has rendered a non-global thread since POD-782, so it aimed the dock
+   * at a thread with no session and the pane went blank — and stayed blank,
+   * because nothing ever aimed it back. The dock binds the one global chat now;
+   * what the operator picked rides HERE instead, is spent on the next turn, and
+   * is deliberately NOT persisted: an attachment is about a conversation
+   * happening right now, and a reload is the operator putting it down.
+   */
+  attachedSessionId: SessionId | null
   dockTab: DockTab
   /** The signed-in user's superagent threads, published by the store (POD-330,
    *  audit item zero). The view no longer keeps its own copy. */
@@ -660,6 +673,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     // Default OPEN: the superagent is the desktop shell's center column now, not
     // an optional dock — only an explicit close ('0') keeps it collapsed.
     superOpen: seed.persisted.superOpen,
+    attachedSessionId: null,
     dockTab: seed.persisted.dockTab,
     superThreads: [],
     paletteOpen: false,

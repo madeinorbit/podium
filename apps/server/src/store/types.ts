@@ -702,6 +702,9 @@ export interface QueuedSuperagentInputRow {
   text: string
   /** Prompt-box connector pick. Undefined = follow thread/settings at prepare. */
   agentKind?: string
+  /** "Ask superagent (BTW)" (POD-1069): one session digested onto THIS turn.
+   *  Deliberately outside `focus` — see the contract's field note. */
+  attachSessionId?: SessionId
   focus?: {
     view?: string
     worktreePath?: string

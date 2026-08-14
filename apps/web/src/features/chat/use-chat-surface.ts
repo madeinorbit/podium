@@ -83,6 +83,11 @@ export interface ChatSurface {
   headless: boolean
   compact: boolean
   httpOrigin: string
+  /** "Ask superagent (BTW)" (POD-1069): the session whose transcript digest the
+   *  NEXT turn from this composer will carry, with the way to drop it. Null on
+   *  every chat but the superagent's — the store field is app-wide, and an
+   *  ordinary session's composer would be naming context it never sends. */
+  attached: { sessionId: SessionId; label: string; clear: () => void } | null
 
   // -- the transcript --------------------------------------------------------
   blocks: ReturnType<typeof useTranscriptWindow>['blocks']
@@ -175,6 +180,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     httpOrigin,
     tldrSession,
     getUserFocus,
+    attachedSessionId,
+    clearAttachedSession,
     issues,
     superThreads,
   } = useStoreSelector(
@@ -189,6 +196,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       httpOrigin: s.httpOrigin,
       tldrSession: s.tldrSession,
       getUserFocus: s.getUserFocus,
+      attachedSessionId: s.attachedSessionId,
+      clearAttachedSession: s.clearAttachedSession,
       issues: s.issues,
       superThreads: s.superThreads,
     }),
@@ -404,6 +413,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     resumeAndSend,
     setPanelMode,
     getUserFocus,
+    attachedSessionId,
+    clearAttachedSession,
     issues,
     headless,
     superThread,
@@ -463,39 +474,45 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     [setSessionDraft, sessionId],
   )
 
-  const submitDraft = useCallback((draft: string) => {
-    const text = draft.trim()
-    const { paths, tags } = attachments.ready()
-    if (!text && paths.length === 0) return
-    if (attachments.uploading) return
-    lastSubmittedPromptRef.current = text || null
-    setDraft('')
-    attachments.clear()
-    void send.send(
-      paths.length > 0 ? `${paths.join('\n')}\n${text}` : text,
-      tags.length > 0 ? tags : undefined,
-      paths.length > 0 ? paths : undefined,
-    )
-  }, [attachments, setDraft, send])
+  const submitDraft = useCallback(
+    (draft: string) => {
+      const text = draft.trim()
+      const { paths, tags } = attachments.ready()
+      if (!text && paths.length === 0) return
+      if (attachments.uploading) return
+      lastSubmittedPromptRef.current = text || null
+      setDraft('')
+      attachments.clear()
+      void send.send(
+        paths.length > 0 ? `${paths.join('\n')}\n${text}` : text,
+        tags.length > 0 ? tags : undefined,
+        paths.length > 0 ? paths : undefined,
+      )
+    },
+    [attachments, setDraft, send],
+  )
 
   const canInterrupt = headless
     ? superThread !== undefined && headlessTurn.turnRunning
     : (session !== undefined && isAgentComputing(session)) || send.justSent
-  const interrupt = useCallback((draft: string) => {
-    if (!canInterrupt) return
-    // The keyboard chord is accepted only from an empty field. Keep that same
-    // safety here so the stop button never overwrites a reply already in flight.
-    if (draft === '') {
-      const recalled = lastSubmittedPromptRef.current ?? latestOperatorPrompt
-      if (recalled) setDraft(recalled)
-    }
-    taRef.current?.focus()
-    if (headless) {
-      headlessTurn.interrupt()
-      return
-    }
-    void trpc.sessions.interrupt.mutate({ sessionId }).catch(() => {})
-  }, [canInterrupt, headless, headlessTurn, latestOperatorPrompt, sessionId, setDraft, trpc])
+  const interrupt = useCallback(
+    (draft: string) => {
+      if (!canInterrupt) return
+      // The keyboard chord is accepted only from an empty field. Keep that same
+      // safety here so the stop button never overwrites a reply already in flight.
+      if (draft === '') {
+        const recalled = lastSubmittedPromptRef.current ?? latestOperatorPrompt
+        if (recalled) setDraft(recalled)
+      }
+      taRef.current?.focus()
+      if (headless) {
+        headlessTurn.interrupt()
+        return
+      }
+      void trpc.sessions.interrupt.mutate({ sessionId }).catch(() => {})
+    },
+    [canInterrupt, headless, headlessTurn, latestOperatorPrompt, sessionId, setDraft, trpc],
+  )
 
   // Answer a live AskUserQuestion from its chat card: option digits, free text
   // via the native Other entry, or skip (Esc). The server types the matching
@@ -561,7 +578,32 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     [tldrSession, sessionId, answer.text],
   )
 
+  // "ASK SUPERAGENT (BTW)", MADE VISIBLE (POD-1069). The attachment is a
+  // one-shot rider on the next turn, so the composer has to SAY it is there —
+  // otherwise the menu item reads as a no-op that merely opened the dock, which
+  // is close to what the broken version actually did.
+  //
+  // Scoped to the superagent's own chat: the store field is one field for the
+  // app, and a chip on an ordinary session's composer would name context that
+  // composer will never send.
+  const attachedSession = useSession(attachedSessionId ?? undefined)
+  const attached = useMemo(
+    () =>
+      superThread && attachedSessionId
+        ? {
+            sessionId: attachedSessionId,
+            // The id is a poor last resort but an honest one: the row may not
+            // have reached this client yet, and a chip that renders nothing
+            // would say the attachment failed.
+            label: attachedSession?.name ?? attachedSession?.title ?? attachedSessionId,
+            clear: clearAttachedSession,
+          }
+        : null,
+    [superThread, attachedSessionId, attachedSession, clearAttachedSession],
+  )
+
   return {
+    attached,
     session,
     reference,
     gone: phase === 'gone',

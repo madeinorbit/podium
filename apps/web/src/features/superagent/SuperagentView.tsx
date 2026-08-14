@@ -1,7 +1,6 @@
-import { asThreadId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
-import { superagentSlice } from '@podium/client-core/viewmodels'
-import { asSessionId } from '@podium/model'
+import { superagentSlice, threadById } from '@podium/client-core/viewmodels'
+import { asSessionId, asThreadId } from '@podium/model'
 import { Eraser, SquareTerminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -103,7 +102,21 @@ export function SuperagentView(): JSX.Element {
   // declare its own SuperThread type, hold the list in useState, fetch it from
   // tRPC itself and be poked to refetch by a `superRefreshKey` counter that
   // actions bumped from across the app. One published slice replaces all four.
-  const { active: thread } = useSlice(superagentSlice)
+  // THE THREAD THIS PANE DRIVES, NAMED THE SAME WAY IT IS MUTATED (POD-1069).
+  //
+  // This read used to be the slice's `active` — the thread `superThreadId`
+  // points at — while every mutation below named the literal `THREAD_ID`. The
+  // two agreed until something moved `superThreadId`, and then the pane read a
+  // thread it could not mint a session for: `ensureSession` kept warming
+  // 'global', `podiumSessionId` stayed undefined, and the operator got a blank,
+  // composer-less box with no way back. `startBtw` did exactly that from three
+  // menus, and nothing ever pointed `superThreadId` home again, so the pane
+  // stayed blank until a reload.
+  //
+  // One name for one thread closes that off structurally: this pane cannot be
+  // aimed at a thread it does not also drive.
+  const { threads } = useSlice(superagentSlice)
+  const thread = threadById(threads, THREAD_ID)
   const podiumSessionId = thread?.podiumSessionId
 
   // The pane is one surface now — no sections, so no per-section collapse and

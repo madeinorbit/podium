@@ -13,10 +13,10 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { SuperagentUserFocus } from '@podium/commands'
 import {
-  asSessionId,
-  asIssueId,
-  asThreadId,
   type AccountId,
+  asIssueId,
+  asSessionId,
+  asThreadId,
   FIRST_ADMIN_USER_ID,
   HarnessAgent,
   type HarnessAgent as HarnessAgentKind,
@@ -479,6 +479,7 @@ export class SuperagentService {
     threadId: requested,
     text,
     focus,
+    attachSessionId,
     model,
     effort,
     agentKind,
@@ -488,6 +489,9 @@ export class SuperagentService {
     text: string
     /** What the sending client has on screen (#225) — prepended to every turn. */
     focus?: SuperagentUserFocus
+    /** "Ask superagent (BTW)" (POD-1069): one session digested onto THIS turn.
+     *  Rides the queued row, so a turn that waits behind another keeps it. */
+    attachSessionId?: SessionId
     /** Per-thread backend choice from the prompt box (POD-782). Persisted onto
      *  the thread, so it holds for every later turn until changed. */
     model?: string
@@ -510,6 +514,7 @@ export class SuperagentService {
       text,
       ...(focus ? { focus } : {}),
       ...(agentKind ? { agentKind } : {}),
+      ...(attachSessionId ? { attachSessionId } : {}),
     })
     if (agentKind) this.queuedHarness.set(queued.inputId, agentKind)
 
@@ -665,7 +670,7 @@ export class SuperagentService {
     queued: QueuedSuperagentInputRow,
     allowWithoutMcp: boolean,
   ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
-    const { inputId, ownerUserId, threadId, text, focus } = queued
+    const { inputId, ownerUserId, threadId, text, focus, attachSessionId } = queued
     let thread = this.store.superagent.getSuperagentThread(threadId, ownerUserId)
     if (!thread) throw new Error(`unknown queued thread: ${threadId}`)
     // PERSONAL (POD-1213): `roles.superagent` is *"you, automated"* — one
@@ -717,9 +722,13 @@ export class SuperagentService {
     // messages, no harness session) re-primes through the seed the same way.
     const firstTurn = !thread.harnessSessionId
     const context = await this.composeContext(thread, firstTurn)
+    const attached = await this.attachedSessionBlock(thread, attachSessionId)
     // Handoff (harness switch) leads, then the kind-specific seed/delta, then
-    // the user's current screen — closest to their message, where "this" resolves.
-    const preamble = [handoff, context, this.focusBlock(focus)].filter(Boolean).join('\n\n')
+    // the session the operator explicitly attached, then the user's current
+    // screen — closest to their message, where "this" resolves.
+    const preamble = [handoff, context, attached, this.focusBlock(focus)]
+      .filter(Boolean)
+      .join('\n\n')
     const baseSystemPrompt =
       thread.kind === 'concierge'
         ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
@@ -1369,6 +1378,54 @@ export class SuperagentService {
       return seed
     }
     return undefined
+  }
+
+  /**
+   * "ASK SUPERAGENT (BTW)", AS CONTEXT ON THE ONE CHAT (POD-1069).
+   *
+   * The operator pointed at a session and said "about this". That used to open a
+   * `btw_<sessionId>` THREAD; the web pane has bound the global thread alone
+   * since POD-782, so the action pointed the dock at a thread nothing could
+   * render and left it blank until a reload. The seed was never the broken part
+   * — only the second thread was — so the digest now rides the turn instead:
+   * same {@link buildBtwSeed} block, prepended to whatever the operator types
+   * next, on the chat they are already looking at.
+   *
+   * FRESH EVERY TIME, no watermark. The btw thread kept one so a re-open could
+   * send only the delta; an attachment is a deliberate act meaning "look at this
+   * session, now", and answering it with a diff against a state the operator
+   * never saw would be answering a question they did not ask. The cost is
+   * bounded — `buildBtwSeed` caps itself at 20k chars — and paid only when
+   * someone clicks.
+   *
+   * Best-effort: an unreadable or vanished session drops the block rather than
+   * failing the turn. The operator's message is the thing that must land.
+   */
+  private async attachedSessionBlock(
+    thread: SuperagentThreadRow,
+    attachSessionId: SessionId | undefined,
+  ): Promise<string | undefined> {
+    if (!attachSessionId) return undefined
+    try {
+      const { items } = await this.modules.rpc.readTranscript(
+        { sessionId: attachSessionId, direction: 'before', limit: 2000 },
+        { kind: 'agent', id: `superagent:${thread.id}`, onBehalfOf: thread.ownerUserId },
+      )
+      // An EMPTY transcript still earns the block. Its head names the session —
+      // which one, what harness, which checkout — and that is the half of the
+      // digest the operator's "what is this doing?" actually needs; dropping it
+      // would answer a question about a specific session with no session at all.
+      const info = this.sessionById(attachSessionId)
+      const session: ConciergeSessionInfo = {
+        sessionId: attachSessionId,
+        ...((info?.name ?? info?.title) ? { name: info?.name ?? info?.title } : {}),
+        ...(info?.agentKind ? { agentKind: info.agentKind } : {}),
+        ...(info?.cwd ? { cwd: info.cwd } : {}),
+      }
+      return buildBtwSeed({ session, items })
+    } catch {
+      return undefined
+    }
   }
 
   /** Zero-LLM cross-repo digest: per-repo tracker counts, live sessions, open

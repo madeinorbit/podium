@@ -125,6 +125,7 @@ function ScopedChatComposer({
       queuedTotal={chat.queuedTotal}
       turnError={chat.headlessTurn.turnError}
       offlineAsOf={chat.offlineAsOf}
+      attached={chat.attached}
       autoFocusKey={sessionId}
       transcriptSettled={chat.phase !== 'loading'}
       {...(superThread

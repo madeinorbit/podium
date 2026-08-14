@@ -871,6 +871,66 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     expect(req.contextPrompt).toContain(sessionId)
     expect(req.cwd).toBe('/w') // origin session's cwd
   })
+
+  it('attaches a session to a GLOBAL turn — the btw digest without the btw thread', async () => {
+    // POD-1069: what "Ask superagent (BTW)" does now. The web pane binds the one
+    // global thread (POD-782), so pointing it at `btw_<sessionId>` left it
+    // rendering a thread with no headless session — blank, composer-less, and
+    // stuck there until a reload. The digest rides the turn instead.
+    const h = await harness()
+    const { sessionId } = h.registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
+
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'what is this session doing?',
+      attachSessionId: sessionId,
+    })
+
+    const req = h.turnReqs.find((r) => r.threadId === 'global')!
+    expect(req.prompt).toBe('what is this session doing?')
+    expect(req.contextPrompt).toContain('[BTW CONTEXT]')
+    expect(req.contextPrompt).toContain(sessionId)
+    // NO SECOND THREAD. The old action minted one per session; a thread nothing
+    // renders is the whole defect, so this path must not create one.
+    expect(h.sa.listThreads(FIRST_ADMIN_USER_ID).filter((t) => t.kind === 'btw')).toHaveLength(0)
+    // The turn still runs where the GLOBAL thread runs — an attachment is
+    // context, not a change of machine or checkout.
+    expect(req.cwd).not.toBe('/w')
+  })
+
+  it('carries the attachment across the queue, so a turn that waits keeps its context', async () => {
+    // The attachment is a column on the queued input, not an in-memory side map:
+    // a second send lands behind a running turn and may only reach the harness
+    // after a restart. Losing the session there would silently turn the
+    // operator's question about a specific session into a general one.
+    const h = await harness()
+    const { sessionId } = h.registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
+
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'first',
+    })
+    const second = await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'and about this one?',
+      attachSessionId: sessionId,
+    })
+    expect(second.queued).toBe(true)
+
+    const queued = h.registry.sessionStore.superagent
+      .listQueuedInputs(asThreadId('global'))
+      .find((row) => row.text === 'and about this one?')
+    expect(queued?.attachSessionId).toBe(sessionId)
+  })
 })
 
 describe('openInTerminal + one-writer lock', () => {

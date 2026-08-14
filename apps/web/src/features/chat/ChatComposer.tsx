@@ -1,7 +1,7 @@
 import { sessionWaking } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 import type { useVoiceInput } from '@podium/terminal-client-react'
-import { ArrowUp, Clock, CloudOff, Paperclip, Square } from 'lucide-react'
+import { ArrowUp, Clock, CloudOff, MessageSquareText, Paperclip, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { useEffect, useMemo, useRef } from 'react'
 import { useReplicaIssues } from '@/app/store'
@@ -127,6 +127,7 @@ export function ChatComposer({
   queuedTotal,
   turnError,
   offlineAsOf,
+  attached,
   autoFocusKey,
   transcriptSettled,
   backend,
@@ -156,6 +157,9 @@ export function ChatComposer({
   queuedTotal: number
   turnError: string | null
   offlineAsOf: number | null
+  /** "Ask superagent (BTW)" (POD-1069): the session the NEXT turn will carry a
+   *  transcript digest of. Null on every composer but the superagent's. */
+  attached?: { label: string; clear: () => void } | null
   /** Re-focus on a session switch — the mobile AgentPanel reuses one instance. */
   autoFocusKey: string
   /** False while the initial transcript read is outstanding, so focus is not
@@ -290,8 +294,29 @@ export function ChatComposer({
           />
         </div>
       )}
-      {(queuedTotal > 0 || turnError !== null || offlineAsOf !== null) && (
+      {(queuedTotal > 0 || turnError !== null || offlineAsOf !== null || attached) && (
         <div className="composer-notices" aria-live="polite">
+          {/* The attachment leads: it is the only notice here that describes
+              what the NEXT send will carry, and it is dismissible, so it must
+              not be pushed under a queue count the operator cannot act on. */}
+          {attached && (
+            <div className="composer-notice" data-notice="attached">
+              {/* The context menu's own icon, not the attachment paperclip:
+                  this rides a conversation, not a file. */}
+              <MessageSquareText size={12} aria-hidden="true" />
+              <strong>Context</strong>
+              <span className="min-w-0 truncate">{attached.label}</span>
+              <button
+                type="button"
+                className="ml-auto rounded-[4px] px-1 text-text-dim hover:bg-chip hover:text-text-strong"
+                title="Don't send this session's transcript"
+                aria-label={`Remove ${attached.label} from this message`}
+                onClick={attached.clear}
+              >
+                <X size={11} aria-hidden="true" />
+              </button>
+            </div>
+          )}
           {queuedTotal > 0 && (
             <div className="composer-notice" data-notice="queue">
               <Clock size={12} aria-hidden="true" />

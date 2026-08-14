@@ -1759,6 +1759,12 @@ export const superagentQueuedInputs = sqliteTable(
     /** Prompt-box connector pick for this queued turn. Null = follow the
      *  thread/settings rule at prepare time. */
     agentKind: text('agent_kind'),
+    /** "Ask superagent (BTW)" (POD-1069): ONE session whose transcript is
+     *  digested onto this turn's preamble. It is a column rather than a key
+     *  inside `focus_json` because it is a deliberate one-shot act, not part of
+     *  the recomputed on-screen report — and a queued turn must not lose it
+     *  across a restart, which an in-memory side map would. */
+    attachSessionId: text('attach_session_id'),
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),

@@ -8,7 +8,6 @@
  * single-operator placement.
  */
 
-import { asThreadId } from '@podium/model'
 import type {
   AgentKind,
   IssueId,
@@ -16,9 +15,10 @@ import type {
   LayoutSnapshot,
   SessionId,
   SessionMeta,
-  WorkState,
   ThreadId,
+  WorkState,
 } from '@podium/model'
+import { asThreadId } from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
@@ -103,6 +103,12 @@ export const UI_LOCAL_ACTIONS = [
   'openArtifact',
   'closeFileTab',
   'closeAutoContinuePrompt',
+  // POD-1069: attaching a session to the next superagent turn is a local
+  // intention until that turn is sent. It moved out of COMMAND_ACTIONS when it
+  // stopped minting a `btw_<sessionId>` thread — there is no write behind it any
+  // more, and an offline client can still line one up.
+  'startBtw',
+  'clearAttachedSession',
 ] as const
 
 /** Replicated/domain writes. Some are online-only by their command contract. */
@@ -112,7 +118,6 @@ export const COMMAND_ACTIONS = [
   'setSuperOpen',
   'setDockTab',
   'setPanelMode',
-  'startBtw',
   'tldrSession',
   'writeFileScoped',
   'spawnDraftAgent',
@@ -162,6 +167,7 @@ type ActionState = {
   repos: Store['repos']
   superThreadId: ThreadId
   superOpen: boolean
+  attachedSessionId: SessionId | null
   dockTab: DockTab
   superThreads: SuperThreadView[]
   paletteOpen: boolean
@@ -391,19 +397,38 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     setSuperThreadId: (superThreadId) => rt.apply({ superThreadId: asThreadId(superThreadId) }),
     setSuperOpen: (superOpen) => rt.apply({ superOpen }),
     setDockTab: (dockTab) => rt.apply({ dockTab }),
+    /**
+     * "ASK SUPERAGENT (BTW)" — OPEN THE ONE CHAT, WITH THIS SESSION ATTACHED
+     * (POD-1069).
+     *
+     * It used to aim `superThreadId` at `btw_<sessionId>` and mint that thread
+     * server-side. The dock has bound the global thread alone since POD-782, so
+     * what the operator got was a pane rendering a thread with no headless
+     * session: no composer, no way back, and no reset until a reload — from all
+     * three entry points (tab overflow, session context menu, command palette).
+     *
+     * The thread was never the point; the session's transcript was. So the pane
+     * stays on the one chat and the session is ATTACHED to whatever the operator
+     * types next — the server digests it into that turn's preamble with the same
+     * `buildBtwSeed` block the btw thread was seeded with. No thread to switch
+     * to, and therefore no thread to be stranded on.
+     */
     startBtw: async (sessionId) => {
-      rt.apply({ superThreadId: asThreadId(`btw_${sessionId}`), superOpen: true })
-      await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
-      await rt.refreshSuperThreads().catch(() => {})
+      rt.apply({ attachedSessionId: sessionId, superOpen: true })
     },
+    clearAttachedSession: () => rt.apply({ attachedSessionId: null }),
     tldrSession: async (sessionId, answerText) => {
-      const threadId = asThreadId(`btw_${sessionId}`)
-      rt.apply({ superThreadId: threadId, superOpen: true })
-      await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
+      rt.apply({ superOpen: true })
       const prompt = answerText.trim()
         ? `Give me a concise tl;dr (2–4 bullet points) of the agent's last answer below.\n\n---\n${answerText.trim().slice(0, 4000)}`
         : "Give me a concise tl;dr (2–4 bullet points) of the agent's last answer."
-      await api.superagent.sendTurn.mutate({ threadId, text: prompt }).catch(() => {})
+      // The session rides WITH the turn rather than as a thread of its own, so
+      // the answer lands in the chat the operator is already looking at. The
+      // attachment is spent here, not staged: nothing is left on the store for
+      // the operator's next message to pick up by accident.
+      await api.superagent.sendTurn
+        .mutate({ threadId: asThreadId('global'), text: prompt, attachSessionId: sessionId })
+        .catch(() => {})
       await rt.refreshSuperThreads().catch(() => {})
     },
     setPaletteOpen: (paletteOpen) => rt.apply({ paletteOpen }),

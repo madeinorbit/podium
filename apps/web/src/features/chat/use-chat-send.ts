@@ -48,6 +48,10 @@ export interface UseChatSendOptions {
   /** Pins the panel to chat when a send comes from this view — see `deliver`. */
   setPanelMode: Store['setPanelMode']
   getUserFocus: Store['getUserFocus']
+  /** "Ask superagent (BTW)" (POD-1069): the session waiting to be digested onto
+   *  the next superagent turn, and the way to drop it once it has been. */
+  attachedSessionId: Store['attachedSessionId']
+  clearAttachedSession: Store['clearAttachedSession']
   issues: Store['issues']
   headless: boolean
   superThread: SuperThreadRef | undefined
@@ -99,6 +103,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     resumeAndSend,
     setPanelMode,
     getUserFocus,
+    attachedSessionId,
+    clearAttachedSession,
     issues,
     headless,
     superThread,
@@ -284,11 +290,22 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
                 : null,
             )
           }
+          // THE ATTACHMENT IS SPENT BY THE TURN THAT CARRIES IT (POD-1069), and
+          // only by a turn that was actually accepted. A rejected send leaves it
+          // attached: the operator's question never reached the orchestrator, so
+          // silently dropping the session they picked would make the retry a
+          // different, weaker question than the one they asked.
+          //
+          // A `superagent-turn` only. The concierge intake is repo-scoped and has
+          // no attachment affordance, and a `refused` route sends nothing at all.
+          const attach = route.kind === 'superagent-turn' ? attachedSessionId : null
           // A superagent turn sent while one is running is QUEUED (POD-782), not
           // refused — same affordance the PTY path has had all along, so the
           // bubble says "waiting its turn" rather than sitting in a false
           // "sending" that settles to a lie 30 seconds later.
-          if (await headlessTurn.sendTurn(route, text, focus)) onQueued()
+          const queued = await headlessTurn.sendTurn(route, text, focus, attach ?? undefined)
+          if (attach) clearAttachedSession()
+          if (queued) onQueued()
           return
         }
         case 'session': {
@@ -327,6 +344,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     [
       route,
       getUserFocus,
+      attachedSessionId,
+      clearAttachedSession,
       compact,
       issues,
       headlessTurn,

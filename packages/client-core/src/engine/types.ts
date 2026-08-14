@@ -25,8 +25,8 @@ import type {
   MutationId,
   SessionId,
   SessionMeta,
-  WorkState,
   ThreadId,
+  WorkState,
 } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
@@ -164,7 +164,12 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Consumed and cleared by SettingsView on mount. */
   settingsTab: string | null
   setSettingsTab: (tab: string | null) => void
-  /** Active superagent thread: the 'global' orchestrator or a 'btw_<sessionId>' thread. */
+  /**
+   * The superagent thread the dock renders. IN PRACTICE ALWAYS 'global' from the
+   * web (POD-782 bound the pane to the one chat, and POD-1069 removed the last
+   * writer that aimed it anywhere else) — `setSuperThreadId` survives for a
+   * surface that can genuinely render a second thread, which none does today.
+   */
   superThreadId: ThreadId
   setSuperThreadId: (id: string) => void
   /** Whether the superagent panel is open — a collapsible right dock on desktop,
@@ -180,10 +185,17 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Re-read the thread list. Named for what it does, unlike the refresh COUNTER
    *  it replaces: a counter can only say "something, somewhere, changed". */
   refreshSuperThreads: () => Promise<void>
-  /** Open (or re-open) a btw superagent thread seeded from a chat session's transcript. */
+  /** "Ask superagent (BTW)": open the dock and attach this session's transcript
+   *  to the next turn (POD-1069). See {@link attachedSessionId}. */
   startBtw: (sessionId: SessionId) => Promise<void>
-  /** Open the session's btw thread and ask the superagent for a concise tl;dr of
-   *  the agent's last answer (passed in for context). */
+  /** The session attached to the NEXT superagent turn, or null. Spent by the
+   *  send that carries it; the composer shows it so an attachment is never a
+   *  silent one. Not persisted. */
+  attachedSessionId: SessionId | null
+  /** Drop the attachment without sending — the chip's ×. */
+  clearAttachedSession: () => void
+  /** Ask the superagent for a concise tl;dr of the agent's last answer (passed in
+   *  for context), with the session attached to that turn. */
   tldrSession: (sessionId: SessionId, answerText: string) => Promise<void>
   /** The issue whose detail drawer is open (from the kanban card or the sidebar
    *  Issues tab), or null when closed. Ephemeral — not persisted. */

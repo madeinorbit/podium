@@ -332,6 +332,23 @@ export const superagentSendTurnInput = z.object({
   threadId: ThreadIdField.default(asThreadId('global')),
   text: turnText,
   focus: superagentUserFocus.optional(),
+  /**
+   * ONE session's transcript, digested onto THIS turn (POD-1069) — what "Ask
+   * superagent (BTW)" attaches.
+   *
+   * DELIBERATELY NOT A `focus` KEY. `focus` is what the client reports it has on
+   * screen, recomputed and sent with EVERY turn; this is an act the operator
+   * performed once, and it costs a ~20k-char digest to honour. Folding it into
+   * `focus` would either re-send that digest on every subsequent turn or make an
+   * explicit attachment indistinguishable from merely having the session in a
+   * pane — the two facts the superagent most needs kept apart.
+   *
+   * One-shot by construction: the server digests it into this turn's preamble
+   * and stores nothing, so a second attachment is a second deliberate act. It is
+   * ALSO thread-independent — the global thread is the one chat (POD-782), and a
+   * session rides in as context rather than as a thread of its own.
+   */
+  attachSessionId: z.string().max(128).pipe(SessionIdField).optional(),
   /** Persisted onto the thread and used for this turn and every later one until
    *  changed. Omitted = leave the thread's current choice alone. */
   model: backendChoice.optional(),

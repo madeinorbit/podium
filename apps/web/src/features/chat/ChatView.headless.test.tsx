@@ -1,6 +1,6 @@
 import {
-  asThreadId,
   asSessionId,
+  asThreadId,
   type SessionId,
   type SessionMeta,
   type SessionMetaInput,
@@ -57,6 +57,11 @@ const fakeTrpc = {
 
 let storeSessions: SessionMeta[] = []
 let drafts: Record<string, string> = {}
+// "Ask superagent (BTW)" (POD-1069): the session staged for the next turn.
+let attachedSessionId: SessionId | null = null
+const clearAttachedSession = vi.fn(() => {
+  attachedSessionId = null
+})
 
 const fakeReplica = {
   available: false,
@@ -80,6 +85,8 @@ vi.mock('@/app/store', () => {
     httpOrigin: 'http://x',
     tldrSession: vi.fn(),
     getUserFocus: () => ({ view: 'workspace' as const }),
+    attachedSessionId,
+    clearAttachedSession,
   })
   // The selector-store hook reads slices off the same store shape.
   return {
@@ -128,6 +135,7 @@ beforeEach(() => {
   fakeHub.subscribes.length = 0
   fakeHub.headlessSubs.length = 0
   drafts = {}
+  attachedSessionId = null
   storeSessions = [meta({})]
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -270,6 +278,60 @@ describe('ChatView headless mode', () => {
       effort: 'auto',
     })
     expect(sendText).not.toHaveBeenCalled()
+  })
+
+  /**
+   * "ASK SUPERAGENT (BTW)" (POD-1069). The action used to aim the dock at a
+   * `btw_<sessionId>` thread this pane has not been able to render since
+   * POD-782 — a blank, composer-less box until a reload. The session is context
+   * on the one chat now, so these pin the two halves that replace it: the
+   * composer SAYS the attachment is there, and the turn CARRIES it.
+   */
+  it('names the attached session on the composer and sends it with the turn', async () => {
+    storeSessions = [meta({}), meta({ sessionId: asSessionId('s-other'), name: 'auth refactor' })]
+    attachedSessionId = asSessionId('s-other')
+    drafts = { h1: 'what is it stuck on?' }
+    mount()
+    await flush()
+
+    // The chip is the whole reason the menu item does not read as a no-op.
+    const chip = container.querySelector('[data-notice="attached"]')
+    expect(chip?.textContent).toContain('auth refactor')
+
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
+    await act(async () => {
+      send.click()
+    })
+
+    expect(sendTurn).toHaveBeenCalledWith({
+      threadId: 'global',
+      text: 'what is it stuck on?',
+      focus: { view: 'workspace' },
+      attachSessionId: 's-other',
+      model: 'auto',
+      effort: 'auto',
+    })
+    // Spent, not sticky: the NEXT message is an ordinary one.
+    expect(clearAttachedSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the attachment when the send is rejected', async () => {
+    // The turn never reached the orchestrator, so the question is still
+    // unanswered — dropping the session here would make the retry a weaker
+    // question than the one the operator asked.
+    storeSessions = [meta({}), meta({ sessionId: asSessionId('s-other'), name: 'auth refactor' })]
+    attachedSessionId = asSessionId('s-other')
+    drafts = { h1: 'what is it stuck on?' }
+    sendTurn.mockRejectedValueOnce(new Error('offline'))
+    mount()
+    await flush()
+
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
+    await act(async () => {
+      send.click()
+    })
+
+    expect(clearAttachedSession).not.toHaveBeenCalled()
   })
 
   it('routes a concierge thread send through superagent.concierge', async () => {

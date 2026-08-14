@@ -72,7 +72,15 @@ export interface UseHeadlessTurnResult {
   /** Send one turn along an already-decided route. Throws on rejection so the
    *  caller can mark its optimistic bubble failed. Resolves `true` when the
    *  server QUEUED the turn behind a running one rather than starting it. */
-  sendTurn: (route: ChatSendRoute, text: string, focus: UserFocus) => Promise<boolean>
+  sendTurn: (
+    route: ChatSendRoute,
+    text: string,
+    focus: UserFocus,
+    /** "Ask superagent (BTW)" (POD-1069): one session digested onto THIS turn.
+     *  Carried only by a `superagent-turn` route — the concierge intake has its
+     *  own repo-scoped seed and no attachment affordance. */
+    attachSessionId?: SessionId,
+  ) => Promise<boolean>
   /** Stop the running turn. Available only while one is running. */
   interrupt: () => void
 }
@@ -145,7 +153,7 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
   }, [blockCount, headless])
 
   const sendTurn = useCallback(
-    async (route: ChatSendRoute, text: string, focus: UserFocus) => {
+    async (route: ChatSendRoute, text: string, focus: UserFocus, attachSessionId?: SessionId) => {
       // A refused route never reaches a mutation. Both "someone else's thread"
       // and "no such thread" arrive here as the same refusal, carrying the same
       // message — the client cannot be used to tell them apart.
@@ -180,6 +188,7 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
             threadId: route.threadId,
             text,
             focus,
+            ...(attachSessionId ? { attachSessionId } : {}),
             ...choice,
           })
           // QUEUED, not refused (POD-782). A second send during a running turn

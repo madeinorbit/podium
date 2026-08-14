@@ -29,9 +29,9 @@ import type {
   MutationId,
   ReadPositionSnapshot,
   SessionId,
+  ThreadId,
   UsageBucketWire,
   WorkState,
-  ThreadId,
 } from '@podium/model'
 import type { LockWire, SyncChangesSinceResult } from '@podium/protocol'
 import type { HarnessAgent, PodiumSettings } from '@podium/runtime'
@@ -269,12 +269,19 @@ export interface PodiumClientApi {
      *  caller (doc §3.1.6 S2: superagent state is per-user and private), so the
      *  client never asks for "a user's" threads — only for its own. */
     listThreads: ApiQuery<void, SuperThreadView[]>
-    startBtw: ApiMutation<{ sessionId: SessionId }>
+    /** `superagent.startBtw` is NOT declared here. The server still serves it —
+     *  it mints a `btw_<sessionId>` thread, which MCP and the CLI can still use
+     *  — but no client calls it since POD-1069 folded "Ask superagent (BTW)"
+     *  into `sendTurn`'s `attachSessionId`. A binding for a procedure nothing
+     *  sends is a live-looking path back to the thread the web cannot render. */
     sendTurn: ApiMutation<
       {
         threadId?: ThreadId
         text: string
         focus?: SuperagentUserFocus
+        /** "Ask superagent (BTW)" (POD-1069): one session's transcript digested
+         *  onto THIS turn. One-shot — the server stores nothing. */
+        attachSessionId?: SessionId
         /** Prompt-box backend (POD-782). Omitted leaves the thread's choice. */
         model?: string
         effort?: string

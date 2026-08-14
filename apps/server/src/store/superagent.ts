@@ -4,7 +4,14 @@
  * 'concierge' intake threads).
  */
 
-import { asThreadId, FIRST_ADMIN_USER_ID, type SessionId, type UserId, type ThreadId } from '@podium/model'
+import {
+  asSessionId,
+  asThreadId,
+  FIRST_ADMIN_USER_ID,
+  type SessionId,
+  type ThreadId,
+  type UserId,
+} from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseJsonColumn } from './helpers'
 import type {
@@ -202,8 +209,8 @@ export class SuperagentRepository {
     this.db
       .prepare(
         `INSERT INTO superagent_queued_inputs
-           (input_id, owner_user_id, thread_id, text, focus_json, agent_kind, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (input_id, owner_user_id, thread_id, text, focus_json, agent_kind, attach_session_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.inputId,
@@ -212,6 +219,7 @@ export class SuperagentRepository {
         row.text,
         row.focus ? JSON.stringify(row.focus) : null,
         row.agentKind ?? null,
+        row.attachSessionId ?? null,
         createdAt,
       )
     return { ...row, createdAt }
@@ -238,6 +246,10 @@ export class SuperagentRepository {
       text: row.text as string,
       ...(typeof row.agent_kind === 'string' && row.agent_kind
         ? { agentKind: row.agent_kind }
+        : {}),
+      // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote.
+      ...(typeof row.attach_session_id === 'string' && row.attach_session_id
+        ? { attachSessionId: asSessionId(row.attach_session_id) }
         : {}),
       focus: parseJsonColumn<QueuedSuperagentInputRow['focus']>(
         row.focus_json,

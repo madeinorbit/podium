@@ -41,6 +41,7 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
     repos: [],
     superThreadId: 'global',
     superOpen: false,
+    attachedSessionId: null,
     dockTab: 'chat' as const,
     superThreads: [],
     paletteOpen: false,
@@ -484,15 +485,40 @@ describe('pane scalars follow the layout', () => {
   })
 })
 
-describe('superagent thread refresh (POD-330, audit item zero)', () => {
-  it('re-reads the thread list after seeding a btw thread, instead of bumping a key', async () => {
-    // The seeding mutation MINTS a thread. Before POD-330 the action bumped a
-    // `superRefreshKey` counter and the view watched it; now the action names
-    // what it wants. A missing refresh here is a view that shows a thread list
-    // without the thread the user just created — silent, and only visible on
-    // the next unrelated refresh.
-    const { actions, refreshSuperThreads } = harness()
-    await actions.startBtw(asSessionId('sess-btw'))
-    expect(refreshSuperThreads).toHaveBeenCalledTimes(1)
+describe('ask superagent (BTW) attaches a session to the next turn (POD-1069)', () => {
+  it('opens the dock and attaches the session, WITHOUT moving the rendered thread', async () => {
+    // THE REGRESSION THIS PINS. The action used to point `superThreadId` at
+    // `btw_<sessionId>`. Nothing has rendered a non-global thread since
+    // POD-782, so the pane bound a thread with no headless session and went
+    // blank — no composer, no way back, and no reset short of a reload, from
+    // all three entry points. The dock must stay on the one chat.
+    const h = harness()
+
+    await h.actions.startBtw(asSessionId('sess-btw'))
+
+    expect(h.state().superThreadId).toBe('global')
+    expect(h.state().attachedSessionId).toBe('sess-btw')
+    expect(h.state().superOpen).toBe(true)
+  })
+
+  it('mints no thread: the attachment is local until the turn that carries it', async () => {
+    // There is nothing to refresh a thread list FOR any more. The session rides
+    // the next `sendTurn` as `attachSessionId` and the server digests it into
+    // that turn's preamble, so an offline client can still line one up.
+    const h = harness()
+
+    await h.actions.startBtw(asSessionId('sess-btw'))
+
+    expect(h.refreshSuperThreads).not.toHaveBeenCalled()
+    expect(h.queued).toEqual([])
+  })
+
+  it("drops the attachment on clear, so the chip's × is not a lie", async () => {
+    const h = harness()
+    await h.actions.startBtw(asSessionId('sess-btw'))
+
+    h.actions.clearAttachedSession()
+
+    expect(h.state().attachedSessionId).toBeNull()
   })
 })
