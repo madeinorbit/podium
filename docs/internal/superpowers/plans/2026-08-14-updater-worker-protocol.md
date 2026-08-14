@@ -46,6 +46,14 @@ Every sub-issue of the updater epic follows this protocol. It is part of your br
   `bun run test:related -- <your changed files>`, then `bun run test` if your plan says so.
 - No fixed sleeps in tests — inject clocks. A `setTimeout` before an assertion is a bug in
   this repo's unit lane.
+- **Gate on the comparison when a shared lane is red.** Known: `apps/web` typecheck is red
+  at the integration base itself (POD-2109, pre-existing on main), and the broad test lane
+  carries pre-existing failures. A bare green is therefore not achievable repo-wide. The
+  gate for landing is: your owned-scope tests green, plus the shared lane's failure set on
+  your branch **byte-identical** to the failure set at your fork point (A/B against a
+  detached worktree at that SHA — no `bun install` there, `--root` is the repo root). Any
+  delta that plausibly touches your files must be resolved before merging; record the
+  comparison (both failure sets, the SHA) in your issue state.
 - New gates/tests must be proven able to fire: make the assertion fail once (mutate the
   code or the fixture), see red, restore, see green. Say so in your issue state.
 - UI changes additionally need a real drive per `docs/agents/driving-podium.md` and the
