@@ -512,9 +512,7 @@ describe('buildFlightDeckRows', () => {
     const reused = reuseFlightDeckRows(previous, next)
     expect(reused).toEqual(next)
     expect(reused).not.toBe(next)
-    expect(reused.map((row, index) => row === previous[index])).toEqual(
-      previous.map(() => true),
-    )
+    expect(reused.map((row, index) => row === previous[index])).toEqual(previous.map(() => true))
   })
 
   it('keeps a changed row fresh and preserves a reordered result', () => {
@@ -530,8 +528,12 @@ describe('buildFlightDeckRows', () => {
     const reordered = [...changed].reverse()
     const reused = reuseFlightDeckRows(previous, reordered)
     expect(reused.map((row) => row.issue.id)).toEqual(reordered.map((row) => row.issue.id))
-    expect(reused.find((row) => row.issue.id === 'c1')).toBe(changed.find((row) => row.issue.id === 'c1'))
-    expect(reused.find((row) => row.issue.id === 'root')).toBe(previous.find((row) => row.issue.id === 'root'))
+    expect(reused.find((row) => row.issue.id === 'c1')).toBe(
+      changed.find((row) => row.issue.id === 'c1'),
+    )
+    expect(reused.find((row) => row.issue.id === 'root')).toBe(
+      previous.find((row) => row.issue.id === 'root'),
+    )
   })
 
   it('projects three levels parent-first with depth, keeping a sessionless task', () => {
@@ -1714,6 +1716,55 @@ describe('presenceNote', () => {
     expect(isVacatedOrigin(origin, [], byId)).toBe(true)
     expect(issueNeedsHuman(origin, [], byId)).toBe(false)
     expect(liveSpinOffTip(origin, byId, sessions)?.id).toBe('tip')
+  })
+
+  // POD-1073, replayed. `attach --spinoff` files the new issue in BACKLOG and
+  // re-homes the session onto it in one step, so between the hop and whatever
+  // stages it later, the origin's only explanation was a stage that said
+  // "nobody has picked this up" about the issue the agent was sitting on.
+  it('names a spin-off an agent already moved onto, even while it sits in the backlog', () => {
+    const origin = issue('a', {
+      seq: 1073,
+      stage: 'done',
+      closedReason: 'done',
+      dependents: [{ id: 'tip', type: 'discovered-from' }],
+    })
+    const tip = issue('tip', {
+      seq: 1085,
+      stage: 'backlog',
+      deps: [{ id: 'a', type: 'discovered-from' }],
+    })
+    const sessions = [sess('s-tip', { issueId: 'tip' })]
+    const byId = index([origin, tip])
+    expect(liveSpinOffTip(origin, byId, sessions)?.id).toBe('tip')
+    expect(issueContinuation(origin, byId, sessions)).toMatchObject({
+      kind: 'spinoff',
+      full: 'Work continued in #1085',
+    })
+    expect(presenceNote(origin, [], byId, sessions)?.text).toBe('Work continued in #1085')
+    expect(
+      missionDepartures([origin, tip], sessions, 'a').map((departure) => departure.issue.id),
+    ).toEqual(['tip'])
+  })
+
+  // The other half of the rule, untouched: work nobody has picked up has not
+  // gone anywhere. It stays on the origin's spine to be triaged there.
+  it('stays silent about a spin-off nobody is on yet', () => {
+    const origin = issue('a', {
+      seq: 1073,
+      stage: 'done',
+      closedReason: 'done',
+      dependents: [{ id: 'tip', type: 'discovered-from' }],
+    })
+    const tip = issue('tip', {
+      seq: 1085,
+      stage: 'backlog',
+      deps: [{ id: 'a', type: 'discovered-from' }],
+    })
+    const byId = index([origin, tip])
+    expect(liveSpinOffTip(origin, byId, [])).toBeNull()
+    expect(issueContinuation(origin, byId, [])).toBeNull()
+    expect(missionDepartures([origin, tip], [], 'a')).toEqual([])
   })
 
   // Total over the stage vocabulary: an unhandled stage used to fall through to

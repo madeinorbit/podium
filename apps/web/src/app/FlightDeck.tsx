@@ -2112,7 +2112,11 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const rootContinuation = root ? issueContinuation(root, byId, sessions) : null
   const rootNote = root ? issueNote(root, byId, sessions) : null
   const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
-  const rootSeat = rootRow ? seatFor(presenceNote(rootRow.issue, rootRow.sessions, byId)) : null
+  // The whole slice as the fourth argument — the root's OWN sessions cannot see
+  // a spin-off its agent hopped to (see `staffedSpinOff`).
+  const rootSeat = rootRow
+    ? seatFor(presenceNote(rootRow.issue, rootRow.sessions, byId, sessions))
+    : null
   /**
    * PROPOSALS LEAVE THE TREE (POD-710 §4.4).
    *
@@ -2729,7 +2733,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 />
               ) : rootSessions.length > 0 ? null : (
                 <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                  {presenceNote(root, rootRow?.sessions ?? [], byId)?.text ||
+                  {presenceNote(root, rootRow?.sessions ?? [], byId, sessions)?.text ||
                     'No sessions or sub-tasks are attached.'}
                 </p>
               ))}

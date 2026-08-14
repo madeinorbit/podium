@@ -1,11 +1,11 @@
 import {
+  type AgentKind,
   asIssueId,
   asSessionId,
-  type AgentKind,
-  type SessionMeta,
-  spawnedByParentSessionId,
   type IssueId,
   type SessionId,
+  type SessionMeta,
+  spawnedByParentSessionId,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
@@ -274,6 +274,31 @@ export function hasLeftMission(issue: IssueNavigationModel): boolean {
   return !UNSTARTED.has(issue.stage) && spinOffOriginId(issue) !== null
 }
 
+/**
+ * A spin-off an AGENT IS SITTING ON. Started, whatever its stage says.
+ *
+ * `attach --spinoff` files the new issue in `backlog` and re-homes the session
+ * onto it in the same breath, and nothing stages it afterwards but the agent
+ * remembering to. So for the whole window between the hop and that update — two
+ * minutes on POD-1073, unbounded when the agent never gets to it — the stage
+ * read "nobody has picked this up" about the one issue an agent had just moved
+ * to, {@link hasLeftMission} was false, and the origin went silent again with
+ * "Completed · session retired": the exact sentence POD-957 shipped to delete.
+ *
+ * A session is the strongest possible statement that work has begun, so it is
+ * read here as one. Deliberately NOT folded into `hasLeftMission`: that
+ * predicate also governs mission MEMBERSHIP through a per-issue-slice index
+ * (see MissionIssueIndex), and membership must stay a fact about the issue
+ * alone. An unstarted spin-off nobody is on still belongs on the origin's spine
+ * for triage — that half of the rule is untouched.
+ */
+function staffedSpinOff(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): boolean {
+  return (
+    spinOffOriginId(issue) !== null &&
+    sessions.some((session) => session.issueId === issue.id && openSession(session))
+  )
+}
+
 function spinOffDescendants(
   originId: string,
   byId: ReadonlyMap<string, IssueNavigationModel>,
@@ -306,10 +331,10 @@ function lastActiveAt(issue: IssueNavigationModel, sessions: readonly SessionMet
 /**
  * Where the work went after a hopscotch spin-off.
  *
- * Walks outgoing `discovered-from` edges that have LEFT the origin (started
- * spin-offs). Prefers a descendant that still has a live session, then an
- * unfinished one, then the latest hop even if it is done — so an empty origin
- * always has a name to print instead of a blank deck.
+ * Walks outgoing `discovered-from` edges that have LEFT the origin — staged out
+ * of the backlog, or {@link staffedSpinOff}. Prefers a descendant that still has
+ * a live session, then an unfinished one, then the latest hop even if it is done
+ * — so an empty origin always has a name to print instead of a blank deck.
  */
 export function liveSpinOffTip(
   origin: Pick<IssueNavigationModel, 'id'>,
@@ -317,12 +342,17 @@ export function liveSpinOffTip(
   sessions: readonly SessionMeta[] = [],
 ): IssueNavigationModel | null {
   if (!byId) return null
-  const left = spinOffDescendants(origin.id, byId).filter(hasLeftMission)
+  const left = spinOffDescendants(origin.id, byId).filter(
+    (issue) => hasLeftMission(issue) || staffedSpinOff(issue, sessions),
+  )
   if (left.length === 0) return null
   const staffed = left.filter((issue) =>
     sessions.some((session) => session.issueId === issue.id && openSession(session)),
   )
-  const pool = staffed.length > 0 ? staffed : left.filter((issue) => !issue.closedReason && issue.stage !== 'done')
+  const pool =
+    staffed.length > 0
+      ? staffed
+      : left.filter((issue) => !issue.closedReason && issue.stage !== 'done')
   const pick = (pool.length > 0 ? pool : left).slice()
   pick.sort((a, b) => lastActiveAt(b, sessions).localeCompare(lastActiveAt(a, sessions)))
   return pick[0] ?? null
@@ -543,12 +573,12 @@ export function missionProgress(
   // out of `scope`, so the fallback never resurrects it.
   const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
   const members = scope.filter((issue) => issue.id !== rootId && issue.stage !== 'proposed')
-  const units = (members.length > 0 ? members : scope.filter((issue) => issue.id === rootId)).filter(
-    (issue) => {
-      const own = sessions.filter((session) => session.issueId === issue.id)
-      return !isVacatedOrigin(issue, own, byId)
-    },
-  )
+  const units = (
+    members.length > 0 ? members : scope.filter((issue) => issue.id === rootId)
+  ).filter((issue) => {
+    const own = sessions.filter((session) => session.issueId === issue.id)
+    return !isVacatedOrigin(issue, own, byId)
+  })
   let done = 0
   let run = 0
   let review = 0
@@ -1246,13 +1276,21 @@ export function presenceNote(
   issue: IssueNavigationModel,
   sessions: readonly SessionMeta[],
   byId?: ReadonlyMap<string, IssueNavigationModel>,
+  /**
+   * Sessions ANYWHERE, for reading where the work went — `sessions` is this
+   * issue's own, and a hop's destination by definition holds none of them.
+   * Defaults to the narrow list so a caller with nothing wider still gets the
+   * stage-based answer; pass the slice to also catch a spin-off that has an
+   * agent on it but no stage yet ({@link staffedSpinOff}).
+   */
+  allSessions: readonly SessionMeta[] = sessions,
 ): PresenceNote | null {
   if (sessions.some(openSession)) return null
   const moved = sessions.find((session) => session.handoffTarget)
   if (moved) {
     return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
   }
-  const continuation = issueContinuation(issue, byId, sessions)
+  const continuation = issueContinuation(issue, byId, allSessions)
   if (continuation) {
     return { kind: 'moved', text: continuation.full, attention: false }
   }

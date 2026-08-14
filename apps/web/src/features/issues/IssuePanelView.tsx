@@ -954,7 +954,10 @@ export function IssuePanelView({
   // Total over the stage vocabulary since POD-516/9a05afd59: the only null is
   // "this issue has live sessions", which is the branch that renders agent rows
   // instead. No local fallback — a second set of words here is what drifts.
-  const presence = presenceNote(issue, all, issueById)
+  // The whole slice as the fourth argument, not just this issue's sessions: a
+  // hop's destination holds none of THESE, and reading where the work went is
+  // what tells a vacated origin from one whose agent simply retired.
+  const presence = presenceNote(issue, all, issueById, sessions)
 
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
   const parent = issue.parentId ? issueById.get(issue.parentId) : undefined
