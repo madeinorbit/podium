@@ -40,6 +40,13 @@ export interface AnswerDeliveryDeps {
       text: string
       principal: InboxPrincipalReference
     }): { ok: boolean; reason?: string }
+    /** The migrated send (POD-1761 W4, C4). Optional so the fixtures that wire
+     *  `resumeAndSend` alone stay on the legacy path — which is the flag-off
+     *  behaviour they were written to pin. */
+    receiptSend?(
+      via: 'wake',
+      input: { sessionId: SessionId; text: string; principal: InboxPrincipalReference },
+    ): { ok: boolean; reason?: string }
   }
   rpc: {
     readTranscript(input: {
@@ -82,9 +89,18 @@ export async function deliverAnswerToSession(
     if (!input.textFallback) {
       return { ok: false, message: `no pending question (phase=${state?.phase ?? 'unknown'})` }
     }
-    // No live menu → the answer is an ordinary message; resumeAndSend is the
-    // durable path (live sends now, parked/starting queues + wakes).
-    const r = deps.sessions.resumeAndSend({ sessionId, text: answer, principal: input.principal })
+    // No live menu → the answer is an ordinary message; the wake path is the
+    // durable one (live sends now, parked/starting queues + wakes).
+    //
+    // NOTE THE PHASE READ ABOVE STAYS (POD-1761 W4, C4). It asks whether there
+    // is a QUESTION ON SCREEN to answer natively — a question about what the
+    // agent is showing, which no send receipt can answer and which decides
+    // between two different actions, not two deliveries. What the migration
+    // removes is the readiness guess INSIDE the send it falls back to.
+    const send = deps.sessions.receiptSend
+    const r = send
+      ? send('wake', { sessionId, text: answer, principal: input.principal })
+      : deps.sessions.resumeAndSend({ sessionId, text: answer, principal: input.principal })
     return r.ok ? { ok: true, via: 'text' } : { ok: false, message: r.reason ?? 'send failed' }
   }
   // The live prompt's options live in the transcript: the LAST

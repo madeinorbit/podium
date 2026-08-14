@@ -1639,8 +1639,16 @@ export class SessionRegistry {
       store: this.store.automations,
       ledger,
       createSession: (o) => sessionsSvc.createSession(o),
-      queueText: (o) => sessionsSvc.queueText(o),
-      resumeAndSend: (o) => sessionsSvc.resumeAndSend(o),
+      // MIGRATED AT THE PORT, NOT IN THE SERVICE (POD-1761 W4, C4). Automations
+      // already names its two transports as ports and asks nothing about session
+      // phase — the delivery decision it makes is "durable outbox for a fresh
+      // prompt, wake for a resume", which is a policy the contract expresses
+      // directly. So the honest migration is to point the ports at the seam and
+      // leave the service alone; rewriting it would change code that was never
+      // the problem, and its `{ok, reason}` handling (spawn throws
+      // AutomationSpawnError on a rejected prompt) is unchanged either way.
+      queueText: (o) => sessionsSvc.receiptSend('queue', o),
+      resumeAndSend: (o) => sessionsSvc.receiptSend('wake', o),
       createIssue: (o) => {
         const issue = issues.create({
           ...o,
@@ -2475,14 +2483,47 @@ export class SessionRegistry {
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
       sessionOwner: (sessionId) => sessionsSvc.sessionOwner(sessionId)?.owner,
-      // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
+      /**
+       * Durable outbox path: the nudge survives restarts and waits out a booting
+       * TUI.
+       *
+       * MIGRATED TO THE CONTRACT AS `queue`, NOT `when-ready` (POD-1761 W4, C2).
+       * The name `sendTextWhenReady` describes the INTENT and has always been
+       * implemented as `queueText`; under the contract's split, `when-ready` is
+       * the daemon's in-memory path, which cannot resurrect a parked session. A
+       * literal reading of the name would therefore have downgraded every steward
+       * nudge from "wakes the session" to "dropped if nobody is home" — the exact
+       * class of silent regression this migration is supposed to make impossible.
+       * `queue` is server-completed and durable, so wake/resurrect semantics are
+       * preserved exactly and the receipt simply names what already happened.
+       */
       sendTextWhenReady: (sessionId, text, mutationId) => {
-        const result = sessionsSvc.queueText({
-          sessionId,
-          text,
-          ...(mutationId ? { mutationId } : {}),
-          inputOrigin: 'steward',
-        })
+        const result = sessionsSvc.receiptSend(
+          'queue',
+          {
+            sessionId,
+            text,
+            ...(mutationId ? { mutationId } : {}),
+            inputOrigin: 'steward',
+          },
+          (receipt) => {
+            // LEDGER-VISIBLE, NEVER A RESEND — the uniform `unverified` policy,
+            // applied to a sender that has no message row to stamp. A nudge that
+            // did not durably queue is worth a record; one that did is the
+            // ordinary case and says nothing new.
+            if (receipt.outcome === 'queued') return
+            this.store.events.appendEvent({
+              ts: new Date().toISOString(),
+              kind: 'steward.nudge_receipt',
+              subject: sessionId,
+              payload: {
+                outcome: receipt.outcome,
+                ...(receipt.outcome === 'refused' ? { reason: receipt.refusal.reason } : {}),
+                ...('deliveredAs' in receipt ? { deliveredAs: receipt.deliveredAs } : {}),
+              },
+            })
+          },
+        )
         if (!result.ok) throw new Error(result.reason ?? 'failed to durably queue steward nudge')
       },
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not

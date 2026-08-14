@@ -251,7 +251,11 @@ export function buildSuperagentTools(
         if (first) {
           // Durable queued send: delivers once the CLI settles, survives a failed
           // spawn attempt AND a server restart (unlike the old in-memory timer).
-          sessions.queueText({ sessionId, text: first })
+          // `queue` under the contract too (POD-1761 W4, C3): the durability IS
+          // the point here, and it is the one delivery that completes on the
+          // server rather than in a daemon that may not have bound this session
+          // yet — which is precisely the window a first message has to survive.
+          sessions.receiptSend('queue', { sessionId, text: first })
         }
         return JSON.stringify({ sessionId, cwd, agentKind })
       },
@@ -346,7 +350,13 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const r = sessions.resumeAndSend({
+        // `wake` (POD-1761 W4, C3) — the resume-then-send shape, migrated whole.
+        // The seam keeps the one question `resumeAndSend` was really asking (is
+        // there a live process with nothing queued ahead of this) and drops the
+        // one it should not ask any more (is that process READY for bytes): the
+        // first is a lifecycle fact no receipt can supply, the second is exactly
+        // the prediction a receipt replaces.
+        const r = sessions.receiptSend('wake', {
           sessionId: sessionIdArg(args.sessionId),
           text: str(args.text) ?? '',
         })
