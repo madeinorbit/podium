@@ -588,14 +588,65 @@ describe('the human-controller lease', () => {
     const sessionId = session.binding.sessionId
     await session.lease.acquire('human:mgw', 'human-controller')
 
-    // A human-origin send under a human's lease is the person themselves. Queueing
-    // it would make the takeover lease a lock against its own holder.
+    // A human-origin send BY THE HOLDER is the person themselves. Queueing it
+    // would make the takeover lease a lock against its own holder.
+    //
+    // THE PRINCIPAL IS NOW LOAD-BEARING (POD-1761 W4, W3-review precondition 1).
+    // This assertion used to hold with no principal at all, because the check
+    // asked only whether the origin was human — which let a SECOND person type
+    // into the takeover too. The rule now compares the acting principal against
+    // `lease.holder`, so this test says what it always meant: not "a human sent
+    // it" but "the holder sent it".
     world.hookOnSubmit(sessionId)
     const receipt = await session.send(
       { text: 'typed by the person holding it' },
-      { origin: 'human', delivery: 'when-ready' },
+      {
+        origin: 'human',
+        delivery: 'when-ready',
+        principal: { kind: 'user', ref: 'human:mgw' },
+      },
     )
     expect(receipt.outcome).toBe('accepted')
+  })
+
+  it('queues a second person behind the holder instead of interleaving', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    await session.lease.acquire('human:mgw', 'human-controller')
+
+    // Human origin, but NOT the holder. Before the fix this was indistinguishable
+    // from the holder's own send and went straight to the PTY, on top of whatever
+    // the holder was in the middle of typing.
+    const resolved = await session.send(
+      { text: 'someone else' },
+      { origin: 'human', delivery: 'when-ready', principal: { kind: 'user', ref: 'human:other' } },
+    )
+
+    // QUEUED, NOT REFUSED. The contract's `lease_held` says headless drivers
+    // queue rather than interleave; a takeover must not turn other people's work
+    // into dropped work.
+    expect(resolved.outcome).toBe('queued')
+    if (resolved.outcome !== 'queued') return
+    expect(resolved.deliveredAs).toBe('queue')
+  })
+
+  it('queues a human-origin send that cannot prove it is the holder', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    await session.lease.acquire('human:mgw', 'human-controller')
+
+    // No principal at all. It MIGHT be the holder, and that is exactly the point:
+    // the send cannot prove it, so it queues. Queueing costs an ordering delay
+    // and interleaving costs a corrupted turn, so the unprovable case takes the
+    // cheaper failure.
+    const resolved = await session.send(
+      { text: 'anonymous' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+
+    expect(resolved.outcome).toBe('queued')
   })
 })
 
@@ -744,83 +795,6 @@ describe('the queue drain', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (let i = 0; i < 400; i++) await Promise.resolve()
     expect(world.written[0]).toBe('\u001b[200~queued\u001b[201~')
-  })
-})
-
-describe('the control lease, and who is holding it', () => {
-  let world: World
-
-  beforeEach(() => {
-    world = makeWorld()
-  })
-
-  /**
-   * ONE LEASE MEANS ONE HOLDER, NOT ONE CATEGORY (POD-1761 W4, closing W3's
-   * review precondition 1).
-   *
-   * The check used to key on `origin !== 'human'`, which serialized the steward
-   * behind a takeover but let a SECOND PERSON type straight into it. Two humans
-   * interleaving mid-turn is the exact race the one-lease rule exists to
-   * prevent, and it was reachable because `SendOptions` carried no holder
-   * identity to compare against. The identity it compares now is the acting
-   * principal's `ref` — folded into the principal the contract already carries
-   * rather than added beside it, because two ids for "who is typing" can
-   * disagree.
-   *
-   * These two run as a PAIR on purpose: either half alone is satisfied by a
-   * rule that is wrong in the other direction (always queue, or never queue).
-   */
-  it('lets the lease holder type into their own takeover', async () => {
-    const driver = world.runtime.driverFor('claude-code', CLAUDE)
-    const session = await driver.create(SPEC)
-    const sessionId = session.binding.sessionId
-    await session.attach({ mode: 'takeover', holder: 'person-a' })
-
-    world.hookOnSubmit(sessionId)
-    const resolved = await session.send(
-      { text: 'my own terminal' },
-      { origin: 'human', delivery: 'when-ready', principal: { kind: 'user', ref: 'person-a' } },
-    )
-
-    expect(resolved.outcome).toBe('accepted')
-  })
-
-  it('queues a second person behind the holder instead of interleaving', async () => {
-    const driver = world.runtime.driverFor('claude-code', CLAUDE)
-    const session = await driver.create(SPEC)
-    await session.attach({ mode: 'takeover', holder: 'person-a' })
-
-    // Human origin, but NOT the holder. Before the fix this was indistinguishable
-    // from the holder's own send and went straight to the PTY, on top of whatever
-    // person-a was in the middle of typing.
-    const resolved = await session.send(
-      { text: 'someone else' },
-      { origin: 'human', delivery: 'when-ready', principal: { kind: 'user', ref: 'person-b' } },
-    )
-
-    // QUEUED, NOT REFUSED. The contract's `lease_held` says headless drivers
-    // queue rather than interleave; a takeover must not turn other people's work
-    // into dropped work.
-    expect(resolved.outcome).toBe('queued')
-    if (resolved.outcome !== 'queued') return
-    expect(resolved.deliveredAs).toBe('queue')
-  })
-
-  it('queues a human-origin send that cannot prove it is the holder', async () => {
-    const driver = world.runtime.driverFor('claude-code', CLAUDE)
-    const session = await driver.create(SPEC)
-    await session.attach({ mode: 'takeover', holder: 'person-a' })
-
-    // No principal at all. It MIGHT be person-a, and that is exactly the point:
-    // the send cannot prove it, so it queues. Queueing costs an ordering delay
-    // and interleaving costs a corrupted turn, so the unprovable case takes the
-    // cheaper failure.
-    const resolved = await session.send(
-      { text: 'anonymous' },
-      { origin: 'human', delivery: 'when-ready' },
-    )
-
-    expect(resolved.outcome).toBe('queued')
   })
 })
 
