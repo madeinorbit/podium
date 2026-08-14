@@ -12,7 +12,7 @@ import {
   type ShipHoldCode,
   type ShipOrder,
   type ShipwrightAttemptResult,
-  type ShipwrightBudget,
+  ShipwrightBudget,
   type ShipwrightFailureKind,
   type ShipwrightLevel,
   type ShipwrightRoute,
@@ -713,8 +713,8 @@ export class ShipwrightService {
       input.level === 'inspector'
         ? jsonSchema(ShipwrightInspectionContract)
         : jsonSchema(ShipwrightPatchContract)
-    const contract = parse(response.output)
-    if (!contract) {
+    const decoded = parse(response.output)
+    if (!decoded) {
       return {
         kind: 'hold',
         reason: 'invalid-output',
@@ -723,6 +723,20 @@ export class ShipwrightService {
         receipt,
       }
     }
+    const normalized =
+      decoded.kind === 'inspection'
+        ? ShipwrightInspectionContract.safeParse(decoded)
+        : ShipwrightPatchContract.safeParse(decoded)
+    if (!normalized.success) {
+      return {
+        kind: 'hold',
+        reason: 'invalid-output',
+        detail: 'shipwright output did not match its patch contract',
+        evidence: [],
+        receipt,
+      }
+    }
+    const contract = normalized.data
     if (contract.kind === 'inspection') {
       if (contract.verdict !== 'safe') {
         return {

@@ -1,6 +1,7 @@
 import { asMachineId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
+import type { ModelCatalogSnapshot } from '../../model-catalog'
 import {
   evaluateShipwrightRouterCase,
   routeShipwright,
@@ -18,7 +19,7 @@ const settings = normalizeSettings({
     },
   },
 })
-const catalog = {
+const catalog: ModelCatalogSnapshot = {
   machineId,
   fetchedAt: Date.now(),
   byAgent: {
@@ -26,6 +27,7 @@ const catalog = {
       { value: 'family-a/frontier', label: 'Frontier', efforts: ['medium', 'high'] },
       { value: 'family-b/fast', label: 'Fast', efforts: ['low', 'medium'] },
     ],
+    codex: [],
     grok: [{ value: 'fast-repair', label: 'Fast repair', efforts: ['medium', 'high'] }],
   },
 }
