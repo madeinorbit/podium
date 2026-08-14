@@ -234,7 +234,7 @@ export function accountOptions(
   if (role === 'shipwright') {
     return allNative.filter((option) => {
       const harness = option.id.slice('native:'.length).split(':', 1)[0]
-      return harnessSupportsNoTools(harness)
+      return harness !== undefined && harnessSupportsNoTools(harness)
     })
   }
   if (role === 'superagent') return allNative
