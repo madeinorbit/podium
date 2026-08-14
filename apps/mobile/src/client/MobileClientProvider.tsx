@@ -6,8 +6,10 @@
  * local data and offline writes replay on reconnect.
  *
  * READ PATH (POD-1241): KernelReplica + FeedAuthorityClient over the v2 feed,
- * with entity rows in SqliteSyncStore. WRITE PATH (POD-1220): the durable
- * outbox binding already on SQLite. AsyncStorage holds only side-cache
+ * with entity rows in SqliteSyncStore. WRITE PATH (POD-1220 durable, POD-2073
+ * kernel-driven): the queue's rows have been in SQLite since POD-1220, and the
+ * state machine over them is now the kernel `Outbox` the web app runs — see
+ * `openKernelEngineOutbox` below. AsyncStorage holds only side-cache
  * (ui-state, transcript windows), the pre-migration legacy bridge, and small
  * pre-replica app metadata (server profiles, cleanup intents, credential id
  * registry) — never authoritative per-user state, which is replicated rows
@@ -30,12 +32,17 @@
  * surface therefore exercises the same slices as the product.
  */
 
-import { OUTBOX_COMMANDS, outboxCommandFor } from '@podium/client-core/engine'
+import type { PodiumClientApi } from '@podium/client-core/api'
+import {
+  type CreateEngineOutbox,
+  OUTBOX_COMMANDS,
+  openKernelEngineOutbox,
+  outboxCommandFor,
+} from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
-  createKernelOutboxStorage,
   createKernelReplica,
   createReplica,
   createSideCache,
@@ -185,6 +192,18 @@ export interface MobileReplicaDeps {
    * (POD-541). Tests inject a file-backed SQLite the same way as before.
    */
   readonly openStore: () => Promise<MobileEntityStore>
+  /**
+   * THE AUTHORITY THE QUEUE SENDS TO (POD-2073).
+   *
+   * A dependency of the ASSEMBLY, not of the provider, because the kernel
+   * `Outbox` is opened here: it takes its submit port at construction, and it
+   * has to be open before the store mounts so a cold start reads a queue that
+   * has already reconciled (a crash mid-send returns to `queued`, an aged entry
+   * is already parked) rather than one that reconciles under the first render.
+   * Web reaches the same conclusion by the same route — `openKernelAssembly`
+   * takes `trpc` for exactly this and nothing else.
+   */
+  readonly api: PodiumClientApi
   /** The hydrated AsyncStorage bridge: the legacy migration's source AND the
    *  side-cache home for ui-state / transcript windows. */
   readonly storage: StorageApi
@@ -224,6 +243,17 @@ export interface MobileReplica {
   readonly replica: Replica
   /** Wire-v2 feed sink. Supplied WITH the replica; neither half is meaningful alone. */
   readonly feed: FeedSinkPort
+  /**
+   * The engine's write queue: the kernel `Outbox` state machine, already open
+   * over this principal's SQLite outbox rows (POD-2073).
+   *
+   * Handed over as a FACTORY rather than as the queue itself because the engine
+   * supplies the half this assembly cannot know — the notices surface, the
+   * overlay's applied/dropped callbacks, and the platform connectivity seams —
+   * and it may be consumed exactly once, which is what stops two engines from
+   * driving one durable queue.
+   */
+  readonly createOutboxFn: CreateEngineOutbox
   /** What the migration did — the caller tells the user (D4.4). */
   readonly outcome: LegacyMigrationOutcome
   readonly store: MobileEntityStore
@@ -358,15 +388,43 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     now,
   })
 
-  const outboxes = await createKernelOutboxStorage({
-    outbox: view.outbox,
-    resolveCommand: resolveMobileCommand,
-    attribution,
-    onDegraded: (error) => deps.onDegraded(String(error)),
+  // ---- THE WRITE QUEUE (POD-2073) -----------------------------------------
+  //
+  // The kernel `Outbox` state machine, over the SAME SQLite rows the migration
+  // above just wrote into — which is why it is opened HERE and not a line
+  // earlier: `KernelOutbox.open` reads the store once and reconciles what it
+  // finds, so a legacy entry that arrived after the open would sit in the file
+  // unseen until the next cold start.
+  //
+  // It REPLACES the compatibility queue mobile used to drive over these same
+  // rows through `createKernelOutboxStorage`. Both drivers writing one store was
+  // never an option (`facade.ts`'s header says why: two writers over records the
+  // kernel Outbox owns), and the compatibility one is the weaker of the two — a
+  // flat 5-second retry, one global ordering partition, and no age horizon, so a
+  // phone that had been offline for a fortnight replayed writes whose receipts
+  // the server had already pruned. What arrives with this driver is what web has
+  // had since POD-1232: per-target partitions with collapse keys, exponential
+  // backoff, and D10's expiry sweep resolving aged work into recoverable
+  // dead letters instead of retrying it forever.
+  const createOutboxFn = await openKernelEngineOutbox({
+    store: view.outbox,
+    // ADR 3 D7: the AUTHENTICATED principal, which is also what stamped the
+    // attribution on every row the migration just adopted. The Outbox binds to
+    // it, and another principal's rows in the same file are invisible to this
+    // instance by construction rather than by a filter someone remembers.
+    principal,
+    api: deps.api,
+    onDegraded: (detail) => deps.onDegraded(String(detail)),
+    // ONE clock across the assembly. `migrateLegacyReplica` stamped `queuedAt`
+    // from `now` moments ago and D10 measures the age horizon from it, so a
+    // second clock here could sweep a just-migrated row into dead-letter
+    // recovery for being a fortnight old.
+    now,
   })
 
-  // Side cache: ui-state + transcript windows on the AsyncStorage bridge.
-  // Outbox does NOT live here (ADR 6 D1) — it is injected from SQLite below.
+  // Side cache: ui-state + transcript windows on the AsyncStorage bridge. The
+  // outbox is not here and is not reachable from here (ADR 6 D1) — its rows are
+  // in SQLite and the kernel Outbox above is the only thing that drives them.
   const side = createSideCache({
     storage: deps.storage,
     enumerateKeys: deps.enumerateKeys ?? (() => []),
@@ -380,7 +438,6 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   const facade = createKernelReplica({
     cache: view.cache,
     side,
-    outbox: outboxes,
     // POD-1510, same closure-deferred edge as web: the kernel Replica is built
     // below (it needs `facade.onKernelEvent`), so the facade takes its exit
     // record as a function rather than a value. Wired on BOTH platforms
@@ -419,6 +476,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   return {
     replica: facade,
     feed,
+    createOutboxFn,
     outcome,
     store,
     principal,
@@ -725,6 +783,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
                 ),
             })
           },
+          // The same client the store gets, so the queue sends through the
+          // transport the rest of the app is authenticated on (POD-2073).
+          api: trpc,
           storage: bridge.storage,
           enumerateKeys: bridge.keys,
           flushStorage: bridge.flush,
@@ -844,6 +905,12 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // Wire v2 advertisement + frame sink (POD-1241). Providing this is how
       // the hub sends wireVersion and receives feedDelta/feedBootstrap/…
       feed={openedReplica.feed}
+      // The kernel write queue, already open over this principal's SQLite rows
+      // (POD-2073). Without this the engine would build its own compatibility
+      // queue over `replica.outboxStorage()` — which on this path is the side
+      // cache, i.e. AsyncStorage — and the durable rows in SQLite would have no
+      // driver at all: every queued offline write invisible and unsent.
+      createOutboxFn={openedReplica.createOutboxFn}
       routerWindow={routerWindow}
       // Visibility, connectivity and ping cadence, from the platform rather
       // than from browser globals a phone does not have (POD-2055 WP-C).

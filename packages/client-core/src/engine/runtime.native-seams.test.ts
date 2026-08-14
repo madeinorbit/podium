@@ -17,14 +17,17 @@
  */
 
 import { asUserId } from '@podium/model'
+import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import type { OnlineEvents } from '../outbox'
 import { asClientPrincipal } from '../principal'
 import { createReplica, memoryStorage } from '../replica/replica'
 import type { SocketHub, SocketHubOptions } from '../socket-transport'
-import type { VisibilitySource } from './visibility'
+import { openKernelEngineOutbox } from './kernel-outbox'
 import { createClientRuntime } from './runtime'
+import type { VisibilitySource } from './visibility'
+import type { CreateEngineOutbox } from './wiring'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -130,8 +133,13 @@ function makeEngine(
     heartbeatIntervalMs?: number
     hub?: FakeHub
     api?: PodiumClientApi
+    createOutboxFn?: CreateEngineOutbox
   } = {},
-): { engine: ReturnType<typeof createClientRuntime>; hub: FakeHub; hubOptions: SocketHubOptions[] } {
+): {
+  engine: ReturnType<typeof createClientRuntime>
+  hub: FakeHub
+  hubOptions: SocketHubOptions[]
+} {
   const hub = init.hub ?? new FakeHub()
   const hubOptions: SocketHubOptions[] = []
   const engine = createClientRuntime({
@@ -147,6 +155,7 @@ function makeEngine(
     ...(init.visibility ? { visibility: init.visibility } : {}),
     ...(init.onlineEvents ? { onlineEvents: init.onlineEvents } : {}),
     ...(init.isOnline ? { isOnline: init.isOnline } : {}),
+    ...(init.createOutboxFn ? { createOutboxFn: init.createOutboxFn } : {}),
     ...(init.heartbeatIntervalMs !== undefined
       ? { heartbeatIntervalMs: init.heartbeatIntervalMs }
       : {}),
@@ -230,6 +239,72 @@ describe('the outbox takes its connectivity from the injected seams', () => {
   it('releases the injected subscription on dispose', () => {
     const onlineEvents = fakeOnlineEvents()
     const { engine } = makeEngine({ onlineEvents, isOnline: () => false })
+    engine.start()
+    expect(onlineEvents.subscribers()).toBe(1)
+    engine.destroy()
+    expect(onlineEvents.subscribers()).toBe(0)
+  })
+})
+
+/**
+ * THE SAME TWO CASES, ON THE QUEUE THE PHONE ACTUALLY RUNS (POD-2073).
+ *
+ * The pair above drives the COMPATIBILITY `Outbox`, which has taken these seams
+ * since POD-2055 WP-C2. Mobile does not run that queue any more: it runs the
+ * kernel `Outbox` through `createOutboxFn`, the same driver as web. That driver
+ * read `platformOnlineEvents()`/`platformIsOnline()` off the module, so on a
+ * device it subscribed to nothing (no `window` `online` event exists there) and
+ * believed `navigator.onLine === undefined` meant online — a phone in airplane
+ * mode that thought it could send, and a phone coming back onto Wi-Fi with no
+ * edge to drain on.
+ *
+ * These are the same assertions against the same fakes, differing only in which
+ * driver the runtime was given. Two passing suites over one behaviour is the
+ * point: a fix applied to one queue and not the other reads as green everywhere
+ * except on the platform it was for.
+ */
+describe('the KERNEL outbox takes its connectivity from the same injected seams', () => {
+  async function kernelDriver(api: PodiumClientApi): Promise<CreateEngineOutbox> {
+    return openKernelEngineOutbox({
+      store: new InMemoryOutboxStore(),
+      principal: 'operator',
+      api,
+      onDegraded: () => {},
+    })
+  }
+
+  it('holds a queued write while the injected probe says offline, and drains on the injected event', async () => {
+    const { api, layoutSets } = makeApi()
+    const onlineEvents = fakeOnlineEvents()
+    const { engine } = makeEngine({
+      api,
+      onlineEvents,
+      isOnline: () => false,
+      createOutboxFn: await kernelDriver(api),
+    })
+    engine.start()
+    engine.getSnapshot().setDockTab('git')
+    await settle()
+    // Durably queued and NOT sent. Without the injected probe this driver would
+    // have called `platformIsOnline()`, got `true` under happy-dom, and sent it.
+    expect(engine.outbox.pending()).toHaveLength(1)
+    expect(layoutSets).toHaveLength(0)
+
+    onlineEvents.fire()
+    await settle()
+    expect(layoutSets).toHaveLength(1)
+    expect(engine.outbox.pending()).toHaveLength(0)
+  })
+
+  it('releases the injected subscription on dispose', async () => {
+    const { api } = makeApi()
+    const onlineEvents = fakeOnlineEvents()
+    const { engine } = makeEngine({
+      api,
+      onlineEvents,
+      isOnline: () => false,
+      createOutboxFn: await kernelDriver(api),
+    })
     engine.start()
     expect(onlineEvents.subscribers()).toBe(1)
     engine.destroy()
