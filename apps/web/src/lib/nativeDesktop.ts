@@ -33,6 +33,16 @@ export interface NativeDesktopBridge {
    */
   openExternal?: (url: string) => Promise<void>
   /**
+   * Syncs the native window appearance (NSAppearance on macOS) with the page's resolved
+   * theme. The vibrancy material behind the transparent command bar renders with the
+   * WINDOW's appearance, which follows the OS — not the page's data-theme/.dark state —
+   * so an explicit light/dark choice must be forwarded. `null` returns the window to
+   * following the system; REQUIRED for mode=system, because forcing an appearance also
+   * flips the webview's prefers-color-scheme, which would lock system mode in place.
+   * Absent on shells older than this bridge method.
+   */
+  setTheme?: (theme: 'light' | 'dark' | null) => Promise<void>
+  /**
    * [spec:SP-3701] Present only in client mode: rewrite the local config to daemon mode with a
    * hub-minted pairing code. Caller restarts the shell afterwards (window.__PODIUM_RESTART__).
    */

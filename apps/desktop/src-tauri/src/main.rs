@@ -25,6 +25,7 @@ const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "core:window:allow-toggle-maximize",
     "core:window:allow-minimize",
     "core:window:allow-close",
+    "core:window:allow-set-theme",
     "allow-claim-update-ownership",
     "allow-check-update",
     "allow-install-update",
@@ -276,6 +277,14 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     // because the webview answers a same-origin `_blank` with an in-app window. Runs on the
     // opener:default grant the shim already uses ("external-link-opener" capability).
     let open_external = ",\n            openExternal: (url) => window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url })";
+    // Native appearance sync (macOS vibrancy): the NSVisualEffectView behind the
+    // transparent command bar renders with the WINDOW's NSAppearance, which follows
+    // the OS — not the page's data-theme/.dark state. The page reports its resolved
+    // theme here ('light' | 'dark' | null); null returns the window to following the
+    // system. Passing null for mode=system is load-bearing: forcing an appearance
+    // also flips the webview's prefers-color-scheme, which would lock system mode
+    // to whatever was last forced.
+    let set_theme = ",\n            setTheme: (theme) => window.__TAURI_INTERNALS__.invoke('plugin:window|set_theme', { label: 'main', value: theme })";
     // This device's paired machine identity (daemon.json), so the web UI can mark the
     // matching row "this machine". serde_json escaping — the value comes from disk.
     let machine_id = machine_id
@@ -297,7 +306,7 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
             launchMode: {launch_mode_expression}{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
-            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{open_external}{enable_hosting}
+            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{open_external}{set_theme}{enable_hosting}
         }});"#
     )
 }
@@ -840,13 +849,16 @@ fn main() {
                     // [spec:SP-3834] Native desktop chrome replaces the separate OS title bar.
                     #[cfg(target_os = "macos")]
                     let window_builder = window_builder
-                        // HeaderView is the semantic NSVisualEffectView material for a
-                        // command bar. The web document makes only that 48px band
+                        // Sidebar is the visibly translucent chrome material (Finder,
+                        // Notes). HeaderView — the semantic pick for a command bar —
+                        // composites in dark mode to within ~3% luminance of the opaque
+                        // bar it replaces (measured #232628 vs --bar #1b1d21), i.e. it
+                        // reads as opaque. The web document makes only the 48px band
                         // transparent; the content row remains an opaque app surface.
                         .transparent(true)
                         .effects(
                             EffectsBuilder::new()
-                                .effect(Effect::HeaderView)
+                                .effect(Effect::Sidebar)
                                 .state(EffectState::FollowsWindowActiveState)
                                 .build(),
                         )
@@ -1019,6 +1031,7 @@ mod tests {
                 "core:window:allow-toggle-maximize",
                 "core:window:allow-minimize",
                 "core:window:allow-close",
+                "core:window:allow-set-theme",
                 "allow-claim-update-ownership",
                 "allow-check-update",
                 "allow-install-update",
@@ -1086,6 +1099,18 @@ mod tests {
             let hook = native_desktop_hook(mode, None);
             assert!(hook.contains("openExternal: (url) =>"));
             assert!(hook.contains("invoke('plugin:opener|open_url', { url })"));
+        }
+    }
+
+    #[test]
+    fn native_hook_syncs_native_appearance_in_every_launch_mode() {
+        // The macOS vibrancy layer renders with the window's NSAppearance, not the
+        // page's data-theme state; the page reports its resolved theme through this
+        // method (null = follow the system). Present in every mode — feature-detected.
+        for mode in ["all-in-one", "server", "daemon", "client"] {
+            let hook = native_desktop_hook(mode, None);
+            assert!(hook.contains("setTheme: (theme) =>"));
+            assert!(hook.contains("invoke('plugin:window|set_theme', { label: 'main', value: theme })"));
         }
     }
 

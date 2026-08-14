@@ -2,6 +2,7 @@ import { readPreAuthTheme, writePreAuthTheme } from '@podium/client-core'
 import { THEME_UI_KEYS } from '@podium/model/browser'
 import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useEffect, useState } from 'react'
+import { nativeDesktopBridge } from '../lib/nativeDesktop'
 import { useStoreSelector } from './store'
 
 export type ThemePreset = 'shadcn' | 'podium' | 'superade'
@@ -51,6 +52,14 @@ export function applyTheme(state: ThemeState, root: HTMLElement, prefersDark = f
   if (state.preset === 'shadcn') root.removeAttribute('data-theme')
   else root.setAttribute('data-theme', state.preset)
   root.classList.toggle('dark', resolveDark(state.mode, prefersDark))
+  // Desktop shell: keep the native window appearance on the page's theme. The macOS
+  // vibrancy layer behind the transparent command bar renders with the window's
+  // NSAppearance (OS-driven), so an explicit light/dark choice must be forwarded or
+  // the bar stays in the system's appearance regardless of the page. 'system' hands
+  // control back (null) — forcing an appearance would flip prefers-color-scheme and
+  // lock system mode to whatever was last forced. The index.html anti-flash script
+  // mirrors this call for the pre-React paint.
+  void nativeDesktopBridge()?.setTheme?.(state.mode === 'system' ? null : state.mode)
 }
 
 interface ThemeContextValue extends ThemeState {

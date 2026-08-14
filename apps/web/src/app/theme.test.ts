@@ -49,4 +49,44 @@ describe('applyTheme', () => {
     expect(el.getAttribute('data-theme')).toBe('superade')
     expect(el.classList.contains('dark')).toBe(true)
   })
+  // The macOS vibrancy layer renders with the window's NSAppearance, not the page
+  // theme, so applyTheme forwards the resolved mode to the shell. System hands
+  // control back (null): forcing an appearance flips prefers-color-scheme, which
+  // would lock system mode to whatever was last forced.
+  it('forwards explicit modes to the desktop shell and releases system mode', () => {
+    const calls: Array<'light' | 'dark' | null> = []
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      minimize: () => Promise.resolve(),
+      toggleMaximize: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+      setTheme: (theme: 'light' | 'dark' | null) => {
+        calls.push(theme)
+        return Promise.resolve()
+      },
+    }
+    try {
+      const el = document.createElement('html')
+      applyTheme({ preset: 'superade', mode: 'dark' }, el)
+      applyTheme({ preset: 'superade', mode: 'light' }, el)
+      applyTheme({ preset: 'superade', mode: 'system' }, el, true)
+      expect(calls).toEqual(['dark', 'light', null])
+    } finally {
+      delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
+    }
+  })
+  it('tolerates shells older than the setTheme bridge method', () => {
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      minimize: () => Promise.resolve(),
+      toggleMaximize: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+    }
+    try {
+      const el = document.createElement('html')
+      expect(() => applyTheme({ preset: 'superade', mode: 'dark' }, el)).not.toThrow()
+    } finally {
+      delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
+    }
+  })
 })

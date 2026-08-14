@@ -28,6 +28,11 @@
           if (desktop && /^(macos|windows|linux)$/.test(desktop.platform)) {
             el.dataset.podiumDesktop = 'true'
             el.dataset.podiumPlatform = desktop.platform
+            // Pre-paint native appearance sync (mirrors applyTheme in src/theme.tsx):
+            // the macOS vibrancy layer follows the window's NSAppearance, not the
+            // page theme; null hands system mode back to the OS. Feature-detected —
+            // older shells have no setTheme.
+            if (desktop.setTheme) desktop.setTheme(mode === 'system' ? null : mode)
           }
           if (preset === 'shadcn') el.removeAttribute('data-theme')
           else el.setAttribute('data-theme', preset)
