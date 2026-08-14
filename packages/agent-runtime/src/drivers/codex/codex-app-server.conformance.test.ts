@@ -158,9 +158,21 @@ function makeWorld(): { target: ConformanceTarget } {
     },
 
     deliveryAttempts(sessionId) {
-      // COUNTED WHERE THE WORDS ARRIVE: one accepted `turn/start` is one
-      // delivery of the caller's turn.
-      return serverFor(sessionId).turnStarts
+      /**
+       * COUNTED WHERE THE WORDS ARRIVE — AND A STEER IS ONE OF THOSE PLACES.
+       *
+       * The corpus defines this as deliveries of the caller's TEXT, not turns
+       * opened, and it uses the counter to prove a steer actually delivered
+       * something (POD-2085's "the substitution nothing else catches": a driver
+       * that reports `deliveredAs: 'steer'` and types nothing at all would
+       * otherwise pass by doing LESS than an impostor that queues). This driver
+       * is the first with a delivery that opens no turn, so it is the first
+       * where `turnStarts` alone would undercount — and the undercount would
+       * read as "the steer delivered nothing", which is exactly the accusation
+       * the property exists to make stick.
+       */
+      const server = serverFor(sessionId)
+      return server.turnStarts + server.steers
     },
 
     failNextVerification(sessionId) {

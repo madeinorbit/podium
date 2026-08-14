@@ -35,6 +35,7 @@ import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { opencodeVersionProbe } from '../runtime/opencode-server'
 import {
   availableDriverIds,
+  harnessOwningServerDriver,
   isServerDriver,
   isServerDriverId,
   resolveRuntimeDriver,
@@ -688,11 +689,28 @@ async function launchServerDriverSession(
    * here, where the caller's intent is still in hand.
    */
   const probe = opencodeVersionProbe()
-  if (!probe.drivable && probe.reason === 'unprobeable' && isServerDriverId(requested)) {
+  const codexProbe = codexAppServerVersionProbe()
+  /**
+   * THE PROBE THAT MATTERS IS THE ONE FOR THE DRIVER THAT WAS ASKED FOR.
+   *
+   * W6 added a second server driver with its own binary and its own probe, and
+   * consulting only opencode's here would reintroduce the exact failure this
+   * check exists to prevent — one driver's healthy probe vouching for another
+   * driver's binary. A request for `codex-app-server` on a box whose codex did
+   * not answer would sail past this refusal, then vanish from `available` below,
+   * and come back as a terminal session: the deliberate request silently
+   * converted into a different kind of session because a box was busy.
+   */
+  const requestedProbe = harnessOwningServerDriver(requested) === 'codex' ? codexProbe : probe
+  if (
+    !requestedProbe.drivable &&
+    requestedProbe.reason === 'unprobeable' &&
+    isServerDriverId(requested)
+  ) {
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
-      message: `${probe.diagnostic.title}: ${probe.diagnostic.body}`,
+      message: `${requestedProbe.diagnostic.title}: ${requestedProbe.diagnostic.body}`,
     })
     return true
   }
@@ -706,10 +724,10 @@ async function launchServerDriverSession(
     // session that cannot start.
     available: availableDriverIds({
       opencodeDrivable: probe.drivable,
-      // The SAME three-answer verdict, asked the same way: an `unprobeable`
-      // codex does not list the driver here, which is what routes an explicit
-      // override through the refusal below rather than degrading it silently.
-      codexDrivable: codexAppServerVersionProbe().drivable,
+      // The SAME three-answer verdict, asked the same way. An UNSUPPORTED codex
+      // legitimately drops out of this list and degrades; an UNPROBEABLE one
+      // never reaches here, because the check above already refused it.
+      codexDrivable: codexProbe.drivable,
     }),
     platform: process.platform,
   })
@@ -786,7 +804,9 @@ async function launchServerDriverSession(
    * first.
    */
   const runtime =
-    resolution.driverId === 'codex-app-server' ? ctx.codexRuntime : ctx.opencodeRuntime
+    harnessOwningServerDriver(resolution.driverId) === 'codex'
+      ? ctx.codexRuntime
+      : ctx.opencodeRuntime
   if (!runtime) {
     ctx.send({
       type: 'spawnError',

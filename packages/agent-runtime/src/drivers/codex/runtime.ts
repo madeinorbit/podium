@@ -607,22 +607,43 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     const canAlwaysAllow =
       interaction.kind === 'permission' ? interaction.payload.canAlwaysAllow === true : false
     session.asks.set(interaction.id, { interaction, requestId, canAlwaysAllow })
+    const need = interaction.kind === 'permission' ? 'permission' : 'question'
+    const summary =
+      interaction.kind === 'permission' ? interaction.payload.inputSummary : undefined
     emit(session, { t: 'interaction', ev: { ev: 'asked', interaction } }, at)
     emit(
       session,
       {
         t: 'state',
-        change: {
-          kind: 'needs_user',
-          need: interaction.kind === 'permission' ? 'permission' : 'question',
-          ...(interaction.kind === 'permission' && interaction.payload.inputSummary
-            ? { summary: interaction.payload.inputSummary }
-            : {}),
-          at,
-        },
+        change: { kind: 'needs_user', need, ...(summary ? { summary } : {}), at },
       },
       at,
     )
+    /**
+     * AND THE PROJECTION MOVES WITH IT — the same must-fix W5's review found,
+     * avoided here rather than repeated.
+     *
+     * `emit()` stamps, logs and wakes; it does not fold. So without this the
+     * event stream would say `needs_user` while `state()` and `snapshot().state`
+     * still said `working`, and a blocked session would raise no attention: the
+     * badge stays "working" for as long as the human takes to answer, and every
+     * surface that reads the phase stays quiet. Two observers of one driver
+     * disagreeing about whether a session needs a user is the exact failure the
+     * causal contract exists to prevent, and spec §4's claim — that a blocked
+     * session IS a session with an open interaction — has to hold on both
+     * readers or it holds on neither.
+     *
+     * The fold lives HERE rather than in `emit()` for the same reason it does in
+     * the opencode driver: emit is total over the event union, and folding there
+     * would make it a second reducer for the whole vocabulary. Only the places
+     * that already own a phase assign `session.state`.
+     */
+    session.state = {
+      phase: 'needs_user',
+      since: at,
+      nativeSubagentCount: 0,
+      need: { kind: need, ...(summary ? { summary } : {}) },
+    }
   }
 
   function closeAsk(
@@ -634,6 +655,23 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     if (!session.asks.delete(id)) return
     session.answered.add(id)
     emit(session, { t: 'interaction', ev: { ev: 'answered', id, answeredBy, at } }, at)
+    /**
+     * THE ASK CLOSED, SO THE PHASE MUST LEAVE `needs_user` — and it goes back to
+     * what the SESSION is actually doing, not to a fixed value.
+     *
+     * Another ask still open means still blocked. Otherwise the turn Codex is
+     * running (or is not) decides it, which `busy()` already records. Leaving
+     * the phase at `needs_user` would strand a session that just got its answer;
+     * hardcoding `idle` would report a running turn as finished — and for this
+     * driver that second mistake is the likelier one, because answering an
+     * approval is precisely the moment a turn RESUMES.
+     */
+    if (session.asks.size > 0) return
+    session.state = {
+      phase: busy(session) ? 'working' : 'idle',
+      since: at,
+      nativeSubagentCount: 0,
+    }
   }
 
   // -- the turn fence --------------------------------------------------------

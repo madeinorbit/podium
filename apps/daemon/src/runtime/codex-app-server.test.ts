@@ -20,7 +20,13 @@ import {
   resetCodexAppServerVersionProbe,
   STRIPPED_CODEX_CREDENTIALS,
 } from './codex-app-server'
-import { availableDriverIds, isServerDriver, resolveRuntimeDriver } from './registry'
+import {
+  availableDriverIds,
+  harnessOwningServerDriver,
+  isServerDriver,
+  isServerDriverId,
+  resolveRuntimeDriver,
+} from './registry'
 
 describe('env hygiene — the subscription-auth mechanism', () => {
   it('strips every credential that could outrank the stored ChatGPT login', () => {
@@ -314,6 +320,39 @@ describe('selection — reachable on purpose, unreachable by default', () => {
       platform: 'linux',
     })
     expect(resolved.ok).toBe(false)
+  })
+})
+
+describe('which probe answers for which driver', () => {
+  /**
+   * THE RULE THAT WAS WRONG ONCE, so it is named and tested rather than
+   * re-derived at each call site.
+   *
+   * W6 added a SECOND server driver with its own binary and its own version
+   * probe. The spawn path refuses an explicit server-driver request when that
+   * driver's probe came back `unprobeable` — and if it consults the WRONG
+   * probe, one harness's healthy binary vouches for another harness's missing
+   * one. The request then sails past the refusal, vanishes from `available`,
+   * and comes back as a terminal session: exactly the silent downgrade the
+   * unprobeable/unsupported split exists to prevent (POD-2056's measurement).
+   */
+  it('attributes each server driver to the harness that DECLARES it', () => {
+    expect(harnessOwningServerDriver('codex-app-server')).toBe('codex')
+    expect(harnessOwningServerDriver('opencode-server')).toBe('opencode')
+  })
+
+  it('attributes terminal and unknown ids to nobody', () => {
+    // A terminal driver has no version-gated binary of its own to probe, and an
+    // id this build does not ship must not be attributed to whichever harness
+    // happened to be first in the manifest map.
+    expect(harnessOwningServerDriver('generic-pty')).toBeUndefined()
+    expect(harnessOwningServerDriver('claude-pty')).toBeUndefined()
+    expect(harnessOwningServerDriver('codex-app-sever')).toBeUndefined()
+  })
+
+  it('agrees with the server-driver predicate built on it', () => {
+    expect(isServerDriverId('codex-app-server')).toBe(true)
+    expect(isServerDriverId('generic-pty')).toBe(false)
   })
 })
 

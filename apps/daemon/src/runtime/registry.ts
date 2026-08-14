@@ -196,9 +196,30 @@ export function isServerDriver(agentKind: AgentKind, driverId: DriverId): boolea
  * it as one.
  */
 export function isServerDriverId(driverId: string): boolean {
-  return Object.values(AGENT_MANIFESTS).some(
-    (manifest) => declaredValue(manifest.runtime.server)?.driverId === driverId,
-  )
+  return harnessOwningServerDriver(driverId) !== undefined
+}
+
+/**
+ * WHICH HARNESS DECLARES THIS SERVER DRIVER — read off the manifests, never a
+ * table here.
+ *
+ * The rule exists because W6 added a SECOND server driver with its own binary
+ * and its own version probe, and the spawn path has to ask the probe belonging
+ * to the driver that was actually requested. Consulting the wrong one lets one
+ * harness's healthy probe vouch for another harness's binary — which turns an
+ * explicit `codex-app-server` request on a box whose codex did not answer into
+ * a silent terminal session, the exact failure POD-2056 measured and the
+ * unprobeable/unsupported split exists to prevent.
+ *
+ * Named and exported rather than inlined as a string comparison so it is one
+ * rule with one test, instead of a condition each call site gets right on its
+ * own.
+ */
+export function harnessOwningServerDriver(driverId: string): AgentKind | undefined {
+  for (const [kind, manifest] of Object.entries(AGENT_MANIFESTS)) {
+    if (declaredValue(manifest.runtime.server)?.driverId === driverId) return kind as AgentKind
+  }
+  return undefined
 }
 
 /**
