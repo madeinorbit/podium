@@ -253,6 +253,7 @@ describe('ShippingPanel', () => {
       orderId: 'order-a' as never,
       approvedBaseSha: 'base-123456789',
       approvedHeadSha: 'head-123456789',
+      resultCommitSha: 'result-123456789',
       testedIntegrationSha: 'tested-123456789',
       landedRefSha: 'landed-123456789',
       destinationSha: 'destination-123456789',
