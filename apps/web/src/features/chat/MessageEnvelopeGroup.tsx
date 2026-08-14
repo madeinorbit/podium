@@ -62,14 +62,6 @@ function PrincipalLabel({
   )
 }
 
-/** The sender reduced to the thing a reader recognises: the issue ref if it has
- *  one, else the label itself. Used for the fold line's "POD-84 · POD-90" and
- *  for the card's left column. */
-function senderTag(label: string): string {
-  const p = envelopePrincipal(label)
-  return p.ref ?? ((p.pre + p.post).trim() || label)
-}
-
 /** First line of a frame as a subject, and the rest as a preview.
  *
  * Mail in this system has no subject field — the sender writes a body — so the
@@ -191,16 +183,15 @@ export function MessageEnvelopeGroup({
   const [fold, setFold] = useState({ opened: consequential, open: consequential })
   if (consequential && !fold.opened) setFold({ opened: true, open: true })
   const open = fold.open || forceOpen
-  const setOpen = (next: boolean | ((v: boolean) => boolean)): void => {
-    setFold((f) => ({ opened: true, open: typeof next === 'function' ? next(f.open) : next }))
-  }
+  const toggle = (): void => setFold((f) => ({ opened: true, open: !f.open }))
   const single = envelopes.length === 1
   const first = envelopes[0]
   const tags = useMemo(() => {
     const seen: string[] = []
     for (const e of envelopes) {
-      const tag = senderTag(e.from)
-      if (tag && !seen.includes(tag)) seen.push(tag)
+      const p = envelopePrincipal(e.from)
+      const tag = p.ref ?? ((p.pre + p.post).trim() || e.from)
+      if (!seen.includes(tag)) seen.push(tag)
     }
     return seen
   }, [envelopes])
@@ -227,9 +218,7 @@ export function MessageEnvelopeGroup({
             data-testid="message-envelope-toggle"
             aria-expanded={open}
             aria-label={open ? 'Fold these notes' : 'Unfold these notes'}
-            onClick={() => {
-              setOpen((v) => !v)
-            }}
+            onClick={toggle}
           >
             <MailIcon className="mail-fold-icon" size={13} aria-hidden="true" />
             <span className="mail-fold-count">
@@ -270,9 +259,7 @@ export function MessageEnvelopeGroup({
                   type="button"
                   className="mail-card-close"
                   aria-label="Fold these notes"
-                  onClick={() => {
-                    setOpen(false)
-                  }}
+                  onClick={toggle}
                 >
                   <X size={13} aria-hidden="true" />
                 </button>
