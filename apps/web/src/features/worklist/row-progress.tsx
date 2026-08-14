@@ -27,10 +27,11 @@
  *
  * IT COSTS HEIGHT NOW (POD-1057). It used to hang in the row's bottom padding,
  * so a metered row and a bare one were both 44px — a trick that only read as
- * "belongs to the row above" because a hairline separated them. With the
- * hairlines gone, a rule floating between two untinted rows is ambiguous about
- * which one it describes. In flow it is not, and the 8px is worth it: a metered
- * row is 52px and the difference itself says "this row has a subtree".
+ * "belongs to the row above" because a hairline separated them. In flow it is
+ * unambiguous whatever the rules do, and the height is worth it: a metered row
+ * is 54px against a bare row's 46px (POD-1078 put both back on the mock's 7px
+ * padding and its 1px rule), and the difference itself says "this row has a
+ * subtree".
  *
  * Reading it is still one saccade down the column: the meters are all the same
  * length and all at the same x, so the eye compares fill, not geometry.
@@ -158,9 +159,11 @@ export function RowProgressMeter({
       title={label}
       // Three pixels and a 2px radius (3a): at 2px square-ended, sitting in the
       // row's own text block, the empty part read as a stray underline. The
-      // trough steps up to `--border-strong` — there is no hairline beside it to
-      // be confused with any more, and an empty meter has to be visible enough
-      // to say "this row is seven tasks, none of them started".
+      // trough steps up to `--border-strong`, because an empty meter has to be
+      // visible enough to say "this row is seven tasks, none of them started".
+      // The row rule below it (POD-1078) is a different mark on every axis that
+      // matters — 1px, full-bleed, soft, and outside the text block the meter
+      // is indented into — so the two do not read as the same instrument.
       className="pointer-events-none flex h-[3px] w-full overflow-hidden rounded-[2px] bg-border-strong"
     >
       <span

@@ -25,16 +25,19 @@ import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
 import { WorkListEmpty } from './WorkListEmpty'
+import { matchesWorkQuery, normalizeWorkQuery } from './work-filter'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
   PinnedSectionLabel,
   ProjectGroupLabel,
   ROW_LAYOUT_TRANSITION,
+  SECTION_GAP_CLASS,
   SnoozedIssueFold,
   type TransitionWorkRow,
   type WorkPlacement,
 } from './work-folds'
+import { useWorkFilter, WorkFilterEmpty, WorkFilterFootnote, WorkSearchField } from './work-search'
 
 function withStableRow(placement: WorkPlacement, row: UnifiedWorkRow): WorkPlacement {
   if (placement.lane === 'closed' || placement.lane === 'snoozed') {
@@ -54,9 +57,21 @@ function withStableRow(placement: WorkPlacement, row: UnifiedWorkRow): WorkPlace
 
 export function SidebarUnified(): JSX.Element {
   const derivation = useSidebarDerivation()
+  // The filter's pool is every LIVE row the column holds — pinned first, then
+  // each project group's open rows. The tail folds are out: a closed archive is
+  // not what "12/40" is counting, and a fold cannot show a hit without opening.
+  const filterPool = useMemo(
+    () => [...derivation.pinned, ...derivation.groups.flatMap((group) => group.rows)],
+    [derivation],
+  )
+  const filter = useWorkFilter(filterPool, derivation.now)
   return (
     <>
       <NewWorkRow sections={derivation.sections} />
+      {/* The filter sits BETWEEN the spawn row and the list, outside the
+          scroller (3b): it narrows what is below it, so it cannot be a thing
+          that scrolls away while you are typing into it. */}
+      <WorkSearchField filter={filter} />
       {/* NO COLUMN-WIDE STATUS INSTRUMENT (POD-516 round 3). A "12/40 done · 5
           running" meter summarising the whole column was cut: "there's now a
           overall progress section in the header of the sidebar. This was
@@ -74,7 +89,7 @@ export function SidebarUnified(): JSX.Element {
         data-testid="work-scroll"
         className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
       >
-        <WorkSections derivation={derivation} />
+        <WorkSections derivation={derivation} query={filter.query} />
       </div>
       {/* Footer: the 3a design's 34px strip at the column's 13px inset, on the
           same `--muted` ground as the section bands — the column's two chrome
@@ -93,7 +108,15 @@ export function SidebarUnified(): JSX.Element {
  * The caller owns the scroll container.
  */
 
-export function WorkSections({ derivation }: { derivation?: SidebarDerivation } = {}): JSX.Element {
+export function WorkSections({
+  derivation,
+  /** The inline filter's raw query (POD-1078). Empty — the default, and what
+   *  every caller that has no field of its own passes — keeps every row. */
+  query = '',
+}: {
+  derivation?: SidebarDerivation
+  query?: string
+} = {}): JSX.Element {
   const {
     work,
     pinned,
@@ -567,41 +590,66 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     )
   }
 
+  // THE FILTER NARROWS THE LIST; IT DOES NOT REBUILD IT (POD-1078). It is applied
+  // here, to the rows the transition layer already settled, rather than upstream
+  // of the placements: a query is a VIEW of the column, and rebuilding the
+  // placement set per keystroke would run every hidden row through the entering/
+  // exiting machinery — thirty rows flying out on `w`, back in on backspace.
+  const filtering = normalizeWorkQuery(query).length > 0
+  const survives = (item: TransitionWorkRow): boolean =>
+    !filtering || matchesWorkQuery(item.value.row, query, now)
+  // The haystack the footnote names: the same live pool the field counts over.
+  const filterTotal = transitionRows.filter(
+    (item) => item.value.lane === 'pinned' || item.value.lane === 'open',
+  ).length
   const renderedPinned = transitionRows.filter((item) => item.value.lane === 'pinned')
   const renderedGroupKeys = targetGroups.map((group) => group.key)
   for (const item of transitionRows) {
     if (item.value.lane !== 'pinned' && !renderedGroupKeys.includes(item.value.groupKey))
       renderedGroupKeys.push(item.value.groupKey)
   }
-  const renderedGroups = renderedGroupKeys.map((groupKey) => {
-    const target = targetGroups.find((group) => group.key === groupKey)
-    const fallback = transitionRows.find((item) => item.value.groupKey === groupKey)
-    return {
-      key: groupKey,
-      label: target?.label ?? fallback?.value.groupLabel ?? groupKey,
-      rows: transitionRows.filter(
-        (item) => item.value.groupKey === groupKey && item.value.lane === 'open',
-      ),
-      snoozedRows: transitionRows.filter(
-        (item) => item.value.groupKey === groupKey && item.value.lane === 'snoozed',
-      ),
-      closedRows: transitionRows.filter(
-        (item) => item.value.groupKey === groupKey && item.value.lane === 'closed',
-      ),
-    }
-  })
+  const renderedGroups = renderedGroupKeys
+    .map((groupKey) => {
+      const target = targetGroups.find((group) => group.key === groupKey)
+      const fallback = transitionRows.find((item) => item.value.groupKey === groupKey)
+      const inGroup = (lane: WorkPlacement['lane']) =>
+        transitionRows.filter(
+          (item) => item.value.groupKey === groupKey && item.value.lane === lane,
+        )
+      return {
+        key: groupKey,
+        label: target?.label ?? fallback?.value.groupLabel ?? groupKey,
+        rows: inGroup('open').filter(survives),
+        // THE TAIL FOLDS CLOSE FOR THE DURATION OF A QUERY. They are archives
+        // with their own counts, shut by default, and a `12 closed` line under
+        // two matching rows says nothing about the query — the count is of the
+        // fold, not of the hits, and opening it would answer a question the
+        // filter was not asked. The band's count stays the hit count.
+        snoozedRows: filtering ? [] : inGroup('snoozed'),
+        closedRows: filtering ? [] : inGroup('closed'),
+      }
+    })
+    // A project with no hit leaves entirely, band and all: an empty band under a
+    // filter is a row of chrome claiming a group that has nothing to show.
+    .filter((group) => !filtering || group.rows.length > 0)
+  const filteredPinned = renderedPinned.filter(survives)
 
   // Zero work, and not a loading frame: the ghost preview (POD-1058) shows the
   // shape of the list this column is about to become, under a label that names
   // WHICH project is empty.
   if (transitionRows.length === 0) return <WorkListEmpty />
+  // Zero HITS is a different answer, and must not borrow the ghost: the ghost
+  // says "nothing is here yet", which would be a lie about a column holding
+  // thirty rows the query happens to miss.
+  if (filtering && filteredPinned.length === 0 && renderedGroups.length === 0)
+    return <WorkFilterEmpty />
 
   // Pinned issues MOVE above all project groups (POD-166, R3) — they leave
   // their group entirely; unpinning returns them to its banded order.
   return (
     <MotionConfig reducedMotion="user">
       <LayoutGroup id={layoutGroupId}>
-        {renderedPinned.length > 0 && (
+        {filteredPinned.length > 0 && (
           <motion.div
             layout="position"
             layoutDependency={layoutRevision}
@@ -611,14 +659,14 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             data-drag-scope="pinned"
           >
             <PinnedSectionLabel
-              count={renderedPinned.length}
+              count={filteredPinned.length}
               collapsed={pinnedCollapsed}
               onToggle={() => toggleBand(PINNED_FOLD_KEY)}
             />
-            {!pinnedCollapsed && renderedPinned.map((item) => renderWorkRow(item))}
+            {!pinnedCollapsed && filteredPinned.map((item) => renderWorkRow(item))}
           </motion.div>
         )}
-        {renderedGroups.map((group) => {
+        {renderedGroups.map((group, index) => {
           // A shut band takes the WHOLE group with it — its live rows and both
           // of its tail folds. Half a collapsed project (a band with a Closed
           // fold still hanging under it) would be the worst of both readings.
@@ -629,7 +677,13 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
               layoutDependency={layoutRevision}
               transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
               key={group.key}
-              className="flex min-w-0 flex-col"
+              // Every section but the FIRST one on screen takes the 14px gap:
+              // pinned opens the column when it is there, this group when it is
+              // not, and the opening band sits flush under the search field.
+              className={cn(
+                'flex min-w-0 flex-col',
+                (index > 0 || filteredPinned.length > 0) && SECTION_GAP_CLASS,
+              )}
               data-testid="project-group"
               data-collapsed={collapsed ? 'true' : 'false'}
               data-drag-scope={`group:${group.key}`}
@@ -678,6 +732,9 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             </motion.div>
           )
         })}
+        {/* How big the haystack was, under the last hit — the answer to the
+            question a suddenly-short column raises. */}
+        {filtering && <WorkFilterFootnote total={filterTotal} />}
       </LayoutGroup>
     </MotionConfig>
   )

@@ -198,11 +198,17 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
 
     // Balanced and compact density own their distinct vertical padding in CSS,
     // rather than baking one mode's geometry into the component utility list.
-    expect(cssBlock('.shell-work-row')).toContain('--work-row-pad: 6px')
+    expect(cssBlock('.shell-work-row')).toContain('--work-row-pad: 7px')
     expect(cssBlock('.shell-work-row')).toContain('padding-block: var(--work-row-pad)')
     expect(cssBlock('html[data-density="compact"] .shell-work-row')).toContain(
-      '--work-row-pad: 5px',
+      '--work-row-pad: 6px',
     )
+    // The row rule is CSS too (POD-1078), and at the soft weight: the bands rule
+    // at --hairline-bar and have to stay the louder structure. Asserted here
+    // beside the padding because the two are one decision — the mock's row is
+    // `padding:7px 13px;border-bottom:1px solid`, and a rule between rows needs
+    // the air on both sides of it.
+    expect(cssBlock('.shell-work-row')).toContain('border-bottom: 1px solid var(--hairline-soft)')
 
     // The selection ring is an inset box-shadow, never a border that changes
     // the shared box dimensions.

@@ -85,19 +85,32 @@ html[data-density="compact"] {
   line-height: var(--shell-leading-column-title);
   letter-spacing: -0.015em;
 }
-/* 6px (POD-1057, the 3a sidebar). It was 9px against a row that drew a hairline
-   under itself; with the rules gone the padding IS the whole rhythm of the
-   column, and the design sets its two-line row at 44px total — a 16px title
-   line, 5px, a 14px status line, and 6px of air top and bottom. A row that also
-   carries the progress rule lands at 52px on the same padding. Exported as a
-   var because the tuck chip has to align itself to line 1's box, and it cannot
-   know the density switch any other way. */
+/* 7px and a rule under the row — the sidebar mock's own row box (POD-1078).
+   The 3a implementation (POD-1057) read the design's dropped SECTION rules as a
+   licence to drop the ROW rule too, and took the padding to 6px to hold the row
+   at 44px without it. The mock never did: its row is `min-height:46px;
+   padding:7px 13px;border-bottom:1px solid`, in 3a and 3b alike. So the two
+   numbers come back together, because they are one decision — a line between
+   rows needs air on both sides of it or it reads as a squeeze.
+
+   The row lands at 46px (a 16px title line, 5px, a 14px status line, 7px top
+   and bottom, and the rule); a row carrying the progress meter lands at 54px on
+   the same padding. Exported as a var because the tuck chip has to align itself
+   to line 1's box, and it cannot know the density switch any other way. */
 .shell-work-row {
-  --work-row-pad: 6px;
+  --work-row-pad: 7px;
   padding-block: var(--work-row-pad);
+  /* THE ROW RULE. Without it the band tint is the only thing parting one row
+     from the next — which works while rows are tinted and does nothing at all on
+     the neutral flow, where two untinted rows share one unbroken ground and two
+     2-line rows read as one 4-line block. It takes the SOFT hairline (inner
+     dividers) rather than the -bar weight the section bands take: the bands have
+     to stay the loudest structure in the column, and a row rule at their weight
+     would flatten the grouping back out. */
+  border-bottom: 1px solid var(--hairline-soft);
 }
 html[data-density="compact"] .shell-work-row {
-  --work-row-pad: 5px;
+  --work-row-pad: 6px;
 }
 /* THE ROW'S TWO LINES RUN TIGHTER THAN THE ROLES THEY TAKE THEIR SIZE FROM.
    The shell roles set a reading leading (13/18, 10.5/14) because most shell text

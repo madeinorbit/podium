@@ -27,9 +27,10 @@ const TAIL_FOLD_CLASS =
  * It was a label floating on the column's ground — fine while every row under it
  * drew a hairline, but with the rules gone (see `WorkRowShell`) the labels were
  * the only structure left in a 30-row column and the lightest marks in it. So it
- * became a BAND: 34px, full-bleed, `--muted`, hairline top and bottom. It is the
- * only ruled thing in the list now, which is why the list reads as grouped — you
- * see four bands, not thirty rules.
+ * became a BAND: 34px, full-bleed, `--muted`, and a hairline UNDER it. It had a
+ * rule on both edges while it was the only ruled thing in the column; with the
+ * rows ruled again (POD-1078) the top one was drawing a second line a pixel
+ * under the last row's, so the band keeps the edge that is its own.
  *
  * AND IT IS A CONTROL: every band shuts, taking the group's rows and its
  * snoozed/closed tails, so four repos fold to four lines. State persists per
@@ -42,7 +43,21 @@ const TAIL_FOLD_CLASS =
  *  none of the hover, focus or transition a button needs. Two spellings of
  *  34px/`--muted`/hairline would drift the moment one of them is retuned. */
 export const SECTION_BAND_CLASS =
-  'flex h-[34px] w-full flex-none items-center gap-2 border-y border-hairline-bar bg-muted px-[13px] text-left'
+  'flex h-[34px] w-full flex-none items-center gap-2 border-b border-hairline-bar bg-muted px-[13px] text-left'
+
+/** The gap ABOVE a section that is not the first (POD-1078, the design's 14px).
+ *  The band already said where a group STARTS; nothing said where one ended, so
+ *  a project's last row and the next project's band met on a single hairline and
+ *  the two groups read as one run. 14px of the column's ground parts them, and
+ *  it stays well under the band's 34px so the band is still the thing you see
+ *  when you scan.
+ *
+ *  It sits on the section, not between sections (no `gap` on the scroller): the
+ *  pinned block and every project group are independently mounted and animated,
+ *  and a parent gap would apply to a section that a filter had just emptied. The
+ *  FIRST rendered section takes no gap — the list opens flush under the search
+ *  field, the way it opens flush under the header in the design. */
+export const SECTION_GAP_CLASS = 'mt-[14px]'
 
 /** The band's label voice — mono, tracked, `--muted-foreground` because the band
  *  is a header rather than a floating caption. */

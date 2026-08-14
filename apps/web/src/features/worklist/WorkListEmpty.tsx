@@ -10,9 +10,10 @@
  * IT MIRRORS THE 3a ROW, NOT THE ONE BEFORE IT. The ghost's whole claim is
  * "this is what will be here", so its anatomy is read from the live row's own
  * constants rather than copied by eye: `ID_GUTTER_W` for the number gutter,
- * `META_COL_W` for the fixed right-hand meta column, the 44px minimum, the 13px
- * inset, the 11px/5px gaps. When the row is retuned again, those move with it
- * and the ghost follows for free — which is the only way this stays true.
+ * `META_COL_W` for the fixed right-hand meta column, `shell-work-row` for the
+ * padding, the rule and the density switch, the 13px inset, the 11px/5px gaps.
+ * When the row is retuned again, those move with it and the ghost follows for
+ * free — which is the only way this stays true.
  *
  * THE BAND NAMES THE PROJECT. `WORK IN PODIUM`, not `WORK`: on an empty list
  * the band is the only thing on screen saying WHICH project is empty, and it
@@ -40,11 +41,12 @@ import { SECTION_BAND_CLASS, SECTION_BAND_LABEL_CLASS } from './work-folds'
 /**
  * One dead row, at the live row's own geometry.
  *
- * The 44px minimum is the live row's, so when the first task lands the ghosts
- * fade out and the real row fades in ON THE SAME SLOT rather than shunting the
- * copy below it. No meter line: the meter is optional per row and taking it
- * would put the four ghosts on two different heights, which is a worse lie than
- * omitting it.
+ * It wears `shell-work-row` itself, so the padding, the density switch and the
+ * row rule (POD-1078) are the live row's by construction and cannot drift from
+ * it: when the first task lands the ghosts fade out and the real row fades in ON
+ * THE SAME SLOT rather than shunting the copy below it. No meter line: the meter
+ * is optional per row and taking it would put the four ghosts on two different
+ * heights, which is a worse lie than omitting it.
  *
  * Widths vary per row and the tiers step down — the design's "bars, never
  * lorem" and "never a uniform block", which are the two things that separate a
@@ -67,7 +69,10 @@ function GhostWorkRow({
   const next = Math.min(tier + 1, 4) as 1 | 2 | 3 | 4
   return (
     <div
-      className={cn('flex min-h-[44px] min-w-0 items-center px-[13px]', selected && 'bg-chip')}
+      className={cn(
+        'shell-work-row flex min-h-[46px] min-w-0 items-center px-[13px]',
+        selected && 'bg-chip',
+      )}
       // The selected row's spine, in ghost ink rather than `--text-strong`: the
       // anatomy is worth showing, but a full-strength spine would assert that
       // one of four dead rows is the one you are in.

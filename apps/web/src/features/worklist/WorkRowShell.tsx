@@ -59,6 +59,14 @@ function statusInk(phase: MotionPhase): string | undefined {
  *     drawn as real bands (`work-folds`) the list does not need them, and
  *     losing them is most of what makes this column calm.
  *
+ * ITEM 3 WAS A MISREADING, corrected in POD-1078: the mock's row carries a rule
+ * in 3a exactly as it does in 3b (`min-height:46px;padding:7px 13px;
+ * border-bottom:1px solid`). What 3a dropped was the row rule's WEIGHT in a
+ * column that also ruled every band on both edges. So the rule is back at the
+ * soft hairline, on the mock's 7px padding (`.shell-work-row`, styles.css), and
+ * the bands gave up their top edge to it — they stay the loudest structure by
+ * ruling at the -bar weight, the rows at -soft.
+ *
  * What arrived: the lifecycle meta moved off line 2 into a fixed right-hand
  * column on line 1, where it tabulates, and the progress meter came in-flow.
  *
@@ -163,8 +171,10 @@ export function WorkRowShell({
       ? // Var-driven so the hover class can override it — an inline `background`
         // would always beat `hover:` (POD-166: tint-aware hover). Both doses ride
         // --issue-tint-scale, so warm paper takes its lower dose. They step up
-        // from the pre-3a whisper (4/8) because the tint is now the ONLY thing
-        // separating one row from the next: the hairline rules are gone.
+        // from the pre-3a whisper (4/8) because 3a asked the tint to separate one
+        // row from the next on its own; the row rule is back (POD-1078) and the
+        // tint keeps the stronger dose, since what it says now is WHOSE row this
+        // is rather than where the row ends.
         ({
           '--row-bg': `color-mix(in srgb, ${hex} calc(7 * var(--issue-tint-scale, 1%)), var(--sidebar))`,
           '--row-hover-bg': `color-mix(in srgb, ${hex} calc(11 * var(--issue-tint-scale, 1%)), var(--sidebar))`,
@@ -182,11 +192,13 @@ export function WorkRowShell({
     >
       <div
         className={cn(
-          // FULL-BLEED, NOT A CARD, AND NOT RULED (3a). The row spans the whole
-          // column; what separates it from its neighbour is the band tint and
-          // the row's own breathing room, not a line. The list reads as one
-          // surface with things ON it rather than as a stack of thirty slats.
-          'shell-work-row phase-surface group/row relative flex min-h-[44px] min-w-0 items-center px-[13px]',
+          // FULL-BLEED, NOT A CARD (3a). The row spans the whole column and has
+          // no radius, no inset and no card ground of its own: the list reads as
+          // one surface with things ON it rather than as a stack of thirty
+          // slats. It IS ruled (POD-1078) — a soft hairline on `.shell-work-row`,
+          // under 7px of air — but the rule parts rows WITHIN that one surface;
+          // it does not cut them into cards. 46px is the mock's row.
+          'shell-work-row phase-surface group/row relative flex min-h-[46px] min-w-0 items-center px-[13px]',
           // SELECTION IS A LIFT PLUS A SPINE. The band rises to the RAISED tier
           // and the ink spine names it as the one you are in. No issue wash on
           // top — the hue is the row's resting ground, and mixing more of it
