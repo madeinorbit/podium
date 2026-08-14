@@ -38,6 +38,23 @@
  * daemon's own unit tests, and the harness's own self-check below — which runs
  * unconditionally, because a two-process harness that has quietly stopped being
  * able to start a daemon should fail loudly rather than skip.
+ *
+ * ---------------------------------------------------------------------------
+ * READ THE ASSERTION COUNTS, NOT THE EXIT CODE (until POD-2096 lands)
+ * ---------------------------------------------------------------------------
+ *
+ * A live run of this file exits `1` even when every assertion passes. POD-2096:
+ * `SessionRegistry.dispose()` never calls `SuperagentService.dispose()`, so the
+ * turn reaper outlives `store.close()` and throws `RangeError: Cannot use a
+ * closed database` on shutdown; vitest counts that as an unhandled error and
+ * fails the RUN while reporting every TEST green. Without the live flag the
+ * same file exits 0, because the self-check never creates a session whose
+ * reaper is armed.
+ *
+ * This is said here, and not only on the issue, because `bun run test:e2e`
+ * collects this file: whoever wires the live lane into a gate before POD-2096
+ * is fixed will get a red gate and no hint that the cause is a teardown bug in
+ * somebody else's module.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -451,14 +468,19 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
         120_000,
         'the restarted daemon adopted the surviving opencode session',
         // THE FAILURE THIS FILE EXISTS TO PRODUCE, so it says what it means
-        // rather than leaving a bare timeout to be interpreted. As of writing,
-        // no daemon code path calls the driver's `adopt()` at all: on restart
-        // `handleReattach` finds no bridge for a server-family session, falls
-        // into the durable-host branch, looks for an abduco socket or tmux
-        // session named for the durable label, finds neither — there is no PTY
-        // — and answers `reattachFailed: session not found`, while the
-        // `opencode serve` this lane just proved is alive keeps running with
-        // nothing bound to it.
+        // rather than leaving a bare timeout to be interpreted.
+        //
+        // The caller this waits on is `adoptServerDriverSession` in
+        // `apps/daemon/src/control/session.ts`, which runs on the reattach path
+        // BEFORE the durable-host lookup. It is the caller `adopt()` spent its
+        // whole life without, and this lane is why it exists: until POD-2023
+        // landed it, a server-family session fell through to the PTY branch,
+        // which looked for an abduco socket named for the durable label, found
+        // none — there is no PTY — and answered `reattachFailed: session not
+        // found` while the `opencode serve` kept running with nothing bound to
+        // it. If this wait ever times out again, that branch is the first place
+        // to look: the symptom is identical and the journal read is what
+        // separates them.
         () =>
           [
             'No `adopted` event arrived. The daemon came back and the opencode server survived — the two facts this lane checked before this point — so what is missing is the rebind between them.',
@@ -483,10 +505,45 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
       // adoption from a relaunch that happens to look like it: a relaunch mints
       // a new port, a new secret and a new pid, and would lose the conversation
       // while reporting success.
+      //
+      // NOT `process.key`, AND THE OMISSION IS THE POINT. `opencodeScopeLabel`
+      // is `podium-oc-${sessionId}` — derived from the session id and nothing
+      // else — so comparing it across the restart compares a pure function of a
+      // constant with itself. It passes for a relaunch, a re-spawn, and a driver
+      // that adopted the wrong process entirely. Its one honest use is the
+      // format pin already made before the crash; as evidence of identity it is
+      // worth exactly nothing, and it read like the load-bearing check.
+      //
+      // These four are the facts a relaunch could not fake.
       const after = readJournal(sessionId)
-      expect(after.process.key).toBe(before.process.key)
-      expect(after.baseUrl).toBe(before.baseUrl)
+
+      // THE PID, which is the actual operating-system identity of the survivor.
+      // Asserted PRESENT first: the field is optional on the endpoint type, and
+      // `undefined === undefined` is a green line that proves nothing.
+      expect(
+        before.process.pid,
+        'the journal recorded no pid for the server, so the identity check below would compare undefined with undefined and pass vacuously',
+      ).toBeDefined()
       expect(after.process.pid).toBe(before.process.pid)
+      expect(processIsAlive(after.process.pid as number)).toBe(true)
+
+      // THE PORT. `freeLoopbackPort()` takes whatever the kernel hands out, so a
+      // relaunch lands somewhere else with overwhelming probability.
+      expect(after.baseUrl).toBe(before.baseUrl)
+
+      // THE SECRET — 32 bytes from the CSPRNG, minted once per launch. This is
+      // the one a relaunch cannot collide with even in principle, which is why
+      // it is worth a line of its own rather than being folded into the health
+      // probe that merely used it.
+      expect(after.secret).toBe(before.secret)
+
+      // AND THE BINDING VERSION MOVED. The other three say "same process"; this
+      // one says "new binding over it", which is the half that distinguishes an
+      // adoption from the journal simply never having been rewritten. `adopt()`
+      // attaches at `binding.bindingVersion + 1` and `persist()` writes it on
+      // the `adopted` emit, so a journal that still carried the old number would
+      // mean the rebind never reached disk.
+      expect(after.bindingVersion).toBeGreaterThan(before.bindingVersion)
 
       // A HIGHER OBSERVER GENERATION. The envelope's own rule: the generation is
       // bumped when the observer rebinds, so a stale one can be rejected rather
@@ -517,6 +574,73 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
       // …and the row still knows it is behind the contract, which is what routes
       // the next send to the driver instead of to a PTY it does not have.
       expect(sessions.sessions.get(sessionId)?.runtimeContract).toBe(true)
+
+      // ---- 5b. ONE BOOTSTRAP SNAPSHOT, AND NOTHING RETROACTIVE ------------
+      //
+      // THE ASSERTION THIS LANE IS CHARTERED ON, and it is not the same one as
+      // "exactly one `adopted` event" above. `reattachment-design.md` states the
+      // reattach contract as *one bootstrap snapshot and zero retroactive live
+      // edges*, and the two halves fail differently: a second snapshot is a
+      // double fold, whereas a retroactive LIVE edge is history being replayed
+      // as if it had just happened. Only the second one wakes a parent, emits
+      // `session.phase`, fires a Telegram notification and advances live
+      // recency — which is why the design names those effects specifically.
+      //
+      // Counting `adopted` events cannot see either failure. Everything below
+      // reads `provenance`, which the driver stamps and `RuntimeGateway.record`
+      // forwards untouched, so this tap has carried it the whole time.
+      //
+      // MEASURED, NOT ASSUMED (this is what the census run was for). At this
+      // point the rebound generation contains exactly one event — the `adopted`
+      // one — tagged `bootstrap`, and the ten pre-crash events all sit at the
+      // old generation tagged `live`. That the adoption lands INSIDE the
+      // snapshot rather than after it is structural rather than lucky:
+      // `adoptFromJournal` awaits `driver.adopt()` (which emits `adopted` into
+      // the session log) and only then calls `pump()`, which opens the stream
+      // with `events('bootstrap')` and replays everything already logged with
+      // the bootstrap tag. There is no ordering in which it arrives live.
+      const rebound = events.filter((e) => e.observerGeneration > generationBefore)
+      // NON-VACUITY FIRST, for the same reason the `-Infinity` guard above
+      // exists: every assertion in this block is "no events of kind X", and an
+      // empty rebound set satisfies all of them while proving nothing.
+      expect(
+        rebound.length,
+        'no events arrived at the new observer generation, so the snapshot and retroactivity checks below would all pass over an empty set',
+      ).toBeGreaterThan(0)
+
+      // EXACTLY ONE SNAPSHOT — expressed as contiguity, because that is what
+      // "one snapshot opens the stream" means on a stream. Bootstrap events form
+      // the head of the rebound generation; once a live edge appears the
+      // snapshot is closed, and a bootstrap event after that point is a SECOND
+      // fold — every item delivered twice with no way to tell which is current.
+      const snapshotLength = rebound.findIndex((e) => e.provenance !== 'bootstrap')
+      const snapshot = snapshotLength === -1 ? rebound : rebound.slice(0, snapshotLength)
+      expect(
+        snapshot.length,
+        'the rebind produced no bootstrap-provenance events at all, so the session was restored without a snapshot to restore it from',
+      ).toBeGreaterThan(0)
+      expect(
+        rebound.slice(snapshot.length).filter((e) => e.provenance === 'bootstrap'),
+        'a bootstrap event arrived after the snapshot had already closed — that is a second fold over one session',
+      ).toHaveLength(0)
+      // …and the adoption is part of it, not a live edge announcing itself.
+      expect(adopted?.provenance).toBe('bootstrap')
+
+      // ZERO RETROACTIVE LIVE EDGES. Checked HERE, before the second send, and
+      // the placement is what makes it exact: nothing new has been said since
+      // the crash, so at this instant *any* live `item` or `turn` in the rebound
+      // generation is by construction a replay of something that already
+      // happened. No turn-epoch fence is needed to say so, and none is used —
+      // a fence would have had to guess which epoch counted as "old".
+      //
+      // This is the check that would have caught a fold republishing the
+      // pre-crash transcript as live: the lane's transcript assertions further
+      // down would stay green through exactly that regression, because the
+      // conversation really would still be there — twice.
+      expect(
+        rebound.filter((e) => e.provenance === 'live' && (e.t === 'item' || e.t === 'turn')),
+        'history was republished as live edges after the rebind — these are the events that wake parents and notify humans, and the reattach contract requires zero of them',
+      ).toHaveLength(0)
 
       // ---- 6. AND IT KEEPS TAKING TURNS -----------------------------------
       const second = await gateway.send({

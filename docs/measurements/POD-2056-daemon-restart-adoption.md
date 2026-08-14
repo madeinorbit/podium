@@ -10,9 +10,11 @@ restart it, and watch the session come back. `tests/e2e/` had no way to express
 that, because every lane there starts its daemon in-process and an in-process
 daemon cannot die.
 
-**The lane now passes.** Getting there took six live runs and turned up three
-defects, two of them in code the lane had no business touching. This records
-what it measured.
+**The lane now passes** — its assertions do. The *process* still exits `1` on a
+live run because of POD-2096, which is not this lane's bug but is this lane's
+problem; §6 says exactly what that means before anyone wires it into a gate.
+Getting here took six live runs and turned up three defects, two of them in code
+the lane had no business touching. This records what it measured.
 
 ---
 
@@ -57,14 +59,51 @@ Against a real server, a real daemon in its own process, and a real
 5. the daemon restarts on the same state dir and machine id
 6. **exactly one** `process/adopted` event arrives, at a **strictly higher
    observer generation** than anything seen before the crash
-7. the journal still names the **same** process key, `baseUrl` and pid — so this
-   was an adoption, not a relaunch wearing one's clothes. A relaunch would mint
-   a new port, a new secret and a new pid, and lose the conversation while
-   reporting success
-8. the session is `live` again and still behind the contract
-9. it takes **another turn** — `accepted`, `protocol-ack`, at a **higher turn
-   epoch** — and the pre-crash reply is still in the transcript alongside the
-   new one
+7. that new generation carries **exactly one bootstrap snapshot and zero
+   retroactive live edges** — the reattach contract's own words. Measured: the
+   rebound generation holds one event, the adoption, tagged `bootstrap`; the ten
+   pre-crash events all sit at the old generation tagged `live`. No transcript
+   item and no turn event is republished as live, which is the half that would
+   otherwise wake a parent and notify a human for something that already happened
+8. the journal names the **same pid (still alive), the same `baseUrl` and the
+   same secret**, at a **higher binding version** — so this was an adoption, not
+   a relaunch wearing one's clothes. A relaunch mints a new port, a new secret
+   and a new pid, and would lose the conversation while reporting success
+9. the session is `live` again and still behind the contract
+10. it takes **another turn** — `accepted`, `protocol-ack`, at a **higher turn
+    epoch** — and the pre-crash reply is still in the transcript alongside the
+    new one
+
+### What the process-key check was, and why it is gone
+
+The first version of step 8 compared `process.key` across the restart. That check
+could not fail. `opencodeScopeLabel` is `` `podium-oc-${sessionId}` `` — a pure
+function of the session id — so it returns the same string for an adoption, a
+relaunch, a re-spawn, and a driver that bound the wrong process entirely. It read
+like the load-bearing identity check and carried no information. The format pin
+before the crash is its one honest use and it stays; across the restart the pid,
+the port, the secret and the binding version do the work.
+
+### What this lane still does not cover
+
+**The gap-history fold.** `reattachment-design.md` also asks that a reattach
+"reconcile all gap history into one newer bootstrap snapshot". This lane cannot
+exercise that half, and the census says why: after the restart the driver's
+in-memory log is new, so its bootstrap snapshot contains only the adoption. The
+pre-crash conversation survives here because the **server** never went down and
+already held it — not because the driver replayed it. A lane that restarted the
+server too, or that let the agent speak while the daemon was dead, would have real
+gap history to fold. The zero-retroactive-live-edges assertion above is therefore a
+guard against a regression this scenario cannot currently produce; it is written
+so that it will catch one if the fold ever starts replaying history as live.
+
+**Its red is verified for the snapshot half.** Forcing `bootstrapUntil = 0` in the
+driver's `events()` — so the replay comes through tagged `live` instead of
+`bootstrap` — fails the lane at exactly the new assertion, with the message written
+for it (`the rebind produced no bootstrap-provenance events at all, so the session
+was restored without a snapshot to restore it from`), while steps 1-4 still pass.
+The retroactive-live half has no such perturbation available for the reason in the
+previous paragraph, and that is stated here rather than left to look verified.
 
 ---
 
@@ -174,6 +213,16 @@ daemon's own words, verbatim — only became visible after that.
 shutdown. Reproduced on every run of this lane; vitest reports it as an
 unhandled error and warns it "might cause false positive tests".
 
+> **This lane exits non-zero until POD-2096 lands, and "the lane passes" above
+> means its assertions pass.** vitest counts those unhandled errors and exits `1`
+> even when every test is green — `Test Files 1 passed / Tests 2 passed | 1 skipped
+> / Errors 1-3`, exit `1`. Without `PODIUM_OPENCODE_LIVE=1` the same file exits `0`,
+> because the self-check never creates the session whose turn reaper is armed.
+> The practical consequence: `bun run test:e2e` collects this file, so anyone who
+> wires the live lane into a gate before POD-2096 is fixed turns that gate red for
+> a reason that has nothing to do with adoption. Read the assertion counts, not the
+> exit code, until then.
+
 ---
 
 ## How to run it
@@ -185,3 +234,9 @@ PODIUM_OPENCODE_LIVE=1 bun --bun node_modules/vitest/vitest.mjs run \
 
 Without the flag the harness self-check still runs; the live half says it was
 skipped, and says why.
+
+That command is the direct one, for iterating. It does **not** take the shared
+`test:heavy` lease, and this is now the heaviest lane in `tests/e2e/` — on a
+contended host prefer the repo lane, `bun run test:e2e`, which goes through
+`scripts/test-heavy.ts` and holds the lease for you. Expect exit `1` from POD-2096
+either way (see §6).
