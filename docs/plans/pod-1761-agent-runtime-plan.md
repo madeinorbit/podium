@@ -51,7 +51,10 @@ Grok headless feasibility investigation.
 - Never touch `main`. Never use `podium issue action <id> merge|pr` on this epic — it targets
   `main`. Landing is manual, into the integration branch only:
   1. `podium lock acquire integration:1761 --wait --ttl 10m` (the epic's merge mutex —
-     the reserved `merge:` namespace is not usable here, this named lock is our convention);
+     the reserved `merge:` namespace is not usable here, this named lock is our convention).
+     **WARNING (learned in production): `podium merge-lock --branch issue/1761-agent-runtime`
+     creates a DIFFERENT lock name that does NOT serialize against `integration:1761` — two
+     agents using the two spellings can merge concurrently. Only `integration:1761` counts;**
   2. `git rebase issue/1761-agent-runtime` on your branch;
   3. run your gates (typecheck + touched tests);
   4. `git -C /home/mgw/src/podium/.worktrees/issue-1761-agent-runtime merge --ff-only
