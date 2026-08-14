@@ -603,12 +603,19 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       const issueFacts = new Map(
         selected.map((order) => {
           const row = this.db
-            .prepare('SELECT branch, machine_id AS machineId FROM issues WHERE id = ?')
-            .get(order.issueId) as { branch?: string; machineId?: string } | undefined
-          if (!row?.branch || !row.machineId) {
+            .prepare(
+              'SELECT branch, machine_id AS machineId, repo_path AS repoPath FROM issues WHERE id = ?',
+            )
+            .get(order.issueId) as
+            | { branch?: string; machineId?: string; repoPath?: string }
+            | undefined
+          if (!row?.branch || !row.machineId || !row.repoPath) {
             throw new Error(`ship train issue ${order.issueId} has no durable branch custody`)
           }
-          return [order.id, { branch: row.branch, machineId: row.machineId }] as const
+          return [
+            order.id,
+            { branch: row.branch, machineId: row.machineId, repoPath: row.repoPath },
+          ] as const
         }),
       )
       if (new Set([...issueFacts.values()].map((facts) => facts.machineId)).size !== 1) {
@@ -616,6 +623,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       if (new Set([...issueFacts.values()].map((facts) => facts.branch)).size !== selected.length) {
         throw new Error('ship train source branches must be unique')
+      }
+      if (new Set([...issueFacts.values()].map((facts) => facts.repoPath)).size !== 1) {
+        throw new Error('ship train members cross repository paths')
       }
       const stackEdges = this.db
         .prepare(
@@ -704,7 +714,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         })
       })
       const byOrder = new Map(claimed.map((item) => [item.order.id, item]))
-      const members = prefix.map((order) => {
+      const members = prefix.map((order, index) => {
         const item = byOrder.get(order.id)!
         const issue = issueFacts.get(order.id)!
         return {
@@ -716,17 +726,28 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           sourceBranch: issue.branch,
           approvedBaseSha: order.approvedBaseSha,
           approvedHeadSha: order.approvedHeadSha,
-          deliveryDependsOn: dependencies(order),
+          deliveryDependsOn: [
+            ...new Set([
+              ...dependencies(order),
+              ...(index > 0 ? [prefix[index - 1]!.id] : []),
+            ]),
+          ].sort(),
         }
       })
+      const validationProfileDigest = createHash('sha256')
+        .update(JSON.stringify(profile))
+        .digest('hex')
       const lane = {
         repoId: leaderOrder.repoId,
+        repoPath: issueFacts.get(leaderOrder.id)!.repoPath,
+        machineId,
         targetBranch: leaderOrder.targetBranch,
         expectedTargetSha: leaderOrder.approvedBaseSha,
         destination: laneDestination,
         ...(leaderOrder.providerRef ? { providerRef: leaderOrder.providerRef } : {}),
         policyId: leaderOrder.policyId,
         validationProfile: profile,
+        validationProfileDigest,
       }
       const identity = JSON.stringify({ version: 1, repairRound: 0, lane, members })
       const id = asShipTrainId(`train:${createHash('sha256').update(identity).digest('hex')}`)
@@ -758,10 +779,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         .prepare(
           `INSERT INTO ship_train_manifests
             (id, version, subset_id, repair_round, canonical_digest, canonical_json,
-             repo_id, target_branch, expected_target_sha, destination, provider_ref,
-             policy_id, validation_profile, leader_order_id, leader_attempt_id,
+             repo_id, repo_path, machine_id, target_branch, expected_target_sha,
+             destination, provider_ref, policy_id, validation_profile,
+             validation_profile_digest, leader_order_id, leader_attempt_id,
              leader_generation, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           manifest.id,
@@ -771,12 +793,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           canonicalDigest,
           canonicalJson,
           manifest.lane.repoId,
+          manifest.lane.repoPath,
+          manifest.lane.machineId,
           manifest.lane.targetBranch,
           manifest.lane.expectedTargetSha,
           manifest.lane.destination,
           manifest.lane.providerRef ? JSON.stringify(manifest.lane.providerRef) : null,
           manifest.lane.policyId,
           JSON.stringify(manifest.lane.validationProfile),
+          manifest.lane.validationProfileDigest,
           manifest.leaderOrderId,
           leader.attempt.id,
           leader.attempt.leaseGeneration,
@@ -830,10 +855,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     const row = this.db
       .prepare(
         `SELECT m.id, m.canonical_json AS canonicalJson, m.canonical_digest AS canonicalDigest,
-                m.repo_id AS repoId, m.target_branch AS targetBranch,
+                m.repo_id AS repoId, m.repo_path AS repoPath, m.machine_id AS machineId,
+                m.target_branch AS targetBranch,
                 m.expected_target_sha AS expectedTargetSha, m.destination,
                 m.provider_ref AS providerRef, m.policy_id AS policyId,
-                m.validation_profile AS validationProfile, m.leader_order_id AS leaderOrderId,
+                m.validation_profile AS validationProfile,
+                m.validation_profile_digest AS validationProfileDigest,
+                m.leader_order_id AS leaderOrderId,
                 m.leader_attempt_id AS leaderAttemptId, m.leader_generation AS leaderGeneration
            FROM ship_train_manifests m
            JOIN ship_train_members tm ON tm.train_id = m.id
@@ -853,12 +881,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       createHash('sha256').update(canonicalJson).digest('hex') !== row.canonicalDigest ||
       manifest.id !== row.id ||
       manifest.lane.repoId !== row.repoId ||
+      manifest.lane.repoPath !== row.repoPath ||
+      manifest.lane.machineId !== row.machineId ||
       manifest.lane.targetBranch !== row.targetBranch ||
       manifest.lane.expectedTargetSha !== row.expectedTargetSha ||
       manifest.lane.destination !== row.destination ||
       JSON.stringify(manifest.lane.providerRef ?? null) !== String(row.providerRef ?? 'null') ||
       manifest.lane.policyId !== row.policyId ||
       JSON.stringify(manifest.lane.validationProfile) !== row.validationProfile ||
+      manifest.lane.validationProfileDigest !== row.validationProfileDigest ||
       manifest.leaderOrderId !== row.leaderOrderId ||
       manifest.members.at(-1)?.attemptId !== row.leaderAttemptId ||
       manifest.members.at(-1)?.generation !== row.leaderGeneration

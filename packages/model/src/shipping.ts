@@ -94,12 +94,15 @@ export const canonicalShippingDestination = (
 export const ShipTrainLane = z
   .object({
     repoId: RepoIdField,
+    repoPath: z.string().min(1),
+    machineId: MachineIdField,
     targetBranch: z.string().min(1),
     expectedTargetSha: z.string().min(1),
     destination: z.string().min(1),
     providerRef: ProviderPullRequestRef.optional(),
     policyId: z.string().min(1),
     validationProfile: ShipTrainValidationProfile,
+    validationProfileDigest: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict()
   .superRefine((lane, ctx) => {
@@ -237,6 +240,20 @@ export const ShipTrainManifest = z
           })
         }
       }
+      if (index > 0 && !member.deliveryDependsOn.includes(manifest.members[index - 1]!.orderId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['members', index, 'deliveryDependsOn'],
+          message: 'each train member must directly follow its canonical predecessor',
+        })
+      }
+      if (member.machineId !== manifest.lane.machineId) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['members', index, 'machineId'],
+          message: 'train member custody must match the lane machine',
+        })
+      }
     }
   })
 export type ShipTrainManifest = z.infer<typeof ShipTrainManifest>
@@ -252,6 +269,8 @@ export const serializeShipTrainManifest = (input: ShipTrainManifest): string => 
     repairRound: manifest.repairRound,
     lane: {
       repoId: manifest.lane.repoId,
+      repoPath: manifest.lane.repoPath,
+      machineId: manifest.lane.machineId,
       targetBranch: manifest.lane.targetBranch,
       expectedTargetSha: manifest.lane.expectedTargetSha,
       destination: manifest.lane.destination,
@@ -272,6 +291,7 @@ export const serializeShipTrainManifest = (input: ShipTrainManifest): string => 
         timeoutMs: manifest.lane.validationProfile.timeoutMs,
         resourceLocks: [...manifest.lane.validationProfile.resourceLocks],
       },
+      validationProfileDigest: manifest.lane.validationProfileDigest,
     },
     leaderOrderId: manifest.leaderOrderId,
     members: manifest.members.map((member) => ({

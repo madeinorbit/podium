@@ -3,12 +3,14 @@ import {
   ControlMessage,
   DaemonMessage,
   ShippingTrainExecution,
+  ShippingTrainRequest,
   shippingTrainProofsMatch,
   shippingJobRequestFingerprint,
 } from '../daemon'
 
 const train = {
   version: 2 as const,
+  capability: 'shipping.train.v1' as const,
   manifest: {
     version: 1 as const,
     id: 'train-1',
@@ -16,6 +18,8 @@ const train = {
     repairRound: 0 as const,
     lane: {
       repoId: 'repo-1',
+      repoPath: '/repo',
+      machineId: 'machine-1',
       targetBranch: 'main',
       expectedTargetSha: 'a'.repeat(40),
       destination: 'local:main',
@@ -27,6 +31,7 @@ const train = {
         timeoutMs: 60_000,
         resourceLocks: ['validation:agent'],
       },
+      validationProfileDigest: 'e'.repeat(64),
     },
     leaderOrderId: 'order-1',
     members: [
@@ -125,6 +130,25 @@ describe('shipping machine protocol', () => {
       ShippingTrainExecution.safeParse({
         ...train,
         memberOrderIds: ['missing-order'],
+      }).success,
+    ).toBe(false)
+    const { capability: _capability, ...olderDaemonTrain } = train
+    expect(ShippingTrainExecution.safeParse(olderDaemonTrain).success).toBe(false)
+    expect(
+      ShippingTrainRequest.safeParse({
+        ...train.manifest,
+        leaderOrderId: 'order-2',
+        members: [
+          ...train.manifest.members,
+          {
+            ...train.manifest.members[0],
+            orderId: 'order-2',
+            issueId: 'issue-2',
+            attemptId: 'attempt-2',
+            sourceBranch: 'issue/2',
+            deliveryDependsOn: ['order-1'],
+          },
+        ],
       }).success,
     ).toBe(false)
     expect(

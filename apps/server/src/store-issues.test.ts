@@ -715,6 +715,11 @@ describe('shipping durable store', () => {
       version: 1,
       leaderOrderId: covering.id,
       repairRound: 0,
+      lane: {
+        repoPath: '/r',
+        machineId: asMachineId('machine-1'),
+        validationProfileDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
       members: [
         {
           orderId: lower.id,
@@ -733,6 +738,11 @@ describe('shipping durable store', () => {
     for (const member of train.manifest.members) {
       expect(s.shipping.trainManifestForAttempt(member.attemptId)).toEqual(train.manifest)
     }
+    expect(() =>
+      rawDb(s)
+        .prepare('UPDATE ship_train_manifests SET canonical_json = ? WHERE id = ?')
+        .run('{}', train.manifest.id),
+    ).toThrow(/immutable/)
     const claimed = train.claimed.find((item) => item.order.id === covering.id)!
     for (const [from, to] of [
       ['preflight', 'composing'],

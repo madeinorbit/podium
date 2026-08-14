@@ -31,9 +31,12 @@ export type ShippingJobOperation = z.infer<typeof ShippingJobOperation>
 export const ShippingValidationProfile = ShipTrainValidationProfile
 export type ShippingValidationProfile = z.infer<typeof ShippingValidationProfile>
 
+export const SHIPPING_TRAIN_CAPABILITY = 'shipping.train.v1' as const
+
 export const ShippingTrainExecution = z
   .object({
     version: z.literal(2),
+    capability: z.literal(SHIPPING_TRAIN_CAPABILITY),
     manifest: ShipTrainManifest,
     subsetId: ShipTrainSubsetIdField,
     memberOrderIds: z.array(ShipOrderIdField).min(1),
@@ -96,7 +99,10 @@ export type ShippingTrainExecution = z.infer<typeof ShippingTrainExecution>
 /** Raw manifests remain parseable for existing journal entries. New effects
  * use ShippingTrainExecution so subset and repair identity are immutable
  * journal facts; the executor rejects legacy multi-member dispatches. */
-export const ShippingTrainRequest = z.union([ShipTrainManifest, ShippingTrainExecution])
+const LegacySingleOrderTrain = ShipTrainManifest.refine((manifest) => manifest.members.length === 1, {
+  message: 'raw train manifests are legacy single-order requests only',
+})
+export const ShippingTrainRequest = z.union([LegacySingleOrderTrain, ShippingTrainExecution])
 export type ShippingTrainRequest = z.infer<typeof ShippingTrainRequest>
 
 /**
@@ -145,6 +151,7 @@ export const ShippingJobRequestMessage = z
       [request.approvedBaseSha !== leader?.approvedBaseSha, ['approvedBaseSha'], 'outer base must match leader'],
       [request.approvedHeadSha !== leader?.approvedHeadSha, ['approvedHeadSha'], 'outer head must match leader'],
       [request.repoId !== manifest.lane.repoId, ['repoId'], 'outer repository must match train lane'],
+      [request.repoPath !== manifest.lane.repoPath, ['repoPath'], 'outer repository path must match train lane'],
       [request.targetBranch !== manifest.lane.targetBranch, ['targetBranch'], 'outer target must match train lane'],
       [request.expectedTargetSha !== manifest.lane.expectedTargetSha, ['expectedTargetSha'], 'outer target SHA must match train lane'],
       [canonicalShippingDestination(request.destination, request.targetBranch) !== manifest.lane.destination, ['destination'], 'outer destination must match train lane'],
@@ -190,6 +197,7 @@ export function shippingJobRequestFingerprint(
       ? 'manifest' in input.train
         ? {
             version: input.train.version,
+            capability: input.train.capability,
             manifest: JSON.parse(serializeShipTrainManifest(input.train.manifest)),
             subsetId: input.train.subsetId,
             memberOrderIds: [...input.train.memberOrderIds],
