@@ -23,6 +23,7 @@
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/daemon:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "devDependencies": {
+    "@podium/sync": "workspace:*",
     "typescript": "^6.0.3",
     "@types/ws": "^8.5.13",
     "tsx": "^4.22.4",

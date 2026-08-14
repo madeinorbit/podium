@@ -147,8 +147,38 @@ export function extractImports(source: string): ImportRef[] {
   return refs
 }
 
+/**
+ * Test code, for every rule that exempts it.
+ *
+ * `fixtures/` and `test-support/` are here because the repository had ALREADY
+ * decided they are test infrastructure and then said so in only one place:
+ * `CONSOLE_TEST_DIR_SEGMENTS` in scripts/check-boundaries.ts carries exactly
+ * these two names, with POD-1906's note that a `*.test.ts` glob "would have
+ * swept apps/server/src/test-support/capture-logs.ts and the daemon/web
+ * fixtures, which are test infrastructure that simply is not named .test.ts".
+ * That judgement is not specific to console output, and leaving it in one rule
+ * meant the same directory was test code for the logging rule and product code
+ * for every other one. POD-888's shipping fixture is what walked into the gap:
+ * `apps/daemon/src/shipping/fixtures/server-recovery-worker.ts` is a worker
+ * script that only ever runs under `spawn` from an integration test, and it was
+ * read as the daemon taking a runtime dependency on apps/server.
+ *
+ * DELIBERATELY NOT the alternative, which was to declare `apps/daemon ->
+ * apps/server` in {@link SAME_LAYER_ALLOWED}: that set is workspace-granular, so
+ * blessing the edge for one fixture blesses it for daemon PRODUCT code too, and
+ * the next `SessionStore` import into the real daemon would land silently. The
+ * true statement is that this file is test scaffolding, not that the daemon may
+ * depend on the server.
+ *
+ * NARROW ON PURPOSE, same as {@link APP_BUILD_TIER_RE}: both segments must be
+ * whole path segments, so `src/fixtures-loader.ts` or a `fixtures.ts` module is
+ * still product code.
+ */
 export function isTestFile(file: string): boolean {
-  return /\.(test|spec)\.tsx?$/.test(file) || /\/(test|tests|__tests__)\//.test(file)
+  return (
+    /\.(test|spec)\.tsx?$/.test(file) ||
+    /\/(test|tests|__tests__|fixtures|test-support)\//.test(file)
+  )
 }
 
 /**
