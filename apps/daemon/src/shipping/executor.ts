@@ -1029,8 +1029,27 @@ export class ShippingExecutionPlane {
     request: Request,
     durable: Omit<Request, 'type' | 'requestId' | 'action'>,
   ): boolean {
-    const { type: _type, requestId: _requestId, action: _action, ...facts } = request
-    return JSON.stringify(facts) === JSON.stringify(durable)
+    const {
+      type: _type,
+      requestId: _requestId,
+      action: _action,
+      requestDigest: incomingDigest,
+      ...incomingFacts
+    } = request
+    const { requestDigest: durableDigest, ...durableFacts } = durable
+    const digest = (
+      facts: Parameters<typeof shippingJobRequestFingerprint>[0],
+    ): string => createHash('sha256').update(shippingJobRequestFingerprint(facts)).digest('hex')
+    return (
+      incomingDigest === digest(incomingFacts) &&
+      durableDigest === digest(durableFacts) &&
+      incomingDigest === durableDigest &&
+      request.jobId === durable.jobId &&
+      request.orderId === durable.orderId &&
+      request.attemptId === durable.attemptId &&
+      request.generation === durable.generation &&
+      request.operation === durable.operation
+    )
   }
 
   private base(
