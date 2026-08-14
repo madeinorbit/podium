@@ -80,15 +80,32 @@ describe('the capability declaration', () => {
     expect(caps.placement).toBe('dedicated')
   })
 
-  it('declares interactions at-least-once even where the ASK came from a hook', () => {
+  it('declines the at-least-once exemption when the ASK came from a hook', () => {
     const caps = terminalCapabilities({ ...PROFILE, sendProof: [...PROFILE.sendProof] })
     expect(caps.interactions.supported).toBe(true)
     if (!caps.interactions.supported) return
     expect(caps.interactions.value.source).toBe('hook')
-    // The asymmetry that keeps the whole family here: a hook gives the ASK real
-    // identity, and the ANSWER is still keystrokes into a menu nothing can prove
-    // it acted on.
+    // A causal hook gives the ASK the harness's own identity, so claiming
+    // at-least-once here would be claiming a weakness this driver does not have
+    // — which the table exists to prevent in BOTH directions.
+    expect(caps.interactions.value.atLeastOnce).toBe(false)
+    // The ANSWER is a separate axis, and it is still keystrokes into a menu that
+    // nothing can prove which instance it acted on.
     expect(caps.interactions.value.answerable).toBe('keystroke-emulated')
+  })
+
+  it('claims it where the ask is a classified screen, because there it is true', () => {
+    const caps = terminalCapabilities({
+      ...PROFILE,
+      sendProof: ['transcript-echo'],
+      interactionsFromHooks: false,
+    })
+    expect(caps.interactions.supported).toBe(true)
+    if (!caps.interactions.supported) return
+    expect(caps.interactions.value.source).toBe('screen-classifier')
+    // A re-rendered menu mints a duplicate ask and the classifier cannot tell
+    // the two apart. Declining the exemption here would be the other half of the
+    // same dishonesty.
     expect(caps.interactions.value.atLeastOnce).toBe(true)
   })
 

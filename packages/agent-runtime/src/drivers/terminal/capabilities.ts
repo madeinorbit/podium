@@ -79,12 +79,23 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
       // hook-SOURCED ask on Claude is answered by typing digits, and a keystroke
       // cannot prove which menu it acted on.
       answerable: 'keystroke-emulated',
-      // The permitted-failures table permits at-least-once for the family, and
-      // the corpus asserts the declaration MATCHES the permission rather than
-      // merely being allowed by it — so this is the family's answer, not this
-      // harness's. A hook channel gives better identity for the ASK; the ANSWER
-      // is still emulated, which is what keeps the whole family here.
-      atLeastOnce: true,
+      /**
+       * PER-SOURCE, NOT PER-FAMILY — and the difference is what makes this
+       * declaration honest rather than merely permitted.
+       *
+       * The exemption exists because a re-rendered menu can mint a DUPLICATE
+       * ASK: the classifier sees a screen, and two screens that look the same
+       * are two asks it cannot tell apart. That is a property of the classifier,
+       * not of the terminal family. A driver reading a real hook channel gets
+       * the harness's own causal identity for the ask — this driver keys an
+       * interaction on the observation's `transitionId`, which the causal
+       * protocol already dedupes — so it CAN say exactly-once about the ask, and
+       * saying otherwise would be claiming a weakness it does not have.
+       *
+       * The ANSWER stays keystroke-emulated in both cases (see `answerable`
+       * above); that is a separate axis and it is declared separately.
+       */
+      atLeastOnce: !input.interactionsFromHooks,
     }),
     observation: {
       // `fine` is unclaimed: a PTY produces bytes, not token deltas, and the

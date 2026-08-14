@@ -184,7 +184,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
 
     describe('send — the four outcomes', () => {
       it('ACCEPTED opens a turn and reports the delivery actually used', async () => {
-        const { handle, driver } = setup()
+        const { handle, control, driver } = setup()
         const session = await handle
         const receipt = await session.send(
           { text: 'hello' },
@@ -194,6 +194,10 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         if (receipt.outcome !== 'accepted') return
         expect(receipt.turnEpoch).toBeGreaterThan(0)
         expect(receipt.deliveredAs).toBe('when-ready')
+        // The counter's other end: a send that DID prove itself also delivered
+        // exactly once, so the `unverified` assertion below is measuring
+        // restraint rather than a counter nobody increments.
+        expect(control.deliveryAttempts(session.binding.sessionId)).toBe(1)
         // Rule 2: the guarantee is family-invariant, the MECHANISM is declared —
         // and a driver may not invent a mechanism it never claimed.
         expectDeclaredProof(driver.capabilities(), receipt)
@@ -298,6 +302,13 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(receipt.deliveredAs).toBeTruthy()
         const after = await session.snapshot()
         expect(after.turnEpoch).toBe(0)
+        // DIRECTLY, not by inference. The epoch assertion above only refutes a
+        // retry that OPENS A TURN; a terminal driver can re-type a prompt with
+        // no epoch moving anywhere, which is precisely what the mechanism this
+        // outcome replaced did — it re-submitted an unprovable send up to twice
+        // and called the result success. One send, one delivery of the caller's
+        // words, however many keystrokes that took.
+        expect(control.deliveryAttempts(session.binding.sessionId)).toBe(1)
       })
     })
 

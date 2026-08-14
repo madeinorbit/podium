@@ -38,6 +38,25 @@ export interface ConformanceControl {
   completeTurn(sessionId: SessionId): void
   processEvent(sessionId: SessionId, ev: ProcessEvent): void
   failNextVerification(sessionId: SessionId): void
+  /**
+   * How many times the driver has DELIVERED this session's prompt text.
+   *
+   * WHY THE CORPUS NEEDS A COUNTER AND NOT AN INFERENCE. "`unverified` is never
+   * retried into a lie" was proven indirectly — the turn epoch stays 0, so no
+   * turn was opened — and that inference only holds for a driver that opens a
+   * turn when it retries. W3's terminal driver is the first that can genuinely
+   * re-type a prompt without any epoch moving, which is exactly the old
+   * behaviour this outcome replaced: `scheduleSubmitVerify` re-submitted an
+   * unprovable send up to twice and reported success. An indirect proof is no
+   * proof against the one driver it was written about.
+   *
+   * COUNT DELIVERIES OF THE TEXT, not keystrokes. A driver whose submit needs a
+   * separate CR, or a bounded nudge at the same composer, has made ONE delivery:
+   * the caller's turn was handed over once. A SECOND delivery is a second copy
+   * of the user's words reaching the agent, which is the thing that must never
+   * happen behind an `unverified` receipt.
+   */
+  deliveryAttempts(sessionId: SessionId): number
   restartSupervisor(): void
   connectWithoutSecret(sessionId: SessionId): { refused: boolean }
 }

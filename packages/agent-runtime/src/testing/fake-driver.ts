@@ -134,6 +134,9 @@ export interface FakeControl {
   /** The next `send` cannot prove acceptance inside its window. Refused unless
    *  the driver declared `mayReturnUnverified`. */
   failNextVerification(sessionId: SessionId): void
+  /** How many times this session's text has been delivered — see
+   *  `ConformanceControl.deliveryAttempts`. */
+  deliveryAttempts(sessionId: SessionId): number
   /** Simulate a supervisor restart: every handle is dropped, the survivor
    *  registry is not. */
   restartSupervisor(): void
@@ -187,6 +190,9 @@ interface SessionCore {
   alive: boolean
   oomEvents: number
   failNextVerification: boolean
+  /** Deliveries of the caller's text, counted so the corpus can prove directly
+   *  that an unprovable send is not re-delivered. */
+  deliveryAttempts: number
   /** Only ever read by `connectWithoutSecret`. Never in argv, never logged —
    *  the fake keeps the discipline the real one must (spec §6). */
   connectSecret: string | null
@@ -487,6 +493,10 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           return { outcome: 'refused', refusal: refuse('lease_held', core.lease.holder) }
         }
 
+        // PAST EVERY REFUSAL, so the count means "the caller's words were handed
+        // over", not "somebody called send". A refusal delivers nothing.
+        core.deliveryAttempts += 1
+
         // DELIVERY DEGRADATION IS REPORTED, NEVER SILENT.
         const requested = options.delivery
         const deliveredAs: TurnDelivery = nativeDeliveries.includes(requested)
@@ -751,6 +761,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       alive: true,
       oomEvents: 0,
       failNextVerification: false,
+      deliveryAttempts: 0,
       connectSecret: requiresConnectSecret ? `secret-${sessionId}` : null,
       watchers: new Map(),
       usage: {},
@@ -817,6 +828,9 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     },
     failNextVerification(sessionId) {
       coreFor(sessionId).failNextVerification = true
+    },
+    deliveryAttempts(sessionId) {
+      return coreFor(sessionId).deliveryAttempts
     },
     restartSupervisor() {
       // Handles die; survivors do not. The observer generation bump happens on

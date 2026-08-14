@@ -94,6 +94,10 @@ function makeWorld(): { target: ConformanceTarget } {
   const turnEpochs = new Map<SessionId, number>()
   const bridgeOf = new Map<SessionId, { write(dataBase64: string): void; pid: number }>()
   const pendingPaste = new Map<SessionId, string>()
+  /** Deliveries of the caller's TEXT, counted at the PTY. A bracketed paste is
+   *  one delivery; the CR and the bounded verification nudges that follow it are
+   *  the same delivery finishing, not new ones. */
+  const deliveries = new Map<SessionId, number>()
 
   const labelFor = (sessionId: SessionId): string => `podium-${sessionId}`
   const iso = (): string => new Date(clock).toISOString()
@@ -192,6 +196,7 @@ function makeWorld(): { target: ConformanceTarget } {
           const paste = pastedText(text)
           if (paste !== undefined) {
             pendingPaste.set(msg.sessionId, paste)
+            deliveries.set(msg.sessionId, (deliveries.get(msg.sessionId) ?? 0) + 1)
             return
           }
           if (text !== '\r') return
@@ -261,6 +266,9 @@ function makeWorld(): { target: ConformanceTarget } {
       if (ev.ev !== 'exited') return
       runtime?.observe({ type: 'agentExit', sessionId, code: ev.code ?? 0 })
     },
+    deliveryAttempts(sessionId) {
+      return deliveries.get(sessionId) ?? 0
+    },
     failNextVerification(sessionId) {
       // THE WORLD STOPS ECHOING, AND THAT IS ALL. The driver has no switch that
       // makes a send answer `unverified`; it reaches that outcome by running its
@@ -301,6 +309,7 @@ function makeWorld(): { target: ConformanceTarget } {
         turnEpochs.clear()
         bridgeOf.clear()
         pendingPaste.clear()
+        deliveries.clear()
       },
       spec: () => ({
         harness: 'grok',
