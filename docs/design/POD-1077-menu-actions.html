@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POD-1077 — Shell context menu actions</title>
+<style>
+  /* ── Palette lifted from apps/web/src/index.css, [data-theme="superade"].dark.
+     The menus below are drawn from the same names MENU_PANEL / MENU_ITEM /
+     MENU_SECTION resolve, so a row here and a shipped row read alike. ─────── */
+  :root{
+    --background:#16171a; --foreground:#d7dae0; --card:#23262d;
+    --muted:#1e2024; --sidebar:#191a1e; --bar:#1b1d21; --tabstrip:#202228;
+    --chip:#252830; --hairline-soft:#24272d; --hairline-bar:#26292f;
+    --border-strong:#3a3f48;
+    --text-strong:#f2f3f5; --text:#d7dae0; --text-dim:#848a94; --text-faint:#6f7580;
+    --attention:#e3ba52; --destructive:#e5303f; --live:#6f9dff; --yellow:#f5c518;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:44px 40px 90px;background:#111214;color:var(--text);
+    font:14px/1.55 "Geist Variable",ui-sans-serif,system-ui,-apple-system,sans-serif;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:23px;letter-spacing:-.02em;margin:0 0 6px;color:var(--text-strong);font-weight:600}
+  h2{font-size:15px;letter-spacing:-.01em;margin:52px 0 4px;color:var(--text-strong);font-weight:600}
+  h3{font-size:12px;margin:26px 0 10px;color:var(--text-strong);font-weight:600}
+  .lede{color:var(--text-dim);margin:0 0 4px;max-width:74ch}
+  .kicker{
+    font:500 8.5px/1 "Geist Mono Variable",ui-monospace,monospace;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);
+  }
+  p{max-width:74ch}
+  code{
+    font:400 11.5px/1.5 "Geist Mono Variable",ui-monospace,monospace;
+    background:var(--muted);padding:1px 5px;border-radius:4px;color:var(--text-strong);
+  }
+  hr{border:0;border-top:1px solid var(--hairline-soft);margin:44px 0 0}
+
+  /* ── findings ───────────────────────────────────────────────────────────── */
+  .find{
+    border:1px solid var(--hairline-bar);border-left:2px solid var(--destructive);
+    background:var(--card);border-radius:6px;padding:13px 16px;margin:12px 0;
+  }
+  .find.warn{border-left-color:var(--attention)}
+  .find.ok{border-left-color:var(--live)}
+  .find b{color:var(--text-strong);font-weight:600}
+  .find p{margin:5px 0 0;font-size:13px;color:var(--text-dim)}
+
+  /* ── the menu panel, as MENU_PANEL draws it ─────────────────────────────── */
+  .cols{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start;margin-top:14px}
+  .col{flex:1 1 300px;min-width:280px}
+  .col > .kicker{display:block;margin-bottom:7px}
+  .menu{
+    width:100%;max-width:340px;background:var(--card);
+    border:1px solid var(--hairline-bar);border-radius:6px;padding:4px;
+    box-shadow:0 8px 24px rgba(0,0,0,.42);
+  }
+  .mh{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:5px 5px 6px;font:500 8.5px/1 "Geist Mono Variable",ui-monospace,monospace;
+    letter-spacing:.12em;color:var(--text-faint);
+  }
+  .mh .ref{color:var(--text-dim);letter-spacing:.06em}
+  .ms{
+    padding:9px 7px 4px;font:500 8.5px/1 "Geist Mono Variable",ui-monospace,monospace;
+    letter-spacing:.12em;color:var(--text-faint);
+  }
+  .mr{border:0;border-top:1px solid var(--hairline-soft);margin:4px 6px}
+  .mi{
+    display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:4.8px;
+    font-size:12px;color:var(--text);
+  }
+  .mi .gl{flex:none;width:14px;text-align:center;color:var(--text-dim);font-size:11px}
+  .mi .chev{margin-left:auto;color:var(--text-dim);font-size:10px}
+  .mi.dim{color:var(--text-faint)}
+  .mi.dim .gl{color:var(--text-faint)}
+  .mi.red{color:var(--destructive)}
+  .mi.red .gl{color:var(--destructive)}
+  .mi.hl{background:color-mix(in srgb,var(--yellow) 12%,transparent)}
+  .mi .sub{margin-left:auto;font:400 9.5px/1 "Geist Mono Variable",monospace;color:var(--text-faint)}
+  /* change marks */
+  .mi[data-x="add"]{box-shadow:inset 2px 0 0 var(--live)}
+  .mi[data-x="cut"]{opacity:.34;text-decoration:line-through}
+  .mi[data-x="ren"]{box-shadow:inset 2px 0 0 var(--attention)}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin:10px 0 0;font-size:11.5px;color:var(--text-dim)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .sw{width:2px;height:13px;border-radius:1px;flex:none}
+
+  /* ── table ──────────────────────────────────────────────────────────────── */
+  .tw{overflow-x:auto;margin:14px 0 0}
+  table{border-collapse:collapse;width:100%;min-width:660px;font-size:12.5px}
+  th,td{text-align:left;padding:7px 12px;border-bottom:1px solid var(--hairline-soft);vertical-align:top}
+  th{
+    font:500 8.5px/1 "Geist Mono Variable",ui-monospace,monospace;letter-spacing:.12em;
+    color:var(--text-faint);text-transform:uppercase;border-bottom-color:var(--hairline-bar);
+  }
+  td b{color:var(--text-strong);font-weight:600}
+  td.y{color:var(--live)} td.n{color:var(--text-faint)}
+  .note{font-size:12px;color:var(--text-faint);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="kicker">POD-1077 · proposal · reconstruction, not a capture</span>
+  <h1>Shell context menu actions</h1>
+  <p class="lede">
+    What belongs in the menu for a mission, a sub-task, a session, and a tab — and why
+    three of today's session verbs are the same act under different names.
+  </p>
+
+  <hr>
+
+  <h2>What's actually wrong</h2>
+
+  <div class="find">
+    <b>1 · “Close” means two different things, one menu apart.</b>
+    <p>
+      On the tab menu, <code>Close</code> closes a view and never touches the agent
+      (<code>Workspace.tsx:1009</code>). On the session menu, <code>Close</code> calls
+      <code>guardedKill</code> → <code>killSession</code>, which writes a durable
+      <b>tombstone and removes the row</b> (<code>session-kill.ts:1</code>) — terminal, no restore.
+      Same word, same ✕ glyph, two controls a few pixels apart on the same session.
+      This is the highest-severity item on the surface.
+    </p>
+  </div>
+
+  <div class="find">
+    <b>2 · Session “Archive” does not archive. It stops the agent.</b>
+    <p>
+      POD-108 made archive park the process — <code>parkArchivedSession</code> sets the session
+      to <code>hibernated</code> or <code>exited</code> and kills it
+      (<code>session-teardown.ts:105</code>). The guard even says so out loud:
+      “this agent is still working — archiving it now ends its turn”
+      (<code>use-session-guard.ts:73</code>). The word promises filing; the action ends work.
+    </p>
+  </div>
+
+  <div class="find ok">
+    <b>3 · The instinct “it's the issue that gets archived” is already the backend model.</b>
+    <p>
+      Archiving an issue cascades to its member sessions (#133,
+      <code>relay.archive-cascade.test.ts</code>), and a sweep auto-archives sessions that are
+      stopped and read ([spec:SP-6144], <code>tryAutoArchiveStoppedObserved</code>).
+      Session-level archive is a manual duplicate of two paths that already run on their own.
+    </p>
+  </div>
+
+  <div class="find warn">
+    <b>4 · The verb the operator actually wants is built and unexposed.</b>
+    <p>
+      <code>sessions.stop</code> [spec:SP-9904] — stop the process, free the worktree when safe,
+      <b>keep branch, transcript and row</b>, resume recreates the worktree from the branch — is
+      live on the command plane (<code>command-plane.ts:631</code>) and wired to the CLI
+      (<code>session-cli.ts:305</code>). It has <b>zero call sites in <code>apps/web</code></b>.
+      Meanwhile the command palette aliases the keywords <code>stop</code> and
+      <code>end session</code> onto the tombstoning kill (<code>CommandPalette.tsx:528</code>),
+      so searching for the safe verb hands you the terminal one.
+    </p>
+  </div>
+
+  <div class="find warn">
+    <b>5 · A mission and a sub-task get literally the same menu.</b>
+    <p>
+      The flight deck imports <code>IssueContextMenu</code> with <code>surface="sidebar"</code>
+      (POD-771, “imported, never forked” — <code>FlightDeck.tsx:2825</code>). Only the colour row
+      differs, gated top-level by [spec:SP-b4d1]. So a sub-task still offers Archive and Pin,
+      which are both mission-scoped ideas.
+    </p>
+  </div>
+
+  <div class="find warn">
+    <b>6 · Delete shares a block with Pin.</b>
+    <p>
+      The tree is sectioned <code>main</code> / <code>lifecycle</code> (“LIFECYCLE”) /
+      <code>destructive</code> (“MANAGE”). That split is sound — but MANAGE then holds
+      Pin, Archive, Duplicate of, Restore <i>and</i> <b>Delete</b> in one run
+      (<code>issue-menu-config.ts:350–399</code>), so the terminal action sits directly under
+      a bookmark toggle with no rule above it, distinguished only by red ink. The section
+      the code calls <code>destructive</code> is mostly not.
+    </p>
+  </div>
+
+  <div class="find warn">
+    <b>7 · You cannot rename a task from the flight deck.</b>
+    <p>
+      <code>FlightDeck.tsx:2824</code> mounts <code>IssueContextMenu</code> without an
+      <code>onRename</code> prop, and the entry is gated on <code>renameEnabled</code>
+      (<code>issue-menu-config.ts:160</code>) — so Rename is silently absent from every strip
+      and from the mission header, while the sidebar and the board both have it. The deck is
+      the column the operator actually works in.
+    </p>
+  </div>
+
+  <div class="find warn">
+    <b>8 · The same “Close (done)” confirms on one surface and fires instantly on two others.</b>
+    <p>
+      With <code>onRequestClose</code> supplied (<code>IssueCompactControls</code>) the item
+      opens <code>IssueCloseDialog</code>; without it — the sidebar and the flight deck — it
+      calls <code>closeIssue</code> straight through (<code>IssueContextMenu.tsx:230</code>).
+      One verb, two levels of ceremony, decided by which surface you happened to right-click.
+    </p>
+  </div>
+
+  <hr>
+
+  <h2>The rule to adopt</h2>
+  <p>
+    <b>One noun per menu, and the verb names what survives.</b> A session has four real
+    server-side ends. Today the UI offers the two extremes and skips the useful middle —
+    then calls the terminal one “Close”.
+  </p>
+
+  <div class="tw">
+  <table>
+    <thead>
+      <tr><th>verb</th><th>process</th><th>worktree</th><th>row + transcript</th><th>way back</th><th>in web today</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Hibernate</b></td><td>parked</td><td class="y">kept</td><td class="y">visible</td>
+        <td>Resume</td><td class="y">yes</td>
+      </tr>
+      <tr>
+        <td><b>End</b> <span style="color:var(--text-faint)">(sessions.stop)</span></td>
+        <td>killed</td><td>freed when safe</td><td class="y">visible</td>
+        <td>Resume — rebuilds the worktree from the branch</td><td class="n">no — CLI only</td>
+      </tr>
+      <tr>
+        <td><b>Archive</b></td><td>parked</td><td class="y">kept</td><td>hidden</td>
+        <td>Unarchive (does not resurrect)</td><td class="y">yes</td>
+      </tr>
+      <tr>
+        <td><b>Delete</b> <span style="color:var(--text-faint)">(today: “Close”)</span></td>
+        <td>killed</td><td>—</td><td class="n">tombstoned</td>
+        <td class="n">none</td><td class="y">yes, mislabelled</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">
+    Hibernate / End / Archive / Delete are four distinct outcomes. Hibernate, Archive and
+    Close are today's three labels — and two of them park a process while the third destroys
+    a record.
+  </p>
+
+  <hr>
+
+  <h2>A · Session menu — flight deck ⋯ and right-click</h2>
+  <p>The one place session lifecycle lives. Keep it that way; fix the vocabulary.</p>
+
+  <div class="cols">
+    <div class="col">
+      <span class="kicker">today</span>
+      <div class="menu">
+        <div class="mh"><span>AGENT</span><span class="ref">claude · deck rows</span></div>
+        <div class="mi"><span class="gl">✎</span>Rename</div>
+        <div class="mi"><span class="gl">✉</span>Mark as unread</div>
+        <div class="ms">SNOOZE</div>
+        <div class="mi"><span class="gl">⏰</span>For 1 hour</div>
+        <div class="mi"><span class="gl">⏰</span>Until tomorrow</div>
+        <div class="mi"><span class="gl">⏰</span>Until next message</div>
+        <div class="ms">MANAGE</div>
+        <div class="mi"><span class="gl">☾</span>Hibernate</div>
+        <div class="mi"><span class="gl">▷</span>Resume</div>
+        <div class="mi"><span class="gl">⇄</span>Handoff<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">💬</span>Ask superagent (BTW)</div>
+        <div class="mi"><span class="gl">🗄</span>Archive</div>
+        <div class="mi red"><span class="gl">✕</span>Close</div>
+      </div>
+      <p class="note">
+        Three items end the agent — Hibernate, Archive, Close — and nothing in the labels
+        says which one is recoverable.
+      </p>
+    </div>
+
+    <div class="col">
+      <span class="kicker">proposed</span>
+      <div class="menu">
+        <div class="mh"><span>AGENT</span><span class="ref">claude · deck rows</span></div>
+        <div class="mi"><span class="gl">✎</span>Rename</div>
+        <div class="mi"><span class="gl">✉</span>Mark as unread</div>
+        <div class="ms">SNOOZE</div>
+        <div class="mi"><span class="gl">⏰</span>For 1 hour</div>
+        <div class="mi"><span class="gl">⏰</span>Until tomorrow</div>
+        <div class="mi"><span class="gl">⏰</span>Until next message</div>
+        <div class="ms">MANAGE</div>
+        <div class="mi"><span class="gl">☾</span>Hibernate</div>
+        <div class="mi"><span class="gl">▷</span>Resume</div>
+        <div class="mi"><span class="gl">⇄</span>Handoff<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">💬</span>Ask superagent (BTW)</div>
+        <div class="mi" data-x="cut"><span class="gl">🗄</span>Archive</div>
+        <hr class="mr">
+        <div class="mi" data-x="add"><span class="gl">⏹</span>End session<span class="sub">frees worktree</span></div>
+        <div class="mi red" data-x="ren"><span class="gl">🗑</span>Delete session…</div>
+      </div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--live)"></i>added</span>
+        <span><i class="sw" style="background:var(--attention)"></i>renamed</span>
+        <span><i class="sw" style="background:var(--text-faint)"></i>removed</span>
+      </div>
+    </div>
+  </div>
+
+  <h3>The three changes</h3>
+  <p>
+    <b>Add “End session”</b> → <code>sessions.stop</code>. This is the everyday “I'm done with
+    this agent”: the process stops, the worktree frees, the transcript stays, Resume brings it
+    back. It is the missing verb, and it already exists.
+  </p>
+  <p>
+    <b>Rename “Close” → “Delete session…”</b>, behind a rule, and confirm <i>always</i> rather
+    than only while working — the current guard fires on a working agent only, so deleting an
+    idle session's whole record is a single unconfirmed click. The ellipsis states that a
+    confirm follows.
+  </p>
+  <p>
+    <b>Drop “Archive”</b> from the session menu. Issue archive cascades (#133) and the sweep
+    handles the tail; keeping it means a third synonym for “stop the agent”. Leave
+    <code>Unarchive</code> rendered only when the subject is already archived, so the state
+    stays escapable. <i>Softer variant if you'd rather not lose it:</i> keep it but move it
+    under the rule beside End, since that is what it does.
+  </p>
+
+  <hr>
+
+  <h2>B · Session tab ⋯ — keep the boundary, add the bridge</h2>
+  <p>
+    POD-710 deliberately stripped session lifecycle off the tab: “a tab is a view, and a menu
+    that can kill an agent from one is exactly the tab/session conflation this work undoes”
+    (<code>Workspace.tsx:1045</code>). That decision is right and I'd keep it — a killer one
+    slip below “Close All” is a bad trade. What's genuinely missing is not lifecycle; it's a
+    way to <i>reach</i> the session from the tab you're already looking at.
+  </p>
+
+  <div class="cols">
+    <div class="col">
+      <span class="kicker">today</span>
+      <div class="menu">
+        <div class="mh"><span>TAB ACTIONS</span></div>
+        <div class="mi"><span class="gl">✕</span>Close</div>
+        <div class="mi"><span class="gl"></span>Close Others</div>
+        <div class="mi"><span class="gl"></span>Close All</div>
+        <div class="mi dim"><span class="gl"></span>Keep Open</div>
+        <hr class="mr">
+        <div class="mi"><span class="gl">⊟</span>Split Right</div>
+        <div class="mi"><span class="gl">⊟</span>Split Down</div>
+      </div>
+      <p class="note">View-scoped and coherent — but it is a dead end when the thing you
+        want is the agent.</p>
+    </div>
+    <div class="col">
+      <span class="kicker">proposed</span>
+      <div class="menu">
+        <div class="mh"><span>TAB ACTIONS</span></div>
+        <div class="mi" data-x="ren"><span class="gl">✕</span>Close tab</div>
+        <div class="mi"><span class="gl"></span>Close Others</div>
+        <div class="mi"><span class="gl"></span>Close All</div>
+        <div class="mi dim"><span class="gl"></span>Keep Open</div>
+        <hr class="mr">
+        <div class="mi"><span class="gl">⊟</span>Split Right</div>
+        <div class="mi"><span class="gl">⊟</span>Split Down</div>
+        <hr class="mr">
+        <div class="mi" data-x="add"><span class="gl">◎</span>Reveal in flight deck</div>
+      </div>
+      <p class="note">
+        On session tabs only. Scrolls the deck to that agent's row and selects it — from
+        there every lifecycle verb is one right-click away, in the place that owns them.
+      </p>
+    </div>
+  </div>
+
+  <p>
+    Also worth the two characters: <b>“Close” → “Close tab”</b> here. The ✕ button beside it
+    already says <code>title="Close tab"</code>; the menu row saying just “Close” is the exact
+    word the session menu uses for deletion, and naming the noun costs nothing.
+  </p>
+  <p class="note">
+    <b>Alternative, if Reveal feels too thin:</b> a second section headed with the agent's name
+    carrying only the <i>non-destructive</i> subset — Rename, Snooze, Hibernate — plus Reveal.
+    It gives more reach, at the cost of a menu that changes shape between file tabs and session
+    tabs and half-breaks POD-710's rule. I'd hold at Reveal and see if it's enough.
+  </p>
+
+  <hr>
+
+  <h2>C · Main issue — the sidebar mission menu</h2>
+  <p>
+    Substantially right, and the LIFECYCLE / MANAGE split already works. Archive belongs here
+    and should stay: this <i>is</i> the user-facing “put it away”, and it already cascades to
+    sub-tasks and sessions. Three fixes, all small.
+  </p>
+  <p class="note">
+    Note on the affordance: the sidebar is <b>right-click only</b> — there is no ⋯ button on a
+    mission row. The ⋯ exists on the deck strip and in <code>IssueCompactControls</code>. That
+    asymmetry is defensible (the deck's comment at <code>FlightDeck.tsx:1093</code> says the
+    sidebar teaches the gesture and the ⋯ is the deck's discovery affordance) — but it does
+    mean a first-time operator has no visible way into the mission menu at all.
+  </p>
+
+  <div class="cols">
+    <div class="col">
+      <span class="kicker">today</span>
+      <div class="menu">
+        <div class="mh"><span>TASK</span><span class="ref">POD-1077</span></div>
+        <div class="mi"><span class="gl">↗</span>Open</div>
+        <div class="mi"><span class="gl">✎</span>Rename</div>
+        <div class="mi"><span class="gl">✉</span>Mark as unread</div>
+        <div class="mi"><span class="gl">◧</span>Set stage<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">≡</span>Set priority<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">◆</span>Assign agent<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">🏷</span>Labels<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">■</span>Set colour<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">⇄</span>Handoff<span class="chev">›</span></div>
+        <div class="ms">LIFECYCLE</div>
+        <div class="mi"><span class="gl">✓</span>Close (done)</div>
+        <div class="mi"><span class="gl">✕</span>Close (wontfix)</div>
+        <div class="mi"><span class="gl">⏰</span>Snooze / defer<span class="chev">›</span></div>
+        <div class="ms">MANAGE</div>
+        <div class="mi"><span class="gl">📌</span>Pin</div>
+        <div class="mi"><span class="gl">🗄</span>Archive</div>
+        <div class="mi red"><span class="gl">🗑</span>Delete</div>
+      </div>
+      <p class="note">Delete sits one row under Pin, inside a block called MANAGE.</p>
+    </div>
+    <div class="col">
+      <span class="kicker">proposed</span>
+      <div class="menu">
+        <div class="mh"><span>TASK</span><span class="ref">POD-1077</span></div>
+        <div class="mi"><span class="gl">↗</span>Open</div>
+        <div class="mi"><span class="gl">✎</span>Rename</div>
+        <div class="mi"><span class="gl">✉</span>Mark as unread</div>
+        <div class="mi"><span class="gl">◧</span>Set stage<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">≡</span>Set priority<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">◆</span>Assign agent<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">🏷</span>Labels<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">■</span>Set colour<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">⇄</span>Handoff<span class="chev">›</span></div>
+        <div class="ms">LIFECYCLE</div>
+        <div class="mi" data-x="ren"><span class="gl">✓</span>Close (done)…</div>
+        <div class="mi" data-x="ren"><span class="gl">✕</span>Close (wontfix)…</div>
+        <div class="mi"><span class="gl">⏰</span>Snooze / defer<span class="chev">›</span></div>
+        <div class="ms">MANAGE</div>
+        <div class="mi"><span class="gl">📌</span>Pin</div>
+        <div class="mi" data-x="ren"><span class="gl">🗄</span>Archive…<span class="sub">+3 tasks, 5 agents</span></div>
+        <hr class="mr">
+        <div class="mi red" data-x="ren"><span class="gl">🗑</span>Delete…</div>
+      </div>
+    </div>
+  </div>
+
+  <p>
+    <b>Put a rule above Delete</b> and let it stand alone below MANAGE. It's two lines of
+    config — give the <code>destructive</code> section a fourth value that actually means it —
+    and it's the cheapest safety change on the whole surface.
+  </p>
+  <p>
+    <b>State the cascade in the Archive confirm.</b> It already warns when
+    <code>childCount &gt; 0</code>, but with a bare count-free sentence — and it uses a raw
+    <code>window.confirm</code> (<code>IssueContextMenu.tsx:349</code>) while every other guard
+    in the app uses <code>useConfirm</code>. Name the numbers: sub-tasks <i>and</i> the agents
+    that will be stopped, because that second half is invisible today.
+  </p>
+  <p>
+    <b>One ceremony per verb.</b> Close (done) opens <code>IssueCloseDialog</code> from
+    <code>IssueCompactControls</code> and fires instantly from the sidebar and the deck
+    (finding 8). Pick one — I'd wire <code>onRequestClose</code> everywhere so closing always
+    offers the same dialog — and put the ellipsis on the rows that confirm.
+  </p>
+
+  <hr>
+
+  <h2>D · Sub-issue — the flight deck strip menu</h2>
+  <p>
+    Sharing one config with the sidebar is right. Sharing one <i>projection</i> is not: gate a
+    few entries on <code>parentId != null</code> (or a third <code>surface: 'deck'</code>,
+    matching how <code>'board'</code> already gates “Duplicate of”).
+  </p>
+
+  <div class="cols">
+    <div class="col">
+      <span class="kicker">today — the mission menu, minus Rename</span>
+      <div class="menu">
+        <div class="mh"><span>TASK</span><span class="ref">POD-1077.2</span></div>
+        <div class="mi"><span class="gl">↗</span>Open</div>
+        <div class="mi"><span class="gl">✉</span>Mark as unread</div>
+        <div class="mi"><span class="gl">◧</span>Set stage<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">≡</span>Set priority<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">◆</span>Assign agent<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">🏷</span>Labels<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">⇄</span>Handoff<span class="chev">›</span></div>
+        <div class="ms">LIFECYCLE</div>
+        <div class="mi"><span class="gl">⇄</span>Move to top level (out of POD-1077)</div>
+        <div class="mi"><span class="gl">✓</span>Close (done)</div>
+        <div class="mi"><span class="gl">✕</span>Close (wontfix)</div>
+        <div class="mi"><span class="gl">⏰</span>Snooze / defer<span class="chev">›</span></div>
+        <div class="ms">MANAGE</div>
+        <div class="mi"><span class="gl">📌</span>Pin</div>
+        <div class="mi"><span class="gl">🗄</span>Archive</div>
+        <div class="mi red"><span class="gl">🗑</span>Delete</div>
+      </div>
+      <p class="note">
+        No Rename (finding 7). Colour is correctly absent — [spec:SP-b4d1], the colour names
+        the mission and a sub-task inherits it.
+      </p>
+    </div>
+    <div class="col">
+      <span class="kicker">proposed</span>
+      <div class="menu">
+        <div class="mh"><span>SUB-TASK</span><span class="ref">POD-1077.2</span></div>
+        <div class="mi"><span class="gl">↗</span>Open</div>
+        <div class="mi" data-x="add"><span class="gl">✎</span>Rename</div>
+        <div class="mi"><span class="gl">✉</span>Mark as unread</div>
+        <div class="mi"><span class="gl">◧</span>Set stage<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">≡</span>Set priority<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">◆</span>Assign agent<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">🏷</span>Labels<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">⇄</span>Handoff<span class="chev">›</span></div>
+        <div class="ms" data-x="add">PLACEMENT</div>
+        <div class="mi hl"><span class="gl">⇄</span>Move to top level (out of POD-1077)</div>
+        <div class="ms">LIFECYCLE</div>
+        <div class="mi" data-x="ren"><span class="gl">✓</span>Close (done)…</div>
+        <div class="mi" data-x="ren"><span class="gl">✕</span>Close (wontfix)…</div>
+        <div class="mi"><span class="gl">⏰</span>Snooze / defer<span class="chev">›</span></div>
+        <div class="ms">MANAGE</div>
+        <div class="mi" data-x="cut"><span class="gl">📌</span>Pin</div>
+        <div class="mi" data-x="cut"><span class="gl">🗄</span>Archive</div>
+        <hr class="mr">
+        <div class="mi red" data-x="ren"><span class="gl">🗑</span>Delete…</div>
+      </div>
+    </div>
+  </div>
+
+  <p>
+    <b>Pass <code>onRename</code>.</b> The deck strip already has an inline editor pattern —
+    the session row uses one (<code>FlightDeck.tsx:960</code>). This is the one item the deck
+    is missing outright rather than carrying wrongly.
+  </p>
+
+  <p>
+    <b>Drop Archive.</b> Archiving one sub-task out of a mission punches a hole in the spine
+    that the deck cannot show and cannot restore from — there is no archived filter in that
+    column. Closing it is the honest gesture; archiving belongs to the mission that owns the
+    whole subtree.
+  </p>
+  <p>
+    <b>Drop Pin.</b> Pinning orders the sidebar's mission list; the deck orders by the spine,
+    so the row does nothing you can observe from here.
+  </p>
+  <p>
+    <b>Promote placement to its own named block.</b> “Move to top level” is the most
+    characteristic decision a sub-task has — it's the spin-off gesture — and today it sits
+    unlabelled mid-menu. Header it PLACEMENT and it stops reading as another lifecycle row.
+  </p>
+  <p>
+    Colour is already correctly absent here — [spec:SP-b4d1], the colour names the mission
+    and a sub-task inherits it.
+  </p>
+
+  <hr>
+
+  <h2>Order of work</h2>
+  <div class="tw">
+  <table>
+    <thead><tr><th>#</th><th>change</th><th>why now</th><th>size</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><b>“Close” → “Delete session…”</b> + always-confirm; palette keywords off it</td>
+          <td>Removes the one collision that destroys a record on a misread</td><td>S</td></tr>
+      <tr><td>2</td><td><b>Add “End session”</b> → <code>sessions.stop</code></td>
+          <td>Gives the destructive row a safe neighbour to be chosen instead of</td><td>M</td></tr>
+      <tr><td>3</td><td><b>Drop session Archive</b></td>
+          <td>Only safe once 2 lands — until then it's the sole non-terminal end</td><td>S</td></tr>
+      <tr><td>4</td><td><b>Rule above Delete</b> + ellipses + cascade counts + <code>useConfirm</code></td>
+          <td>Pure presentation, no behaviour change, protects the other terminal verb</td><td>S</td></tr>
+      <tr><td>5</td><td><b>Sub-task gating</b> (drop Archive + Pin, header PLACEMENT)</td>
+          <td>Independent of the session work</td><td>S</td></tr>
+      <tr><td>6</td><td><b>Pass <code>onRename</code></b> from the flight deck</td>
+          <td>Missing item, not a wrong one — smallest change here</td><td>S</td></tr>
+      <tr><td>7</td><td><b>One close ceremony</b> — wire <code>onRequestClose</code> everywhere</td>
+          <td>Removes the per-surface inconsistency in finding 8</td><td>M</td></tr>
+      <tr><td>8</td><td><b>“Reveal in flight deck”</b> on session tabs</td>
+          <td>The bridge that makes POD-710's boundary liveable</td><td>M</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">
+    3 must not precede 2. Dropping Archive while “Close” is still the only other end would
+    leave the menu with exactly one way out, and it would be the tombstone.
+  </p>
+
+</div>
+</body>
+</html>
