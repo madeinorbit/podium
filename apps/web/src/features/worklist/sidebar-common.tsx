@@ -321,24 +321,16 @@ export function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, 
 }
 
 /**
- * {@link useCollapsed} over a SET of keys, read in one subscription (POD-1057).
+ * {@link useCollapsed} over a SET of keys, in one subscription (POD-1057).
  *
- * The 3a column makes every section band foldable, and there is one band per
- * project — a list whose length is the machine's, not the code's. `useCollapsed`
- * cannot answer that: a hook per group means a hook inside a loop, and the only
- * legal shape for that is a component per group, which would hide the collapse
- * state from the list that has to consult it (the ⌘-hold digits must skip rows
- * inside a shut band, or a keystroke selects something nobody can see).
+ * One foldable band per project is a list as long as the machine's repo list, so
+ * a hook per group would be a hook in a loop — and the legal shape for that (a
+ * component per group) would hide the collapse state from the list that must
+ * consult it: the ⌘-hold digits have to skip rows inside a shut band.
  *
- * So this reads N keys against ONE store subscription and hands the caller the
- * whole answer. The snapshot is a bit STRING rather than a Set because
- * `useSyncExternalStore` compares snapshots by identity: a fresh Set per read is
- * an infinite render loop, and a string of the same characters is the same
- * string. The Set is derived from it afterwards, memoised on the bits.
- *
- * Absent key = expanded, which is the right default for a band: a section that
- * starts shut hides work the operator never asked to hide. (The tail folds go
- * the other way and keep `useCollapsed`.)
+ * The snapshot is a bit STRING, not a Set: `useSyncExternalStore` compares by
+ * identity, so a fresh Set per read is an infinite render loop. Absent key =
+ * expanded; the tail folds go the other way and keep `useCollapsed`.
  */
 export function useCollapsedKeys(
   keys: readonly string[],

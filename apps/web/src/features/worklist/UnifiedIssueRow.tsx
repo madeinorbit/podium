@@ -148,15 +148,12 @@ export function UnifiedIssueRow({
     [issues],
   )
   const hex = issueColorHex(issue.color)
-  // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057, the 3a design). The 30px tinted
-  // square is gone from this column: it carried the ref, the phase (solid vs
-  // dashed rim), a corner badge, and — on click — the colour picker, which made
-  // the smallest object in the row the busiest one. Each of those four jobs went
-  // somewhere it reads better: the ref is these digits, the phase and the ask
-  // are line 2's one ochre sentence, the working spinner is the meta column's
-  // clock, and the colour picker is in the row's context menu with every other
-  // property of an issue. The colour itself did not go anywhere — it is the
-  // band's ground, which is a bigger, quieter statement of the same fact.
+  // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). The 30px square carried the
+  // ref, the phase, a corner badge and the colour picker — four jobs on the
+  // smallest object in the row. Each went somewhere it reads better: the ref is
+  // these digits, the phase and the ask are line 2's one ochre sentence, the
+  // spinner is the meta column's clock, the picker is in the context menu. The
+  // colour stayed: it is the band's ground.
   const idLabel = idSquareLabel(issue)
   // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
   // issue this one was spun off from. One quiet ⤷ tick on line 2; selecting
@@ -201,14 +198,11 @@ export function UnifiedIssueRow({
       }}
     />
   ) : null
-  // WHERE THE LIFECYCLE STAMP GOES, BY PHASE (3a).
-  //
-  // A working row's clock and a waiting row's "how long has this been sitting
-  // there" belong in line 1's meta column, where they tabulate down the whole
-  // list and can be compared at a glance. A finished row's `67:44 total` does
-  // not: it is the tail of a sentence ("done · 67:44 total"), it is the only
-  // one of the three that is prose rather than a reading, and on a done row the
-  // meta column is already spoken for by the tuck chip.
+  // WHERE THE LIFECYCLE STAMP GOES, BY PHASE (3a). A working row's clock and a
+  // waiting row's "how long has this sat there" belong in line 1's meta column,
+  // where they tabulate. A finished row's `67:44 total` does not: it is the tail
+  // of a sentence, prose rather than a reading — and on a done row the meta
+  // column is already spoken for by the tuck chip.
   const timer = (
     <PhaseTimer
       phase={timing.phase}
@@ -239,22 +233,17 @@ export function UnifiedIssueRow({
         onTuck={onTuck}
         statusLine={
           <>
-            {/* THE ONE WORKING MARK ON A ROW THAT IS ALSO ASKING (POD-703). The
-                meta column belongs to the ask's own stamp when a row is waiting,
-                so when an agent is ALSO computing the spinner comes back here —
-                the row's only "something is running" mark, in the motion
-                grammar's own device and its calm blue. */}
+            {/* THE ONE WORKING MARK ON A ROW THAT IS ALSO ASKING (POD-703): a
+                waiting row's meta column holds the ask's stamp, so a spinner for
+                an agent still computing comes back here. */}
             {working && phase !== 'working' && (
               // `.spb` already paints itself `--motion-working`, so the glyph
               // stays calm blue inside an ochre waiting lockup without a prop.
               <BrailleSpinner size={9} className="mr-1" />
             )}
-            {/* THE PILL'S WORDS, WITHOUT THE PILL (3a). A branch whose ask is
-                three levels down used to say `3 need you` in an amber box on
-                line 1, next to a status line already reading `waiting on your
-                decision` — the same signal twice, in two vocabularies. The count
-                is the part that was worth keeping, so it leads the sentence the
-                line was already saying, in the line's own ochre. */}
+            {/* THE PILL'S WORDS, WITHOUT THE PILL (3a): the count was the part
+                worth keeping, so it leads the sentence line 2 was already
+                saying, in that line's own ochre. */}
             {decision === null && waitingCount > 1 && (
               <span className="flex-none" data-testid="need-count">
                 {waitingCount} need you ·{' '}
@@ -341,12 +330,10 @@ export function UnifiedIssueRow({
         onDoubleClick={() => rename.begin()}
         editor={renameEditor}
         titleHint={issueIdTitle(issue)}
-        // LINE 1 IS A TITLE AND A TIME (3a). Everything that used to trail the
-        // title — the fleet stack, the pin, the alarm clock, the two word
-        // badges — now leads line 2 in the machine voice, at one ink with the
-        // status phrase it introduces. The pin and the alarm did not survive the
-        // move: a pinned row is under the PINNED band and a snoozed one inside
-        // the Snoozed fold, so both marks restated the row's own address.
+        // LINE 1 IS A TITLE AND A TIME (3a). Everything that trailed the title
+        // now leads line 2 in the machine voice. The pin and the alarm did not
+        // survive the move: a pinned row is under the PINNED band and a snoozed
+        // one inside the Snoozed fold, so both restated the row's own address.
         marks={
           <>
             {/* One rule, no exceptions: an agent on this issue or anywhere in its

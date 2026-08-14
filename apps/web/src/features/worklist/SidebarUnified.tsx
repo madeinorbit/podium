@@ -43,11 +43,9 @@ function withStableRow(placement: WorkPlacement, row: UnifiedWorkRow): WorkPlace
 }
 
 /**
- * The redesigned work sidebar (#41, .design/specs/sidebar.md): the
- * `New <Agent> in <Repo>` spawn row over ONE list of work rows grouped by
- * project (mono section labels), each row carrying its ID square, two-line
- * status anatomy, motion-grammar meta and — when selected — the bridge notch
- * growing toward the engraved column.
+ * The work sidebar, as the 3a design draws it (POD-1057): the spawn row over ONE
+ * list of work rows, grouped by project under section BANDS that fold, each row
+ * a number, a title, a fixed meta column and one mono status line.
  *
  * The pieces are exported separately because the collapsed rail shares their
  * hooks and row behavior.
@@ -58,44 +56,29 @@ export function SidebarUnified(): JSX.Element {
   return (
     <>
       <NewWorkRow sections={derivation.sections} />
-      {/* The seam under the spawn row is the section bar's own bottom border
-          now (POD-365) — one line at the shell's datum, shared by every column,
-          rather than three columns each drawing their own at a different y.
-          POD-388's theming of this divider goes with the divider; the border
-          that replaced it takes `hairline-soft` from the same ramp.
-
-          NO COLUMN-WIDE STATUS INSTRUMENT (POD-516 round 3). Round 2 put a
-          "12/40 done · 5 running" meter here, summarising every mission in the
-          column. The operator cut it: "there's now a overall progress section in
-          the header of the sidebar. This was uncalled for." Progress moved to
-          the rows themselves (`RowProgressMeter`), where it is a fact about one
-          thing the operator can click rather than an aggregate over a scope
-          nobody asked about.
+      {/* NO COLUMN-WIDE STATUS INSTRUMENT (POD-516 round 3). A "12/40 done · 5
+          running" meter summarising the whole column was cut: "there's now a
+          overall progress section in the header of the sidebar. This was
+          uncalled for." Progress belongs to the rows (`RowProgressMeter`).
 
           NO SPACER, AND NO NOTCH HEAD-ROOM (POD-1057, the 3a design). The 9px
-          gap that used to hold this space is gone: the list opens on a SECTION
-          BAND now, and the band draws its own top hairline — a spacer above it
-          would push that rule off the seam it is meant to be.
-
-          The horizontal head-room went with the bridge notch. The selected row
-          paints nothing past its right edge any more (selection is the band's
-          own lift and a 3px ink spine), so there is nothing to overhang the
-          aside and nothing to reserve — and with it goes the sideways scroll
-          POD-761 had to chase. `overflow-x-clip` stays: it keeps a long unbroken
-          title from ever turning into one again. Rows are FULL-BLEED, so the
-          list has no side inset of its own and each row owns its 13px text
-          inset. */}
+          gap is gone: the list opens on a SECTION BAND that draws its own top
+          hairline, and a spacer above it would push that rule off the seam.
+          The head-room went with the bridge notch — the selected row paints
+          nothing past its right edge now, so there is nothing to reserve, and
+          with it goes the sideways scroll POD-761 had to chase.
+          `overflow-x-clip` stays, so a long unbroken title cannot bring it
+          back. Rows are FULL-BLEED and own their 13px text inset. */}
       <div
         data-testid="work-scroll"
         className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
       >
         <WorkSections derivation={derivation} />
       </div>
-      {/* Footer: the 3a design's 34px strip at the column's own 13px inset, on
-          the same `--muted` ground as the section bands — the two chrome ends of
-          the column read as one tone, and the list floats between them. We keep
-          our muted icon controls (operator call) where the mock writes
-          `new task` / `search` as bare mono words; the ⌘K hint stays right. */}
+      {/* Footer: the 3a design's 34px strip at the column's 13px inset, on the
+          same `--muted` ground as the section bands — the column's two chrome
+          ends read as one tone and the list floats between them. We keep muted
+          icon controls where the mock writes `new task` / `search` as words. */}
       <AppToolsRow className="h-[34px] flex-none border-t border-hairline-bar bg-muted px-[13px]" />
     </>
   )
@@ -400,11 +383,9 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   })
   const onGripDown = (e: ReactPointerEvent, issueId: IssueId) => startDrag(e, issueId)
 
-  // SECTION BANDS FOLD (POD-1057). Every band in this column is a header you can
-  // shut: `Pinned`, and one per project. The state is read here rather than
-  // inside each band because the list itself has to consult it — see the
-  // shortcut numbering below — and because one subscription over N keys beats a
-  // component-per-group whose only purpose would be to own a hook.
+  // SECTION BANDS FOLD (POD-1057): `Pinned`, and one band per project. Read
+  // here rather than inside each band because the list itself has to consult it
+  // — see the shortcut numbering below.
   const bandKeys = useMemo(
     () => [PINNED_FOLD_KEY, ...targetGroups.map((group) => projectFoldKey(group.key))],
     [targetGroups],

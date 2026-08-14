@@ -25,15 +25,12 @@
  * spanning the text column from the title's left edge to the row's right
  * inset, as the third line of the row's text block.
  *
- * IT COSTS HEIGHT NOW, AND THAT IS THE 3a DESIGN'S CALL (POD-1057). It used to
- * be absolutely positioned inside the row's bottom padding, so a metered row
- * and a bare one were the same 44px — bought by pushing a 2px rule into the
- * gap between two rows, which only read as "belonging" to the row above
- * because a hairline separated them. With the hairlines gone that trick has
- * nothing to lean on: an absolutely-positioned rule floating in the space
- * between two untinted rows is ambiguous about which one it describes. In flow
- * it is unambiguous, and the design accepts the 8px: a metered row is 52px, a
- * bare row 44px, and the difference itself reads as "this row has a subtree".
+ * IT COSTS HEIGHT NOW (POD-1057). It used to hang in the row's bottom padding,
+ * so a metered row and a bare one were both 44px — a trick that only read as
+ * "belongs to the row above" because a hairline separated them. With the
+ * hairlines gone, a rule floating between two untinted rows is ambiguous about
+ * which one it describes. In flow it is not, and the 8px is worth it: a metered
+ * row is 52px and the difference itself says "this row has a subtree".
  *
  * Reading it is still one saccade down the column: the meters are all the same
  * length and all at the same x, so the eye compares fill, not geometry.
@@ -159,13 +156,11 @@ export function RowProgressMeter({
       role="img"
       aria-label={label}
       title={label}
-      // Three pixels with a 2px radius (3a). It went up a pixel and gained its
-      // corners when it came in-flow: at 2px square-ended, sitting in the row's
-      // own text block rather than in the seam below it, the empty part read as
-      // a stray underline. The trough is `--border-strong` — a step darker than
-      // the seam tone it used to wear, because there is no longer a hairline
-      // beside it to be confused with, and an empty meter has to be visible
-      // enough to say "this row is seven tasks, none of them started".
+      // Three pixels and a 2px radius (3a): at 2px square-ended, sitting in the
+      // row's own text block, the empty part read as a stray underline. The
+      // trough steps up to `--border-strong` — there is no hairline beside it to
+      // be confused with any more, and an empty meter has to be visible enough
+      // to say "this row is seven tasks, none of them started".
       className="pointer-events-none flex h-[3px] w-full overflow-hidden rounded-[2px] bg-border-strong"
     >
       <span

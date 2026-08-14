@@ -14,26 +14,19 @@ import { usePhaseMorph } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { RowShortcutBadge } from './RowShortcutBadge'
 
-/** The identity gutter: the row's number, right-aligned so a column of three-
- *  and four-digit refs shares one right edge (3a). 26px is exactly wide enough
- *  for four mono digits at the micro role. */
+/** The identity gutter: the row's number, right-aligned so three- and four-digit
+ *  refs share one right edge (3a). 26px fits four mono digits at the micro role. */
 export const ID_GUTTER_W = 26
 
 /** The line-1 meta column: the timer, the relative stamp, or the tuck chip.
- *  FIXED, and right-aligned inside itself, so every row's title ellipsizes at
- *  the same x and the times tabulate down the column (3a). */
+ *  FIXED and right-aligned, so every title ellipsizes at the same x (3a). */
 export const META_COL_W = 56
 
-/** The status lockup's own ink (3a).
- *
- *  Line 2 is the row's one voice about state, and in the 3a design it carries
- *  the whole statement — the boxed need pill and the amber square dot that used
- *  to share the job are both gone. So `waiting` is no longer the exception it
- *  was: an asking row sets its entire status line in ochre at 600 ("ready to
- *  merge · 68 commits", "waiting on your decision") and that is the only amber
- *  in the row. Nothing else here is coloured — working takes the live blue on
- *  the meta column's timer, and done/queued read down the neutral ink ramp.
- */
+/** The status lockup's own ink (3a). Line 2 carries the WHOLE statement about
+ *  state now — the boxed need pill and the amber square dot that used to share
+ *  the job are both gone — so `waiting` is no longer the exception it was: an
+ *  asking row sets its entire status line in ochre at 600 and that is the only
+ *  amber in the row. */
 function statusInk(phase: MotionPhase): string | undefined {
   if (phase === 'waiting') return 'var(--attention)'
   if (phase === 'working') return 'var(--live)'
@@ -53,32 +46,26 @@ function statusInk(phase: MotionPhase): string | undefined {
  *            ◇◈ 5 of 8 tasks
  *            ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭
  *
- * THREE THINGS LEFT THIS ROW, and each of them was a second voice for something
- * the row already said:
+ * THREE THINGS LEFT, each a second voice for something the row already said:
  *
- *  1. THE ID SQUARE. A 30px tinted slab per row, whose click opened the colour
- *     picker. The number alone is the identity — the picker lives in the row's
- *     context menu, which is where every other property of an issue is set —
- *     and the colour it used to advertise is still on the row, as the band's
- *     own tint. Thirty rows of coloured chips was the loudest thing in a column
- *     whose job is to be scanned past.
- *  2. THE NEED PILL. `Needs you` in an amber box on line 1, beside a status
- *     line that in the same breath read `waiting on your decision`. One amber
- *     voice per region (DESIGN.md, The Signal Rule) — the words won.
- *  3. THE ROW RULE. A hairline under every row. With the section bands drawn as
- *     real bands (`work-folds`) the list no longer needs thirty separators to
- *     be legible, and losing them is most of what makes this column calm.
+ *  1. THE ID SQUARE — a 30px tinted slab whose click opened the colour picker.
+ *     The number alone is the identity; the picker is in the row's context menu
+ *     with every other property, and the colour is the band's own tint. Thirty
+ *     coloured chips was the loudest thing in a column made to be scanned past.
+ *  2. THE NEED PILL — `Needs you` in an amber box on line 1, next to a status
+ *     line reading `waiting on your decision`. One amber voice per region
+ *     (DESIGN.md, The Signal Rule); the words won.
+ *  3. THE ROW RULE — a hairline under all thirty rows. With the section bands
+ *     drawn as real bands (`work-folds`) the list does not need them, and
+ *     losing them is most of what makes this column calm.
  *
- * What arrived: the lifecycle meta moved OFF line 2 and into a fixed right-hand
- * column on line 1, where it tabulates; and the progress meter came in-flow
- * under the text column as a full-width rule instead of hanging in the row's
- * bottom padding.
+ * What arrived: the lifecycle meta moved off line 2 into a fixed right-hand
+ * column on line 1, where it tabulates, and the progress meter came in-flow.
  *
- * Every title carries full ink, whatever the row's state — state is said in the
- * status line alone (see statusInk). The selected row is a BAND, not a card:
- * full column bleed, no radius, lifted to `--card` with a 3px ink spine on its
- * left edge. The spine is NEUTRAL now: the issue's hue is already the band's
- * ground, and selection is a different question from identity.
+ * Every title carries full ink whatever the row's state — state is said in the
+ * status line alone (see statusInk) — and the selected row is a full-bleed BAND
+ * lifted a tier with a 3px NEUTRAL ink spine: the issue's hue is already the
+ * band's ground, and selection is a different question from identity.
  */
 export function WorkRowShell({
   idNumber,
@@ -174,12 +161,10 @@ export function WorkRowShell({
       }
     : hex
       ? // Var-driven so the hover class can override it — an inline `background`
-        // would always beat `hover:` (POD-166: tint-aware hover). Both doses go
-        // through --issue-tint-scale like every other tint in the shell, so warm
-        // paper takes its lower dose and navy keeps the full one. The doses are
-        // a step up from the pre-3a whisper (4/8) because the tint is now the
-        // ONLY thing separating one row from the next — the hairline rules that
-        // used to do that work are gone.
+        // would always beat `hover:` (POD-166: tint-aware hover). Both doses ride
+        // --issue-tint-scale, so warm paper takes its lower dose. They step up
+        // from the pre-3a whisper (4/8) because the tint is now the ONLY thing
+        // separating one row from the next: the hairline rules are gone.
         ({
           '--row-bg': `color-mix(in srgb, ${hex} calc(7 * var(--issue-tint-scale, 1%)), var(--sidebar))`,
           '--row-hover-bg': `color-mix(in srgb, ${hex} calc(11 * var(--issue-tint-scale, 1%)), var(--sidebar))`,
@@ -207,15 +192,12 @@ export function WorkRowShell({
           // top — the hue is the row's resting ground, and mixing more of it
           // into the selected row made selection read as "this one is greener".
           //
-          // `--chip`, NOT `--card`, and the difference is whether selection is
-          // visible at all in half the presets. The design draws this row as the
-          // paper theme's white card, but two of the six theme blocks give
-          // `--card` and `--sidebar` the SAME value (default dark and Podium
-          // dark are both a flat near-black frame), so a card-toned band would
-          // have been a selected row you cannot see. `--chip` is the shell's
-          // "raised above the surface it sits on" tier by definition, and it is
-          // a real step above `--sidebar` in every preset — including paper,
-          // where it IS white and the design's own value.
+          // `--chip`, NOT `--card`: two of the six theme blocks give card and
+          // sidebar the SAME value (default dark and Podium dark are both flat
+          // near-black frames), so the design's card-toned band would have been
+          // a selected row you cannot see. `--chip` is the "raised above what it
+          // sits on" tier by definition and steps above `--sidebar` in every
+          // preset — including paper, where it IS white, the design's value.
           active && 'bg-chip',
           !active && !hex && 'hover:bg-muted',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
@@ -293,11 +275,10 @@ export function WorkRowShell({
                 ) : (
                   <UnreadDot reserve />
                 )}
-                {/* The meta column. Reserved whether or not it has anything in
-                    it, and reserved at the same width on every row — a title
-                    that ellipsized at a different x per row is the one thing a
-                    scannable list cannot afford. The tuck chip parks here too,
-                    drawn over the top as its own button. */}
+                {/* The meta column, reserved at the same width on every row
+                    whether or not it holds anything: a title that ellipsized at
+                    a different x per row is the one thing a scannable list
+                    cannot afford. The tuck chip parks here, drawn over it. */}
                 <span
                   className="shell-type-micro mono-timer flex flex-none justify-end text-right text-muted-foreground"
                   style={{ minWidth: META_COL_W }}
@@ -315,16 +296,21 @@ export function WorkRowShell({
                 className="shell-work-row-status flex min-w-0 items-center gap-1.5 font-mono text-muted-foreground"
                 data-testid="row-lifecycle-status"
                 data-phase={phase}
-                // The asking row's whole line goes ochre at 600 — it is the
-                // row's single amber voice now that the pill is gone.
-                style={phaseInk ? { color: phaseInk } : undefined}
               >
                 {marks}
+                {/* THE PHRASE IS WHAT TAKES THE INK, not the whole line. An
+                    asking row goes ochre at 600 here — its single amber voice
+                    now that the pill is gone — but the trailing facts (git, the
+                    spin-off tick) stay on the neutral ramp. Colouring the flex
+                    row instead bled amber onto a provenance mark, which says
+                    "needs you" about a fact that asks nothing. */}
                 <span
+                  data-testid="row-status-phrase"
                   className={cn(
                     'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
                     phase === 'waiting' ? 'font-semibold' : 'font-medium',
                   )}
+                  style={phaseInk ? { color: phaseInk } : undefined}
                 >
                   {statusLine}
                   {statusTime}
@@ -336,14 +322,12 @@ export function WorkRowShell({
             </span>
           </button>
         )}
-        {/* Tuck-away (POD-293): a finished task no longer vanishes into Closed
-            on its own the moment it's read — it holds its place with this
-            explicit control. In 3a it takes over line 1's meta column (a done
-            row has no clock to show there), drawn over the button rather than
-            inside it because a button cannot nest. Chip navy over a seam
-            hairline, machine voice, no amber: nothing is being asked here. On
-            hover it firms and the glyph nudges DOWN — a small, honest cue that
-            pressing it folds the row into Closed, where it stays reachable. */}
+        {/* Tuck-away (POD-293): a finished task holds its place until this is
+            pressed. In 3a it takes over line 1's meta column — a done row has
+            no clock to show there — drawn over the button rather than inside it
+            because a button cannot nest. No amber: nothing is being asked. On
+            hover the glyph nudges DOWN, an honest cue that it folds the row into
+            Closed, where it stays reachable. */}
         {onTuck && (
           <motion.button
             data-pressable
@@ -381,15 +365,13 @@ export function WorkRowShell({
   )
 }
 
-/** The identity gutter. Text, not a control (3a): the colour picker it used to
- *  open lives in the row's context menu, and the number is left to be the one
- *  thing it always was — the part of the ref you cite. `relative` so the ⌘-hold
- *  digit can cover it exactly without moving anything.
+/** The identity gutter. Text, not a control (3a). `relative` so the ⌘-hold digit
+ *  can cover it exactly without moving anything.
  *
  *  The DIGITS are hidden from assistive tech and the full ref read in their
- *  place: sighted readers have the project's name in the band a few rows up, so
- *  `844` is unambiguous on screen, while a screen reader arriving at one row out
- *  of thirty gets `POD-844` — the thing you would actually say out loud. */
+ *  place: on screen the project's name is in the band a few rows up, so `844` is
+ *  unambiguous, while a screen reader arriving at one row out of thirty gets
+ *  `POD-844` — the thing you would say out loud. */
 function IdGutter({
   number,
   label,

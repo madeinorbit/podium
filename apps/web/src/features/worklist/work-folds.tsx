@@ -14,66 +14,27 @@ import { closedFoldKey, snoozedFoldKey } from './fold-keys'
 import { useCollapsed } from './sidebar-common'
 import { ID_GUTTER_W } from './WorkRowShell'
 
-/** The two TAIL folds — suspended work and settled closures — in the 3a
- *  design's one voice: a count, a rule across the column, and the chevron
- *  holding its right end.
- *
- *  They read `12 closed` rather than `Closed · 12` now. A tail fold is a
- *  quantity of work that is out of the way, and the quantity is what you are
- *  deciding about ("is it worth opening?"); leading with the label put the
- *  answer second. It also stops these looking like the SECTION BANDS above them,
- *  which are the things that own a name — a fold is not a section, it is the end
- *  of one. */
+/** The two TAIL folds — suspended work, settled closures — in the 3a voice: a
+ *  count, a rule, the chevron holding its right end. `12 closed`, not
+ *  `Closed · 12`: the quantity is what you are deciding about, and leading with
+ *  the label made these look like the SECTION BANDS, which own a name. */
 const TAIL_FOLD_CLASS =
   'flex w-full items-center gap-[9px] px-[13px] pb-1 text-left font-mono text-[10px] tracking-[.02em] tabular-nums text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]'
 
 /**
- * The redesigned work sidebar (#41, .design/specs/sidebar.md): the
- * `New <Agent> in <Repo>` spawn row over ONE list of work rows grouped by
- * project (mono section labels), each row carrying its ID square, two-line
- * status anatomy, motion-grammar meta and — when selected — the bridge notch
- * growing toward the engraved column.
- *
- * The pieces are exported separately because the collapsed rail shares their
- * hooks and row behavior.
- */
-/**
- * The worklist derivation, as READ rather than as COMPUTED (POD-331).
- *
- * This used to be a `useMemo` over `(repos, sessions, pins, issues, now)` whose
- * result every consumer had to be HANDED as a `derivationOverride` prop — and
- * whose absence, in any consumer that did not receive it, silently bought a
- * second execution of the identical derivation on a private clock. It is now a
- * read of the published `worklistSlice`: one derivation per snapshot however
- * many surfaces are looking, and one clock (`Store.coarseNow`) so two surfaces
- * cannot disagree about when "now" is.
- *
- * The type alias stays so the override-taking signatures below keep reading the
- * same way; the shape is the slice's.
-
-/**
  * THE SECTION BAND (POD-1057, the 3a design).
  *
- * It used to be a label: mono micro type floating on the column's ground with
- * the group's count at the right edge, and nothing around it. That worked while
- * every row under it drew a hairline — the label was one more horizontal in a
- * ruled list. With the rules gone (see `WorkRowShell`) the labels were the only
- * structure left in a 30-row column and they were the lightest marks in it.
+ * It was a label floating on the column's ground — fine while every row under it
+ * drew a hairline, but with the rules gone (see `WorkRowShell`) the labels were
+ * the only structure left in a 30-row column and the lightest marks in it. So it
+ * became a BAND: 34px, full-bleed, `--muted`, hairline top and bottom. It is the
+ * only ruled thing in the list now, which is why the list reads as grouped — you
+ * see four bands, not thirty rules.
  *
- * So the label became a BAND: 34px, full-bleed, one tone up from the column on
- * `--muted`, closed top and bottom by a hairline. It is the only ruled thing in
- * the list now, which is exactly why the list reads as grouped — you see four
- * bands, not thirty rules.
- *
- * AND IT IS A CONTROL. Every band in this column shuts: pinned, and each
- * project. Collapsing takes the group's live rows and its snoozed/closed tails
- * with it, so a machine carrying four repos can be folded to four lines and one
- * of them opened. The state persists per user (`fold-keys.ts`).
- *
- * The chevron is revealed rather than resident: at rest the band is a label with
- * a number, which is all it has to be, and the affordance appears under the
- * pointer. A COLLAPSED band keeps its chevron permanently — a shut band that
- * looked exactly like an open one with nothing in it would be a trap.
+ * AND IT IS A CONTROL: every band shuts, taking the group's rows and its
+ * snoozed/closed tails, so four repos fold to four lines. State persists per
+ * user (`fold-keys.ts`). The chevron is revealed, not resident — but a COLLAPSED
+ * band keeps it, since a shut band that looked like an empty open one is a trap.
  */
 function SectionBand({
   label,
@@ -131,8 +92,8 @@ function SectionBand({
   )
 }
 
-/** Project section band. `first` no longer changes anything — a band owns its
- *  own top rule wherever it lands — and is kept out of the signature entirely. */
+/** Project section band. `first` is gone from the signature: a band owns its own
+ *  top rule wherever it lands. */
 export function ProjectGroupLabel({
   label,
   count,
@@ -156,9 +117,9 @@ export function ProjectGroupLabel({
   )
 }
 
-/** PINNED section band (POD-166, R3): the one section above all project groups.
- *  It keeps a pin, and it is the only band with a mark — every other band in the
- *  column is a project, so the pin is what says "this one is not". */
+/** PINNED section band (POD-166, R3): the one section above all project groups,
+ *  and the only band with a mark — every other band is a project, so the pin is
+ *  what says "this one is not". */
 export function PinnedSectionLabel({
   count,
   collapsed,
@@ -276,9 +237,8 @@ export function FoldedWorkRow({
       onContextMenu={onContextMenu}
       title={`${issueDisplayRef(issue)} · ${issue.title}`}
       className={cn(
-        // Full-bleed like the live rows above it: a folded row is the same list,
-        // one line tall, so it starts at the same 13px inset, hangs its number in
-        // the same 26px gutter, and carries no radius of its own.
+        // Full-bleed like the live rows above it: same 13px inset, same 26px
+        // number gutter, one line tall, no radius of its own.
         'group/crow flex w-full min-w-0 items-center gap-[11px] py-[3px] pr-8 pl-[13px] text-left transition-colors',
         active ? 'bg-accent' : 'hover:bg-muted',
       )}
@@ -410,9 +370,6 @@ export function ClosedIssueFold<T>({
         >
           <span>{rows.length} closed</span>
           <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
-          {/* The chevron holds the right end of the rule, so the fold reads as
-              one horizontal from the count to the control (3a). The archive-all
-              chip parks over it on hover. */}
           <ChevronRight
             size={12}
             className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}

@@ -225,7 +225,9 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       '[data-testid="row-lifecycle-status"]',
     ) as HTMLElement
     expect(waitingStatus.getAttribute('data-phase')).toBe('waiting')
-    expect(waitingStatus.style.color).toBe('var(--attention)')
+    expect(
+      waitingStatus.querySelector<HTMLElement>('[data-testid="row-status-phrase"]')?.style.color,
+    ).toBe('var(--attention)')
     // ONE ask, so no count leads the sentence — the pill's words earn their
     // place only for a branch whose ask is bigger than this row (POD-1057).
     expect(waitingRow.querySelector('[data-testid="need-count"]')).toBeNull()

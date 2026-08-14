@@ -39,11 +39,8 @@
 export const snoozedFoldKey = (groupKey: string): string =>
   `podium:sidebar:snoozed-fold:${groupKey}`
 
-/** The section band over a project group's live rows (POD-1057). The 3a design
- *  turns every band in this column into a header you can shut: collapsing
- *  `POD-10` takes its rows AND its snoozed/closed tails with it, so a column
- *  holding four repos can be reduced to four lines. Default OPEN — a band that
- *  starts shut hides work nobody asked to hide. */
+/** The section band over a project group (POD-1057): collapsing it takes the
+ *  rows AND the snoozed/closed tails. Default OPEN. */
 export const projectFoldKey = (groupKey: string): string =>
   `podium:sidebar:project-fold:${groupKey}`
 

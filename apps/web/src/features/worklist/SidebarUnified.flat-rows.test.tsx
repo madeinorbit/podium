@@ -266,7 +266,11 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     // used to sit on line 1 saying the same thing is gone.
     const status = missionRow().querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
     expect(status.textContent).toContain('deep: #3 needs you')
-    expect(status.style.color).toBe('var(--attention)')
+    // The ochre is on the PHRASE, not the whole line: the trailing facts (git,
+    // the spin-off tick) must not inherit an ask they are not part of.
+    expect(
+      status.querySelector<HTMLElement>('[data-testid="row-status-phrase"]')?.style.color,
+    ).toBe('var(--attention)')
     expect(missionRow().querySelector('[data-testid="need-pill"]')).toBeNull()
     // One ask, so no count leads the sentence.
     expect(missionRow().querySelector('[data-testid="need-count"]')).toBeNull()
@@ -275,7 +279,9 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
       .getByText('Sidebar unread dot')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     const soloStatus = solo.querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
-    expect(soloStatus.style.color).not.toBe('var(--attention)')
+    expect(
+      soloStatus.querySelector<HTMLElement>('[data-testid="row-status-phrase"]')?.style.color,
+    ).not.toBe('var(--attention)')
   })
 
   it('stacks real harness kinds with the agent total and the native-child count', () => {

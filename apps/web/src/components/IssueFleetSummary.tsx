@@ -46,111 +46,69 @@ export function IssueFleetSummary({
    *  18px tile of saturated terracotta was the loudest thing on the card and won
    *  the first look from the title. In `glyphs` this is the GLYPH's own size. */
   size?: number
-  /** How loudly the stack speaks (POD-1057).
-   *
-   *  `tiles` is the original: a rounded, brand-tinted chip per harness kind. It
-   *  is right on a board card, where the card is the object and the fleet is one
-   *  of four facts on it.
-   *
+  /** How loudly the stack speaks (POD-1057). `tiles` — a brand-tinted chip per
+   *  harness kind — is right on a board card, where the card is the object.
    *  `glyphs` is the 3a work row's: the same marks, unboxed, at one ink with the
-   *  rest of line 2. A worklist column is thirty rows deep and the fleet is the
-   *  quietest fact in each of them — thirty stacks of coloured chips was the
-   *  first thing the eye landed on, ahead of every title. Same derivation, same
-   *  accessible label; only the volume changes. */
+   *  rest of line 2, because thirty stacks of coloured chips down a column was
+   *  the first thing the eye landed on, ahead of every title. */
   variant?: 'tiles' | 'glyphs'
   className?: string
 }): JSX.Element | null {
   const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
   if (present.length === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)
-  const glyph = Math.round(size * 0.66)
-  if (variant === 'glyphs') {
-    return (
-      <span
-        className={cn('flex flex-none items-center gap-1', className)}
-        role="img"
-        aria-label={label}
-        title={label}
-        data-testid="issue-fleet-summary"
-        data-variant="glyphs"
-      >
-        {shown.map(({ kind, parked }) => {
-          const AgentIcon = agentIconFor(kind)
-          return (
-            <span
-              key={kind}
-              data-agent-kind={kind}
-              data-parked={parked ? '' : undefined}
-              // One ink for every harness, a step below the words beside it: the
-              // mark answers WHICH agent by silhouette, and the status phrase it
-              // leads is the thing being read. Parked agents ghost rather than
-              // disappear — a stopped teammate is still on the task.
-              className={cn('flex flex-none items-center text-text-dim', parked && 'opacity-45')}
-            >
-              {AgentIcon ? (
-                <AgentIcon size={size} strokeWidth={1.8} aria-hidden="true" />
-              ) : (
-                <span style={{ fontSize: size }}>✳</span>
-              )}
-            </span>
-          )
-        })}
-        {/* The head-count appears only when the marks UNDER-COUNT — nine agents
-            across three harnesses draw three glyphs, and "3" would be a lie by
-            omission. One or two agents of one kind each are already counted by
-            their own marks, so the number would be the same fact twice. */}
-        {present.length > shown.length && (
-          <span className="font-mono tabular-nums text-text-dim" data-testid="issue-fleet-total">
-            {present.length}
-          </span>
-        )}
-        {nativeCount > 0 && (
-          <span
-            className="font-mono tabular-nums text-text-dim"
-            data-testid="issue-fleet-subagent-count"
-          >
-            ×{nativeCount}
-          </span>
-        )}
-      </span>
-    )
-  }
+  const glyphs = variant === 'glyphs'
+  const glyph = glyphs ? size : Math.round(size * 0.66)
+  // The head-count. In `glyphs` it appears only when the marks UNDER-count —
+  // nine agents across three harnesses draw three glyphs, and leaving it there
+  // would be a lie by omission — where the boxed stack always shows it past one.
+  const showTotal = present.length > (glyphs ? shown.length : 1)
   return (
     <span
-      className={cn('flex flex-none items-center gap-[5px]', className)}
+      className={cn('flex flex-none items-center', glyphs ? 'gap-1' : 'gap-[5px]', className)}
       role="img"
       aria-label={label}
       title={label}
       data-testid="issue-fleet-summary"
+      data-variant={variant}
     >
-      <span className="flex items-center pl-1">
+      <span className={cn('flex items-center', glyphs ? 'gap-1' : 'pl-1')}>
         {shown.map(({ kind, parked }, index) => {
           const AgentIcon = agentIconFor(kind)
-          // Per-kind tint (POD-293 / POD-912): solid fills so stacked tiles
-          // don't ghost through each other. Claude is opaque clay, Grok is the
-          // light mark. Unread no longer rides a tile — kinds collapse and grow
-          // ×N, so a corner dot cannot mean per-session newness.
-          const tileTint = agentFleetTileTint(kind, parked)
           return (
             <span
               key={kind}
               data-agent-kind={kind}
               data-parked={parked ? '' : undefined}
               className={cn(
-                'relative flex items-center justify-center rounded-[5px] border',
-                tileTint,
-                index > 0 && '-ml-[5px]',
+                'relative flex items-center justify-center',
+                // GLYPHS carry no ground: one ink a step below the words they
+                // lead, and parked ghosts rather than disappears — a stopped
+                // teammate is still on the task. TILES take the per-kind tint
+                // (POD-293 / POD-912) as a solid fill, so a stack of them does
+                // not ghost through itself.
+                glyphs
+                  ? cn('flex-none text-text-dim', parked && 'opacity-45')
+                  : cn(
+                      'rounded-[5px] border',
+                      agentFleetTileTint(kind, parked),
+                      index > 0 && '-ml-[5px]',
+                    ),
               )}
-              style={{ zIndex: index + 1, width: size, height: size }}
+              style={glyphs ? undefined : { zIndex: index + 1, width: size, height: size }}
             >
-              {AgentIcon ? <AgentIcon size={glyph} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
+              {AgentIcon ? (
+                <AgentIcon size={glyph} strokeWidth={1.8} aria-hidden="true" />
+              ) : (
+                <span style={glyphs ? { fontSize: size } : undefined}>✳</span>
+              )}
             </span>
           )
         })}
       </span>
-      {present.length > 1 && (
+      {showTotal && (
         <span
-          className="font-mono shell-type-micro tabular-nums text-text-dim"
+          className={cn('font-mono tabular-nums text-text-dim', !glyphs && 'shell-type-micro')}
           data-testid="issue-fleet-total"
         >
           {present.length}
@@ -158,7 +116,12 @@ export function IssueFleetSummary({
       )}
       {nativeCount > 0 && (
         <span
-          className="rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] font-mono shell-type-micro leading-[14px] text-claude"
+          className={cn(
+            'font-mono tabular-nums',
+            glyphs
+              ? 'text-text-dim'
+              : 'rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] shell-type-micro leading-[14px] text-claude',
+          )}
           data-testid="issue-fleet-subagent-count"
         >
           ×{nativeCount}
