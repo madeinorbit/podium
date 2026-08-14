@@ -16,6 +16,7 @@ export * from './bootstrap'
  */
 export * from './feed'
 export * from './feed/index'
+export * from './issue-view-cache'
 export * from './issue-view-models'
 export * from './issue-views'
 export * from './kernel'

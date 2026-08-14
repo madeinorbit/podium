@@ -25,6 +25,11 @@ export interface IssueViewsSnapshot {
   tree: IssueTreeNode[]
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
+  /** The same sessions, indexed. Carried on the snapshot rather than rebuilt per
+   *  model pass because the per-issue builder below needs it for ONE issue
+   *  (POD-1053): re-indexing 530 sessions to rebuild a single row would put an
+   *  O(world) step back in front of the incremental path. */
+  sessionById: Map<SessionId, SessionViewInput>
   rollupsFor: (issueId: IssueId) => IssueSessionRollups
 }
 
@@ -97,6 +102,7 @@ export function deriveIssueViewsSnapshot(replica: Replica): IssueViewsSnapshot {
     tree: buildIssueTree(views, issues),
     issues,
     sessions,
+    sessionById: sessionIndex,
     rollupsFor: (issueId) => {
       const hit = rollupCache.get(issueId)
       if (hit) return hit
@@ -111,6 +117,60 @@ export function deriveIssueViewsSnapshot(replica: Replica): IssueViewsSnapshot {
 }
 
 /**
+ * ONE issue's flat render model, or `undefined` when the row is not yet
+ * publishable.
+ *
+ * Split out of {@link buildIssueViewModels} for POD-1053. The whole-map builder
+ * used to be the only entry point, so the shared model cache had no way to
+ * rebuild the ONE row a single-field mutation touched — it re-ran every issue in
+ * the project and then deep-compared its way back to row identity. Everything a
+ * model depends on is named in this signature: the snapshot (the replica-derived
+ * world), the projection row, and the retained legacy row. Nothing else is read,
+ * which is what lets the cache decide reuse by comparing exactly those three.
+ */
+export function buildIssueViewModel(
+  snapshot: IssueViewsSnapshot,
+  projection: IssueProjection,
+  legacy: IssueWire | undefined,
+): IssueViewModel | undefined {
+  const view = snapshot.views.get(projection.id)
+  if (!view) return undefined
+  // The additive cutover still gets several render-critical supplements from
+  // IssueWire (repoPath among them). A projection can briefly outlive that row
+  // while replica scopes/bootstrap state converge; publishing it as an
+  // IssueViewModel would turn absent supplements into runtime `undefined`
+  // behind a type that promises strings. Keep the partial row out of rich
+  // surfaces until both halves of the model are present.
+  if (!legacy) return undefined
+  const { id: _id, ...derived } = view
+  const {
+    commentCount: _commentCount,
+    displayRef: _displayRef,
+    ready: _ready,
+    blocked: _blocked,
+    deferred: _deferred,
+    childCount: _childCount,
+    childDoneCount: _childDoneCount,
+    dependents: _dependents,
+    ...legacySupplement
+  } = legacy
+  // The retained issue row is the one cursor home: persistence and optimistic
+  // overlays both write it, and unread is derived from that exact value.
+  const readAt = legacy.readAt ?? null
+  return {
+    ...legacySupplement,
+    ...projectionOnLegacySpelling(projection),
+    ...derived,
+    readAt,
+    ...deriveIssueRollups(
+      { readAt, updatedAt: projection.updatedAt, deletedAt: projection.deletedAt },
+      view.memberSessionIds,
+      (id) => snapshot.sessionById.get(id),
+    ),
+  } as IssueViewModel
+}
+
+/**
  * Flat render models keyed by id. Same merge the React hook uses: legacy
  * supplement + projection spelling + derived view + session rollups (`unread`).
  */
@@ -121,44 +181,9 @@ export function buildIssueViewModels(
 ): Map<string, IssueViewModel> {
   const models = new Map<string, IssueViewModel>()
   const legacyById = new Map(legacyRows.map((issue) => [issue.id, issue]))
-  const sessionById = new Map(snapshot.sessions.map((session) => [session.sessionId, session]))
   for (const projection of projectionRows) {
-    const view = snapshot.views.get(projection.id)
-    if (!view) continue
-    const { id: _id, ...derived } = view
-    const legacy = legacyById.get(projection.id)
-    // The additive cutover still gets several render-critical supplements from
-    // IssueWire (repoPath among them). A projection can briefly outlive that row
-    // while replica scopes/bootstrap state converge; publishing it as an
-    // IssueViewModel would turn absent supplements into runtime `undefined`
-    // behind a type that promises strings. Keep the partial row out of rich
-    // surfaces until both halves of the model are present.
-    if (!legacy) continue
-    const {
-      commentCount: _commentCount,
-      displayRef: _displayRef,
-      ready: _ready,
-      blocked: _blocked,
-      deferred: _deferred,
-      childCount: _childCount,
-      childDoneCount: _childDoneCount,
-      dependents: _dependents,
-      ...legacySupplement
-    } = legacy
-    // The retained issue row is the one cursor home: persistence and optimistic
-    // overlays both write it, and unread is derived from that exact value.
-    const readAt = legacy.readAt ?? null
-    models.set(projection.id, {
-      ...legacySupplement,
-      ...projectionOnLegacySpelling(projection),
-      ...derived,
-      readAt,
-      ...deriveIssueRollups(
-        { readAt, updatedAt: projection.updatedAt, deletedAt: projection.deletedAt },
-        view.memberSessionIds,
-        (id) => sessionById.get(id),
-      ),
-    } as IssueViewModel)
+    const model = buildIssueViewModel(snapshot, projection, legacyById.get(projection.id))
+    if (model) models.set(projection.id, model)
   }
   return models
 }

@@ -124,7 +124,15 @@ export interface EngineOutbox {
   enqueue<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
-    opts?: { baseline?: string; chained?: boolean },
+    /**
+     * `mutationId` lets the CALLER name the entry before it exists (POD-1053).
+     * The optimistic ledger paints ahead of the durable commit, and its overlay
+     * has to be filed under the id the entry will carry — the drain can fire
+     * `onApplied` before the enqueue's own promise resolves, so learning the id
+     * from the return value is too late. Omit it and the queue mints one, which
+     * is what every other caller does.
+     */
+    opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
   ): OutboxEntry | Promise<OutboxEntry>
   retireAwaiting(mutationId: MutationId): void
   retry(mutationId: MutationId, satisfaction: RetrySatisfaction): unknown

@@ -391,10 +391,12 @@ export class Outbox<M extends Record<string, object>> {
   enqueue<K extends keyof M & string>(
     kind: K,
     input: M[K],
-    opts?: { baseline?: string; chained?: boolean },
+    opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
   ): OutboxEntry {
     const entry: OutboxEntry = {
-      mutationId: asMutationId(this.randomId()),
+      // A caller-supplied id (POD-1053: the optimistic ledger files its overlay
+      // under the id before the entry exists) or one minted here.
+      mutationId: opts?.mutationId ?? asMutationId(this.randomId()),
       kind,
       input,
       queuedAt: this.now(),

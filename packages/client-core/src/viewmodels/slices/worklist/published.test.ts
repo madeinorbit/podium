@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import type { Store } from '../../../engine/types'
 import { createReplica, memoryStorage } from '../../../replica/replica'
+import { createSlicePublisher } from '../publish'
 import { worklistSlice } from './published'
 
 // ---------------------------------------------------------------------------
@@ -128,11 +129,7 @@ const READ_AT = '2026-07-06T11:00:00.000Z'
 const BEFORE_READ = '2026-07-06T10:00:00.000Z'
 const AFTER_READ = '2026-07-06T12:00:00.000Z'
 
-function projection(over: {
-  id: string
-  title: string
-  updatedAt: string
-}): IssueProjection {
+function projection(over: { id: string; title: string; updatedAt: string }): IssueProjection {
   return {
     id: over.id,
     seq: 1,
@@ -220,7 +217,10 @@ function worklistFromProjection(args: {
   } as unknown as Store)
 }
 
-function issueUnreadOf(slice: ReturnType<typeof worklistSlice.derive>, id: string): boolean | undefined {
+function issueUnreadOf(
+  slice: ReturnType<typeof worklistSlice.derive>,
+  id: string,
+): boolean | undefined {
   const row = slice.work.find((entry) => entry.kind === 'issue' && entry.issue.id === id)
   expect(row, `expected a worklist row for ${id}`).toBeDefined()
   return row && row.kind === 'issue' ? row.issue.unread : undefined
@@ -292,7 +292,9 @@ describe('published worklist derives unread from one issue-row cursor', () => {
     replica.applySnapshot('sessions', [member])
     replica.applySnapshot('repos', [{ id: 'repo', path: '/repo', prefix: 'POD' } as never])
     const slice = worklistSlice.derive({
-      repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [{ path: '/repo' }] }],
+      repos: [
+        { path: '/repo', kind: 'repository', branch: 'main', worktrees: [{ path: '/repo' }] },
+      ],
       sessions: [member],
       pins: { panels: [], worktrees: [], repos: [] },
       issues: [legacyIssue('iss_echo', 'Persist echo')],
@@ -302,5 +304,136 @@ describe('published worklist derives unread from one issue-row cursor', () => {
       selectedIssueId: null,
     } as unknown as Store)
     expect(issueUnreadOf(slice, 'iss_echo')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-1053 — the fan-out a one-field mutation forces.
+//
+// `derive` here is the largest projection on the client: sidebarSections +
+// unifiedWorkList + splitPinnedWork + groupUnifiedWorkRows, over every issue and
+// every session. POD-1052 measured it at ~26ms median at live cardinalities, and
+// it ran TWICE per press — once for the optimistic paint, and again for the
+// server echo that painted back exactly the values already on screen.
+//
+// The second one was pure waste, and `sourceEqual` naming `previous.issues`
+// could not see it: the echo is a different array carrying the same visible
+// values. Naming the DERIVED models instead does see it.
+// ---------------------------------------------------------------------------
+
+function tuckWorld(): {
+  replica: ReturnType<typeof createReplica>
+  storeWith: (issues: IssueWire[], projections: IssueProjection[]) => Store
+} {
+  const replica = createReplica({ storage: memoryStorage() })
+  const projections = [
+    projection({ id: 'iss_a', title: 'A', updatedAt: BEFORE_READ }),
+    projection({ id: 'iss_b', title: 'B', updatedAt: BEFORE_READ }),
+  ]
+  const issues = [legacyIssue('iss_a', 'A'), legacyIssue('iss_b', 'B')]
+  const member = session('s-live', {
+    issueId: asIssueId('iss_a'),
+    cwd: '/repo',
+    lastActiveAt: BEFORE_READ,
+  })
+  replica.applySnapshot('issueProjections', projections)
+  replica.applySnapshot('issues', issues)
+  replica.applySnapshot('sessions', [member])
+  replica.applySnapshot('repos', [{ id: 'repo', path: '/repo', prefix: 'POD' } as never])
+  // Everything the guard names EXCEPT the issue rows is held at one identity, so
+  // a re-derivation can only ever be about the issues.
+  const repos = [
+    { path: '/repo', kind: 'repository', branch: 'main', worktrees: [{ path: '/repo' }] },
+  ]
+  const machines: never[] = []
+  const sessions = [member]
+  const pins = { panels: [], worktrees: [], repos: [] }
+  return {
+    replica,
+    storeWith: (rows, projectionRows) =>
+      ({
+        repos,
+        machines,
+        sessions,
+        pins,
+        issues: rows,
+        issueProjections: projectionRows,
+        replica,
+        coarseNow: NOON,
+        selectedIssueId: null,
+      }) as unknown as Store,
+  }
+}
+
+describe('POD-1053 published worklist re-derives on movement, not on array churn', () => {
+  it('derives once for the press and NOT again for the echo that paints the same values', () => {
+    const { replica, storeWith } = tuckWorld()
+    let store = storeWith([...replica.rows('issues')], [...replica.rows('issueProjections')])
+    const publisher = createSlicePublisher<Store>(() => store)
+
+    publisher.read(worklistSlice)
+    expect(publisher.derivations().worklist).toBe(1)
+
+    // The press: the overlay fold hands the store a new array with one new row.
+    const tuckedAt = '2026-07-06T12:30:00.000Z'
+    const painted = store.issues.map((row) =>
+      row.id === 'iss_a' ? ({ ...row, tuckedAt } as IssueWire) : row,
+    )
+    store = storeWith(painted, store.issueProjections as IssueProjection[])
+    publisher.read(worklistSlice)
+    expect(publisher.derivations().worklist).toBe(2)
+
+    // The echo: server truth lands carrying what optimism already painted. New
+    // replica rows, new store arrays — and nothing on screen may move.
+    replica.applySnapshot(
+      'issues',
+      painted.map((row) => ({ ...row })),
+    )
+    store = storeWith([...replica.rows('issues')], [...replica.rows('issueProjections')])
+    publisher.read(worklistSlice)
+    expect(publisher.derivations().worklist).toBe(2)
+  })
+
+  it('still re-derives when a row genuinely moves', () => {
+    const { replica, storeWith } = tuckWorld()
+    let store = storeWith([...replica.rows('issues')], [...replica.rows('issueProjections')])
+    const publisher = createSlicePublisher<Store>(() => store)
+    publisher.read(worklistSlice)
+
+    // The curation mirror paints the PROJECTION for a rename — the projection is
+    // spread over the legacy supplement, so it is the half the model reads.
+    store = storeWith(store.issues, [
+      ...(store.issueProjections as IssueProjection[]).map((row) =>
+        row.id === 'iss_a' ? ({ ...row, title: 'Renamed' } as IssueProjection) : row,
+      ),
+    ])
+    publisher.read(worklistSlice)
+    expect(publisher.derivations().worklist).toBe(2)
+    expect(
+      publisher
+        .read(worklistSlice)
+        .work.find((row) => row.kind === 'issue' && row.issue.id === 'iss_a'),
+    ).toMatchObject({ issue: { title: 'Renamed' } })
+  })
+
+  it('re-derives when an issue leaves the principal slice with nothing else moving', () => {
+    // The evict case `slices/publish.ts` exists to protect: a shrink that moves
+    // no revision. A shorter model array is never an equal one.
+    const { replica, storeWith } = tuckWorld()
+    let store = storeWith([...replica.rows('issues')], [...replica.rows('issueProjections')])
+    const publisher = createSlicePublisher<Store>(() => store)
+    publisher.read(worklistSlice)
+
+    store = storeWith(
+      store.issues.filter((row) => row.id !== 'iss_b'),
+      (store.issueProjections as IssueProjection[]).filter((row) => row.id !== 'iss_b'),
+    )
+    publisher.read(worklistSlice)
+    expect(publisher.derivations().worklist).toBe(2)
+    expect(
+      publisher
+        .read(worklistSlice)
+        .work.some((row) => row.kind === 'issue' && row.issue.id === 'iss_b'),
+    ).toBe(false)
   })
 })

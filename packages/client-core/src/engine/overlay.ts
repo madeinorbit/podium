@@ -686,6 +686,19 @@ export function projectionCurationOverlay(overlay: PendingOverlay): PendingOverl
   return patchOverlay('issueProjections', overlay.id, overlay.key, mirrored, overlay.coveredBy)
 }
 
+/** True when the fold actually moved one of the cells it wrote. Only the patched
+ *  keys are looked at — every other cell came straight off `row`. */
+function movedAnyCell(row: object, merged: object, patches: readonly OverlayPatch[]): boolean {
+  const before = row as Record<string, unknown>
+  const after = merged as Record<string, unknown>
+  for (const patch of patches) {
+    for (const key of Object.keys(patch)) {
+      if (!sameCell(before[key], after[key])) return true
+    }
+  }
+  return false
+}
+
 export interface FoldResult<T> {
   rows: T[]
   /** Ids of insert overlays NOT yet confirmed by a base row — pendingSpawnIds. */
@@ -699,6 +712,24 @@ export interface FoldResult<T> {
  * compose oldest-first, later fields winning. Returns the SAME `base`
  * reference when nothing applies, so an empty/covered overlay set doesn't
  * churn snapshot identity (the useSyncExternalStore contract).
+ *
+ * "NOTHING APPLIES" IS ABOUT VALUES, NOT ABOUT IDS (POD-1053). A patch whose
+ * cells already read back equal on the row is observationally a no-op, and a
+ * fresh row object for it is not free: `store.issues` is the cache key for the
+ * shared view-model cache and for the published worklist slice, so a gratuitous
+ * row identity costs a model rebuild and, absent the value comparison further
+ * down, a whole worklist derivation. The commonest shape is composition —
+ * queued patches on one row that end up restoring the value the row already
+ * holds. Equality is `sameCell`'s, for the reason stated there: the wire spells
+ * "unset" as both `null` and absent, and the UI reading these rows cannot tell
+ * the two apart.
+ *
+ * This does NOT make an ordinary pending overlay identity-stable across
+ * recomputes: the base it folds over is the replica's UNPAINTED row, so a patch
+ * that genuinely paints something mints a new object every time it runs. What
+ * absorbs that is `replica/issue-view-cache.ts`, which compares the rebuilt
+ * model against the previous one and hands back the previous object when
+ * nothing visible moved.
  */
 export function foldOverlays<T extends object>(
   base: T[],
@@ -727,11 +758,16 @@ export function foldOverlays<T extends object>(
     const next = rows.map((row) => {
       const patches = patchesById.get(keyOf(row))
       if (!patches) return row
+      const merged = Object.assign({}, row, ...patches) as T
+      // Judge the COMPOSED result, not each patch: two queued writes to the same
+      // cell can land on the value the row already holds, and only the merge
+      // knows that.
+      if (!movedAnyCell(row, merged, patches)) return row
       touched = true
-      return Object.assign({}, row, ...patches) as T
+      return merged
     })
-    // A patch that matched no row is a no-op (its target isn't visible yet) —
-    // keep the previous array identity in that case.
+    // A patch that matched no row, or that painted the values already there, is
+    // a no-op — keep the previous array identity in that case.
     if (touched) rows = next
   }
   return {

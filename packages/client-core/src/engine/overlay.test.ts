@@ -477,6 +477,43 @@ describe('foldOverlays', () => {
     expect(confirmed.pendingInsertIds).toBe(EMPTY_ID_SET)
   })
 
+  it('keeps ROW and ARRAY identity when a patch paints values already on the row', () => {
+    // POD-1053. An overlay repaints on every recompute until covering truth is
+    // judged to have landed, and `enqueueOverlayed` folds the same patch twice
+    // by design. `store.issues` is the cache key for the shared view-model cache
+    // and the published worklist, so a gratuitously fresh row re-derives the
+    // whole worklist for a change nobody can see.
+    const base = [
+      sess({ name: 'already named' } as Partial<SessionMetaInput>),
+      sess({ sessionId: 's2' }),
+    ]
+    const rename = overlayForOutboxEntry(
+      entry('rename', { sessionId: 's1', name: 'already named' }),
+    )
+    const folded = foldOverlays(base, [rename as PendingOverlay], keyOf)
+    expect(folded.rows).toBe(base)
+    expect(folded.rows[0]).toBe(base[0])
+  })
+
+  it('reads null and absent as ONE value, the way the rows it folds are read', () => {
+    const base = [sess({ sessionId: 's1' })]
+    expect(base[0] && 'snoozedUntil' in base[0]).toBe(false)
+    const cleared = overlayForOutboxEntry(entry('snoozeClear', { sessionId: 's1' }))
+    expect(foldOverlays(base, [cleared as PendingOverlay], keyOf).rows).toBe(base)
+  })
+
+  it('still mints a fresh row when the COMPOSED patches move a cell', () => {
+    const base = [sess({ name: 'settled' } as Partial<SessionMetaInput>)]
+    // The first patch alone would move the cell; the second puts it back. Only
+    // the merged result knows the fold is a no-op.
+    const away = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'away' }))
+    const back = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'settled' }))
+    expect(foldOverlays(base, [away, back] as PendingOverlay[], keyOf).rows).toBe(base)
+    const moved = foldOverlays(base, [back, away] as PendingOverlay[], keyOf)
+    expect(moved.rows).not.toBe(base)
+    expect(moved.rows[0]?.name).toBe('away')
+  })
+
   it('patches apply on top of inserted placeholder rows too', () => {
     const placeholder = sess({ sessionId: 'new-1' })
     const rename = overlayForOutboxEntry(entry('rename', { sessionId: 'new-1', name: 'named' }))

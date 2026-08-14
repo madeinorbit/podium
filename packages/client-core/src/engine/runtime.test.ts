@@ -910,6 +910,54 @@ describe('unified optimistic overlay (#263)', () => {
     expect(engine.getSnapshot().issueProjections).toHaveLength(1)
     engine.dispose()
   })
+
+  // POD-1053. The paint used to wait on an IndexedDB commit, and then the
+  // durable entry re-projected its overlay from the KERNEL's clock — so the
+  // press painted one `readAt` and the commit painted a slightly different one.
+  // A moved cell is a new row identity and a new `store.issues` array, which
+  // costs the whole worklist derivation over every issue and session. One
+  // overlay, minted at the press, is what makes the second fold a no-op.
+  it('paints on the press and keeps the SAME stamped value once the write is durable', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    const projection = {
+      id: 'iss_1',
+      seq: 1,
+      title: 'Issue',
+      description: { value: '' },
+      stage: 'in_progress',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      archived: false,
+      priority: 2,
+      type: 'task',
+      intentOrigin: 'human',
+      audience: 'human',
+      isDraftVessel: false,
+    } as unknown as IssueProjection
+    const issue = { id: 'iss_1', readAt: null, updatedAt: projection.updatedAt } as IssueWire
+    engine.replica.applyChanges('issueProjections', [projection], [])
+    engine.replica.applyChanges('issues', [issue], [])
+    await settle()
+
+    const pending = engine.getSnapshot().markIssueRead('iss_1')
+    // Synchronous with the call: nothing was awaited, so the durable enqueue
+    // cannot be in front of the paint.
+    const paintedAt = engine.getSnapshot().issues[0]?.readAt
+    expect(paintedAt).toBeTruthy()
+
+    await pending
+    // The durable entry took over the overlay UNCHANGED. The row object itself
+    // is re-minted — the fold's base is the replica's unpainted row — but no
+    // visible cell moved, which is what keeps the view-model cache and the
+    // published worklist from re-deriving over the whole project.
+    expect(engine.getSnapshot().issues[0]?.readAt).toBe(paintedAt)
+    await settle()
+    expect(engine.getSnapshot().issues[0]?.readAt).toBe(paintedAt)
+    engine.dispose()
+  })
 })
 
 // ---------------------------------------------------------------------------

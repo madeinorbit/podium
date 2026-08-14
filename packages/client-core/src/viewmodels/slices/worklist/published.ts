@@ -45,7 +45,7 @@
  */
 import type { PodiumClientApi } from '../../../api'
 import type { Store } from '../../../engine/types'
-import { issueViewModelsFromReplica } from '../../../replica/issue-view-models'
+import { allIssueViewModels } from '../../../replica/issue-view-cache'
 import type { IssueNavigationModel } from '../issues'
 import { defineSlice } from '../publish'
 import { groupUnifiedWorkRows, splitPinnedWork, type UnifiedWorkGroup } from './folds'
@@ -110,15 +110,44 @@ export interface WorklistSlice {
  * `store.issues` no longer carries `unread`, so row emphasis and the read/
  * unread menu would otherwise stay stuck on "read" (POD-843).
  *
+ * IT READS THE SHARED CACHE, NOT THE BUILDER (POD-1053). This used to call
+ * `issueViewModelsFromReplica` directly, which re-derived the whole issue world
+ * from the replica AND rebuilt every model — a second, uncached copy of the work
+ * `useReplicaIssues` had already done for the same three inputs on the same
+ * store snapshot. `allIssueViewModels` is the imperative reader over that memo:
+ * the same function, one generation, shared. It is imported from
+ * `replica/issue-view-cache.ts` rather than the hook module precisely so this
+ * platform-neutral slice keeps its promise not to import React.
+ *
  * Stubs without a replica or projections keep the legacy array so clock-only
  * slice tests and surface fixtures that inject `unread` still derive.
  */
-function issuesOf<TApi extends PodiumClientApi>(store: Store<TApi>): IssueNavigationModel[] {
+function buildIssuesOf<TApi extends PodiumClientApi>(store: Store<TApi>): IssueNavigationModel[] {
   const replica = store.replica
   const projections = store.issueProjections
   if (!replica || !projections || projections.length === 0) return store.issues
-  const models = issueViewModelsFromReplica(replica, projections, store.issues)
-  return models.size > 0 ? [...models.values()] : store.issues
+  const models = allIssueViewModels(replica, projections, store.issues)
+  return models.length > 0 ? models : store.issues
+}
+
+/**
+ * The models this slice derived for one store snapshot, remembered so the
+ * dependency guard below can ask whether they MOVED rather than whether their
+ * source arrays did.
+ *
+ * Keyed on the snapshot OBJECT — the one key `slices/publish.ts` argues is safe,
+ * because an evict, a rescope and an ordinary update are indistinguishable to
+ * it. It holds an answer, never a row, and a snapshot that is unreachable takes
+ * its entry with it.
+ */
+const issueModelsBySnapshot = new WeakMap<object, IssueNavigationModel[]>()
+
+function issuesOf<TApi extends PodiumClientApi>(store: Store<TApi>): IssueNavigationModel[] {
+  const cached = issueModelsBySnapshot.get(store)
+  if (cached !== undefined) return cached
+  const models = buildIssuesOf(store)
+  issueModelsBySnapshot.set(store, models)
+  return models
 }
 
 /**
@@ -140,15 +169,40 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
   // those snapshots. Every field named here is read by `derive` above; rows
   // and collections remain identity-keyed so an eviction/rescope always
   // invalidates the worklist.
-  sourceEqual: (previous, next) =>
-    previous.repos === next.repos &&
-    previous.machines === next.machines &&
-    previous.sessions === next.sessions &&
-    previous.pins === next.pins &&
-    previous.issues === next.issues &&
-    previous.issueProjections === next.issueProjections &&
-    previous.coarseNow === next.coarseNow &&
-    previous.selectedIssueId === next.selectedIssueId,
+  //
+  // THE ISSUE DEPENDENCY IS THE DERIVED MODELS, NOT THE RAW ARRAYS (POD-1053),
+  // and that is a tightening rather than a loosening. `derive` does not read
+  // `store.issues`; it reads `issuesOf(store)`, and every optimistic fold hands
+  // the store a new `issues` array for a one-row patch — so naming the raw array
+  // re-derived the whole worklist (1026 issues × 530 sessions) on every press
+  // AND again on the server echo that painted the same values back. The models
+  // are a pure function of `(replica, issueProjections, issues)`, they are
+  // memoized per snapshot, and their array identity moves whenever any visible
+  // cell of any issue moves — including a row LEAVING, which is what makes this
+  // correct under evict and rescope: a shrunken slice is a shorter array, never
+  // an equal one. The raw-array comparison stays as the fallback for the first
+  // snapshot after construction, when the previous models were never asked for.
+  sourceEqual: (previous, next) => {
+    if (
+      previous.repos !== next.repos ||
+      previous.machines !== next.machines ||
+      previous.sessions !== next.sessions ||
+      previous.pins !== next.pins ||
+      previous.coarseNow !== next.coarseNow ||
+      previous.selectedIssueId !== next.selectedIssueId
+    ) {
+      return false
+    }
+    const previousModels = issueModelsBySnapshot.get(previous)
+    // Always resolve the NEW snapshot's models, even on the fallback path: it is
+    // a memo read when nothing moved, and it is what populates the entry the
+    // next comparison reads for `previous`.
+    const nextModels = issuesOf(next)
+    if (previousModels === undefined) {
+      return previous.issues === next.issues && previous.issueProjections === next.issueProjections
+    }
+    return previousModels === nextModels
+  },
   derive: (store) => {
     const issues = issuesOf(store)
     // The repo/project tree is bounded by machine SEE before it is built (POD-407):

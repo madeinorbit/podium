@@ -28,12 +28,12 @@ import {
 import { couldNotSaveNotice } from '../outbox-recovery-copy'
 import {
   type CreateEngineOutbox,
+  deadLetterHandlingFor,
   type EngineOutbox,
   type EngineOutboxCallbacks,
   OUTBOX_COMMANDS,
-  outboxExecutors,
   type OutboxKinds,
-  deadLetterHandlingFor,
+  outboxExecutors,
   outboxRoutingFor,
   shouldParkDeadLetter,
 } from './wiring'
@@ -165,9 +165,11 @@ class KernelEngineOutbox implements EngineOutbox {
   async enqueue<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
-    opts?: { baseline?: string; chained?: boolean },
+    opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
   ): Promise<OutboxEntry> {
-    const mutationId = randomUUID() as MutationId
+    // A caller-supplied id (POD-1053: the optimistic ledger files its overlay
+    // under the id before the entry exists) or one minted here.
+    const mutationId = opts?.mutationId ?? (randomUUID() as MutationId)
     this.metadata.set(mutationId, {
       ...(opts?.baseline === undefined ? {} : { baseline: opts.baseline }),
       ...(opts?.chained === true ? { chained: true } : {}),
