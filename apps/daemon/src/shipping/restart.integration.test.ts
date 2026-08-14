@@ -4,7 +4,7 @@ import { once } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asShipAttemptId, asShipOrderId } from '@podium/model'
+import { asMachineId, asShipAttemptId, asShipOrderId, shipRepairRef } from '@podium/model'
 import { shippingJobRequestFingerprint, type ShippingJobRequestMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it } from 'vitest'
 import { ShippingExecutionPlane } from './executor'
@@ -43,6 +43,85 @@ const expectSucceeded = (
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('shipping daemon restart recovery', () => {
+  it('recreates conflicted composition and refuses an unrelated existing repair ref', () => {
+    resetFixture(repo, journal)
+    execFileSync('git', ['init', '--initial-branch=main', repo])
+    git('config', 'user.email', 'shipping@test.invalid')
+    git('config', 'user.name', 'Shipping Test')
+    writeFileSync(join(repo, 'value.txt'), 'base\n')
+    git('add', 'value.txt')
+    git('commit', '-m', 'base')
+    const base = git('rev-parse', 'HEAD')
+    git('switch', '-c', 'issue/conflict')
+    writeFileSync(join(repo, 'value.txt'), 'source\n')
+    git('commit', '-am', 'source')
+    const source = git('rev-parse', 'HEAD')
+    git('switch', 'main')
+    writeFileSync(join(repo, 'value.txt'), 'target\n')
+    git('commit', '-am', 'target')
+    const target = git('rev-parse', 'HEAD')
+    const request = signed({
+      type: 'shippingJobRequest',
+      requestId: 'request-conflict',
+      action: 'start',
+      jobId: 'attempt-conflict:prepare-merge-group',
+      orderId: asShipOrderId('order-conflict'),
+      attemptId: asShipAttemptId('attempt-conflict'),
+      generation: 1,
+      operation: 'prepare-merge-group',
+      shippingProtocolVersion: 1,
+      repoPath: repo,
+      repoId: 'repo-shipping' as ShippingJobRequestMessage['repoId'],
+      sourceBranch: 'issue/conflict',
+      targetBranch: 'main',
+      approvedBaseSha: base,
+      approvedHeadSha: source,
+      expectedTargetSha: target,
+      destination: 'local:main',
+      policyId: 'proof-policy',
+      validationProfile: {
+        id: 'exact-proof',
+        argv: ['git', 'diff', '--quiet'],
+        cwd: 'integration-root',
+        timeoutMs: 30_000,
+        resourceLocks: [],
+      },
+    })
+    const plane = new ShippingExecutionPlane(journal, asMachineId('machine-1'))
+    expect(plane.handle(request)).toMatchObject({ state: 'held', classification: 'merge-conflict' })
+    const contextDigest = 'c'.repeat(64)
+    const repairRef = shipRepairRef(
+      request.orderId,
+      request.attemptId,
+      request.generation,
+      contextDigest,
+    )
+    const patch =
+      'diff --git a/value.txt b/value.txt\n' +
+      '--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-target\n+base\n'
+    const repaired = plane.applyPatch({
+      authority: request,
+      contextDigest,
+      repairRef,
+      patch,
+      touchedPaths: ['value.txt'],
+    })
+    expect(repaired).toMatchObject({ ok: true, candidateHeadSha: expect.any(String) })
+    expect(git('merge-base', '--is-ancestor', target, repaired.candidateHeadSha!)).toBe('')
+    expect(git('merge-base', '--is-ancestor', source, repaired.candidateHeadSha!)).toBe('')
+
+    git('update-ref', repairRef, source, repaired.candidateHeadSha!)
+    expect(
+      plane.applyPatch({
+        authority: request,
+        contextDigest,
+        repairRef,
+        patch,
+        touchedPaths: ['value.txt'],
+      }),
+    ).toMatchObject({ ok: false, summary: expect.stringMatching(/deterministic patch result/) })
+  })
+
   it('proves or holds without mutating refs and resumes from its journal', () => {
     resetFixture(repo, journal)
     execFileSync('git', ['init', '--initial-branch=main', repo])

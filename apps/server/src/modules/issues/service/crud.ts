@@ -106,7 +106,7 @@ export interface IssueLifecyclePlan {
  * normalized repository write and its compact shipOrder row ride the same
  * outer Ledger transaction as any issue stage/attention change. */
 export interface ShippingIssueMutation {
-  expectedStage: 'review' | 'shipping' | readonly ('review' | 'shipping')[]
+  expectedStage: 'review' | 'shipping' | 'done' | readonly ('review' | 'shipping' | 'done')[]
   nextStage?: 'shipping' | 'review' | 'done'
   nextStageForResult?: (result: unknown) => 'shipping' | 'review' | 'done' | undefined
   needsHuman?: boolean
@@ -247,31 +247,44 @@ export class IssueCrudModule {
       row.humanQuestionAskedBy = null
       row.humanQuestionAskedAt = null
     }
-    const committed = this.store.persistManyWith(rows, write, (result) => {
-      const changes = entries.flatMap(({ mutation }) =>
-        typeof mutation.shipOrderChanges === 'function'
-          ? mutation.shipOrderChanges(result)
-          : mutation.shipOrderChanges,
-      )
-      return [
-        ...new Map(changes.map((change) => [`${change.entity}:${change.id}`, change])).values(),
-      ]
-    })
-    for (const [index, row] of rows.entries()) {
-      const mutation = entries[index]!.mutation
-      const event =
-        typeof mutation.event === 'function' ? mutation.event(committed.result) : mutation.event
-      if (event) this.store.emitEvent(event.kind, row.id, event.payload)
-      const before = needsHumanBefore.get(row.id)
-      if (!before && mutation.needsHuman === true) {
-        this.store.emitEvent('issue.needs_human', row.id, { seq: row.seq, kind: 'ship-hold' })
-      } else if (before && mutation.needsHuman === false) {
-        this.store.emitEvent('issue.needs_human_cleared', row.id, {
-          seq: row.seq,
-          kind: 'ship-hold',
-        })
-      }
-    }
+    const committed = this.store.persistManyWith(
+      rows,
+      write,
+      (result) => {
+        const changes = entries.flatMap(({ mutation }) =>
+          typeof mutation.shipOrderChanges === 'function'
+            ? mutation.shipOrderChanges(result)
+            : mutation.shipOrderChanges,
+        )
+        return [
+          ...new Map(changes.map((change) => [`${change.entity}:${change.id}`, change])).values(),
+        ]
+      },
+      (result) =>
+        entries.flatMap(({ mutation }, index) => {
+          const row = rows[index]!
+          const event =
+            typeof mutation.event === 'function' ? mutation.event(result) : mutation.event
+          const attention =
+            !needsHumanBefore.get(row.id) && mutation.needsHuman === true
+              ? {
+                  kind: 'issue.needs_human',
+                  subject: row.id,
+                  payload: { seq: row.seq, kind: 'ship-hold' },
+                }
+              : needsHumanBefore.get(row.id) && mutation.needsHuman === false
+                ? {
+                    kind: 'issue.needs_human_cleared',
+                    subject: row.id,
+                    payload: { seq: row.seq, kind: 'ship-hold' },
+                  }
+                : undefined
+          return [
+            ...(event ? [{ ...event, subject: row.id }] : []),
+            ...(attention ? [attention] : []),
+          ]
+        }),
+    )
     return committed
   }
 

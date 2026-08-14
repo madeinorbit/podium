@@ -11,6 +11,7 @@ import {
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import {
+  ShippingEvidenceRegistry,
   ShipwrightService,
   type ShipwrightContextInput,
   type ShipwrightEvidenceMaterializer,
@@ -94,6 +95,49 @@ describe('bounded shipwright patch contract', () => {
     expect(ShipwrightEvidenceRef.safeParse('the gate failed here').success).toBe(false)
     expect(ShipwrightEvidenceRef.safeParse('log:api-key-secret').success).toBe(false)
     expect(ShipwrightEvidenceRef.safeParse('artifact://validation/../secret').success).toBe(false)
+  })
+
+  it('materializes immutable bytes under exact repair custody and caps reads', () => {
+    const registry = new ShippingEvidenceRegistry()
+    const input = {
+      order: { id: 'order:evidence' },
+      attempt: {
+        id: 'attempt:evidence',
+        leaseGeneration: 3,
+        machineId: asMachineId('machine:evidence'),
+      },
+      custody: {
+        attemptId: 'attempt:evidence',
+        generation: 3,
+        machineId: asMachineId('machine:evidence'),
+      },
+      authority: {
+        jobId: 'job:evidence',
+        requestDigest: 'a'.repeat(64),
+        operation: 'validate',
+      },
+    }
+    const ref = registry.materialize(
+      {
+        ...input,
+        sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
+        content: 'bounded evidence',
+      } as never,
+    )
+    expect(registry.read({ ...input, failure: { artifactRefs: [ref] } } as never, ref, 7)).toBe(
+      'bounded',
+    )
+    expect(() =>
+      registry.read(
+        {
+          ...input,
+          custody: { ...input.custody, generation: 4 },
+          failure: { artifactRefs: [ref] },
+        } as never,
+        ref,
+        100,
+      ),
+    ).toThrow(/custody mismatch/)
   })
 })
 
@@ -238,6 +282,7 @@ describe('durable shipwright model results', () => {
       kind: 'needs-decision',
       reasonCode: 'policy-refused',
       evidenceRefs: [],
+      actions: ['retry', 'return-to-issue'],
     })
     expect(h.turns).toHaveLength(0)
   })

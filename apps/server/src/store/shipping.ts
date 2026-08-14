@@ -273,6 +273,7 @@ function mapReceipt(row: SqlRow): DeliveryReceiptValue {
     orderId: row.orderId,
     approvedBaseSha: row.approvedBaseSha,
     approvedHeadSha: row.approvedHeadSha,
+    resultCommitSha: row.resultCommitSha,
     testedIntegrationSha: row.testedIntegrationSha,
     landedRefSha: row.landedRefSha,
     destinationSha: row.destinationSha,
@@ -1160,14 +1161,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (!manifest) return null
     const authority = this.db
       .prepare(
-        `SELECT m.released_at AS releasedAt, lr.revision, lr.updated_at AS updatedAt,
+        `SELECT m.released_at AS releasedAt, lr.revision,
                 (SELECT COUNT(*) FROM ship_train_active_claims c WHERE c.train_id = m.id) AS claimCount
            FROM ship_train_manifests m
            JOIN ship_lane_revisions lr ON lr.lane_key = m.lane_key
           WHERE m.id = ?`,
       )
       .get(manifest.id) as
-      | { releasedAt?: string; revision: number; updatedAt: string; claimCount: number }
+      | { releasedAt?: string; revision: number; claimCount: number }
       | undefined
     if (
       !authority ||
@@ -1175,9 +1176,6 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       authority.revision !== manifest.lane.laneRevision ||
       authority.claimCount !== manifest.memberCount
     ) {
-      if (authority && !authority.releasedAt) {
-        this.invalidateActiveLane(manifest.lane.laneKey, authority.updatedAt, 'stale-authority')
-      }
       return null
     }
     for (const member of manifest.members) {
@@ -1194,15 +1192,36 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         attempt.leaseGeneration !== member.generation ||
         attempt.machineId !== member.machineId
       ) {
-        this.invalidateActiveLane(
-          manifest.lane.laneKey,
-          attempt?.finishedAt ?? order?.stateChangedAt ?? new Date().toISOString(),
-          'stale-member',
-        )
         return null
       }
     }
     return manifest
+  }
+
+  /** Read-only manifest discovery for a lane mutation. Callers use the result
+   * to place every affected issue in one outer ledger transaction before the
+   * repository releases or resets any member. */
+  activeTrainsForLane(order: ShipOrderValue): ShipTrainManifestValue[] {
+    if (!order.repoPath || !order.machineId) return []
+    const laneKey = shippingLaneKey(order, {
+      repoPath: order.repoPath,
+      machineId: order.machineId,
+    })
+    const rows = this.db
+      .prepare(
+        `SELECT c.order_id AS orderId
+           FROM ship_train_active_claims c
+           JOIN ship_train_manifests m ON m.id = c.train_id
+          WHERE m.lane_key = ? AND m.released_at IS NULL
+          ORDER BY m.created_at, m.id, c.order_id`,
+      )
+      .all(laneKey) as { orderId: ShipOrderValue['id'] }[]
+    const manifests = new Map<string, ShipTrainManifestValue>()
+    for (const row of rows) {
+      const manifest = this.claimedTrainForOrder(row.orderId)
+      if (manifest) manifests.set(manifest.id, manifest)
+    }
+    return [...manifests.values()]
   }
 
   releaseTrain(trainId: ShipTrainManifestValue['id'], releasedAt: string, reason: string): void {
@@ -1448,6 +1467,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         .run(laneKey, input.recordedAt)
       this.invalidateActiveLane(laneKey, input.recordedAt, 'native-stack-change')
     })
+  }
+
+  hasNativeStackEdge(
+    upperOrderId: ShipOrderValue['id'],
+    lowerOrderId: ShipOrderValue['id'],
+  ): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1 FROM ship_order_stack_edges
+            WHERE upper_order_id = ? AND lower_order_id = ?`,
+        )
+        .get(upperOrderId, lowerOrderId),
+    )
   }
 
   /** Claim one active order through its durable order/attempt winner. Recovery
@@ -1842,12 +1875,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       const activeTrain = this.claimedTrainForOrder(order.id)
       const attempt = this.latestAttemptForOrder(orderId)
+      const custodyAttempt = custody ? this.getAttempt(custody.attemptId) : null
+      const custodyMember = activeTrain?.members.find(
+        (member) => member.attemptId === custody?.attemptId,
+      )
       if (
         custody &&
-        (!attempt ||
-          attempt.id !== custody.attemptId ||
-          attempt.leaseGeneration !== custody.generation ||
-          attempt.finishedAt !== undefined)
+        (!custodyAttempt ||
+          custodyAttempt.leaseGeneration !== custody.generation ||
+          custodyAttempt.finishedAt !== undefined ||
+          (activeTrain ? !custodyMember : attempt?.id !== custody.attemptId))
       ) {
         throw new Error(`ship order ${orderId} cancellation custody fence failed`)
       }

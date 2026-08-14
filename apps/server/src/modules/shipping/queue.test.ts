@@ -62,6 +62,7 @@ const cacheScope = (orders: readonly ShipOrder[]) => ({
   targetSha: orders[0]!.approvedBaseSha,
   destination: orders[0]!.destination,
   provider: orders[0]!.providerRef ?? null,
+  repair: null,
   validationProfile: {
     id: 'podium-agent',
     argv: ['bun', 'run', 'test'],
@@ -201,5 +202,30 @@ describe('isolateShippingTrain', () => {
     expect(seen).toEqual([[lower.id, upper.id], [independent.id]])
     expect(result.interactions).toEqual([[lower.id, upper.id]])
     expect(result.green).toContainEqual([independent.id])
+  })
+
+  it('never bisects or cache-aliases an immutable repaired candidate', async () => {
+    const a = order('repair-a', '2026-08-14T10:00:00.000Z')
+    const b = order('repair-b', '2026-08-14T10:01:00.000Z')
+    const cache = new GreenPrefixCache()
+    const scope = {
+      ...cacheScope([a, b]),
+      repair: {
+        round: 2,
+        contextDigest: 'c'.repeat(64),
+        repairRef: 'refs/podium/ship-repair/order/attempt/1/context',
+        candidateHeadSha: 'd'.repeat(40),
+      },
+    }
+    let validations = 0
+    const validate = async () => {
+      validations += 1
+      return { passed: true }
+    }
+
+    await isolateShippingTrain([a, b], validate, cache, scope)
+    await isolateShippingTrain([a, b], validate, cache, scope)
+
+    expect(validations).toBe(2)
   })
 })

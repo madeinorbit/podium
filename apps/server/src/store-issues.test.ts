@@ -631,6 +631,9 @@ describe('shipping durable store', () => {
     })
     expect(s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
     expect(s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
+    expect(s.shipping.listReceipts()).toContainEqual(
+      expect.objectContaining({ orderId: order.id, resultCommitSha: 'landed-ref' }),
+    )
     expect(() =>
       s.shipping.completeVerifiedOrder({
         ...receipt,
@@ -755,6 +758,18 @@ describe('shipping durable store', () => {
     for (const member of train.manifest.members) {
       expect(s.shipping.trainManifestForAttempt(member.attemptId)).toEqual(train.manifest)
     }
+    rawDb(s)
+      .prepare('UPDATE ship_lane_revisions SET revision = revision + 1 WHERE lane_key = ?')
+      .run(train.manifest.lane.laneKey)
+    expect(s.shipping.activeTrainForOrder(lower.id)).toBeNull()
+    expect(
+      rawDb(s)
+        .prepare('SELECT released_at AS releasedAt FROM ship_train_manifests WHERE id = ?')
+        .get(train.manifest.id),
+    ).toEqual({ releasedAt: null })
+    rawDb(s)
+      .prepare('UPDATE ship_lane_revisions SET revision = ? WHERE lane_key = ?')
+      .run(train.manifest.lane.laneRevision, train.manifest.lane.laneKey)
     const rawMemberInsert = (ordinal: number) =>
       rawDb(s)
         .prepare(

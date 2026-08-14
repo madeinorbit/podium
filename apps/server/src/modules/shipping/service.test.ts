@@ -1308,6 +1308,28 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
   })
 
+  it('rolls back cancellation state when its durable issue event cannot commit', async () => {
+    const { store, issues, service } = harness(provedShippingJob)
+    const issue = issues.create({ repoPath: '/repo', title: 'atomic cancel', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const db = (store as unknown as { db: { exec(sql: string): void } }).db
+    db.exec(`CREATE TRIGGER refuse_shipping_event BEFORE INSERT ON podium_events
+      BEGIN SELECT RAISE(ABORT, 'event refused'); END`)
+
+    await expect(
+      service.cancel({
+        orderId: order.id,
+        principal: approval.principal,
+        requestedBy: approval.requestedBy,
+        overrideScope: false,
+      }),
+    ).rejects.toThrow(/event refused/)
+    expect(store.shipping.getOrder(order.id)?.state).toBe('queued')
+    expect(store.issues.getIssue(issue.id)?.stage).toBe('shipping')
+    service.dispose()
+  })
+
   it('resumes the durable attempt generation after restart', async () => {
     const generations: number[] = []
     const { store, issues, service, deps } = harness(async (input, machineId) => {
@@ -1760,10 +1782,7 @@ describe('ShippingService enqueue transaction', () => {
     crashBeforeAcknowledgement = false
     const restarted = new ShippingService(deps)
     await restarted.reconcile()
-    expect(consider).toHaveBeenCalledTimes(2)
-    const firstContext = consider.mock.calls[0]![0]
-    const replayContext = consider.mock.calls[1]![0]
-    expect({ ...replayContext, issue: undefined }).toEqual({ ...firstContext, issue: undefined })
+    expect(consider).toHaveBeenCalledTimes(1)
     expect(acknowledge).toHaveBeenCalledWith({
       resultToken: decision.resultToken,
       orderId: order.id,

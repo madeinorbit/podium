@@ -918,6 +918,11 @@ export class IssueStore {
     rows: IssueRow[],
     write: () => T,
     extraChanges: (result: T) => readonly EntityChangeSpec[],
+    events: (result: T) => readonly {
+      kind: string
+      subject: string
+      payload: Record<string, unknown>
+    }[] = () => [],
   ): { issues: IssueWire[]; result: T } {
     const backups = new Map(
       rows.map((row) => [row.id, this.deps.store.issues.getIssue(row.id)] as const),
@@ -928,12 +933,25 @@ export class IssueStore {
     }
     let result!: T
     let wires!: IssueWire[]
+    let eventIds: number[] = []
     try {
       const committed = this.deps.ledger.commit({
         write: () => {
           result = write()
           for (const row of rows) this.deps.store.issues.upsertIssue(row)
           wires = rows.map((row) => this.toWire(row))
+          eventIds = events(result).map((event) =>
+            this.deps.store.events.appendEvent(
+              {
+                ts: this.now(),
+                kind: event.kind,
+                subject: event.subject,
+                repoPath: this.rows.get(event.subject)?.repoPath ?? null,
+                payload: event.payload,
+              },
+              { announce: false },
+            ),
+          )
           return { result, wires }
         },
         changes: ({ result: value, wires: committedWires }) => [
@@ -960,6 +978,7 @@ export class IssueStore {
     }
     this.bumpIssueInputs()
     for (const row of rows) this.rows.set(row.id, row)
+    for (const eventId of eventIds) this.deps.store.events.announceEvent(eventId)
     return { issues: wires, result }
   }
 

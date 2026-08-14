@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type {
   IssueWire,
   MachineId,
@@ -90,4 +91,3 @@ export interface ShippingRepairPort {
     candidate?: { repairRef: string; candidateHeadSha: string }
   }): Promise<void>
 }
-import { createHash } from 'node:crypto'

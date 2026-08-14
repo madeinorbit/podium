@@ -77,13 +77,16 @@ export class EventsRepository {
 
   // ---- event log ----
 
-  appendEvent(e: {
-    ts: string
-    kind: string
-    subject: string
-    repoPath?: string | null
-    payload?: unknown
-  }): number {
+  appendEvent(
+    e: {
+      ts: string
+      kind: string
+      subject: string
+      repoPath?: string | null
+      payload?: unknown
+    },
+    options: { announce?: boolean } = {},
+  ): number {
     const r = this.db
       .prepare(
         'INSERT INTO podium_events (ts, kind, subject, repo_path, payload) VALUES (?, ?, ?, ?, ?)',
@@ -94,14 +97,34 @@ export class EventsRepository {
     // not have. The listener is documented as non-throwing, and this call is not
     // guarded here on purpose — a swallow at both ends hides a wiring fault
     // behind a pane that simply never updates.
-    this.appendListener?.(id, {
-      ts: e.ts,
-      kind: e.kind,
-      subject: e.subject,
-      repoPath: e.repoPath ?? null,
-      payload: e.payload ?? {},
-    })
+    if (options.announce !== false) {
+      this.appendListener?.(id, {
+        ts: e.ts,
+        kind: e.kind,
+        subject: e.subject,
+        repoPath: e.repoPath ?? null,
+        payload: e.payload ?? {},
+      })
+    }
     return id
+  }
+
+  /** Announce an event that was inserted silently inside a wider transaction.
+   * The caller invokes this only after that transaction commits. */
+  announceEvent(id: number): void {
+    if (!this.appendListener) return
+    const row = this.db.prepare('SELECT * FROM podium_events WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    if (!row) throw new Error(`unknown podium event ${id}`)
+    const event = rowToEvent(row)
+    this.appendListener(id, {
+      ts: event.ts,
+      kind: event.kind,
+      subject: event.subject,
+      repoPath: event.repoPath,
+      payload: event.payload,
+    })
   }
 
   /**

@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import {
   DEFAULT_SHIPWRIGHT_BUDGET,
   type AccountId,
@@ -139,6 +140,79 @@ export interface ShipwrightContextInput {
   }
   custody: ShipwrightRepairInput['custody']
   authority: ShipwrightRepairInput['authority']
+}
+
+interface MaterializedEvidence {
+  custodyDigest: string
+  content: string
+}
+
+/** Server custody for daemon evidence. Native paths never enter this registry:
+ * only bounded bytes read under exact journal authority are hashed into an
+ * immutable, repair-context-bound reference before Shipwright sees them. */
+export class ShippingEvidenceRegistry {
+  private readonly entries = new Map<ShipwrightEvidenceRefValue, MaterializedEvidence>()
+
+  private custodyDigest(input: {
+    order: ShipOrder
+    attempt: ShipAttempt
+    custody: ShipwrightRepairInput['custody']
+    authority: ShipwrightRepairInput['authority']
+  }): string {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          orderId: input.order.id,
+          attemptId: input.attempt.id,
+          generation: input.custody.generation,
+          machineId: input.custody.machineId,
+          authorityJobId: input.authority.jobId,
+          authorityRequestDigest: input.authority.requestDigest,
+          authorityOperation: input.authority.operation,
+        }),
+      )
+      .digest('hex')
+  }
+
+  materialize(input: {
+    sourceRef: string
+    content: string
+    order: ShipOrder
+    attempt: ShipAttempt
+    custody: ShipwrightRepairInput['custody']
+    authority: ShipwrightRepairInput['authority']
+  }): ShipwrightEvidenceRefValue {
+    const custodyDigest = this.custodyDigest(input)
+    const ref = ShipwrightEvidenceRef.parse(
+      `artifact://shipwright/${createHash('sha256')
+        .update(
+          `${custodyDigest}\0${input.sourceRef}\0${createHash('sha256')
+            .update(input.content)
+            .digest('hex')}`,
+        )
+        .digest('hex')}`,
+    )
+    const existing = this.entries.get(ref)
+    if (
+      existing &&
+      (existing.custodyDigest !== custodyDigest || existing.content !== input.content)
+    ) {
+      throw new Error(`shipwright evidence ${ref} immutable collision`)
+    }
+    this.entries.set(ref, { custodyDigest, content: input.content })
+    return ref
+  }
+
+  read(input: ShipwrightContextInput, ref: ShipwrightEvidenceRefValue, maxBytes: number): string {
+    const entry = this.entries.get(ref)
+    if (!entry || entry.custodyDigest !== this.custodyDigest(input)) {
+      throw new Error(`shipwright evidence ${ref} custody mismatch`)
+    }
+    if (!Number.isInteger(maxBytes) || maxBytes < 1) {
+      throw new Error('shipwright evidence read limit is invalid')
+    }
+    return Buffer.from(entry.content).subarray(0, maxBytes).toString('utf8')
+  }
 }
 
 export type ShipwrightRepairRecommendation =
@@ -867,7 +941,10 @@ export class ShipwrightService {
       headline: 'Needs your decision',
       detail,
       evidenceRefs: [...evidence],
-      actions: ['retry', 'return-to-issue', 'open-repair'],
+      actions:
+        reasonCode === 'policy-refused'
+          ? ['retry', 'return-to-issue']
+          : ['retry', 'return-to-issue', 'open-repair'],
       resultToken: encodeResultToken(input, receipts),
     }
   }

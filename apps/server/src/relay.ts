@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
@@ -126,7 +127,7 @@ import {
   shippingResourceHolderId,
 } from './modules/shipping'
 import { scheduledShipOrderProjectionRows } from './modules/shipping/projection'
-import { ShipwrightService } from './modules/shipping/shipwright'
+import { ShippingEvidenceRegistry, ShipwrightService } from './modules/shipping/shipwright'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
@@ -1772,6 +1773,7 @@ export class SessionRegistry {
     const shippingPolicy = new CompatibilityShippingPolicyResolver(
       () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
     )
+    const shippingEvidence = new ShippingEvidenceRegistry()
     const shipwright = new ShipwrightService({
       headless,
       settingsFor: (userId) => settings.getSettingsFor(userId),
@@ -1782,31 +1784,39 @@ export class SessionRegistry {
       validationProfile: (issue) => shippingPolicy.resolve(issue).validationProfile,
       evidence: {
         materialize: async (input) => {
+          const materialized: import('@podium/model').ShipwrightEvidenceRef[] = []
           for (const ref of input.refs) {
             const resolved = await rpc.shippingEvidence(
               input.authority,
               ref,
-              1,
+              256 * 1024,
               input.custody.machineId,
             )
-            if (!resolved.ok) throw new Error(resolved.error ?? 'shipping evidence was refused')
+            if (!resolved.ok || resolved.content === undefined) {
+              throw new Error(resolved.error ?? 'shipping evidence was refused')
+            }
+            materialized.push(
+              shippingEvidence.materialize({
+                sourceRef: ref,
+                content: resolved.content,
+                order: input.order,
+                attempt: input.attempt,
+                custody: input.custody,
+                authority: input.authority,
+              }),
+            )
           }
-          return input.refs as import('@podium/model').ShipwrightEvidenceRef[]
+          return materialized
         },
       },
       context: async (input, limits) => {
         const content: string[] = []
+        let remaining = Math.min(limits.maxContextBytes, limits.maxFailureBytes)
         for (const ref of input.failure.artifactRefs) {
-          const resolved = await rpc.shippingEvidence(
-            input.authority,
-            ref,
-            limits.maxFailureBytes,
-            input.custody.machineId,
-          )
-          if (!resolved.ok || resolved.content === undefined) {
-            throw new Error(resolved.error ?? 'shipping evidence was refused')
-          }
-          content.push(resolved.content)
+          if (remaining <= 0) break
+          const resolved = shippingEvidence.read(input, ref, remaining)
+          content.push(resolved)
+          remaining -= Buffer.byteLength(resolved)
         }
         return { output: content.join('\n'), relevantDiff: '' }
       },

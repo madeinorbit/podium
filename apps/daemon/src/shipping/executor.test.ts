@@ -98,12 +98,21 @@ const reorderedControlRequest = (
 
 const seededPlane = (
   state: ShippingJobResult['state'],
+  withEvidence = false,
 ): { plane: ShippingExecutionPlane; request: ShippingJobRequestMessage } => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-shipping-executor-identity-'))
   dirs.push(dir)
   const plane = new ShippingExecutionPlane(dir, asMachineId('machine-1'))
   const request = startRequest()
-  plane.journal.begin(request, resultFor(request, state))
+  const result = resultFor(request, state)
+  if (withEvidence) {
+    result.artifactRefs = [
+      `artifact://shipping/${createHash('sha256')
+        .update(shippingEvidenceFingerprint(request, asMachineId('machine-1'), 0))
+        .digest('hex')}`,
+    ]
+  }
+  plane.journal.begin(request, result)
   return { plane, request }
 }
 
@@ -171,7 +180,7 @@ describe('shipping evidence authority', () => {
       .digest('hex')}`
 
   it('resolves an opaque log only for its exact effect authority', () => {
-    const { plane, request } = seededPlane('succeeded')
+    const { plane, request } = seededPlane('succeeded', true)
     const logPath = join(
       (plane as unknown as { logsDir: string }).logsDir,
       `${createHash('sha256').update(request.jobId).digest('hex')}.log`,

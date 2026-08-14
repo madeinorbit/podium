@@ -587,6 +587,14 @@ export class ShippingExecutionPlane {
   resolveEvidence(request: Request, artifactRef: string): string | null {
     if (request.requestDigest !== this.requestDigest(request)) return null
     if (artifactRef !== this.evidenceRef(request, 0)) return null
+    let entry: ReturnType<ShippingJobJournal['get']>
+    try {
+      entry = this.journal.get(request.jobId)
+    } catch {
+      return null
+    }
+    if (!entry || !this.matchesJournalRequest(request, entry.request)) return null
+    if (!entry.result.artifactRefs.includes(artifactRef)) return null
     const logPath = join(
       this.logsDir,
       `${createHash('sha256').update(request.jobId).digest('hex')}.log`,
@@ -595,10 +603,109 @@ export class ShippingExecutionPlane {
   }
 
   readEvidence(request: Request, artifactRef: string, maxBytes: number): string | null {
+    if (!Number.isInteger(maxBytes) || maxBytes < 1) return null
     const path = this.resolveEvidence(request, artifactRef)
     if (!path) return null
     const bytes = readFileSync(path)
-    return bytes.subarray(0, maxBytes).toString('utf8')
+    return bytes.subarray(0, Math.min(maxBytes, MAX_OUTPUT_BYTES)).toString('utf8')
+  }
+
+  private validFrozenRepair(input: {
+    authority: Request
+    base: string
+    candidate: string
+    contextDigest: string
+    patch: string
+    touchedPaths: string[]
+    requireComposition?: boolean
+  }): boolean {
+    if (!isAncestor(input.authority.repoPath, input.base, input.candidate)) return false
+    const commits = gitResult(input.authority.repoPath, [
+      'rev-list',
+      '--reverse',
+      '--ancestry-path',
+      `${input.base}..${input.candidate}`,
+    ])
+    const patchCommit = commits.stdout.split('\n').filter(Boolean)[0]
+    if (!commits.ok || !patchCommit) return false
+    const message = gitResult(input.authority.repoPath, ['log', '-1', '--format=%B', patchCommit])
+    if (!message.ok || message.stdout !== `Podium repair ${input.contextDigest}`) return false
+    const parent = gitResult(input.authority.repoPath, ['rev-parse', `${patchCommit}^1`])
+    if (!parent.ok || parent.stdout !== input.base) return false
+    const touched = gitResult(input.authority.repoPath, [
+      'diff',
+      '--name-only',
+      input.base,
+      patchCommit,
+    ])
+    if (
+      !touched.ok ||
+      JSON.stringify(touched.stdout.split('\n').filter(Boolean).sort()) !==
+        JSON.stringify([...new Set(input.touchedPaths)].sort())
+    ) {
+      return false
+    }
+    const suppliedPatchId = run('git', ['patch-id', '--stable'], { input: input.patch })
+    const frozenPatch = gitResult(input.authority.repoPath, [
+      'show',
+      '--format=',
+      '--binary',
+      patchCommit,
+    ])
+    const frozenPatchId = frozenPatch.ok
+      ? run('git', ['patch-id', '--stable'], { input: frozenPatch.stdout })
+      : null
+    if (
+      !suppliedPatchId.ok ||
+      !frozenPatchId?.ok ||
+      suppliedPatchId.stdout.split(/\s+/)[0] !== frozenPatchId.stdout.split(/\s+/)[0]
+    ) {
+      return false
+    }
+    if (input.requireComposition === false) return true
+    const requiredHeads = this.trainMembers(input.authority).map(
+      (member) => member.approvedHeadSha,
+    )
+    if (requiredHeads.length === 0) requiredHeads.push(input.authority.approvedHeadSha)
+    return (
+      isAncestor(
+        input.authority.repoPath,
+        input.authority.expectedTargetSha,
+        input.candidate,
+      ) &&
+      requiredHeads.every((head) =>
+        isAncestor(input.authority.repoPath, head, input.candidate),
+      )
+    )
+  }
+
+  private completeRepairComposition(
+    authority: Request,
+    repairPath: string,
+    start: string,
+  ): string | null {
+    let candidate = start
+    const requiredHeads = this.trainMembers(authority).map((member) => member.approvedHeadSha)
+    if (requiredHeads.length === 0) requiredHeads.push(authority.approvedHeadSha)
+    for (const approvedHead of requiredHeads) {
+      if (isAncestor(authority.repoPath, approvedHead, candidate)) continue
+      const merged = gitResult(repairPath, [
+        '-c',
+        'user.name=Podium Shipwright',
+        '-c',
+        'user.email=shipwright@podium.local',
+        'merge',
+        '--no-edit',
+        '--',
+        approvedHead,
+      ])
+      if (!merged.ok) {
+        gitResult(repairPath, ['merge', '--abort'])
+        return null
+      }
+      candidate = refTip(repairPath, 'HEAD') ?? ''
+    }
+    return candidate
   }
 
   applyPatch(input: {
@@ -630,15 +737,6 @@ export class ShippingExecutionPlane {
     ) {
       return { ok: false, summary: 'repair patch path authority failed', artifactRefs: [] }
     }
-    const existingRepair = refTip(authority.repoPath, input.repairRef)
-    if (existingRepair) {
-      return {
-        ok: true,
-        summary: `repair candidate ${existingRepair} already frozen`,
-        candidateHeadSha: existingRepair,
-        artifactRefs: [],
-      }
-    }
     const entry = this.journal
       .list()
       .find(
@@ -655,11 +753,38 @@ export class ShippingExecutionPlane {
       entry.result.testedIntegrationSha ??
       (worktrees(authority.repoPath).some((candidate) => candidate.path === failedPath)
         ? refTip(failedPath, 'HEAD')
-        : null)
+        : entry.result.classification === 'merge-conflict'
+          ? authority.expectedTargetSha
+          : null)
     if (!base) {
       return {
         ok: false,
         summary: 'failed integration has no repairable candidate',
+        artifactRefs: [],
+      }
+    }
+    const existingRepair = refTip(authority.repoPath, input.repairRef)
+    if (existingRepair) {
+      if (
+        !this.validFrozenRepair({
+          authority,
+          base,
+          candidate: existingRepair,
+          contextDigest: input.contextDigest,
+          patch: input.patch,
+          touchedPaths: input.touchedPaths,
+        })
+      ) {
+        return {
+          ok: false,
+          summary: 'existing repair ref is not the deterministic patch result',
+          artifactRefs: [],
+        }
+      }
+      return {
+        ok: true,
+        summary: `repair candidate ${existingRepair} already frozen`,
+        candidateHeadSha: existingRepair,
         artifactRefs: [],
       }
     }
@@ -687,21 +812,45 @@ export class ShippingExecutionPlane {
       return { ok: false, summary: 'repair checkout custody changed', artifactRefs: [] }
     } else if (refTip(repairPath, 'HEAD') !== base) {
       const resumedHead = refTip(repairPath, 'HEAD')
-      const message = gitResult(repairPath, ['log', '-1', '--format=%B'])
       if (
         !resumedHead ||
-        message.stdout !== `Podium repair ${input.contextDigest}` ||
-        !isAncestor(authority.repoPath, base, resumedHead)
+        !this.validFrozenRepair({
+          authority,
+          base,
+          candidate: resumedHead,
+          contextDigest: input.contextDigest,
+          patch: input.patch,
+          touchedPaths: input.touchedPaths,
+          requireComposition: false,
+        })
       ) {
         return { ok: false, summary: 'repair checkout custody changed', artifactRefs: [] }
+      }
+      const composed = this.completeRepairComposition(authority, repairPath, resumedHead)
+      if (
+        !composed ||
+        !this.validFrozenRepair({
+          authority,
+          base,
+          candidate: composed,
+          contextDigest: input.contextDigest,
+          patch: input.patch,
+          touchedPaths: input.touchedPaths,
+        })
+      ) {
+        return {
+          ok: false,
+          summary: 'recovered repair did not complete approved composition',
+          artifactRefs: [],
+        }
       }
       const resumed = gitResult(authority.repoPath, [
         'update-ref',
         input.repairRef,
-        resumedHead,
+        composed,
         ZERO_SHA,
       ])
-      if (!resumed.ok && refTip(authority.repoPath, input.repairRef) !== resumedHead) {
+      if (!resumed.ok && refTip(authority.repoPath, input.repairRef) !== composed) {
         return {
           ok: false,
           summary: resumed.stderr || 'repair ref recovery raced',
@@ -710,8 +859,8 @@ export class ShippingExecutionPlane {
       }
       return {
         ok: true,
-        summary: `repair candidate ${resumedHead} recovered`,
-        candidateHeadSha: resumedHead,
+        summary: `repair candidate ${composed} recovered`,
+        candidateHeadSha: composed,
         artifactRefs: [],
       }
     }
@@ -743,19 +892,37 @@ export class ShippingExecutionPlane {
     if (!candidateHeadSha) {
       return { ok: false, summary: 'repair commit has no head', artifactRefs: [] }
     }
+    const composedHead = this.completeRepairComposition(authority, repairPath, candidateHeadSha)
+    if (
+      !composedHead ||
+      !this.validFrozenRepair({
+        authority,
+        base,
+        candidate: composedHead,
+        contextDigest: input.contextDigest,
+        patch: input.patch,
+        touchedPaths: input.touchedPaths,
+      })
+    ) {
+      return {
+        ok: false,
+        summary: 'repair candidate does not contain approved composition',
+        artifactRefs: [],
+      }
+    }
     const frozen = gitResult(authority.repoPath, [
       'update-ref',
       input.repairRef,
-      candidateHeadSha,
+      composedHead,
       ZERO_SHA,
     ])
-    if (!frozen.ok && refTip(authority.repoPath, input.repairRef) !== candidateHeadSha) {
+    if (!frozen.ok && refTip(authority.repoPath, input.repairRef) !== composedHead) {
       return { ok: false, summary: frozen.stderr || 'repair ref raced', artifactRefs: [] }
     }
     return {
       ok: true,
-      summary: `repair candidate ${candidateHeadSha} frozen`,
-      candidateHeadSha,
+      summary: `repair candidate ${composedHead} frozen`,
+      candidateHeadSha: composedHead,
       artifactRefs: [],
     }
   }

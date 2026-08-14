@@ -350,6 +350,14 @@ export interface ShippingValidationCacheScope {
   destination: string
   provider: ShipOrder['providerRef'] | null
   validationProfile: unknown
+  repair:
+    | {
+        round: number
+        contextDigest: string
+        repairRef: string
+        candidateHeadSha: string
+      }
+    | null
   members: {
     orderId: ShipOrderId
     attemptId: string
@@ -419,6 +427,20 @@ export async function isolateShippingTrain(
   const interactions: ShipOrderId[][] = []
   let validationCount = 0
   if (orders.length === 0) return { green, failures, interactions, validationCount }
+
+  // A repaired candidate is one immutable composition result. Testing or
+  // caching subsets of it would assign the same repair to a different set of
+  // approved heads, so the whole repaired component is deliberately atomic.
+  if (scope.repair) {
+    const result = fullAlreadyFailed ? { passed: false } : await validate(orders)
+    validationCount = fullAlreadyFailed ? 0 : 1
+    if (result.passed) {
+      green.push(orders.map((order) => order.id))
+    } else {
+      interactions.push(orders.map((order) => order.id))
+    }
+    return { green, failures, interactions, validationCount }
+  }
 
   // Direct dependency components are indivisible validation units. Splitting
   // one would test a delivery shape that can never land and would mislabel a
