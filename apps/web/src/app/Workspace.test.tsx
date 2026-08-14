@@ -112,6 +112,7 @@ vi.mock('./store', () => ({
 
 const { Workspace } = await import('./Workspace')
 const { DesktopCloseTab } = await import('./use-desktop-close-tab')
+const { getHoveredSession, setHoveredSession } = await import('./session-hover')
 
 beforeEach(() => {
   featureEnabled['tab-splitting'] = false
@@ -142,6 +143,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  setHoveredSession(null)
   for (const fn of Object.values(actions)) fn.mockClear()
 })
 
@@ -200,6 +202,39 @@ describe('Workspace tab strip', () => {
 
     expect(actions.activateWorkspaceTab).toHaveBeenCalledWith('s1')
     expect(actions.promoteWorkspaceTab).not.toHaveBeenCalled()
+  })
+
+  // POD-1067: the strip publishes what the pointer is on so the deck can mark
+  // the same session's row. A view operation only — nothing is selected, and
+  // the pointer leaving is the whole lifetime of it.
+  it('publishes the pointed session while the pointer is on its tab', () => {
+    render(<Workspace />)
+
+    fireEvent.pointerOver(tab('s1'), { pointerType: 'mouse' })
+    expect(getHoveredSession()).toBe('s1')
+
+    fireEvent.pointerOut(tab('s1'), { pointerType: 'mouse' })
+    expect(getHoveredSession()).toBeNull()
+  })
+
+  it('leaves the deck alone for a touch, which is a tap and not a hover', () => {
+    render(<Workspace />)
+
+    fireEvent.pointerOver(tab('s1'), { pointerType: 'touch' })
+
+    expect(getHoveredSession()).toBeNull()
+  })
+
+  // A tab that goes away under the pointer (closed, or an issue switch) never
+  // gets its leave — so unmounting ends the hover it owns.
+  it('ends the hover when the pointed tab unmounts', () => {
+    const view = render(<Workspace />)
+
+    fireEvent.pointerOver(tab('s1'), { pointerType: 'mouse' })
+    expect(getHoveredSession()).toBe('s1')
+
+    view.unmount()
+    expect(getHoveredSession()).toBeNull()
   })
 })
 

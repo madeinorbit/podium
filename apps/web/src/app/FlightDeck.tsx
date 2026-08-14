@@ -83,6 +83,7 @@ import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/
 import { useClickIntent } from './click-intent'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
+import { useSessionHovered } from './session-hover'
 import { OPEN_RIGHT_PANEL_EVENT } from './shell-state'
 import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
 
@@ -907,6 +908,9 @@ function SessionRow({
   const name = sessionDisplayName(session)
   const unread = sessionUnreadEmphasized(session)
   const lead = isLead(role)
+  // The pointer is on this session's TAB, over in the strip. Same session, drawn
+  // twice — so the row answers "this one" in the only device it has spare.
+  const pointed = useSessionHovered(session.sessionId)
   const body = (
     <div
       className={cn(
@@ -926,12 +930,19 @@ function SessionRow({
       style={{ marginLeft: flat ? 0 : AGENT_INDENT }}
       data-flight-session={session.sessionId}
       data-needs-you={needs ? 'true' : undefined}
+      data-pointed={pointed ? 'true' : undefined}
     >
       {/* THE SESSION YOU ARE IN takes the same square accent tick a selected
           task takes, in the row's own gutter. Extending the mark rather than
           reaching for a fill is the whole point of the tick: "this one" is one
-          device in this column, whatever kind of row it lands on. */}
-      {active && !flat && (
+          device in this column, whatever kind of row it lands on.
+          A row the pointer is on FROM THE TAB STRIP takes the same tick held
+          lightly — the rail's own 45% (`.deck-rail-mission`), which is the dose
+          this column already uses for "traceable, not a selection". One device
+          at two strengths: the strong one is where you ARE, the faint one is
+          where you are POINTING, and a pointed row that is also the active one
+          simply keeps the strong mark. */}
+      {(active || pointed) && !flat && (
         <span
           aria-hidden
           className="pointer-events-none absolute"
@@ -941,6 +952,7 @@ function SessionRow({
             width: TICK_WIDTH,
             height: TICK_HEIGHT,
             background: 'var(--issue)',
+            opacity: active ? 1 : 0.45,
           }}
         />
       )}
@@ -964,6 +976,12 @@ function SessionRow({
             // else. No left padding — the row opens onto its rail.
             'deck-agent group/session shell-type-secondary flex min-h-7 w-full items-center gap-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
             active && 'text-foreground',
+            // The pointer is on the tab, so the row takes the fill it would
+            // have taken under the pointer itself. Borrowing the row's OWN
+            // hover rather than inventing a second wash is what keeps this
+            // legible without being loud: the strip is simply reaching in and
+            // hovering the row on the operator's behalf.
+            pointed && 'bg-muted text-foreground',
             // Settled agents dim one tier rather than leaving. Removing them is
             // the view bar's job, not the row's.
             (retired || phase === 'done') && 'opacity-60',

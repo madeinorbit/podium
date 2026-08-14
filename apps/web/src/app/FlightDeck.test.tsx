@@ -11,6 +11,7 @@ import {
   writeFolds,
 } from './FlightDeck'
 import { OperatorFocusProvider } from './operator-focus'
+import { clearHoveredSession, setHoveredSession } from './session-hover'
 
 /**
  * The deck's own click grammar and fold defaults (POD-710 §4.1–4.4).
@@ -644,5 +645,44 @@ describe('flight deck spine (POD-758)', () => {
     expect(row?.querySelector('[data-session-role="coordinator"]')?.textContent).toBe('coordinator')
     // The rail its branch descends on carries the mission tone.
     expect(document.querySelector('.deck-rail-mission')).not.toBeNull()
+  })
+})
+
+/**
+ * POINTING AT A TAB POINTS AT ITS ROW (POD-1067). The strip and the spine draw
+ * the same session, and the link between them is one transient mark on the row
+ * — no selection, no scroll, nothing that survives the pointer.
+ */
+describe('flight deck tab-strip hover link', () => {
+  const pointed = (id: string): string | null =>
+    document.querySelector(`[data-flight-session="${id}"]`)?.getAttribute('data-pointed') ?? null
+
+  afterEach(() => {
+    setHoveredSession(null)
+  })
+
+  it('marks the pointed session and no other', () => {
+    deck()
+    expect(pointed('s2')).toBeNull()
+
+    act(() => setHoveredSession('s2'))
+    expect(pointed('s2')).toBe('true')
+    expect(pointed('s3')).toBeNull()
+
+    act(() => setHoveredSession(null))
+    expect(pointed('s2')).toBeNull()
+  })
+
+  // Crossing from one tab straight to its neighbour can deliver the old tab's
+  // leave AFTER the new tab's enter; clearing by id makes that a no-op rather
+  // than a blank.
+  it('ignores a stale clear from the tab the pointer already left', () => {
+    deck()
+    act(() => setHoveredSession('s2'))
+    act(() => clearHoveredSession('s3'))
+    expect(pointed('s2')).toBe('true')
+
+    act(() => clearHoveredSession('s2'))
+    expect(pointed('s2')).toBeNull()
   })
 })

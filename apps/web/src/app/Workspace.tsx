@@ -75,6 +75,7 @@ import {
   splitDropId,
   stripDropId,
 } from './panel-deck'
+import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { type FileTab, useReplicaIssues, useStoreSelector } from './store'
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both
@@ -866,6 +867,21 @@ function SortableTab({
   useEffect(() => {
     if (active) node.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [active])
+  // POINTING AT A TAB POINTS AT ITS ROW. The deck draws the same session, and
+  // finding it there by name is work the pointer can do for free.
+  const isSessionTab = tab.kind === 'session'
+  // dnd-kit takes pointer capture for the drag, so the leave that would clear
+  // the highlight never arrives — the row would stay lit after the drop. Both
+  // the drag and the unmount (a closed tab, a switched issue) end the hover
+  // the same way: by id, so a tab that is no longer the pointed-at one is a
+  // no-op rather than a blank.
+  useEffect(() => {
+    if (isSessionTab && isDragging) clearHoveredSession(tab.id)
+  }, [isSessionTab, isDragging, tab.id])
+  useEffect(() => {
+    if (!isSessionTab) return
+    return () => clearHoveredSession(tab.id)
+  }, [isSessionTab, tab.id])
   // The 7×7px leading square is the ISSUE colour (via --issue / .tab-issue-dot)
   // — full strength on the active tab, faded on the rest. The agent's identity
   // accent left the tab (spec G2); agent identity lives in the panel header
@@ -909,6 +925,16 @@ function SortableTab({
       data-session={tab.id}
       data-preview={preview ? 'true' : undefined}
       title={tab.kind === 'file' ? tab.file.path : undefined}
+      // Mouse and pen only: a tap is not a hover, and on touch the highlight
+      // would arrive with the selection it already made redundant.
+      onPointerEnter={
+        isSessionTab
+          ? (e) => {
+              if (e.pointerType !== 'touch' && !isDragging) setHoveredSession(tab.id)
+            }
+          : undefined
+      }
+      onPointerLeave={isSessionTab ? () => clearHoveredSession(tab.id) : undefined}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       {...attributes}
       {...listeners}
