@@ -26,13 +26,13 @@ function userItem(text: string): TranscriptItem {
 let host: HTMLDivElement
 let root: Root
 
-function mount(item: TranscriptItem, stickyOperator = false): void {
+function mount(item: TranscriptItem, stickyOperator = false, highlighted = false): void {
   act(() => {
     root.render(
       <ChatBlockView
         block={{ item }}
         index={0}
-        highlighted={false}
+        highlighted={highlighted}
         dimmed={false}
         sessionId={asSessionId('s1')}
         cwd="/r"
@@ -121,6 +121,49 @@ describe('podium mail', () => {
     expect(group()?.getAttribute('data-open')).toBe('true')
     // The frame that asked says so, on its own item, and names the reply target.
     expect(host.querySelector('.mail-item-reply')?.textContent).toContain('msg_6')
+  })
+
+  // A burst GROWS: the next poll can extend the same block with a frame that
+  // asks the operator something. Reading `consequential` once at mount would
+  // leave exactly that frame folded away.
+  it('opens when a later frame turns the burst consequential', () => {
+    const background = frame('msg_a', 'issue:POD-84', 'your session', 'background noise')
+    mount(userItem(background))
+    expect(group()?.getAttribute('data-open')).toBe('false')
+    mount(
+      userItem(
+        background +
+          frame(
+            'msg_b',
+            'issue:POD-90',
+            'your session',
+            'please confirm',
+            '[a response was requested: reply within this thread (`podium mail reply msg_b`) when you have handled it — any substantive reply satisfies it]\n',
+          ),
+      ),
+    )
+    expect(group()?.getAttribute('data-open')).toBe('true')
+  })
+
+  // Search matches a block on its FULL text, including bodies this group folds
+  // away — so an active hit has to unfold, or search scrolls the reader to a
+  // preview that does not contain the word they searched for.
+  it('unfolds the group and its frames for the active search hit', () => {
+    mount(
+      userItem(
+        frame(
+          'msg_9',
+          'issue:POD-84',
+          'your session',
+          'Worktree synced\n\nthe needle is buried in the body',
+        ),
+      ),
+      false,
+      true,
+    )
+    expect(group()?.getAttribute('data-open')).toBe('true')
+    expect(host.querySelector('[data-testid="mail-item"]')?.getAttribute('data-full')).toBe('true')
+    expect(host.textContent).toContain('the needle is buried in the body')
   })
 
   it('renders a nice-id sender as a clickable ref chip that activates the miniview', () => {

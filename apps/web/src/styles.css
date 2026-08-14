@@ -2800,7 +2800,10 @@ html[data-density="balanced"] .header-quota-pools {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
+  /* NO GAP. The foot carries its own 6px margin-top, the same one it carries
+     under every other voice; a gap here would stack with it and put the human's
+     metadata twice as far from its words as the agent's is from theirs. */
+  gap: 0;
 }
 /* A REAL SURFACE, LIT FROM ABOVE. The tint-over-sheet of round one was the
    right instinct at the wrong strength: at 4.5% of the foreground the card read
@@ -3637,9 +3640,14 @@ html[data-density="balanced"] .header-quota-pools {
   line-height: 1;
   color: var(--text-dim, var(--muted-foreground));
 }
+/* These two SHRINK, unlike everything else on the fold line. The design shows a
+   burst of two, where nothing has to give; a real burst can carry six senders,
+   and with `flex: none` the refs would push the chevron out of a narrow pane
+   rather than ellipsing. The count and the chevron hold their size — losing
+   "4 notes from Podium" to save a ref list is the wrong trade. */
 .mail-fold-tags,
 .mail-fold-meta {
-  flex: none;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -3969,9 +3977,6 @@ html[data-density="balanced"] .header-quota-pools {
      text above would otherwise land on that edge. 6 above and 7 below - a hair
      more under it, since the deck fans downwards. */
   margin: 6px 0 7px;
-}
-.dark .work-line {
-  --work-line-face: var(--chat-face);
 }
 /* Paper carves in its own warm ink, like every other groove there (POD-725) —
    black on paper reads as dirt even at this alpha, and a cool ink over stone
@@ -4317,14 +4322,13 @@ html[data-density="balanced"] .header-quota-pools {
    `bind` no longer tightens. The rows it marks — a run of tool calls, a burst of
    mail — carry their own margin, which is WIDER than the beat rather than
    narrower, because they are solids in the document and prose has to clear their
-   edges. Keeping the class at the ordinary beat lets those margins be the whole
-   statement instead of fighting a negative one. */
+   edges. Letting those margins be the whole statement, rather than fighting a
+   negative one, is why `bind` has NO RULE of its own at this density: it IS the
+   ordinary beat, and a rule restating the beat would read as a lever that does
+   nothing. The class stays in the DOM because the narrow dock still tightens
+   with it. */
 .transcript-turn-open {
   margin-top: 9px;
-}
-.transcript-turn-bind {
-  padding-top: 6px;
-  padding-bottom: 6px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -4797,6 +4801,22 @@ html[data-density="balanced"] .header-quota-pools {
 .msg-foot:focus-within {
   opacity: 1;
 }
+/* NOT EVERYTHING IN THE FOOT IS METADATA, AND THE REST MUST NOT FADE WITH IT.
+   Two things ride here that are not "when and take-a-copy":
+
+     the DELIVERY CAPTION — "queued · sends after this turn", "not delivered" —
+       which is the state of a message that has NOT landed, together with the ✕
+       that is the way out of it. A failed send drawn at 40% and legible only
+       under the pointer is a failure the operator can miss entirely.
+     the ATTRIBUTION MARK — who acted and on whose behalf (doc §3.1.3 A3), which
+       is permanent provenance, not a hover affordance.
+
+   A foot carrying either holds full ink. The ordinary clock-and-actions foot
+   still rests dim, which is the whole point of the reveal. */
+.msg-foot:has(> .transcript-delivery),
+.msg-foot:has(> [data-attribution]) {
+  opacity: 1;
+}
 .msg-tools {
   display: flex;
   gap: 3px;
@@ -4835,9 +4855,6 @@ html[data-density="balanced"] .header-quota-pools {
   margin-left: 0;
   padding: 0;
   letter-spacing: 0;
-  color: inherit;
-}
-.transcript-row:hover .msg-foot .chat-clk {
   color: inherit;
 }
 /* Retract (POD-993): the queued turn's own control. It reads as an action, not
@@ -4994,6 +5011,10 @@ html[data-density="balanced"] .header-quota-pools {
   align-self: center;
   align-items: center;
   justify-content: center;
+  width: 13px;
+}
+.feed-tail[data-tail="working"] .feed-tail-mark,
+.feed-tail[data-tail="sending"] .feed-tail-mark {
   width: 22px;
 }
 .feed-tail-dot {
@@ -8058,7 +8079,11 @@ a.ref-link--session::before {
   transition: opacity 700ms cubic-bezier(0.22, 1, 0.36, 1) 200ms;
 }
 @media (prefers-reduced-motion: reduce) {
-  .composer-chord {
+  /* Both selectors, because `[data-show="true"]` sets its own transition and a
+     media query adds no specificity — a bare `.composer-chord` here loses to it
+     and the hint fades for exactly the reader who asked it not to. */
+  .composer-chord,
+  .composer-chord[data-show="true"] {
     transition: none;
   }
 }

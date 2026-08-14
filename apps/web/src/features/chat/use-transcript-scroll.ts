@@ -85,7 +85,20 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
 
   const [atBottom, setAtBottom] = useState(true)
   const [pinnedBrief, setPinnedBrief] = useState<PinnedBrief | null>(null)
-  const pinnedKey = useRef<string | null>(null)
+  /**
+   * The ELEMENT currently on the shelf, not its index.
+   *
+   * `data-block` is an absolute index into a list that grows at BOTH ends: page
+   * older rows in and every index shifts, so the brief that has just left the
+   * top can report the index the shelf already holds and the early-return below
+   * would keep the previous brief's words on screen. A kept-mounted pane
+   * switching sessions is the same bug with a worse outcome — one session's
+   * brief pinned over another session's transcript.
+   *
+   * The DOM node is the identity that actually survives a prepend and cannot
+   * survive a session change, which is exactly the distinction this needs.
+   */
+  const pinnedEl = useRef<HTMLElement | null>(null)
 
   /**
    * THE PINNED BRIEF LEFT THE COLUMN (POD-993 round 2).
@@ -113,8 +126,8 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const scroller = scrollerRef.current
     if (!scroller) return
     if (!stickyEnabled) {
-      if (pinnedKey.current !== null) {
-        pinnedKey.current = null
+      if (pinnedEl.current !== null) {
+        pinnedEl.current = null
         setPinnedBrief(null)
       }
       return
@@ -132,15 +145,17 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       else break
     }
 
-    const key = active?.dataset.block ?? null
-    if (key === pinnedKey.current) return
-    pinnedKey.current = key
-    if (!active || key === null) {
+    if (active === pinnedEl.current) return
+    pinnedEl.current = active ?? null
+    if (!active) {
       setPinnedBrief(null)
       return
     }
     setPinnedBrief({
-      key,
+      // A key for React and for the shelf's own open/closed state. The index is
+      // fine for THAT — it only has to change when the brief does, and it is
+      // combined with the identity check above, which is what makes it safe.
+      key: active.dataset.block ?? '',
       html: active.querySelector<HTMLElement>('.transcript-you-body')?.innerHTML ?? '',
       time: active.querySelector<HTMLElement>('.chat-clk')?.textContent ?? '',
     })

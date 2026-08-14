@@ -8,6 +8,7 @@ import type { JSX, MutableRefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useReplicaIssues, useSessionDraft } from '@/app/store'
 import { cn } from '@/lib/utils'
+import { handleChatMdClick } from './ChatBlockView'
 import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
@@ -345,7 +346,15 @@ export function ChatView({
             in it — see PinnedBrief for why the pin left the flow. It sits inside
             the same relative box the rail does and stops short of it, so the
             shelf and the feed share one measure. */}
-        {!compact && <PinnedBrief brief={chat.scroll.pinnedBrief} />}
+        {!compact && (
+          <PinnedBrief
+            brief={chat.scroll.pinnedBrief}
+            scrollerRef={chat.scrollerRef}
+            onBodyClick={(e) => {
+              handleChatMdClick(e, sessionId, chat.cwd, chat.openFile)
+            }}
+          />
+        )}
         {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
             its bands line up with the scrollable content. For a very long
             transcript that means it reflects the loaded/visible tail, not the

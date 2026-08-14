@@ -36,25 +36,53 @@ export function chordLabel(): string {
   return isApple() ? '⌘/' : 'Ctrl /'
 }
 
+/**
+ * Surfaces that own their own keyboard and must keep this keystroke.
+ *
+ * The terminal is the one that matters: Ctrl+/ is Ctrl+_ on the wire, which is
+ * readline's undo, and a chord that yanks focus out of a shell mid-command is a
+ * chord that loses work. A composer already has the caret when it is focused, so
+ * claiming the key from inside another text field would be equally wrong.
+ */
+function ownsItsKeys(el: Element | null): boolean {
+  if (!el) return false
+  if (el.closest('.xterm, .term, [data-terminal]')) return true
+  const tag = el.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  return el instanceof HTMLElement && el.isContentEditable
+}
+
 function resolve(): Entry | undefined {
-  if (entries.length <= 1) return entries[0]
   const active = document.activeElement
-  const owner = active
-    ? entries.find((entry) => entry.root && entry.root.contains(active))
-    : undefined
-  return owner ?? entries[entries.length - 1]
+  // The composer whose subtree holds the focus wins outright — in a split
+  // workspace that is the pane the reader is already in.
+  const owner = active ? entries.find((entry) => entry.root?.contains(active)) : undefined
+  if (owner) return owner
+  // Otherwise the chord is only ours if nothing else is holding the keyboard.
+  if (ownsItsKeys(active)) return undefined
+  return entries[entries.length - 1]
+}
+
+function onKeyDown(e: KeyboardEvent): void {
+  // Auto-repeat would re-focus (and re-scroll) once a frame while the key is
+  // held; the first press has already done the whole job.
+  if (e.repeat || !isChord(e)) return
+  const target = resolve()
+  if (!target) return
+  e.preventDefault()
+  target.focus()
 }
 
 function ensureListener(): void {
   if (bound || typeof window === 'undefined') return
   bound = true
-  window.addEventListener('keydown', (e) => {
-    if (!isChord(e)) return
-    const target = resolve()
-    if (!target) return
-    e.preventDefault()
-    target.focus()
-  })
+  window.addEventListener('keydown', onKeyDown)
+}
+
+function releaseListener(): void {
+  if (!bound || entries.length > 0 || typeof window === 'undefined') return
+  bound = false
+  window.removeEventListener('keydown', onKeyDown)
 }
 
 /** Register this composer as a chord target for as long as it is mounted. */
@@ -66,6 +94,10 @@ export function useComposerChord(root: HTMLElement | null, focus: () => void): v
     return () => {
       const i = entries.indexOf(entry)
       if (i >= 0) entries.splice(i, 1)
+      // The last composer to leave turns the light off: a window listener that
+      // outlives every consumer is a leak, and in a shared jsdom window it is
+      // one test reaching into the next.
+      releaseListener()
     }
   }, [root, focus])
 }

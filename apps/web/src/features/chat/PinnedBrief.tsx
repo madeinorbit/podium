@@ -20,11 +20,24 @@
  * the right to open it in place. Expanded, it scrolls inside itself and keeps
  * that control in reach.
  */
-import type { JSX } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent, RefObject, WheelEvent } from 'react'
 import { useState } from 'react'
 import type { PinnedBrief as PinnedBriefState } from './use-transcript-scroll'
 
-export function PinnedBrief({ brief }: { brief: PinnedBriefState | null }): JSX.Element | null {
+export function PinnedBrief({
+  brief,
+  scrollerRef,
+  onBodyClick,
+}: {
+  brief: PinnedBriefState | null
+  /** The feed under the shelf — see `onWheel` below for why it is needed. */
+  scrollerRef: RefObject<HTMLDivElement | null>
+  /** The row's own delegated chat-md handling, so the refs, file links and code
+   *  copy buttons cloned into the shelf are as live here as in the column. The
+   *  shelf is not a descendant of the row, so it cannot inherit the delegation
+   *  and would otherwise be a wall of dead chips. */
+  onBodyClick: (e: ReactMouseEvent) => void
+}): JSX.Element | null {
   // Opening is a gesture that belongs to the MOMENT, not to the message: any
   // change of which brief the shelf is carrying closes it again, including
   // scrolling back to one that was open earlier. Adjusting during render rather
@@ -35,9 +48,41 @@ export function PinnedBrief({ brief }: { brief: PinnedBriefState | null }): JSX.
   if (pin.key !== key) setPin({ key, open: false })
   const open = pin.key === key && pin.open
   if (!brief) return null
+
+  /**
+   * THE SHELF IS NOT IN THE SCROLLER, SO THE WHEEL HAS TO BE HANDED BACK.
+   *
+   * It is drawn across the top of the reading column — exactly where a pointer
+   * rests — and it is a SIBLING of the scroller, not a child, so a wheel event
+   * over it finds no scrollable ancestor and the feed simply stops responding
+   * until the reader moves the mouse off. Forwarding the delta is the whole fix.
+   * Not `pointer-events: none` on the shelf instead: the toggle and the brief's
+   * own refs have to stay clickable.
+   */
+  const onWheel = (e: WheelEvent): void => {
+    const el = scrollerRef.current
+    if (!el) return
+    // An expanded shelf scrolls itself first, and only hands the feed what it
+    // could not use — the browser's own overscroll behaviour, by hand.
+    const inner = e.currentTarget.querySelector<HTMLElement>('.brief-shelf-text')
+    if (open && inner) {
+      const room =
+        e.deltaY > 0 ? inner.scrollHeight - inner.clientHeight - inner.scrollTop : inner.scrollTop
+      if (room > 0) return
+    }
+    el.scrollTop += e.deltaY
+  }
+
   return (
     <div className="brief-shelf-layer" data-testid="pinned-brief">
-      <div className="brief-shelf" data-open={open ? 'true' : undefined}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the wheel handler restores default scrolling the overlay would otherwise swallow; the click handler activates only anchors the markdown pass emitted */}
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users reach those anchors and the toggle natively */}
+      <div
+        className="brief-shelf"
+        data-open={open ? 'true' : undefined}
+        onWheel={onWheel}
+        onClick={onBodyClick}
+      >
         <div
           // `chat-md` on purpose: the shelf is carrying the reader's own
           // markdown, and expanded it may be a pasted spec with lists and code

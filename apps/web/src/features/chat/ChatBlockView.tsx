@@ -38,9 +38,10 @@ const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
 
 /** Shared chat-md click handling: code-copy buttons, ref-link chips (#474 —
  *  plain click opens the floating miniview, Cmd/Ctrl-click jumps to the full
- *  view), and file links. Used by the ordinary turn body AND the envelope
- *  block, so refs behave identically everywhere. */
-function handleChatMdClick(
+ *  view), and file links. Used by the ordinary turn body, the mail card AND the
+ *  pinned brief's shelf — which is not a descendant of any row and so cannot
+ *  inherit the delegation — so refs behave identically everywhere. */
+export function handleChatMdClick(
   e: ReactMouseEvent,
   sessionId: SessionId,
   cwd: string,
@@ -334,14 +335,16 @@ export const ChatBlockView = memo(function ChatBlockView({
   // are what opens the exchange and the body row binds to them.
   const hasEnvelopes = (envelopeBatch?.envelopes.length ?? 0) > 0
   const bodyTurnClass = turnClass(hasEnvelopes && turn === 'open' ? 'bind' : turn)
-  const rowRef = useRef<HTMLDivElement | null>(null)
-  // The human's turn arrives as a card and gets the card's entrance; everything
-  // else slides up by six pixels. See the keyframes in styles.css.
-  const isUserRole = item.role === 'user'
+  // THE OPERATOR'S OWN TURN DOES NOT "ARRIVE" (POD-993 round 2). It was on
+  // screen the instant they pressed send — the optimistic row in TranscriptFeed
+  // played the card's entrance then — and this row is the same message coming
+  // back off the wire to replace it. Animating it again makes the swap visible
+  // as a second drop, which is the one thing the optimistic path exists to
+  // avoid. Everything the reader did NOT put there keeps its arrival.
   const rowClass = cn(
     'group transcript-row isolate',
     bodyTurnClass,
-    arrived && (isUserRole ? 'transcript-arrive-bubble' : 'transcript-arrive'),
+    arrived && item.role !== 'user' && 'transcript-arrive',
     highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
   )
@@ -500,6 +503,7 @@ export const ChatBlockView = memo(function ChatBlockView({
       onBodyClick={(e: ReactMouseEvent) => {
         handleChatMdClick(e, sessionId, cwd, openFile)
       }}
+      forceOpen={highlighted}
     />
   )
 
@@ -589,7 +593,6 @@ export const ChatBlockView = memo(function ChatBlockView({
     <>
       {envelopeRows}
       <div
-        ref={rowRef}
         className={rowClass}
         data-block={index}
         data-operator-prompt={isUser ? 'true' : undefined}

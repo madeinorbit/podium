@@ -108,12 +108,18 @@ function EnvelopeItem({
   envelope,
   issueReferences,
   markdownHtml,
+  forceFull = false,
 }: {
   envelope: ParsedEnvelope
   issueReferences: IssueReferenceLookup
   markdownHtml?: ReadonlyMap<string, string> | undefined
+  /** The active search hit: the matched word may be anywhere in the body, so
+   *  the preview is not enough. */
+  forceFull?: boolean
 }): JSX.Element {
-  const [full, setFull] = useState(false)
+  const [opened, setOpened] = useState(false)
+  const full = opened || forceFull
+  const setFull = setOpened
   const { subject, preview } = useMemo(() => splitSubject(envelope.body), [envelope.body])
   const html = useMemo(() => {
     if (!full) return ''
@@ -166,6 +172,7 @@ export function MessageEnvelopeGroup({
   markdownHtml,
   ts,
   onBodyClick,
+  forceOpen = false,
 }: {
   envelopes: readonly ParsedEnvelope[]
   className: string
@@ -175,9 +182,27 @@ export function MessageEnvelopeGroup({
   ts?: string | undefined
   /** Delegated chat-md click handling (code copy, ref chips, file links). */
   onBodyClick: (e: ReactMouseEvent) => void
+  /** THE SEARCH HIT MUST BE VISIBLE. Search matches a block on its full text,
+   *  including the body of a frame this group has folded away — so a hit inside
+   *  mail would scroll the reader to a two-line preview that does not contain
+   *  the word they searched for. The active hit unfolds the whole group and
+   *  every frame in it, the same way a run of tool calls unfolds. */
+  forceOpen?: boolean
 }): JSX.Element {
   const consequential = envelopes.some((e) => e.question || e.expectsReply)
-  const [open, setOpen] = useState(consequential)
+  // A burst GROWS. The first frame of a provider turn can be background noise —
+  // the group mounts folded — and the second, arriving on the next poll into the
+  // same block, can be the one asking the operator to answer something. Reading
+  // `consequential` once at mount would leave that frame hidden behind a fold
+  // line, which is precisely the case the fold is not for. Adjusted during
+  // render rather than in an effect: no frame of the wrong state, and a manual
+  // fold afterwards still sticks.
+  const [fold, setFold] = useState({ opened: consequential, open: consequential })
+  if (consequential && !fold.opened) setFold({ opened: true, open: true })
+  const open = fold.open || forceOpen
+  const setOpen = (next: boolean | ((v: boolean) => boolean)): void => {
+    setFold((f) => ({ opened: true, open: typeof next === 'function' ? next(f.open) : next }))
+  }
   const single = envelopes.length === 1
   const first = envelopes[0]
   const tags = useMemo(() => {
@@ -268,6 +293,7 @@ export function MessageEnvelopeGroup({
                     envelope={envelope}
                     issueReferences={issueReferences}
                     markdownHtml={markdownHtml}
+                    forceFull={forceOpen}
                   />
                 ))}
               </div>
