@@ -51,7 +51,7 @@ import type {
   CodexTransport,
   CodexVersionDiagnostic,
 } from '@podium/agent-runtime'
-import { gateCodexVersion } from '@podium/agent-runtime'
+import { gateCodexVersion, OPENCODE_VERSION_PROBE_TIMEOUT_MS } from '@podium/agent-runtime'
 import { codexMcpArgs } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
@@ -150,10 +150,25 @@ export function createCodexJournal(): CodexJournal {
 // The version gate
 // ---------------------------------------------------------------------------
 
-/** How long to wait for `codex --version`. Generous: the binary is ~250MB and a
- *  cold fork on a loaded box is seconds, not milliseconds — measured at 26s
- *  here, which is why nothing shorter is safe. */
-const VERSION_PROBE_TIMEOUT_MS = 60_000
+/**
+ * THE SHARED PROBE BUDGET, not a codex-specific one.
+ *
+ * This file had its own 60s constant, arrived at from measuring `codex
+ * --version` at 26s on a loaded box. It now reads the ONE budget that lives
+ * beside the opencode version gate — same number, single source — because
+ * POD-2056 established what two numbers for one concept cost: a too-short
+ * daemon budget silently downgraded an explicit server-driver override to a PTY
+ * session, and a too-short TEST budget made a gating lane decide it could not
+ * run and SKIP ITSELF, which is a green suite that quietly stopped testing the
+ * thing.
+ *
+ * The constant's name says `OPENCODE` because that is where the gate it was
+ * extracted from lives; the argument at its definition cites this driver's own
+ * 26s codex measurement as the reason for the value. Reading an opencode-named
+ * constant from the codex host is the lesser evil — a second constant that
+ * merely happens to agree today is how the first bug happened.
+ */
+const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
 
 /**
  * THREE ANSWERS, NOT TWO — adopted wholesale from POD-2023's review round, where
