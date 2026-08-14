@@ -13,6 +13,7 @@ import {
 } from './durable-headless.js'
 
 const roots: string[] = []
+const identity = { accountId: 'native:claude-code:test' as const, requestDigest: 'a'.repeat(64) }
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -79,6 +80,7 @@ describe('durable headless invocation', () => {
     const exec = buildClaudeDurableExec(
       {
         agent: 'claude-code',
+        ...identity,
         cwd: '/repo',
         prompt: 'human text',
         contextPrompt: 'machine context',
@@ -101,6 +103,7 @@ describe('durable headless invocation', () => {
     const exec = buildClaudeDurableExec(
       {
         agent: 'claude-code',
+        ...identity,
         cwd: '/repo',
         prompt: 'Why?',
         systemPrompt: 'NORMAL: HARD LIMIT 80 words total',
@@ -122,6 +125,7 @@ describe('durable headless invocation', () => {
     const exec = buildClaudeDurableExec(
       {
         agent: 'claude-code',
+        ...identity,
         cwd: '/repo',
         prompt: 'repair',
         toolPolicy: 'none',
@@ -133,6 +137,12 @@ describe('durable headless invocation', () => {
       ['--tools', ''],
     )
     expect(exec.args).not.toContain('--mcp-config')
+    expect(
+      exec.args.slice(
+        exec.args.indexOf('--setting-sources'),
+        exec.args.indexOf('--setting-sources') + 2,
+      ),
+    ).toEqual(['--setting-sources', ''])
   })
 })
 
@@ -170,6 +180,8 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
     const label = `podium-${sessionId}`
     const spec = {
       agent: 'grok' as const,
+      accountId: 'native:grok:test' as const,
+      requestDigest: 'b'.repeat(64),
       cwd: root,
       prompt: 'survive',
       contextPrompt: 'hidden context',
@@ -187,6 +199,29 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
         await new Promise((resolve) => setTimeout(resolve, 20))
       }
       expect(await abducoHasSession(label)).toBe(true)
+      expect(() =>
+        runDurableHeadlessTurn(
+          turnId,
+          sessionId,
+          { ...spec, prompt: 'changed input', requestDigest: 'c'.repeat(64) },
+          () => {},
+          { opencode: () => 'opencode', cursor: () => 'cursor-agent' },
+        ),
+      ).toThrow(/replay identity mismatch/)
+      acknowledgeDurableHeadlessTurn({
+        sessionId: asSessionId('different-session'),
+        turnId,
+        accountId: spec.accountId,
+        requestDigest: spec.requestDigest,
+      })
+      expect(() =>
+        acknowledgeDurableHeadlessTurn({
+          sessionId,
+          turnId,
+          accountId: spec.accountId,
+          requestDigest: 'c'.repeat(64),
+        }),
+      ).toThrow(/mismatched durable headless acknowledgement/)
       first.dispose?.()
 
       const reattached = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, {
@@ -220,7 +255,12 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
         harnessSessionId: spec.sessionUuid,
         output: expect.stringContaining('survive'),
       })
-      acknowledgeDurableHeadlessTurn(turnId)
+      acknowledgeDurableHeadlessTurn({
+        sessionId,
+        turnId,
+        accountId: spec.accountId,
+        requestDigest: spec.requestDigest,
+      })
     } finally {
       await killAbducoSession(label)
       process.env.PATH = previous.PATH

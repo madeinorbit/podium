@@ -187,6 +187,7 @@
         "@podium/client-core": "workspace:*",
         "@podium/commands": "workspace:*",
         "@podium/composer": "workspace:*",
+        "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",

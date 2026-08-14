@@ -16,7 +16,7 @@ import {
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { declaredValue, type HarnessHeadless, harnessAdapterFor } from '@podium/harness'
-import type { HarnessAgent, SessionId } from '@podium/model'
+import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import {
   type AgentSession,
   abducoHasSession,
@@ -38,6 +38,8 @@ import {
 
 interface DurableResult {
   ok: boolean
+  requestDigest: string
+  accountId: AccountId
   error?: string
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   harnessSessionId?: string
@@ -56,15 +58,23 @@ interface DurablePaths {
   input: string
   mcp: string
   cursorSession: string
+  identity: string
 }
 
-function turnDir(turnId: string): string {
-  const safe = createHash('sha256').update(turnId).digest('hex')
+export interface DurableIdentity {
+  sessionId: SessionId
+  turnId: string
+  requestDigest: string
+  accountId: AccountId
+}
+
+function turnDir(sessionId: SessionId, turnId: string): string {
+  const safe = createHash('sha256').update(`${sessionId}\u0000${turnId}`).digest('hex')
   return join(stateDir(), 'headless-turns', safe)
 }
 
-function pathsFor(turnId: string): DurablePaths {
-  const dir = turnDir(turnId)
+function pathsFor(sessionId: SessionId, turnId: string): DurablePaths {
+  const dir = turnDir(sessionId, turnId)
   return {
     dir,
     script: join(dir, 'run.sh'),
@@ -77,6 +87,7 @@ function pathsFor(turnId: string): DurablePaths {
     input: join(dir, 'input.txt'),
     mcp: join(dir, 'mcp.json'),
     cursorSession: join(dir, 'cursor-session'),
+    identity: join(dir, 'request-identity.json'),
   }
 }
 
@@ -84,6 +95,36 @@ function writeAtomic(path: string, content: string): void {
   const tmp = `${path}.tmp-${process.pid}`
   writeFileSync(tmp, content, { mode: 0o600 })
   renameSync(tmp, path)
+}
+
+function sameIdentity(left: DurableIdentity, right: DurableIdentity): boolean {
+  return (
+    left.sessionId === right.sessionId &&
+    left.turnId === right.turnId &&
+    left.requestDigest === right.requestDigest &&
+    left.accountId === right.accountId
+  )
+}
+
+/** Fence durable replay before any invocation, prompt, script, or result file
+ * can be rewritten. A partial legacy journal without identity is unsafe. */
+function establishIdentity(paths: DurablePaths, expected: DurableIdentity): void {
+  const existed = existsSync(paths.dir)
+  mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
+  if (!existsSync(paths.identity)) {
+    if (existed) throw new Error('durable headless journal has no request identity')
+    writeAtomic(paths.identity, JSON.stringify(expected))
+    return
+  }
+  let actual: DurableIdentity
+  try {
+    actual = JSON.parse(readFileSync(paths.identity, 'utf8')) as DurableIdentity
+  } catch {
+    throw new Error('durable headless journal has malformed request identity')
+  }
+  if (!sameIdentity(actual, expected)) {
+    throw new Error('durable headless replay identity mismatch')
+  }
 }
 
 function combinedInstructions(spec: HeadlessTurnSpec): string | undefined {
@@ -133,7 +174,7 @@ export function buildClaudeDurableExec(
     ...(spec.allowedTools?.length && spec.toolPolicy !== 'none'
       ? ['--allowedTools', spec.allowedTools.join(',')]
       : []),
-    ...(spec.toolPolicy === 'none' ? ['--tools', ''] : []),
+    ...(spec.toolPolicy === 'none' ? ['--setting-sources', '', '--tools', ''] : []),
   ]
   return { cmd: 'claude', args, stdin: spec.prompt }
 }
@@ -239,7 +280,7 @@ function readResult(paths: DurablePaths): DurableResult | undefined {
   try {
     return JSON.parse(readFileSync(paths.result, 'utf8')) as DurableResult
   } catch {
-    return undefined
+    throw new Error('durable headless journal has malformed result identity')
   }
 }
 
@@ -485,9 +526,21 @@ export function runDurableHeadlessTurn(
   emit: HeadlessEmit,
   bins: HarnessBins,
 ): HeadlessTurnHandle {
-  const paths = pathsFor(turnId)
+  const identity: DurableIdentity = {
+    sessionId,
+    turnId,
+    requestDigest: spec.requestDigest,
+    accountId: spec.accountId,
+  }
+  const paths = pathsFor(sessionId, turnId)
+  establishIdentity(paths, identity)
   const previous = readResult(paths)
-  if (previous) return settledHandle(previous, turnId)
+  if (previous) {
+    if (!sameIdentity({ sessionId, turnId, ...previous }, identity)) {
+      throw new Error('durable headless result identity mismatch')
+    }
+    return settledHandle(previous, turnId)
+  }
 
   const label = spec.durableLabel ?? `podium-${sessionId}`
   const { knownSessionId, env: execEnv } = writeRunner(spec, paths, bins)
@@ -507,13 +560,18 @@ export function runDurableHeadlessTurn(
     rejectDone = reject
   })
 
-  const finish = (result: DurableResult): void => {
+  const finish = (result: Omit<DurableResult, 'requestDigest' | 'accountId'>): void => {
     if (settled || disposed) return
     settled = true
     if (poll) clearInterval(poll)
     if (timeout) clearTimeout(timeout)
     attachment?.dispose()
-    writeAtomic(paths.result, JSON.stringify(result))
+    const bound = {
+      ...result,
+      requestDigest: identity.requestDigest,
+      accountId: identity.accountId,
+    }
+    writeAtomic(paths.result, JSON.stringify(bound))
     if (result.ok) {
       resolveDone({
         harnessSessionId: result.harnessSessionId ?? '',
@@ -654,6 +712,16 @@ export function runDurableHeadlessTurn(
   }
 }
 
-export function acknowledgeDurableHeadlessTurn(turnId: string): void {
-  rmSync(turnDir(turnId), { recursive: true, force: true })
+export function acknowledgeDurableHeadlessTurn(identity: DurableIdentity): void {
+  const dir = turnDir(identity.sessionId, identity.turnId)
+  if (!existsSync(dir)) return
+  const paths = pathsFor(identity.sessionId, identity.turnId)
+  if (!existsSync(paths.identity)) {
+    throw new Error('refusing to acknowledge an unidentified durable headless journal')
+  }
+  const actual = JSON.parse(readFileSync(paths.identity, 'utf8')) as DurableIdentity
+  if (!sameIdentity(actual, identity)) {
+    throw new Error('refusing mismatched durable headless acknowledgement')
+  }
+  rmSync(dir, { recursive: true, force: true })
 }

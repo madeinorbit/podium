@@ -3,11 +3,13 @@ import type { HarnessBins } from './harness-exec.js'
 import { buildClaudeSdkOptions, buildHeadlessExec, runHeadlessTurn } from './headless-drivers.js'
 
 const bins: HarnessBins = { opencode: () => '/opt/opencode', cursor: () => '/opt/cursor-agent' }
+const identity = { accountId: 'native:claude-code:test' as const, requestDigest: 'a'.repeat(64) }
 
 describe('buildHeadlessExec argv shapes', () => {
   it('reapplies the current system prompt when resuming a Claude SDK thread', () => {
     const options = buildClaudeSdkOptions({
       agent: 'claude-code',
+      ...identity,
       cwd: '/repo',
       prompt: 'Why?',
       systemPrompt: 'NORMAL: HARD LIMIT 80 words total',
@@ -27,6 +29,7 @@ describe('buildHeadlessExec argv shapes', () => {
   it('enforces a native no-tools posture and refuses unsupported adapters', () => {
     const options = buildClaudeSdkOptions({
       agent: 'claude-code',
+      ...identity,
       cwd: '/repo',
       prompt: 'repair',
       toolPolicy: 'none',
@@ -34,11 +37,12 @@ describe('buildHeadlessExec argv shapes', () => {
     })
     expect(options.tools).toEqual([])
     expect(options.allowedTools).toEqual([])
+    expect(options.settingSources).toEqual([])
     expect(options).not.toHaveProperty('mcpServers')
 
     expect(() =>
       runHeadlessTurn(
-        { agent: 'codex', cwd: '/repo', prompt: 'repair', toolPolicy: 'none' },
+        { agent: 'codex', ...identity, cwd: '/repo', prompt: 'repair', toolPolicy: 'none' },
         () => {},
         bins,
       ),
@@ -116,24 +120,14 @@ describe('buildHeadlessExec argv shapes', () => {
     expect(resumed.args).toEqual(['--resume', 'uuid-1', '--single', 'again'])
   })
 
-  it('grok disables tools, subagents, and web search for repair turns', () => {
-    const { args } = buildHeadlessExec(
-      'grok',
-      { prompt: 'repair', sessionId: 'uuid-1', toolPolicy: 'none' },
-      bins,
-    )
-    expect(args).toEqual([
-      '--session-id',
-      'uuid-1',
-      '--tools',
-      '',
-      '--no-subagents',
-      '--disable-web-search',
-      '--permission-mode',
-      'dontAsk',
-      '--single',
-      'repair',
-    ])
+  it('refuses Grok repair turns because hook/config isolation is not proven', () => {
+    expect(() =>
+      runHeadlessTurn(
+        { agent: 'grok', ...identity, cwd: '/repo', prompt: 'repair', toolPolicy: 'none' },
+        () => {},
+        bins,
+      ),
+    ).toThrow(/cannot enforce a no-tools headless turn/)
   })
 
   it('opencode: forwards model and variant on first and resumed turns', () => {

@@ -4,7 +4,13 @@
  * single reusable RoleBackendEditor (SP-6454 B3) used by the sessions,
  * superagent, and background-LLM tabs. Extracted verbatim from SettingsView.tsx.
  */
-import { type AccountId, asAccountId, type MachineId, type SessionMeta } from '@podium/model/browser'
+import {
+  type AccountId,
+  asAccountId,
+  type MachineId,
+  type SessionMeta,
+} from '@podium/model/browser'
+import { harnessSupportsNoTools } from '@podium/harness/metadata'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -225,7 +231,13 @@ export function accountOptions(
   ]
   if (role === 'coding')
     return [...allNative, ...MANAGED_CODING_ACCOUNTS.map((o) => ({ id: o.id, label: o.label }))]
-  if (role === 'superagent' || role === 'shipwright') return allNative
+  if (role === 'shipwright') {
+    return allNative.filter((option) => {
+      const harness = option.id.slice('native:'.length).split(':', 1)[0]
+      return harnessSupportsNoTools(harness)
+    })
+  }
+  if (role === 'superagent') return allNative
   return [
     ...allNative.filter((option) => option.id.startsWith('native:codex')),
     ...MANAGED_PROVIDERS.map((o) => ({ id: asAccountId('managed:' + o.provider), label: o.label })),
@@ -251,7 +263,9 @@ export function RoleBackendEditor({
 }): JSX.Element {
   const modelCatalog = useModelCatalog()
   const options = accountOptions(role, accounts)
-  const accountId = backend.accountId || options[0]?.id || asAccountId('native:claude-code')
+  const accountId = options.some((option) => option.id === backend.accountId)
+    ? backend.accountId
+    : options[0]?.id || asAccountId('native:claude-code')
   const selectedOption = options.find((option) => option.id === accountId)
   const selectedAccount = accounts.find((account) => account.id === accountId)
   const selectedStatus =
@@ -295,7 +309,13 @@ export function RoleBackendEditor({
   // The billing/execution explainer belongs to the Account choice, so it renders
   // as that row's description instead of a detached paragraph (POD-127 F3).
   const accountNote: React.ReactNode =
-    accountId === 'native:claude-code' ? (
+    role === 'shipwright' ? (
+      <>
+        Runs a bounded, tool-less repair turn under this exact local login. Podium disables
+        inherited settings and hooks, applies only the returned patch contract, and revalidates it
+        before any shipping step resumes.
+      </>
+    ) : accountId === 'native:claude-code' ? (
       <>
         Runs Claude Code&apos;s programmatic mode (<code>claude -p</code>) on this account —{' '}
         <span className="text-warning">usage counts against its limits</span>. API users are billed

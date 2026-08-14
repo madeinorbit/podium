@@ -106,7 +106,12 @@ describe('durable shipwright model results', () => {
     const sessions = new Map<string, Record<string, unknown>>()
     const creates: Record<string, unknown>[] = []
     const turns: Record<string, unknown>[] = []
-    const acknowledgements: { sessionId: string; turnId: string }[] = []
+    const acknowledgements: {
+      sessionId: string
+      turnId: string
+      requestDigest: string
+      accountId: string
+    }[] = []
     let quotaReads = 0
     let outputIndex = 0
     const service = new ShipwrightService({
@@ -128,10 +133,15 @@ describe('durable shipwright model results', () => {
           const selected = Array.isArray(output)
             ? output[Math.min(outputIndex++, output.length - 1)]
             : output
-          return { ok: true, output: selected }
+          return {
+            ok: true,
+            output: selected,
+            requestDigest: 'd'.repeat(64),
+            accountId: asAccountId('native:claude-code:fingerprint-1'),
+          }
         },
-        headlessTurnAck: (sessionId, turnId) => {
-          acknowledgements.push({ sessionId, turnId })
+        headlessTurnAck: (sessionId, turnId, requestDigest, accountId) => {
+          acknowledgements.push({ sessionId, turnId, requestDigest, accountId })
         },
       },
       settingsFor: () =>
@@ -228,6 +238,8 @@ describe('durable shipwright model results', () => {
       {
         sessionId: 'shipwright:attempt:shipwright:4:mechanic:0',
         turnId: 'shipwright:attempt:shipwright:4:mechanic:0',
+        requestDigest: 'd'.repeat(64),
+        accountId: 'native:claude-code:fingerprint-1',
       },
     ])
   })
@@ -300,5 +312,38 @@ describe('durable shipwright model results', () => {
       'shipwright:attempt:shipwright:4:inspector:1',
       'shipwright:attempt:shipwright:4:inspector:2',
     ])
+  })
+
+  it('holds a risky repair when the Inspector budget is zero', async () => {
+    const h = fixture(
+      JSON.stringify({
+        kind: 'patch',
+        summary: 'repair the assertion',
+        behaviorImpact: 'none',
+        touchedPaths: ['src/value.test.ts'],
+        patch:
+          'diff --git a/src/value.test.ts b/src/value.test.ts\n--- a/src/value.test.ts\n+++ b/src/value.test.ts\n@@ -1 +1 @@\n-old\n+new\n',
+        concerns: [],
+      }),
+      {
+        ...DEFAULT_SHIPWRIGHT_BUDGET,
+        maxTurns: 1,
+        maxMechanicTurns: 1,
+        maxSolverTurns: 0,
+        maxInspectorTurns: 0,
+      },
+    )
+    const result = await h.service.consider({
+      order,
+      attempt,
+      issue,
+      failure,
+      custody: { attemptId: attempt.id, generation: 4, machineId },
+    } as never)
+    expect(result).toMatchObject({
+      kind: 'needs-decision',
+      reasonCode: 'policy-refused',
+      headline: 'Needs your decision',
+    })
   })
 })

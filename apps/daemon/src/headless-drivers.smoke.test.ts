@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asAccountId, type HarnessAgent } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
@@ -34,6 +35,10 @@ const hasBin = (bin: string): boolean => {
 }
 
 const bins: HarnessBins = { opencode: resolveOpencodeBin, cursor: resolveCursorBin }
+const identity = (agent: HarnessAgent) => ({
+  accountId: asAccountId(`native:${agent}:smoke`),
+  requestDigest: 'a'.repeat(64),
+})
 const dirs: string[] = []
 const tempCwd = (): string => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-headless-smoke-'))
@@ -55,6 +60,7 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('claude'))(
       const turn1 = runHeadlessTurn(
         {
           agent: 'claude-code',
+          ...identity('claude-code'),
           cwd,
           prompt: `Remember this token: ${token}. Reply with just the word "stored".`,
           permissionMode: 'bypassPermissions',
@@ -73,6 +79,7 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('claude'))(
       const turn2 = runHeadlessTurn(
         {
           agent: 'claude-code',
+          ...identity('claude-code'),
           cwd,
           prompt: 'What was the token I asked you to remember? Reply with just the token.',
           permissionMode: 'bypassPermissions',
@@ -99,6 +106,7 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('codex'))(
       const turn1 = runHeadlessTurn(
         {
           agent: 'codex',
+          ...identity('codex'),
           cwd,
           prompt: `Remember this token: ${token}. Reply with just the word "stored".`,
           timeoutMs: 240_000,
@@ -114,6 +122,7 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('codex'))(
       const turn2 = runHeadlessTurn(
         {
           agent: 'codex',
+          ...identity('codex'),
           cwd,
           prompt: 'What was the token I asked you to remember? Reply with just the token.',
           resumeValue: r1.harnessSessionId,
@@ -164,6 +173,7 @@ for (const smoke of resumeExecCases) {
         const first = runHeadlessTurn(
           {
             agent: smoke.agent,
+            ...identity(smoke.agent),
             cwd,
             prompt: `Remember this token: ${token}. Reply with just the word "stored".`,
             timeoutMs: 240_000,
@@ -178,6 +188,7 @@ for (const smoke of resumeExecCases) {
         const resumed = runHeadlessTurn(
           {
             agent: smoke.agent,
+            ...identity(smoke.agent),
             cwd,
             prompt: 'What was the token I asked you to remember? Reply with just the token.',
             resumeValue: r1.harnessSessionId,

@@ -1,6 +1,9 @@
-import { resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
+import { createHash } from 'node:crypto'
+import { join } from 'node:path'
+import { buildInventory, resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { AccountId, HarnessAgent, Inventory } from '@podium/model'
+import { canonicalHeadlessTurnFacts, type HeadlessTurnEvent } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { acknowledgeDurableHeadlessTurn, runDurableHeadlessTurn } from '../durable-headless.js'
 import {
@@ -13,6 +16,23 @@ import type { ControlHandlers, DaemonContext } from './context'
 import { sessionRelayEnv } from './session'
 
 const log = createLogger('daemon:headless')
+
+export function assertNativeHeadlessAccount(input: {
+  agent: HarnessAgent
+  accountId: AccountId
+  homeDir: string | undefined
+  inventory: Pick<Inventory, 'agents'>
+}): void {
+  if (!input.homeDir) throw new Error('tool-less headless turns require an isolated account HOME')
+  const identity = input.inventory.agents.find((agent) => agent.kind === input.agent)?.login
+    .identity
+  const expected = identity?.fingerprint
+    ? `native:${input.agent}:${identity.fingerprint}`
+    : undefined
+  if (!expected || input.accountId !== expected) {
+    throw new Error(`native ${input.agent} account fingerprint changed before launch`)
+  }
+}
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
 function recordHeadlessAllocation(
@@ -39,10 +59,31 @@ function recordHeadlessAllocation(
 // One live turn per session (ctx.runningHeadlessTurns); concurrent sends on a
 // thread are rejected so two writers can never race the same harness session.
 
-function runHeadlessTurnRequest(
+async function runHeadlessTurnRequest(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'headlessTurnRequest' }>,
-): void {
+): Promise<void> {
+  const digest = createHash('sha256').update(canonicalHeadlessTurnFacts(msg)).digest('hex')
+  if (digest !== msg.requestDigest) {
+    ctx.send({
+      type: 'headlessTurnResult',
+      requestId: msg.requestId,
+      ok: false,
+      error: 'headless request digest mismatch',
+      accountId: msg.accountId,
+      requestDigest: msg.requestDigest,
+    })
+    return
+  }
+  if (msg.toolPolicy === 'none') {
+    const inventory = await buildInventory(ctx.homeDir ? { homeDir: ctx.homeDir } : {})
+    assertNativeHeadlessAccount({
+      agent: msg.agent,
+      accountId: msg.accountId,
+      homeDir: ctx.homeDir,
+      inventory,
+    })
+  }
   const existing = ctx.runningHeadlessTurns.get(msg.sessionId)
   if (existing?.turnId === msg.turnId) {
     wireTurnResult(ctx, msg, existing)
@@ -54,6 +95,8 @@ function runHeadlessTurnRequest(
       requestId: msg.requestId,
       ok: false,
       error: 'turn already running',
+      accountId: msg.accountId,
+      requestDigest: msg.requestDigest,
     })
     return
   }
@@ -80,6 +123,8 @@ function runHeadlessTurnRequest(
   try {
     const spec: HeadlessTurnSpec = {
       agent: msg.agent,
+      accountId: msg.accountId,
+      requestDigest: msg.requestDigest,
       cwd: msg.cwd,
       prompt: msg.prompt,
       ...(msg.contextPrompt ? { contextPrompt: msg.contextPrompt } : {}),
@@ -103,6 +148,9 @@ function runHeadlessTurnRequest(
           msg.agent,
         ),
         ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+        ...(msg.toolPolicy === 'none' && ctx.homeDir
+          ? { CLAUDE_CONFIG_DIR: join(ctx.homeDir, '.claude') }
+          : {}),
       },
       durableLabel: ctx.durableLabelFor(msg.sessionId),
     }
@@ -133,6 +181,8 @@ function runHeadlessTurnRequest(
       requestId: msg.requestId,
       ok: false,
       error: err instanceof Error ? err.message : String(err),
+      accountId: msg.accountId,
+      requestDigest: msg.requestDigest,
     })
     return
   }
@@ -174,6 +224,8 @@ function wireTurnResult(
         ok: true,
         harnessSessionId,
         output,
+        accountId: msg.accountId,
+        requestDigest: msg.requestDigest,
       })
     })
     .catch((err) => {
@@ -202,6 +254,8 @@ function wireTurnResult(
         ok: false,
         error: err instanceof Error ? err.message : String(err),
         ...(harnessSessionId ? { harnessSessionId } : {}),
+        accountId: msg.accountId,
+        requestDigest: msg.requestDigest,
       })
     })
     .finally(() => {
@@ -215,11 +269,33 @@ export const headlessHandlers: Pick<
   ControlHandlers,
   'headlessTurnRequest' | 'headlessInterrupt' | 'headlessTurnAck' | 'headlessBind'
 > = {
-  headlessTurnRequest: runHeadlessTurnRequest,
+  headlessTurnRequest: (ctx, msg) => {
+    void runHeadlessTurnRequest(ctx, msg).catch((err) =>
+      ctx.send({
+        type: 'headlessTurnResult',
+        requestId: msg.requestId,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        accountId: msg.accountId,
+        requestDigest: msg.requestDigest,
+      }),
+    )
+  },
   headlessInterrupt: (ctx, msg) => {
     ctx.runningHeadlessTurns.get(msg.sessionId)?.interrupt()
   },
-  headlessTurnAck: (_ctx, msg) => acknowledgeDurableHeadlessTurn(msg.turnId),
+  headlessTurnAck: (_ctx, msg) => {
+    try {
+      acknowledgeDurableHeadlessTurn({
+        sessionId: msg.sessionId,
+        turnId: msg.turnId,
+        accountId: msg.accountId,
+        requestDigest: msg.requestDigest,
+      })
+    } catch (err) {
+      log.warn('durable headless acknowledgement refused', { err, turnId: msg.turnId })
+    }
+  },
   headlessBind: (ctx, msg) => {
     try {
       recordHeadlessAllocation(ctx, {

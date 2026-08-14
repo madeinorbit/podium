@@ -201,7 +201,9 @@ export const grokManifest: AgentManifest = {
     // The daemon mints a UUID for --session-id on the first turn; later turns
     // use --resume with that same id.
     resumeIdAllocation: 'daemon-minted-uuid',
-    noTools: 'enforced',
+    // The CLI can hide its built-in tools, but it has no proven equivalent of
+    // Claude's settings-source isolation for user hooks/configuration.
+    noTools: 'unsupported',
     buildExec: supported((opts) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const rules = [opts.systemPrompt, opts.contextPrompt]

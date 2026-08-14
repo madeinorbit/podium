@@ -1,4 +1,10 @@
-import { AgentKind, HarnessAgent, SessionIdField, ThreadIdField } from '@podium/model'
+import {
+  AccountIdField,
+  AgentKind,
+  HarnessAgent,
+  SessionIdField,
+  ThreadIdField,
+} from '@podium/model'
 import { z } from 'zod'
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
@@ -61,6 +67,12 @@ export const HeadlessTurnRequestMessage = z.object({
    *  (or return the completed result of) the same durable abduco turn. */
   turnId: z.string(),
   sessionId: SessionIdField,
+  /** Exact native-login fingerprint selected by the server. Tool-less turns
+   *  fail closed if the daemon's live login no longer matches it. */
+  accountId: AccountIdField,
+  /** SHA-256 of the canonical immutable turn facts (everything except the
+   *  transport request id and this digest). */
+  requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
   /** Superagent thread this turn belongs to (opaque to the daemon). */
   threadId: ThreadIdField,
   agent: HarnessAgent,
@@ -86,6 +98,25 @@ export const HeadlessTurnRequestMessage = z.object({
   sessionUuid: z.string().optional(),
   timeoutMs: z.number().int().positive().optional(),
 })
+export type HeadlessTurnRequestMessage = z.infer<typeof HeadlessTurnRequestMessage>
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  const record = value as Record<string, unknown>
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .join(',')}}`
+}
+
+/** Canonical bytes shared by the server mint and daemon replay fence. Transport
+ * request ids deliberately do not affect durable turn identity. */
+export function canonicalHeadlessTurnFacts(input: HeadlessTurnRequestMessage): string {
+  const { requestId: _requestId, requestDigest: _requestDigest, type: _type, ...facts } = input
+  return canonicalJson(facts)
+}
 export const HeadlessInterruptMessage = z.object({
   type: z.literal('headlessInterrupt'),
   requestId: z.string(),
@@ -95,6 +126,8 @@ export const HeadlessTurnAckMessage = z.object({
   type: z.literal('headlessTurnAck'),
   turnId: z.string(),
   sessionId: SessionIdField,
+  accountId: AccountIdField,
+  requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
 })
 // server -> daemon: (re)establish the per-kind transcript observers/tails for a
 // headless session — exactly what reattach does for a PTY session, minus the PTY.
@@ -122,6 +155,8 @@ export const HeadlessTurnResultMessage = z.object({
   ...HeadlessHarnessSessionFields.shape,
   /** Final assistant text — durability/fallback; the transcript tail is canonical. */
   output: z.string().optional(),
+  accountId: AccountIdField,
+  requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
 })
 export const HeadlessBindResultMessage = z.object({
   type: z.literal('headlessBindResult'),

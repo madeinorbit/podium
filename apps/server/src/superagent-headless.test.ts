@@ -80,6 +80,8 @@ async function harness() {
       type: 'headlessTurnResult',
       requestId: req.requestId,
       ok: result?.ok ?? true,
+      accountId: req.accountId,
+      requestDigest: req.requestDigest,
       ...(result?.error !== undefined ? { error: result.error } : {}),
       ...(result?.harnessSessionId !== undefined
         ? { harnessSessionId: result.harnessSessionId }
@@ -193,6 +195,14 @@ describe('bounded headless session identity', () => {
         requireNoTools: true,
       }),
     ).toThrow(/cannot enforce a no-tools headless session/)
+    expect(() =>
+      h.registry.modules.sessions.headless.createHeadlessSession({
+        agentKind: 'claude-code',
+        cwd: '/r',
+        accountId: asAccountId('native:claude-code'),
+        requireNoTools: true,
+      }),
+    ).toThrow(/exact native account fingerprint/)
     expect(h.turnReqs).toHaveLength(0)
   })
 })
@@ -956,6 +966,8 @@ describe('boot reconciliation for headless sessions', () => {
       type: 'headlessTurnResult',
       requestId: replay.requestId,
       ok: true,
+      accountId: replay.accountId,
+      requestDigest: replay.requestDigest,
       harnessSessionId: 'recovered-harness',
       output: 'done',
     })
@@ -966,6 +978,8 @@ describe('boot reconciliation for headless sessions', () => {
       type: 'headlessTurnAck',
       turnId: original.turnId,
       sessionId: original.sessionId,
+      accountId: replay.accountId,
+      requestDigest: replay.requestDigest,
     })
     await expect(
       superagent.sendTurn({

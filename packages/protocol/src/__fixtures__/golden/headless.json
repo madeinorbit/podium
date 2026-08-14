@@ -237,12 +237,14 @@
       "wire": {
         "type": "headlessTurnAck",
         "turnId": "turnId",
-        "sessionId": "sessionId"
+        "sessionId": "sessionId",
+        "accountId": "accountId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"headlessTurnAck\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\"}"
+      "encoded": "{\"type\":\"headlessTurnAck\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
     },
     {
       "schema": "HeadlessTurnAckMessage",
@@ -250,12 +252,14 @@
       "wire": {
         "type": "headlessTurnAck",
         "turnId": "turnId",
-        "sessionId": "sessionId"
+        "sessionId": "sessionId",
+        "accountId": "accountId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"headlessTurnAck\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\"}"
+      "encoded": "{\"type\":\"headlessTurnAck\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
     },
     {
       "schema": "HeadlessTurnEvent",
@@ -358,6 +362,8 @@
         "requestId": "requestId",
         "turnId": "turnId",
         "sessionId": "sessionId",
+        "accountId": "accountId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "threadId": "threadId",
         "agent": "claude-code",
         "cwd": "cwd",
@@ -366,7 +372,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"threadId\":\"threadId\",\"agent\":\"claude-code\",\"cwd\":\"cwd\",\"prompt\":\"prompt\"}"
+      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"threadId\":\"threadId\",\"agent\":\"claude-code\",\"cwd\":\"cwd\",\"prompt\":\"prompt\"}"
     },
     {
       "schema": "HeadlessTurnRequestMessage",
@@ -376,6 +382,8 @@
         "requestId": "requestId",
         "turnId": "turnId",
         "sessionId": "sessionId",
+        "accountId": "accountId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "threadId": "threadId",
         "agent": "claude-code",
         "model": "model",
@@ -387,6 +395,7 @@
         "mcpConfig": "mcpConfig",
         "allowedTools": ["allowedTools[0]"],
         "permissionMode": "permissionMode",
+        "toolPolicy": "none",
         "resumeValue": "resumeValue",
         "sessionUuid": "sessionUuid",
         "timeoutMs": 1
@@ -394,7 +403,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"threadId\":\"threadId\",\"agent\":\"claude-code\",\"model\":\"model\",\"effort\":\"effort\",\"cwd\":\"cwd\",\"prompt\":\"prompt\",\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"timeoutMs\":1}"
+      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"threadId\":\"threadId\",\"agent\":\"claude-code\",\"model\":\"model\",\"effort\":\"effort\",\"cwd\":\"cwd\",\"prompt\":\"prompt\",\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"toolPolicy\":\"none\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"timeoutMs\":1}"
     },
     {
       "schema": "HeadlessTurnResultMessage",
@@ -402,12 +411,14 @@
       "wire": {
         "type": "headlessTurnResult",
         "requestId": "requestId",
-        "ok": true
+        "ok": true,
+        "accountId": "accountId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"headlessTurnResult\",\"requestId\":\"requestId\",\"ok\":true}"
+      "encoded": "{\"type\":\"headlessTurnResult\",\"requestId\":\"requestId\",\"ok\":true,\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
     },
     {
       "schema": "HeadlessTurnResultMessage",
@@ -418,12 +429,14 @@
         "ok": true,
         "error": "error",
         "harnessSessionId": "harnessSessionId",
-        "output": "output"
+        "output": "output",
+        "accountId": "accountId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"headlessTurnResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"harnessSessionId\":\"harnessSessionId\",\"output\":\"output\"}"
+      "encoded": "{\"type\":\"headlessTurnResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"harnessSessionId\":\"harnessSessionId\",\"output\":\"output\",\"accountId\":\"accountId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
     }
   ]
 }

@@ -22,7 +22,7 @@ import {
   shipRepairRef,
 } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
-import type { ShippingValidationProfile } from '@podium/protocol/daemon'
+import type { ShippingJobClassification, ShippingValidationProfile } from '@podium/protocol/daemon'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
 import { jsonSchema } from '../../llm-roles'
 import type { HeadlessService } from '../superagent/headless'
@@ -54,7 +54,7 @@ export interface ShipwrightDeps {
    * hunks. The implementation owns remote-machine access and must honor the
    * byte limits supplied here. */
   context(
-    input: ShippingRepairConsiderInput,
+    input: ShipwrightRepairInput,
     limits: {
       maxContextBytes: number
       maxFailureBytes: number
@@ -65,7 +65,7 @@ export interface ShipwrightDeps {
   applyPatch(input: {
     order: ShipOrder
     attempt: ShipAttempt
-    custody: ShippingRepairConsiderInput['custody']
+    custody: ShipwrightRepairInput['custody']
     repairRef: string
     patch: string
     touchedPaths: string[]
@@ -91,13 +91,13 @@ export type ShipwrightOutcome =
       receipt?: ShipwrightResultReceipt
     }
 
-export interface ShippingRepairConsiderInput {
+export interface ShipwrightRepairInput {
   order: ShipOrder
   attempt: ShipAttempt
   issue: IssueWire
   failure: {
     operation: 'prepare-merge-group' | 'validate'
-    classification: string
+    classification: ShippingJobClassification
     summary: string
     artifactRefs: string[]
   }
@@ -108,7 +108,7 @@ export interface ShippingRepairConsiderInput {
   }
 }
 
-export type ShippingRepairConsiderResult =
+export type ShipwrightRepairRecommendation =
   | { kind: 'not-applicable' }
   | { kind: 'patched'; repairRef: string; candidateHeadSha: string; resultToken: string }
   | {
@@ -124,6 +124,8 @@ export type ShippingRepairConsiderResult =
 interface ShipwrightResultReceipt {
   sessionId: ReturnType<typeof asSessionId>
   turnId: string
+  requestDigest: string
+  accountId: AccountId
 }
 
 interface ShipwrightResultEnvelope {
@@ -136,7 +138,7 @@ interface ShipwrightResultEnvelope {
 const RESULT_TOKEN_PREFIX = 'shipwright-result:'
 
 function encodeResultToken(
-  input: ShippingRepairConsiderInput,
+  input: ShipwrightRepairInput,
   receipts: readonly ShipwrightResultReceipt[],
 ): string {
   const envelope: ShipwrightResultEnvelope = {
@@ -166,7 +168,11 @@ function decodeResultToken(token: string): ShipwrightResultEnvelope {
         typeof item !== 'object' ||
         item === null ||
         typeof (item as { sessionId?: unknown }).sessionId !== 'string' ||
-        typeof (item as { turnId?: unknown }).turnId !== 'string',
+        typeof (item as { turnId?: unknown }).turnId !== 'string' ||
+        typeof (item as { requestDigest?: unknown }).requestDigest !== 'string' ||
+        !/^[a-f0-9]{64}$/.test((item as { requestDigest: string }).requestDigest) ||
+        typeof (item as { accountId?: unknown }).accountId !== 'string' ||
+        !(item as { accountId: string }).accountId.startsWith('native:'),
     )
   ) {
     throw new Error('invalid shipwright result token')
@@ -175,7 +181,7 @@ function decodeResultToken(token: string): ShipwrightResultEnvelope {
     orderId: ShipOrder['id']
     attemptId: ShipAttempt['id']
     generation: number
-    receipts: { sessionId: string; turnId: string }[]
+    receipts: { sessionId: string; turnId: string; requestDigest: string; accountId: AccountId }[]
   }
   return {
     orderId: value.orderId,
@@ -184,6 +190,8 @@ function decodeResultToken(token: string): ShipwrightResultEnvelope {
     receipts: value.receipts.map((item) => ({
       sessionId: asSessionId(item.sessionId),
       turnId: item.turnId,
+      requestDigest: item.requestDigest,
+      accountId: item.accountId,
     })),
   }
 }
@@ -308,10 +316,11 @@ export class ShipwrightService {
     this.budget = ShipwrightBudget.parse(deps.budget ?? DEFAULT_SHIPWRIGHT_BUDGET)
   }
 
-  /** ShippingRepairPort implementation. This hook owns model judgment only:
+  /** Internal model-judgment boundary. The POD-832 adapter owns the canonical
+   * repair port once that moving contract lands:
    * deterministic code applies the returned patch to the attempt ref, and the
    * shipping lifecycle owns the mandatory exact validation that follows. */
-  async consider(input: ShippingRepairConsiderInput): Promise<ShippingRepairConsiderResult> {
+  async consider(input: ShipwrightRepairInput): Promise<ShipwrightRepairRecommendation> {
     const kind =
       input.failure.operation === 'prepare-merge-group' &&
       input.failure.classification === 'merge-conflict'
@@ -380,7 +389,16 @@ export class ShipwrightService {
       }
       priorFamilies.push(proposed.attempt.route.family)
       let patch = proposed.patch
-      if (this.requiresInspection(patch) && this.budget.maxInspectorTurns > 0) {
+      if (this.requiresInspection(patch) && this.budget.maxInspectorTurns === 0) {
+        return this.decision(
+          input,
+          'policy-refused',
+          'This repair requires independent inspection, but the Inspector budget is zero.',
+          evidence,
+          receipts,
+        )
+      }
+      if (this.requiresInspection(patch)) {
         let approved = false
         let inspectorTurns = 0
         while (inspectorTurns < this.budget.maxInspectorTurns && turns < this.budget.maxTurns) {
@@ -464,7 +482,12 @@ export class ShipwrightService {
       throw new Error('shipwright result acknowledgement fence mismatch')
     }
     for (const receipt of envelope.receipts) {
-      this.deps.headless.headlessTurnAck(receipt.sessionId, receipt.turnId)
+      this.deps.headless.headlessTurnAck(
+        receipt.sessionId,
+        receipt.turnId,
+        receipt.requestDigest,
+        receipt.accountId,
+      )
     }
   }
 
@@ -512,17 +535,10 @@ export class ShipwrightService {
         quota,
         level: input.level,
         priorFamilies: input.priorFamilies,
+        resolveAccount: (agent, requested) =>
+          this.deps.nativeAccountId(input.attempt.machineId, agent, requested),
       })
       route = selected
-        ? {
-            ...selected,
-            accountId: this.deps.nativeAccountId(
-              input.attempt.machineId,
-              selected.agent,
-              selected.accountId,
-            ),
-          }
-        : null
     }
     if (!route) {
       return {
@@ -548,7 +564,6 @@ export class ShipwrightService {
       requireNoTools: true,
     })
     const turnId = `shipwright:${input.attempt.id}:${input.attempt.leaseGeneration}:${input.level}:${input.rung}`
-    const receipt = { sessionId, turnId }
     const response = await this.deps.headless.headlessTurn({
       turnId,
       sessionId,
@@ -562,6 +577,23 @@ export class ShipwrightService {
       toolPolicy: 'none',
       timeoutMs: this.budget.timeoutMs,
     })
+    const receipt =
+      response.requestDigest && response.accountId
+        ? {
+            sessionId,
+            turnId,
+            requestDigest: response.requestDigest,
+            accountId: response.accountId,
+          }
+        : undefined
+    if (!receipt) {
+      return {
+        kind: 'hold',
+        reason: 'unavailable',
+        detail: 'shipwright result was not bound to its durable request identity',
+        evidence: [],
+      }
+    }
     if (!response.ok || !response.output) {
       return {
         kind: 'hold',
@@ -654,12 +686,12 @@ export class ShipwrightService {
   }
 
   private decision(
-    input: ShippingRepairConsiderInput,
+    input: ShipwrightRepairInput,
     reasonCode: ShipHoldCode,
     detail: string,
     evidence: ReadonlySet<string>,
     receipts: readonly ShipwrightResultReceipt[] = [],
-  ): Extract<ShippingRepairConsiderResult, { kind: 'needs-decision' }> {
+  ): Extract<ShipwrightRepairRecommendation, { kind: 'needs-decision' }> {
     return {
       kind: 'needs-decision',
       reasonCode,

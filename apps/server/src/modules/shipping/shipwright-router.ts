@@ -6,7 +6,7 @@ import {
   type ShipwrightLevel,
   type ShipwrightRoute,
 } from '@podium/model'
-import { nativeAccountId, resolveRole, type PodiumSettings } from '@podium/runtime'
+import { normalizeSettings, resolveRole, type PodiumSettings } from '@podium/runtime'
 import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
 
@@ -32,6 +32,10 @@ export interface ShipwrightRouteInput {
   quota: readonly AgentQuotaWire[]
   level: ShipwrightLevel
   priorFamilies?: readonly string[]
+  resolveAccount(
+    agent: HarnessAgent,
+    requested: ShipwrightRoute['accountId'],
+  ): ShipwrightRoute['accountId']
 }
 
 export function shipwrightModelFamily(agent: HarnessAgent, model: string): string {
@@ -129,12 +133,14 @@ export function shipwrightTurnCeiling(
  * an Inspector is kept on a different family whenever one is available. */
 export function routeShipwright(input: ShipwrightRouteInput): ShipwrightRoute | null {
   const preferred = resolveRole(input.settings, 'shipwright')
+  if (!harnessSupportsNoTools(preferred.harness)) return null
   const candidates: Candidate[] = []
   for (const [agentRaw, models] of Object.entries(input.catalog.byAgent)) {
     const parsed = (['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const).find(
       (agent) => agent === agentRaw,
     )
     if (!parsed) continue
+    if (parsed !== preferred.harness) continue
     if (!harnessSupportsNoTools(parsed)) continue
     for (const model of models) {
       candidates.push({
@@ -158,56 +164,62 @@ export function routeShipwright(input: ShipwrightRouteInput): ShipwrightRoute | 
     model: selected.model,
     effort: effortFor(input.level, selected.efforts),
     family: selected.family,
-    accountId:
-      selected.agent === preferred.harness ? preferred.accountId : nativeAccountId(selected.agent),
+    accountId: input.resolveAccount(selected.agent, preferred.accountId),
   }
 }
 
-/** Small stable corpus used to prevent trait changes from quietly collapsing
- * every failure onto one model tier. It contains shapes, never provider names. */
+/** Executable, provider-neutral production corpus. The cases contain traits,
+ * quota, capability and budgets; evaluation goes through routeShipwright rather
+ * than a test-only selector. */
 export const SHIPWRIGHT_ROUTER_EVAL_SET = [
   {
     id: 'throughput-first',
     level: 'mechanic',
     priorFamilies: [],
-    candidates: [
-      { id: 'fast-a', family: 'family-a', tier: 'fast', preferred: false, available: true },
-      { id: 'frontier-b', family: 'family-b', tier: 'frontier', preferred: true, available: true },
-    ],
-    expected: 'fast-a',
+    models: ['family-a/fast', 'family-b/frontier'],
+    exhausted: false,
+    supported: true,
+    expected: 'family-a/fast',
     expectedTurnCeiling: 3,
   },
   {
     id: 'capability-first',
     level: 'solver',
     priorFamilies: [],
-    candidates: [
-      { id: 'fast-a', family: 'family-a', tier: 'fast', preferred: true, available: true },
-      { id: 'frontier-b', family: 'family-b', tier: 'frontier', preferred: false, available: true },
-    ],
-    expected: 'frontier-b',
+    models: ['family-a/fast', 'family-b/frontier'],
+    exhausted: false,
+    supported: true,
+    expected: 'family-b/frontier',
     expectedTurnCeiling: 3,
   },
   {
     id: 'independent-review',
     level: 'inspector',
     priorFamilies: ['family-a'],
-    candidates: [
-      { id: 'frontier-a', family: 'family-a', tier: 'frontier', preferred: true, available: true },
-      { id: 'balanced-b', family: 'family-b', tier: 'balanced', preferred: false, available: true },
-    ],
-    expected: 'balanced-b',
+    models: ['family-a/frontier', 'family-b/balanced'],
+    exhausted: false,
+    supported: true,
+    expected: 'family-b/balanced',
     expectedTurnCeiling: 3,
   },
   {
     id: 'quota-fallback',
     level: 'solver',
     priorFamilies: [],
-    candidates: [
-      { id: 'frontier-a', family: 'family-a', tier: 'frontier', preferred: true, available: false },
-      { id: 'balanced-b', family: 'family-b', tier: 'balanced', preferred: false, available: true },
-    ],
-    expected: 'balanced-b',
+    models: ['family-a/frontier'],
+    exhausted: true,
+    supported: true,
+    expected: null,
+    expectedTurnCeiling: 3,
+  },
+  {
+    id: 'unsupported-account',
+    level: 'mechanic',
+    priorFamilies: [],
+    models: ['family-a/fast'],
+    exhausted: false,
+    supported: false,
+    expected: null,
     expectedTurnCeiling: 3,
   },
 ] as const
@@ -216,8 +228,51 @@ export function evaluateShipwrightRouterCase(input: (typeof SHIPWRIGHT_ROUTER_EV
   route: string | null
   turnCeiling: number
 } {
+  const harness = input.supported ? 'claude-code' : 'grok'
+  const settings = normalizeSettings({
+    roles: {
+      shipwright: {
+        accountId: `native:${harness}`,
+        harness,
+        model: input.models[0],
+        effort: 'high',
+      },
+    },
+  })
+  const quota: AgentQuotaWire[] = input.exhausted
+    ? [
+        {
+          agent: harness,
+          status: 'ok',
+          windows: [
+            {
+              key: 'eval',
+              label: 'Eval',
+              usedPercent: 100,
+              resetsAt: '',
+              windowMinutes: 60,
+            },
+          ],
+          fetchedAt: '',
+        },
+      ]
+    : []
+  const selected = routeShipwright({
+    settings,
+    catalog: {
+      machineId: 'eval-machine' as ModelCatalogSnapshot['machineId'],
+      fetchedAt: 0,
+      byAgent: {
+        [harness]: input.models.map((model) => ({ value: model, label: model })),
+      },
+    },
+    quota,
+    level: input.level,
+    priorFamilies: input.priorFamilies,
+    resolveAccount: (agent) => `native:${agent}:eval-fingerprint` as ShipwrightRoute['accountId'],
+  })
   return {
-    route: selectShipwrightCandidate(input.level, input.candidates, input.priorFamilies),
+    route: selected?.model ?? null,
     turnCeiling: shipwrightTurnCeiling(),
   }
 }

@@ -16,6 +16,7 @@ import {
   asSessionId,
   asIssueId,
   asThreadId,
+  type AccountId,
   FIRST_ADMIN_USER_ID,
   HarnessAgent,
   type HarnessAgent as HarnessAgentKind,
@@ -674,8 +675,7 @@ export class SuperagentService {
     // model is for that CLI). Auto (no model override, no request) follows
     // Settings, including a later Settings change (#199).
     const intended =
-      requested ??
-      (thread.model && frozen.success ? frozen.data : superagentHarnessAgent(settings))
+      requested ?? (thread.model && frozen.success ? frozen.data : superagentHarnessAgent(settings))
     // Freeze the agent onto the thread on first contact. On later turns, if the
     // user has since changed the superagent harness, SWITCH (#199): the harness
     // owns its native session so we can't retarget it — start a fresh one and
@@ -892,7 +892,14 @@ export class SuperagentService {
   private finishPendingTurn(
     pending: PendingSuperagentTurnRow,
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-    result: { ok: boolean; error?: string; harnessSessionId?: string; output?: string },
+    result: {
+      ok: boolean
+      error?: string
+      harnessSessionId?: string
+      output?: string
+      requestDigest?: string
+      accountId?: AccountId
+    },
   ): void {
     const agent = HarnessAgent.safeParse(pending.payload.agent)
     const sessionUuid = pending.payload.sessionUuid
@@ -950,7 +957,14 @@ export class SuperagentService {
       // Delete first: if the server dies before ACK, the daemon merely retains
       // an orphan journal; the accepted user turn can never be replayed twice.
       this.store.superagent.deletePendingTurn(pending.turnId)
-      this.modules.headless.headlessTurnAck(pending.podiumSessionId, pending.turnId)
+      if (result.requestDigest && result.accountId) {
+        this.modules.headless.headlessTurnAck(
+          pending.podiumSessionId,
+          pending.turnId,
+          result.requestDigest,
+          result.accountId,
+        )
+      }
       this.turnInFlight.delete(pending.threadId)
       this.dispatchedTurnIds.delete(pending.turnId)
       this.dispatchAttempts.delete(pending.turnId)
@@ -1072,7 +1086,6 @@ export class SuperagentService {
         this.interruptFallbacks.delete(pending.turnId)
       }
       this.store.superagent.deletePendingTurn(pending.turnId)
-      this.modules.headless.headlessTurnAck(pending.podiumSessionId, pending.turnId)
       this.dispatchedTurnIds.delete(pending.turnId)
       this.dispatchAttempts.delete(pending.turnId)
       this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {

@@ -13,7 +13,7 @@ import {
   type HeadlessExecOptions,
   harnessAdapterFor,
 } from '@podium/harness'
-import type { HarnessAgent } from '@podium/model'
+import type { AccountId, HarnessAgent } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import type { HarnessBins } from './harness-exec.js'
 
@@ -21,6 +21,8 @@ const DEFAULT_TURN_TIMEOUT_MS = 600_000
 
 export interface HeadlessTurnSpec {
   agent: HarnessAgent
+  accountId: AccountId
+  requestDigest: string
   model?: string
   effort?: string
   cwd: string
@@ -141,6 +143,9 @@ export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
       ? { allowedTools: spec.allowedTools }
       : {}),
     ...(spec.toolPolicy === 'none' ? { tools: [] as string[], allowedTools: [] } : {}),
+    // An empty settings-source list prevents user/project/local hooks, plugins,
+    // and permissions from being inherited by a bounded repair turn.
+    ...(spec.toolPolicy === 'none' ? { settingSources: [] } : {}),
     // The orchestrator prompt APPENDS to the claude_code preset — same posture
     // as harness-exec's --append-system-prompt.
     ...([spec.systemPrompt, spec.contextPrompt].filter(Boolean).join('\n\n').trim()

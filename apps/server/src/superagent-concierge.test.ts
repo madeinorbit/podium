@@ -55,6 +55,8 @@ async function harness(opts?: { eventReadLimit?: number }) {
           type: 'headlessTurnResult',
           requestId: m.requestId,
           ok: true,
+          accountId: m.accountId,
+          requestDigest: m.requestDigest,
           harnessSessionId: `h-${turnReqs.length}`,
           output: 'harness says hi',
         }),

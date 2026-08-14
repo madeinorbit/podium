@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type {
   AccountId,
@@ -13,6 +13,7 @@ import type {
   UserId,
 } from '@podium/model'
 import { asSessionId, type MachineId } from '@podium/model'
+import { canonicalHeadlessTurnFacts } from '@podium/protocol'
 import type {
   HeadlessActivityEvent,
   HeadlessTurnEvent,
@@ -81,8 +82,12 @@ export class HeadlessService {
         harnessSessionId?: string
         output?: string
         retryable?: boolean
+        accountId?: AccountId
+        requestDigest?: string
       }) => void
       onEvent?: (e: HeadlessTurnEvent) => void
+      accountId: AccountId
+      requestDigest: string
     }
   >()
   private readonly pendingBinds = new Map<string, (r: { ok: boolean; error?: string }) => void>()
@@ -111,6 +116,9 @@ export class HeadlessService {
   }): { sessionId: SessionId } {
     if (input.requireNoTools && !harnessSupportsNoTools(input.agentKind)) {
       throw new Error(`harness ${input.agentKind} cannot enforce a no-tools headless session`)
+    }
+    if (input.requireNoTools && !input.accountId?.startsWith(`native:${input.agentKind}:`)) {
+      throw new Error(`harness ${input.agentKind} requires an exact native account fingerprint`)
     }
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
@@ -244,13 +252,45 @@ export class HeadlessService {
     harnessSessionId?: string
     output?: string
     retryable?: boolean
+    accountId?: AccountId
+    requestDigest?: string
   }> {
     if (input.toolPolicy === 'none' && !harnessSupportsNoTools(input.agent)) {
       throw new Error(`harness ${input.agent} cannot enforce a no-tools headless turn`)
     }
-    const machineId = this.deps.getSession(input.sessionId)?.machineId ?? this.deps.defaultMachine()
+    const session = this.deps.getSession(input.sessionId)
+    const machineId = session?.machineId ?? this.deps.defaultMachine()
+    const accountId = session?.accountId
+    if (!accountId) throw new Error(`headless session ${input.sessionId} has no account identity`)
     const requestId = this.deps.nextRequestId('ht')
     const timeoutMs = (input.timeoutMs ?? 600_000) + 10_000
+    const unsigned = {
+      type: 'headlessTurnRequest' as const,
+      requestId,
+      requestDigest: '0'.repeat(64),
+      accountId,
+      turnId: input.turnId,
+      sessionId: input.sessionId,
+      threadId: input.threadId,
+      agent: input.agent,
+      cwd: input.cwd,
+      prompt: input.prompt,
+      ...(input.contextPrompt ? { contextPrompt: input.contextPrompt } : {}),
+      ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
+      ...(input.effort ? { effort: input.effort } : {}),
+      ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+      ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
+      ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+      ...(input.toolPolicy ? { toolPolicy: input.toolPolicy } : {}),
+      ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
+      ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
+      ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+    }
+    const requestDigest = createHash('sha256')
+      .update(canonicalHeadlessTurnFacts(unsigned))
+      .digest('hex')
+    const request = { ...unsigned, requestDigest }
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingTurns.delete(requestId)
@@ -264,29 +304,11 @@ export class HeadlessService {
           resolve(r)
         },
         ...(onEvent ? { onEvent } : {}),
+        accountId,
+        requestDigest,
       })
       try {
-        this.deps.toMachine(machineId, {
-          type: 'headlessTurnRequest',
-          requestId,
-          turnId: input.turnId,
-          sessionId: input.sessionId,
-          threadId: input.threadId,
-          agent: input.agent,
-          cwd: input.cwd,
-          prompt: input.prompt,
-          ...(input.contextPrompt ? { contextPrompt: input.contextPrompt } : {}),
-          ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-          ...(input.effort ? { effort: input.effort } : {}),
-          ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
-          ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
-          ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
-          ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
-          ...(input.toolPolicy ? { toolPolicy: input.toolPolicy } : {}),
-          ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
-          ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
-          ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
-        })
+        this.deps.toMachine(machineId, request)
       } catch (error) {
         clearTimeout(timer)
         this.pendingTurns.delete(requestId)
@@ -301,9 +323,20 @@ export class HeadlessService {
 
   /** The server has durably committed the terminal result and no longer needs
    * the daemon's per-turn journal for restart replay. */
-  headlessTurnAck(sessionId: SessionId, turnId: string): void {
+  headlessTurnAck(
+    sessionId: SessionId,
+    turnId: string,
+    requestDigest: string,
+    accountId: AccountId,
+  ): void {
     const machineId = this.deps.getSession(sessionId)?.machineId ?? this.deps.defaultMachine()
-    this.deps.toMachine(machineId, { type: 'headlessTurnAck', sessionId, turnId })
+    this.deps.toMachine(machineId, {
+      type: 'headlessTurnAck',
+      sessionId,
+      turnId,
+      requestDigest,
+      accountId,
+    })
   }
 
   /** Interrupt a headless session's running turn (fire-and-forget; the turn's
@@ -356,11 +389,19 @@ export class HeadlessService {
   }
 
   onTurnResult(msg: Extract<DaemonMessage, { type: 'headlessTurnResult' }>): void {
-    this.pendingTurns.get(msg.requestId)?.resolve({
+    const pending = this.pendingTurns.get(msg.requestId)
+    if (!pending) return
+    if (msg.requestDigest !== pending.requestDigest || msg.accountId !== pending.accountId) {
+      pending.resolve({ ok: false, error: 'headless result identity mismatch' })
+      return
+    }
+    pending.resolve({
       ok: msg.ok,
       ...(msg.error !== undefined ? { error: msg.error } : {}),
       ...(msg.harnessSessionId !== undefined ? { harnessSessionId: msg.harnessSessionId } : {}),
       ...(msg.output !== undefined ? { output: msg.output } : {}),
+      accountId: msg.accountId,
+      requestDigest: msg.requestDigest,
     })
   }
 

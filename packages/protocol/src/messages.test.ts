@@ -3,6 +3,7 @@ import {
   AgentRuntimeState,
   asAutomationId,
   asAutomationRunId,
+  asAccountId,
   asSessionId,
   asThreadId,
   ConversationSummaryWire,
@@ -1172,6 +1173,8 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
       requestId: 'ht1',
       turnId: 'turn-1',
       sessionId: asSessionId('s1'),
+      accountId: asAccountId('native:claude-code:fingerprint'),
+      requestDigest: 'a'.repeat(64),
       threadId: asThreadId('concierge'),
       agent: 'claude-code',
       model: 'opus',
@@ -1194,6 +1197,8 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
       requestId: 'ht2',
       turnId: 'turn-2',
       sessionId: asSessionId('s1'),
+      accountId: asAccountId('native:codex:fingerprint'),
+      requestDigest: 'b'.repeat(64),
       threadId: asThreadId('btw_x'),
       agent: 'codex',
       cwd: '/repo',
@@ -1242,6 +1247,8 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
       ok: true,
       harnessSessionId: 'abc',
       output: 'done',
+      accountId: asAccountId('native:claude-code:fingerprint'),
+      requestDigest: 'a'.repeat(64),
     }
     expect(parseDaemonMessage(encode(result))).toEqual(result)
     const bindResult: DaemonMessage = {
