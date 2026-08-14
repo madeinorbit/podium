@@ -54,6 +54,11 @@ Every sub-issue of the updater epic follows this protocol. It is part of your br
   detached worktree at that SHA — no `bun install` there, `--root` is the repo root). Any
   delta that plausibly touches your files must be resolved before merging; record the
   comparison (both failure sets, the SHA) in your issue state.
+- **Disk is tight (98% as of 2026-08-14, POD-2111).** Check `df -h` before any build or
+  full-suite run; below ~3 GB free, stop and mail 2087 instead of risking a silently
+  truncated write. For A/B base runs prefer a detached in-place checkout of your own
+  worktree over creating a second worktree (restore your branch immediately after), and
+  remove any scratch directories you create as soon as the comparison is recorded.
 - New gates/tests must be proven able to fire: make the assertion fail once (mutate the
   code or the fixture), see red, restore, see green. Say so in your issue state.
 - UI changes additionally need a real drive per `docs/agents/driving-podium.md` and the
