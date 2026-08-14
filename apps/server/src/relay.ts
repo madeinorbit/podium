@@ -78,6 +78,9 @@ import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
+import { InteractionFeedPublisher } from './modules/interactions/feed'
+import { SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
+import { InteractionService } from './modules/interactions/service'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
@@ -251,6 +254,9 @@ export interface RegistryModules {
   issueCommands: IssueCommandDispatcher
   specs: SpecsService
   approvals: ApprovalService
+  /** The PendingInteraction aggregate (POD-2020) — every blocking ask, durable
+   *  and answerable from any surface. */
+  interactions: InteractionService
   workflows: WorkflowService
   /** Advisory named lease locks [spec:SP-85d1]. */
   locks: LockService
@@ -2319,6 +2325,46 @@ export class SessionRegistry {
     })
     this.bus.on('machine.disconnected', () => updateFleetBridge.onFleetChanged())
 
+    /**
+     * THE PendingInteraction AGGREGATE (POD-2020, spec §4).
+     *
+     * Composed HERE, after `sessionsSvc` and `rpc`, because answering routes
+     * through the existing delivery gate and synthesis reads the transcript
+     * tail. Its two inputs are BUS SUBSCRIPTIONS, not calls from anywhere:
+     * nothing in the existing state-change or session-exit paths knows this
+     * module exists, which is what makes "the aggregate observes; existing UI
+     * behavior is unchanged" structural rather than careful.
+     */
+    const interactionFeed = new InteractionFeedPublisher({
+      ledger,
+      seed: () =>
+        ledger.authority.snapshot('pendingInteraction') as readonly { readonly id: string }[],
+      toWire: (row) => interactions.wireOf(row),
+    })
+    const interactions = new InteractionService({
+      store: this.store.interactions,
+      now: () => new Date(this.now()).toISOString(),
+      publish: (row) => interactionFeed.publish(row),
+      deliver: (input) =>
+        deliverAnswerToSession(
+          {
+            getSession: (id) => sessionsSvc.sessionById(id),
+            sessions: sessionsSvc,
+            rpc: {
+              readTranscript: (readInput) =>
+                rpc.readTranscript(readInput, { kind: 'system', id: 'interaction-answer' }),
+            },
+          },
+          input,
+        ),
+      readTranscript: (input) =>
+        rpc.readTranscript(input, { kind: 'system', id: 'interaction-synthesis' }),
+      policyPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
+    })
+    this.bus.on('session.stateChanged', (e) => {
+      void interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
+    })
+    this.bus.on('session.exited', (e) => interactions.onSessionExited(e.sessionId))
     this.modules = {
       bus: this.bus,
       funnel,
@@ -2346,6 +2392,7 @@ export class SessionRegistry {
       issueCommands,
       specs,
       approvals,
+      interactions,
       workflows,
       locks,
       lockCommands,

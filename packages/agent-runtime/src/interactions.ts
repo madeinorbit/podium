@@ -1,7 +1,7 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./index.ts for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { SessionId } from '@podium/model'
+import type { PendingInteraction } from '@podium/protocol'
 
 // ---------------------------------------------------------------------------
 // Interactions (spec §3, §4)
@@ -33,39 +33,38 @@ export type InteractionSource = 'protocol' | 'sdk-callback' | 'hook' | 'screen-c
 export type InteractionAnswerability = 'structured' | 'keystroke-emulated'
 
 /**
- * The per-kind ask payload — tool and input for `permission`, options for
- * `question`, the plan text for `plan-approval`, the url for `login`.
+ * THE PER-KIND ASK AND ANSWER VOCABULARY — W1 left this opaque and named W2 as
+ * its owner; POD-2020 typed it.
  *
- * TYPED IN W2, NOT HERE. The spec names the per-kind payload and answer schemas
- * as a phase-1 deliverable and says in as many words that they are "the hard
- * part of this aggregate", specified in phase 1 rather than in the architecture
- * doc: W2 normalizes Codex approval requests, opencode's once/always/reject, the
- * SDK's `canUseTool`/AskUserQuestion and classified terminal menus into one
- * vocabulary and replaces this alias with a discriminated union keyed on `kind`.
- *
- * Deliberately OPAQUE rather than absent: the interaction's own shape (id, kind,
- * source, answerability, lifecycle) is stable and testable now, and pinning a
- * payload union here would fix the vocabulary before the normalization work that
- * decides it. It is a JSON OBJECT rather than `unknown` because every payload
- * the spec names is one, and because `unknown` on the wire makes the key
- * optional — which would say a payload-less ask is legal when none is.
+ * The schemas are `@podium/protocol`'s (`messages/runtime.ts`), for this
+ * package's standing directional reason, and the types below are re-exported
+ * from there rather than restated: this is the one region of the contract where
+ * inferring FROM zod is right, because none of these payloads reference
+ * `Declared<T>` or anything else defined above protocol, and a hand-written
+ * mirror would be a second source of truth for a vocabulary five drivers have to
+ * agree on. `./schemas.ts` still asserts the composed `PendingInteraction`
+ * exact, so the drift guard is unchanged.
  */
-export type InteractionPayload = Readonly<Record<string, unknown>>
-
-export interface PendingInteraction {
-  id: string
-  sessionId: SessionId
-  kind: InteractionKind
-  payload: InteractionPayload
-  askedAt: string
-  source: InteractionSource
-  answerable: InteractionAnswerability
-  /** Set once a policy has ruled. `escalated` means it is waiting on a human. */
-  policyVerdict?: 'auto-allowed' | 'auto-denied' | 'escalated'
-  /** ESCALATION DEADLINE, NOT AUTO-DENY. The spec is explicit: passing this
-   *  raises the ask's visibility; it never answers it. */
-  expiresAt?: string
-}
+export type {
+  ElicitationAnswer,
+  ElicitationAsk,
+  InteractionAnswer,
+  LoginAnswer,
+  LoginAsk,
+  PendingInteraction,
+  PermissionAnswer,
+  PermissionAsk,
+  PlanApprovalAnswer,
+  PlanApprovalAsk,
+  QuestionAnswer,
+  QuestionAsk,
+  QuestionOption,
+  QuestionPrompt,
+  QuestionSelection,
+  RecoveryAnswer,
+  RecoveryAsk,
+  RecoveryChoice,
+} from '@podium/protocol'
 
 /** Answering is idempotent; a second answer returns a typed error rather than
  *  double-acting. */

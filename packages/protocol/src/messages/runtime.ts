@@ -190,17 +190,273 @@ export type InteractionSource = z.infer<typeof InteractionSource>
 export const InteractionAnswerability = z.enum(['structured', 'keystroke-emulated'])
 export type InteractionAnswerability = z.infer<typeof InteractionAnswerability>
 
-export const PendingInteraction = z.object({
+// ---------------------------------------------------------------------------
+// The per-kind ask and answer vocabulary (POD-2020 / W2)
+// ---------------------------------------------------------------------------
+//
+// THE SPEC NAMES THIS AS THE HARD PART, AND SAYS WHY. §4's closing paragraph:
+// "the per-kind payload and answer schemas — normalizing Codex approval
+// requests, opencode's once/always/reject, the SDK's canUseTool/AskUserQuestion
+// shapes, and classified terminal menus into one typed vocabulary — are the hard
+// part of this aggregate and are specified in phase 1, not in this doc."
+//
+// THE NORMALIZATION RULE used throughout: a field earns its place only if it
+// changes what a person or a policy would DECIDE, or what answering has to send.
+// Everything else is harness trivia, and carrying it would make this union the
+// intersection of five vendors' shapes instead of the vocabulary they all
+// project onto. Two consequences worth stating, because both look like
+// omissions:
+//
+//  - No raw provider payload rides along. A `tool_input` is unbounded and
+//    routinely holds whole file contents (see `AgentPermissionAsk` in
+//    @podium/model, which made the same call for the same reason); the ask
+//    carries a derived, bounded summary of the ONE field that identifies the
+//    act, and the transcript keeps the rest.
+//  - No provider request id. The aggregate's `id` is Podium's, and the mapping
+//    back to a provider handle is the DRIVER's private business — a server
+//    driver replies over its own protocol, a terminal driver types digits. A
+//    provider id in the shared vocabulary would be a field only one family can
+//    fill and every consumer would learn to branch on.
+//
+// ANSWERS ARE SEPARATE FROM ASKS AND KEYED THE SAME WAY. `InteractionAnswer`
+// mirrors `PendingInteraction`'s discriminant, so a handler that narrowed the
+// ask has already narrowed the answer, and an answer for the wrong kind is a
+// parse failure rather than a runtime surprise.
+
+/**
+ * `permission` — a tool call awaiting consent.
+ *
+ * Sources: Claude's `PermissionRequest` hook and its `permission_prompt`
+ * Notification; the SDK's `canUseTool`; Codex's server→client approval request;
+ * opencode's `permission.updated`.
+ *
+ * `canAlwaysAllow` records only WHETHER the harness offered a "don't ask again"
+ * row, never which one — the native menu's always-allow rows are conditional and
+ * ordered per tool, so their key position cannot be predicted. The flag exists
+ * so a surface can say the option is there; a `keystroke-emulated` answerer must
+ * not try to press it. (`docs/agents/evidence/pod-707-permission-menu.md`.)
+ */
+export const PermissionAsk = z.object({
+  /** The tool being consented to, in the harness's own naming (`Bash`, `Edit`). */
+  toolName: z.string().min(1),
+  /** THE ONE FIELD THAT SAYS WHAT IT WOULD DO — the command, the path, the URL —
+   *  derived and truncated, never the whole input. Absent when the source
+   *  carried no input the harness could identify (Claude's Notification channel
+   *  carries a rendered message and no tool call). */
+  inputSummary: z.string().optional(),
+  /** Did the harness offer an always-allow alongside this ask? */
+  canAlwaysAllow: z.boolean(),
+})
+export type PermissionAsk = z.infer<typeof PermissionAsk>
+
+export const PermissionAnswer = z.object({
+  kind: z.literal('permission'),
+  /** `allow-always` is REFUSED, not downgraded, when `canAlwaysAllow` is false or
+   *  the ask is `keystroke-emulated`: silently answering `allow-once` instead
+   *  would report a persistent grant that was never made. */
+  decision: z.enum(['allow-once', 'allow-always', 'deny']),
+  /** Why, for a denial the agent should learn from. Delivered as text where the
+   *  channel carries it and dropped where it cannot — never blocks the decision. */
+  feedback: z.string().optional(),
+})
+export type PermissionAnswer = z.infer<typeof PermissionAnswer>
+
+/** One option on one question. `preview` is what makes the menu draw the
+ *  side-by-side dialog, which changes what a digit DOES (POD-770) — hence
+ *  {@link QuestionPrompt.previewLayout} rather than a per-option inference at
+ *  every answering site. */
+export const QuestionOption = z.object({
+  label: z.string(),
+  description: z.string().optional(),
+  preview: z.string().optional(),
+})
+export type QuestionOption = z.infer<typeof QuestionOption>
+
+export const QuestionPrompt = z.object({
+  question: z.string(),
+  /** Digits TOGGLE on a multi-select menu rather than selecting, so answering
+   *  one needs a confirming key the single-select path must not send (POD-609). */
+  multiSelect: z.boolean(),
+  /** 1-BASED, matching `optionIndices`. The index of the synthetic "Other" row
+   *  when the menu offers free text; absent when it does not. An answer that
+   *  names it must carry {@link QuestionSelection.text}. */
+  otherIndex: z.number().int().positive().optional(),
+  /** The dialog draws side-by-side, where a digit moves the cursor and a
+   *  carriage return is what selects (POD-770). */
+  previewLayout: z.boolean(),
+  options: z.array(QuestionOption).readonly(),
+})
+export type QuestionPrompt = z.infer<typeof QuestionPrompt>
+
+/**
+ * `question` — a structured choice, one or more prompts at once.
+ *
+ * Sources: Claude's `AskUserQuestion` tool call (whose `questions[]` is this
+ * shape almost verbatim, which is why the shape is plural); opencode/codex
+ * question events; a classified terminal menu.
+ */
+export const QuestionAsk = z.object({
+  questions: z.array(QuestionPrompt).readonly(),
+})
+export type QuestionAsk = z.infer<typeof QuestionAsk>
+
+/** The answer to ONE prompt. Indices are 1-BASED because that is what the native
+ *  menu shows and what the digit path types — a 0-based vocabulary here would put
+ *  an off-by-one between every surface and the keystroke it produces. */
+export const QuestionSelection = z.object({
+  optionIndices: z.array(z.number().int().positive()).readonly(),
+  /** Free text for the "Other" row. Present only alongside an `otherIndex`
+   *  selection; a channel that cannot type free text refuses rather than
+   *  dropping it. */
+  text: z.string().optional(),
+})
+export type QuestionSelection = z.infer<typeof QuestionSelection>
+
+export const QuestionAnswer = z.object({
+  kind: z.literal('question'),
+  /** ONE ENTRY PER PROMPT, in `questions` order. A menu holds every prompt open
+   *  at once and answering it is a single act, so a partial answer is not a
+   *  thing the wire should be able to express. */
+  selections: z.array(QuestionSelection).readonly(),
+})
+export type QuestionAnswer = z.infer<typeof QuestionAnswer>
+
+/**
+ * `plan-approval` — the agent has written a plan and stopped for a verdict.
+ *
+ * Source today: a Claude session going idle in plan mode (`IdleVerdict.kind ===
+ * 'approval'`). Codex and opencode both surface the same moment as an approval
+ * request over their protocol.
+ */
+export const PlanApprovalAsk = z.object({
+  /** The plan as written. Unbounded by nature — a plan IS its text, so there is
+   *  no summary that preserves the thing being approved. */
+  plan: z.string(),
+  /** Did the harness offer "approve, and stop asking about edits"? Claude's plan
+   *  menu does; a bare approval channel does not. */
+  autoAcceptOffered: z.boolean(),
+})
+export type PlanApprovalAsk = z.infer<typeof PlanApprovalAsk>
+
+export const PlanApprovalAnswer = z.object({
+  kind: z.literal('plan-approval'),
+  decision: z.enum(['approve', 'reject']),
+  /** NORMALIZED OUT OF THE DECISION, not folded into it. Claude's menu spells
+   *  three rows (auto-accept edits / manually approve / keep planning); two of
+   *  them are the same verdict with a different follow-on permission posture,
+   *  and a three-value enum would make every non-Claude driver carry a variant
+   *  it cannot produce. Ignored on `reject`. */
+  autoAcceptEdits: z.boolean().optional(),
+  /** What to change, for a rejection. This is the answer that keeps the session
+   *  moving, so unlike the permission case it is the point of the verb. */
+  feedback: z.string().optional(),
+})
+export type PlanApprovalAnswer = z.infer<typeof PlanApprovalAnswer>
+
+/**
+ * `elicitation` — an MCP server asking the USER for structured input mid-tool-call.
+ *
+ * NO PRODUCER TODAY, and that is recorded rather than hidden: elicitation
+ * arrives with a driver that carries MCP through to the runtime (W5/W6). The
+ * shape is MCP's own `elicitation/create` — message, a JSON Schema for the
+ * requested fields, and the three-valued result — because normalizing a protocol
+ * that already has one shape would only add a translation nobody needs.
+ */
+export const ElicitationAsk = z.object({
+  message: z.string(),
+  /** The MCP `requestedSchema` verbatim: a JSON Schema object describing the
+   *  fields. Opaque HERE by nature — it is a schema, not a value — and rendered
+   *  by whichever surface draws the form. */
+  requestedSchema: z.record(z.string(), z.unknown()),
+  /** Which MCP server is asking, when the driver knows. */
+  serverName: z.string().optional(),
+})
+export type ElicitationAsk = z.infer<typeof ElicitationAsk>
+
+export const ElicitationAnswer = z.object({
+  kind: z.literal('elicitation'),
+  /** MCP's three outcomes, kept distinct: `decline` is "I won't answer this",
+   *  `cancel` is "I'm dismissing the whole thing". Servers act differently on
+   *  them and collapsing them would decide for every server at once. */
+  action: z.enum(['accept', 'decline', 'cancel']),
+  /** The filled form. Required in spirit on `accept` and validated against
+   *  `requestedSchema` by the driver that speaks MCP, not here — this layer has
+   *  the schema as data, not as a validator. */
+  content: z.record(z.string(), z.unknown()).optional(),
+})
+export type ElicitationAnswer = z.infer<typeof ElicitationAnswer>
+
+/**
+ * `login` — the session cannot proceed until an account is re-authenticated.
+ *
+ * This is the materialization half of the routing rule in
+ * {@link FailureDisposition}: an `auth-expired` turn failure becomes a `login`
+ * interaction, so an agent blocked on credentials is an ENUMERABLE blocked
+ * agent rather than a session that silently stopped.
+ */
+export const LoginAsk = z.object({
+  /** The provider whose credential is wanted, in the harness's naming
+   *  ('anthropic', 'openai', …). */
+  provider: z.string().min(1),
+  reason: z.enum(['auth-expired', 'not-signed-in', 're-auth']),
+  /** Where to go, when the harness printed a URL. Answering does not visit it —
+   *  a human (or an out-of-band flow) does, and then says so. */
+  url: z.string().optional(),
+})
+export type LoginAsk = z.infer<typeof LoginAsk>
+
+export const LoginAnswer = z.object({
+  kind: z.literal('login'),
+  /** THE ANSWER IS A REPORT, NOT A CREDENTIAL. No secret ever crosses this
+   *  vocabulary: `completed` means the credential was refreshed by some other
+   *  means and the runtime should retry, `cancelled` means stop waiting. */
+  outcome: z.enum(['completed', 'cancelled']),
+})
+export type LoginAnswer = z.infer<typeof LoginAnswer>
+
+/** How a session resumes. `full` is the default for every role profile (spec
+ *  §4); `summary` is chosen only when the harness offers no full path, and is
+ *  then recorded on the session. */
+export const RecoveryChoice = z.enum(['full-resume', 'summary-resume', 'fresh-session', 'abandon'])
+export type RecoveryChoice = z.infer<typeof RecoveryChoice>
+
+/**
+ * `recovery` — a resume-time prompt, asked while the handle is still STARTING.
+ *
+ * "Session fell out of cache, resume from summary?", trust re-prompts,
+ * context-overflow recovery. This is the kind that proves the lifecycle phase
+ * cannot gate interactions, and the one a background executor MUST be able to
+ * auto-answer or it stalls before it has started.
+ *
+ * NO PRODUCER TODAY: the terminal driver's resume path (W3) is where these
+ * appear. The default answer table already routes the kind — see the server
+ * aggregate's `DEFAULT_ANSWERS` — so the producer arrives to a decided policy.
+ */
+export const RecoveryAsk = z.object({
+  reason: z.enum(['cache-miss', 'trust-prompt', 'context-overflow', 'unknown']),
+  /** What the harness actually asked, for a surface that renders it. */
+  prompt: z.string(),
+  /** Which choices this harness offers. A choice absent here must not be sent —
+   *  `full-resume` is the policy default, not a guarantee every harness has one. */
+  offered: z.array(RecoveryChoice).readonly(),
+})
+export type RecoveryAsk = z.infer<typeof RecoveryAsk>
+
+export const RecoveryAnswer = z.object({
+  kind: z.literal('recovery'),
+  choice: RecoveryChoice,
+})
+export type RecoveryAnswer = z.infer<typeof RecoveryAnswer>
+
+/** Fields every ask carries regardless of kind. Spread into each arm rather than
+ *  held in a base object a union extends: `z.discriminatedUnion` needs the
+ *  literal on the arm itself, and an intersection would lose the narrowing that
+ *  is the whole point of keying on `kind`. */
+const INTERACTION_BASE = {
   /** UNBRANDED BY DECISION: minted by the driver that observed the ask, in that
    *  driver's namespace. W2's durable aggregate keys its own rows. */
   id: z.string().min(1),
   sessionId: z.string().min(1).pipe(SessionIdField),
-  kind: InteractionKind,
-  /** OPAQUE IN W1. The per-kind payload and answer schemas are the spec's named
-   *  phase-1 deliverable and W2 owns them; a guessed union here would be a
-   *  vocabulary nobody agreed to. An open record rather than `unknown` keeps the
-   *  key REQUIRED — a payload-less ask is not a thing. */
-  payload: z.record(z.string(), z.unknown()),
   askedAt: z.string().datetime(),
   source: InteractionSource,
   answerable: InteractionAnswerability,
@@ -208,8 +464,36 @@ export const PendingInteraction = z.object({
   /** ESCALATION DEADLINE, NOT AUTO-DENY. Passing it raises visibility; it never
    *  answers the ask. */
   expiresAt: z.string().datetime().optional(),
-})
+} as const
+
+/**
+ * THE ASK, KEYED ON ITS KIND (POD-2020, replacing W1's opaque `payload` record).
+ *
+ * A discriminated union rather than `kind` + open record, because the whole
+ * value of typing this vocabulary is that narrowing `kind` narrows `payload`:
+ * a handler that has established it is looking at a `permission` must not still
+ * have to guess whether `toolName` is there.
+ */
+export const PendingInteraction = z.discriminatedUnion('kind', [
+  z.object({ ...INTERACTION_BASE, kind: z.literal('permission'), payload: PermissionAsk }),
+  z.object({ ...INTERACTION_BASE, kind: z.literal('question'), payload: QuestionAsk }),
+  z.object({ ...INTERACTION_BASE, kind: z.literal('plan-approval'), payload: PlanApprovalAsk }),
+  z.object({ ...INTERACTION_BASE, kind: z.literal('elicitation'), payload: ElicitationAsk }),
+  z.object({ ...INTERACTION_BASE, kind: z.literal('login'), payload: LoginAsk }),
+  z.object({ ...INTERACTION_BASE, kind: z.literal('recovery'), payload: RecoveryAsk }),
+])
 export type PendingInteraction = z.infer<typeof PendingInteraction>
+
+/** THE ANSWER, keyed on the same discriminant as the ask. */
+export const InteractionAnswer = z.discriminatedUnion('kind', [
+  PermissionAnswer,
+  QuestionAnswer,
+  PlanApprovalAnswer,
+  ElicitationAnswer,
+  LoginAnswer,
+  RecoveryAnswer,
+])
+export type InteractionAnswer = z.infer<typeof InteractionAnswer>
 
 export const InteractionEvent = z.discriminatedUnion('ev', [
   z.object({ ev: z.literal('asked'), interaction: PendingInteraction }),
@@ -233,6 +517,123 @@ export const InteractionAnswerOutcome = z.union([
   }),
 ])
 export type InteractionAnswerOutcome = z.infer<typeof InteractionAnswerOutcome>
+
+// ---------------------------------------------------------------------------
+// The durable aggregate row (POD-2020 / W2)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE LIFECYCLE, AND WHY `expired` IS NOT A DECISION.
+ *
+ * `asked → answered` and `asked → expired` are the only transitions, and
+ * `expired` means the ask stopped being answerable — the session ended, or the
+ * menu it named is provably gone — NOT that a deadline passed. Spec §4 is
+ * explicit that `expiresAt` "raises the ask's visibility; it never answers it",
+ * so a row past its escalation deadline is still `asked`. Conflating the two
+ * would turn an escalation into a silent denial, which is the failure mode the
+ * whole aggregate exists to abolish.
+ */
+export const InteractionStatus = z.enum(['asked', 'answered', 'expired'])
+export type InteractionStatus = z.infer<typeof InteractionStatus>
+
+/** Who resolved it. `policy` is the per-session default answer table; there is
+ *  no policy ENGINE yet (W2 ships the table only) but the vocabulary is the
+ *  spec's and the table already writes this value. */
+export const InteractionAnsweredBy = z.enum(['policy', 'superagent', 'human'])
+export type InteractionAnsweredBy = z.infer<typeof InteractionAnsweredBy>
+
+/** Fields the SERVER aggregate adds to a driver's ask. Same spread-not-extend
+ *  reason as {@link INTERACTION_BASE}. */
+const INTERACTION_RECORD = {
+  status: InteractionStatus,
+  /**
+   * THE AT-LEAST-ONCE DEFENCE, and it is only a defence — never a proof.
+   *
+   * A `screen-classifier` ask has no identity of its own: a re-rendered menu is
+   * a fresh observation of the same question, and nothing in a scraped frame
+   * distinguishes that from a second question that happens to look identical.
+   * The fingerprint is a stable digest of (session, kind, the decision-bearing
+   * payload fields) that collapses the first case, and the spec requires
+   * consumers to tolerate it failing on the second: asked→answered on a
+   * classifier-sourced row is AT-LEAST-ONCE, never exactly-once.
+   *
+   * Present on every row, not just classifier ones, so the dedupe query needs no
+   * branch — but only CONSULTED where `source` says identity is unreliable. A
+   * `protocol`-sourced driver has a real request id and must not have two
+   * genuinely distinct asks merged because their text matched.
+   */
+  fingerprint: z.string().min(1),
+  answeredAt: z.string().datetime().optional(),
+  answeredBy: InteractionAnsweredBy.optional(),
+  /** What was decided. Kept on the row because "who answered and how" is the
+   *  audit trail a headless run is judged on, and because a duplicate answer's
+   *  typed refusal is more useful when the surface can show the first one. */
+  answer: InteractionAnswer.optional(),
+  /**
+   * HOW THE ANSWER REACHED THE AGENT — the honesty field.
+   *
+   * `menu` typed digits into a live native menu, `text` delivered it as an
+   * ordinary message, `structured` replied over a protocol. `unverified` means
+   * the aggregate recorded the answer but could not confirm delivery, which is
+   * the same distinction {@link TurnReceipt}'s fourth outcome draws and is here
+   * for the same reason: a keystroke answer cannot prove it acted on the exact
+   * menu it classified.
+   */
+  deliveredVia: z.enum(['menu', 'text', 'structured', 'unverified']).optional(),
+  expiredAt: z.string().datetime().optional(),
+} as const
+
+/**
+ * THE DURABLE ROW — a driver's {@link PendingInteraction} plus the server
+ * aggregate's lifecycle, and the payload of the `pendingInteraction` metadata
+ * feed kind.
+ *
+ * It lives HERE, beside the contract type it extends, rather than in
+ * `@podium/model` where every other `MetadataChange` arm's wire type lives. That
+ * is a deliberate exception with one argument behind it: this row IS the
+ * contract's ask plus five fields, and putting the two halves of one vocabulary
+ * in two packages is exactly the drift that a shared vocabulary is supposed to
+ * prevent. The arm in `./sync.ts` imports it from this file.
+ */
+export const PendingInteractionWire = z.discriminatedUnion('kind', [
+  z.object({
+    ...INTERACTION_BASE,
+    kind: z.literal('permission'),
+    payload: PermissionAsk,
+    ...INTERACTION_RECORD,
+  }),
+  z.object({
+    ...INTERACTION_BASE,
+    kind: z.literal('question'),
+    payload: QuestionAsk,
+    ...INTERACTION_RECORD,
+  }),
+  z.object({
+    ...INTERACTION_BASE,
+    kind: z.literal('plan-approval'),
+    payload: PlanApprovalAsk,
+    ...INTERACTION_RECORD,
+  }),
+  z.object({
+    ...INTERACTION_BASE,
+    kind: z.literal('elicitation'),
+    payload: ElicitationAsk,
+    ...INTERACTION_RECORD,
+  }),
+  z.object({
+    ...INTERACTION_BASE,
+    kind: z.literal('login'),
+    payload: LoginAsk,
+    ...INTERACTION_RECORD,
+  }),
+  z.object({
+    ...INTERACTION_BASE,
+    kind: z.literal('recovery'),
+    payload: RecoveryAsk,
+    ...INTERACTION_RECORD,
+  }),
+])
+export type PendingInteractionWire = z.infer<typeof PendingInteractionWire>
 
 // ---------------------------------------------------------------------------
 // Failure vocabulary

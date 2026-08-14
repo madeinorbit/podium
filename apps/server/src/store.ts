@@ -51,6 +51,7 @@ import { runDrizzleMigrations } from './migrations/index'
 import { OperationStore } from './modules/operations/store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
+import { InteractionsRepository } from './store/interactions'
 import { AuthRepository } from './store/auth'
 import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
@@ -140,6 +141,8 @@ export class SessionStore {
   /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
   readonly readWatermarks: ReadWatermarksRepository
   readonly approvals: ApprovalsRepository
+  /** Blocking asks (POD-2020, spec §4) — durable so a stuck session is enumerable. */
+  readonly interactions: InteractionsRepository
   readonly workflows: WorkflowsRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
@@ -223,6 +226,7 @@ export class SessionStore {
       this.hostMachineId,
     )
     this.approvals = new ApprovalsRepository(this.db)
+    this.interactions = new InteractionsRepository(this.db)
     this.conversations = new ConversationsRepository(this.db, this.hostMachineId)
     this.sync = new SyncRepository(this.db)
     this.auth = new AuthRepository(this.db)

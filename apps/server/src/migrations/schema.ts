@@ -2271,3 +2271,57 @@ export const operations = sqliteTable(
     index('idx_operations_kind_created').on(table.kind, table.createdAt),
   ],
 )
+
+/**
+ * PendingInteraction — the durable blocking-ask aggregate (POD-2020, spec §4).
+ *
+ * ONE ROW PER ASK, and the row outlives the ask: an answered interaction is the
+ * audit trail for a decision a headless run made on its own, so nothing here is
+ * deleted on resolution. `status` moves `asked → answered | expired` and stops.
+ *
+ * `fingerprint` is the classifier-dedupe key (see `PendingInteractionWire` in
+ * @podium/protocol for why it is a defence and not a proof). The partial unique
+ * index is what actually collapses a re-rendered menu: it constrains only OPEN
+ * rows, so the same question asked again after the first was answered is a
+ * genuinely new ask and inserts cleanly — which is the behaviour a long-running
+ * session needs, and what a plain unique index would get wrong.
+ */
+export const pendingInteractions = sqliteTable(
+  'pending_interactions',
+  {
+    id: text().primaryKey(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
+    kind: text().notNull(),
+    /** The per-kind ask payload, as JSON. Typed by `PendingInteractionWire`'s
+     *  arm for `kind`; opaque to SQLite, like every other payload column here. */
+    payloadJson: text('payload_json').notNull(),
+    source: text().notNull(),
+    answerable: text().notNull(),
+    fingerprint: text().notNull(),
+    status: text().default('asked').notNull(),
+    policyVerdict: text('policy_verdict'),
+    askedAt: text('asked_at').notNull(),
+    expiresAt: text('expires_at'),
+    answeredAt: text('answered_at'),
+    answeredBy: text('answered_by'),
+    answerJson: text('answer_json'),
+    deliveredVia: text('delivered_via'),
+    expiredAt: text('expired_at'),
+  },
+  (table) => [
+    index('idx_pending_interactions_session').on(table.sessionId, table.status),
+    index('idx_pending_interactions_open').on(table.status, table.askedAt),
+    uniqueIndex('idx_pending_interactions_fingerprint')
+      .on(table.sessionId, table.fingerprint)
+      .where(sql`status = 'asked'`),
+    check('pending_interactions_status_check', sql`status IN ('asked','answered','expired')`),
+    check(
+      'pending_interactions_kind_check',
+      sql`kind IN ('permission','question','plan-approval','elicitation','login','recovery')`,
+    ),
+    check(
+      'pending_interactions_source_check',
+      sql`source IN ('protocol','sdk-callback','hook','screen-classifier')`,
+    ),
+  ],
+)

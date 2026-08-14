@@ -43,7 +43,6 @@ import type {
   FailureDisposition,
   InteractionAnswerOutcome,
   InteractionKind,
-  InteractionPayload,
   InteractionSource,
   PendingInteraction,
   ProcessEvent,
@@ -119,8 +118,10 @@ export interface FakeDriverOptions {
  * genuine permission prompt; W5 posts a real `permission.updated`).
  */
 export interface FakeControl {
-  /** Open a blocking ask, as a provider would. */
-  askInteraction(sessionId: SessionId, kind: InteractionKind, payload?: InteractionPayload): string
+  /** Open a blocking ask, as a provider would. `spec` is the kind paired with
+   *  its OWN payload (POD-2020 made that pairing typed); pass a bare kind and
+   *  the fake fills in {@link defaultAskFor}'s minimal payload for it. */
+  askInteraction(sessionId: SessionId, spec: InteractionKind | InteractionAskSpec): string
   /** Re-ask the SAME logical interaction with a fresh id — the duplicate a
    *  re-rendered menu mints. Only meaningful when `atLeastOnceInteractions`. */
   reaskInteraction(sessionId: SessionId, id: string): string
@@ -245,6 +246,69 @@ const INTERACTION_FOR_FAILURE: Partial<Record<InducibleFailure, InteractionKind>
   'context-overflow': 'recovery',
 }
 
+/** A kind paired with the payload THAT kind takes — the ask half of
+ *  {@link PendingInteraction}, without the identity the driver mints.
+ *
+ *  Distributive on purpose: a plain `Pick<PendingInteraction, 'kind'|'payload'>`
+ *  collapses the union into `{kind: InteractionKind; payload: AnyPayload}`,
+ *  which would let a `login` kind carry a `question` payload — exactly the
+ *  pairing the discriminated union exists to make unrepresentable. */
+type AskSpecOf<T> = T extends { kind: infer K; payload: infer P }
+  ? { readonly kind: K; readonly payload: P }
+  : never
+export type InteractionAskSpec = AskSpecOf<PendingInteraction>
+
+/**
+ * The smallest VALID payload for each kind.
+ *
+ * Exists because the corpus mostly cares that an ask opened and closed, not what
+ * it said — but "not what it said" stopped being expressible as `{}` when
+ * POD-2020 typed the payloads, and that is the point: a test that wants a
+ * specific shape now has to name it. These are minimal and deliberately boring,
+ * so a corpus case asserting on payload content is obviously doing so on
+ * purpose.
+ */
+/** The `recovery` ask a context-overflow raises, as distinct from the
+ *  cache-miss one {@link defaultAskFor} mints. */
+const askPayloadForOverflow = () =>
+  ({
+    reason: 'context-overflow',
+    prompt: 'The context window overflowed. How should this session continue?',
+    offered: ['full-resume', 'summary-resume', 'fresh-session', 'abandon'],
+  }) as const
+
+export function defaultAskFor(kind: InteractionKind): InteractionAskSpec {
+  switch (kind) {
+    case 'permission':
+      return { kind, payload: { toolName: 'Bash', canAlwaysAllow: false } }
+    case 'question':
+      return {
+        kind,
+        payload: {
+          questions: [
+            {
+              question: 'Which way?',
+              multiSelect: false,
+              previewLayout: false,
+              options: [{ label: 'Left' }, { label: 'Right' }],
+            },
+          ],
+        },
+      }
+    case 'plan-approval':
+      return { kind, payload: { plan: 'Do the thing.', autoAcceptOffered: false } }
+    case 'elicitation':
+      return { kind, payload: { message: 'Fill this in.', requestedSchema: { type: 'object' } } }
+    case 'login':
+      return { kind, payload: { provider: 'fake', reason: 'auth-expired' } }
+    case 'recovery':
+      return {
+        kind,
+        payload: { reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
+      }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The driver
 // ---------------------------------------------------------------------------
@@ -357,18 +421,12 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     }
   }
 
-  function ask(
-    core: SessionCore,
-    kind: InteractionKind,
-    payload: InteractionPayload,
-    source: InteractionSource,
-  ): string {
+  function ask(core: SessionCore, spec: InteractionAskSpec, source: InteractionSource): string {
     const interactionId = `int-${core.sessionId}-${core.nextId++}`
     const interaction: PendingInteraction = {
+      ...spec,
       id: interactionId,
       sessionId: core.sessionId,
-      kind,
-      payload,
       askedAt: stamp(),
       source,
       answerable: family === 'terminal' ? 'keystroke-emulated' : 'structured',
@@ -784,8 +842,12 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
   }
 
   const control: FakeControl = {
-    askInteraction(sessionId, kind, payload) {
-      return ask(coreFor(sessionId), kind, payload ?? {}, interactionSource)
+    askInteraction(sessionId, spec) {
+      return ask(
+        coreFor(sessionId),
+        typeof spec === 'string' ? defaultAskFor(spec) : spec,
+        interactionSource,
+      )
     },
     reaskInteraction(sessionId, id) {
       const core = coreFor(sessionId)
@@ -796,15 +858,28 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       if (!atLeastOnce) {
         throw new Error('fake: re-ask requested on a driver that declared exactly-once identity')
       }
-      return ask(core, previous?.kind ?? 'permission', previous?.payload ?? {}, interactionSource)
+      // Re-asking carries the ORIGINAL payload: a re-rendered menu shows the
+      // same question, and a duplicate that said something else would not be
+      // the duplicate this property is about.
+      return ask(core, previous ?? defaultAskFor('permission'), interactionSource)
     },
     failTurn(sessionId, reason) {
       const core = coreFor(sessionId)
       const disposition = dispositionFor(reason)
       closeTurn(core, { ev: 'failed', turnEpoch: core.turnEpoch, reason, disposition })
       const kind = INTERACTION_FOR_FAILURE[reason]
-      // The routing rule, implemented rather than described.
-      if (disposition === 'needs-human' && kind) ask(core, kind, { reason }, interactionSource)
+      // The routing rule, implemented rather than described: `auth-expired`
+      // becomes a `login` ask and `context-overflow` a `recovery` one, each
+      // carrying the payload ITS kind takes rather than the bare reason.
+      if (disposition === 'needs-human' && kind) {
+        ask(
+          core,
+          kind === 'login'
+            ? { kind, payload: { provider: 'fake', reason: 'auth-expired' } }
+            : { kind: 'recovery', payload: askPayloadForOverflow() },
+          interactionSource,
+        )
+      }
     },
     completeTurn(sessionId) {
       const core = coreFor(sessionId)

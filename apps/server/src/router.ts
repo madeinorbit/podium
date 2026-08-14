@@ -44,6 +44,7 @@ import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
 import { accountFamilyProcedures } from './modules/accounts/trpc'
 import { approvalFamilyProcedures } from './modules/approvals/trpc'
+import { interactionFamilyProcedures } from './modules/interactions/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
@@ -531,6 +532,9 @@ export const appRouter = t.router({
    */
   specs: t.router({ ...queryProcedures('specs', SPEC_QUERIES), ...specFamily }),
   approvals: t.router(approvalFamilyProcedures()),
+  /** The PendingInteraction aggregate (POD-2020, spec §4) — `answer` plus the
+   *  two reads the headless answering path needs. */
+  interactions: t.router(interactionFamilyProcedures()),
 })
 
 export type AppRouter = typeof appRouter

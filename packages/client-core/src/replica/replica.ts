@@ -60,6 +60,7 @@ import {
   type AutomationWire,
   type ConversationSummaryWire,
   type IssueDepProjection,
+  interactionRowId,
   type IssueEventWire,
   type IssueProjection,
   type IssueWire,
@@ -70,6 +71,7 @@ import {
   type ShipOrderProjection,
   type TranscriptItem,
 } from '@podium/model'
+import type { PendingInteractionWire } from '@podium/protocol'
 import type { Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
 // TYPE-ONLY on purpose: the persistence packages must never enter the browser
@@ -298,6 +300,7 @@ const ENTITY_STORE_KINDS = [
   'issueDeps',
   'repos',
   'issueEvents',
+  'pendingInteractions',
   'shipOrders',
   'conversations',
   'automations',
@@ -462,6 +465,16 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
+      // KEYED ON THE COMPOSITE CHANGE ID, not the bare interaction id: the
+      // Authority logs `interactionRowId(sessionId, id)` so the subject session
+      // can scope a `remove` after the row is gone, and a collection keyed on
+      // anything else could not match the eviction to the row it evicts.
+      pendingInteractions: this.makeCollection<PendingInteractionWire>(
+        'pendingInteractions',
+        (i) => interactionRowId(i.sessionId, i.id),
+        guarded,
+        guardedEvents,
+      ),
       shipOrders: this.makeCollection<ShipOrderProjection>(
         'shipOrders',
         (order) => order.id,
@@ -532,6 +545,7 @@ class TanstackReplica implements Replica {
       issueDeps: [],
       repos: [],
       issueEvents: [],
+      pendingInteractions: [],
       shipOrders: [],
       conversations: [],
       automations: [],
@@ -580,6 +594,8 @@ class TanstackReplica implements Replica {
         issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
         repos: this.cols.repos.toArray as RepoProjection[],
         issueEvents: this.cols.issueEvents.toArray as IssueEventWire[],
+        pendingInteractions: this.cols.pendingInteractions
+          .toArray as PendingInteractionWire[],
         shipOrders: this.cols.shipOrders.toArray as ShipOrderProjection[],
         conversations: this.cols.conversations.toArray as ConversationSummaryWire[],
         automations: this.cols.automations.toArray as AutomationWire[],

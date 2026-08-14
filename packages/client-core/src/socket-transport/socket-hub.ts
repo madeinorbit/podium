@@ -19,7 +19,7 @@ import type {
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
-import { asMachineId, layoutRowId, readPositionRowId } from '@podium/model'
+import { asMachineId, interactionRowId, layoutRowId, readPositionRowId } from '@podium/model'
 import {
   type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
@@ -43,6 +43,7 @@ import {
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   WIRE_VERSION,
+  type PendingInteractionWire,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
@@ -454,6 +455,11 @@ export interface HubEvents {
    *  `issueEvent`) — the chat feed's content, which used to arrive on a 15 s
    *  RPC timer of its own. Bounded server-side; evictions arrive as deletes. */
   issueEvents: [events: IssueEventWire[]]
+  /** The OPEN blocking asks after any change (POD-2020, entity kind
+   *  `pendingInteraction`) — every interaction a session is stopped on, so
+   *  answering from one surface clears the card on all of them. Resolving an ask
+   *  removes it; the resolved history is an RPC read, not a feed kind. */
+  pendingInteractions: [interactions: PendingInteractionWire[]]
   /** Compact shipping read rows, joined to issues by `issueId`. */
   shipOrders: [orders: ShipOrderProjection[]]
   /**
@@ -563,6 +569,7 @@ export class SocketHub {
   private repoList: RepoProjection[] = []
   /** The curated issue-event window (POD-1772). Empty until the feed carries it. */
   private issueEventList: IssueEventWire[] = []
+  private pendingInteractionList: PendingInteractionWire[] = []
   private shipOrderList: ShipOrderProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
@@ -2125,6 +2132,18 @@ export class SocketHub {
             (x) => x.id === c.id,
           )
           break
+        case 'pendingInteraction':
+          // POD-2020. Matched on the composite id the Authority logs
+          // (`interactionRowId`), not the row's own `id`: a resolved ask arrives
+          // as a `remove` carrying only that composite, and the row's bare id
+          // would not match it.
+          this.pendingInteractionList = applyChange(
+            this.pendingInteractionList,
+            c.op,
+            c.value,
+            (x) => interactionRowId(x.sessionId, x.id) === c.id,
+          )
+          break
         case 'userLayout':
           // Feed demux for POD-1350's per-user layout rows. Match on the same
           // composite id the Authority logs (layoutRowId), not payload equality.
@@ -2154,6 +2173,8 @@ export class SocketHub {
     if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
     if (touched.has('repo')) this.emit('repos', this.repoList)
     if (touched.has('issueEvent')) this.emit('issueEvents', this.issueEventList)
+    if (touched.has('pendingInteraction'))
+      this.emit('pendingInteractions', this.pendingInteractionList)
     if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
