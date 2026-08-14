@@ -1289,6 +1289,32 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
       // ---- attach and lease ----
       async attach(req: AttachRequest): Promise<AttachEndpoint | Refusal> {
+        /**
+         * THE LEASE IS CHECKED BEFORE THE CLIENT IS STARTED, and both halves of
+         * that sentence were wrong here until POD-2085's attach property caught
+         * it — the same defect POD-2059 found in the opencode driver, inherited
+         * by mirroring its structure.
+         *
+         * WRONG HALF ONE: this took the lease UNCONDITIONALLY, so a second
+         * take-over silently displaced the first — while `lease.acquire()`, a
+         * screen below in this same file, refuses that exact case with
+         * `lease_held`. One verb handing out for free what its sibling refuses is
+         * worse than neither enforcing it, because callers read the refusal and
+         * believe it. "Exactly one human-controller holds it" is what makes "the
+         * user attached and started typing" and "the steward tried to nudge"
+         * impossible to interleave.
+         *
+         * WRONG HALF TWO: the refusal has to land BEFORE the client terminal
+         * starts. Refusing afterwards leaves an orphaned TUI attached to a
+         * session it was just denied control of.
+         *
+         * THE GUARD IS "A DIFFERENT HOLDER", NOT "A LEASE EXISTS". A dropped
+         * client reconnecting is the ordinary case, and locking the holder out
+         * with their own lease would strand the one person entitled to be there.
+         */
+        if (req.mode === 'takeover' && session.lease && session.lease.holder !== req.holder) {
+          return { reason: 'lease_held', detail: `held by ${session.lease.holder}` }
+        }
         const client = await host.attachClient?.({
           sessionId: session.sessionId,
           threadId: session.threadId,
@@ -1301,7 +1327,15 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           }
         }
         if (req.mode === 'takeover') {
-          session.lease = { holder: req.holder, kind: 'human-controller', acquiredAt: iso() }
+          // A re-attach by the SAME holder keeps their original acquisition time
+          // rather than resetting it: the lease is the same lease, and restamping
+          // it would make a reconnect look like a fresh take-over to anything
+          // reading `acquiredAt`.
+          session.lease = session.lease ?? {
+            holder: req.holder,
+            kind: 'human-controller',
+            acquiredAt: iso(),
+          }
         }
         return {
           // The server family's variant: Codex's OWN TUI pointed at this
