@@ -138,6 +138,22 @@ describe.skipIf(!live)('e2e: an opencode session on the SERVER driver', () => {
         'session live',
       )
 
+      // ---- 1b. THE ROW KNOWS IT IS BEHIND THE CONTRACT --------------------
+      //
+      // `bind.runtimeContract` is what W4's migrated senders branch on to choose
+      // between the contract and the legacy PTY path. A server-family session
+      // that reported `false` here would be handed to a path that types at a PTY
+      // it does not have — the write would go nowhere and report success — so
+      // this is asserted on the ROW the server actually recorded, not on the
+      // daemon's intent.
+      // Read off the INTERNAL session record, which is the exact object
+      // `onContract` consults (`bag.sessions.get(id)?.runtimeContract === true`
+      // in session-wiring). The wire `SessionMeta` does not carry the field —
+      // it is a daemon-reported bind fact for the server's own routing, not
+      // something a client renders — so asserting the projection would have
+      // asserted nothing.
+      expect(sessions.sessions.get(sessionId)?.runtimeContract).toBe(true)
+
       // ---- 2. A TURN, WITH A PROTOCOL RECEIPT -----------------------------
       const receipt = await gateway.send({
         sessionId,

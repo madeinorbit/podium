@@ -213,6 +213,20 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
         cwd: input.cwd,
         agentKind: 'opencode',
         geometry: { cols: 120, rows: 40 },
+        /**
+         * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023).
+         *
+         * The server records this on the row and W4's migrated senders branch on
+         * it to decide between the contract and the legacy PTY path. A terminal
+         * session that got this wrong would take a slower route to the same
+         * place; a SERVER session that got it wrong would be handed to a path
+         * that types at a PTY this session does not have — the write would go
+         * nowhere and report success.
+         *
+         * Hardcoded `true` rather than probed, because reaching this line IS the
+         * proof: the handle above was constructed and registered.
+         */
+        runtimeContract: true,
       })
       // …and the first state, so the badge is right before the first event
       // rather than after it.

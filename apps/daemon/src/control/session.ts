@@ -30,6 +30,7 @@ import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { runtimeContractEnabledFor, runtimeDriverByEnv, runtimeDriverFor } from '../runtime/flag'
+import { sessionIsBehindContract } from '../runtime/handlers'
 import { opencodeVersionDiagnostic } from '../runtime/opencode-server'
 import {
   availableDriverIds,
@@ -411,7 +412,10 @@ export async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promis
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
       // The driver handle actually exists for this session (POD-1761 W4). The
       // server records it and W4's senders branch on it — see BindMessage.
-      ...(ctx.runtime?.has(msg.sessionId) ? { runtimeContract: true } : {}),
+      // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+      // one would report `false` for a server-family session and route its
+      // sends down the legacy PTY path, for a session that has no PTY.
+      ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
     })
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)
@@ -706,7 +710,10 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
       // The driver handle actually exists for this session (POD-1761 W4). The
       // server records it and W4's senders branch on it — see BindMessage.
-      ...(ctx.runtime?.has(msg.sessionId) ? { runtimeContract: true } : {}),
+      // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+      // one would report `false` for a server-family session and route its
+      // sends down the legacy PTY path, for a session that has no PTY.
+      ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
     })
     existing.redraw()
     // Re-push agent state for the same reason we re-seed the transcript below: a
@@ -835,7 +842,10 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
       // The driver handle actually exists for this session (POD-1761 W4). The
       // server records it and W4's senders branch on it — see BindMessage.
-      ...(ctx.runtime?.has(msg.sessionId) ? { runtimeContract: true } : {}),
+      // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+      // one would report `false` for a server-family session and route its
+      // sends down the legacy PTY path, for a session that has no PTY.
+      ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
     })
     // attachAbducoAgent nudges the PTY before the bridge is wired, so that
     // initial repaint can be lost. Nudge once more after bind to make a fresh

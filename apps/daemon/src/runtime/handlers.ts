@@ -42,6 +42,20 @@ function handleFor(ctx: DaemonContext, sessionId: SessionId): AgentSessionHandle
   return ctx.runtime?.handleFor(sessionId) ?? ctx.opencodeRuntime?.handleFor(sessionId)
 }
 
+/**
+ * IS THIS SESSION BEHIND THE CONTRACT AT ALL? (POD-2023)
+ *
+ * The fact the daemon REPORTS on `bind`, which the server records on the row and
+ * W4's migrated senders branch on. It must ask every registry for the same
+ * reason {@link handleFor} does: W3 had one, and a predicate that only knew
+ * about the terminal one would report `false` for a server-family session —
+ * sending W4's callers down the legacy PTY path for a session that HAS no PTY,
+ * where the write would go nowhere and report success.
+ */
+export function sessionIsBehindContract(ctx: DaemonContext, sessionId: SessionId): boolean {
+  return ctx.runtime?.has(sessionId) === true || ctx.opencodeRuntime?.has(sessionId) === true
+}
+
 export const runtimeHandlers: Pick<
   ControlHandlers,
   | 'runtimeSendRequest'

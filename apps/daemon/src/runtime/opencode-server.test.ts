@@ -17,6 +17,7 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runtimeContractEnabledFor, runtimeDriverFor } from './flag'
+import { sessionIsBehindContract } from './handlers'
 import {
   createOpencodeJournal,
   opencodeScopeLabel,
@@ -263,5 +264,51 @@ describe('spec §6 — the secret rides the env', () => {
     // §6's whole argument in a config file.
     expect(serveArgv).toContain('127.0.0.1')
     expect(serveArgv).not.toContain('0.0.0.0')
+  })
+})
+
+/**
+ * THE BIND FACT MUST SEE EVERY REGISTRY (POD-2023).
+ *
+ * `bind.runtimeContract` is what the server records on the row and what W4's
+ * migrated senders branch on to choose between the contract and the legacy PTY
+ * path. W3 had one registry, so the predicate behind it asked one. The moment a
+ * second family exists, a predicate that still asks one reports `false` for a
+ * server-family session — and W4 then routes its sends down a path that types at
+ * a PTY the session does not have, where the write goes nowhere and reports
+ * success.
+ *
+ * Caught by reading the epic's lessons register rather than by a failing test,
+ * which is exactly why there is now a test.
+ */
+describe('the contract bind fact', () => {
+  const ctxWith = (opts: {
+    terminal?: SessionId[]
+    opencode?: SessionId[]
+  }): Parameters<typeof sessionIsBehindContract>[0] =>
+    ({
+      ...(opts.terminal
+        ? { runtime: { has: (id: SessionId) => opts.terminal?.includes(id) === true } }
+        : {}),
+      ...(opts.opencode
+        ? { opencodeRuntime: { has: (id: SessionId) => opts.opencode?.includes(id) === true } }
+        : {}),
+    }) as unknown as Parameters<typeof sessionIsBehindContract>[0]
+
+  it('reports a TERMINAL session behind the contract', () => {
+    expect(sessionIsBehindContract(ctxWith({ terminal: [SESSION] }), SESSION)).toBe(true)
+  })
+
+  it('reports a SERVER session behind the contract — the regression', () => {
+    // The bug: a server-family session is registered in `opencodeRuntime`, never
+    // in `runtime`, so a terminal-only predicate answered `false` for a session
+    // that is fully behind the contract.
+    expect(sessionIsBehindContract(ctxWith({ opencode: [SESSION] }), SESSION)).toBe(true)
+  })
+
+  it('reports FALSE for a session in neither, which is the legacy path', () => {
+    expect(sessionIsBehindContract(ctxWith({ terminal: [], opencode: [] }), SESSION)).toBe(false)
+    // …and for a daemon with no runtimes wired at all.
+    expect(sessionIsBehindContract(ctxWith({}), SESSION)).toBe(false)
   })
 })
