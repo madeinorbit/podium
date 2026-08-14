@@ -1233,10 +1233,9 @@ export const shipOrders = sqliteTable(
   'ship_orders',
   {
     id: text().$type<ShipOrderId>().primaryKey(),
-    issueId: text('issue_id')
-      .$type<IssueId>()
-      .notNull()
-      .references(() => issues.id, { onDelete: 'restrict' }),
+    issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     repoId: text('repo_id').$type<RepoId>().notNull(),
     repoPath: text('repo_path'),
     machineId: text('machine_id').$type<MachineId>(),
@@ -1292,10 +1291,9 @@ export const shipAttempts = sqliteTable(
   'ship_attempts',
   {
     id: text().$type<ShipAttemptId>().primaryKey(),
-    orderId: text('order_id')
-      .$type<ShipOrderId>()
-      .notNull()
-      .references(() => shipOrders.id, { onDelete: 'restrict' }),
+    orderId: brandedRef(text('order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     expectedSourceBaseSha: text('expected_source_base_sha').notNull(),
     approvedHeadSha: text('approved_head_sha').notNull(),
     expectedTargetSha: text('expected_target_sha').notNull(),
@@ -1598,14 +1596,12 @@ export const shipSteps = sqliteTable(
   'ship_steps',
   {
     id: text().$type<ShipStepId>().primaryKey(),
-    orderId: text('order_id')
-      .$type<ShipOrderId>()
-      .notNull()
-      .references(() => shipOrders.id, { onDelete: 'restrict' }),
-    attemptId: text('attempt_id')
-      .$type<ShipAttemptId>()
-      .notNull()
-      .references(() => shipAttempts.id, { onDelete: 'restrict' }),
+    orderId: brandedRef(text('order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    attemptId: brandedRef(text('attempt_id').$type<ShipAttemptId>(), () => shipAttempts.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     effectKey: text('effect_key').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
     generation: integer().notNull(),
@@ -1641,10 +1637,9 @@ export const shipHolds = sqliteTable(
   'ship_holds',
   {
     id: text().$type<ShipHoldId>().primaryKey(),
-    orderId: text('order_id')
-      .$type<ShipOrderId>()
-      .notNull()
-      .references(() => shipOrders.id, { onDelete: 'restrict' }),
+    orderId: brandedRef(text('order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     generation: integer().notNull(),
     reasonCode: text('reason_code').notNull(),
     headline: text().notNull(),
@@ -1670,10 +1665,9 @@ export const deliveryReceipts = sqliteTable(
   'delivery_receipts',
   {
     id: text().$type<DeliveryReceiptId>().primaryKey(),
-    orderId: text('order_id')
-      .$type<ShipOrderId>()
-      .notNull()
-      .references(() => shipOrders.id, { onDelete: 'restrict' }),
+    orderId: brandedRef(text('order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     approvedBaseSha: text('approved_base_sha').notNull(),
     approvedHeadSha: text('approved_head_sha').notNull(),
     resultCommitSha: text('result_commit_sha').notNull(),

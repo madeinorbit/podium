@@ -178,9 +178,15 @@ const approval = {
   },
 }
 
-const provedShippingJob: NonNullable<
-  ConstructorParameters<typeof ShippingService>[0]['daemon']
->['shippingJob'] = async (input, machineId) => ({
+type ShippingJob = NonNullable<ConstructorParameters<typeof ShippingService>[0]['daemon']>[
+  'shippingJob'
+]
+
+const provedShippingJob = async (
+  input: Parameters<ShippingJob>[0],
+  machineId: Parameters<ShippingJob>[1],
+  final: Partial<Pick<ShippingJobResult, 'state' | 'classification' | 'artifactRefs'>> = {},
+): Promise<ShippingJobResult> => ({
   jobId: input.jobId,
   requestDigest: input.requestDigest,
   orderId: input.orderId,
@@ -188,8 +194,8 @@ const provedShippingJob: NonNullable<
   machineId,
   generation: input.generation,
   operation: input.operation,
-  state: 'succeeded',
-  classification: 'proved',
+  state: final.state ?? 'succeeded',
+  classification: final.classification ?? 'proved',
   summary: `${input.operation} proved`,
   observedSourceSha: input.approvedHeadSha,
   observedTargetSha: input.approvedHeadSha,
@@ -203,7 +209,7 @@ const provedShippingJob: NonNullable<
       }
     : {}),
   logs: [],
-  artifactRefs: [],
+  artifactRefs: final.artifactRefs ?? [],
   heartbeatedAt: '2026-08-13T10:00:00.000Z',
   finishedAt: '2026-08-13T10:00:00.000Z',
 })
@@ -805,12 +811,13 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('refuses daemon-native evidence paths before hold persistence', async () => {
-    const { store, issues, service } = harness(async (input, machineId) => ({
-      ...(await provedShippingJob(input, machineId)),
-      state: 'held',
-      classification: 'validation-failed',
-      artifactRefs: ['/native/daemon/validation.log'],
-    }))
+    const { store, issues, service } = harness((input, machineId) =>
+      provedShippingJob(input, machineId, {
+        state: 'held',
+        classification: 'validation-failed',
+        artifactRefs: ['/native/daemon/validation.log'],
+      }),
+    )
     const issue = issues.create({ repoPath: '/repo', title: 'opaque evidence', startNow: false })
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
@@ -1785,6 +1792,11 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
 
     crashBeforeAcknowledgement = false
+    issues.shippingCommit(
+      issue.id,
+      { expectedStage: 'shipping', nextStage: 'review', needsHuman: false },
+      () => {},
+    )
     issues.update(issue.id, { branch: 'issue/drifted-after-repair-decision' })
     const restarted = new ShippingService(deps)
     await restarted.reconcile()
@@ -1866,6 +1878,14 @@ describe('ShippingService enqueue transaction', () => {
     evidenceRegistry = new ShippingEvidenceRegistry(store.shipping)
     const issueA = issues.create({ repoPath: '/repo', title: 'repair train a', startNow: false })
     const issueB = issues.create({ repoPath: '/repo', title: 'repair train b', startNow: false })
+    issues.update(issueA.id, {
+      branch: 'issue/repair-train-a',
+      machineId: asMachineId('machine-1'),
+    })
+    issues.update(issueB.id, {
+      branch: 'issue/repair-train-b',
+      machineId: asMachineId('machine-1'),
+    })
     issues.update(issueA.id, { stage: 'review' })
     issues.update(issueB.id, { stage: 'review' })
     const admitted = [
@@ -2075,6 +2095,14 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = harness(heldDaemon)
     const issueA = issues.create({ repoPath: '/repo', title: 'train a', startNow: false })
     const issueB = issues.create({ repoPath: '/repo', title: 'train b', startNow: false })
+    issues.update(issueA.id, {
+      branch: 'issue/train-a',
+      machineId: asMachineId('machine-1'),
+    })
+    issues.update(issueB.id, {
+      branch: 'issue/train-b',
+      machineId: asMachineId('machine-1'),
+    })
     issues.update(issueA.id, { stage: 'review' })
     issues.update(issueB.id, { stage: 'review' })
     const admitted = [

@@ -808,8 +808,9 @@ describe('shipping durable store', () => {
     ] as const) {
       s.shipping.transitionOrder(covering.id, from, to, '2026-08-12T10:02:00.000Z')
     }
+    const completedAt = '2026-08-12T10:03:00.000Z'
     s.shipping.finishAttempt(claimed.attempt.id, claimed.attempt.leaseGeneration, {
-      finishedAt: '2026-08-12T10:03:00.000Z',
+      finishedAt: completedAt,
       outcome: 'succeeded',
       testedIntegrationSha: 'covering-head',
       landedRefSha: 'covering-head',
@@ -829,7 +830,7 @@ describe('shipping durable store', () => {
       validationProfileId: 'default',
       validationResult: 'passed' as const,
       destination: covering.destination,
-      completedAt: '2026-08-12T10:04:00.000Z',
+      completedAt,
     }
     s.shipping.completeVerifiedOrder(coveringReceipt)
     const lowerReceipt = {
