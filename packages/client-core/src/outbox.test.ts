@@ -8,6 +8,8 @@ import {
   type OutboxEntry,
   type OutboxStorage,
   parseOutboxEntries,
+  platformIsOnline,
+  platformOnlineEvents,
 } from './outbox'
 
 type Kinds = {
@@ -822,5 +824,36 @@ describe('recovery affordances are enforced, not advertised', () => {
     expect(() => ob.retry(old.mutationId, { rightsFixed: true })).toThrow()
     const fresh = ob.retry(old.mutationId, { mutationId: asMutationId('m-fresh') })
     expect(fresh.mutationId).toBe('m-fresh')
+  })
+})
+
+/** The two probes the engine wires by default. React Native defines `window`
+ *  as `global` and `navigator` without `onLine`, so both are reached on a phone
+ *  with objects that answer `typeof` but carry none of the DOM behind it. */
+describe('platform probes on a React Native global', () => {
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window
+    delete (globalThis as { navigator?: unknown }).navigator
+  })
+
+  it('declines to subscribe when window has no addEventListener', () => {
+    ;(globalThis as { window?: unknown }).window = { navigator: {} }
+    expect(platformOnlineEvents()).toBeUndefined()
+  })
+
+  it('still subscribes through a real DOM window', () => {
+    const added: string[] = []
+    ;(globalThis as { window?: unknown }).window = {
+      addEventListener: (name: string) => added.push(name),
+      removeEventListener: () => {},
+    }
+    const events = platformOnlineEvents()
+    events?.add(() => {})
+    expect(added).toEqual(['online'])
+  })
+
+  it('reads as online when navigator carries no onLine', () => {
+    ;(globalThis as { navigator?: unknown }).navigator = {}
+    expect(platformIsOnline()).toBe(true)
   })
 })
