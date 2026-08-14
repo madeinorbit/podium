@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
+import { writeSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import {
   asMachineId,
@@ -131,7 +132,7 @@ const service = new ShippingService({
   ...(phase === 'crash'
     ? {
         beforeCompletionCommit: () => {
-          process.stdout.write('completion-boundary\n')
+          writeSync(process.stdout.fd, 'completion-boundary\n')
           process.kill(process.pid, 'SIGKILL')
         },
       }

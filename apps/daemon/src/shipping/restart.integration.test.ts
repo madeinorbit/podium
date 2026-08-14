@@ -739,6 +739,8 @@ describe('shipping daemon restart recovery', () => {
     const proofRepo = join(root, 'proof-binding-repo')
     const secondRepo = join(root, 'proof-binding-second-repo')
     const runtime = join(root, 'proof-binding-runtime')
+    const secondRuntime = join(root, 'proof-binding-second-runtime')
+    resetFixture(proofRepo, secondRepo, runtime, secondRuntime)
     execFileSync('git', ['init', '--initial-branch=main', proofRepo])
     const proofGit = (...argv: string[]): string =>
       execFileSync('git', ['-C', proofRepo, ...argv], { encoding: 'utf8' }).trim()
@@ -785,7 +787,11 @@ describe('shipping daemon restart recovery', () => {
         plane.handle(signed({ ...common, jobId: `proof-attempt:${operation}`, operation })),
       ).toMatchObject({ state: 'succeeded' })
     }
-    proofGit('update-ref', 'refs/podium/ship/other-order/1/candidate', head)
+    proofGit(
+      'update-ref',
+      'refs/podium/ship/other-order-proof-attempt-1-single/candidate',
+      head,
+    )
     const otherOrder = plane.handle(
       signed({
         ...common,
@@ -796,6 +802,7 @@ describe('shipping daemon restart recovery', () => {
       }),
     )
     expect(otherOrder).toMatchObject({ state: 'held', classification: 'validation-failed' })
+    expect(otherOrder.summary).toContain('no matching green validation proof')
     expect(proofGit('rev-parse', 'main')).toBe(base)
 
     execFileSync('git', ['clone', '--no-hardlinks', proofRepo, secondRepo])
@@ -804,13 +811,10 @@ describe('shipping daemon restart recovery', () => {
       '-C',
       secondRepo,
       'update-ref',
-      'refs/podium/ship/proof-order/1/candidate',
+      'refs/podium/ship/proof-order-proof-attempt-1-single/candidate',
       head,
     ])
-    const secondPlane = new ShippingExecutionPlane(
-      join(root, 'proof-binding-second-runtime'),
-      asMachineId('machine-1'),
-    )
+    const secondPlane = new ShippingExecutionPlane(secondRuntime, asMachineId('machine-1'))
     const validationRequest = signed({
       ...common,
       requestId: 'seed-validation',
@@ -830,6 +834,7 @@ describe('shipping daemon restart recovery', () => {
       }),
     )
     expect(otherRepository).toMatchObject({ state: 'held', classification: 'validation-failed' })
+    expect(otherRepository.summary).toContain('no matching green validation proof')
     expect(
       execFileSync('git', ['-C', secondRepo, 'rev-parse', 'main'], { encoding: 'utf8' }).trim(),
     ).toBe(base)
@@ -841,6 +846,7 @@ describe('shipping daemon restart recovery', () => {
       const processRepo = join(root, 'process-repo')
       const dbPath = join(root, 'process-server', 'podium.db')
       const daemonRuntime = join(root, 'process-daemon')
+      resetFixture(processRepo, join(root, 'process-server'), daemonRuntime)
       execFileSync('git', ['init', '--initial-branch=main', processRepo])
       execFileSync('git', ['-C', processRepo, 'config', 'user.email', 'shipping@test.invalid'])
       execFileSync('git', ['-C', processRepo, 'config', 'user.name', 'Shipping Test'])
