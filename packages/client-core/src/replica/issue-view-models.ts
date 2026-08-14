@@ -127,6 +127,13 @@ export function buildIssueViewModels(
     if (!view) continue
     const { id: _id, ...derived } = view
     const legacy = legacyById.get(projection.id)
+    // The additive cutover still gets several render-critical supplements from
+    // IssueWire (repoPath among them). A projection can briefly outlive that row
+    // while replica scopes/bootstrap state converge; publishing it as an
+    // IssueViewModel would turn absent supplements into runtime `undefined`
+    // behind a type that promises strings. Keep the partial row out of rich
+    // surfaces until both halves of the model are present.
+    if (!legacy) continue
     const {
       commentCount: _commentCount,
       displayRef: _displayRef,
@@ -137,10 +144,10 @@ export function buildIssueViewModels(
       childDoneCount: _childDoneCount,
       dependents: _dependents,
       ...legacySupplement
-    } = legacy ?? ({} as IssueWire)
+    } = legacy
     // The retained issue row is the one cursor home: persistence and optimistic
     // overlays both write it, and unread is derived from that exact value.
-    const readAt = legacy?.readAt ?? null
+    const readAt = legacy.readAt ?? null
     models.set(projection.id, {
       ...legacySupplement,
       ...projectionOnLegacySpelling(projection),
