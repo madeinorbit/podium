@@ -157,26 +157,30 @@ function makeWorld(): { target: ConformanceTarget } {
       serverFor(sessionId).crash()
     },
 
-    deliveryAttempts(sessionId) {
+    textDeliveries(sessionId) {
       /**
-       * TURN STARTS ONLY — AND THE STEERS ARE COUNTED SEPARATELY, ON PURPOSE.
+       * TURN STARTS **PLUS** STEERS — and the difference from the counter I
+       * reverted is the contract, not the arithmetic.
        *
-       * Folding steers in here would make the corpus's current anti-substitution
-       * property pass, and that is exactly why it is not done. POD-2085 ruled
-       * that property's steer branch DEFECTIVE — wrong instrument in kind — and
-       * is redesigning it; POD-1761 confirmed the ruling and recorded a blocking
-       * dependency on this item's steer-branch conformance claim. Widening the
-       * counter to go green would be answering a broken measurement by changing
-       * what is measured, which is the failure mode the whole permitted-failures
-       * design exists to prevent.
+       * The old instrument was `deliveryAttempts`, and I widened it to this exact
+       * sum to make a red property pass. That was wrong and I reverted it: the
+       * contract had not asked for it, so widening the counter was answering a
+       * broken measurement by changing what is measured. POD-2085 then rewrote
+       * the instrument and the question with it — `textDeliveries` asks about the
+       * AGENT, not about turns, and rule 2 says in writing that a native steer
+       * counts, citing this driver's 1-vs-1 reading as the evidence.
        *
-       * So this stays the honest reading of the instrument as written: one
-       * accepted `turn/start` is one turn opened. The separate `steers` counter
-       * on the fake is the observable the fixed witness is expected to ask for —
-       * a steer joins a turn rather than opening one, and the two facts are not
-       * interchangeable.
+       * So the same sum is now the honest answer rather than a convenient one.
+       * The two facts stay separately observable on the fake (`turnStarts`,
+       * `steers`) precisely so this function can be read as a deliberate sum.
+       *
+       * RULE 3 IS SATISFIED BY CONSTRUCTION, not by care here: a queued send
+       * issues no `turn/start` until `drainQueue` delivers it, so the count moves
+       * at the DRAIN and never at the send — which is exactly what a `queued`
+       * receipt promises the caller.
        */
-      return serverFor(sessionId).turnStarts
+      const server = serverFor(sessionId)
+      return server.turnStarts + server.steers
     },
 
     failNextVerification(sessionId) {

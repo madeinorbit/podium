@@ -90,9 +90,16 @@ export interface FakeAppServer {
   alive: boolean
   /** The thread this server started or resumed, once it has. */
   threadId: string | undefined
-  /** How many `turn/start` calls have been ACCEPTED. The corpus's
-   *  `deliveryAttempts` — one accepted turn is one delivery of the caller's
-   *  words. */
+  /**
+   * How many `turn/start` calls have been ACCEPTED.
+   *
+   * KEPT SEPARATE FROM {@link steers} on purpose. The corpus's `textDeliveries`
+   * witness is the SUM of the two — a native steer delivers the caller's words
+   * without opening a turn — and the conformance fixture adds them there,
+   * deliberately and with the contract's rule 2 cited. Exposing one pre-summed
+   * number here would hide which of the two moved, which is the distinction the
+   * whole redesign was about.
+   */
   turnStarts: number
   /** `turn/steer` calls that were accepted into an open turn. */
   steers: number
