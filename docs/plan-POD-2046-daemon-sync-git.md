@@ -59,6 +59,46 @@ loop ticks during both waits: 20   (0 would mean the loop was blocked)
 No capability is lost in the port, and cancellation is gained. Re-run this
 probe if the Bun version moves before the work lands.
 
+## Decisions — all settled, nothing to ask
+
+Decided 2026-08-14 so this can be implemented unattended. Every "raise it" and
+"stop and split" hatch in earlier drafts is resolved below; there are no open
+questions left. Do not re-litigate these mid-implementation.
+
+1. **Fix all three freezes** (Phases 1 and 2), not the git one alone. The other
+   two have no time limit at all, so a git-only fix would leave the worse cases
+   standing.
+2. **Accept that the daemon stays awake while the checkout is rewritten**
+   (Risk 1). No quiesce mechanism, no pause-and-resume. `applyGrant` restarts
+   immediately after a successful git convergence (`grant-apply.ts:104-111`),
+   and `checkout --detach` is the last git step, so the exposure is one short
+   checkout followed by a restart. On a *failed* convergence nothing is
+   restarted and nothing was checked out. New machinery guarding a window that
+   ends in a restart is not worth its own failure modes.
+3. **The merge gate is the unit tests, not a live experiment.** The
+   "loop stays live" test below must first be shown FAILING against the current
+   synchronous code, then passing after — an armed test, not a bare green. The
+   loop-metrics before/after measurement stays in this plan as useful
+   confirmation but is NOT required to merge; a headless run cannot drive a real
+   source daemon against an unreachable remote.
+4. **Phase 2a needs no type change.** `GrantApplyDeps.swap` is already
+   `(bytes) => void | Promise<void>` (`grant-apply.ts:38`) and the caller already
+   awaits it. Just make it async.
+5. **Phase 2b is contained; do not split it.** `handleProtocolMismatch` has
+   exactly two callers, both inside `connection-state.ts` (`:296`, `:384`), both
+   in void contexts. Launch the update and handle `decidePostUpdate` in the
+   continuation; do not convert the socket call chain to async.
+6. **Keep the eight-minute budget as it is.** It is still the bound on a hung
+   `git fetch`; cancellation is added alongside it, not instead of it.
+7. **Pass an explicit `env`** (see 1c) — the async/sync environment difference
+   must be a decision, not a side effect.
+8. **A cancelled step and an expired budget must be distinguishable.** Keep
+   `GIT_TIMED_OUT_STATUS` for the budget; surface an abort as its own refusal
+   reason so an operator can tell "gave up" from "superseded".
+9. **Wire the abort in the daemon, not the runtime package.** `host-runtime.ts`
+   closes over the signal where it builds the runner; `DeliveryDeps` is
+   unchanged. Keeps the shared package ignorant of who owns the cancellation.
+
 ## Scope
 
 In scope — three sync child-process call sites on the daemon loop, all on the
@@ -104,11 +144,9 @@ Out of scope:
 
 - `const result = await convergeViaGit(...)` at `:98`. `fetchArtifact` is
   already `async`; no signature moves.
-- Extend `DeliveryDeps.git` (`:31`) so the runner can receive the abort:
-  pass `deps.signal` through to `convergeViaGit`'s deps, or — simpler, and
-  preferred — leave `DeliveryDeps` untouched and have the *daemon* close over
-  the signal when it builds the runner (see 1c). Prefer the second: it keeps
-  the runtime package ignorant of who owns the abort.
+- Leave `DeliveryDeps` untouched. The daemon closes over the signal when it
+  builds the runner (1c, decision 9), so the runtime package stays ignorant of
+  who owns the cancellation.
 
 ### 1c. `apps/daemon/src/host-runtime.ts`
 
@@ -116,7 +154,8 @@ Out of scope:
   `{ timeout, killSignal: 'SIGKILL', signal, encoding: 'utf8' }`. Map the
   rejection back to the same `{ status, stdout }` shape the callers already
   branch on — a timeout kill must still surface as `GIT_TIMED_OUT_STATUS`, and
-  an abort must surface distinguishably (see the open question below).
+  an abort must surface as its own refusal reason, distinct from the budget
+  expiring (decision 8).
 - `runGit` currently takes `(command, args, timeoutMs)`. Give it the grant's
   `AbortSignal` too. `host-runtime.ts:381` builds the deps inside the
   `fetchArtifact` call that already receives `signal`, so the signal is in
@@ -147,8 +186,9 @@ Out of scope:
 
 - `swapHeadlessBundle` becomes `async`; `execFileSync('tar', …)` becomes an
   awaited `execFile` **with a timeout** — it has none today.
-- `grant-apply.ts:104` already does `await deps.swap(artifact.bytes)`, so the
-  caller is unchanged. Check the `GrantApplyDeps.swap` type allows a promise.
+- `grant-apply.ts:104` already does `await deps.swap(artifact.bytes)` and
+  `GrantApplyDeps.swap` is already `(bytes) => void | Promise<void>` (`:38`), so
+  neither the caller nor the type changes.
 - The rename/rollback sequence around the extract stays synchronous. Those are
   `renameSync` calls on one filesystem, chosen for atomicity; leave them. Only
   the `tar` extract — the one call that can take seconds and has no bound —
@@ -156,16 +196,13 @@ Out of scope:
 
 ### 2b. `apps/daemon/src/connection-state.ts`
 
-- `handleProtocolMismatch` is a `void` callback on the socket path. Making the
-  spawn async makes the function async, which changes its call sites. Trace
-  every caller before editing; if a caller cannot await, launch the update and
-  let the existing `decidePostUpdate(result.status)` branch run in the
-  continuation rather than converting the whole chain.
+- `handleProtocolMismatch` is a `void` callback with exactly two callers, both
+  inside this file (`:296`, `:384`), both in void contexts. Launch the update
+  and run the existing `decidePostUpdate(result.status)` branch in the
+  continuation. **Do not** convert the socket call chain to async — the change
+  stays inside `connection-state.ts`.
 - Give it a timeout. A `podium update` that never returns currently wedges the
   daemon permanently with no alarm.
-- This one is the most likely to grow: if the async conversion reaches beyond
-  `connection-state.ts`, stop and split it into its own sub-issue rather than
-  widening this branch.
 
 ## Tests
 
@@ -199,7 +236,14 @@ New, and the reason for the change:
 behaviour trigger also applies, so run the integration lane once, sequentially —
 not stacked.
 
-Beyond the unit lane, gate on a **comparison**, not a bare green. The daemon
+The merge gate is the unit lane (decision 3). The "loop stays live" test is what
+makes the change falsifiable, so **run it against the current synchronous code
+first and record that it fails** — a test that was never seen red proves nothing.
+
+The measurement below is confirmation in production, NOT a merge requirement.
+Skip it in a headless run and say so in the handoff; do not fake it.
+
+The daemon
 already runs the POD-600 loop-metrics probe with the stall classifier
 (`packages/runtime/src/loop-metrics.ts`, `loop-stall.ts`, wired via
 `host-runtime.ts:134` and `loop-attribution.ts`). A sync git fetch is exactly
@@ -220,10 +264,12 @@ proves nothing here: it is consistent with the delivery never having run.
    Today the freeze makes `git checkout --detach` accidentally atomic from the
    daemon's own point of view — it cannot read a half-changed tree because it
    cannot read anything. After the fix it can. The live server runs the main
-   checkout's working tree, so this is a real change in exposure, not a
-   theoretical one. The convergence ends in a restart regardless, which limits
-   the window, but this needs an explicit decision before Phase 1 lands rather
-   than discovery afterwards. **Raise it; do not assume it is benign.**
+   checkout's working tree, so this is a real change in exposure.
+   **Accepted knowingly — decision 2.** The window is one checkout followed by
+   an immediate restart, and a failed convergence checks nothing out. Build no
+   guard for it. If this ever bites, the evidence will be a daemon reading a
+   half-swapped tree in the seconds before a restart; reopen the decision then,
+   not pre-emptively.
 2. **Reentrancy.** Control messages will now be processed during a convergence.
    `createGrantRunner` already serialises grants (a repeat is ignored, a newer
    one aborts and awaits the old), so the update path itself is covered. Audit
@@ -231,7 +277,6 @@ proves nothing here: it is consistent with the delivery never having run.
 3. **Environment delta** — covered in 1c; the fix is to pass `env` explicitly.
 4. **Bun behaviour drift** — the timeout/signal probe above is version-specific.
    Re-run it if Bun moves.
-5. **Scope creep in 2b** — bounded by the "split it out" instruction above.
 
 ## Order of work
 
