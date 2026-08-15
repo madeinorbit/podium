@@ -60,8 +60,16 @@ export class SessionMetaOps {
     }
     const session = this.ports.sessions.get(sessionId)
     if (!session) {
+      // A session the server no longer holds in memory has no wire value to
+      // publish, so the row is written for the next boot to replay and NOTHING
+      // is broadcast. `broadcastSessions()` used to be called here and was pure
+      // theatre: it only flushes captures, this path marks none, and the flush
+      // skips a non-resident session anyway (repository.flushVolatileSessionCaptures).
+      // Not a live leak — every route out of the sessions map also drops the
+      // session from the change baseline (kill and issue-delete publish removes;
+      // a never-persisted session was never in it; a boot-skipped row is removed
+      // by the boot reconcile) — but the call read as if clients were told.
       this.ports.store.sessions.setOffer(sessionId, offer)
-      this.ports.broadcastSessions()
       return
     }
     session.offer = offer
@@ -73,11 +81,34 @@ export class SessionMetaOps {
    *  or auto-clear on the next user turn). Skips work when nothing changes. */
   clearOffer(sessionId: SessionId): void {
     const session = this.ports.sessions.get(sessionId)
-    if (!session || !session.clearOffer()) {
+    const clearedInMemory = session?.clearOffer() ?? false
+    // The DURABLE row can outlive the in-memory offer, so memory alone cannot
+    // answer "is there anything to clear". It happens for real: `listOffers`
+    // DROPS a row whose `actions` JSON is corrupt (store/sessions.ts, "corrupt
+    // row -> treat as no offer"), so boot leaves `session.offer` undefined while
+    // `offerCreatedAt` — which reads `created_at` without parsing `actions` —
+    // still returns its stamp. That row would otherwise survive every turn and
+    // every restart. `dismissOffer` reads the row for the same reason.
+    //
+    // Ordering is deliberate: the read only happens when memory had nothing, so
+    // the callers that clear a standing offer (the turn path, the daemon's
+    // staleness clears, `retireIssueOffers` — all of which gate on
+    // `session.offer !== undefined` first) never pay a SQLite hit per turn.
+    // Those callers therefore never retire a corrupt row; only `podium offer
+    // clear` and `dismissOffer` reach it, and widening their guards to this
+    // read is not worth a per-turn query.
+    if (!clearedInMemory && this.ports.store.sessions.offerCreatedAt(sessionId) === undefined) return
+    if (!session) {
       this.ports.store.sessions.clearOffer(sessionId)
-      this.ports.broadcastSessions()
       return
     }
+    // ONE transaction for the DELETE and the change that announces it. Clients
+    // hold the last SessionMeta they were sent, so a durable clear that captures
+    // no change leaves the offer on screen until a reload — `broadcastSessions()`
+    // flushes captures, it does not create one. Going through `persist` rather
+    // than a bare DELETE plus a dirty mark also keeps the two from being able to
+    // disagree: a rolled-back commit cannot leave the row deleted, and the
+    // session's captured durable state is refreshed in the same breath.
     this.ports.repository.persist(session, () => this.ports.store.sessions.clearOffer(sessionId))
     this.ports.broadcastSessions()
   }

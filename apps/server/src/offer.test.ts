@@ -137,6 +137,158 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     }
   })
 
+  /**
+   * WHAT REACHES CLIENTS, not what reaches the database (POD-1104).
+   *
+   * Both offer writes have an arm that changes the durable `offers` row without
+   * going through `repository.persist` — the seam that captures a session change.
+   * `broadcastSessions()` does NOT cover for that: it flushes captures, it does
+   * not create one, so an arm that marks nothing dirty emits nothing and every
+   * client keeps the last SessionMeta it was sent — offer and all.
+   *
+   * These pin the publication contract on each arm rather than the row alone,
+   * which is what the DB-level assertions elsewhere in this file check.
+   */
+  describe('the durable write and the feed row travel together', () => {
+    /** Session changes on the feed since `cursor`, newest state per change. */
+    function sessionChangesSince(reg: SessionRegistry, cursor: number) {
+      const res = reg.modules.sessions.syncChangesSince(cursor)
+      // A cursor this recent is always servable as a delta; a snapshot here
+      // would mean the assertion silently stopped testing the feed.
+      expect(res.kind).toBe('delta')
+      return (res as { changes: { entity: string; value?: unknown }[] }).changes.filter(
+        (c) => c.entity === 'session',
+      )
+    }
+
+    function seeded() {
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/p',
+      })
+      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      reg.modules.sessions.flushBroadcasts()
+      return { reg, sessionId, cursor: reg.modules.sessions.syncChangesSince(null).cursor }
+    }
+
+    it('clearing a standing offer puts the offer-free meta on the feed', () => {
+      const { reg, sessionId, cursor } = seeded()
+      // The hot path must not pay the durable stamp read: memory answered, so
+      // the row is never consulted. Every frequent caller lands here.
+      const stampRead = vi.spyOn(reg.sessionStore.sessions, 'offerCreatedAt')
+      reg.modules.sessions.clearOffer(asSessionId(sessionId))
+      reg.modules.sessions.flushBroadcasts()
+      expect(stampRead).not.toHaveBeenCalled()
+      stampRead.mockRestore()
+
+      const changes = sessionChangesSince(reg, cursor)
+      expect(changes).toHaveLength(1)
+      expect((changes[0]?.value as { offer?: unknown }).offer).toBeUndefined()
+    })
+
+    /**
+     * THE REGRESSION. A session still in memory whose durable row outlived its
+     * in-memory offer took the early return: DELETE, then a broadcast with
+     * nothing marked. The row went, the feed said nothing, and the offer stayed
+     * on screen until a reload. Clearing memory's copy directly is how the state
+     * is reached here; what matters is that the clear still publishes.
+     */
+    it('republishes when only the durable row still holds the offer', () => {
+      const { reg, sessionId, cursor } = seeded()
+      const live = (reg as any).modules.sessions.sessions.get(sessionId)
+      expect(live.clearOffer()).toBe(true) // memory only — the row survives
+      expect(reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
+
+      reg.modules.sessions.clearOffer(asSessionId(sessionId))
+      reg.modules.sessions.flushBroadcasts()
+
+      expect(reg.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
+      const changes = sessionChangesSince(reg, cursor)
+      expect(changes).toHaveLength(1)
+      expect((changes[0]?.value as { offer?: unknown }).offer).toBeUndefined()
+    })
+
+    /**
+     * …and the way that state is reached WITHOUT reaching into memory. A row
+     * whose `actions` JSON is corrupt is dropped by `listOffers` ("corrupt row
+     * -> treat as no offer") but still answers `offerCreatedAt`, which reads
+     * `created_at` without parsing `actions`. Boot therefore installs a session
+     * with no in-memory offer over a row that is still there — and, since the
+     * auto-clear callers all gate on the in-memory copy, that row would outlive
+     * every turn and every restart. A clear must still retire it.
+     */
+    it('retires a row that boot could not parse into an in-memory offer', () => {
+      const dir = trackTmp('podium-offer-')
+      const file = join(dir, 'store.db')
+      const reg = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/p',
+      })
+      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      reg.dispose()
+
+      const db = openDatabase(file)
+      db.prepare('UPDATE offers SET actions = ? WHERE session_id = ?').run('{not json', sessionId)
+      db.close()
+
+      const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+      // Boot dropped it from memory but left the row standing.
+      expect(metaOffer(reg2, sessionId)).toBeUndefined()
+      expect(reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
+
+      reg2.modules.sessions.clearOffer(asSessionId(sessionId))
+      reg2.modules.sessions.flushBroadcasts()
+      expect(reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeUndefined()
+      reg2.dispose()
+    })
+
+    /** The common case. Nothing to clear must cost neither a DELETE nor a feed
+     *  row — and must not cost the durable read either, which is why the callers
+     *  that clear a standing offer gate on the in-memory copy first. */
+    it('clearing when there is no offer writes nothing and says nothing', () => {
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/p',
+      })
+      reg.modules.sessions.flushBroadcasts()
+      const cursor = reg.modules.sessions.syncChangesSince(null).cursor
+      const deleted = vi.spyOn(reg.sessionStore.sessions, 'clearOffer')
+
+      reg.modules.sessions.clearOffer(asSessionId(sessionId))
+      reg.modules.sessions.flushBroadcasts()
+      expect(deleted).not.toHaveBeenCalled()
+      expect(sessionChangesSince(reg, cursor)).toEqual([])
+      deleted.mockRestore()
+    })
+
+    /**
+     * A session the server does not hold in memory has no wire value to publish,
+     * so both arms stay silent BY DESIGN — the row write is bookkeeping for the
+     * next boot's replay. Safe only because such a session is absent from the
+     * change baseline too (kill and issue-delete publish removes; the boot
+     * reconcile drops a row it could not load), so no client is holding it.
+     */
+    it('a non-resident session is durable-only, on both set and clear', () => {
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      reg.modules.sessions.flushBroadcasts()
+      const cursor = reg.modules.sessions.syncChangesSince(null).cursor
+      const gone = asSessionId('a-session-not-in-memory')
+
+      reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })
+      reg.modules.sessions.flushBroadcasts()
+      expect(reg.sessionStore.sessions.offerCreatedAt(gone)).toBeTypeOf('string')
+      expect(sessionChangesSince(reg, cursor)).toEqual([])
+
+      reg.modules.sessions.clearOffer(gone)
+      reg.modules.sessions.flushBroadcasts()
+      expect(reg.sessionStore.sessions.offerCreatedAt(gone)).toBeUndefined()
+      expect(sessionChangesSince(reg, cursor)).toEqual([])
+    })
+  })
+
   it('persists the offer across a restart (reload from the same store file)', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
