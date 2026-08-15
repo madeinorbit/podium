@@ -68,6 +68,7 @@ import {
   SessionIdField,
   ShipHoldAction,
   ShipOrderIdField,
+  SORT_KEY_MAX_LEN,
   UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
@@ -321,7 +322,15 @@ export const updateInput = z.object({
     pinned: z.boolean().optional(),
     // Manual order (POD-168): fractional key, validated so a malformed key
     // can never poison a sibling scope's ordering.
-    sortKey: z.string().max(128).refine(isSortKey, 'malformed sort key').optional(),
+    //
+    // THE LENGTH BOUND IS IMPORTED, NOT SPELLED (POD-1102). It was a literal
+    // 128 here and nothing anywhere else knew the number, so the day a repo's
+    // keys grew past it the only symptom was a drag that 400'd — the mint that
+    // grew them runs server-side, inside the service, and never meets this
+    // schema. `SORT_KEY_MAX_LEN` now names the same bound that
+    // `SORT_KEY_COMPACT_LEN` keeps scopes under, which is what makes the
+    // refusal unreachable rather than merely rare.
+    sortKey: z.string().max(SORT_KEY_MAX_LEN).refine(isSortKey, 'malformed sort key').optional(),
     // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
     // Top-level only (POD-697): the service refuses a slot on a sub-task, which
     // takes its mission's colour. Clearing stays legal at any depth.

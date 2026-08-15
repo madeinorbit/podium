@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import {
+  type ArtifactId,
   asIssueId,
   asRepoId,
   asSessionId,
@@ -15,9 +16,10 @@ import {
   type RepoId,
   type SessionId,
   type SessionMeta,
+  SORT_KEY_COMPACT_LEN,
   sortKeyBetween,
+  spreadSortKeys,
   type UserId,
-  type ArtifactId,
 } from '@podium/model'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -626,12 +628,17 @@ export class IssueCrudModule {
     }
   }
 
-  /** Mint a manual-order key ABOVE the sibling scope's current top (POD-168):
-   *  "new appears at top" (R2) is the sort's natural behavior, no special case.
-   *  Scope = a parent's children when parentId is set, else the repo's
-   *  top-level non-pinned rows. Corrupt/legacy keys are ignored for the min. */
-  private mintSortKey(repoId: RepoId, repoPath: string, parentId: string | null): string {
-    let min: string | null = null
+  /** Every non-deleted row sharing ONE manual-order key space (POD-168): a
+   *  parent's children when parentId is set, else the repo's top-level
+   *  non-pinned rows. Archived rows are in it — they still hold keys, and a
+   *  scope measured over a narrower set than it renumbers would be compacted
+   *  into a state that immediately reads as long again. */
+  private sortScopeRows(
+    repoId: RepoId | null | undefined,
+    repoPath: string,
+    parentId: string | null,
+  ): IssueRow[] {
+    const rows: IssueRow[] = []
     for (const r of this.store.rows.values()) {
       if (r.deletedAt) continue
       const sameScope = parentId
@@ -639,9 +646,76 @@ export class IssueCrudModule {
         : r.parentId == null &&
           !this.store.issueOverlay(r.id).pinned &&
           (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
-      if (!sameScope) continue
+      if (sameScope) rows.push(r)
+    }
+    return rows
+  }
+
+  /** The scope's current top key, corrupt/legacy keys ignored. */
+  private minSortKey(scope: readonly IssueRow[]): string | null {
+    let min: string | null = null
+    for (const r of scope) {
       const k = r.sortKey
       if (isSortKey(k) && (min === null || k < min)) min = k
+    }
+    return min
+  }
+
+  /**
+   * Renumber a whole key space with fresh evenly-spread keys, in the order it
+   * already renders (POD-1102).
+   *
+   * NOT A REPAIR OF CORRUPTION — the keys being replaced are perfectly valid,
+   * just LONG. `mintSortKey` puts every new row above the scope's minimum, so a
+   * repo that keeps making work keeps pushing its own top key down toward zero:
+   * one character longer every five creates, forever. Past the wire's cap the
+   * refusal lands nowhere near the cause — a create still works (it mints
+   * server-side, inside this service, where no schema is checked), while the
+   * DRAG that plans a key against those same rows comes back 400. So the growth
+   * is silent right up to the point where reordering stops working at all.
+   *
+   * Ordering is read back off the rows rather than passed in, so this stays
+   * callable from anywhere the scope is known: valid keys ascending first (the
+   * manual order), then unkeyed legacy rows in creation order, newest first —
+   * the same fallback `compareManualOrder` uses on the client, so a compaction
+   * FREEZES the order the operator is looking at instead of reshuffling it.
+   */
+  private compactSortKeys(scope: readonly IssueRow[]): void {
+    const ordered = [...scope].sort((a, b) => {
+      const ka = isSortKey(a.sortKey) ? a.sortKey : null
+      const kb = isSortKey(b.sortKey) ? b.sortKey : null
+      if (ka !== null && kb !== null && ka !== kb) return ka < kb ? -1 : 1
+      if (ka !== null && kb === null) return -1
+      if (ka === null && kb !== null) return 1
+      const dt = Date.parse(b.createdAt) - Date.parse(a.createdAt)
+      if (dt) return dt
+      if (a.seq !== b.seq) return b.seq - a.seq
+      return a.id.localeCompare(b.id)
+    })
+    const keys = spreadSortKeys(ordered.length)
+    for (const [i, row] of ordered.entries()) {
+      const next = keys[i]
+      if (next === undefined || row.sortKey === next) continue
+      row.sortKey = next
+      // Organizational-only, exactly like the reorder it protects: compaction
+      // must not touch `updatedAt`, or a scope repair would mark every issue in
+      // the repo unread (POD-325).
+      this.store.persist(row, { touch: false })
+    }
+  }
+
+  /** Mint a manual-order key ABOVE the sibling scope's current top (POD-168):
+   *  "new appears at top" (R2) is the sort's natural behavior, no special case.
+   *  Compacts first when the scope's top key has grown long enough that another
+   *  head-insert would push it toward the wire cap (POD-1102) — see
+   *  {@link compactSortKeys} for why an ever-growing key breaks the DRAG rather
+   *  than the create that grew it. */
+  private mintSortKey(repoId: RepoId, repoPath: string, parentId: string | null): string {
+    const scope = this.sortScopeRows(repoId, repoPath, parentId)
+    let min = this.minSortKey(scope)
+    if (min !== null && min.length >= SORT_KEY_COMPACT_LEN) {
+      this.compactSortKeys(scope)
+      min = this.minSortKey(scope)
     }
     return sortKeyBetween(null, min)
   }
@@ -861,9 +935,25 @@ export class IssueCrudModule {
     // Organizational-only patches (pin / sortKey reorder) are not activity: do
     // not advance updatedAt past readAt or computeUnread re-marks the issue
     // unread after a purely human board edit (POD-325).
-    const wire = this.store.persist(row, {
+    let wire = this.store.persist(row, {
       touch: isOrganizationalOnlyPatch(patch) ? false : undefined,
     })
+    // A LANDED REORDER IS THE SECOND PLACE THE SCOPE GETS MEASURED (POD-1102).
+    // `mintSortKey` compacts on create, which is enough for a repo that keeps
+    // making work, and a repo that has stopped would otherwise carry its long
+    // keys forever — with the drag as the thing that breaks. Checked AFTER the
+    // patch is applied and never before: the client planned this key against
+    // the keys the scope had a moment ago, so compacting first would leave a
+    // hundred-character key sitting in a scope of three-character ones, which
+    // sorts to the top and moves the row somewhere nobody dropped it.
+    if (patch.sortKey !== undefined) {
+      const scope = this.sortScopeRows(row.repoId, row.repoPath, row.parentId ?? null)
+      const min = this.minSortKey(scope)
+      if (min !== null && min.length >= SORT_KEY_COMPACT_LEN) {
+        this.compactSortKeys(scope)
+        wire = this.store.toWire(row)
+      }
+    }
     // Cross-issue derived effects (#22): a closed-predicate flip changes the
     // dependents' blocked/ready and the parent's childDoneCount; a reparent
     // changes both parents' childCount. Those rows' wires must reach clients too.

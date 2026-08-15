@@ -172,6 +172,26 @@ describe('an evicted issue leaves the sidebar without a deletion', () => {
     expect(issueGet).not.toHaveBeenCalled()
   })
 
+  it('stops being a reorder neighbour the moment it starts leaving (POD-1102)', async () => {
+    currentIssues = [SHARED, issue('iss_stays', 'Still here')]
+    currentSelected = null
+    const { rerender } = render(<SidebarUnified />)
+    await screen.findByText('Shared with me')
+    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(2)
+
+    currentIssues = [issue('iss_stays', 'Still here')]
+    rerender(<SidebarUnified />)
+
+    // The row is RETAINED on screen for the length of its exit, which is right —
+    // that is the leave animation. What it must not still be is a sibling the
+    // drop counts: the order is read back out of `data-drag-key`, so a departing
+    // row left in it plans a sortKey write against work that is already gone,
+    // and mints the moved row's key against a neighbour nobody can point at.
+    await waitFor(() => expect(screen.queryByText('Shared with me')).toBeTruthy())
+    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(1)
+    expect(document.querySelector('[data-drag-key="iss_shared"]')).toBeNull()
+  })
+
   // --- negative controls: absence that is NOT eviction ------------------------
 
   it('keeps the selection while the issue list is still empty on a cold client', async () => {

@@ -9,11 +9,35 @@
  * One key SPACE per sibling scope (a project group's top level, a parent's
  * children, the PINNED section) — keys are only ever compared to siblings, so
  * scopes never contend.
+ *
+ * "NOTHING IS EVER RENUMBERED" HOLDS FOR A REORDER, NOT FOR A SCOPE (POD-1102).
+ * The claim above is true of the one write a drag plans, and it was read as a
+ * property of the key space, which it is not: a scope that only ever gains rows
+ * AT THE TOP — which is exactly what "new work appears first" means — drives its
+ * own minimum one character longer every five creates, for as long as the repo
+ * lives. Six hundred issues in and the minimum is past {@link SORT_KEY_MAX_LEN},
+ * at which point every reorder a client plans against those rows is a key the
+ * wire refuses, and the operator gets an error toast instead of a moved row.
+ * {@link spreadSortKeys} is the way out: a scope whose keys have grown long
+ * takes fresh evenly-spread ones IN ITS CURRENT ORDER, and the head of the space
+ * is open again. Compaction is a scope-level repair, deliberately rare, and it
+ * is the ONLY thing here that renumbers.
  */
 
 const DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz'
 const MIN = DIGITS[0] as string
 const KEY_RE = /^[0-9a-z]+$/
+
+/** The longest key any client may write, mirrored by the `issues.update` wire
+ *  schema. Keys are MINTED, never typed, so this is not an input-length limit —
+ *  it is the point past which a scope has to be compacted instead of pushed. */
+export const SORT_KEY_MAX_LEN = 128
+
+/** The length at which a scope is compacted. Comfortably under the cap so the
+ *  repair happens while every key is still writable, rather than after the
+ *  first refusal — and high enough that compaction stays rare (one per ~320
+ *  creates in a scope, against one per ~640 if it waited for the cap). */
+export const SORT_KEY_COMPACT_LEN = 64
 
 /** A well-formed sort key: non-empty base-36, no trailing minimum digit. */
 export function isSortKey(value: unknown): value is string {
@@ -63,4 +87,39 @@ export function sortKeyBetween(
 /** Ascending key comparison (the scope's render order, top first). */
 export function compareSortKeys(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
+}
+
+/** `count` as a fixed-width base-36 numeral, so lexicographic order over a set
+ *  of same-width keys is numeric order. */
+function base36(value: number, width: number): string {
+  return value.toString(36).padStart(width, MIN)
+}
+
+/**
+ * `count` ascending keys spread evenly across the whole key space — the order a
+ * COMPACTED scope takes (POD-1102). Fixed width, so they compare numerically,
+ * and short: a thousand-row scope fits in three characters.
+ *
+ * The width leaves at least one unused slot between neighbours, which buys two
+ * things at once. Ordinary reorders keep landing on the fast path (there is a
+ * midpoint between every adjacent pair without lengthening anything), and a key
+ * whose last digit came out '0' — illegal, since a trailing minimum has no
+ * strict midpoint below it — can be nudged one slot up without ever reaching
+ * its neighbour.
+ */
+export function spreadSortKeys(count: number): string[] {
+  if (count <= 0) return []
+  let width = 1
+  let space = DIGITS.length
+  while (space < (count + 1) * 2) {
+    width += 1
+    space *= DIGITS.length
+  }
+  const step = Math.floor(space / (count + 1))
+  const keys: string[] = []
+  for (let i = 1; i <= count; i++) {
+    const slot = i * step
+    keys.push(base36(slot % DIGITS.length === 0 ? slot + 1 : slot, width))
+  }
+  return keys
 }

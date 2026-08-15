@@ -248,6 +248,20 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     expect(document.activeElement).not.toBe(field())
   })
 
+  it('withdraws the reorder grips while a query is narrowing the column (POD-1102)', () => {
+    render(<SidebarUnified />)
+    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(3)
+    // A filtered column is a VIEW, not the scope. The drop reads the new order
+    // back out of `data-drag-key`, so leaving grips on a narrowed list plans a
+    // sortKey write against a sample of the siblings — the hidden rows between
+    // the visible ones are invisible to the plan, and the backfill path would
+    // renumber the sample and scatter everything it could not see.
+    type('rocket')
+    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(0)
+    fireEvent.click(screen.getByTestId('work-search-clear'))
+    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(3)
+  })
+
   it('gaps every section but the first (the design’s 14px)', () => {
     render(<SidebarUnified />)
     // Pinned opens the column, flush under the search field; the project group

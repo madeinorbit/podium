@@ -453,6 +453,15 @@ export function WorkSections({
     })),
   )
 
+  // THE FILTER NARROWS THE LIST; IT DOES NOT REBUILD IT (POD-1078). It is applied
+  // below, to the rows the transition layer already settled, rather than upstream
+  // of the placements: a query is a VIEW of the column, and rebuilding the
+  // placement set per keystroke would run every hidden row through the entering/
+  // exiting machinery — thirty rows flying out on `w`, back in on backspace.
+  // Read HERE, above the row renderer, because the grip consults it too — see
+  // `draggable`.
+  const filtering = normalizeWorkQuery(query).length > 0
+
   const renderWorkRow = (item: TransitionWorkRow, animate = true) => {
     const { row, lane } = item.value
     const folded = lane === 'closed' || lane === 'snoozed'
@@ -460,7 +469,24 @@ export function WorkSections({
     const exiting = item.phase === 'exiting'
     const quickArchiveExit =
       exiting && row.kind === 'issue' && quickArchiveExitIds.has(row.issue.id)
-    const draggable = row.kind === 'issue' && !isIssueDeferred(row.issue, now)
+    // WHAT MAY CARRY A GRIP IS ALSO WHAT MAY BE A NEIGHBOUR (POD-1102). The drop
+    // reads the scope's new order straight back out of `data-drag-key`, so this
+    // one predicate decides two things at once, and the two rows below belong in
+    // neither role:
+    //
+    //  - AN EXITING ROW is on screen only until its animation finishes. It has
+    //    already left the list the order describes, so counting it plans a
+    //    sortKey write against a row that is gone (archived, closed, moved to
+    //    another band) and mints the moved row's key against a neighbour the
+    //    operator can no longer see.
+    //  - A FILTERED COLUMN is not the scope. `data-drag-key` is only on the rows
+    //    a query left standing, so the order read at the drop is a SUBSET —
+    //    every hidden row between the visible ones is invisible to the plan, and
+    //    the backfill path renumbers the whole visible set, which for a filtered
+    //    column means renumbering a sample and scattering the rest. Manual order
+    //    is a statement about the whole scope; it is only offered over one.
+    const draggable =
+      row.kind === 'issue' && !exiting && !filtering && !isIssueDeferred(row.issue, now)
     const inner =
       folded && row.kind === 'issue' ? (
         // Closed / suspended issues drop to one dim line (POD-293) — no chrome,
@@ -590,12 +616,6 @@ export function WorkSections({
     )
   }
 
-  // THE FILTER NARROWS THE LIST; IT DOES NOT REBUILD IT (POD-1078). It is applied
-  // here, to the rows the transition layer already settled, rather than upstream
-  // of the placements: a query is a VIEW of the column, and rebuilding the
-  // placement set per keystroke would run every hidden row through the entering/
-  // exiting machinery — thirty rows flying out on `w`, back in on backspace.
-  const filtering = normalizeWorkQuery(query).length > 0
   const survives = (item: TransitionWorkRow): boolean =>
     !filtering || matchesWorkQuery(item.value.row, query, now)
   // The haystack the footnote names: the same live pool the field counts over.
