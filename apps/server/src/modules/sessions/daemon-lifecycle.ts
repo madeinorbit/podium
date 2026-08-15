@@ -197,8 +197,11 @@ export class SessionDaemonLifecycle {
         this.broadcastSessions()
         // The PTY is bound: if messages queued up while this session was parked
         // (or across a server restart), start a delivery attempt — the drain loop
-        // itself waits out the boot-settle before typing.
-        this.inbox.drain(msg.sessionId)
+        // itself waits out the boot-settle before typing. `justBound` is the part
+        // the drain cannot see for itself: markLive above has already flipped the
+        // session to 'live', so by the time it looks, an unproven CLI and a
+        // long-settled one are the same word (POD-1100).
+        this.inbox.drain(msg.sessionId, { justBound: true })
         // Catchup (POD-859 §6): seed native with a chat draft edited while the
         // session was down — on BIND (the engine is attached by the time the daemon
         // reports draftSyncEngine), not on reattach (dispatched before attach).

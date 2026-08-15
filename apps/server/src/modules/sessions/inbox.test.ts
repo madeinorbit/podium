@@ -34,6 +34,10 @@ function harness(
     status?: string
     agentKind?: 'codex' | 'opencode' | 'grok'
     userTurns?: number
+    /** Whether the transcript can WITNESS a send — production's normal state for
+     *  an agent session, and what the confirmation gate keys off (POD-1100). */
+    transcriptAvailable?: boolean
+    stateObservedAt?: string
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
@@ -43,6 +47,10 @@ function harness(
   let authorized = true
   const applied = vi.fn()
   const handleInput = vi.fn()
+  const transcript: Array<{ id: string; role: 'user' | 'assistant'; text: string }> = Array.from(
+    { length: options.userTurns ?? 0 },
+    (_, index) => ({ id: `u${index}`, role: 'user' as const, text: `turn ${index}` }),
+  )
   const session = {
     sessionId: SID,
     machineId: 'machine-1',
@@ -50,15 +58,15 @@ function harness(
     agentKind: options.agentKind ?? 'codex',
     resume: { kind: 'codex', value: 'resume-1' },
     queuedMessageCount: 0,
-    agentState: { phase: 'idle' },
+    transcriptAvailable: options.transcriptAvailable ?? false,
+    agentState: {
+      phase: 'idle',
+      since: '2026-08-15T00:00:00.000Z',
+      ...(options.stateObservedAt ? { stateObservedAt: options.stateObservedAt } : {}),
+    },
     terminal: {
       lastOutputAtMs: 0,
-      transcriptItems: () =>
-        Array.from({ length: options.userTurns ?? 0 }, (_, index) => ({
-          id: `u${index}`,
-          role: 'user' as const,
-          text: `turn ${index}`,
-        })),
+      transcriptItems: () => transcript,
       recordInputActivity: vi.fn(),
       // POD-1081 added a live last-input attribution call on the real terminal
       // (terminal.ts). This fixture is `as unknown as Session`, so the compiler
@@ -119,11 +127,42 @@ function harness(
     answered,
     applied,
     handleInput,
+    transcript,
     revoke: () => {
       authorized = false
     },
+    /** The CLI accepted a prompt: it becomes the transcript's last user turn. */
+    landTurn: (text: string) => {
+      transcript.push({ id: `u${transcript.length}`, role: 'user', text })
+    },
+    /** The harness speaking for the resumed process. */
+    observeState: (at: string) => {
+      ;(session as unknown as { agentState: Record<string, unknown> }).agentState = {
+        phase: 'idle',
+        since: at,
+        stateObservedAt: at,
+      }
+    },
+    setStatus: (status: string) => {
+      ;(session as unknown as { status: string }).status = status
+    },
   }
 }
+
+const PASTE_OPEN = '\x1b[200~'
+const PASTE_CLOSE = '\x1b[201~'
+
+/** Decoded payloads the daemon gateway received, bracketed paste unwrapped and
+ *  the submitting CR dropped — i.e. the prompts an operator actually sent. */
+const typedTexts = (sent: unknown[]): string[] =>
+  sent
+    .map((entry) => Buffer.from((entry as { data: string }).data, 'base64').toString())
+    .filter((text) => text !== '\r')
+    .map((text) =>
+      text.startsWith(PASTE_OPEN) && text.endsWith(PASTE_CLOSE)
+        ? text.slice(PASTE_OPEN.length, -PASTE_CLOSE.length)
+        : text,
+    )
 
 afterEach(() => {
   vi.useRealTimers()
@@ -469,5 +508,197 @@ describe('SessionInbox authorization and identity', () => {
     vi.advanceTimersByTime(5_000)
 
     expect(h.sent).toHaveLength(1)
+  })
+})
+
+/**
+ * POD-1100. A queued row used to leave the queue when its bytes reached the
+ * daemon, which is a claim about the write and not about the agent. On a wake
+ * the two come apart by tens of seconds: the PTY binds early, the CLI reads
+ * late, and the paste in between went nowhere while the queue, the badge and
+ * the ledger receipt all reported a delivery.
+ */
+describe('SessionInbox queued delivery is confirmed, not assumed', () => {
+  const PROMPT = 'merge the branch and close the issue'
+
+  it('keeps the row queued when the typed prompt never becomes a turn', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-unconfirmed'),
+      sourceMessageId: 'msg_unconfirmed',
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(7_000)
+
+    // It WAS typed — and that is exactly the evidence the old code mistook for
+    // delivery. Nothing came back, so the row is still the operator's.
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(h.rows).toHaveLength(1)
+    expect(h.session.queuedMessageCount).toBe(1)
+    expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it('settles the row once the prompt appears as the transcript tail', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-confirmed'),
+      sourceMessageId: 'msg_confirmed',
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(6_300)
+    expect(h.rows).toHaveLength(1)
+
+    h.landTurn(PROMPT)
+    vi.advanceTimersByTime(1_000)
+
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_confirmed', sessionId: SID })
+  })
+
+  it('retypes an unconfirmed prompt after a backoff', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-retry'),
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(12_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    vi.advanceTimersByTime(2_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT, PROMPT])
+
+    h.landTurn(PROMPT)
+    vi.advanceTimersByTime(1_000)
+    expect(h.rows).toEqual([])
+  })
+
+  it('does not send twice when the first attempt landed late', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-late'),
+      sourceMessageId: 'msg_late',
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(12_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    // The slow harness wrote the record after we had given up waiting — the
+    // retry must read that before it types, or the operator gets it twice.
+    h.landTurn(PROMPT)
+    vi.advanceTimersByTime(4_000)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(h.rows).toEqual([])
+    expect(h.applied).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops retyping after the attempt cap, leaving the row for a later re-arm', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-capped'),
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(180_000)
+
+    expect(typedTexts(h.sent)).toHaveLength(5)
+    expect(h.rows).toHaveLength(1)
+    expect(h.session.queuedMessageCount).toBe(1)
+  })
+
+  it('waits for the resumed harness to speak before typing into a woken CLI', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ status: 'hibernated', transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-wake'),
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(400)
+
+    // The PTY binds. markLive has already flipped the status, so the drain is
+    // told what it cannot see: this CLI has proven nothing yet.
+    h.setStatus('live')
+    h.inbox.drain(SID, { justBound: true })
+    vi.advanceTimersByTime(9_000)
+
+    // Terminal silence here is a CLI still rehydrating, not one waiting to read.
+    expect(typedTexts(h.sent)).toEqual([])
+
+    h.observeState('2026-08-15T00:01:00.000Z')
+    vi.advanceTimersByTime(400)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+
+  it('delivers a woken session whose harness reports no runtime state at all', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ status: 'hibernated', transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-silent'),
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(400)
+    h.setStatus('live')
+    h.inbox.drain(SID, { justBound: true })
+
+    // Nothing will ever speak for this session, so the grace expires and the
+    // quiet heuristic takes over rather than holding the prompt forever.
+    vi.advanceTimersByTime(10_400)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+
+  it('removes on write when the transcript cannot witness the send', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    // No transcript for this session: a blind retry could only duplicate, so the
+    // old remove-on-write behaviour is the honest one.
+    const h = harness({ transcriptAvailable: false })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-blind'),
+      sourceMessageId: 'msg_blind',
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(7_000)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(h.rows).toEqual([])
+    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_blind', sessionId: SID })
   })
 })

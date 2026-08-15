@@ -50,6 +50,30 @@ const READY_MAX_MS = 6_000
 const READY_POLL_MS = 200
 const QUEUE_DRAIN_DEADLINE_MS = 25_000
 const QUEUE_MESSAGE_SPACING_MS = 400
+/**
+ * A WOKEN session's readiness budget (POD-1100). The quiet heuristic above reads
+ * "the PTY stopped painting" as "the CLI is reading" — true for a process that
+ * has been up for a while, false for one that is still rehydrating a transcript
+ * and connecting MCP servers, which is silent for exactly the same reason. On a
+ * wake we wait for the HARNESS to speak for this process instead, and fall back
+ * to the quiet heuristic only after this grace, so a harness that reports no
+ * runtime state at all still delivers.
+ */
+const READY_STATE_GRACE_MS = 10_000
+/** Liveness budget for a wake. A cold resume of a large session routinely
+ *  outran the 25s a live session gets, and gave up before the PTY had bound. */
+const WOKEN_DRAIN_DEADLINE_MS = 60_000
+/** How long a typed prompt has to show up as a turn before we call it lost. */
+const CONFIRM_TIMEOUT_MS = 5_000
+const CONFIRM_POLL_MS = 250
+/** Type attempts for one queued row within a single drain pass. */
+const MAX_DELIVERY_ATTEMPTS = 5
+/** Backoff before re-typing an unconfirmed row; scaled by attempt number. */
+const RETRY_BACKOFF_MS = 2_000
+/** Prefix of the normalized prompt used to recognise it in the transcript. */
+const CONFIRM_NEEDLE_CHARS = 80
+/** Below this, a needle matches too much of the transcript to be evidence. */
+const CONFIRM_NEEDLE_MIN_CHARS = 12
 
 /**
  * Stable authorization identity stored with a queued input.
@@ -151,7 +175,8 @@ export interface InboxAuthorizationPort {
     principal: InboxPrincipalReference
     reason: string
   }): void
-  /** The queued row has now crossed the real PTY boundary. */
+  /** The queued row has now crossed the real PTY boundary — and, where the
+   *  transcript can witness it, has been seen to become a turn (POD-1100). */
   applied(input: { sourceMessageId: string; sessionId: SessionId }): void
 }
 
@@ -289,6 +314,44 @@ export interface InboxSendInput {
   sourceMessageId?: string
 }
 
+/** Wrapping and indentation are the harness's, not the author's — compare on
+ *  neither. */
+const normalizeForMatch = (text: string): string => text.replace(/\s+/g, ' ').trim()
+
+/**
+ * The fragment of a queued prompt we look for in the transcript to know the CLI
+ * accepted it. A prefix, because a harness may elide or decorate the tail of a
+ * long paste; null when the prompt is too short to be evidence of anything.
+ */
+const confirmationNeedle = (text: string): string | null => {
+  const normalized = normalizeForMatch(text)
+  if (normalized.length < CONFIRM_NEEDLE_MIN_CHARS) return null
+  return normalized.slice(0, CONFIRM_NEEDLE_CHARS)
+}
+
+/** The LAST user turn, and whether it is ours. Deliberately the tail rather than
+ *  a count: the daemon re-reads a resumed transcript as a `reset` delta, which
+ *  moves every count but leaves the tail meaning what it means. */
+const tailUserTurnMatches = (session: Session, needle: string): boolean => {
+  const items = session.terminal.transcriptItems()
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if (item?.role !== 'user') continue
+    return normalizeForMatch(item.text).includes(needle)
+  }
+  return false
+}
+
+/** When the harness last spoke about this session, in ms. `stateObservedAt` is
+ *  the observation clock; `since` is the phase's event-time and the fallback for
+ *  a daemon that reports no observation stamp. */
+const stateStampMs = (session: Session): number | undefined => {
+  const state = session.agentState
+  if (!state) return undefined
+  const stamp = Date.parse(state.stateObservedAt ?? state.since)
+  return Number.isNaN(stamp) ? undefined : stamp
+}
+
 export class SessionInbox {
   private readonly activeDrains = new Set<SessionId>()
 
@@ -401,12 +464,37 @@ export class SessionInbox {
     return this.deps.queue.list(sessionId).some((row) => row.sourceMessageId === sourceMessageId)
   }
 
-  drain(sessionId: SessionId): void {
+  /**
+   * Deliver this session's queued rows, oldest first.
+   *
+   * A ROW LEAVES THE QUEUE ONLY WHEN THE AGENT TOOK IT (POD-1100). It used to
+   * leave when the bytes reached the daemon, which is not the same claim: a
+   * session woken by an offer click binds its PTY within a second or two and
+   * then spends much longer rehydrating its transcript before the composer
+   * exists, so a paste typed in that window went nowhere — and the row, the
+   * queue badge and the ledger's `applied` receipt all said it had landed. The
+   * message was gone from a queue that had never delivered it.
+   *
+   * So: type, then watch the transcript for the turn. Confirmed → remove.
+   * Unconfirmed → the row stays durable and queued, and we retry with backoff.
+   * When the transcript cannot witness the send at all (no transcript for this
+   * session, or a prompt too short to recognise) we keep the old remove-on-write
+   * behaviour rather than retry blind — an unwitnessable duplicate is worse than
+   * the loss it would be guarding against.
+   */
+  drain(sessionId: SessionId, opts?: { justBound?: boolean }): void {
     if (this.activeDrains.has(sessionId)) return
     const session = this.deps.getSession(sessionId)
     if (!session || session.queuedMessageCount === 0) return
     this.activeDrains.add(sessionId)
-    const deadline = this.deps.now() + QUEUE_DRAIN_DEADLINE_MS
+    // A PTY we are watching come up — parked as this pass begins, or bound so
+    // recently that the caller is telling us so. Its CLI has proven nothing yet,
+    // and it is the only case whose readiness the quiet heuristic gets wrong.
+    // The status alone cannot see it: the bind that wakes this pass has already
+    // flipped the session to 'live' by the time we are called.
+    const woken = session.status !== 'live' || opts?.justBound === true
+    const deadline = this.deps.now() + (woken ? WOKEN_DRAIN_DEADLINE_MS : QUEUE_DRAIN_DEADLINE_MS)
+    const baseStateAt = stateStampMs(session)
     let liveAtMs = 0
     let baseOutputMs = 0
     const stop = () => this.activeDrains.delete(sessionId)
@@ -415,6 +503,87 @@ export class SessionInbox {
       current.queuedMessageCount = Math.max(0, current.queuedMessageCount - 1)
       this.deps.persist(current)
       this.deps.broadcast()
+    }
+    /** The head is done with — settle its ledger receipt and move on. */
+    const settleHead = (current: Session, head: QueuedInboxMessage): void => {
+      if (head.sourceMessageId) {
+        this.deps.authorization.applied({ sourceMessageId: head.sourceMessageId, sessionId })
+      }
+      removeHead(current, head.id)
+      afterHead(current)
+    }
+    const afterHead = (current: Session): void => {
+      if (current.queuedMessageCount > 0) {
+        setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
+      } else stop()
+    }
+    /**
+     * Poll for our own prompt arriving as the transcript's last user turn. Not
+     * finding it is not proof of loss — a slow harness may simply not have
+     * written the record yet — so the timeout retypes rather than dead-letters,
+     * and gives up leaving the row exactly where a retry can find it.
+     */
+    const confirm = (head: QueuedInboxMessage, needle: string, attempt: number): void => {
+      const until = this.deps.now() + CONFIRM_TIMEOUT_MS
+      const poll = (): void => {
+        const current = this.deps.getSession(sessionId)
+        if (!current || (current.status !== 'live' && current.status !== 'starting')) {
+          stop()
+          return
+        }
+        if (tailUserTurnMatches(current, needle)) {
+          settleHead(current, head)
+          return
+        }
+        if (this.deps.now() < until) {
+          setTimeout(poll, CONFIRM_POLL_MS).unref?.()
+          return
+        }
+        // Unconfirmed. The row is still queued and still durable; the operator
+        // keeps seeing it, and a later bind or daemon attach re-arms this pass.
+        if (attempt >= MAX_DELIVERY_ATTEMPTS) {
+          stop()
+          return
+        }
+        setTimeout(() => attemptDelivery(head, attempt + 1), RETRY_BACKOFF_MS * attempt).unref?.()
+      }
+      setTimeout(poll, CONFIRM_POLL_MS).unref?.()
+    }
+    const attemptDelivery = (head: QueuedInboxMessage, attempt: number): void => {
+      const current = this.deps.getSession(sessionId)
+      if (!current || (current.status !== 'live' && current.status !== 'starting')) {
+        stop()
+        return
+      }
+      const needle = confirmationNeedle(head.text)
+      // A retry exists ONLY because the last attempt went unwitnessed. If the
+      // turn has appeared since, it landed late — settle it rather than send the
+      // same prompt twice. This check is what makes retrying safe at all.
+      if (attempt > 1 && needle !== null && tailUserTurnMatches(current, needle)) {
+        settleHead(current, head)
+        return
+      }
+      this.deps.queue.bumpAttempts(head.id)
+      // Baseline: if OUR text is already the last user turn we cannot tell a
+      // fresh arrival from the one that is there, so there is nothing to witness.
+      const witnessable =
+        needle !== null && current.transcriptAvailable && !tailUserTurnMatches(current, needle)
+      const sent = this.typeText({
+        sessionId,
+        text: head.text,
+        inputOrigin: head.inputOrigin,
+        principal: head.principal,
+        ...(head.sourceMessageId ? { sourceMessageId: head.sourceMessageId } : {}),
+        recordSend: false,
+      })
+      if (!sent.ok) {
+        // A live menu is holding the CLI (`needs_user`). Typing a prompt into it
+        // would answer the wrong question; leave the row for the next re-arm.
+        stop()
+        return
+      }
+      if (witnessable && needle !== null) confirm(head, needle, attempt)
+      else settleHead(current, head)
     }
     const deliverNext = (): void => {
       const current = this.deps.getSession(sessionId)
@@ -427,7 +596,6 @@ export class SessionInbox {
         stop()
         return
       }
-      this.deps.queue.bumpAttempts(head.id)
       // The security boundary is HERE, immediately before the daemon gateway.
       // Nothing accepted at enqueue is trusted now.
       const authorized = this.deps.authorization.authorizeAtDrain({
@@ -443,30 +611,28 @@ export class SessionInbox {
           principal: head.principal,
           reason: authorized.reason,
         })
-      } else {
-        const sent = this.typeText({
-          sessionId,
-          text: head.text,
-          inputOrigin: head.inputOrigin,
-          principal: head.principal,
-          ...(head.sourceMessageId ? { sourceMessageId: head.sourceMessageId } : {}),
-          recordSend: false,
-        })
-        if (!sent.ok) {
-          stop()
-          return
-        }
-        if (head.sourceMessageId) {
-          this.deps.authorization.applied({
-            sourceMessageId: head.sourceMessageId,
-            sessionId,
-          })
-        }
-        removeHead(current, head.id)
+        afterHead(current)
+        return
       }
-      if (current.queuedMessageCount > 0) {
-        setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
-      } else stop()
+      attemptDelivery(head, 1)
+    }
+    /**
+     * Ready to be typed into. On a wake that means the harness has reported
+     * runtime state for the RESUMED process — its own word that it is up, where
+     * terminal silence is equally consistent with a CLI that is still loading.
+     */
+    const readyForInput = (current: Session, now: number): boolean => {
+      if (now - liveAtMs < READY_FLOOR_MS) return false
+      if (woken) {
+        const stamp = stateStampMs(current)
+        if (stamp !== undefined && (baseStateAt === undefined || stamp > baseStateAt)) return true
+        // A harness that reports no runtime state at all still has to be served.
+        if (now - liveAtMs < READY_STATE_GRACE_MS) return false
+      }
+      const settled =
+        current.terminal.lastOutputAtMs > baseOutputMs &&
+        now - current.terminal.lastOutputAtMs >= READY_QUIET_MS
+      return settled || now - liveAtMs >= READY_MAX_MS
     }
     const tick = (): void => {
       const current = this.deps.getSession(sessionId)
@@ -480,11 +646,7 @@ export class SessionInbox {
           liveAtMs = now
           baseOutputMs = current.terminal.lastOutputAtMs
         }
-        const settled =
-          current.terminal.lastOutputAtMs > baseOutputMs &&
-          now - liveAtMs >= READY_FLOOR_MS &&
-          now - current.terminal.lastOutputAtMs >= READY_QUIET_MS
-        if (settled || now - liveAtMs >= READY_MAX_MS || now >= deadline) {
+        if (readyForInput(current, now) || now >= deadline) {
           deliverNext()
           return
         }
