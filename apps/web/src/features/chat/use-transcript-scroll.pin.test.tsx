@@ -18,6 +18,7 @@ import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-trans
 let host: HTMLDivElement
 let root: Root
 let api: UseTranscriptScrollResult | null = null
+let renders = 0
 
 /** Place a row's bottom edge at `bottom` px in viewport coordinates. */
 function place(el: HTMLElement, bottom: number): void {
@@ -30,6 +31,7 @@ function scroller(): HTMLElement {
 }
 
 function Harness({ stickyEnabled }: { stickyEnabled: boolean }): JSX.Element {
+  renders++
   const refs = useRefs()
   api = useTranscriptScroll({
     scrollerRef: refs.scrollerRef,
@@ -86,6 +88,7 @@ function sync(): void {
 }
 
 beforeEach(() => {
+  renders = 0
   held.scrollerRef.current = null
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -140,6 +143,27 @@ describe('the brief the shelf carries', () => {
     place(host.querySelector('[data-testid="p1"]') as HTMLElement, 300)
     sync()
     expect(api?.pinnedBrief).toBeNull()
+  })
+
+  // THE LOOP THAT BLANKED THE APP (React #185). `querySelector` misses give
+  // `undefined` while the ref holds `null`, so an un-normalised comparison fell
+  // through the early return and set state on every pass — from a layout effect,
+  // a ResizeObserver and every scroll frame. The no-brief case is the COMMON one,
+  // which is why it took the whole interface down rather than an edge of it.
+  it('is a genuine no-op when nothing has scrolled off the top', () => {
+    mount()
+    scroller().getBoundingClientRect = () => ({ top: 100, bottom: 800 }) as DOMRect
+    place(host.querySelector('[data-testid="p1"]') as HTMLElement, 300)
+    place(host.querySelector('[data-testid="p2"]') as HTMLElement, 500)
+    sync()
+    expect(api?.pinnedBrief).toBeNull()
+    // RENDERS, not the value. `setPinnedBrief(null)` against an already-null
+    // state is a value React bails out of, so asserting the value cannot see
+    // this bug at all — what it costs is a render per pass, and the pass runs
+    // from a layout effect, so a render per pass is a loop.
+    const before = renders
+    for (let i = 0; i < 5; i++) sync()
+    expect(renders).toBe(before)
   })
 
   it('carries nothing at all when the preference is off', () => {

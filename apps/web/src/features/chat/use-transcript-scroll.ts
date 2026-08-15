@@ -145,9 +145,17 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       else break
     }
 
-    if (active === pinnedEl.current) return
-    pinnedEl.current = active ?? null
-    if (!active) {
+    // NORMALISE BEFORE COMPARING. `querySelector` misses give `undefined` and
+    // the ref holds `null`, and `undefined === null` is false — so comparing the
+    // raw values made the no-brief case (the common one: nothing has scrolled
+    // off the top yet) fall through the early return and call setState on EVERY
+    // pass. This runs from a layout effect, a ResizeObserver and every scroll
+    // frame, so that was a render loop: React #185, a blank app, and the one
+    // state where the shelf has nothing to do is the state that broke it.
+    const next = active ?? null
+    if (next === pinnedEl.current) return
+    pinnedEl.current = next
+    if (!next) {
       setPinnedBrief(null)
       return
     }
