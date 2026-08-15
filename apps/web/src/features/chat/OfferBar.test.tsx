@@ -3,6 +3,7 @@ import { act, type JSX, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OfferBar } from './OfferBar'
+import { OfferDismissalContext, useOfferDismissalHost } from './offer-dismissal'
 import { OfferLiftContext, type OfferLiftHost, useOfferLiftHost } from './offer-lift'
 
 // ---------------------------------------------------------------------------
@@ -309,6 +310,102 @@ describe('OfferBar', () => {
       container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.disabled,
     ).toBe(false)
     vi.useRealTimers()
+  })
+
+  // A panel holds TWO bars for one offer — the chat composer's and the native
+  // dock's. The undo window used to be per-bar, so for its ten seconds the view
+  // the operator was not looking at still offered a decision they had already
+  // made, and switching views read as "I have to dismiss it twice" (POD-1103).
+  describe('two bars, one offer', () => {
+    function TwoBars({ onDismiss }: { onDismiss: () => void }): JSX.Element {
+      const host = useOfferDismissalHost()
+      return (
+        <OfferDismissalContext.Provider value={host}>
+          <div data-testid="chat-seat">
+            <OfferBar offer={offer} disabled={false} onAction={() => {}} onDismiss={onDismiss} />
+          </div>
+          <div data-testid="native-seat">
+            <OfferBar offer={offer} disabled={false} onAction={() => {}} onDismiss={onDismiss} />
+          </div>
+        </OfferDismissalContext.Provider>
+      )
+    }
+    const seat = (name: string): Element | null =>
+      container.querySelector(`[data-testid="${name}-seat"]`)
+
+    it('dismissing one takes the offer off the other at once', () => {
+      vi.useFakeTimers()
+      const onDismiss = vi.fn()
+      act(() => root.render(<TwoBars onDismiss={onDismiss} />))
+      expect(seat('native')?.querySelector('[data-testid="offer-bar"]')).not.toBeNull()
+
+      act(() => {
+        seat('chat')?.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.click()
+        vi.advanceTimersByTime(180)
+      })
+      // Not "hidden ten seconds later, once the server write lands" — gone now,
+      // and showing the same undo the clicked bar shows.
+      expect(seat('native')?.querySelector('[data-testid="offer-bar"]')).toBeNull()
+      expect(seat('native')?.querySelector('[data-testid="offer-undo"]')).not.toBeNull()
+      expect(onDismiss).not.toHaveBeenCalled()
+
+      act(() => vi.advanceTimersByTime(10_000))
+      // Still exactly one server write: the second bar mirrors the dismissal, it
+      // does not run one of its own.
+      expect(onDismiss).toHaveBeenCalledTimes(1)
+      expect(onDismiss).toHaveBeenCalledWith('2026-07-17T07:00:00.000Z')
+      vi.useRealTimers()
+    })
+
+    it('undo from the other bar brings the offer back to both', () => {
+      vi.useFakeTimers()
+      const onDismiss = vi.fn()
+      act(() => root.render(<TwoBars onDismiss={onDismiss} />))
+      act(() => {
+        seat('chat')?.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.click()
+        vi.advanceTimersByTime(180)
+      })
+      act(() => {
+        ;[...(seat('native')?.querySelectorAll('button') ?? [])]
+          .find((button) => button.textContent === 'Undo')
+          ?.click()
+        vi.advanceTimersByTime(10_000)
+      })
+      expect(seat('chat')?.querySelector('[data-testid="offer-bar"]')).not.toBeNull()
+      expect(seat('native')?.querySelector('[data-testid="offer-bar"]')).not.toBeNull()
+      expect(onDismiss).not.toHaveBeenCalled()
+      vi.useRealTimers()
+    })
+
+    it('a failed dismissal restores the offer on both bars', async () => {
+      vi.useFakeTimers()
+      let reject: ((cause: Error) => void) | undefined
+      const onDismiss = vi.fn(
+        () =>
+          new Promise<void>((_resolve, r) => {
+            reject = r
+          }),
+      )
+      await act(async () => {
+        root.render(<TwoBars onDismiss={onDismiss} />)
+      })
+      await act(async () => {
+        seat('chat')?.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.click()
+        vi.advanceTimersByTime(10_180)
+        await Promise.resolve()
+      })
+      await act(async () => {
+        reject?.(new Error('offline'))
+        await Promise.resolve()
+      })
+      // The server still holds the offer, so neither view may claim it is gone.
+      expect(seat('chat')?.querySelector('[data-testid="offer-bar"]')).not.toBeNull()
+      expect(seat('native')?.querySelector('[data-testid="offer-bar"]')).not.toBeNull()
+      // …and the message goes to the bar the operator actually clicked.
+      expect(seat('chat')?.querySelector('[role="alert"]')?.textContent).toContain('Try again')
+      expect(seat('native')?.querySelector('[role="alert"]')).toBeNull()
+      vi.useRealTimers()
+    })
   })
 
   it('renders no button row for an action-less offer', () => {

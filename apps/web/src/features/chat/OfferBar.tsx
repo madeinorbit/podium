@@ -3,17 +3,12 @@ import { ChevronDown, Lightbulb, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
+import { useOfferDismissal } from './offer-dismissal'
 import { chargeSeat, useOfferLift } from './offer-lift'
 
 /** The user's feedback rides the action's prompt as one turn. */
 export const composeOfferPrompt = (prompt: string, feedback: string): string =>
   `${prompt}\n\n${feedback.trim()}`
-
-const OFFER_EXIT_MS = 180
-const OFFER_UNDO_MS = 10_000
-const OFFER_UNDO_FADE_MS = 500
-
-type DismissPhase = 'visible' | 'leaving' | 'undo' | 'undo-leaving'
 
 /**
  * Publish the open fold's height to the lifting host (POD-1068).
@@ -117,6 +112,9 @@ function OfferActionLabel({ label, pending }: { label: string; pending: boolean 
  * Undo row remains for ten seconds, and only after that window does onDismiss
  * clear it on the server. That delay is the only way to offer a real undo: the
  * server operation is intentionally global and has no restore counterpart.
+ * The window is held by {@link useOfferDismissal} rather than by this component,
+ * so the panel's OTHER bar for the same offer leaves on the same click instead
+ * of ten seconds later (POD-1103).
  */
 export function OfferBar({
   offer,
@@ -144,9 +142,9 @@ export function OfferBar({
   const [pending, setPending] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
   const [submitting, setSubmitting] = useState<number | null>(null)
-  const [dismissPhase, setDismissPhase] = useState<DismissPhase>('visible')
+  const dismissal = useOfferDismissal(offer.createdAt)
+  const dismissPhase = dismissal.phase
   const [error, setError] = useState<string | null>(null)
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   const mounted = useRef(true)
   const currentOfferAt = useRef(offer.createdAt)
   const previousOfferAt = useRef(offer.createdAt)
@@ -168,7 +166,8 @@ export function OfferBar({
 
   // This component is intentionally not keyed by the offer: the surrounding
   // composer and native dock stay mounted. A newer timestamp is a new decision
-  // and must never inherit the old one's fold, feedback, or undo state.
+  // and must never inherit the old one's fold, feedback, or undo state. (The
+  // dismissal phase needs no reset here — it is keyed by stamp in its host.)
   useEffect(() => {
     if (previousOfferAt.current === offer.createdAt) return
     previousOfferAt.current = offer.createdAt
@@ -176,14 +175,8 @@ export function OfferBar({
     setPending(null)
     setFeedback('')
     setSubmitting(null)
-    setDismissPhase('visible')
     setError(null)
   }, [offer.createdAt])
-
-  const clearDismissTimers = (): void => {
-    for (const timer of timers.current) clearTimeout(timer)
-    timers.current = []
-  }
 
   const invoke = async (index: number, prompt: string): Promise<void> => {
     if (submitting !== null) return
@@ -223,49 +216,35 @@ export function OfferBar({
     void invoke(pending, composeOfferPrompt(pendingAction.prompt, feedback))
   }
 
+  /** Runs when the undo window closes. Rethrows so the host restores the offer
+   *  on every bar; the message is this bar's own, since this is the one the
+   *  operator clicked. */
   const commitDismiss = async (): Promise<void> => {
     if (!onDismiss) return
     try {
       await onDismiss(offer.createdAt)
-    } catch {
+    } catch (cause) {
       // A host that optimistically hides the server-backed offer may remount
       // this component itself. Hosts that keep it mounted recover here.
       if (mounted.current) {
-        setDismissPhase('visible')
         setExpanded(true)
         setError('Could not dismiss this offer. Try again.')
       }
+      throw cause
     }
   }
 
   const dismiss = (): void => {
     if (!onDismiss || dismissPhase !== 'visible' || submitting !== null) return
-    const dismissedAt = offer.createdAt
-    clearDismissTimers()
     setExpanded(false)
     setPending(null)
     setFeedback('')
     setError(null)
-    setDismissPhase('leaving')
-    timers.current = [
-      setTimeout(() => {
-        if (mounted.current && currentOfferAt.current === dismissedAt) setDismissPhase('undo')
-      }, OFFER_EXIT_MS),
-      setTimeout(
-        () => {
-          if (mounted.current && currentOfferAt.current === dismissedAt) {
-            setDismissPhase('undo-leaving')
-          }
-        },
-        OFFER_EXIT_MS + OFFER_UNDO_MS - OFFER_UNDO_FADE_MS,
-      ),
-      setTimeout(() => void commitDismiss(), OFFER_EXIT_MS + OFFER_UNDO_MS),
-    ]
+    dismissal.begin(commitDismiss)
   }
 
   const undoDismiss = (): void => {
-    clearDismissTimers()
-    setDismissPhase('visible')
+    dismissal.undo()
   }
 
   if (dismissPhase === 'undo' || dismissPhase === 'undo-leaving') {

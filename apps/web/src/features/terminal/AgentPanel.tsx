@@ -50,6 +50,7 @@ import {
 import { ChatView } from '@/features/chat/ChatView'
 import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
+import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/offer-dismissal'
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
 import { agentBrandDot } from '@/lib/agent-tone'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
@@ -359,6 +360,10 @@ export function AgentPanel({
   // An opened offer fold is absorbed by PUSHING this panel's surface up under
   // the header rather than by resizing it (POD-1068) — see `offer-lift.ts`.
   const offerLift = useOfferLiftHost(panelRootRef)
+  // The undo window for a dismissed offer, held once for the whole panel: both
+  // of its bars show the same decision, so both must leave on the same click
+  // (POD-1103) rather than the unclicked one waiting out the ten seconds.
+  const offerDismissal = useOfferDismissalHost()
   const termSurfaceRef = useRef<HTMLDivElement | null>(null)
   const dockInnerRef = useRef<HTMLDivElement | null>(null)
   const dockUnpinRef = useRef<(() => void) | null>(null)
@@ -1214,6 +1219,13 @@ export function AgentPanel({
   )
   // Every OfferBar below — native dock and chat composer alike — reaches this
   // panel's lift through the provider, and the panel root carries the one
-  // number (`--offer-lift`) the seat, the surface and the fold all read.
-  return <OfferLiftContext.Provider value={offerLift}>{panel}</OfferLiftContext.Provider>
+  // number (`--offer-lift`) the seat, the surface and the fold all read. The
+  // same two bars share one dismissal, for the same reason: they are two views
+  // of one decision, so neither may still be offering it after the other has
+  // been dismissed.
+  return (
+    <OfferDismissalContext.Provider value={offerDismissal}>
+      <OfferLiftContext.Provider value={offerLift}>{panel}</OfferLiftContext.Provider>
+    </OfferDismissalContext.Provider>
+  )
 }
