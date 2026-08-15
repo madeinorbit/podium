@@ -127,18 +127,25 @@ key 163 characters:
 ```
 DROP "Node usage in Podium" at the top of its group
   planReorderKeys -> 1 patch, key length 164
-  issues.update -> HTTP 200 in 90ms          (was: HTTP 400, row did not move)
+  issues.update -> HTTP 200 in 104ms         (was: HTTP 400, row did not move)
   row landed at index 0 (asked for 0)
   previously-keyed rows in exactly the order dropped: true
 
-NEXT CREATE in the repo -> HTTP 200 in 2254ms
+NEXT CREATE in the repo -> HTTP 200 in 2050ms
   922 rows | top key 3 chars | longest 3 chars
   the dropped row is still where it was dropped: true
 
 NEXT DRAG on the repaired space
-  issues.update -> HTTP 200 in 110ms
+  issues.update -> HTTP 200 in 43ms
   row landed at index 3 (asked for 3)
   whole column in exactly the order dropped: true
+```
+
+The 2-second create is the whole repair, once, and then once per ~320 creates
+after that. It is the one place this change is expensive, and it is a deliberate
+trade: the alternative put those two seconds on the drag.
+
+```
 ```
 
 ## Two smaller things feeding the same write
