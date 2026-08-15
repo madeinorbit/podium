@@ -628,15 +628,33 @@ export class IssueCrudModule {
     }
   }
 
-  /** Every non-deleted row sharing ONE manual-order key space (POD-168): a
-   *  parent's children when parentId is set, else the repo's top-level
-   *  non-pinned rows. Archived rows are in it — they still hold keys, and a
-   *  scope measured over a narrower set than it renumbers would be compacted
-   *  into a state that immediately reads as long again. */
+  /**
+   * Every non-deleted row sharing ONE manual-order key space (POD-168): a
+   * parent's children when parentId is set, else the repo's top level.
+   *
+   * Archived rows are in it. They still hold keys, and a scope measured over a
+   * narrower set than it renumbers compacts into a state that immediately reads
+   * as long again.
+   *
+   * PINNED IS A DIFFERENT ANSWER FOR THE TWO CALLERS, and getting that wrong is
+   * what a whole-scope renumber punishes (POD-1102):
+   *
+   *  - MINTING skips pinned rows. A pin lifts the row into its own section, and
+   *    letting it hold the mint point would key every new issue against a row
+   *    that is no longer in the list they appear at the top of.
+   *  - COMPACTION must not. Pin/unpin deliberately leaves `sortKey` untouched so
+   *    unpinning returns the row to its old position — which only works while
+   *    pinned and unpinned rows are comparable. Renumber one and not the other
+   *    and every pinned row keeps a long key, sorts above the short new ones,
+   *    and comes back from the pin in the wrong place. A total order restricted
+   *    to a subset preserves that subset's order, so renumbering the UNION keeps
+   *    both the pinned section's internal order and the list's.
+   */
   private sortScopeRows(
     repoId: RepoId | null | undefined,
     repoPath: string,
     parentId: string | null,
+    opts?: { includePinned?: boolean },
   ): IssueRow[] {
     const rows: IssueRow[] = []
     for (const r of this.store.rows.values()) {
@@ -644,11 +662,21 @@ export class IssueCrudModule {
       const sameScope = parentId
         ? r.parentId === parentId
         : r.parentId == null &&
-          !this.store.issueOverlay(r.id).pinned &&
+          (opts?.includePinned === true || !this.store.issueOverlay(r.id).pinned) &&
           (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
       if (sameScope) rows.push(r)
     }
     return rows
+  }
+
+  /** The rows a compaction of this scope must renumber — the whole key space,
+   *  pinned rows included. See {@link sortScopeRows}. */
+  private sortKeySpaceRows(
+    repoId: RepoId | null | undefined,
+    repoPath: string,
+    parentId: string | null,
+  ): IssueRow[] {
+    return this.sortScopeRows(repoId, repoPath, parentId, { includePinned: true })
   }
 
   /** The scope's current top key, corrupt/legacy keys ignored. */
@@ -668,17 +696,21 @@ export class IssueCrudModule {
    * NOT A REPAIR OF CORRUPTION — the keys being replaced are perfectly valid,
    * just LONG. `mintSortKey` puts every new row above the scope's minimum, so a
    * repo that keeps making work keeps pushing its own top key down toward zero:
-   * one character longer every five creates, forever. Past the wire's cap the
-   * refusal lands nowhere near the cause — a create still works (it mints
-   * server-side, inside this service, where no schema is checked), while the
-   * DRAG that plans a key against those same rows comes back 400. So the growth
-   * is silent right up to the point where reordering stops working at all.
+   * one character longer every five creates, forever. The growth is silent,
+   * because the writer doing it mints server-side inside this service where no
+   * schema is checked — and the only party a length limit could ever refuse is
+   * the DRAG, whose key merely inherited the scope's history.
    *
    * Ordering is read back off the rows rather than passed in, so this stays
    * callable from anywhere the scope is known: valid keys ascending first (the
    * manual order), then unkeyed legacy rows in creation order, newest first —
    * the same fallback `compareManualOrder` uses on the client, so a compaction
    * FREEZES the order the operator is looking at instead of reshuffling it.
+   *
+   * ONE COMMIT FOR THE WHOLE SCOPE, and that is not a micro-optimisation. Row by
+   * row through `persist`, this workspace's 921-row space took EIGHT SECONDS —
+   * measured — because each row paid its own transaction, its own `toWire` and
+   * its own change append. Batched, the same repair is ~2s.
    */
   private compactSortKeys(scope: readonly IssueRow[]): void {
     const ordered = [...scope].sort((a, b) => {
@@ -693,15 +725,24 @@ export class IssueCrudModule {
       return a.id.localeCompare(b.id)
     })
     const keys = spreadSortKeys(ordered.length)
+    const changed: IssueRow[] = []
     for (const [i, row] of ordered.entries()) {
       const next = keys[i]
       if (next === undefined || row.sortKey === next) continue
       row.sortKey = next
-      // Organizational-only, exactly like the reorder it protects: compaction
-      // must not touch `updatedAt`, or a scope repair would mark every issue in
-      // the repo unread (POD-325).
-      this.store.persist(row, { touch: false })
+      changed.push(row)
     }
+    if (changed.length === 0) return
+    // `touch: false` for the same reason the reorder itself carries it: a scope
+    // repair is organizational, and stamping `updatedAt` across a repo would
+    // mark every issue in it unread (POD-325).
+    this.store.persistManyWith(
+      changed,
+      () => undefined,
+      () => [],
+      () => [],
+      { touch: false },
+    )
   }
 
   /** Mint a manual-order key ABOVE the sibling scope's current top (POD-168):
@@ -711,11 +752,12 @@ export class IssueCrudModule {
    *  {@link compactSortKeys} for why an ever-growing key breaks the DRAG rather
    *  than the create that grew it. */
   private mintSortKey(repoId: RepoId, repoPath: string, parentId: string | null): string {
-    const scope = this.sortScopeRows(repoId, repoPath, parentId)
-    let min = this.minSortKey(scope)
+    // Measured over the unpinned rows, renumbered over the whole key space —
+    // see `sortScopeRows` for why those two sets differ.
+    let min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
     if (min !== null && min.length >= SORT_KEY_COMPACT_LEN) {
-      this.compactSortKeys(scope)
-      min = this.minSortKey(scope)
+      this.compactSortKeys(this.sortKeySpaceRows(repoId, repoPath, parentId))
+      min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
     }
     return sortKeyBetween(null, min)
   }
@@ -935,25 +977,20 @@ export class IssueCrudModule {
     // Organizational-only patches (pin / sortKey reorder) are not activity: do
     // not advance updatedAt past readAt or computeUnread re-marks the issue
     // unread after a purely human board edit (POD-325).
-    let wire = this.store.persist(row, {
+    const wire = this.store.persist(row, {
       touch: isOrganizationalOnlyPatch(patch) ? false : undefined,
     })
-    // A LANDED REORDER IS THE SECOND PLACE THE SCOPE GETS MEASURED (POD-1102).
-    // `mintSortKey` compacts on create, which is enough for a repo that keeps
-    // making work, and a repo that has stopped would otherwise carry its long
-    // keys forever — with the drag as the thing that breaks. Checked AFTER the
-    // patch is applied and never before: the client planned this key against
-    // the keys the scope had a moment ago, so compacting first would leave a
-    // hundred-character key sitting in a scope of three-character ones, which
-    // sorts to the top and moves the row somewhere nobody dropped it.
-    if (patch.sortKey !== undefined) {
-      const scope = this.sortScopeRows(row.repoId, row.repoPath, row.parentId ?? null)
-      const min = this.minSortKey(scope)
-      if (min !== null && min.length >= SORT_KEY_COMPACT_LEN) {
-        this.compactSortKeys(scope)
-        wire = this.store.toWire(row)
-      }
-    }
+    // A REORDER DELIBERATELY DOES NOT COMPACT (POD-1102), and the asymmetry is
+    // the point: CREATE is the only thing that makes keys longer, so create is
+    // the only thing that has to shorten them. A drag re-keys one row between
+    // two neighbours and cannot move the scope's minimum at all.
+    //
+    // It was wired here first, so a repo that had stopped creating would still
+    // repair itself the next time somebody dragged. Measured against this
+    // workspace, that cost the DROP 2.5 seconds — a repair the operator waits
+    // out mid-gesture, to fix a board whose drags already worked. The keys stay
+    // long in such a repo until its next create, which is a storage wart nobody
+    // can see, and the right trade against latency on the gesture itself.
     // Cross-issue derived effects (#22): a closed-predicate flip changes the
     // dependents' blocked/ready and the parent's childDoneCount; a reparent
     // changes both parents' childCount. Those rows' wires must reach clients too.

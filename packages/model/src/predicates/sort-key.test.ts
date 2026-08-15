@@ -77,18 +77,27 @@ describe('sortKeyBetween — fractional keys (POD-168)', () => {
 })
 
 describe('spreadSortKeys — scope compaction (POD-1102)', () => {
-  it('head-inserts alone drive a scope past the wire cap — the regression', () => {
+  it('head-inserts alone grow a scope without bound — the regression', () => {
     // What `mintSortKey` does on every create: mint strictly above the scope
-    // minimum. Six hundred-odd issues into one repo and the key it produces is
-    // longer than `issues.update` accepts, so every reorder planned against
-    // those rows comes back 400 and the row snaps home under an error toast.
+    // minimum. Nothing in the key math stops it, so the minimum grows a
+    // character every five creates for as long as the repo lives. The old wire
+    // cap of 128 turned that into a broken drag at ~640 issues — it refused the
+    // client's honest plan without ever repairing what made the plan long.
     let min: string | null = null
     let creates = 0
-    while ((min?.length ?? 0) <= SORT_KEY_MAX_LEN) {
+    while ((min?.length ?? 0) <= 128) {
       min = sortKeyBetween(null, min)
       creates += 1
     }
     expect(creates).toBeLessThan(700)
+  })
+
+  it('compacts far below the wire ceiling, so an uncompacted plan still fits', () => {
+    // The two bounds do different jobs and must not be confused again: the
+    // ceiling is anti-abuse, the compaction length is what actually bounds
+    // growth. A key planned against a scope on the edge of compaction has to
+    // clear the ceiling with room to spare.
+    expect(SORT_KEY_COMPACT_LEN).toBeLessThan(SORT_KEY_MAX_LEN / 4)
   })
 
   it('spreads well-formed, strictly ascending keys', () => {

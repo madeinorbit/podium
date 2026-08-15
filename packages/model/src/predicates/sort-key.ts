@@ -15,9 +15,8 @@
  * property of the key space, which it is not: a scope that only ever gains rows
  * AT THE TOP — which is exactly what "new work appears first" means — drives its
  * own minimum one character longer every five creates, for as long as the repo
- * lives. Six hundred issues in and the minimum is past {@link SORT_KEY_MAX_LEN},
- * at which point every reorder a client plans against those rows is a key the
- * wire refuses, and the operator gets an error toast instead of a moved row.
+ * lives. Six hundred issues in, the keys near the top are longer than the wire
+ * would accept, and the drag stops working on exactly the rows people drag.
  * {@link spreadSortKeys} is the way out: a scope whose keys have grown long
  * takes fresh evenly-spread ones IN ITS CURRENT ORDER, and the head of the space
  * is open again. Compaction is a scope-level repair, deliberately rare, and it
@@ -28,16 +27,32 @@ const DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz'
 const MIN = DIGITS[0] as string
 const KEY_RE = /^[0-9a-z]+$/
 
-/** The longest key any client may write, mirrored by the `issues.update` wire
- *  schema. Keys are MINTED, never typed, so this is not an input-length limit —
- *  it is the point past which a scope has to be compacted instead of pushed. */
-export const SORT_KEY_MAX_LEN = 128
-
-/** The length at which a scope is compacted. Comfortably under the cap so the
- *  repair happens while every key is still writable, rather than after the
- *  first refusal — and high enough that compaction stays rare (one per ~320
- *  creates in a scope, against one per ~640 if it waited for the cap). */
+/**
+ * The length at which a scope is COMPACTED. This — not the wire ceiling below —
+ * is what bounds key growth, and the distinction is the whole lesson of
+ * POD-1102: a limit that only REFUSES cannot bound anything, because the writer
+ * doing the growing (`mintSortKey`, server-side) never meets it. All the refusal
+ * achieved was to break the one path that does cross the wire, the drag.
+ *
+ * High enough that compaction stays rare — one per ~320 creates in a scope.
+ */
 export const SORT_KEY_COMPACT_LEN = 64
+
+/**
+ * The wire's absolute ceiling on a `sortKey` — an anti-abuse bound, deliberately
+ * far above anything the system produces once {@link SORT_KEY_COMPACT_LEN} is
+ * doing its job.
+ *
+ * IT MUST STAY WELL CLEAR OF A HONEST PLAN. A client reordering a scope that has
+ * not been compacted yet mints a key one character longer than the neighbour it
+ * is landing above — a perfectly well-formed key that merely inherited the
+ * scope's history. Refusing it (the old 128) told the operator "that drag
+ * failed" about a row whose only crime was being near the top of an old repo,
+ * AND skipped the service, so the scope never got repaired and the next drag
+ * failed the same way. Accepting it costs one oversized row for the length of
+ * one request: `update` compacts the scope on the way out.
+ */
+export const SORT_KEY_MAX_LEN = 1024
 
 /** A well-formed sort key: non-empty base-36, no trailing minimum digit. */
 export function isSortKey(value: unknown): value is string {

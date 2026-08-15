@@ -60,26 +60,86 @@ evenly-spread keys **in the order it already renders** — three characters is
 enough for a thousand rows, with a gap between every pair so ordinary reorders
 keep landing on the fast path.
 
-The same scope, replayed after compaction:
+**Compaction belongs to `create`, and only to `create`.** Only a create makes
+keys longer, so only a create has to shorten them — a drag re-keys one row
+between two neighbours and cannot move the scope's minimum at all.
+
+It was wired into the reorder too at first, so a repo that had stopped creating
+would still repair itself the next time somebody dragged. Measured on this
+workspace, that cost the drop **2.5 seconds** — a repair the operator waits out
+mid-gesture, on a board whose drags already worked. It came out. A repo that
+never creates keeps its long keys, which is a storage wart nobody can see.
+
+Compaction is organizational, like the reorder it protects: it does not touch
+`updatedAt`, so a scope repair cannot mark a repo unread. And it writes through
+**one** commit for the whole scope. Row by row it took eight seconds; batching
+the writes and the wire projections brought the same 922-row repair to ~2.2s, on
+the create, once per ~320 creates.
+
+### The cap had to move, and the reason is the interesting part
+
+A 128-character ceiling on `sortKey` sounds like the thing that *stops* this. It
+is the thing that *hid* it. The writer doing the growing is `mintSortKey`, which
+runs server-side inside the service and never meets the schema; the only party
+the ceiling could refuse was the drag, whose key is well-formed and correctly
+ordered and merely inherited the scope's history.
+
+Run against a snapshot of this workspace, that showed up immediately:
 
 ```
-AFTER : 0 of 777 drop positions are refused by the wire
-        longest key 3 chars
-order preserved: true
+issues.update -> HTTP 400 {"code":"too_big","maximum":128, …}
+row landed at index 8 (0 = top of the group)   ← it did not move
 ```
 
-Compaction runs in two places, so no scope can be stranded:
+So the ceiling is now an anti-abuse bound (1024), far above anything the system
+produces once compaction is doing its job, and `SORT_KEY_COMPACT_LEN` is what
+actually bounds growth.
 
-- **on create**, in `mintSortKey`, which covers any repo that keeps making work;
-- **when a reorder lands**, so a repo that has stopped creating still repairs
-  itself the first time someone drags — checked *after* the patch is applied,
-  never before, since the client planned its key against the keys the scope had
-  a moment ago.
+### And pinned rows share the key space
 
-It is organizational, like the reorder it protects: it does not touch
-`updatedAt`, so a scope repair cannot mark a repo unread. And the 128 is an
-imported constant now rather than a literal that the only other holder of the
-number never knew about.
+The second thing only the live run could find. Compaction first borrowed the
+scope the *mint* measures — and the mint deliberately skips pinned rows, since a
+pinned row is not in the list new work appears at the top of. Renumbering that
+narrower set left four pinned rows holding 105-character keys in a scope where
+916 others had dropped to three, and leading zeros sort first, so those four
+jumped to the top of a list they were nowhere near:
+
+```
+105 pinned=true | Apple signing and TestFlight
+105 pinned=true | First-run onboarding overhaul
+105 pinned=true | Optimistic sidebar mutations
+117 pinned=true | QR server pairing on mobile
+```
+
+Pin/unpin leaves `sortKey` untouched *precisely* so unpinning returns a row to
+its old position, which only holds while pinned and unpinned rows are comparable.
+So the two callers now ask different questions of the same scope: the mint
+measures the unpinned rows, compaction renumbers the union. A total order
+restricted to a subset preserves that subset's order, so both the pinned
+section's internal order and the list's survive.
+
+## What it does now
+
+The whole sequence, against a from-source instance running on a snapshot of this
+workspace's live database — 779 keyed rows in the `podium` top-level space, top
+key 163 characters:
+
+```
+DROP "Node usage in Podium" at the top of its group
+  planReorderKeys -> 1 patch, key length 164
+  issues.update -> HTTP 200 in 90ms          (was: HTTP 400, row did not move)
+  row landed at index 0 (asked for 0)
+  previously-keyed rows in exactly the order dropped: true
+
+NEXT CREATE in the repo -> HTTP 200 in 2254ms
+  922 rows | top key 3 chars | longest 3 chars
+  the dropped row is still where it was dropped: true
+
+NEXT DRAG on the repaired space
+  issues.update -> HTTP 200 in 110ms
+  row landed at index 3 (asked for 3)
+  whole column in exactly the order dropped: true
+```
 
 ## Two smaller things feeding the same write
 

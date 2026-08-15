@@ -5,7 +5,7 @@
  * and issues.update round-trips a key while rejecting malformed ones.
  * Exercised through the tRPC command layer, same as the create-provenance suite.
  */
-import { SORT_KEY_COMPACT_LEN, SORT_KEY_MAX_LEN, sortKeyBetween } from '@podium/model'
+import { isSortKey, SORT_KEY_COMPACT_LEN, SORT_KEY_MAX_LEN, sortKeyBetween } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 
@@ -185,18 +185,16 @@ describe('sortKey scope compaction (POD-1102)', () => {
     }
   }, 60_000)
 
-  it('a reorder into a long scope compacts it, keeping the drop where it was dropped', async () => {
+  it('a reorder lands where it was dropped and does NOT renumber the scope', async () => {
+    // The asymmetry, pinned as behaviour: only CREATE lengthens keys, so only
+    // create shortens them. A drag re-keys one row between two neighbours and
+    // cannot move the scope's minimum, so making it pay for a whole-scope
+    // renumber bought nothing and cost 2.5 seconds mid-gesture on a real board.
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
-      const ids: string[] = []
-      for (let i = 0; i < createsToReach(SORT_KEY_COMPACT_LEN); i++) {
-        const issue = await op.issues.create({
-          repoPath: '/r',
-          title: `task ${i}`,
-          startNow: false,
-        })
-        ids.push(issue.id)
+      for (let i = 0; i < 12; i++) {
+        await op.issues.create({ repoPath: '/r', title: `task ${i}`, startNow: false })
       }
       const before = (await op.issues.list({ repoPath: '/r' }))
         .slice()
@@ -216,14 +214,119 @@ describe('sortKey scope compaction (POD-1102)', () => {
         moved.id,
         ...before.slice(2, -1).map((r) => r.id),
       ])
-      // ...and the scope came out of it short, so the next drag is a fast path.
-      expect(Math.max(...after.map((r) => (r.sortKey ?? '').length))).toBeLessThanOrEqual(
-        SORT_KEY_COMPACT_LEN,
-      )
+      // Every other row kept the exact key it had: one write, not a renumber.
+      for (const row of after) {
+        if (row.id === moved.id) continue
+        expect(row.sortKey).toBe(before.find((r) => r.id === row.id)?.sortKey)
+      }
     } finally {
       reg.dispose()
     }
-  })
+  }, 60_000)
+
+  it('accepts the drop at the TOP of a board whose keys are already long', async () => {
+    // THE CASE THAT WAS ACTUALLY BROKEN, and the reason the wire ceiling had to
+    // move. A board carrying keys the OLD mint grew is exactly the state an
+    // operator is in when this lands, and the drop they make is the one at the
+    // top — where the planned key is a character longer than anything in the
+    // scope. A 128-character cap refused it at the schema, and refusing is all
+    // it could do: the writer that grew those keys mints inside the service and
+    // never meets a schema, so the only party the cap could ever punish was the
+    // drag. Now it lands, and the row goes where it was dropped.
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const op = ctx(reg)
+      for (let i = 0; i < 12; i++) {
+        await op.issues.create({ repoPath: '/r', title: `task ${i}`, startNow: false })
+      }
+      const before = (await op.issues.list({ repoPath: '/r' }))
+        .slice()
+        .sort((a, b) => (a.sortKey ?? '').localeCompare(b.sortKey ?? ''))
+      const moved = before[8]!
+      // Written directly, because the create path cannot produce these any more
+      // — which is the point.
+      const legacyTop = `${'0'.repeat(140)}1`
+      expect(isSortKey(legacyTop)).toBe(true)
+      expect(legacyTop.length).toBeGreaterThan(128)
+      const target = sortKeyBetween(null, legacyTop)
+      expect(target.length).toBeGreaterThan(128)
+      expect(target.length).toBeLessThan(SORT_KEY_MAX_LEN)
+      await expect(
+        op.issues.update({ id: moved.id, patch: { sortKey: target } }),
+      ).resolves.toBeTruthy()
+
+      const after = (await op.issues.list({ repoPath: '/r' }))
+        .slice()
+        .sort((a, b) => (a.sortKey ?? '').localeCompare(b.sortKey ?? ''))
+      expect(after[0]?.id).toBe(moved.id)
+      expect(after.slice(1).map((r) => r.id)).toEqual(
+        before.filter((r) => r.id !== moved.id).map((r) => r.id),
+      )
+      // The next CREATE is what shortens the scope back down — and it must not
+      // disturb where that drop put the row.
+      await op.issues.create({ repoPath: '/r', title: 'fresh', startNow: false })
+      const healed = (await op.issues.list({ repoPath: '/r' }))
+        .slice()
+        .sort((a, b) => (a.sortKey ?? '').localeCompare(b.sortKey ?? ''))
+      expect(Math.max(...healed.map((r) => (r.sortKey ?? '').length))).toBeLessThanOrEqual(
+        SORT_KEY_COMPACT_LEN,
+      )
+      expect(healed[0]?.title).toBe('fresh')
+      expect(healed[1]?.id).toBe(moved.id)
+    } finally {
+      reg.dispose()
+    }
+  }, 60_000)
+
+  it('renumbers pinned rows too, so unpinning still lands where it used to', async () => {
+    // Caught against this workspace's real data, not reasoned out: the first
+    // compaction skipped pinned rows, because it borrowed the scope the MINT
+    // measures — and the mint skips them on purpose. Four pinned rows kept
+    // their 105-character keys while 916 others dropped to three, so the four
+    // sorted straight to the top of a list they were not at the top of.
+    //
+    // Pin/unpin leaves `sortKey` untouched precisely so unpinning returns the
+    // row to its position. That only holds while the two are comparable.
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const op = ctx(reg)
+      const ids: string[] = []
+      for (let i = 0; i < createsToReach(SORT_KEY_COMPACT_LEN); i++) {
+        const issue = await op.issues.create({
+          repoPath: '/r',
+          title: `task ${i}`,
+          startNow: false,
+        })
+        ids.push(issue.id)
+      }
+      const order = (await op.issues.list({ repoPath: '/r' }))
+        .slice()
+        .sort((a, b) => (a.sortKey ?? '').localeCompare(b.sortKey ?? ''))
+        .map((r) => r.id)
+      // Pin one from the middle, then let the next create compact the scope.
+      const pinnedId = order[5]!
+      await op.issues.update({ id: pinnedId, patch: { pinned: true } })
+      await op.issues.create({ repoPath: '/r', title: 'trigger', startNow: false })
+
+      const after = await op.issues.list({ repoPath: '/r' })
+      // Nothing in the space is left long — the pinned row included.
+      expect(Math.max(...after.map((r) => (r.sortKey ?? '').length))).toBeLessThanOrEqual(
+        SORT_KEY_COMPACT_LEN,
+      )
+      // Unpinned, it comes back exactly where it was: still after order[4] and
+      // still before order[6].
+      await op.issues.update({ id: pinnedId, patch: { pinned: false } })
+      const restored = (await op.issues.list({ repoPath: '/r' }))
+        .slice()
+        .sort((a, b) => (a.sortKey ?? '').localeCompare(b.sortKey ?? ''))
+        .map((r) => r.id)
+      const at = restored.indexOf(pinnedId)
+      expect(restored[at - 1]).toBe(order[4])
+      expect(restored[at + 1]).toBe(order[6])
+    } finally {
+      reg.dispose()
+    }
+  }, 60_000)
 
   it('leaves a young scope alone — compaction is a repair, not a policy', async () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })

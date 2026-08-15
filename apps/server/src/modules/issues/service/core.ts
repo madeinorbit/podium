@@ -488,8 +488,16 @@ export class IssueStore {
     }
   }
 
-  list(repoPath?: string): IssueWire[] {
-    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
+  /**
+   * The joins {@link toWire} would otherwise re-run PER ROW — labels, deps in
+   * both directions, and the children scan — fetched once for a whole set.
+   *
+   * Extracted from `list` so any multi-row path can have it (POD-1102). Without
+   * it a write touching hundreds of rows pays hundreds of label queries and
+   * hundreds of O(N) children scans, which is most of how a scope compaction
+   * spent eight seconds blocking the event loop.
+   */
+  private wireBatch(): IssueWireBatch {
     const labelsByIssue = this.deps.store.issues.listIssueLabelsByIssue()
     const depsByFrom = new Map<string, { toId: IssueId; type: string }[]>()
     const dependentsByTo = new Map<string, { fromId: IssueId; type: string }[]>()
@@ -508,6 +516,19 @@ export class IssueStore {
       if (children) children.push(row)
       else childrenByParent.set(row.parentId, [row])
     }
+    return {
+      sessions: this.deps.listSessions(),
+      labelsByIssue,
+      depsByFrom,
+      dependentsByTo,
+      childrenByParent,
+      prefixesByRepoPath: new Map(),
+    }
+  }
+
+  list(repoPath?: string): IssueWire[] {
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
+    const batch = this.wireBatch()
     // Resolved once per repoPath (few repos) — it rides the memo key because
     // `displayRef` reads it and it changes out-of-band of any issue mutation.
     const prefixByPath = new Map<string, string>()
@@ -518,14 +539,6 @@ export class IssueStore {
         prefixByPath.set(p, v)
       }
       return v
-    }
-    const batch: IssueWireBatch = {
-      sessions: this.deps.listSessions(),
-      labelsByIssue,
-      depsByFrom,
-      dependentsByTo,
-      childrenByParent,
-      prefixesByRepoPath: new Map(),
     }
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
@@ -912,8 +925,11 @@ export class IssueStore {
     return wire
   }
 
-  /** Shipping-only multi-row variant: every affected issue row, normalized
-   * shipping write, and declared projection change shares one ledger commit. */
+  /** Multi-row variant: every affected issue row, its normalized write, and
+   * every declared projection change share ONE ledger commit. Built for
+   * shipping; also the seam a sort-scope compaction writes through, which is why
+   * `touch` is an option — see {@link persist} for what `false` means, and
+   * POD-1102 for why a scope repair must not mark a whole repo unread. */
   persistManyWith<T>(
     rows: IssueRow[],
     write: () => T,
@@ -923,13 +939,14 @@ export class IssueStore {
       subject: string
       payload: Record<string, unknown>
     }[] = () => [],
+    opts?: { touch?: boolean },
   ): { issues: IssueWire[]; result: T } {
     const backups = new Map(
       rows.map((row) => [row.id, this.deps.store.issues.getIssue(row.id)] as const),
     )
     for (const row of rows) {
       normalizeBlankIssueText(row)
-      row.updatedAt = this.now()
+      if (opts?.touch !== false) row.updatedAt = this.now()
     }
     let result!: T
     let wires!: IssueWire[]
@@ -939,7 +956,13 @@ export class IssueStore {
         write: () => {
           result = write()
           for (const row of rows) this.deps.store.issues.upsertIssue(row)
-          wires = rows.map((row) => this.toWire(row))
+          // Beyond a handful of rows the per-row joins dominate — see
+          // `wireBatch`. Built HERE, after `write` and the upserts, so it can
+          // never serve a projection from before the mutation it describes; the
+          // threshold keeps the shipping paths (a few rows) off an
+          // O(all issues) prefetch they would not amortize.
+          const batch = rows.length > 8 ? this.wireBatch() : undefined
+          wires = rows.map((row) => this.toWire(row, undefined, batch))
           eventIds = events(result).map((event) =>
             this.deps.store.events.appendEvent(
               {
