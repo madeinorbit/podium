@@ -366,7 +366,6 @@ export function ChatView({
             scrollerRef={chat.scrollerRef}
             matches={chat.search.matches}
             activeMatch={chat.search.activeMatch}
-            todos={todos}
             findOpen={find.open}
             onFind={() => setFind((f) => ({ open: true, seq: f.seq + 1 }))}
             lastAnswerText={chat.lastAnswerText}

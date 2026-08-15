@@ -3,7 +3,6 @@ import { ScrollText, Search } from 'lucide-react'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 import { Minimap } from './Minimap'
-import { type TodoProgress, TodoRailChip } from './TodoBridge'
 
 /**
  * THE READING RAIL (POD-413) — the chat's chrome, moved out of the reading line.
@@ -38,7 +37,6 @@ export function ChatRail({
   scrollerRef,
   matches,
   activeMatch,
-  todos,
   onFind,
   findOpen,
   lastAnswerText,
@@ -48,8 +46,6 @@ export function ChatRail({
   scrollerRef: React.RefObject<HTMLDivElement | null>
   matches: readonly number[]
   activeMatch: number | undefined
-  /** Null when this session has no issue or the issue published no todos. */
-  todos: TodoProgress | null
   onFind: () => void
   findOpen: boolean
   /** The agent's latest prose — what tl;dr summarises, and the button's gate. */
