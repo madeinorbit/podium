@@ -45,6 +45,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
+import { MENU_HINT } from '@/lib/menu-surface'
 
 /** The machines that hold one repo, as this principal may act on them. */
 function viewsForRepo(
@@ -87,14 +88,17 @@ function MachineItem({
       }
       onClick={availability === 'available' ? onSelect : undefined}
     >
+      {/* The lock and the status dot are readings rather than icons, so they
+          keep their own small sizes — and say so with a `size-` class, the one
+          thing the row's 14px glyph rule yields to. Both are indented into that
+          same 14px column so the machine names still line up. */}
       {unauthorized ? (
-        <Lock size={9} className="text-muted-foreground/60" aria-hidden="true" />
+        <Lock className="mx-[2px] size-2.5 flex-none text-text-faint" aria-hidden="true" />
       ) : (
         <Circle
-          size={6}
-          className={
-            availability === 'available' ? 'fill-success text-success' : 'text-muted-foreground/40'
-          }
+          className={`mx-[4px] size-1.5 flex-none ${
+            availability === 'available' ? 'fill-success text-success' : 'text-text-faint'
+          }`}
           aria-hidden="true"
         />
       )}
@@ -102,9 +106,7 @@ function MachineItem({
         {machine.name}
       </span>
       {availability !== 'available' && (
-        <span className="ml-1.5 flex-none text-[10px] text-muted-foreground/70">
-          {unauthorized ? 'no access' : 'offline'}
-        </span>
+        <span className={MENU_HINT}>{unauthorized ? 'no access' : 'offline'}</span>
       )}
     </DropdownMenuItem>
   )
@@ -191,11 +193,8 @@ export function NewAgentMenu({
     <DropdownMenuContent align="start" sideOffset={4} anchor={anchorRef}>
       {NEW_AGENTS.map(({ kind, label, Icon }) => (
         <DropdownMenuSub key={kind}>
-          <DropdownMenuSubTrigger
-            className="flex items-center gap-1.5"
-            onClick={() => defaultRepo && pick(kind, defaultRepo)}
-          >
-            <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
+          <DropdownMenuSubTrigger onClick={() => defaultRepo && pick(kind, defaultRepo)}>
+            <Icon aria-hidden="true" className="size-3.5 flex-none text-text-dim" />
             {label}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
@@ -210,7 +209,7 @@ export function NewAgentMenu({
       ))}
       {/* New issue lives in this menu now — the top row is a single control. */}
       <DropdownMenuItem onClick={onNewIssue}>
-        <Plus size={14} aria-hidden="true" className="text-muted-foreground" />
+        <Plus aria-hidden="true" className="size-3.5 flex-none text-text-dim" />
         New task…
       </DropdownMenuItem>
     </DropdownMenuContent>

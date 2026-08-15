@@ -1,0 +1,510 @@
+<title>Dropdown Preset</title>
+<style>
+  /* Superade Dark — the review sheet wears the system it is arguing about. */
+  :root {
+    --background: #16171a;
+    --engraved: #191a1e;
+    --bar: #1b1d21;
+    --tabstrip: #202228;
+    --panel: #23262d;
+    --chip: #252830;
+    --card: #212429;
+    --text-strong: #f2f3f5;
+    --foreground: #d7dae0;
+    --muted-foreground: #a8adb6;
+    --label: #949aa4;
+    --text-dim: #848a94;
+    --text-faint: #6f7580;
+    --hairline-soft: #24272d;
+    --hairline-bar: #26292f;
+    --border-strong: #3a3f48;
+    --primary: #f5c518;
+    --attention: #e3ba52;
+    --success: #2a62f0;
+    --destructive: #e5303f;
+    --shadow-popover: 0 14px 34px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.32);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  body {
+    margin: 0;
+    padding: 44px 28px 96px;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--sans);
+    font-size: 12px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1140px; margin: 0 auto; }
+
+  /* ---- sheet chrome ---- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--label);
+  }
+  h1 {
+    margin: 10px 0 0;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.018em;
+    color: var(--text-strong);
+  }
+  .lede {
+    margin: 12px 0 0;
+    max-width: 66ch;
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: var(--muted-foreground);
+    text-wrap: pretty;
+  }
+  h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-strong); }
+  .sub {
+    margin: 6px 0 20px;
+    max-width: 72ch;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    text-wrap: pretty;
+  }
+  section { margin-top: 52px; }
+  .rule { height: 1px; background: var(--hairline-bar); border: 0; margin: 0 0 16px; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.9em;
+    color: var(--muted-foreground);
+    background: var(--engraved);
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+
+  /* ---- specimen plates ---- */
+  .stage {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 22px;
+    align-items: start;
+  }
+  .plate {
+    border: 1px solid var(--hairline-bar);
+    border-radius: 10px;
+    background: var(--engraved);
+    overflow: hidden;
+  }
+  .plate-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--hairline-soft);
+    background: var(--bar);
+  }
+  .plate-head .who {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .plate-head .what { font-size: 11.5px; color: var(--text-dim); }
+  .before .who { color: var(--text-dim); }
+  .after  .who { color: var(--attention); }
+  .plate-body {
+    /* The bar the menu drops out of, so both specimens are judged against the
+       surface they actually open over. */
+    display: flex;
+    justify-content: center;
+    padding: 20px 20px 34px;
+    background:
+      linear-gradient(var(--tabstrip) 0 38px, transparent 38px),
+      var(--background);
+  }
+  .paper .plate-body {
+    background:
+      linear-gradient(#faf9f7 0 38px, transparent 38px),
+      #f2f1ed;
+  }
+
+  /* =========================================================================
+     BEFORE — stock shadcn dropdown tokens, transcribed literally
+     ========================================================================= */
+  .b-panel {
+    width: 208px;
+    padding: 4px;
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: var(--shadow-md), 0 0 0 1px rgb(215 218 224 / 0.1);
+    color: var(--foreground);
+  }
+  .b-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .b-item.hot { background: #2a2d33; color: var(--text-strong); }
+  .b-item .g { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); }
+  .b-item .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .b-item .mark { margin-left: auto; width: 16px; height: 16px; color: var(--foreground); }
+  .b-item .kbd {
+    margin-left: auto;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    color: var(--muted-foreground);
+  }
+  .b-item .chev { margin-left: auto; width: 16px; height: 16px; color: var(--foreground); }
+  .b-lbl {
+    padding: 4px 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted-foreground);
+  }
+  .b-sep { height: 1px; margin: 4px -4px; background: #35383f; }
+
+  /* =========================================================================
+     AFTER — the house preset, transcribed from lib/menu-surface
+     ========================================================================= */
+  .a-panel {
+    width: 208px;
+    padding: 6px;
+    border-radius: 10px;
+    border: 1px solid var(--border-strong);
+    background: var(--chip);
+    box-shadow: var(--shadow-popover);
+    color: var(--foreground);
+  }
+  .a-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4.5px 5px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    text-align: left;
+  }
+  .a-item.hot { background: var(--hairline-soft); color: var(--text-strong); }
+  .a-item .g { width: 14px; height: 14px; flex: none; color: var(--text-dim); }
+  .a-item .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a-item .mark { margin-left: auto; width: 14px; height: 14px; color: var(--text-strong); }
+  .a-item .kbd,
+  .a-item .hint {
+    margin-left: auto;
+    padding-left: 8px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.02em;
+    color: var(--text-faint);
+  }
+  .a-item .chev { margin-left: auto; width: 12px; height: 12px; color: var(--text-faint); }
+  .a-lbl {
+    padding: 2px 5px 3px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--label);
+  }
+  .a-sep { height: 1px; margin: 5px 0; background: var(--hairline-soft); }
+
+  .paper .a-panel {
+    background: #ffffff;
+    border-color: #d9d7d0;
+    color: #38362f;
+    box-shadow: 0 14px 34px rgb(29 28 25 / 0.3), 0 2px 8px rgb(29 28 25 / 0.12);
+  }
+  .paper .a-item.hot { background: #eeede8; color: #1d1c19; }
+  .paper .a-item .g { color: #8a887f; }
+  .paper .a-item .mark { color: #1d1c19; }
+  .paper .a-item .kbd, .paper .a-item .hint { color: #a3a199; }
+  .paper .a-item .chev { color: #a3a199; }
+  .paper .a-lbl { color: #8f8d85; }
+  .paper .a-sep { background: #eeede8; }
+
+  .paper .b-panel {
+    background: #ffffff;
+    color: #38362f;
+    box-shadow: var(--shadow-md), 0 0 0 1px rgb(56 54 47 / 0.1);
+  }
+  .paper .b-item.hot { background: #eeede8; color: #1d1c19; }
+  .paper .b-item .g { color: #6f6d66; }
+  .paper .b-item .mark, .paper .b-item .chev { color: #38362f; }
+  .paper .b-item .kbd { color: #6f6d66; }
+  .paper .b-lbl { color: #6f6d66; }
+  .paper .b-sep { background: #dedcd5; }
+
+  /* ---- inventory table ---- */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1px;
+    background: var(--hairline-bar);
+    border: 1px solid var(--hairline-bar);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 190px 1fr 1fr;
+    gap: 18px;
+    padding: 12px 16px;
+    background: var(--engraved);
+    align-items: baseline;
+  }
+  .row.head {
+    background: var(--bar);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--label);
+  }
+  .row .part {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-strong);
+  }
+  .row .was { color: var(--text-dim); }
+  .row .now { color: var(--muted-foreground); }
+  @media (max-width: 720px) {
+    .row { grid-template-columns: 1fr; gap: 4px; }
+  }
+
+  /* ---- file map ---- */
+  .files { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+  .card {
+    border: 1px solid var(--hairline-bar);
+    border-radius: 10px;
+    background: var(--engraved);
+    padding: 16px 18px;
+  }
+  .card h3 {
+    margin: 0 0 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--label);
+    font-weight: 400;
+  }
+  .card ul { margin: 10px 0 0; padding: 0 0 0 16px; }
+  .card li { margin: 5px 0; color: var(--muted-foreground); line-height: 1.55; }
+  .card li b { color: var(--text-strong); font-weight: 500; }
+  .card .n {
+    float: right;
+    font-family: var(--mono);
+    font-size: 20px;
+    line-height: 1;
+    color: var(--attention);
+  }
+  .note {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--hairline-soft);
+    color: var(--text-dim);
+    font-size: 11.5px;
+    line-height: 1.6;
+  }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">POD-1099 · Review sheet</p>
+  <h1>Every dropdown in the app, in the house vocabulary</h1>
+  <p class="lede">
+    Twenty-two menus across ten files still opened in the look POD-380 retired.
+    Rather than dressing each one, the preset moved into
+    <code>components/ui/dropdown-menu</code> itself — so the two opt-in bridge
+    constants POD-1084 added are gone, and the next dropdown anyone writes is in
+    the family without doing anything.
+  </p>
+
+  <section>
+    <h2>Why the primitive and not the call sites</h2>
+    <hr class="rule" />
+    <p class="sub">
+      Both routes touch the same ten feature files — the primitive has no other
+      callers — so route (b) was never the wider blast radius. What decided it is
+      reach and recurrence. The bridge pair could only dress a <i>panel</i> and a
+      <i>row</i>; a checkbox item, a radio item, a group label, a separator and a
+      shortcut had no bridge at all, and the Display menu is made almost entirely
+      of those. And an opt-in look is one every new menu starts out failing.
+      Two of the twenty-two surfaces now need no local code whatsoever
+      (<code>FlightDeck</code>, <code>IssueSessionsBlock</code>) — they were
+      already correct markup wearing the wrong skin.
+    </p>
+
+    <div class="stage">
+      <div class="plate before">
+        <div class="plate-head"><span class="who">Before</span><span class="what">stock shadcn tokens</span></div>
+        <div class="plate-body">
+          <div class="b-panel">
+            <div class="b-lbl">Layout</div>
+            <div class="b-item"><span class="nm">Board</span><span class="mark">✓</span></div>
+            <div class="b-item"><span class="nm">List</span></div>
+            <div class="b-sep"></div>
+            <div class="b-lbl">Ordering</div>
+            <div class="b-item hot"><span class="nm">Priority</span><span class="mark">✓</span></div>
+            <div class="b-item"><span class="nm">Last updated</span></div>
+            <div class="b-item"><span class="nm">Created</span></div>
+            <div class="b-sep"></div>
+            <div class="b-item"><span class="nm">Show agent tasks</span><span class="mark">✓</span></div>
+            <div class="b-sep"></div>
+            <div class="b-lbl">Badges</div>
+            <div class="b-item"><span class="nm">Labels</span><span class="mark">✓</span></div>
+            <div class="b-item"><span class="nm">Estimate</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="plate after">
+        <div class="plate-head"><span class="who">After</span><span class="what">the preset, from the primitive</span></div>
+        <div class="plate-body">
+          <div class="a-panel">
+            <div class="a-lbl">Layout</div>
+            <div class="a-item"><span class="nm">Board</span><span class="mark">✓</span></div>
+            <div class="a-item"><span class="nm">List</span></div>
+            <div class="a-sep"></div>
+            <div class="a-lbl">Ordering</div>
+            <div class="a-item hot"><span class="nm">Priority</span><span class="mark">✓</span></div>
+            <div class="a-item"><span class="nm">Last updated</span></div>
+            <div class="a-item"><span class="nm">Created</span></div>
+            <div class="a-sep"></div>
+            <div class="a-item"><span class="nm">Show agent tasks</span><span class="mark">✓</span></div>
+            <div class="a-sep"></div>
+            <div class="a-lbl">Badges</div>
+            <div class="a-item"><span class="nm">Labels</span><span class="mark">✓</span></div>
+            <div class="a-item"><span class="nm">Estimate</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The same pair on paper</h2>
+    <hr class="rule" />
+    <p class="sub">
+      The board's Filter menu — sub-triggers, a rule, and two checkbox rows.
+      Every value below is a token, so both themes derive from the same preset
+      rather than from a second hand-tuned recipe.
+    </p>
+
+    <div class="stage">
+      <div class="plate before paper">
+        <div class="plate-head"><span class="who">Before</span><span class="what">14px rows, ring hairline</span></div>
+        <div class="plate-body">
+          <div class="b-panel" style="width: 176px">
+            <div class="b-item"><span class="nm">Priority</span><span class="chev">›</span></div>
+            <div class="b-item hot"><span class="nm">Type</span><span class="chev">›</span></div>
+            <div class="b-item"><span class="nm">Status</span><span class="chev">›</span></div>
+            <div class="b-item"><span class="nm">Stage</span><span class="chev">›</span></div>
+            <div class="b-item"><span class="nm">Assignee</span><span class="chev">›</span></div>
+            <div class="b-sep"></div>
+            <div class="b-item"><span class="nm">Show archived</span><span class="mark">✓</span></div>
+            <div class="b-item"><span class="nm">Show deleted</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="plate after paper">
+        <div class="plate-head"><span class="who">After</span><span class="what">11.5px rows, border seam</span></div>
+        <div class="plate-body">
+          <div class="a-panel" style="width: 176px">
+            <div class="a-item"><span class="nm">Priority</span><span class="chev">›</span></div>
+            <div class="a-item hot"><span class="nm">Type</span><span class="chev">›</span></div>
+            <div class="a-item"><span class="nm">Status</span><span class="chev">›</span></div>
+            <div class="a-item"><span class="nm">Stage</span><span class="chev">›</span></div>
+            <div class="a-item"><span class="nm">Assignee</span><span class="chev">›</span></div>
+            <div class="a-sep"></div>
+            <div class="a-item"><span class="nm">Show archived</span><span class="mark">✓</span></div>
+            <div class="a-item"><span class="nm">Show deleted</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Part by part</h2>
+    <hr class="rule" />
+    <div class="grid">
+      <div class="row head"><span>Primitive</span><span>Was</span><span>Is</span></div>
+      <div class="row">
+        <span class="part">Content</span>
+        <span class="was"><code>bg-popover</code>, <code>rounded-lg</code>, <code>shadow-md</code>, a <code>ring-foreground/10</code> hairline, <code>p-1</code></span>
+        <span class="now"><code>bg-chip</code> over a <code>border-strong</code> seam, <code>rounded-tray</code>, <code>--shadow-popover</code>, <code>p-[6px]</code>. The ring is not overridden — it is gone, because a border can never win against one.</span>
+      </div>
+      <div class="row">
+        <span class="part">Item</span>
+        <span class="was">14px rows, <code>focus:bg-accent</code> only</span>
+        <span class="now">The house row: 11.5px, <code>hairline-soft</code> wash lifting ink to <code>text-strong</code>, stated for <code>hover:</code> <i>and</i> <code>focus:</code> so pointer and arrow keys light a row the same colour.</span>
+      </div>
+      <div class="row">
+        <span class="part">SubTrigger</span>
+        <span class="was">accent slab while held; a full 16px chevron on the text column</span>
+        <span class="now">Same row and held state as everything else; a 12px chevron in faint ink — an affordance, not a second glyph competing with the row's own.</span>
+      </div>
+      <div class="row">
+        <span class="part">Checkbox / Radio</span>
+        <span class="was">No bridge existed. Stock 14px rows in every menu that used them.</span>
+        <span class="now">The same row as an item, with the indicator gutter narrowed to the new scale.</span>
+      </div>
+      <div class="row">
+        <span class="part">GroupLabel</span>
+        <span class="was">Geist Sans 12px medium in muted grey</span>
+        <span class="now">Mono micro-caps in <code>--label</code>, per DESIGN.md's Machine Voice Rule — the same section voice the picker and the session menu already use. Uppercased in the primitive, since some headings are data.</span>
+      </div>
+      <div class="row">
+        <span class="part">Separator</span>
+        <span class="was">Full-bleed <code>bg-border</code></span>
+        <span class="now"><code>MENU_RULE</code> — an inset hairline, so a rule reads as a pause between regions rather than a cut across the panel.</span>
+      </div>
+      <div class="row">
+        <span class="part">Shortcut</span>
+        <span class="was">Widened Sans in muted grey</span>
+        <span class="now"><code>MENU_HINT</code>: a keystroke is machine voice, like a timestamp or a refusal reason.</span>
+      </div>
+      <div class="row">
+        <span class="part">Glyph default</span>
+        <span class="was"><code>[&amp;_svg:not([class*='size-'])]:size-4</code> — every un-classed icon silently 16px, whatever its <code>size={n}</code> prop said</span>
+        <span class="now">14px, the house text column. A glyph that must be smaller — a status dot, a lock — says so with a <code>size-</code> class, the one thing the rule yields to.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where it landed</h2>
+    <hr class="rule" />
+    <div class="files">
+      <div class="card">
+        <h3>Surfaces <span class="n">22</span></h3>
+        <ul>
+          <li><b>NewAgentMenu</b> — the sidebar spawn row. It draws its agent kinds from the menu POD-1084 restyled, and the two no longer disagree. Its lock and status dot keep their own sizes explicitly.</li>
+          <li><b>IssuesFilters</b> — nine of the twenty-two: the anchored property menu, the Filter menu with six submenus, and the Display menu, which is where the checkbox/radio/label gap showed.</li>
+          <li><b>IssueCompactControls</b> — rendered both looks in one file. The placement panel drops the hand-applied preset it opted into; its sibling stage menu simply inherits.</li>
+          <li><b>IssueDetailHeader</b>, <b>DateProperty</b>, <b>PropertyMenu</b>, <b>AgentPanel</b>, <b>ConciergeButton</b> — trailing values moved to <code>MENU_HINT</code>; the two type-ahead fields are carved into the panel rather than raised on it.</li>
+          <li><b>FlightDeck</b>, <b>IssueSessionsBlock</b> — no local change at all.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Also swept</h3>
+        <ul>
+          <li><b>SnoozeControl</b> — a hand-rolled portal menu, not a dropdown, and so not on the list. It opens a pixel from the session menu in the same header and was the last stock-token popup left there.</li>
+        </ul>
+        <div class="note">
+          <b>Left alone.</b> The width overrides (<code>w-56</code> … <code>w-40</code>,
+          <code>max-h-64</code>) were sized against 14px rows and are now roomier
+          than their contents need. Smaller text in the same box cannot overflow,
+          so none of them break; tightening them would be a second judgment call
+          per menu against data-driven labels — repo names, assignees, issue
+          refs — and is deferred rather than guessed at here.
+        </div>
+      </div>
+    </div>
+  </section>
+</div>

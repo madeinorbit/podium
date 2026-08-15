@@ -51,12 +51,14 @@ export function PropertyMenu({
     >
       <DropdownMenuTrigger render={trigger as JSX.Element} />
       <DropdownMenuContent align="start" className="w-56">
-        <div className="p-1">
+        {/* Carved into the panel rather than raised on it (DESIGN.md §4): the
+            panel is --chip, so the field takes the window's own ground. */}
+        <div className="mx-[5px] mb-[5px]">
           <Input
             autoFocus
             value={query}
             placeholder={placeholder}
-            className="h-7"
+            className="h-[26px] rounded-md border-hairline-soft bg-background text-[11.5px] placeholder:text-text-faint focus-visible:border-hairline-soft focus-visible:ring-2 focus-visible:ring-ring/40 md:text-[11.5px]"
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               // Let Escape propagate so Base UI closes the menu; swallow the
@@ -73,7 +75,9 @@ export function PropertyMenu({
               <DropdownMenuItem key={o.value} onClick={() => onSelect(o.value)}>
                 {o.icon}
                 <span className="min-w-0 flex-1 truncate">{o.label}</span>
-                {selectedValue === o.value && <Check size={13} aria-hidden="true" />}
+                {selectedValue === o.value && (
+                  <Check className="ml-auto size-3 flex-none text-text-faint" aria-hidden="true" />
+                )}
               </DropdownMenuItem>
             ))}
           </DropdownMenuGroup>

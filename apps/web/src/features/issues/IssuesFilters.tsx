@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage, IssueType, type IssueId } from '@podium/model/browser'
+import { ISSUE_STAGES, type IssueId, type IssueStage, IssueType } from '@podium/model/browser'
 import { Check, ListFilter, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -100,7 +100,7 @@ export function AnchoredIssueMenu({
           <>
             {issue.labels.map((label) => (
               <DropdownMenuItem key={label} onClick={() => onToggleLabel(issue, label)}>
-                <Check size={13} aria-hidden="true" /> {label}
+                <Check className="size-3.5" aria-hidden="true" /> {label}
               </DropdownMenuItem>
             ))}
             {addable.map((label) => (

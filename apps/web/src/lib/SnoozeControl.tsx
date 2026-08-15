@@ -6,6 +6,7 @@ import { type JSX, useEffect, useId, useRef, useState, useSyncExternalStore } fr
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { MENU_ITEM, MENU_PANEL, MENU_SECTION_LABEL } from './menu-surface'
 import { useNow } from './useNow'
 import { cn } from './utils'
 
@@ -143,9 +144,6 @@ export function SnoozeControl({
       : 'Snoozed until next message — click to un-snooze'
     : 'Snooze'
 
-  const item =
-    'flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground'
-
   return (
     <span className="inline-flex" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
       <Button
@@ -207,17 +205,17 @@ export function SnoozeControl({
             <div
               id={menuId}
               role="menu"
-              className="fixed z-50 min-w-[160px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+              className={`fixed z-50 min-w-[160px] ${MENU_PANEL}`}
               style={{ top: pos.top, right: pos.right }}
               onMouseEnter={openMenu}
               onMouseLeave={scheduleClose}
             >
-              <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Snooze for</div>
+              <div className={`${MENU_SECTION_LABEL} pb-[3px]`}>SNOOZE FOR</div>
               <button
                 data-pressable
                 type="button"
                 role="menuitem"
-                className={item}
+                className={MENU_ITEM}
                 onClick={() => choose(() => void setSnooze(id, snoozeUntil1h(Date.now())))}
               >
                 1 hour
@@ -226,7 +224,7 @@ export function SnoozeControl({
                 data-pressable
                 type="button"
                 role="menuitem"
-                className={item}
+                className={MENU_ITEM}
                 onClick={() => choose(() => void setSnooze(id, snoozeUntilTomorrow5am(Date.now())))}
               >
                 Until tomorrow
@@ -235,7 +233,7 @@ export function SnoozeControl({
                 data-pressable
                 type="button"
                 role="menuitem"
-                className={item}
+                className={MENU_ITEM}
                 onClick={() => choose(() => void setSnooze(id, null))}
               >
                 Until next message
@@ -245,7 +243,7 @@ export function SnoozeControl({
                   data-pressable
                   type="button"
                   role="menuitem"
-                  className={item}
+                  className={MENU_ITEM}
                   onClick={() => choose(() => void clearSnooze(id))}
                 >
                   Un-snooze

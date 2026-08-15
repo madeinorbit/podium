@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { MENU_HINT } from '@/lib/menu-surface'
 import { TriggerButton } from './property-chrome'
 
 /** `YYYY-MM-DD` for a day offset from today, in LOCAL time — the operator means
@@ -95,20 +96,18 @@ export function DateProperty({
         {QUICK.map((quick) => (
           <DropdownMenuItem key={quick.label} onClick={() => set(dayOffset(quick.days))}>
             {quick.label}
-            <span className="ml-auto font-mono shell-type-micro text-text-faint">
-              {formatDateValue(dayOffset(quick.days))}
-            </span>
+            <span className={MENU_HINT}>{formatDateValue(dayOffset(quick.days))}</span>
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
         {custom ? (
-          <div className="p-1">
+          <div className="mx-[5px] my-[2px]">
             <Input
               type="date"
               autoFocus
               aria-label={ariaLabel}
               defaultValue={value ? value.slice(0, 10) : ''}
-              className="h-7 text-[12px]"
+              className="h-[26px] text-[11.5px] md:text-[11.5px]"
               onKeyDown={(e) => {
                 if (e.key !== 'Escape') e.stopPropagation()
               }}
@@ -130,7 +129,7 @@ export function DateProperty({
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onClear}>
-              <X size={12} aria-hidden="true" /> Clear
+              <X className="size-3.5" aria-hidden="true" /> Clear
             </DropdownMenuItem>
           </>
         )}
@@ -174,12 +173,12 @@ export function EstimateProperty({
         {choices.map((minutes) => (
           <DropdownMenuItem key={minutes} onClick={() => onSelect(minutes)}>
             {label(minutes)}
-            <span className="ml-auto font-mono shell-type-micro text-text-faint">{minutes}m</span>
+            <span className={MENU_HINT}>{minutes}m</span>
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
         {custom ? (
-          <div className="p-1">
+          <div className="mx-[5px] my-[2px]">
             <Input
               type="number"
               min={0}
@@ -187,7 +186,7 @@ export function EstimateProperty({
               aria-label="Estimate (minutes)"
               defaultValue={value ?? ''}
               placeholder="minutes"
-              className="h-7 text-[12px]"
+              className="h-[26px] text-[11.5px] md:text-[11.5px]"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault()
@@ -217,7 +216,7 @@ export function EstimateProperty({
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onClear}>
-              <X size={12} aria-hidden="true" /> Clear
+              <X className="size-3.5" aria-hidden="true" /> Clear
             </DropdownMenuItem>
           </>
         )}

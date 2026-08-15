@@ -32,8 +32,6 @@ import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { AGENT_KIND_ICON } from '@/lib/agent-tone'
 import {
-  MENU_DROPDOWN_ITEM,
-  MENU_DROPDOWN_PANEL,
   MENU_EMPTY,
   MENU_HEADER,
   MENU_HEADER_REF,
@@ -78,9 +76,9 @@ const SUB_HIT_LIMIT = 4
 const RECENT_LIMIT = 6
 
 /** Every glyph in the panel is 14px on one text column, so agent marks, file
- *  glyphs and the resume arrow leave their labels at the same x — the stock
- *  dropdown's `[&_svg]:size-4` only yields to a class carrying `size-`, which is
- *  why this is a class and not a `size={14}` prop. */
+ *  glyphs and the resume arrow leave their labels at the same x. That is also
+ *  the dropdown's own default, so this states in the markup what the panel
+ *  depends on rather than inheriting it silently. */
 const MENU_GLYPH = 'size-3.5 flex-none'
 
 /** A machine's status dot is a reading, not an icon, so it keeps the 6px the
@@ -103,8 +101,13 @@ const MACHINE_DOT = 'mx-[4px] size-1.5 flex-none'
  * `shadow-md`, 14px rows, and section headings invented here in Geist Sans small
  * caps. `lib/menu-surface` (POD-380) is the vocabulary the session menu, the
  * issue menu and the colour picker already share, and it exists precisely
- * because two overlays a pixel apart must read as one family. Everything visual
- * below is that preset — panel, rules, rows, hints — through the Base-UI bridge.
+ * because two overlays a pixel apart must read as one family.
+ *
+ * POD-1084 dressed this one menu through a pair of opt-in bridge constants;
+ * POD-1099 moved the preset into `components/ui/dropdown-menu` itself, so the
+ * panel, the rows and the rules below are simply what a dropdown looks like now
+ * and this file only says what is particular to it — its width, its header, its
+ * search field, and the sections it names.
  */
 export function NewPanelMenu({
   worktree,
@@ -272,7 +275,7 @@ export function NewPanelMenu({
         <DropdownMenuTrigger render={trigger ?? defaultTrigger} />
         <DropdownMenuContent
           align="end"
-          className={`flex w-[248px] max-w-[calc(100vw-24px)] flex-col ${MENU_DROPDOWN_PANEL}`}
+          className="flex w-[248px] max-w-[calc(100vw-24px)] flex-col"
         >
           {header}
           {TAB_AGENTS.map(({ kind, label, Icon }) => {
@@ -311,10 +314,7 @@ export function NewPanelMenu({
     // modal={false}: keep mobile keyboard pinning working.
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger render={trigger ?? defaultTrigger} />
-      <DropdownMenuContent
-        align="end"
-        className={`flex w-[248px] max-w-[calc(100vw-24px)] flex-col ${MENU_DROPDOWN_PANEL}`}
-      >
+      <DropdownMenuContent align="end" className="flex w-[248px] max-w-[calc(100vw-24px)] flex-col">
         {header}
 
         {/* 1. Agent options — open on the resolved target machine */}
@@ -360,7 +360,7 @@ export function NewPanelMenu({
                    * disabled state (opacity) is preserved via its disabled prop.
                    */}
                   <TooltipTrigger render={<span className="block pointer-events-auto" />}>
-                    <DropdownMenuItem disabled className={MENU_DROPDOWN_ITEM}>
+                    <DropdownMenuItem disabled>
                       <Circle className={`${MACHINE_DOT} text-text-faint`} aria-hidden="true" />
                       <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                         {machine.name}
@@ -473,7 +473,7 @@ function HistoryItem({
   onResume: (hit: ConversationHit) => Promise<void>
 }): JSX.Element {
   return (
-    <DropdownMenuItem onClick={() => void onResume(hit)} className={MENU_DROPDOWN_ITEM}>
+    <DropdownMenuItem onClick={() => void onResume(hit)}>
       <RotateCcw className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />
       <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
         {hit.name || hit.title || hit.id}
@@ -534,7 +534,6 @@ function RecentFilesSection({
         <DropdownMenuItem
           key={`${f.worktreePath} ${f.path} ${f.artifact?.artifactId ?? ''}`}
           onClick={() => reopen(f)}
-          className={MENU_DROPDOWN_ITEM}
         >
           <FileText className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />
           <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
@@ -568,7 +567,7 @@ function MachineSubmenu({
 
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger className={MENU_DROPDOWN_ITEM}>
+      <DropdownMenuSubTrigger>
         <Circle
           className={`${MACHINE_DOT} ${machine.online ? 'fill-success text-success' : 'text-text-faint'}`}
           aria-hidden="true"
@@ -577,7 +576,7 @@ function MachineSubmenu({
           {machine.name}
         </span>
       </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className={`min-w-[168px] ${MENU_DROPDOWN_PANEL}`}>
+      <DropdownMenuSubContent className="min-w-[168px]">
         {TAB_AGENTS.map(({ kind, label, Icon }) => (
           <CapabilityAgentItem
             key={kind}
@@ -684,12 +683,12 @@ function CapabilityAgentItem({
     <DropdownMenuItem
       key={kind}
       disabled={reason !== undefined}
-      className={`${MENU_DROPDOWN_ITEM}${
-        // Attention as INK, and it has to survive the hover: the preset lifts a
-        // hovered row to `--text-strong`, which would drop the one signal the
-        // row exists to carry at exactly the moment the pointer is on it.
-        warning && !reason ? ' text-warning hover:text-warning focus:text-warning' : ''
-      }`}
+      // Attention as INK, and it has to survive the hover: the row's preset
+      // lifts a hovered row to `--text-strong`, which would drop the one signal
+      // the row exists to carry at exactly the moment the pointer is on it.
+      className={
+        warning && !reason ? 'text-warning hover:text-warning focus:text-warning' : undefined
+      }
       onClick={onSelect}
     >
       <Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />

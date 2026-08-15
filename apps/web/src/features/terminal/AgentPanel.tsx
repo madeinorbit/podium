@@ -882,10 +882,7 @@ export function AgentPanel({
                       </Button>
                     }
                   />
-                  <DropdownMenuContent
-                    align="end"
-                    className="w-auto min-w-[236px] max-w-[90vw] p-[5px] **:data-[slot=dropdown-menu-item]:gap-[9px] **:data-[slot=dropdown-menu-item]:px-[9px] **:data-[slot=dropdown-menu-item]:py-[6px] **:data-[slot=dropdown-menu-item]:text-[12px]"
-                  >
+                  <DropdownMenuContent align="end" className="w-auto min-w-[236px] max-w-[90vw]">
                     {gates.takeControlOffered && (
                       <DropdownMenuItem
                         data-testid="take-control"
@@ -909,14 +906,13 @@ export function AgentPanel({
                         }}
                       >
                         <TerminalIcon
-                          size={13}
                           aria-hidden="true"
-                          className="translate-y-[3px] self-start"
+                          className="size-3.5 flex-none translate-y-[3px] self-start"
                         />
                         <span className="min-w-0">
                           Copy resume command
                           <span
-                            className="mt-px block max-w-[26ch] truncate font-mono shell-type-micro text-muted-foreground"
+                            className="mt-px block max-w-[26ch] truncate font-mono shell-type-micro text-text-faint"
                             title={resumeCmd}
                           >
                             {resumeCmd}

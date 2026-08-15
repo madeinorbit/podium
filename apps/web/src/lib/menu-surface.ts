@@ -33,10 +33,15 @@ export const MENU_HEADER =
   'mb-[9px] flex items-center gap-1.5 font-mono shell-type-micro tracking-[.12em] text-label'
 export const MENU_HEADER_REF = 'ml-auto tracking-normal text-text-faint'
 
+/** The type a section heading is set in: machine voice, per DESIGN.md's Machine
+ *  Voice Rule. Split out from `MENU_SECTION` because a heading that already has
+ *  a divider above it (a `DropdownMenuSeparator`, say) wants the words without a
+ *  second rule. */
+export const MENU_SECTION_LABEL = 'px-[5px] font-mono shell-type-micro tracking-[.12em] text-label'
+
 /** A section rule that names itself. The menu's regions were anonymous <hr>s;
  *  the picker labels its regions, so they do too. */
-export const MENU_SECTION =
-  'mt-[6px] mb-[3px] border-t border-hairline-soft px-[5px] pt-[7px] font-mono shell-type-micro tracking-[.12em] text-label'
+export const MENU_SECTION = `mt-[6px] mb-[3px] border-t border-hairline-soft pt-[7px] ${MENU_SECTION_LABEL}`
 
 /** An unlabelled divider, for groups whose heading would be noise. */
 export const MENU_RULE = 'my-[5px] h-px border-0 bg-hairline-soft'
@@ -62,28 +67,16 @@ export const MENU_SUBTEXT = 'pl-[22px] text-[10.5px] text-text-dim'
 export const MENU_EMPTY = 'block px-[5px] py-[4.5px] text-[11.5px] text-text-dim'
 
 /* ---------------------------------------------------------------------------
- * The Base-UI bridge (POD-1084)
+ * Base UI menus (POD-1084 bridged, POD-1099 rebased)
  * ---------------------------------------------------------------------------
  *
- * The three overlays above are hand-rolled portals, so they wear the preset
- * directly. `components/ui/dropdown-menu` is a Base UI menu that still ships the
- * stock shadcn popover tokens — `bg-popover`, `shadow-md`, a `ring-foreground/10`
+ * The overlays above are hand-rolled portals, so they wear the preset directly.
+ * `components/ui/dropdown-menu` is a Base UI menu, and it used to ship the stock
+ * shadcn popover tokens — `bg-popover`, `shadow-md`, a `ring-foreground/10`
  * hairline, `rounded-lg`, 14px rows — which is exactly the look this file was
- * written to retire. Until the primitive itself is rebased onto the preset, a
- * dropdown joins the family by wearing these two.
+ * written to retire. POD-1084 bridged one such menu with a pair of opt-in
+ * constants; POD-1099 rebased the primitive itself onto `MENU_PANEL` /
+ * `MENU_ITEM`, so those two are gone and every dropdown in the app is in the
+ * house vocabulary by default. Nothing has to opt in, and nothing new can
+ * accidentally opt out.
  */
-
-/** A `DropdownMenuContent` in the house vocabulary. `ring-0` is not redundant:
- *  the stock hairline is a RING and the preset's seam is a BORDER, so the border
- *  cannot override it — the ring has to be switched off by name or the panel
- *  wears both edges. */
-export const MENU_DROPDOWN_PANEL = `ring-0 ${MENU_PANEL}`
-
-/** A `DropdownMenuItem` / `DropdownMenuSubTrigger` in the house vocabulary.
- *
- *  `focus:` is restated because Base UI moves real DOM focus to the highlighted
- *  row, so the stock `focus:bg-accent` fires on arrow-key navigation while the
- *  preset's `hover:` fires under the pointer — leaving keyboard and mouse to
- *  light the same row two different colours. `data-popup-open:` is the submenu
- *  trigger's held state, which the stock class also paints in accent. */
-export const MENU_DROPDOWN_ITEM = `${MENU_ITEM} focus:bg-hairline-soft focus:text-text-strong data-popup-open:bg-hairline-soft data-popup-open:text-text-strong`

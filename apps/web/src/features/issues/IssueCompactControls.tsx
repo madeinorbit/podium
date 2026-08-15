@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
-import { MENU_HEADER, MENU_HEADER_REF, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
+import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
@@ -507,7 +507,7 @@ function PlacementMenu({
       <DropdownMenuContent
         align="end"
         sideOffset={6}
-        className={`w-[19rem] max-w-[calc(100vw-24px)] ring-0 ${MENU_PANEL}`}
+        className="w-[19rem] max-w-[calc(100vw-24px)]"
       >
         <div className={`${MENU_HEADER} px-[5px]`}>
           <span>START WORK</span>
@@ -517,7 +517,7 @@ function PlacementMenu({
           <DropdownMenuItem
             key={option.key}
             data-testid={`task-placement-${option.key}`}
-            className="group/placement items-start gap-2 rounded-md px-[5px] py-[6px] text-[11.5px] focus:bg-hairline-soft focus:text-text-strong"
+            className="group/placement items-start py-[6px]"
             onClick={() => onStart(option.key)}
           >
             <span className="mt-0.5 flex size-5 flex-none items-center justify-center rounded-[6px] border border-hairline-soft bg-card text-text-dim group-focus/placement:border-border-strong group-focus/placement:text-text-strong">

@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { MENU_HINT } from '@/lib/menu-surface'
 import { conciergeThreadId, resolveConciergeRepo } from './concierge'
 
 /**
@@ -67,9 +68,7 @@ export function ConciergeButton(): JSX.Element {
         {resolution.candidates.map((repo) => (
           <DropdownMenuItem key={repo.path} onClick={() => open(repo.path)}>
             <span className="min-w-0 truncate">{repo.name}</span>
-            <span className="ml-2 min-w-0 truncate text-[10px] text-muted-foreground/70">
-              {repo.path}
-            </span>
+            <span className={`${MENU_HINT} min-w-0 truncate`}>{repo.path}</span>
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

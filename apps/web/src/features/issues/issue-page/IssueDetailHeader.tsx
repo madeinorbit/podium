@@ -266,9 +266,9 @@ export function IssueOverflowMenu({
               ) : (
                 <DropdownMenuItem
                   onClick={fire[entry.id]}
-                  className={entry.danger ? 'text-destructive focus:text-destructive' : undefined}
+                  variant={entry.danger ? 'destructive' : 'default'}
                 >
-                  <Icon size={14} aria-hidden="true" /> {label}
+                  <Icon aria-hidden="true" className="size-3.5 flex-none" /> {label}
                 </DropdownMenuItem>
               )}
             </Fragment>
