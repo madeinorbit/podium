@@ -297,7 +297,9 @@ describe('IssuePanelView inspector', () => {
         },
         panel: {
           todos: [],
-          artifacts: [{ path: 'docs/runtime-verification.md' }],
+          artifacts: [
+            { path: 'docs/runtime-verification.md', addedAt: '2026-08-07T00:00:00.000Z' },
+          ],
           deferred: [],
         },
       },
@@ -457,7 +459,13 @@ describe('IssuePanelView inspector', () => {
         ...ROOT,
         panel: {
           todos: [{ text: 'Runtime verification', done: false }],
-          artifacts: [{ path: 'docs/spine.md', title: 'Spine direction' }],
+          artifacts: [
+            {
+              path: 'docs/spine.md',
+              title: 'Spine direction',
+              addedAt: '2026-08-07T00:00:00.000Z',
+            },
+          ],
           deferred: [{ text: 'Second pass on the rail', addedAt: '2026-08-07T00:00:00.000Z' }],
         },
       },
