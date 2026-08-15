@@ -42,7 +42,13 @@ export type WorkFilter = {
  * hands it over. ⌘F it does hand over, and find-in-page is close to useless
  * against this app anyway: the column is windowed and the panes are canvases, so
  * the browser's own find searches a fraction of what is on screen while this
- * searches every row the column holds. Nothing else in the product binds it.
+ * searches every row the column holds.
+ *
+ * IT IS THE ONLY BINDING, and has to stay that way. The transcript's find bar
+ * held ⌘F too until POD-1093; both listened on `window`, so a press did both
+ * things and the bar — which focuses itself on mount — took the caret this field
+ * had just been handed. Transcript find opens from the chat rail's button now.
+ * Anything else that wants ⌘F takes it from here, it does not share it.
  *
  * The counts are taken from the PUBLISHED rows rather than from the animating
  * list, so a row on its way out cannot make the counter disagree with itself

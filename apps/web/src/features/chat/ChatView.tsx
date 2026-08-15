@@ -51,8 +51,10 @@ import { type ChatSurface, useChatSurface } from './use-chat-surface'
  *
  *   the RAIL   the minimap's gutter, widened from 14px to 24px, now carrying
  *              find, density and tl;dr above the map (ChatRail);
- *   ⌘F         search itself, which is a mode you enter, not furniture
- *              (TranscriptSearchBar, floating over the feed).
+ *   its FIND   search itself, which is a mode you enter, not furniture
+ *              (TranscriptSearchBar, floating over the feed). The rail's button
+ *              is the whole way in — ⌘F went to the sidebar's task filter in
+ *              POD-1093, so find is a click, not a chord.
  *
  * Net: one row of vertical space returned to the conversation, 7px of width
  * spent, and nothing lost — the match cursor, the provisional n/m and the map
@@ -197,10 +199,12 @@ export function ChatView({
     if (chat.gone) onLeave?.(sessionId)
   }, [chat.gone, onLeave, sessionId])
 
-  // FIND (⌘F / Ctrl-F). `findSeq` bumps on every open so a second press over an
-  // already-open bar remounts it, which re-focuses and selects the surviving
-  // query — the behaviour every browser's find has, and the reason a shortcut
-  // is worth more than a permanent field.
+  // FIND. Opened from the rail's search button and nowhere else: ⌘F belongs to
+  // the sidebar's task filter now (POD-1093, `useWorkFilter`), which is the one
+  // chord in the product and cannot be shared — two window listeners on it meant
+  // the transcript bar stole the focus the filter had just taken. `seq` bumps on
+  // every open so pressing the button over an already-open bar remounts it,
+  // which re-focuses and selects the surviving query.
   const [find, setFind] = useState<{ open: boolean; seq: number }>({ open: false, seq: 0 })
   const { setQuery } = chat
   const closeFind = useCallback(() => {
@@ -210,18 +214,6 @@ export function ChatView({
     // cause. Closing find means finding is over.
     setQuery('')
   }, [setQuery])
-  useEffect(() => {
-    if (compact || !active) return
-    const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault()
-        setFind((f) => ({ open: true, seq: f.seq + 1 }))
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [compact, active])
-
   // Esc closes find from anywhere in the pane, not only from inside its input —
   // you may well have clicked into the transcript to read a hit.
   useEffect(() => {

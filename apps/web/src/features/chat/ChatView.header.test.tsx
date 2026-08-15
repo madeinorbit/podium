@@ -14,8 +14,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  *
  * Two claims, each of which a future edit could quietly undo:
  *
- *  1. nothing permanent — no search field above a conversation at rest, and
- *     ⌘F is what puts one there (and Esc is what takes it away, query and all);
+ *  1. nothing permanent — no search field above a conversation at rest, and the
+ *     rail's find button is what puts one there (Esc takes it away, query and
+ *     all). ⌘F is NOT that button: it filters the sidebar (POD-1093);
  *  2. the compact dock still gets none of it.
  */
 
@@ -193,21 +194,41 @@ function press(key: string, init: KeyboardEventInit = {}): void {
 
 const findInput = (): HTMLInputElement | null => container.querySelector('.chat-find-input')
 
-describe('the chat header is gone and find is behind ⌘F', () => {
-  it('renders NO search field until the shortcut asks for one', async () => {
+/** The rail's search button — the only way into find (POD-1093 took ⌘F). */
+function clickFind(): void {
+  const button = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Find in transcript"]',
+  )
+  if (!button) throw new Error('the rail is missing its find button')
+  act(() => button.click())
+}
+
+describe('the chat header is gone and find is behind the rail button', () => {
+  it('renders NO search field until the rail button asks for one', async () => {
     await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'hello')])
     expect(findInput()).toBeNull()
     // The reading rail is what survives, and it is a column, not a row.
     expect(container.querySelector('.chat-rail')).not.toBeNull()
 
-    press('f', { metaKey: true })
+    clickFind()
     await flush()
     expect(findInput()).not.toBeNull()
   })
 
-  it('opens on Ctrl-F too, and Esc closes it AND clears the query', async () => {
-    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'needle in there')])
+  // The regression this file exists to catch now: ⌘F belongs to the sidebar's
+  // task filter, and a transcript bar that still answered it would steal the
+  // focus the filter had just taken.
+  it('leaves ⌘F and Ctrl-F alone — they are the sidebar filter’s', async () => {
+    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'hello')])
+    press('f', { metaKey: true })
     press('f', { ctrlKey: true })
+    await flush()
+    expect(findInput()).toBeNull()
+  })
+
+  it('Esc closes it AND clears the query', async () => {
+    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'needle in there')])
+    clickFind()
     await flush()
     const input = findInput()
     expect(input).not.toBeNull()
@@ -226,7 +247,7 @@ describe('the chat header is gone and find is behind ⌘F', () => {
 
     // Re-opening must not resurrect the old query: a hidden query would keep
     // overriding the reader's verbosity and keep marking the map, invisibly.
-    press('f', { metaKey: true })
+    clickFind()
     await flush()
     expect(findInput()?.value).toBe('')
   })

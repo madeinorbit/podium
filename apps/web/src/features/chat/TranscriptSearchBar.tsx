@@ -11,9 +11,10 @@ import { Button } from '@/components/ui/button'
  * thing most sessions never do. Nothing about the search itself was wrong: the
  * match cursor, the honest n/m over a still-deepening window, and the map marks
  * are ahead of every product we compared. What was wrong was the rent. So this
- * is a RE-HOUSING, not a removal — ⌘F / Ctrl-F opens it, Esc closes it, and it
- * floats over the top of the feed the way find has worked in every browser and
- * editor for twenty years.
+ * is a RE-HOUSING, not a removal — the rail's find button opens it, Esc closes
+ * it, and it floats over the top of the feed the way find has worked in every
+ * browser and editor for twenty years. It answered to ⌘F until POD-1093 gave
+ * that chord to the sidebar's task filter; the button is the way in now.
  *
  * It still renders a derived {@link TranscriptSearchState} and reports cursor
  * moves. It computes nothing: which blocks match, which row renders the active
@@ -37,7 +38,7 @@ export function TranscriptSearchBar({
   /** The loaded window is still being deepened for this query, so the count is a
    *  floor rather than the final answer — shown as a trailing ellipsis. */
   deepeningSearch?: boolean
-  /** Esc, the ✕, or a second ⌘F on an empty query. Clearing is the host's job. */
+  /** Esc or the ✕. Clearing the query is the host's job. */
   onClose: () => void
 }): JSX.Element {
   const inputRef = useRef<HTMLInputElement | null>(null)

@@ -30,11 +30,11 @@ import {
  *  Row titles come free: `ToolBatchRow.title` is the named work line the fold
  *  already computes (POD-376), so a work band reads as the work.
  *
- *  SEARCH LIVES HERE NOW. Search moved behind ⌘F, so the map is where match
- *  DISTRIBUTION is read: every matching band gets a Superade mark and the one
- *  under the cursor gets a full-width one. Closing the find bar no longer means
- *  losing sight of where the hits were — which is more integration than the
- *  permanent search row ever had.
+ *  SEARCH LIVES HERE NOW. Search moved behind the rail's find button, so the map
+ *  is where match DISTRIBUTION is read: every matching band gets a Superade mark
+ *  and the one under the cursor gets a full-width one. Closing the find bar no
+ *  longer means losing sight of where the hits were — which is more integration
+ *  than the permanent search row ever had.
  */
 
 /** What a band means, in the reader's words, plus the swatch that teaches it. */

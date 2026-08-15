@@ -26,7 +26,8 @@ import { VerbosityControl } from './VerbosityControl'
  *
  * WHAT IS ALLOWED IN HERE. Orientation and reading, nothing else:
  *
- *   find     ⌘F's affordance, so the shortcut is discoverable without a field
+ *   find     the only way into transcript search now that ⌘F filters the
+ *            sidebar (POD-1093), which is why it leads the column
  *   density  summary / normal / verbose, at rest as three bars you can read
  *            without opening anything
  *   tl;dr    summarise the last answer through the superagent
@@ -94,7 +95,7 @@ export function ChatRail({
           data-pressable
           type="button"
           className={cn('chat-rail-btn', findOpen && 'chat-rail-btn--on')}
-          title="Find in transcript (⌘F)"
+          title="Find in transcript"
           aria-label="Find in transcript"
           aria-pressed={findOpen}
           onClick={onFind}
