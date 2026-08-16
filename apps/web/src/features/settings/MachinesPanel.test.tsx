@@ -264,6 +264,63 @@ describe('MachinesPanel version skew', () => {
 })
 
 /**
+ * POD-2103, spec §4/§6.3 — the update row's copy. Two rules: a daemon Podium
+ * Desktop owns cannot be Applied from here, and a server precondition is never
+ * shown as if it were an error the operator caused.
+ */
+describe('MachinesPanel update rows', () => {
+  function setUpdateTrpc() {
+    storeState.trpc = {
+      machines: { pairingCode: { mutate: vi.fn() }, applyUpdate: { mutate: vi.fn() } },
+      setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
+    } as unknown as Store['trpc']
+  }
+
+  const applyButton = () => screen.getByRole('button', { name: /apply update to/i })
+
+  it('will not offer to Apply an update to a desktop-supervised daemon', async () => {
+    storeState.machines = [
+      machine({ name: 'macbook', online: true, supervised: true, targetVersion: '0.5.0' }),
+    ]
+    setUpdateTrpc()
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('Managed by Podium Desktop')).toBeTruthy()
+    expect(
+      screen.getByText('Managed by Podium Desktop on this machine — it updates when the app does.'),
+    ).toBeTruthy()
+    expect(applyButton().hasAttribute('disabled')).toBe(true)
+  })
+
+  it('still offers Apply to an ordinary fleet machine', async () => {
+    storeState.machines = [machine({ name: 'vmi', online: true, targetVersion: '0.5.0' })]
+    setUpdateTrpc()
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('Target 0.5.0')).toBeTruthy()
+    expect(applyButton().hasAttribute('disabled')).toBe(false)
+    expect(screen.queryByText(/Managed by Podium Desktop/)).toBeNull()
+  })
+
+  it('says why there is nothing to apply, in prose', async () => {
+    storeState.machines = [
+      machine({
+        name: 'vmi',
+        online: true,
+        updateChannelOverride: 'stable',
+        targetUnavailableReason: 'No update target is configured.',
+      }),
+    ]
+    setUpdateTrpc()
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('Nothing published on Stable yet.')).toBeTruthy()
+    // The server's own sentence stays available on hover, and nowhere else.
+    expect(screen.queryByText('No update target is configured.')).toBeNull()
+  })
+})
+
+/**
  * POD-1495 — the transfer affordance. The panel's ONE job at this boundary is to
  * not construct a call POD-1480's gate would refuse, and the refusals it must
  * not contradict are all reachable from `MachineWire.owned` alone.
