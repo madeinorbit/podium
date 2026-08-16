@@ -13,6 +13,7 @@
 
 import { asSessionId, isAgentKind, type MachineId } from '@podium/model'
 import {
+  ApprovalChannelTarget,
   type ApprovalOp,
   FEATURES,
   type FeatureId,
@@ -412,11 +413,16 @@ export function resolvePlan(
     if (argv[0] === 'update') return { kind: 'approval-request', op: { kind: 'update' } }
     if (argv[0] === 'stop') return { kind: 'approval-request', op: { kind: 'stop' } }
     if (argv[0] === 'channel' && argv[1]) {
-      return argv[1] === 'stable' || argv[1] === 'edge'
-        ? { kind: 'approval-request', op: { kind: 'channel', target: argv[1] } }
+      // Validated against the WIRE enum, not a repeated literal list: the broker
+      // is what refuses, so the planner must range over exactly what it accepts.
+      // The list used to be spelled out here and drifted — an agent could not
+      // request `dev` after the operator path learned it (POD-2199).
+      const target = ApprovalChannelTarget.safeParse(argv[1])
+      return target.success
+        ? { kind: 'approval-request', op: { kind: 'channel', target: target.data } }
         : {
             kind: 'usage-error',
-            message: `podium channel must be stable or edge (got '${argv[1]}')`,
+            message: `podium channel must be ${ApprovalChannelTarget.options.join(', ')} (got '${argv[1]}')`,
           }
     }
     if (argv[0] === 'set-server' && argv[1]) {

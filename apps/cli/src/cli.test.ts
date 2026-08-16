@@ -359,7 +359,19 @@ describe('resolvePlan — utility subcommands', () => {
       kind: 'approval-request',
       op: { kind: 'channel', target: 'edge' },
     })
+    // POD-2199: an agent may pin its machine to `dev` — the only channel a source
+    // checkout's own target is published on. The operator path learned this in
+    // POD-2198 and the brokered one did not, so an agent session on a source
+    // machine sat on `stable`, where its target never appears.
+    expect(plan({}, ['channel', 'dev'], agent)).toEqual({
+      kind: 'approval-request',
+      op: { kind: 'channel', target: 'dev' },
+    })
+    // Still closed: `target` becomes argv on the approving machine.
     expect(plan({}, ['channel', 'nope'], agent)).toMatchObject({ kind: 'usage-error' })
+    expect(plan({}, ['channel', 'nope'], agent)).toMatchObject({
+      message: expect.stringContaining('dev'),
+    })
     expect(plan({}, ['set-server', 'wss://x'], agent)).toEqual({
       kind: 'approval-request',
       op: { kind: 'set-server', target: 'wss://x' },

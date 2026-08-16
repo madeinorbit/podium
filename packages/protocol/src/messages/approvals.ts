@@ -12,12 +12,32 @@ import { z } from 'zod'
  * arbitrary argv through the broker.
  */
 
+/**
+ * The channels a brokered `podium channel <target>` may name (POD-2199).
+ *
+ * WIDENED, NOT OPENED. `target` is the one brokered parameter that reaches a
+ * command line verbatim (`approvalArgv` → `podium channel <target>`), so the set
+ * stays CLOSED — a `z.string()` here would hand an agent the argv the closed
+ * catalog above exists to deny. `dev` is added as a literal because it is not a
+ * new value in this system: `FleetUpdateChannel`, the config schema
+ * (`updateChannel`) and the fleet tRPC input (`setupSetChannelInput`) all
+ * already range over it, and it is the ONLY channel a source checkout's own
+ * `dev+<sha>` target is ever published on. This enum was the last holdout, which
+ * is why an AGENT session could not pin its own machine to the channel its
+ * target appears on while an operator could (POD-2198 fixed the operator half).
+ *
+ * Exported so the CLI planner validates against the wire instead of repeating
+ * the literals — one source of truth for what the broker will accept.
+ */
+export const ApprovalChannelTarget = z.enum(['stable', 'edge', 'dev'])
+export type ApprovalChannelTarget = z.infer<typeof ApprovalChannelTarget>
+
 /** The closed catalog of brokered management operations (v1). */
 export const ApprovalOp = z.discriminatedUnion('kind', [
   // Self-update the podium install from the configured channel feed.
   z.object({ kind: z.literal('update') }),
   // Show is direct; SWITCHING the update channel is brokered.
-  z.object({ kind: z.literal('channel'), target: z.enum(['stable', 'edge']) }),
+  z.object({ kind: z.literal('channel'), target: ApprovalChannelTarget }),
   // Stop the managed podium processes on the machine.
   z.object({ kind: z.literal('stop') }),
   // Repoint the daemon at another server (trust-topology change — the UI must
