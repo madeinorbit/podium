@@ -51,7 +51,7 @@
  * | PODIUM_CLOUD_*                | — (env-only)            | apps/server cloud-runtime seam (hosted provider)       |
  * | PODIUM_UPDATE_SIGNING_KEY     | — (env-only)            | scripts/build-bun.ts + release tooling                 |
  * | PODIUM_INSTALL_PUBKEY         | — (env-only)            | install.sh signed-install override                     |
- * | PODIUM_UPDATE_AUTOCONFIRM     | — (env-only flag)       | desktop updater verification script                    |
+ * | PODIUM_UPDATE_TEST_AUTOCONFIRM| — (env-only flag)       | desktop updater verification script (test-only)        |
  * | PODIUM_ALLOWED_HOSTS          | — (env-only)            | apps/web vite dev-server host check                    |
  * | PODIUM_WEB_PORT               | — → 55556               | apps/web vite dev-server port                          |
  * | test-only: PODIUM_STUB_*, PODIUM_SKIP_*, PODIUM_GROK_CHAT_OK, PODIUM_CURL_LOG,      |

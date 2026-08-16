@@ -54,7 +54,9 @@ fn local_host_sidecar_command(
 
 fn replacement_daemon_command(runnable: &Path, server_url: &str) -> Command {
     let mut command = Command::new(runnable);
-    command.args(["daemon", "--server", server_url, "--takeover"]);
+    command
+        .args(["daemon", "--server", server_url, "--takeover"])
+        .env(DESKTOP_SUPERVISED_ENV, "1");
     command
 }
 
@@ -1000,20 +1002,23 @@ mod tests {
     }
 
     #[test]
-    fn local_host_sidecars_are_marked_but_replacement_daemons_are_not() {
+    fn every_daemon_the_desktop_starts_is_marked_supervised() {
         let host = local_host_sidecar_command(
             Path::new("podium"),
             &["--takeover".to_string()],
             18787,
             Path::new("web"),
         );
-        assert_eq!(
-            command_env(&host, DESKTOP_SUPERVISED_ENV).as_deref(),
-            Some("1")
-        );
-
         let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
-        assert_eq!(command_env(&daemon, DESKTOP_SUPERVISED_ENV), None);
+
+        for (label, command) in [("local host sidecar", &host), ("replacement daemon", &daemon)] {
+            assert_eq!(
+                command_env(command, DESKTOP_SUPERVISED_ENV).as_deref(),
+                Some("1"),
+                "{label} must announce that the desktop app supervises it"
+            );
+        }
+
         assert_eq!(
             daemon
                 .get_args()
