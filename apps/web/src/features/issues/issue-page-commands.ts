@@ -95,16 +95,10 @@ export function issuePageCommands({
       update({ [field]: value })
     },
 
-    // ---- agent panel (todos ride issues.panel; 1-based index API) ----
-    toggleTodo: (index1: number, done: boolean): void => {
-      void run(() =>
-        trpc.issues.panelApply.mutate({
-          id,
-          op: done ? 'todo-done' : 'todo-undone',
-          index: index1,
-        }),
-      )
-    },
+    // NO `toggleTodo` (POD-1163). The page stopped rendering an agent's own
+    // todo list, so the command that checked one off went with it rather than
+    // lingering as an unreachable write. `issues.panelApply`'s `todo-done` /
+    // `todo-undone` ops are untouched — the CLI and the dock still use them.
 
     // ---- sub-issues ----
     createSubIssue: (title: string): void => {

@@ -66,7 +66,15 @@ vi.mock('@/app/store', () => {
 
 afterEach(cleanup)
 
-const FIRST = makeIssue({ id: 'i-first', seq: 1, repoPath: '/r', title: 'First issue' })
+// FIRST carries a long-form field: POD-1163 removed the `+ Design` add-row, so
+// the only way to OPEN a long-form editor is to click a filled field's text.
+const FIRST = makeIssue({
+  id: 'i-first',
+  seq: 1,
+  repoPath: '/r',
+  title: 'First issue',
+  design: 'The first issue’s architecture note.',
+})
 const SECOND = makeIssue({ id: 'i-second', seq: 2, repoPath: '/r', title: 'Second issue' })
 
 /** Mount on FIRST, hand back a switch-to-SECOND that re-renders the same tree —
@@ -140,8 +148,8 @@ describe('IssuePage.tsx — the compose/edit reset', () => {
 describe('issue-page/IssueBody.tsx — the long-form editor reset', () => {
   it('closes an open long-form editor on switch', async () => {
     const { switchIssue } = open()
-    // Every long-form field is empty on the fixture, so they render as add-rows.
-    await userEvent.click(screen.getByRole('button', { name: /design/i }))
+    // FIRST has a filled Design field; clicking its text opens the editor.
+    await userEvent.click(screen.getByTitle('Click to edit design'))
     expect(screen.getByLabelText('Task design')).toBeTruthy()
 
     switchIssue()
@@ -151,22 +159,28 @@ describe('issue-page/IssueBody.tsx — the long-form editor reset', () => {
 })
 
 describe('issue-page/IssueProperties.tsx — the properties reset', () => {
-  // POD-591 deleted the transient this test was written for. Defer used to be a
-  // bare `<input type="date">` bound to page-local `deferDate` state that only
-  // became an edit when a separate "Defer" button was pressed — so a typed but
-  // unsubmitted value could survive an issue switch, and the reset existed to
-  // stop it. The control is now a `DateProperty` menu that reads the ISSUE's own
-  // `deferUntil` and commits on pick: there is no half-entered value to carry
-  // across, because there is no local state to carry. The property that
-  // mattered is asserted directly instead.
-  it('shows the newly-opened issue’s own defer state, never the previous one’s', async () => {
+  // POD-591 deleted the transient this test was originally written for (a
+  // typed-but-unsubmitted defer date), and POD-1163 gave the same effect a NEW
+  // transient to own: which long-tail property the operator revealed. "More
+  // fields" was a fold over Estimate / Due / Snooze / Type; those rows now
+  // appear when the field is set, or when the operator adds one from the
+  // `+ Add property` menu — and that reveal is page-local UI state, so it must
+  // NOT follow you onto the next task. Carrying it across would put an empty
+  // Snooze row on an issue nobody asked for one on, which is exactly the
+  // permanent-empty-row defect the fold was covering for.
+  it('drops a revealed long-tail row rather than carrying it to the next issue', async () => {
     const { switchIssue } = open()
+    // Not set on the fixture, so it is not rendered until it is asked for.
+    expect(screen.queryAllByLabelText('Defer until')).toHaveLength(0)
+
     // The aside and the mobile disclosure both mount the properties stack, so
     // the control is addressed positionally rather than by a unique query.
-    expect(screen.getAllByLabelText('Defer until')[0]?.textContent).toContain('Snooze until')
+    await userEvent.click(screen.getAllByTestId('add-property')[0] as HTMLElement)
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Snooze' }))
+    expect(screen.getAllByLabelText('Defer until').length).toBeGreaterThan(0)
 
     switchIssue()
 
-    expect(screen.getAllByLabelText('Defer until')[0]?.textContent).toContain('Snooze until')
+    expect(screen.queryAllByLabelText('Defer until')).toHaveLength(0)
   })
 })

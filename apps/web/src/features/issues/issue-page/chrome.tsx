@@ -19,6 +19,18 @@ import { cn } from '@/lib/utils'
  */
 export const MACHINE_LABEL = 'font-mono text-[10px] text-text-dim uppercase tracking-[0.1em]'
 
+/**
+ * The machine voice one rung DOWN, for a label nested under another label.
+ *
+ * The rail's Relations band prints `RELATIONS` and then `BLOCKS` / `BLOCKED BY`
+ * beneath it, and both were `MACHINE_LABEL` — identical size, case, tracking and
+ * ink, so the band's own name and the groups inside it read as siblings. The
+ * step moves on INK alone (dim → faint) rather than on size: at 10px mono a
+ * second size step is a different label system, whereas one rung of ink is the
+ * same voice, spoken more quietly. Same reason the Agent-notes caption uses it.
+ */
+export const MACHINE_LABEL_SUB = 'font-mono text-[10px] text-text-faint uppercase tracking-[0.1em]'
+
 /** Uniform section label; `count` renders as a quiet tabular badge, `action` as
  *  a trailing control that only surfaces on section hover (`group-hover`). */
 export function SectionHeading({

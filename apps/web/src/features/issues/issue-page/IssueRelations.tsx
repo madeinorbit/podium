@@ -35,7 +35,7 @@ import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { StatusGlyph } from '../issue-glyphs'
 import type { IssuePageCommands } from '../issue-page-commands'
-import { MACHINE_LABEL, SectionHeading } from './chrome'
+import { MACHINE_LABEL_SUB, SectionHeading } from './chrome'
 import { edgeIssue, IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
 
 export function IssueRelations({
@@ -63,11 +63,11 @@ export function IssueRelations({
     <section className="group/section flex flex-col gap-2">
       <SectionHeading>Relations</SectionHeading>
       {relations.length === 0 && !issue.dependencyNote && issue.blockedByNotes.length === 0 && (
-        <p className="text-[11px] text-text-faint">No links to other tasks.</p>
+        <p className="text-[12.5px] text-text-faint">No links to other tasks.</p>
       )}
       {relations.map((group) => (
         <div key={group.section} className="flex flex-col gap-0.5">
-          <span className={MACHINE_LABEL}>{group.section}</span>
+          <span className={MACHINE_LABEL_SUB}>{group.section}</span>
           {group.entries.map((entry) => {
             const edge = resolve(entry.id)
             // A `hidden` edge draws nothing — under a `hidden` policy, and for a
@@ -79,10 +79,17 @@ export function IssueRelations({
             return (
               <div
                 key={`${group.section}-${entry.direction}-${entry.id}`}
-                className="group -mx-1.5 flex min-h-[24px] items-center justify-between gap-2 rounded-[4.8px] px-1.5 transition-colors hover:bg-accent"
+                className="group -mx-1.5 flex h-7 items-center justify-between gap-2 rounded-[4.8px] px-1.5 transition-colors hover:bg-accent"
               >
-                <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px]">
-                  {target && <StatusGlyph status={issueStatusOf(target)} size={12} />}
+                {/* The glyph rides a fixed 17px box — the same lead box the
+                    session roster's agent tile occupies — so a relation title
+                    and a session name start on one x, and an edge whose target
+                    is invisible (no glyph) does not slide left out of the
+                    column it shares. */}
+                <span className="flex min-w-0 flex-1 items-center gap-2 text-[12.5px]">
+                  <span className="flex size-[17px] flex-none items-center justify-center">
+                    {target && <StatusGlyph status={issueStatusOf(target)} size={12} />}
+                  </span>
                   <IssueEdgeLink edge={edge} onNavigate={onNavigate} fallbackId={entry.id} />
                 </span>
                 <button
@@ -109,16 +116,14 @@ export function IssueRelations({
           className="flex flex-col gap-0.5 rounded-md border border-border border-dashed bg-muted/20 px-2 py-1.5"
           data-testid="agent-blockers"
         >
-          <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
-            Agent notes
-          </span>
+          <span className={MACHINE_LABEL_SUB}>Agent notes</span>
           {issue.blockedByNotes.map((b) => (
-            <span key={b} className="break-words text-[12px] text-muted-foreground">
+            <span key={b} className="break-words text-[12.5px] text-muted-foreground">
               blocked by: {b}
             </span>
           ))}
           {issue.dependencyNote && (
-            <span className="break-words text-[12px] text-muted-foreground">
+            <span className="break-words text-[12.5px] text-muted-foreground">
               {issue.dependencyNote}
             </span>
           )}
@@ -154,7 +159,7 @@ export function IssueRelations({
                 variant="ghost"
                 size="sm"
                 disabled={busy}
-                className="h-7 gap-1 px-2 text-[12px] text-muted-foreground"
+                className="h-7 gap-1 px-2 text-[12px] text-text-faint"
               >
                 <Plus size={12} aria-hidden="true" /> Add relation
               </Button>

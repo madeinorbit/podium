@@ -1,6 +1,17 @@
 /**
- * The sub-task list, with the done children folded away and an inline add-row.
+ * The sub-task list — one flat list in slice order, plus an inline add-row.
  * Split out of IssuePage.tsx (POD-646).
+ *
+ * FLAT, THE WAY LINEAR LISTS SUB-ISSUES (POD-1163). This used to partition into
+ * open children, then a bordered `<details>` box labelled "✓ n done", then (on a
+ * finished parent only) the done children again unfolded — three code paths and
+ * two visual grammars over one list of six rows. A fold is worth its cost when
+ * what it hides is long and low-value; a task's children are neither, they are
+ * the decomposition of the thing you are reading, and a parent whose sub-tasks
+ * are half finished should look half finished at a glance rather than look
+ * empty with a disclosure under it. A done child now stays in place and says so
+ * the way every other issue row in the app says it: its status glyph, and its
+ * title stepped down one rung of ink. One list, one order, no box.
  *
  * WHERE THE CHILDREN COME FROM. The list is `subIssuesOf` from the ISSUES slice,
  * read once by the page model — not a `.filter(i => i.parentId === id)` here.
@@ -23,7 +34,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { issueIdTitle, issueStateWord } from '../issue-card'
-import { AssigneeAvatar, StatusGlyph } from '../issue-glyphs'
+import { StatusGlyph } from '../issue-glyphs'
 import { SectionHeading } from './chrome'
 
 /** A child is DONE for the fold when the issue slice's own finished predicate
@@ -46,7 +57,9 @@ const STATE_TONE = {
  * with — `issueStateWord` reads the top of the same ranked list. Before this the
  * row ended in an assignee avatar, which is the one thing about a sub-task that
  * almost never changes, and said nothing about whether the child was blocked,
- * working or waiting on the operator.
+ * working or waiting on the operator. POD-1163 dropped that avatar fallback
+ * outright: a state word or nothing, so every row in the list ends on the same
+ * axis and a quiet child reads as quiet rather than as an identity badge.
  */
 function SubTaskRow({
   child,
@@ -56,6 +69,7 @@ function SubTaskRow({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const state = issueStateWord(child)
+  const finished = isFinished(child)
   return (
     <button
       data-pressable
@@ -71,18 +85,26 @@ function SubTaskRow({
       <span className="w-[56px] flex-none font-mono shell-type-micro text-text-faint tabular-nums">
         {issueDisplayRef(child)}
       </span>
-      <span className="min-w-0 flex-1 truncate">{child.title}</span>
+      {/* Finished children step down one rung of ink and stay in place — the
+          glyph beside them already carries WHICH ending. No strikethrough: the
+          list is scanned for what is left, not read as a crossed-out receipt. */}
+      <span className={cn('min-w-0 flex-1 truncate', finished && 'text-text-dim')}>
+        {child.title}
+      </span>
       {child.archived && (
         <span className="flex-none font-mono shell-type-micro text-text-faint uppercase tracking-[0.04em]">
           archived
         </span>
       )}
-      {state ? (
-        <span className={cn('flex-none font-mono shell-type-micro tabular-nums', STATE_TONE[state.tone])}>
+      {state && (
+        <span
+          className={cn(
+            'flex-none font-mono shell-type-micro tabular-nums',
+            STATE_TONE[state.tone],
+          )}
+        >
           {state.text}
         </span>
-      ) : (
-        <AssigneeAvatar assignee={child.assignee || undefined} size={15} />
       )}
     </button>
   )
@@ -112,8 +134,6 @@ export function IssueSubIssues({
   onCreate: (title: string) => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
-  const doneChildren = subIssues.filter(isFinished)
-  const openChildren = subIssues.filter((child) => !isFinished(child))
   return (
     <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">
       <SectionHeading
@@ -121,29 +141,12 @@ export function IssueSubIssues({
       >
         Sub-tasks
       </SectionHeading>
-      {openChildren.map((c) => (
-        <SubTaskRow key={c.id} child={c} onNavigate={onNavigate} />
+      {/* Slice order, every child, finished or not — see the module note. The
+          heading's `n/m` is where the done COUNT is answered; the list itself
+          answers what the children are. */}
+      {subIssues.map((child) => (
+        <SubTaskRow key={child.id} child={child} onNavigate={onNavigate} />
       ))}
-      {/* A finished parent has nothing left to fold AWAY from — hiding every
-          done (and therefore every archived) child would empty the section
-          after an epic archive. Same split as the phone. */}
-      {doneChildren.length > 0 && !isFinished(issue) && (
-        <details className="mt-1 rounded border border-border/50 px-2 py-1">
-          <summary className="cursor-pointer text-[11px] text-muted-foreground">
-            ✓ {doneChildren.length} done
-          </summary>
-          <div className="mt-1 flex flex-col gap-1">
-            {doneChildren.map((child) => (
-              <SubTaskRow key={child.id} child={child} onNavigate={onNavigate} />
-            ))}
-          </div>
-        </details>
-      )}
-      {doneChildren.length > 0 &&
-        isFinished(issue) &&
-        doneChildren.map((child) => (
-          <SubTaskRow key={child.id} child={child} onNavigate={onNavigate} />
-        ))}
       {addingChild ? (
         <Input
           autoFocus

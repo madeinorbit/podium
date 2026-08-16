@@ -5,11 +5,10 @@
  */
 
 import { relativeTime } from '@podium/client-core/focus'
-import { ChevronRight, Pin, Plus } from 'lucide-react'
+import { ChevronRight, Pin } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
@@ -222,8 +221,16 @@ type LongFormField = (typeof LONG_FORM_FIELDS)[number]['field']
 
 /**
  * Design / Acceptance / Notes — the long-form spec fields agents fill via
- * `podium issue update`. Filled fields render as full sections (inline-editable,
- * same pattern as the description); empty ones collapse into one quiet add-row.
+ * `podium issue update`. A filled field renders as a full section, inline-
+ * editable, on the same pattern as the description.
+ *
+ * NO ADD-ROW (POD-1163). There used to be a `+ Design  + Acceptance  + Notes`
+ * button row under the description on EVERY task, which is three permanent
+ * offers to start writing a spec, sitting between the two things a human
+ * actually reads on this page. These fields are written by agents from the CLI
+ * in practice — that is what they are for — and a filled one is still editable
+ * by clicking it. The empty case now renders nothing at all, which is what an
+ * empty field should look like.
  */
 export function LongFormFields({
   issue,
@@ -239,12 +246,13 @@ export function LongFormFields({
   useEffect(() => setEditing(null), [issue.id])
 
   const filled = LONG_FORM_FIELDS.filter(({ field }) => (issue[field] ?? '').trim() !== '')
-  const empty = LONG_FORM_FIELDS.filter(({ field }) => (issue[field] ?? '').trim() === '')
 
   const commit = (field: LongFormField, value: string): void => {
     setEditing(null)
     commands.commitLongForm(field, value)
   }
+
+  if (filled.length === 0) return null
 
   return (
     <div data-testid="long-form-fields">
@@ -283,45 +291,6 @@ export function LongFormFields({
           )}
         </section>
       ))}
-      {empty.length > 0 && (
-        <div className="mb-9 flex flex-wrap items-center gap-1">
-          {empty.map(({ field, label }) =>
-            editing === field ? (
-              <Textarea
-                key={`${field}-${issue.id}`}
-                defaultValue=""
-                aria-label={`Task ${field}`}
-                autoFocus
-                disabled={busy}
-                placeholder={`Add ${label.toLowerCase()}…`}
-                className="min-h-[100px] w-full text-[14.5px] leading-[1.6]"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault()
-                    commit(field, e.currentTarget.value)
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setEditing(null)
-                  }
-                }}
-                onBlur={(e) => commit(field, e.currentTarget.value)}
-              />
-            ) : (
-              <Button
-                key={field}
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-1.5 text-[12px] text-muted-foreground"
-                disabled={busy}
-                onClick={() => setEditing(field)}
-              >
-                <Plus size={12} aria-hidden="true" /> {label}
-              </Button>
-            ),
-          )}
-        </div>
-      )}
     </div>
   )
 }

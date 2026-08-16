@@ -1,61 +1,56 @@
 /**
- * THE AGENT-ACTIVITY PANEL (issues.panel) — what an agent published for the
- * human: todos with a progress bar (checkable from here — the same 1-based index
- * API the dock uses), artifacts with inline image/video previews plus a
- * lightbox, and deferred items. Split out of IssuePage.tsx (POD-646); sections
- * render only when non-empty, so an issue with no panel adds no chrome.
+ * THE AGENT-ACTIVITY PANEL (issues.panel) — what an agent PRODUCED for the
+ * human: artifacts with inline image/video previews plus a lightbox, and
+ * deferred items. Split out of IssuePage.tsx (POD-646); sections render only
+ * when non-empty, so an issue with no panel adds no chrome.
  *
  * -------------------------------------------------------------------------
- * ATTRIBUTION: THE PAIR IS READ, NEVER INFERRED — AND WHAT IS ACTUALLY THERE.
+ * WHAT LEFT THIS PANEL, AND WHY (POD-1163).
  * -------------------------------------------------------------------------
  *
- * docs/multi-user-readiness.md §3.1.3 A3 requires this panel to show ACTOR
- * (which agent) and ON-BEHALF-OF (which human), both server-stamped from the
- * authenticated transport, and never to infer or synthesise either. A4 adds that
- * work an agent did is OWNED by its delegating human, which is why the pair is
- * the panel's header rather than a hover.
+ * TODOS. The panel led with an agent's own todo list — a progress meter, a
+ * percentage, a checkbox per line, and a fold for the done ones — directly
+ * under the description, above the sub-tasks. That put an agent's private
+ * working checklist in the loudest position on a human's page, and put it
+ * immediately above SUB-TASKS, which is the same idea rendered a second way
+ * with real issues behind it. The dock's inspector already refuses to show
+ * todos for exactly this reason (`IssuePanelView.inspector.test.tsx`: "never
+ * todos"); this surface now agrees with it. The panel's todo data, the
+ * `panelApply` todo-done op and the CLI that writes them are untouched — the
+ * agent still keeps its list, the human's page just isn't where it is kept.
  *
- * What is stamped, measured rather than assumed: `IssueAggregate` carries
- * `createdBy: Attribution` and `Ownership` (`owner`, `visibility`), and
- * `IssueProjection` derives its wire shape from that aggregate, so all three
- * reach `IssueViewModel`. The panel ITEMS do not: `IssuePanelTodo`,
- * `IssuePanelArtifact` and `IssuePanelDeferred` carry text/path/addedAt and no
- * `Attribution` at all. So the pair is rendered ONCE, for the issue whose panel
- * this is, and NOT per item — a per-item pair would have to be invented, which
- * is the one thing A3 forbids. The upstream that would supply it is recorded in
- * the ledger; it is a model + wire change, not this surface's.
+ * THE ATTRIBUTION PAIR. It used to head this panel as `Published by user:sole ·
+ * for user:sole` — raw field vocabulary, mid-document, saying one id twice on
+ * the ordinary row. §3.1.3 A3's requirement is that the pair be READ and never
+ * synthesised, which says nothing about where it lives; A4's "work an agent did
+ * is owned by its delegating human" is a provenance fact, and provenance is the
+ * rail's tail. It now renders there, in words, as the Origin block's `Created
+ * by` line (./IssueAbout.tsx over ./issue-provenance.ts). Both halves are still
+ * read from `issue.createdBy` alone and a row without a pair still shows none.
  *
- * NO PAYLOAD ISSUED FROM HERE CARRIES IDENTITY. `commands.toggleTodo` sends the
- * issue id and a 1-based index; `openArtifact`/`openFileInWorktree` send paths.
- * `issue-page-commands.ts` mentions no actor, owner or origin anywhere, and
- * `issue-page.payload-identity.test.ts` is the check that keeps it that way.
+ * The reason it was ever a per-ISSUE line rather than a per-ITEM one still
+ * holds and is worth keeping: `IssuePanelArtifact` and `IssuePanelDeferred`
+ * carry text/path/addedAt and no `Attribution` at all, so a per-item pair would
+ * have to be invented — the one thing A3 forbids.
+ *
+ * NO PAYLOAD ISSUED FROM HERE CARRIES IDENTITY: `openArtifact` /
+ * `openFileInWorktree` send paths. `issue-page-commands.ts` mentions no actor,
+ * owner or origin anywhere, and `payload-identity.test.ts` keeps it that way.
  */
 
 import { shallowEqual } from '@podium/client-core'
 import { relativeTime } from '@podium/client-core/focus'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact } from '@podium/model/browser'
-import { ChevronRight, FileText, Play } from 'lucide-react'
+import { FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { cn } from '@/lib/utils'
-import type { IssuePageCommands } from '../issue-page-commands'
-import { AttributionPair } from './AttributionPair'
 import { SectionHeading } from './chrome'
 
-export function IssueAgentActivity({
-  issue,
-  busy,
-  commands,
-}: {
-  issue: IssueViewModel
-  busy: boolean
-  commands: IssuePageCommands
-}): JSX.Element | null {
+export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const { httpOrigin, openFileInWorktree, openArtifact } = useStoreSelector(
     (s) => ({
       httpOrigin: s.httpOrigin,
@@ -70,18 +65,10 @@ export function IssueAgentActivity({
     label: string
   } | null>(null)
 
-  const todos = issue.panel?.todos ?? []
   const artifacts = issue.panel?.artifacts ?? []
   const deferred = issue.panel?.deferred ?? []
-  if (todos.length === 0 && artifacts.length === 0 && deferred.length === 0) return null
+  if (artifacts.length === 0 && deferred.length === 0) return null
 
-  const doneCount = todos.filter((t) => t.done).length
-  // The 1-based index IS the API `toggleTodo` takes, so it is carried alongside
-  // each todo rather than recovered from a filtered array's position — a
-  // partitioned list whose keys are its own indices toggles the wrong row.
-  const indexed = todos.map((todo, index) => ({ todo, index }))
-  const openTodos = indexed.filter((t) => !t.todo.done)
-  const doneTodos = indexed.filter((t) => t.todo.done)
   // An issue with no dedicated worktree is worked in the repo's primary
   // checkout — serve its artifacts from there.
   const root = issue.worktreePath ?? issue.repoPath
@@ -109,64 +96,6 @@ export function IssueAgentActivity({
 
   return (
     <div data-testid="issue-panel-sections">
-      <AgentActivityAttribution issue={issue} />
-
-      {todos.length > 0 && (
-        <section className="mb-9 flex flex-col gap-2.5">
-          <SectionHeading count={`${doneCount}/${todos.length}`}>Todo</SectionHeading>
-          <div className="flex items-center gap-2.5">
-            <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-[var(--issue)] transition-[width] duration-300"
-                style={{ width: `${(doneCount / todos.length) * 100}%` }}
-              />
-            </div>
-            <span className="font-mono shell-type-micro text-text-faint tabular-nums">
-              {Math.round((doneCount / todos.length) * 100)}%
-            </span>
-          </div>
-          {/* OPEN WORK FIRST, DONE WORK FOLDED (POD-591). A live task carries
-              twenty todos and two thirds of them are struck through — a wall of
-              crossed-out text between the description and everything below it.
-              What is left to do is the question this section answers; what was
-              already done is an audit trail, one click away. */}
-          <div className="flex flex-col gap-0.5">
-            {openTodos.map(({ todo, index }) => (
-              <TodoRow
-                key={`open-${index}`}
-                todo={todo}
-                index={index}
-                busy={busy}
-                commands={commands}
-              />
-            ))}
-          </div>
-          {doneTodos.length > 0 && (
-            <details className="group/done">
-              <summary className="flex cursor-pointer list-none items-center gap-1.5 py-0.5 text-[11px] text-text-dim hover:text-foreground [&::-webkit-details-marker]:hidden">
-                <ChevronRight
-                  size={11}
-                  aria-hidden="true"
-                  className="transition-transform group-open/done:rotate-90"
-                />
-                {doneTodos.length} done
-              </summary>
-              <div className="mt-0.5 flex flex-col gap-0.5">
-                {doneTodos.map(({ todo, index }) => (
-                  <TodoRow
-                    key={`done-${index}`}
-                    todo={todo}
-                    index={index}
-                    busy={busy}
-                    commands={commands}
-                  />
-                ))}
-              </div>
-            </details>
-          )}
-        </section>
-      )}
-
       {artifacts.length > 0 && (
         <section className="mb-9 flex flex-col gap-2.5" data-testid="issue-artifacts">
           <SectionHeading count={String(artifacts.length)}>Artifacts</SectionHeading>
@@ -271,54 +200,5 @@ export function IssueAgentActivity({
 
       {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
     </div>
-  )
-}
-
-/** One todo. The 1-based `index` is the toggle API's argument, threaded from the
- *  unpartitioned list so an open/done split cannot toggle the wrong row. */
-function TodoRow({
-  todo,
-  index,
-  busy,
-  commands,
-}: {
-  todo: { text: string; done: boolean }
-  index: number
-  busy: boolean
-  commands: IssuePageCommands
-}): JSX.Element {
-  return (
-    // biome-ignore lint/a11y/noLabelWithoutControl: the Checkbox inside renders a Base UI role=checkbox button, which biome can't see as a control
-    <label className="-mx-1.5 flex cursor-pointer items-start gap-2 rounded-[4.8px] px-1.5 py-1.5 text-[13.5px] leading-[1.45] transition-colors hover:bg-accent/60">
-      <Checkbox
-        checked={todo.done}
-        disabled={busy}
-        onCheckedChange={(checked) => commands.toggleTodo(index + 1, checked === true)}
-        className="mt-[3px]"
-      />
-      <span className={cn('leading-[1.45]', todo.done ? 'text-text-faint' : 'text-foreground')}>
-        {todo.text}
-      </span>
-    </label>
-  )
-}
-
-/** Who produced this work, from the issue's own server-stamped `createdBy`
- *  pair. Renders nothing when the projection carries no pair — an older row
- *  genuinely does not know, and "unknown · for you" would be a fabrication. */
-function AgentActivityAttribution({ issue }: { issue: IssueViewModel }): JSX.Element | null {
-  if (!issue.createdBy) return null
-  return (
-    <p
-      className="mb-2 flex flex-wrap items-baseline gap-1 text-[11px] text-muted-foreground"
-      data-testid="agent-activity-attribution"
-    >
-      <span>Published by</span>
-      {/* `compact` (POD-591): this is a one-line dense row, which is the case
-          the flag was built for. Without it an agent actor's full uuid ran the
-          width of the column — the page's only visible uuid, and the reason the
-          human half beside it was the part that got clipped. */}
-      <AttributionPair compact attribution={issue.createdBy} />
-    </p>
   )
 }

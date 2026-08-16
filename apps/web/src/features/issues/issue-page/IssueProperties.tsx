@@ -14,19 +14,42 @@
  * POD-591 RANKED IT. It used to be a flat form — ten property rows of identical
  * weight, then relations, sessions, git and About — so Status and Estimate
  * looked equally important, and Estimate / Due / Defer took three permanent rows
- * near the top while being empty on nearly every task. The order now follows the
+ * near the top while being empty on nearly every task. The order follows the
  * questions an operator actually asks, in order:
  *
- *   what state is it in, and whose is it   → the property head
- *   who is working it                      → sessions
- *   where is the branch                    → git
- *   what does it touch                     → parent + relations
- *   the long tail                          → "More fields", folded
- *   provenance                             → About
+ *   what state is it in    → the property head
+ *   who is working it      → sessions
+ *   where is the branch    → git
+ *   what does it touch     → parent + relations
+ *   where it came from     → Origin
  *
- * NOTHING WAS REMOVED. "More fields" holds exactly what used to sit inline, and
- * it opens by default whenever any of those fields is set, so a task that HAS an
- * estimate or a due date still shows it without a click.
+ * -------------------------------------------------------------------------
+ * POD-1163: ONE COLUMN, ONE RHYTHM, AND NO FOLD OVER THE LONG TAIL.
+ * -------------------------------------------------------------------------
+ *
+ * THE COLUMN. Every value in this rail starts at the same x: a 72px label
+ * column plus a 12px gap. It did not before — the label chips' add button sat
+ * 6px right of it, the parent trigger 8px right of that, and the About block
+ * ran its own 80px label column 4px right again. Four value columns inside
+ * 272px is what "a bit all over the place" looks like from the outside, and no
+ * single one of them was wrong enough to notice on its own. {@link PropertyRow}
+ * now owns the measurement and every band uses it.
+ *
+ * THE RHYTHM. Each band is `px-5 py-4`, and a band's heading sits 8px above its
+ * content — 32px between bands against 8px inside one, which is the contrast
+ * that makes the rail read as five answers rather than one long form. The head
+ * band was `pt-5 pb-3` and the Origin block drew the rail's only horizontal
+ * rule; both are gone.
+ *
+ * THE LONG TAIL. "More fields" was a fold that opened itself whenever it had
+ * anything in it — so it was a disclosure that mostly disclosed nothing, and a
+ * heading over an empty box on every ordinary task. Estimate, Due, Snooze and
+ * Type now behave the way Linear's optional properties do: a row when the field
+ * is SET, and otherwise one quiet `+ Add property` menu at the foot of the head
+ * band. Nothing became unreachable — which matters, because the rail is the
+ * only place in the web UI that can set an estimate, a due date or a type. The
+ * Linear link went the other way: it is already an item in the page's overflow
+ * menu (`open-linear`), so a second home in the rail was the duplicate.
  *
  * All mutations still go through the named commands in
  * `../issue-page-commands.ts`; the pure derivations still come from
@@ -42,24 +65,17 @@ import {
   issueStatusValueOf,
   parseIssueStatusValue,
 } from '@podium/model/browser'
-import { ChevronRight, ExternalLink, Plus, X } from 'lucide-react'
+import { Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
+import { cn } from '@/lib/utils'
 import { PriorityGlyph, StatusGlyph } from '../issue-glyphs'
 import type { IssueCloseReason } from '../issue-lifecycle'
 import type { IssuePageCommands } from '../issue-page-commands'
-import {
-  assigneeOptionsOf,
-  labelPoolOf,
-  mateOptionsOf,
-  repoMatesOf,
-  UNASSIGNED,
-  useMergeStyle,
-} from '../issue-page-model'
-import { MACHINE_LABEL } from './chrome'
+import { labelPoolOf, mateOptionsOf, repoMatesOf, useMergeStyle } from '../issue-page-model'
 import { DateProperty, EstimateProperty } from './DateProperty'
 import { IssueAbout } from './IssueAbout'
 import { IssueGitBlock } from './IssueGitBlock'
@@ -102,17 +118,22 @@ export function IssueProperties({
   const mergeStyle = useMergeStyle(trpc)
   // Relation add is two steps: pick a dep type, then a target issue.
   const [addRelType, setAddRelType] = useState('blocks')
+  // Long-tail properties the operator asked for on THIS task but has not filled
+  // in yet. Local and transient by design: an added-then-abandoned Due row is a
+  // UI state, not a fact about the issue, and persisting it would put an empty
+  // row back on the rail forever — the defect the fold was covering for.
+  const [revealed, setRevealed] = useState<ReadonlySet<LongTailKey>>(new Set())
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {
     setAddRelType('blocks')
+    setRevealed(new Set())
   }, [issue.id])
 
   // Repo-mates: the pool for relations + parent, excluding self, seq-ordered.
   const repoMates = repoMatesOf(issues, issue)
   const matesById = new Map(repoMates.map((i) => [i.id as string, i]))
   const mateOptions = mateOptionsOf(repoMates)
-  const assigneeOptions = assigneeOptionsOf(issues)
   const labelPool = labelPoolOf(issues, issue)
 
   // [spec:SP-a1c0] (#411) Route through the central action — never roll per-feature
@@ -143,17 +164,23 @@ export function IssueProperties({
     groupKey: entry.outcome,
   }))
 
-  // The fold opens itself when it has something to say — see the module note.
-  const hasLongTail =
-    issue.type !== 'task' ||
-    issue.estimateMin != null ||
-    issue.dueAt != null ||
-    issue.deferUntil != null ||
-    Boolean(issue.linearUrl || issue.linearIdentifier)
+  // A long-tail property earns a row when it is SET, or when the operator just
+  // asked for it. Everything else stays behind one `+ Add property` menu.
+  const isSet: Record<LongTailKey, boolean> = {
+    estimate: issue.estimateMin != null,
+    due: issue.dueAt != null,
+    defer: issue.deferUntil != null,
+    type: issue.type !== 'task',
+  }
+  const shows = (key: LongTailKey): boolean => isSet[key] || revealed.has(key)
+  const addable = LONG_TAIL.filter((entry) => !shows(entry.key))
+  const reveal = (key: string): void => {
+    setRevealed((prior) => new Set(prior).add(key as LongTailKey))
+  }
 
   return (
     <div className="flex flex-col">
-      <div className="flex flex-col px-5 pt-5 pb-3">
+      <RailSection>
         <PropertyRow label="Status">
           <PropertyMenu
             selectedValue={issueStatusValueOf(issue)}
@@ -189,27 +216,21 @@ export function IssueProperties({
           />
         </PropertyRow>
 
-        <PropertyRow label="Assignee">
-          <PropertyMenu
-            allowFreeText
-            selectedValue={issue.assignee || UNASSIGNED}
-            options={assigneeOptions}
-            placeholder="Assign to…"
-            onSelect={(v) => commands.update({ assignee: v === UNASSIGNED ? '' : v })}
-            trigger={
-              <TriggerButton disabled={busy}>
-                {issue.assignee || <span className="text-text-faint">Unassigned</span>}
-              </TriggerButton>
-            }
-          />
-        </PropertyRow>
+        {/* NO ASSIGNEE ROW (POD-1163). Work here is placed on AGENTS, in
+            sessions, from the Sessions band below — the free-text assignee was
+            a second, disconnected answer to "who is working this" that nothing
+            else on the page read. The field survives on the wire and on the
+            board; the rail no longer offers a second place to set it. */}
 
         <PropertyRow label="Labels">
-          <div className="flex flex-wrap items-center gap-1">
+          {/* `-ml-1.5` on the add button, so its glyph starts on the same value
+              column the pickers above do — the chips wrap around it and the
+              column survives an empty label set. */}
+          <div className="-ml-1.5 flex flex-wrap items-center gap-1">
             {issue.labels.map((label) => (
               <span
                 key={label}
-                className="inline-flex items-center gap-1 rounded-[4px] bg-primary/10 py-px pr-1 pl-1.5 text-[11px] text-primary"
+                className="ml-1.5 inline-flex items-center gap-1 rounded-[4px] bg-primary/10 py-px pr-1 pl-1.5 text-[11px] text-primary"
               >
                 {label}
                 <button
@@ -231,20 +252,96 @@ export function IssueProperties({
               placeholder="Add label…"
               onSelect={commands.addLabel}
               trigger={
+                // Every `+ Add` in the rail is one control: 28px, 12px, faint.
+                // These ran 11px/h-6 here, 12px/muted in Relations and 12px
+                // faint at the foot of this band — three treatments of one
+                // affordance inside 272px.
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   disabled={busy}
-                  className="h-6 gap-1 px-1.5 text-[11px] text-text-faint"
+                  className="h-7 gap-1 px-1.5 text-[12px] text-text-faint"
                 >
-                  <Plus size={11} aria-hidden="true" /> Add
+                  <Plus size={12} aria-hidden="true" /> Add
                 </Button>
               }
             />
           </div>
         </PropertyRow>
-      </div>
+
+        {shows('type') && (
+          <PropertyRow label="Type">
+            <PropertyMenu
+              selectedValue={issue.type}
+              options={IssueType.options.map((t) => ({ value: t, label: t }))}
+              onSelect={(v) => commands.update({ type: v as IssueType })}
+              trigger={<TriggerButton disabled={busy}>{issue.type}</TriggerButton>}
+            />
+          </PropertyRow>
+        )}
+
+        {shows('estimate') && (
+          <PropertyRow label="Estimate">
+            <EstimateProperty
+              value={issue.estimateMin}
+              disabled={busy}
+              onSelect={(minutes) => commands.update({ estimateMin: minutes })}
+              onClear={() => commands.update({ estimateMin: null })}
+            />
+          </PropertyRow>
+        )}
+
+        {shows('due') && (
+          <PropertyRow label="Due">
+            <DateProperty
+              value={issue.dueAt}
+              placeholder="No due date"
+              ariaLabel="Due date"
+              disabled={busy}
+              onSelect={(value) => commands.setDueDate(value)}
+              onClear={() => commands.setDueDate('')}
+            />
+          </PropertyRow>
+        )}
+
+        {shows('defer') && (
+          <PropertyRow label="Snooze">
+            <DateProperty
+              value={issue.deferUntil}
+              placeholder="Snooze until…"
+              ariaLabel="Defer until"
+              disabled={busy}
+              onSelect={(value) => commands.defer(value, () => {})}
+              {...(issue.deferUntil ? { onClear: commands.undefer } : {})}
+            />
+          </PropertyRow>
+        )}
+
+        {addable.length > 0 && (
+          // The foot of the head band, on the LABEL column rather than the
+          // value column: it adds a row, it is not the value of one.
+          <div className="-ml-2 flex min-h-[30px] items-center">
+            <PropertyMenu
+              options={addable.map((entry) => ({ value: entry.key, label: entry.label }))}
+              placeholder="Add property…"
+              onSelect={reveal}
+              trigger={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  data-testid="add-property"
+                  className="h-7 gap-1 px-2 text-[12px] text-text-faint"
+                >
+                  <Plus size={12} aria-hidden="true" /> Add property
+                </Button>
+              }
+            />
+          </div>
+        )}
+      </RailSection>
 
       <RailSection>
         <IssueSessionsBlock
@@ -264,7 +361,7 @@ export function IssueProperties({
         </RailSection>
       )}
 
-      <RailSection>
+      <RailSection gap="loose">
         <IssueParentRow
           issue={issue}
           parentEdge={resolve(issue.parentId)}
@@ -287,91 +384,43 @@ export function IssueProperties({
       </RailSection>
 
       <RailSection>
-        <details className="group/more" open={hasLongTail}>
-          <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-            <ChevronRight
-              size={11}
-              aria-hidden="true"
-              className="flex-none text-text-faint transition-transform group-open/more:rotate-90"
-            />
-            <span className={MACHINE_LABEL}>More fields</span>
-            {!hasLongTail && (
-              <span className="ml-auto font-mono shell-type-micro text-text-faint">none set</span>
-            )}
-          </summary>
-          <div className="mt-1 flex flex-col">
-            <PropertyRow label="Type">
-              <PropertyMenu
-                selectedValue={issue.type}
-                options={IssueType.options.map((t) => ({ value: t, label: t }))}
-                onSelect={(v) => commands.update({ type: v as IssueType })}
-                trigger={<TriggerButton disabled={busy}>{issue.type}</TriggerButton>}
-              />
-            </PropertyRow>
-
-            <PropertyRow label="Estimate">
-              <EstimateProperty
-                value={issue.estimateMin}
-                disabled={busy}
-                onSelect={(minutes) => commands.update({ estimateMin: minutes })}
-                onClear={() => commands.update({ estimateMin: null })}
-              />
-            </PropertyRow>
-
-            <PropertyRow label="Due">
-              <DateProperty
-                value={issue.dueAt}
-                placeholder="No due date"
-                ariaLabel="Due date"
-                disabled={busy}
-                onSelect={(value) => commands.setDueDate(value)}
-                onClear={() => commands.setDueDate('')}
-              />
-            </PropertyRow>
-
-            <PropertyRow label="Defer">
-              <DateProperty
-                value={issue.deferUntil}
-                placeholder="Snooze until…"
-                ariaLabel="Defer until"
-                disabled={busy}
-                onSelect={(value) => commands.defer(value, () => {})}
-                {...(issue.deferUntil ? { onClear: commands.undefer } : {})}
-              />
-            </PropertyRow>
-
-            {/* Linear (integration link — identifier + click-through) */}
-            {(issue.linearUrl || issue.linearIdentifier) && (
-              <PropertyRow label="Linear">
-                {issue.linearUrl ? (
-                  <a
-                    href={issue.linearUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 pt-1 text-[12px] text-primary hover:underline"
-                  >
-                    {issue.linearIdentifier ?? 'Open'} <ExternalLink size={11} aria-hidden="true" />
-                  </a>
-                ) : (
-                  <span className="block pt-1 text-[12px]">{issue.linearIdentifier}</span>
-                )}
-              </PropertyRow>
-            )}
-          </div>
-        </details>
-      </RailSection>
-
-      <RailSection>
         <IssueAbout issue={issue} />
       </RailSection>
     </div>
   )
 }
 
-/** A quiet, whitespace-separated band of the rail. Repeated dividers made the
- *  secondary column feel like a settings table instead of supporting context. */
-function RailSection({ children }: { children: ReactNode }): JSX.Element {
-  return <div className="px-5 py-4">{children}</div>
+/** The long-tail properties, in the order the add-menu offers them. Every one
+ *  is a field with no other home in the web UI, which is why the fold they used
+ *  to live in became a menu rather than a deletion. */
+const LONG_TAIL = [
+  { key: 'estimate', label: 'Estimate' },
+  { key: 'due', label: 'Due date' },
+  { key: 'defer', label: 'Snooze' },
+  { key: 'type', label: 'Type' },
+] as const
+
+type LongTailKey = (typeof LONG_TAIL)[number]['key']
+
+/** ONE BAND OF THE RAIL, ONE RHYTHM (POD-1163).
+ *
+ *  Every band — including the property head, which used to run `pt-5 pb-3` —
+ *  is `px-5 py-4`, so the gap between two bands is always 32px against the 8px
+ *  a band spends between its own heading and its content. No band draws a rule:
+ *  repeated dividers made the secondary column feel like a settings table, and
+ *  a single divider (the Origin block had the rail's only one) reads as a
+ *  mistake rather than as structure. */
+function RailSection({
+  children,
+  /** `loose` puts a heading's own 16px above it when a band holds two blocks
+   *  rather than one — the parent row followed by Relations. Property rows
+   *  inside a band stack flush; they carry their own 30px. */
+  gap = 'flush',
+}: {
+  children: ReactNode
+  gap?: 'flush' | 'loose'
+}): JSX.Element {
+  return <div className={cn('flex flex-col px-5 py-4', gap === 'loose' && 'gap-4')}>{children}</div>
 }
 
 /** Re-exported for the call sites that used to import it from the properties

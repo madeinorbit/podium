@@ -47,7 +47,7 @@ import { repoMatesOf, useIssuePageModel } from './issue-page-model'
  *                       eligibility rules of its own.
  *   IssueBanners        deleted / superseded / suggestion / needs-human.
  *   IssueBody           title, status strip, description, brief, long-form.
- *   IssueAgentActivity  the agent-published panel + its attribution pair.
+ *   IssueAgentActivity  the agent-published panel (artifacts + deferred).
  *   IssueSubIssues      the child list, over the issues slice's `subIssuesOf`.
  *   IssueActivity       mail, the comment/event feed, the composer.
  *   IssueProperties     the aside, itself split by question (parent / relations
@@ -215,8 +215,10 @@ export function IssuePage({
               {/* Long-form spec fields agents write via `podium issue update`. */}
               <LongFormFields issue={issue} busy={busy} commands={commands} />
 
-              {/* The agent-published panel: todos / artifacts / deferred. */}
-              <IssueAgentActivity issue={issue} busy={busy} commands={commands} />
+              {/* The agent-published panel: what the work PRODUCED (artifacts)
+                  and what it parked (deferred). Not the agent's own todo list —
+                  see the module note there. */}
+              <IssueAgentActivity issue={issue} />
 
               <IssueSubIssues
                 issue={issue}

@@ -129,9 +129,14 @@ describe('IssuePage agent-saved data', () => {
     expect(screen.getByText('Runtime verification is still in progress.')).toBeTruthy()
 
     const panel = screen.getByTestId('issue-panel-sections')
-    expect(within(panel).getByText('Render every field')).toBeTruthy()
     expect(within(panel).getByText('Agent data notes')).toBeTruthy()
     expect(within(panel).getByText('Revisit tablet density later.')).toBeTruthy()
+    // NOT the agent's own todo list (POD-1163). The panel shows what the work
+    // PRODUCED and what it parked; the checklist an agent keeps for itself is
+    // not the human's page, and Sub-tasks directly below is the same idea with
+    // real issues behind it. The dock's inspector already refused to show them.
+    expect(within(panel).queryByText('Render every field')).toBeNull()
+    expect(within(panel).queryAllByRole('checkbox')).toHaveLength(0)
 
     const status = screen.getByTestId('status-strip')
     for (const text of ['Closed · done', 'draft', 'pinned', 'agent-created', 'internal']) {
@@ -148,7 +153,7 @@ describe('IssuePage agent-saved data', () => {
     expect(mailInbox).toHaveBeenCalledWith({ id: issue.id })
   })
 
-  it('persists long-form edits and todo checks, and opens file artifacts', async () => {
+  it('persists long-form edits and opens file artifacts', async () => {
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )
@@ -164,15 +169,9 @@ describe('IssuePage agent-saved data', () => {
       }),
     )
 
-    const panel = screen.getByTestId('issue-panel-sections')
-    fireEvent.click(within(panel).getAllByRole('checkbox')[0] as HTMLElement)
-    await waitFor(() =>
-      expect(panelApply).toHaveBeenCalledWith({
-        id: issue.id,
-        op: 'todo-done',
-        index: 1,
-      }),
-    )
+    // The page issues no `panelApply` write at all now that the todo list is
+    // gone — the op survives for the CLI and the dock, not for this surface.
+    expect(panelApply).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByText('Agent data notes'))
     expect(openFileInWorktree).toHaveBeenCalledWith({

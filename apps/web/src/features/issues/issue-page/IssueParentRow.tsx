@@ -113,39 +113,52 @@ export function IssueParentRow({
   }
 
   return (
-    <PropertyRow label="Parent">
-      <div className="flex items-center gap-1">
-        {hasParentRef && (
-          <span className="min-w-0 flex-1 truncate text-[13px]">
-            <IssueEdgeLink
-              edge={parentEdge}
-              onNavigate={onNavigate}
-              fallbackId={issue.parentId ?? undefined}
-            />
-          </span>
-        )}
-        <PropertyMenu
-          selectedValue={issue.parentId ?? '__none__'}
-          options={[{ value: '__none__', label: 'No parent' }, ...mateOptions]}
-          placeholder="Set parent…"
-          onSelect={select}
-          trigger={
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              title={REPARENT_SCOPE_NOTE}
-              className={cn('h-7 gap-1 px-2 text-[13px]', parent ? '' : 'w-full justify-start')}
-            >
-              {parent ? 'Change' : <span className="text-muted-foreground">No parent</span>}
-            </Button>
-          }
-        />
-      </div>
-      <p className="pt-0.5 text-[11px] text-muted-foreground/80" data-testid="reparent-scope-note">
+    // The note is a SIBLING of the row, not the tail of its value cell
+    // (POD-1163). Inside the cell it made Parent the one property row three
+    // lines tall, which pushed its label off the row's own baseline and left
+    // the rail's most-explained control looking like its least-finished one.
+    // Out here it reads as what it is: a standing note about the band.
+    <div className="flex flex-col">
+      <PropertyRow label="Parent">
+        <div className="-ml-2 flex items-center gap-1">
+          {hasParentRef && (
+            <span className="min-w-0 flex-1 truncate pl-2 text-[13px]">
+              <IssueEdgeLink
+                edge={parentEdge}
+                onNavigate={onNavigate}
+                fallbackId={issue.parentId ?? undefined}
+              />
+            </span>
+          )}
+          <PropertyMenu
+            selectedValue={issue.parentId ?? '__none__'}
+            options={[{ value: '__none__', label: 'No parent' }, ...mateOptions]}
+            placeholder="Set parent…"
+            onSelect={select}
+            trigger={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                title={REPARENT_SCOPE_NOTE}
+                className={cn(
+                  'h-7 shrink-0 gap-1 px-2 font-normal text-[13px]',
+                  parent ? 'text-text-faint' : 'w-full justify-start',
+                )}
+              >
+                {parent ? 'Change' : <span className="text-muted-foreground">No parent</span>}
+              </Button>
+            }
+          />
+        </div>
+      </PropertyRow>
+      <p
+        className="text-[11px] text-muted-foreground/80 leading-[1.45]"
+        data-testid="reparent-scope-note"
+      >
         {REPARENT_SCOPE_NOTE}
       </p>
-    </PropertyRow>
+    </div>
   )
 }

@@ -96,41 +96,82 @@ describe('the needs-human banner asks for a PERSON', () => {
   })
 })
 
-describe('the agent-activity panel shows the pair', () => {
+/**
+ * The pair used to head the agent-activity panel, mid-document. POD-1163 moved
+ * it to the rail's Origin block and put it into words — so these tests moved
+ * with it, and gained the counterfactual that the WORDING introduces: a phrase
+ * is only a translation while every part of it comes from a stamped field.
+ */
+describe('the Origin block says who made this, in words', () => {
   it('renders actor and on-behalf-of from the issue’s own createdBy', () => {
-    show({
-      panel: { todos: [{ text: 'do it', done: false }], artifacts: [], deferred: [] },
-      createdBy: { actor: { kind: 'agent', id: 'agent-3' }, onBehalfOf: 'bob' },
-    })
-    const line = screen.getByTestId('agent-activity-attribution')
-    expect(line.textContent).toContain('agent-3')
-    expect(line.textContent).toContain('for bob')
+    show({ createdBy: { actor: { kind: 'agent', id: 'agent-3' }, onBehalfOf: 'bob' } })
+    // Two mounts of the properties stack (aside + mobile disclosure), so both.
+    const line = screen.getAllByTestId('about-created-by')[0]
+    expect(line?.textContent).toBe('Agent agent-3, for bob')
   })
 
-  it('renders "no human" — not the owner — for a machine actor', () => {
+  it('collapses a person acting for themselves to one name', () => {
+    // The single-user case, and the one the raw pair rendered worst:
+    // `Published by user:sole · for user:sole` said one id twice.
+    show({ createdBy: { actor: { kind: 'user', id: 'user:sole' }, onBehalfOf: 'user:sole' } })
+    expect(screen.getAllByTestId('about-created-by')[0]?.textContent).toBe('sole')
+  })
+
+  it('keeps BOTH names when a person acted for someone else', () => {
+    // The counterfactual for the collapse above: it must be a collapse of two
+    // EQUAL halves, never a drop of the on-behalf-of half.
+    show({ createdBy: { actor: { kind: 'user', id: 'user:alice' }, onBehalfOf: 'bob' } })
+    expect(screen.getAllByTestId('about-created-by')[0]?.textContent).toBe('alice, for bob')
+  })
+
+  it('does not annotate a PERSON with "no human"', () => {
+    // The overwhelmingly common shape on today's rows: a person acted and no
+    // separate delegating human was recorded. "sole · no human" beside a
+    // person's name says something false — ADR 9 D8 S5's phrase describes a
+    // machine or a system job, not the human who is standing right there.
+    show({ createdBy: { actor: { kind: 'user', id: 'user:sole' }, onBehalfOf: null } })
+    expect(screen.getAllByTestId('about-created-by')[0]?.textContent).toBe('sole')
+  })
+
+  it('says "no human" — not the owner — for a machine actor', () => {
     // ADR 9 D8 S5: a machine acts for no person, and `onBehalfOf: null` says so
     // explicitly. Substituting the owner here would be the exact defect.
     show({
       owner: 'carol',
-      panel: { todos: [{ text: 'probe', done: true }], artifacts: [], deferred: [] },
       createdBy: { actor: { kind: 'machine', id: 'm-1' }, onBehalfOf: null },
     })
-    expect(screen.getByTestId('attribution-on-behalf-of').textContent).toBe('no human')
-    expect(screen.getByTestId('agent-activity-attribution').textContent).not.toContain('carol')
+    const line = screen.getAllByTestId('about-created-by')[0]
+    expect(line?.textContent).toBe('Machine m-1 · no human')
+    expect(line?.textContent).not.toContain('carol')
   })
 
-  it('renders no attribution line when the projection carries no pair', () => {
-    show({ panel: { todos: [{ text: 'do it', done: false }], artifacts: [], deferred: [] } })
+  it('falls back to the coarse origin — naming NO id — when there is no pair', () => {
+    // A row that predates per-write attribution still carries `origin`, which
+    // genuinely says "a person" or "an agent" and claims nothing more. Printing
+    // a name here would be the synthesis §3.1.3 A3 forbids.
+    show({ origin: 'agent', owner: 'alice' })
+    const line = screen.getAllByTestId('about-created-by')[0]
+    expect(line?.textContent).toBe('An agent')
+    expect(line?.textContent).not.toContain('alice')
+  })
+
+  it('renders no attribution pair anywhere in the document column', () => {
+    // The panel no longer carries the pair — its old home is gone, not moved
+    // twice. Without this, "it is in the rail now" is satisfiable by a page
+    // that shows it in both places.
+    show({ panel: { todos: [], artifacts: [], deferred: [] }, createdBy: undefined })
     expect(screen.queryByTestId('agent-activity-attribution')).toBeNull()
+    expect(document.body.textContent).not.toContain('Published by')
   })
 })
 
 describe('owner and visibility are DISPLAYED, read-only', () => {
-  it('shows both when the projection carries them', () => {
+  it('shows both when the projection carries them, in plain words', () => {
     show({ owner: 'alice', visibility: 'personal' })
     // Two mounts of the properties stack (aside + mobile disclosure), so both.
     expect(screen.getAllByTestId('about-owner')[0]?.textContent).toContain('alice')
-    expect(screen.getAllByTestId('about-visibility')[0]?.textContent).toContain('personal')
+    // Translated, not echoed: `personal` is an ADR 9 D3 class name, not English.
+    expect(screen.getAllByTestId('about-visibility')[0]?.textContent).toBe('Private to its owner')
   })
 
   it('offers NO sharing control — per-feature sharing UX is deferred', () => {

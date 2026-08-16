@@ -19,7 +19,12 @@
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import { asMachineId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model/browser'
+import {
+  asMachineId,
+  type IssueWire,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
 import type { JSX } from 'react'
@@ -83,7 +88,10 @@ function SessionRosterRow({
       data-pressable
       type="button"
       className={cn(
-        '-mx-1.5 flex h-[30px] items-center gap-2 rounded-[4.8px] px-1.5 text-left transition-colors hover:bg-accent/60',
+        // 28px, the rail's one list-row height (POD-1163) — the relations rows
+        // below ran 24 and this ran 30, so two lists in the same column had two
+        // cadences and neither matched the 30px property rows above them.
+        '-mx-1.5 flex h-7 items-center gap-2 rounded-[4.8px] px-1.5 text-left transition-colors hover:bg-accent/60',
         muted && 'opacity-70',
       )}
       title={title ?? `Open ${sessionDisplayName(session)}`}
