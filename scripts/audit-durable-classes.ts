@@ -288,6 +288,13 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'workflow_runs', kind: 'drizzle-table', row: 'workflow-runs' },
   { store: 'workflow_run_steps', kind: 'drizzle-table', row: 'workflow-runs' },
   { store: 'workflow_events', kind: 'drizzle-table', row: 'workflow-runs' },
+  {
+    store: 'operations',
+    kind: 'drizzle-table',
+    row: null,
+    notEntityState:
+      'A SERVER-OWNED PROCESS RECORD, not state anyone owns (POD-2097). One row is one long-running lifecycle job — an update now, a server move later — started by an explicit human click and reaching an outcome on its own. There is no owner to classify: `createdBy` records who asked, not who may see it, and the thing an operation is scoped to is the SERVER, which the ownership matrix does not model as a subject. It is also absent from the change feed by design: clients read it through `operations.active` / `operations.history` as the opaque JSON its frozen contract requires, because the web bundle rendering an update is routinely swapped mid-operation and must be able to display fields it has never heard of. Giving it a visibility class would be classifying a process as if it were a document.',
+  },
 
   // -- §8 Messaging & superagent --------------------------------------------
   { store: 'messages', kind: 'drizzle-table', row: 'messages-substrate' },

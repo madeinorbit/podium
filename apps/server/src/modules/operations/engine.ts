@@ -9,10 +9,20 @@ import type {
   AnyOperationKindDefinition,
   OperationKindRegistry,
   OperationPlan,
+  StepDeadlines,
   StepOutcome,
   StepProgressPatch,
 } from './kinds'
 import type { OperationRow, OperationStore, PersistedOperation } from './store'
+import {
+  applyStepPatch,
+  deadlineBreach,
+  deadlineDue,
+  inFlightStep,
+  isStepFinished,
+  nextStep,
+  withPersistenceFacts,
+} from './transitions'
 
 /**
  * THE ENGINE (POD-2097, spec §3.2–§3.4) — the generic half of every long-running
@@ -77,9 +87,6 @@ export type CancelResult =
 export const STALLED_ERROR_CODE = 'stalled'
 /** An operation whose kind this binary does not register — see {@link OperationEngine.adoptOnBoot}. */
 export const UNKNOWN_KIND_ERROR_CODE = 'unknown-operation-kind'
-
-const isStepFinished = (state: OperationStep['state']): boolean =>
-  state === 'done' || state === 'skipped' || state === 'failed'
 
 export class OperationEngine {
   private readonly deps: OperationEngineDeps
@@ -203,9 +210,7 @@ export class OperationEngine {
     if (!operation) return { canceled: false, refused: 'irreversible' }
 
     const def = this.deps.registry.get(operation.kind)
-    const inFlight = (operation.steps ?? []).find(
-      (s) => s.state === 'running' || s.state === 'stalled',
-    )
+    const inFlight = inFlightStep(operation)
     if (inFlight && def?.runners[inFlight.id]?.reversible !== true) {
       return { canceled: false, refused: 'irreversible', step: inFlight.id }
     }
@@ -335,7 +340,7 @@ export class OperationEngine {
       const def = this.deps.registry.get(operation.kind)
       if (!def) return
 
-      const step = (operation.steps ?? []).find((s) => !isStepFinished(s.state))
+      const step = nextStep(operation)
       if (!step) {
         this.settle(operation, def)
         return
@@ -483,33 +488,15 @@ export class OperationEngine {
     return next
   }
 
-  /**
-   * Fold a patch into one step and hand back the whole operation. Unknown
-   * fields on the step and on the operation ride through untouched — the store
-   * writes the object back whole, so anything dropped here is dropped for good.
-   */
+  /** `transitions.applyStepPatch`, plus the facts the store needs to write it. */
   private applyPatch(
     operation: Operation,
     stepId: string,
     patch: StepProgressPatch,
     at: number,
-    extra: (step: OperationStep) => OperationStep = (s) => s,
+    extra?: (step: OperationStep) => OperationStep,
   ): PersistedOperation {
-    const steps = (operation.steps ?? []).map((step) => {
-      if (step.id !== stepId) return step
-      const merged: OperationStep = extra({
-        ...step,
-        ...(patch.state ? { state: patch.state } : {}),
-        ...(patch.progress ? { progress: patch.progress } : {}),
-        ...(patch.places ? { places: patch.places } : {}),
-        ...(patch.detail !== undefined ? { detail: patch.detail } : {}),
-        ...(patch.error !== undefined ? { error: patch.error } : {}),
-        lastProgressAt: at,
-      })
-      if (isStepFinished(merged.state)) merged.finishedAt = at
-      return merged
-    })
-    return this.persistable({ ...operation, steps }, undefined, at)
+    return this.persistable(applyStepPatch(operation, stepId, patch, at, extra), undefined, at)
   }
 
   // ───────────────────────────── deadlines ────────────────────────────
@@ -536,21 +523,31 @@ export class OperationEngine {
 
   /** When this operation's running step next owes an answer, if it owes one at all. */
   private nextDue(operationId: string): number | undefined {
+    const watched = this.watched(operationId)
+    if (!watched) return undefined
+    return deadlineDue(watched.step, watched.budget, this.now())
+  }
+
+  /**
+   * The step a timer is about, with the budget it is judged against — the four
+   * refusals every deadline path shares, resolved once.
+   */
+  private watched(operationId: string):
+    | {
+        operation: Operation
+        def: AnyOperationKindDefinition
+        step: OperationStep
+        budget: StepDeadlines
+      }
+    | undefined {
     const operation = this.deps.store.get(operationId)?.operation
     if (!operation || isTerminalOperationState(operation.state)) return undefined
     const def = this.deps.registry.get(operation.kind)
-    const step = this.inFlightStep(operation)
+    const step = inFlightStep(operation)
     if (!step || !def) return undefined
     const budget = def.deadlines?.[step.id]
     if (!budget) return undefined
-
-    const now = this.now()
-    const dues: number[] = []
-    if (budget.silenceMs !== undefined) {
-      dues.push((step.lastProgressAt ?? step.startedAt ?? now) + budget.silenceMs)
-    }
-    if (budget.totalMs !== undefined) dues.push((step.startedAt ?? now) + budget.totalMs)
-    return dues.length > 0 ? Math.min(...dues) : undefined
+    return { operation, def, step, budget }
   }
 
   private disarm(operationId: string): void {
@@ -566,32 +563,26 @@ export class OperationEngine {
    * not going to be rescued by starting it again.
    */
   private async onDeadline(operationId: string): Promise<void> {
-    const operation = this.deps.store.get(operationId)?.operation
-    if (!operation || isTerminalOperationState(operation.state)) return
-    const def = this.deps.registry.get(operation.kind)
-    const step = this.inFlightStep(operation)
-    if (!step || !def) return
-    const budget = def.deadlines?.[step.id]
-    if (!budget) return
+    const watched = this.watched(operationId)
+    if (!watched) return
+    const { operation, def, step, budget } = watched
 
     const now = this.now()
-    const silent = now - (step.lastProgressAt ?? step.startedAt ?? now)
-    const elapsed = now - (step.startedAt ?? now)
-    const overTotal = budget.totalMs !== undefined && elapsed >= budget.totalMs
-    const overSilence = budget.silenceMs !== undefined && silent >= budget.silenceMs
-    if (!overTotal && !overSilence) {
+    const breach = deadlineBreach(step, budget, now)
+    if (breach.kind === 'none') {
       // Progress arrived while the timer was in flight — nothing is owed yet.
       this.armDeadline(operationId)
       return
     }
 
     const stalls = step.stalls ?? 0
-    if (overTotal || stalls >= 1) {
+    if (breach.kind === 'total' || stalls >= 1) {
       this.fail(operation, step.id, {
         code: STALLED_ERROR_CODE,
-        message: overTotal
-          ? `This step ran out of time after ${Math.round(elapsed / 1000)}s.`
-          : `No progress for ${Math.round(silent / 1000)}s. Podium retried once.`,
+        message:
+          breach.kind === 'total'
+            ? `This step ran out of time after ${Math.round(breach.elapsedMs / 1000)}s.`
+            : `No progress for ${Math.round(breach.silentMs / 1000)}s. Podium retried once.`,
       })
       return
     }
@@ -640,31 +631,14 @@ export class OperationEngine {
 
   // ────────────────────────────── helpers ─────────────────────────────
 
-  private inFlightStep(operation: Operation): OperationStep | undefined {
-    return (operation.steps ?? []).find((s) => s.state === 'running' || s.state === 'stalled')
-  }
-
-  /**
-   * Put back the three facts the store requires, without inventing any. An
-   * operation that reached the store once already carries them; a reconciled
-   * one may have been rebuilt by a kind that dropped them.
-   */
+  /** `transitions.withPersistenceFacts`, with the group resolved from the registry. */
   private persistable(
     operation: Operation,
     def?: AnyOperationKindDefinition,
     at?: number,
   ): PersistedOperation {
-    const now = at ?? this.now()
-    return {
-      ...operation,
-      exclusionGroup:
-        operation.exclusionGroup ??
-        def?.exclusionGroup ??
-        this.deps.registry.get(operation.kind)?.exclusionGroup ??
-        operation.kind,
-      createdAt: operation.createdAt ?? now,
-      updatedAt: now,
-    }
+    const group = def?.exclusionGroup ?? this.deps.registry.get(operation.kind)?.exclusionGroup
+    return withPersistenceFacts(operation, group, at ?? this.now())
   }
 
   private require(operationId: string): Operation {

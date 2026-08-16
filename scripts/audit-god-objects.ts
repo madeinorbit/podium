@@ -673,6 +673,16 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
       "The L3 session command handlers: 321 lines of code behind a 328-line written record, which is why it crosses a physical-line screen at all. That record is load-bearing rather than decorative — it states which half of each command the CONTRACT owns (authz, idempotency, envelope) and which half the HANDLER owns (the daemon control leg), which is the split that stopped tRPC and relay from authorizing `sessions.sendText` two different ways; and it pins every not-found shape POD-379's oracle fixed, per command, so a future edit cannot quietly turn a silent no-op into a thrown error. Deleting the explanation to pass a line count would delete the only statement of the invariant the file exists to hold.",
   },
 
+  {
+    file: 'apps/server/src/modules/operations/engine.ts',
+    kind: 'documented',
+    budget: 800,
+    review:
+      'POD-2097 (docs/internal/superpowers/specs/2026-08-14-update-operations-design.md §3.2–§3.4)',
+    argument:
+      "The durable-operations engine: 460 lines of code behind ~200 lines of written record, which is the only reason it crosses a physical-line screen. The part of it that could stand alone already does — `transitions.ts` holds every pure function over an operation object (patch folding, persistence facts, the two deadline computations), so what remains is the state machine and the four pieces of per-operation coordination that die together at `finish()`: the deps, the one armed timer, the serial work queue, and the live context a kind was started with. The record is load-bearing rather than decorative: it states why single-flight is checked twice around an async `plan()` and why a partial unique index would be worse (it would put the live-state list in the OLD binary's schema and make a predecessor refuse its successor's writes); why silence earns one retry and a total overrun earns none; why an operation this binary cannot parse is failed on its columns without its payload being rewritten; and why an unmarked runner is treated as irreversible. Each of those is a decision the next reader would otherwise have to re-derive from the spec, and three of them are the specific defects in today's updater that this framework exists to end.",
+  },
+
   // -- Owners: coupled state that a split would have to share ----------------
   {
     file: 'apps/server/src/modules/issues/service/core.ts',
