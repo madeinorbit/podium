@@ -197,10 +197,26 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     // The brief is pinned once it has fully left the top of the viewport — its
     // BOTTOM edge, not its top, so a brief you can still read is never doubled
     // by a shelf saying the same words.
-    const top = scroller.getBoundingClientRect().top + 6
+    //
+    // TAKING THE SHELF AND GIVING IT BACK ARE NOT THE SAME LINE (round 8). One
+    // threshold is a coin standing on its edge: a brief whose bottom is resting
+    // within a pixel of it is pinned on one pass and released on the next, and
+    // the shelf mounts, replays its entry animation and unmounts on repeat. The
+    // feed supplies the jitter for free — a streaming answer re-snaps the bottom
+    // on every mutation, and a sub-pixel scroll offset rounds either way. The
+    // reader sees a shelf, and its control, flashing on and off for no reason
+    // they can act on.
+    //
+    // So the brief already on the shelf keeps it until it is properly back in
+    // the column. Twelve pixels of dead band is half a line: far more than any
+    // rounding, and far less than a brief you could read.
+    const edge = scroller.getBoundingClientRect().top
+    const takes = edge + 6
+    const releases = edge + 18
     let active: HTMLElement | undefined
     for (const prompt of prompts) {
-      if (prompt.getBoundingClientRect().bottom < top) active = prompt
+      const limit = prompt === pinnedEl.current ? releases : takes
+      if (prompt.getBoundingClientRect().bottom < limit) active = prompt
       else break
     }
 

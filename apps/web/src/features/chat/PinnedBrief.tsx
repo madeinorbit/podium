@@ -10,16 +10,45 @@ import type { JSX, MouseEvent as ReactMouseEvent, RefObject, WheelEvent } from '
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { PinnedBrief as PinnedBriefState } from './use-transcript-scroll'
 
-/** Three lines of the shelf's own 23px setting — see `.brief-shelf-text`. The
- *  height is driven from here rather than from CSS because the expand ANIMATES,
- *  and a transition needs two numbers it can interpolate between: `max-height`
- *  to a keyword, or to a cap far above the content, either eases across space
- *  the text does not occupy and reads as a pause before anything moves. */
-const COLLAPSED_MAX = 69
 /** However long the brief, the shelf stops here and scrolls — it is drawn OVER
  *  the feed, and a shelf that can cover the whole column is a modal nobody
  *  asked for. */
 const OPEN_MAX = 320
+/** Only if the stylesheet has not been reached yet, or `lh` is not understood.
+ *  The live number is `--brief-lines` on `.brief-shelf-text`. */
+const LINES_FALLBACK = 3
+
+/**
+ * THE TWO NUMBERS, READ WHERE NEITHER CAN DEPEND ON THE ANSWER.
+ *
+ * `content` is how tall the brief is; `clamp` is how tall the shelf lets it be.
+ * "Is anything hidden" is the comparison, and the ONE property this needs is
+ * that neither number moves when the answer changes:
+ *
+ *  - `scrollHeight` is the CONTENT. A `max-height` caps a box, it does not pad
+ *    one, so this reads the same whether the shelf is open or shut — and, more
+ *    to the point, it reads the same DURING the open/close transition, when the
+ *    box height is a number the easing curve happens to be passing through.
+ *  - the clamp is computed from the element's own line box rather than read off
+ *    its height, so it does not become "the content" the moment the brief is
+ *    short enough to fit.
+ *
+ * That is the whole guard against the flicker. Everything the answer touches —
+ * the fade, and whether the control is offered — changes `visibility` and a
+ * mask, and the control's box is reserved either way, so nothing it does can
+ * relay out the text and ask the question again with a different answer.
+ */
+function measureBrief(el: HTMLElement): { content: number; clamp: number } {
+  const style = getComputedStyle(el)
+  const lineHeight = Number.parseFloat(style.lineHeight)
+  const lines = Number.parseFloat(style.getPropertyValue('--brief-lines')) || LINES_FALLBACK
+  return {
+    content: el.scrollHeight,
+    // `line-height: normal` (or no stylesheet at all) leaves nothing to multiply
+    // — fall back to the box, which is the clamp whenever the brief overflows it.
+    clamp: Number.isFinite(lineHeight) ? lineHeight * lines : el.clientHeight,
+  }
+}
 
 export function PinnedBrief({
   brief,
@@ -53,16 +82,17 @@ export function PinnedBrief({
    * the pane width: the same sentence is two lines wide and five lines narrow.
    */
   const textRef = useRef<HTMLDivElement | null>(null)
-  const [contentHeight, setContentHeight] = useState(0)
+  const [size, setSize] = useState<{ content: number; clamp: number }>({ content: 0, clamp: 0 })
   useLayoutEffect(() => {
     const el = textRef.current
     if (!el) return
-    // `scrollHeight` is the FULL height of the brief whether the shelf is open
-    // or shut, so one measurement answers both "is it cut" and "how tall does it
-    // open to". Reading `clientHeight` instead — which is what the first cut
-    // did — measures the CLAMP while shut and the content while open, so the
-    // answer changed with the state that depends on it.
-    const measure = (): void => setContentHeight(el.scrollHeight)
+    // Same object back when nothing moved, so a resize that changes only the
+    // WIDTH of a brief that still fits does not re-render the shelf at all.
+    const measure = (): void =>
+      setSize((prev) => {
+        const next = measureBrief(el)
+        return prev.content === next.content && prev.clamp === next.clamp ? prev : next
+      })
     measure()
     if (typeof ResizeObserver === 'undefined') return
     // Re-measure as the pane is dragged: a control that should exist at one
@@ -77,7 +107,11 @@ export function PinnedBrief({
     // before it. The observer does not cover this — the box never resizes, only
     // its contents do.
   }, [brief?.key, brief?.html])
-  const clipped = contentHeight > COLLAPSED_MAX + 2
+  // A line box is not a whole number of pixels at every zoom and every density,
+  // so three lines of content can measure a hair over three lines of clamp. One
+  // pixel of slack is the difference between "the brief has a fourth line" and
+  // "the browser rounded" — without it the control blinks on a brief that fits.
+  const clipped = size.content > size.clamp + 1
 
   if (!brief) return null
 
@@ -124,14 +158,19 @@ export function PinnedBrief({
           // of a two-line clamp.
           ref={textRef}
           className="chat-md brief-shelf-text"
-          // The measured height, so the expand travels exactly the distance the
-          // text needs and stops. Before the first measurement lands this is the
-          // clamp, which is what the shelf should be drawn at anyway.
-          style={{
-            maxHeight: open
-              ? `${Math.min(contentHeight || COLLAPSED_MAX, OPEN_MAX)}px`
-              : `${COLLAPSED_MAX}px`,
-          }}
+          // ONLY THE OPEN HEIGHT IS WRITTEN FROM HERE. Shut, the clamp is the
+          // stylesheet's — three lines of whatever the shell set the brief in,
+          // see `.brief-shelf-text`. It used to be an inline 69px on every
+          // render, which is how compact density ended up clamping at three
+          // lines and a sliver of a fourth: the number was in a file that could
+          // not see the one that changed the line-height.
+          //
+          // Open, the expand travels exactly the distance the text needs and
+          // stops, because a transition needs two real numbers — `max-height` to
+          // a keyword does not animate at all, and to a cap far above the
+          // content it eases across space the text does not occupy, which on the
+          // way back is a pause before anything moves.
+          style={open ? { maxHeight: `${Math.min(size.content, OPEN_MAX)}px` } : undefined}
           // biome-ignore lint/security/noDangerouslySetInnerHtml: lifted verbatim from the row's own body, which renderMarkdown already sanitized
           dangerouslySetInnerHTML={{ __html: brief.html }}
         />

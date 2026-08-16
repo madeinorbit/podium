@@ -173,18 +173,55 @@ describe('the pinned brief', () => {
     expect(toggle()).toBeNull()
   })
 
-  it('expands to the height it measured, so the open can be animated', () => {
+  /**
+   * THE SHUT HEIGHT IS THE STYLESHEET'S (round 8). It was written inline on
+   * every render from a JS constant of 69px — three lines of 23px — which the
+   * stylesheet could not see: `html[data-density="compact"]` sets the brief in
+   * 13/21 and outranks the shelf's own rule, so compact density clamped a 21px
+   * setting at 69 and showed three lines plus a sliver of a fourth. The clamp is
+   * now `calc(var(--brief-lines) * 1lh)` in `.brief-shelf-text`, and nothing is
+   * written here at all until the reader opens it.
+   */
+  it('leaves the clamp to CSS, and writes only the height it opens to', () => {
     render(brief('7', '<p>a brief that runs well past three lines</p>'))
     const text = (): HTMLElement => host.querySelector('.brief-shelf-text') as HTMLElement
-    // Shut: the three-line clamp. A transition needs two real numbers, so this
-    // is a length and never a keyword.
-    expect(text().style.maxHeight).toBe('69px')
+    expect(text().style.maxHeight).toBe('')
     act(() => {
       toggle()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     // Open: the measured content height (999 in this suite), capped at 320 so a
-    // pasted spec cannot cover the column it is drawn over.
+    // pasted spec cannot cover the column it is drawn over. A transition needs
+    // two real numbers, so this is a length and never a keyword.
     expect(text().style.maxHeight).toBe('320px')
+    // …and closing gives the number back rather than animating to a second one.
+    act(() => {
+      toggle()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(text().style.maxHeight).toBe('')
+  })
+
+  /**
+   * THE MEASUREMENT DOES NOT MOVE WHEN THE ANSWER DOES (round 8) — the flicker
+   * this round was reported for. `scrollHeight` is the content whether the shelf
+   * is open, shut, or mid-transition, and the clamp is computed from the line
+   * box rather than read off the box's height, so neither number can be changed
+   * by the fade and the control that depend on them. Opening a brief must
+   * therefore not change what the shelf believes about it.
+   */
+  it('reads the same brief the same way open and shut', () => {
+    render(brief('7', '<p>a brief that runs well past three lines</p>'))
+    expect(shelf()?.dataset.clipped).toBe('true')
+    act(() => {
+      toggle()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    // Open, the fade is gone because nothing is cut any more — not because the
+    // shelf has forgotten that the brief is long.
+    expect(shelf()?.dataset.clipped).toBeUndefined()
+    act(() => {
+      toggle()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(shelf()?.dataset.clipped).toBe('true')
+    expect(toggle()?.textContent).toBe('Show full')
   })
 
   it('omits the clock rather than inventing one', () => {

@@ -2907,10 +2907,23 @@ html[data-density="balanced"] .header-quota-pools {
 .brief-shelf-text.chat-md {
   flex: 1;
   min-width: 0;
-  /* The live value is set inline from the measured content — see PinnedBrief.
-     This is the pre-measurement fallback and the shut height: three lines of
-     the 23px setting below. */
-  max-height: 69px;
+  /* THREE LINES, AND THE NUMBER LIVES HERE (round 8). The shut height used to be
+     written inline on every render from a JS constant — 69px, three lines of the
+     23px below. Two things were wrong with that, and both showed.
+
+     The stylesheet could not see it. `html[data-density="compact"]` sets
+     .chat-md to 13px/21px and outranks this rule, so in compact density the
+     shelf clamped a 21px setting at 69px: three lines and a six-pixel sliver of
+     a fourth, fading into nothing.
+
+     And it made one measured number do two jobs — how tall does this open to,
+     AND is anything hidden — which is a question whose answer kept changing the
+     box the answer was read from. `1lh` is this element's own line box, so the
+     clamp is three of ITS lines at any density and the shut state needs no
+     JavaScript at all; PinnedBrief now writes a height only while OPEN, and
+     reads `--brief-lines` back rather than restating it. */
+  --brief-lines: 3;
+  max-height: calc(var(--brief-lines) * 1lh);
   overflow: hidden;
   font-size: 14.5px;
   line-height: 23px;
@@ -2926,10 +2939,23 @@ html[data-density="balanced"] .header-quota-pools {
   transition: max-height 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* The fade is only for a brief that is ACTUALLY cut — a two-line message inside
-   a three-line clamp must not have its last line dimmed for nothing. */
+   a three-line clamp must not have its last line dimmed for nothing. It starts
+   one line short of the clamp, off the same `--brief-lines`, so the last line is
+   the one that fades however many lines the shelf is set to hold and whatever
+   density the shell is in. (46px was that distance for a 23px setting only.) */
 .brief-shelf[data-clipped="true"] .brief-shelf-text {
-  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 46px, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0, #000 46px, transparent 100%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc((var(--brief-lines) - 1) * 1lh),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc((var(--brief-lines) - 1) * 1lh),
+    transparent 100%
+  );
 }
 /* Open, the height comes from the inline measurement; this only releases the
    overflow so a brief past the cap can be scrolled. `auto` is deliberately not

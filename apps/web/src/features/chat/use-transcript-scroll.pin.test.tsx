@@ -166,6 +166,42 @@ describe('the brief the shelf carries', () => {
     expect(renders).toBe(before)
   })
 
+  /**
+   * TAKING THE SHELF AND GIVING IT BACK ARE NOT THE SAME LINE (round 8).
+   *
+   * With one threshold, a brief resting a pixel from it is pinned on one pass
+   * and released on the next — and the shelf is not a class on a row, it is a
+   * subtree that mounts, replays its entry animation and unmounts. The feed
+   * supplies the jitter for free: a streaming answer re-snaps the bottom on
+   * every mutation and a fractional scroll offset rounds either way, so the
+   * reader gets a shelf and its "Show full" flashing on and off at frame rate.
+   */
+  it('does not hand the shelf back for a pixel of jitter at the edge', () => {
+    mount()
+    scroller().getBoundingClientRect = () => ({ top: 100, bottom: 800 }) as DOMRect
+    const p1 = host.querySelector('[data-testid="p1"]') as HTMLElement
+    const p2 = host.querySelector('[data-testid="p2"]') as HTMLElement
+    place(p1, 20)
+    place(p2, 105)
+    sync()
+    expect(api?.pinnedBrief?.key).toBe('4')
+
+    // A pixel back the other way — under one threshold this is "on screen
+    // again" and the shelf leaves. It is still, to the reader, a brief with its
+    // bottom edge on the top of the column.
+    const before = renders
+    place(p2, 107)
+    sync()
+    expect(api?.pinnedBrief?.key).toBe('4')
+    // …and not a render, either: the pass is a genuine no-op inside the band.
+    expect(renders).toBe(before)
+
+    // Properly back in the column, and the shelf hands over as it always did.
+    place(p2, 130)
+    sync()
+    expect(api?.pinnedBrief?.key).toBe('1')
+  })
+
   it('carries nothing at all when the preference is off', () => {
     mount(false)
     scroller().getBoundingClientRect = () => ({ top: 100, bottom: 800 }) as DOMRect
