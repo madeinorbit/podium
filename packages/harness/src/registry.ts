@@ -146,13 +146,20 @@ export function harnessPremintsHeadlessResumeId(kind: AgentKind | string): boole
   )
 }
 
-/** True only when the adapter has a native all-tools-off mechanism. Unknown and
- * merely sandboxed harnesses fail closed. */
-export function harnessSupportsNoTools(kind: AgentKind | string): boolean {
-  const headless = manifestFor(kind)?.headless
-  const value = headless ? declaredValue(headless) : undefined
-  return value?.noTools === 'enforced'
-}
+/**
+ * True only when the adapter has a native all-tools-off mechanism. Unknown and
+ * merely sandboxed harnesses fail closed.
+ *
+ * RE-EXPORTED, not implemented here (POD-2206). It used to read
+ * `manifestFor(kind)?.headless`, which made a one-bit static fact cost the whole
+ * registry — and a browser cannot pay that: the manifests reach sqlite modules
+ * whose top-level `createRequire` a bundle cannot answer, which is what crashed
+ * every /settings route (POD-2176). The fact now lives in `./browser.ts`, which
+ * imports nothing, so both a bundle and this registry can state it. One
+ * implementation, no call site changed; `browser.test.ts` holds the table to
+ * what the manifests declare.
+ */
+export { harnessSupportsNoTools } from './browser.js'
 
 export function harnessDisplayName(kind: AgentKind | string): string {
   return manifestFor(kind)?.displayName ?? kind

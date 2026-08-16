@@ -453,9 +453,26 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   // capability type; authorization belongs at the server projection boundary
   // (POD-1079), enforced here by the manifest-principal-free rule in
   // scripts/check-boundaries.ts.
+  // NEUTRAL since POD-2206, and the tag change is the fix rather than a
+  // relaxation. The package is genuinely two-halved now: the manifests drive
+  // processes and reach sqlite, while `./browser` is a literal table with no
+  // runtime import at all. `node-only` could describe only the first half, and
+  // the rule it powers (`manifest-platform`) is all-or-nothing — so the only way
+  // to give a bundle the one static fact it needs was to refuse the whole
+  // package, which is what stood between the settings pane and a browser.
+  //
+  // Both guards are needed once a package is two-halved (the same pair
+  // packages/logger carries — see BROWSER_ENTRYPOINTS):
+  //   `manifest-browser-reach` (a) refuses a browser-safe workspace reaching any
+  //     subpath that is NOT the declared browser entrypoint — so the barrel and
+  //     `./metadata` stay unbundlable, which is the property `node-only` used to
+  //     provide and must not be lost with it.
+  //   `manifest-browser-reach` (b) walks `./browser`'s own closure and fails on
+  //     `node:`, `bun:` or a node-only workspace — so the claim this tag makes is
+  //     ENFORCED rather than asserted, which is more than `node-only` ever did.
   'packages/harness': {
     layer: 2,
-    platform: 'node-only',
+    platform: 'neutral',
     features: ['harness-adapters'],
     deps: [
       'packages/protocol',
@@ -465,8 +482,13 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       'packages/logger',
     ],
     // HOST CAPABILITY (legacy rule 2), with a declared open surface.
+    //
+    // `./metadata` is open because every export is a fact about software, not an
+    // action on a host. `./browser` is open for the same reason AND bundlable,
+    // which `./metadata` is not: openness is a statement about the SURFACE, and
+    // POD-2176 is what it cost to read it as a statement about the closure.
     consumers: ['apps/daemon', 'scripts'],
-    openEntrypoints: ['@podium/harness/metadata'],
+    openEntrypoints: ['@podium/harness/metadata', '@podium/harness/browser'],
   },
   'packages/terminal-client': {
     layer: 2,
@@ -605,6 +627,13 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   // sqlite, git, connectivity, auth-store) lives behind its own subpath, which
   // is what makes "the bare specifier is the whole browser surface" true.
   ['@podium/runtime', 'packages/runtime/src/index.ts'],
+  // packages/harness — the static facts a bundle may have (POD-2206), and ONLY
+  // those. The barrel and `./metadata` both reach `AGENT_MANIFESTS`, whose
+  // closure holds the sqlite modules that evaluate `createRequire` at module
+  // scope; bundling either is POD-2176, where every /settings route crashed on
+  // `createRequire is not a function` before it could render. This row is what
+  // keeps `./browser` the only reachable one, and holds it to importing nothing.
+  ['@podium/harness/browser', 'packages/harness/src/browser.ts'],
   // packages/telemetry — the pure display example apps/web renders in its
   // privacy and setup copy. The bare specifier pulls the emitter and node:fs.
   ['@podium/telemetry/example', 'packages/telemetry/src/example.ts'],

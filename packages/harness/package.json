@@ -18,6 +18,11 @@
       "@podium/source": "./src/metadata.ts",
       "types": "./dist/metadata.d.ts",
       "import": "./dist/metadata.js"
+    },
+    "./browser": {
+      "@podium/source": "./src/browser.ts",
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
     }
   },
   "files": [
