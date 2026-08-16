@@ -49,9 +49,30 @@ export const MinRequired = z
   .passthrough()
 export type MinRequired = z.infer<typeof MinRequired>
 
+/**
+ * WHAT THIS TARGET'S BUILD CAN OPEN (POD-2213).
+ *
+ * Migrations are forward-only and releases are expand-only, so a build can open
+ * a database iff it defines every migration that database has applied. Only the
+ * publisher of a target knows that list, and a daemon about to swap the install
+ * its co-located server runs from has no other way to find out — so the target
+ * carries it, and a target that omits it is one nothing can prove safe.
+ *
+ * Optional forever: every release published before this existed says nothing,
+ * and every machine that owns no database ignores it either way.
+ */
+export const SchemaDeclaration = z
+  .object({
+    /** Migration folder names, as the server's drizzle ledger records them. */
+    migrations: z.array(z.string()),
+  })
+  .passthrough()
+export type SchemaDeclaration = z.infer<typeof SchemaDeclaration>
+
 export const UpdateTarget = z
   .object({
     version: z.string().min(1),
+    schema: SchemaDeclaration.optional(),
     notes: UpdateNotes.optional(),
     critical: z.boolean().default(false),
     minRequired: MinRequired.optional(),

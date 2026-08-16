@@ -1375,3 +1375,48 @@ describe('ignored source inputs gate the build', () => {
     )
   })
 })
+
+/**
+ * WHAT A TARGET SAYS ABOUT THE DATABASE IT CAN OPEN (POD-2213).
+ *
+ * A daemon cannot look inside the build it is about to swap in, so the target
+ * carries the migration list, and the publisher reads it from the commit it is
+ * advertising — never from the build it happens to be running, which is the one
+ * case (a checkout going backwards) where those two differ and the difference
+ * bricks the install.
+ */
+describe('development targets declare the schema they can open', () => {
+  const migrations = ['20260715135845_baseline', '20260816092917_operations-table']
+
+  it('declares the migrations defined at the advertised commit', () => {
+    const target = devIdentityTarget('f9485d31b', {
+      sourceRoot: '/repo/podium',
+      schemaMigrations: migrations,
+    })
+    expect(target.schema).toEqual({ migrations })
+  })
+
+  it('says nothing when the commit tree could not be read', () => {
+    // Absent is not "safe" — the daemon reads a missing declaration as
+    // unproven and refuses. Better an honest refusal than a claim we cannot
+    // stand behind.
+    expect(devIdentityTarget('f9485d31b', { sourceRoot: '/repo/podium' }).schema).toBeUndefined()
+  })
+
+  it('publishes the declaration with the identity target', async () => {
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      headSha: () => 'f9485d31b',
+      root: '/repo/podium',
+      migrationsAt: async (sha: string) => (sha === 'f9485d3' ? migrations : undefined),
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      fs: stubFs(),
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        throw new Error('should not build')
+      },
+    })
+    expect((await publisher.target())?.schema).toEqual({ migrations })
+  })
+})

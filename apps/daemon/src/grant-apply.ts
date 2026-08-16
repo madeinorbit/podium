@@ -54,16 +54,21 @@ export interface GrantApplyDeps {
   /** Binary swap only. Database state is intentionally not part of this phase. */
   swap(bytes: Uint8Array): void | Promise<void>
   /**
-   * Why this daemon must not converge AT ALL, checked before any byte is
-   * fetched and any checkout is moved (POD-2210). Absent, or answering
-   * `undefined`, is the ordinary daemon that may.
+   * Why this daemon must not converge TO THIS TARGET, checked before any byte
+   * is fetched and any checkout is moved (POD-2210, POD-2213). Absent, or
+   * answering `undefined`, is the ordinary daemon that may.
    *
    * A first-person refusal, and it has to be: the server can only know what a
-   * daemon tells it, and this daemon's reason — its exit would stop the server
-   * sharing its process — is not a fact about the release, the platform or the
-   * delivery method, which is everything the caps negotiation can express.
+   * daemon tells it, and this daemon's reasons — its exit would stop the server
+   * sharing its process; its database has migrated past what that build can
+   * open — are not facts about the release, the platform or the delivery
+   * method, which is everything the caps negotiation can express.
+   *
+   * The TARGET is handed over because the second reason depends on it: the same
+   * daemon may converge happily to one version and be unable to survive
+   * another.
    */
-  refuse?(): string | undefined
+  refuse?(target: UpdateGrantMessage['target']): string | undefined
   /** Persist before asking the process manager to restart us. */
   writePending(grant: PendingGrant): void
   restart(): void
@@ -134,7 +139,7 @@ export async function applyGrant(
    * see {@link refuseConvergence} for why a half-applied convergence is worse
    * here than a refused one.
    */
-  const refusal = deps.refuse?.()
+  const refusal = deps.refuse?.(grant.target)
   if (refusal) {
     report(deps, grant, 'rejected', current, refusal)
     return

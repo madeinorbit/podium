@@ -308,6 +308,33 @@ export function describeUpdateFailure(detail?: string, machineName?: string): Fa
     }
   }
 
+  /**
+   * THE REFUSAL THAT KEPT A MACHINE ALIVE (POD-2213).
+   *
+   * Migrations are forward-only, so an older build cannot open a database a
+   * newer one has already migrated — it refuses to start, and the thing that
+   * would put the newer build back is the server that will not start. The
+   * daemon therefore declines the downgrade before swapping anything, and this
+   * is the sentence that refusal becomes.
+   *
+   * Second only to the foreground refusal, and for the same reason: the generic
+   * delivery copy below would turn "your machine is fine and still running" into
+   * "one or more machines cannot use this update", which reads like a failure to
+   * retry and is the opposite of what happened.
+   */
+  if (normalized && /schema[-_\s](advanced|unknown|unreadable)/i.test(normalized)) {
+    const subject = machineName ? `${machineName} was` : 'This machine was'
+    return {
+      state: 'failed',
+      message: `${subject} asked to move to an older version that cannot open the data it already has.`,
+      guidance:
+        'Nothing was changed and Podium is still running there. Pick a version at least as ' +
+        'new as the one it is on — or, if you really need the older one, restore a database ' +
+        'backup from before the upgrade by hand first (docs/data-and-upgrades.md).',
+      diagnostic: normalized,
+    }
+  }
+
   if (normalized && /dirty[-_\s]working[-_\s]tree/i.test(normalized)) {
     const subject = machineName ?? 'A machine'
     const location = machineName ?? 'that machine'

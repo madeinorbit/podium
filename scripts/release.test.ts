@@ -1,5 +1,12 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildHeadlessManifest, buildHeadlessManifestForPlatforms } from './release'
+import {
+  buildHeadlessManifest,
+  buildHeadlessManifestForPlatforms,
+  readDefinedMigrations,
+} from './release'
 
 describe('buildHeadlessManifest', () => {
   it('produces the Tauri-shaped headless manifest', () => {
@@ -47,5 +54,32 @@ describe('buildHeadlessManifest', () => {
       url: 'https://example.com/podium-headless-linux-arm64.tar.gz',
       signature: 'SIG-ARM64',
     })
+  })
+})
+
+describe('readDefinedMigrations', () => {
+  it('lists the migration folder names this build defines', () => {
+    // Read from the tree being released, so the manifest's claim is a fact
+    // about the artifact rather than about whatever ran the release (POD-2213).
+    const dir = mkdtempSync(join(tmpdir(), 'podium-release-migrations-'))
+    try {
+      mkdirSync(join(dir, '20260816092917_operations-table'))
+      mkdirSync(join(dir, '20260715135845_baseline'))
+      writeFileSync(join(dir, 'meta.json'), '{}')
+      expect(readDefinedMigrations(dir)).toEqual([
+        '20260715135845_baseline',
+        '20260816092917_operations-table',
+      ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to publish a release that cannot say what schema it opens', () => {
+    // Silence here is not free: a release with no declaration is a release no
+    // machine can ever safely roll back to.
+    expect(() => readDefinedMigrations(join(tmpdir(), 'podium-no-such-migrations-dir'))).toThrow(
+      /cannot declare the schema/,
+    )
   })
 })

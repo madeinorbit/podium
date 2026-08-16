@@ -368,3 +368,55 @@ describe('createGrantRunner', () => {
     expect(states).not.toContain('rejected')
   })
 })
+
+/**
+ * THE REFUSAL THAT NEEDS TO SEE THE TARGET (POD-2213).
+ *
+ * The foreground-all-in-one refusal is a fact about the process and needs no
+ * argument. Whether a downgrade would strand this machine's database is a fact
+ * about THIS target — so the seam hands the target over, and both refusals land
+ * in the same place: before a byte is fetched.
+ */
+describe('applyGrant consults the refusal about the target itself', () => {
+  const migratedTarget: UpdateGrantMessage['target'] = {
+    ...(target as UpdateGrantMessage['target']),
+    version: '0.1.3',
+    schema: { migrations: ['20260715135845_baseline'] },
+  }
+
+  it('hands the target to the refusal', async () => {
+    const refuse = vi.fn(() => undefined)
+    const d = deps({ refuse })
+    await applyGrant({ type: 'updateGrant', grantId: 'g1', target: migratedTarget }, d)
+    expect(refuse).toHaveBeenCalledWith(migratedTarget)
+  })
+
+  it('fetches nothing when the target cannot open this machine database', async () => {
+    const d = deps({
+      refuse: (t: UpdateGrantMessage['target']) =>
+        t.version === '0.1.3' ? 'cannot converge: schema-advanced — it would not start' : undefined,
+    })
+    await applyGrant({ type: 'updateGrant', grantId: 'g1', target: migratedTarget }, d)
+    expect(d.fetchArtifact).not.toHaveBeenCalled()
+    expect(d.swap).not.toHaveBeenCalled()
+    expect(d.restart).not.toHaveBeenCalled()
+    expect(d.report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'rejected',
+        detail: expect.stringContaining('schema-advanced'),
+      }),
+    )
+  })
+
+  it('converges to a target the same machine CAN open', async () => {
+    // The arm the design deliberately keeps: a downgrade whose schema did not
+    // advance is a rollback, and it still happens.
+    const d = deps({
+      refuse: (t: UpdateGrantMessage['target']) =>
+        t.version === '0.9.9' ? 'cannot converge: schema-advanced — it would not start' : undefined,
+    })
+    await applyGrant({ type: 'updateGrant', grantId: 'g1', target: migratedTarget }, d)
+    expect(d.swap).toHaveBeenCalledOnce()
+    expect(d.restart).toHaveBeenCalledOnce()
+  })
+})

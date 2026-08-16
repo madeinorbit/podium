@@ -21,6 +21,7 @@ import {
   stateDir,
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
+import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
 import { withGitBudget } from '@podium/runtime/update-delivery-git'
@@ -34,7 +35,12 @@ import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
-import { MAX_CONVERGENCE_ATTEMPTS, refuseConvergence, resolveOnBoot } from './convergence'
+import {
+  createSchemaGate,
+  MAX_CONVERGENCE_ATTEMPTS,
+  refuseConvergence,
+  resolveOnBoot,
+} from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { selectDurableBackend } from './durable-backend'
@@ -378,6 +384,17 @@ export async function createDaemonHostRuntime(args: {
     )
   }
 
+  /**
+   * The OTHER refusal, and the one that has to be asked per target (POD-2213):
+   * would the build we are about to swap in be able to open this machine's
+   * database? Read fresh at every grant — this daemon outlives its own server's
+   * migrations — and never at boot, where the answer would already be stale.
+   */
+  const schemaGate = createSchemaGate({
+    readApplied: () => readAppliedMigrations(),
+    currentVersion: build.appVersion ?? 'dev',
+  })
+
   // One runner per daemon: overlapping grants are serialized here rather than
   // racing to swap the same binary.
   const grantRunner = createGrantRunner({
@@ -402,7 +419,7 @@ export async function createDaemonHostRuntime(args: {
       if (!installDir) throw new Error('binary delivery requires an installed daemon')
       return swapHeadlessBundle(bytes, installDir)
     },
-    ...(convergenceRefusal ? { refuse: () => convergenceRefusal } : {}),
+    refuse: (target) => convergenceRefusal ?? schemaGate(target),
     writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
     restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
     report: (status) => send(status),

@@ -18,6 +18,7 @@
  */
 
 import { createLogger } from '@podium/logger'
+import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium/runtime/migration-ledger'
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
@@ -53,10 +54,13 @@ const LEDGER = '__drizzle_migrations'
  * rebased upstream under a different generated timestamp. An alias is accepted
  * only while its canonical migration is present in the supplied build, so the
  * downgrade guard remains strict for every other unknown ledger entry.
+ *
+ * ONE HOME, in @podium/runtime: the daemon's convergence gate (POD-2213) reads
+ * this same ledger to decide whether a build it is about to swap in could open
+ * this database, and two copies of "which entries are the same migration" is
+ * how that decision and this one stop agreeing.
  */
-const MIGRATION_NAME_ALIASES = new Map<string, string>([
-  ['20260722210552_session-spawn-failure', '20260724134702_session-spawn-failure'],
-])
+const MIGRATION_NAME_ALIASES = SHARED_MIGRATION_NAME_ALIASES
 
 /**
  * THE OUT-OF-ORDER GUARD [POD-1621]. Names every pending migration that sorts

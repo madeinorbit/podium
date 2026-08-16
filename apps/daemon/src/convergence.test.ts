@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  createSchemaGate,
   disarmExitSeam,
   FOREGROUND_ALL_IN_ONE_REFUSAL,
   MAX_CONVERGENCE_ATTEMPTS,
   refuseConvergence,
+  refuseSchemaRegression,
   resolveOnBoot,
 } from './convergence'
 
@@ -128,5 +130,142 @@ describe('refuseConvergence', () => {
     expect(FOREGROUND_ALL_IN_ONE_REFUSAL).toContain('foreground-all-in-one')
     expect(FOREGROUND_ALL_IN_ONE_REFUSAL).toMatch(/shares its process with the Podium server/)
     expect(FOREGROUND_ALL_IN_ONE_REFUSAL).toMatch(/would not come back/)
+  })
+})
+
+describe('refuseSchemaRegression', () => {
+  const baseline = '20260715135845_baseline'
+  const advanced = '20260809112031_transcript-segment-incarnations'
+
+  it('lets a machine that owns no database converge anywhere, declared or not', () => {
+    // §13.3: "Daemon: always safe; a daemon owns no database." Every remote
+    // worker machine is this case, and its rollback must stay automatic.
+    expect(
+      refuseSchemaRegression({
+        applied: undefined,
+        targetDefines: undefined,
+        currentVersion: 'dev+03a2892',
+        targetVersion: '0.1.3',
+      }),
+    ).toBeUndefined()
+  })
+
+  it('lets a database with nothing applied converge anywhere', () => {
+    expect(
+      refuseSchemaRegression({
+        applied: [],
+        targetDefines: undefined,
+        currentVersion: 'dev+03a2892',
+        targetVersion: '0.1.3',
+      }),
+    ).toBeUndefined()
+  })
+
+  it('lets a downgrade whose schema did not advance converge — the rollback path', () => {
+    // THE ARM THE DESIGN DELIBERATELY KEEPS. Expand-only releases mean the
+    // common rollback crosses no migration boundary at all, and refusing it
+    // would make rollback structurally impossible again.
+    expect(
+      refuseSchemaRegression({
+        applied: [baseline],
+        targetDefines: [baseline, advanced],
+        currentVersion: '0.1.4',
+        targetVersion: '0.1.3',
+      }),
+    ).toBeUndefined()
+  })
+
+  it('refuses a downgrade past a migration the target cannot open, and names it', () => {
+    const refusal = refuseSchemaRegression({
+      applied: [baseline, advanced],
+      targetDefines: [baseline],
+      currentVersion: 'dev+03a2892',
+      targetVersion: '0.1.3',
+    })
+    expect(refusal).toContain('cannot converge: schema-advanced')
+    expect(refusal).toContain(advanced)
+    expect(refusal).toContain('0.1.3')
+    expect(refusal).toContain('dev+03a2892')
+  })
+
+  it('refuses a target that will not say what schema it can open', () => {
+    // Every release published before this gate existed. Unproven is not the
+    // same as unsafe, but a machine that guesses wrong cannot start and cannot
+    // update itself back, so the guess is not ours to make.
+    const refusal = refuseSchemaRegression({
+      applied: [baseline],
+      targetDefines: undefined,
+      currentVersion: 'dev+03a2892',
+      targetVersion: '0.1.3',
+    })
+    expect(refusal).toContain('cannot converge: schema-unknown')
+    expect(refusal).toContain('0.1.3')
+  })
+
+  it('accepts a migration applied under its pre-rebase name when the target defines the canonical one', () => {
+    expect(
+      refuseSchemaRegression({
+        applied: ['20260722210552_session-spawn-failure'],
+        targetDefines: ['20260724134702_session-spawn-failure'],
+        currentVersion: '0.1.4',
+        targetVersion: '0.1.3',
+      }),
+    ).toBeUndefined()
+  })
+
+  it('says what a person has to do, because Podium cannot do it for them', () => {
+    // The whole point of refusing BEFORE the swap: from the bricked state there
+    // is no path back through Podium — the thing that applies an update is the
+    // server that will not start.
+    const refusal = refuseSchemaRegression({
+      applied: [baseline, advanced],
+      targetDefines: [baseline],
+      currentVersion: '0.1.4',
+      targetVersion: '0.1.3',
+    })
+    expect(refusal).toMatch(/nothing was fetched|nothing has been fetched/i)
+    expect(refusal).toMatch(/restore/i)
+  })
+})
+
+describe('createSchemaGate', () => {
+  const targetAt = (version: string, migrations?: string[]) =>
+    ({
+      version,
+      critical: false,
+      artifacts: {},
+      ...(migrations ? { schema: { migrations } } : {}),
+    }) as never
+
+  it('lets a target through when this machine can open it', () => {
+    const gate = createSchemaGate({
+      readApplied: () => ['20260715135845_baseline'],
+      currentVersion: '0.1.4',
+    })
+    expect(gate(targetAt('0.1.3', ['20260715135845_baseline']))).toBeUndefined()
+  })
+
+  it('refuses a target this machine database has outgrown', () => {
+    const gate = createSchemaGate({
+      readApplied: () => ['20260715135845_baseline', '20260816092917_operations-table'],
+      currentVersion: 'dev+03a2892',
+    })
+    expect(gate(targetAt('0.1.3', ['20260715135845_baseline']))).toContain(
+      'cannot converge: schema-advanced',
+    )
+  })
+
+  it('refuses rather than guesses when the ledger cannot be read', () => {
+    // Fail CLOSED. An unreadable ledger is not "no database" — reading it as
+    // one would let through exactly the swap this gate exists to stop.
+    const gate = createSchemaGate({
+      readApplied: () => {
+        throw new Error('database is locked')
+      },
+      currentVersion: 'dev+03a2892',
+    })
+    const refusal = gate(targetAt('0.1.3', ['20260715135845_baseline']))
+    expect(refusal).toContain('cannot converge: schema-unreadable')
+    expect(refusal).toContain('database is locked')
   })
 })

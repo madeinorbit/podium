@@ -305,6 +305,38 @@ describe('describeUpdateFailure', () => {
     expect(v.message).toMatch(/^Podium on ludovico/)
   })
 
+  /**
+   * POD-2213. The refusal that keeps a machine ALIVE: an older build cannot open
+   * a database the newer one has already migrated, so the daemon declines the
+   * downgrade instead of swapping into a server that will not start. "Try again"
+   * is the wrong next action here too — this is a target problem, not a
+   * transient one.
+   */
+  it('explains a downgrade that was refused because the database moved on', () => {
+    const v = describeUpdateFailure(
+      "cannot converge: schema-advanced — this machine's database has applied migration " +
+        "'20260809112031_transcript-segment-incarnations', which 0.1.3 does not define",
+      'ludovico',
+    )
+
+    expect(v.state).toBe('failed')
+    expect(v.message).toMatch(/ludovico/)
+    expect(v.message).toMatch(/older/i)
+    expect(v.guidance).toMatch(/still running/i)
+    expect(v.message).not.toMatch(/one or more machines/i)
+    // The prose stays jargon-free; the diagnostic keeps the one fact worth
+    // keeping — WHICH migration the older build could not open.
+    expect(`${v.message} ${v.guidance}`).not.toContain('schema-advanced')
+    expect(v.diagnostic).toContain('transcript-segment-incarnations')
+  })
+
+  it('uses the same copy when the target would not say what schema it opens', () => {
+    const v = describeUpdateFailure('cannot converge: schema-unknown — 0.1.3 does not declare …')
+    expect(v.state).toBe('failed')
+    expect(v.message).toMatch(/older/i)
+    expect(v.guidance).toMatch(/still running/i)
+  })
+
   it('turns a dirty checkout into named, actionable copy', () => {
     const v = describeUpdateFailure('git delivery failed: dirty-working-tree', 'ludovico')
 

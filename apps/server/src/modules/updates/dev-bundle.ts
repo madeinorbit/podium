@@ -36,6 +36,13 @@ function gitEnv(): NodeJS.ProcessEnv {
   return { ...process.env }
 }
 
+/**
+ * Where a commit keeps the migrations it defines. The folder names in this tree
+ * ARE the ledger names the server's migrator writes, which is what makes them
+ * comparable to what a database has applied.
+ */
+const MIGRATIONS_TREE = 'apps/server/src/migrations/drizzle'
+
 async function git(root: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', [...args], {
     cwd: root,
@@ -861,9 +868,38 @@ export function developmentPlatformTarget(
   return os + '-' + cpu
 }
 
+/**
+ * The migration folder names a commit defines, or `undefined` when the tree
+ * cannot be read.
+ *
+ * `undefined` is the honest answer and the daemon treats it as unproven — it
+ * refuses rather than swapping on a claim nobody stands behind.
+ */
+export async function migrationsAtRevision(
+  root: string,
+  sha: string,
+): Promise<string[] | undefined> {
+  try {
+    const stdout = await git(root, ['ls-tree', '-d', '--name-only', `${sha}:${MIGRATIONS_TREE}`])
+    const names = stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+    return names.length > 0 ? names : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function devTarget(
   built: BuiltDevBundle,
-  opts: { artifactUrl?: string; platform?: string; sourceRoot?: string; webDigest?: string } = {},
+  opts: {
+    artifactUrl?: string
+    platform?: string
+    sourceRoot?: string
+    webDigest?: string
+    schemaMigrations?: string[]
+  } = {},
 ): UpdateTarget {
   const platform = opts.platform ?? developmentPlatformTarget()
   const url = opts.artifactUrl ?? DEV_ARTIFACT_ROUTE + '/' + encodeURIComponent(built.version)
@@ -871,6 +907,7 @@ export function devTarget(
   return {
     version: built.version,
     critical: false,
+    ...(opts.schemaMigrations ? { schema: { migrations: opts.schemaMigrations } } : {}),
     artifacts: {
       headless: {
         delivery: 'bundle',
@@ -901,12 +938,13 @@ export function devTarget(
  */
 export function devIdentityTarget(
   headSha: string,
-  opts: { sourceRoot?: string } = {},
+  opts: { sourceRoot?: string; schemaMigrations?: string[] } = {},
 ): UpdateTarget {
   const sha = shortSha(headSha)
   return {
     version: 'dev+' + sha,
     critical: false,
+    ...(opts.schemaMigrations ? { schema: { migrations: opts.schemaMigrations } } : {}),
     artifacts: {
       web: { digest: sha },
       headlessAlternatives: [
@@ -926,6 +964,16 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
   debounceMs?: number
   artifactUrl?: string | ((version: string) => string)
   platform?: string
+  /**
+   * The migrations defined AT a revision — what the published target declares
+   * it can open (POD-2213). Seam for tests; defaults to reading the commit's
+   * own migration tree.
+   *
+   * Read from the COMMIT, never from this server's compiled-in migration list:
+   * the one case where the two differ is a checkout moving backwards, which is
+   * exactly the convergence that must be refused.
+   */
+  migrationsAt?: (sha: string) => Promise<string[] | undefined>
   /** Seam for tests; defaults to `git status --porcelain -z` in `root`. */
   readSourceStatus?: DevBundleSourceReader
   /** Seam for tests; defaults to `git ls-files --others --ignored` in `root`. */
@@ -1007,6 +1055,17 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       return shortSha(await deps.headSha())
     } catch {
       return null
+    }
+  }
+
+  /** Never throws: an unreadable tree publishes no declaration, which the
+   *  daemon reads as unproven and refuses. */
+  const readMigrationsAt = async (sha: string): Promise<string[] | undefined> => {
+    const read = deps.migrationsAt ?? ((at: string) => migrationsAtRevision(deps.root, at))
+    try {
+      return await read(sha)
+    } catch {
+      return undefined
     }
   }
 
@@ -1166,6 +1225,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       if (failure?.sha === headSha && failure.reason.includes('does not match HEAD')) {
         return undefined
       }
+      // Declared for the commit being advertised — the same short sha the git
+      // artifact tells the daemon to check out (POD-2213).
+      const migrations = await readMigrationsAt(headSha)
       if (current && builtSha === headSha) {
         const artifactUrl =
           typeof deps.artifactUrl === 'function'
@@ -1175,9 +1237,13 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           artifactUrl,
           platform: deps.platform,
           sourceRoot: deps.root,
+          ...(migrations ? { schemaMigrations: migrations } : {}),
         })
       }
-      return devIdentityTarget(headSha, { sourceRoot: deps.root })
+      return devIdentityTarget(headSha, {
+        sourceRoot: deps.root,
+        ...(migrations ? { schemaMigrations: migrations } : {}),
+      })
     },
   }
 }

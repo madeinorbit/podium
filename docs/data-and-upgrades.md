@@ -64,6 +64,34 @@ migration chain** before serving anything:
   roll a binary back past a schema change, restore the matching database backup (below)
   or move forward again.
 
+### Updates that would land on the wrong side of that refusal
+
+Downgrade protection stops a server from opening a database it does not understand —
+but on a machine that has already been swapped, it stops it every time, and the thing
+that would put the working version back is the server that will not start. So the
+update path refuses **before** the swap instead.
+
+A machine that holds a database converges only to a version that says it can open what
+that database has already applied. Every published target declares the migrations its
+build defines; a machine compares that list against its own migration ledger and
+declines the move if anything is missing, reporting one of:
+
+- `schema-advanced` — the target genuinely cannot open this database. It names the
+  first migration it lacks.
+- `schema-unknown` — the target does not declare its schema at all (every release
+  published before this check existed), so nothing can prove the move is safe.
+- `schema-unreadable` — this machine's own ledger could not be read, so the same.
+
+In all three cases **nothing is fetched and nothing is swapped**: the machine stays on
+the version that works and keeps running. A downgrade whose schema did *not* advance is
+unaffected and still converges — that is the ordinary one-release rollback the
+expand-and-contract policy below exists to keep cheap.
+
+Going further back than that is not something Podium can do for you, and the refusal
+says so: it needs a database restore by hand (see *Backups before migrations*), because
+restoring silently would discard every write made since the schema advanced. Machines
+that hold no database — every remote worker — are never gated at all.
+
 ## Expand-and-contract policy
 
 Releases use an **expand-and-contract** migration policy. Release N may add
