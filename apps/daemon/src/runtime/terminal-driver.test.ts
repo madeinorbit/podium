@@ -91,7 +91,11 @@ interface World {
   written: string[]
   frames: DaemonMessage[]
   /** Every drain that gave up at its deadline, as the host was told about it. */
-  abandoned: Array<{ sessionId: SessionId; turns: readonly { text: string }[]; reason: string }>
+  abandoned: Array<{
+    sessionId: SessionId
+    turns: readonly { id: string; text: string }[]
+    reason: string
+  }>
   /**
    * Make the fake CLI fire `UserPromptSubmit` when it receives the submitting CR,
    * the way Claude does.
