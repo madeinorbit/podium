@@ -123,7 +123,7 @@ command, which is all a unit is here.
 | 5 | `verify-headless-update.sh` — valid swap, and tamper refused | **PASS**, both arms |
 | — | `bun run test:e2e` as prescribed | **BLOCKED** by `POD-2206`'s bundle ratchet |
 | 6 | Pinned-key trust domain: tamper, no pin, wrong pin, cross-domain | **PASS**, 7 arms |
-| — | Installed bundle drive through pairing, swap and reconnect | **NOT REACHED** |
+| — | Installed bundle drive through pairing, swap and reconnect | **NOT REACHED** → `POD-2215` |
 | — | Adoption across a process death, on the drive's own evidence | **PASS** (second sighting) |
 
 ### 1. The web step — PASS, and it is the first time any drive has reached it
@@ -438,7 +438,10 @@ step whose place had been mid-`downloading` when the process died, settled it as
   daemon so it pins the coordinating server's key, then a real grant, swap,
   restart and reconnect over bundle delivery. §7 drives the security gate it
   depends on, and §4 drives a real swap-and-reconnect over feed; what is missing
-  is the pairing that supplies the pin, joined to a bundle swap.
+  is the pairing that supplies the pin, joined to a bundle swap. **Filed as
+  `POD-2215`** with every trap this drive hit written down, rather than left as a
+  gap in a report: it needs a box with memory to spare, and this one OOM-killed
+  two processes during the drives that did land.
 - **The macOS signed desktop drive.** Explicitly not this issue's: it needs
   production keys and a real Mac.
 - **`bun run test:e2e` as prescribed** — blocked before any test by `POD-2206`'s
