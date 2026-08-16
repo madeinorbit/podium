@@ -57,7 +57,6 @@ const SessionContextMenu = lazy(() =>
   })),
 )
 
-
 const isSystemOwnedIssueStage = (stage: IssueStage): boolean => stage === 'shipping'
 
 /**
@@ -132,7 +131,7 @@ export function sessionStateLabel(session: SessionMeta): string {
   return 'Idle'
 }
 
-export type TaskActionKind = 'answer' | 'mark-done' | 'open-coordinator' | 'start-work'
+export type TaskActionKind = 'answer' | 'mark-done' | 'start-work'
 
 export interface TaskAction {
   kind: TaskActionKind
@@ -144,13 +143,22 @@ export interface TaskAction {
 /**
  * The one primary action the task head offers, resolved from the issue's own
  * state: needs-you → Answer (or Mark done on a handed-off origin, where the
- * work has left and closing is the only decision left); else a live session →
- * Open coordinator; else → Start work.
+ * work has left and closing is the only decision left); else nobody on it →
+ * Start work.
+ *
+ * Sessions already working the issue resolve to NO primary action, and the head
+ * renders no chip at all. There used to be an "Open coordinator" chip here; it
+ * was pulled because it did not work (POD-1151). Its whole job was to jump to
+ * the coordinator session, but the panel it sits in is the right dock, which
+ * stays put — so from the workspace the click landed on a session already in
+ * the pane and read as a dead button. Nothing is lost: the same sessions are
+ * one click away on their own rows under "Agents & sessions", which open the
+ * session AND switch the view.
  */
 export function resolveTaskAction(
   issue: IssueViewModel,
   active: readonly SessionMeta[],
-): TaskAction {
+): TaskAction | null {
   if (issueNeedsHuman(issue, active)) {
     const handedOff =
       active.length === 0 && (issue.dependents ?? []).some((dep) => dep.type === 'discovered-from')
@@ -158,7 +166,7 @@ export function resolveTaskAction(
       ? { kind: 'mark-done', label: 'Mark done', warn: true }
       : { kind: 'answer', label: 'Answer', warn: true }
   }
-  if (active.length > 0) return { kind: 'open-coordinator', label: 'Open coordinator', warn: false }
+  if (active.length > 0) return null
   return { kind: 'start-work', label: 'Start work', warn: false }
 }
 
@@ -597,10 +605,10 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
     // — the case where the operator inherited a placement decision they never
     // made. A sub-task the operator planned themselves needs no second opinion
     // on the button; the context menu still offers the move.
-    if (action.kind !== 'start-work' || !issue.startedBySession) return null
+    if (action?.kind !== 'start-work' || !issue.startedBySession) return null
     const byId = new Map(issues.map((candidate) => [candidate.id as string, candidate]))
     return discoveredPlacement(issue, byId)
-  }, [action.kind, issue, issues])
+  }, [action?.kind, issue, issues])
 
   if (isSystemOwnedIssueStage(issue.stage)) {
     return (
@@ -646,6 +654,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
   }
 
   const runAction = (): void => {
+    if (!action) return
     switch (action.kind) {
       case 'answer': {
         // Go to whoever is actually waiting; the issue page is the fallback for
@@ -659,11 +668,6 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
       case 'mark-done':
         setCloseReason('done')
         return
-      case 'open-coordinator': {
-        const target = coordinatorSession(issue, active)
-        if (target) navigateToSession(target.sessionId)
-        return
-      }
       case 'start-work':
         startWork()
         return
@@ -764,7 +768,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
         >
           <RotateCcw size={12} aria-hidden="true" /> Reopen issue
         </Button>
-      ) : (
+      ) : action ? (
         <div className="flex items-center">
           {/* THE PANEL'S ONE PRIMARY CHIP. `resolveTaskAction()` returns exactly
               one action, so there is never a second filled object to compete
@@ -798,7 +802,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
               `parentId` versus `discovered-from` is not. */}
           {placement && <PlacementMenu placement={placement} busy={starting} onStart={startWork} />}
         </div>
-      )}
+      ) : null}
       <Button
         type="button"
         variant="ghost"

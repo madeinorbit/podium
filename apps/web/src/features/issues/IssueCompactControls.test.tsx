@@ -135,12 +135,13 @@ describe('resolveTaskAction', () => {
     })
   })
 
-  it('opens the coordinator when live sessions are working it', () => {
-    expect(resolveTaskAction(makeIssue({}), [session()])).toEqual({
-      kind: 'open-coordinator',
-      label: 'Open coordinator',
-      warn: false,
-    })
+  it('offers nothing while live sessions are working it', () => {
+    // POD-1151: this used to be an "Open coordinator" chip. It never worked —
+    // the panel is the right dock, which does not move, so from the workspace
+    // the click landed on the session already in the pane. Work in flight asks
+    // nothing of the operator, so the head simply carries no primary chip; the
+    // session rows below are how you reach the agents.
+    expect(resolveTaskAction(makeIssue({}), [session()])).toBeNull()
   })
 
   it('starts work when nobody is on it', () => {
@@ -168,15 +169,28 @@ describe('IssueCompactControls', () => {
     expect(action.className).toContain('btn-primary-rim')
   })
 
-  it('sends the primary action to the coordinator session', () => {
+  it('answers into the coordinator when no single session raised the flag', () => {
+    // The issue asked, not a session, so Answer has to pick a room to open:
+    // the coordinator, then the most recently active member.
     mockSessions = [
       session({ sessionId: 'old', lastActiveAt: '2026-08-01T00:00:00.000Z' }),
       session({ sessionId: 'coord' }),
     ]
-    render(<IssueCompactControls issue={makeIssue({ id: 'i', coordinatorSessionId: 'coord' })} />)
+    render(
+      <IssueCompactControls
+        issue={makeIssue({ id: 'i', needsHuman: true, coordinatorSessionId: 'coord' })}
+      />,
+    )
 
     fireEvent.click(screen.getByTestId('task-primary-action'))
     expect(navigateToSession).toHaveBeenCalledWith('coord')
+  })
+
+  it('carries no primary chip while sessions are working the task', () => {
+    mockSessions = [session({ sessionId: 'coord' })]
+    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+
+    expect(screen.queryByTestId('task-primary-action')).toBeNull()
   })
 
   it('starts the agent when the task has none', () => {
