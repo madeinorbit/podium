@@ -756,15 +756,15 @@ describe('the update operation, driven', () => {
     // to call that a failure.
     expect(
       describeUpdateWaitingExpiry({
-        operation: asked([{ id: UPDATE_STEP_MACHINES, state: 'succeeded' }]),
+        operation: asked([{ id: UPDATE_STEP_MACHINES, state: 'done' }]),
       }),
     ).toBeUndefined()
-    // A step that ran and did not succeed is not work achieved either — and the
-    // rule is "did anything succeed", not "is this the all-in-one plan", because
-    // the question the framework asks is whether completing would be honest.
+    // A step that did not apply is not work achieved either — and the rule is
+    // "did anything get done", not "is this the all-in-one plan", because the
+    // question the framework asks is whether completing would be honest.
     expect(
       describeUpdateWaitingExpiry({
-        operation: asked([{ id: UPDATE_STEP_MACHINES, state: 'pending' }]),
+        operation: asked([{ id: UPDATE_STEP_MACHINES, state: 'skipped' }]),
       })?.code,
     ).toBe(UPDATE_NOT_INSTALLED_ERROR_CODE)
   })

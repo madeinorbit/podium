@@ -1365,7 +1365,7 @@ export const UPDATE_NOT_INSTALLED_ERROR_CODE = 'update-not-installed'
  * update finish?* a lie. The only reason anyone noticed was the offer coming
  * back on the next check.
  *
- * SO THE TEST IS "DID ANY STEP SUCCEED", not "is this the all-in-one plan".
+ * SO THE TEST IS "DID ANY STEP GET DONE", not "is this the all-in-one plan".
  * The question the framework is really asking is whether completing is honest,
  * and a plan that finished no work has nothing to be honest about whatever the
  * reason. A retry whose remainder is empty would land here too, and should.
@@ -1374,7 +1374,9 @@ export function describeUpdateWaitingExpiry(input: {
   operation: Operation
 }): OperationError | undefined {
   const steps = input.operation.steps ?? []
-  if (steps.some((step) => step.state === 'succeeded')) return undefined
+  // `done` is the ONLY state that is work achieved. `skipped` is a step that
+  // did not apply, which is exactly as vacuous as having no step at all.
+  if (steps.some((step) => step.state === 'done')) return undefined
   const ask = (input.operation.awaiting ?? []).find((candidate) => candidate.required === true)
   const place = ask?.place
   return {
