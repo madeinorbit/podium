@@ -121,7 +121,8 @@ command, which is all a unit is here.
 | — | Found: a stable installation is never offered an update | **FAIL** → `POD-2212` |
 | — | Found: a downgrade bricks the install, unrecoverably | **FAIL** → `POD-2213` |
 | 5 | `verify-headless-update.sh` — valid swap, and tamper refused | **PASS**, both arms |
-| — | `bun run test:e2e` as prescribed | **BLOCKED** by `POD-2206`'s bundle ratchet |
+| 7 | The e2e suite itself: 8 files, 27 tests | **PASS** |
+| — | `bun run test:e2e` as prescribed (build step) | **BLOCKED** by `POD-2206`'s bundle ratchet |
 | 6 | Pinned-key trust domain: tamper, no pin, wrong pin, cross-domain | **PASS**, 7 arms |
 | — | Installed bundle drive through pairing, swap and reconnect | **NOT REACHED** → `POD-2215` |
 | — | Adoption across a process death, on the drive's own evidence | **PASS** (second sighting) |
@@ -333,7 +334,26 @@ PODIUM_TEST_WORKERS=1 NODE_OPTIONS=--conditions=@podium/source \
   --config vitest.integration.config.ts --maxWorkers=1 tests/e2e
 ```
 
-<!-- E2E RESULT -->
+```
+acquired 'test:heavy' (expires in 30m0s)        ← after 25m27s queued behind two sessions
+ RUN  v5.0.0-beta.6 /home/mgw/…/issue-2157-updater-end-to-end-acceptance
+
+ Test Files  8 passed (8)
+      Tests  27 passed (27)
+   Duration  31.08s
+```
+
+**8 of 8 and 27 of 27 — a complete selection, not a partial one.** `tests/e2e`
+contains exactly eight `*.test.ts` files and all eight ran: `codex-fixture`,
+`codex-readiness`, `feed-v2.e2e`, `harness-env`, `multi-machine.e2e`,
+`relay.e2e`, `split-local.e2e`, `state-channel-attention.e2e`. The ninth file
+there, `mobile-web-smoke.spec.ts`, is Playwright's and belongs to a different
+config, so its absence is correct rather than a gap.
+
+The run took the repo's own `test:heavy` lease, which is what serializes heavy
+lanes on this box — it waited 25 minutes behind two other sessions for it. That
+lease, not the updater lane, is the right mutex for this command; holding both
+would only have starved siblings, so the updater lane was released while queued.
 
 ### 6. `bash scripts/verify-headless-update.sh` — PASS, both arms
 
