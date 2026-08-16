@@ -60,6 +60,14 @@ Every sub-issue of the updater epic follows this protocol. It is part of your br
   Tauri crate is expensive: prefer `cargo test` scoped to the pure functions you added, judge
   the cost against free space first, and let CI remain the authority for a full build. What
   you must not do is *claim* a build you did not run — say plainly which of the two you did.
+- **Memory is scarcer than disk — take the heavy-lane lock (POD-2159).** The box has ~23 GB
+  and the kernel has already OOM-killed 38 processes here; a session that runs `typecheck`
+  or a broad suite while a sibling is doing the same is *killed mid-command with no error*,
+  which looks exactly like a wedge and loses everything uncommitted. So:
+  `podium lock acquire updater-heavy-lane --ttl 20m --wait` before **any** `typecheck`,
+  broad `test`, or build — proceed only on the word `acquired`, and release the moment it
+  finishes. Focused vitest on your own files needs no lock. **Commit before you run a heavy
+  lane**, so a kill costs you the run and not the work.
 - **Disk is tight (98% as of 2026-08-14, POD-2111).** Check `df -h` before any build or
   full-suite run; below ~3 GB free, stop and mail 2087 instead of risking a silently
   truncated write. For A/B base runs prefer a detached in-place checkout of your own
