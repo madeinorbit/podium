@@ -145,4 +145,33 @@ describe('tauri desktop config', () => {
       'html[data-podium-platform="macos"] .desktop-shell-row {\n  background: var(--background);',
     )
   })
+
+  /**
+   * POD-2150. `install_update` reports progress by emitting
+   * `podium://update-progress`, and the page subscribes with
+   * `plugin:event|listen` — which is a PERMISSION, not an ambient capability.
+   * The static `default.json` grants it through `core:default`, but declares no
+   * remote block, so it stops at the local origin. In remote mode the page is
+   * served by the remote server, and a shell that lets that page start an
+   * install but not hear it report gives the user a spinner that never moves:
+   * the one silence the progress events exist to end.
+   *
+   * Both grants are checked because they are two different lives of the same
+   * bridge — startup, and the re-grant after a server transfer — and POD-2150
+   * was exactly one of them being forgotten.
+   */
+  it('lets both update-bridge grants hear the progress event (POD-2150)', () => {
+    const grant = (name: string): string => {
+      const start = mainSource.indexOf(`CapabilityBuilder::new("${name}")`)
+      expect(start, `no ${name} capability in main.rs`).toBeGreaterThan(-1)
+      const end = mainSource.indexOf(';', start)
+      return mainSource.slice(start, end)
+    }
+    for (const name of ['update-bridge', 'transfer-update-bridge']) {
+      const block = grant(name)
+      expect(block, name).toContain('.permission("allow-install-update")')
+      expect(block, name).toContain('.permission("core:event:allow-listen")')
+      expect(block, name).toContain('.permission("core:event:allow-unlisten")')
+    }
+  })
 })

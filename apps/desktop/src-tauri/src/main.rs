@@ -355,7 +355,11 @@ fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Resu
         .remote(pattern)
         .permission("allow-claim-update-ownership")
         .permission("allow-check-update")
-        .permission("allow-install-update");
+        .permission("allow-install-update")
+        // Same reason as the startup grant below: without listen/unlisten the
+        // transferred origin can invoke the install but never hear it report.
+        .permission("core:event:allow-listen")
+        .permission("core:event:allow-unlisten");
     for capability in [window, opener, sqlite, updates] {
         app.add_capability(capability)
             .map_err(|error| format!("cannot grant transferred origin capability: {error}"))?;
@@ -659,11 +663,22 @@ fn main() {
             // opener, hosting and sqlite grants do. Granted only in the static
             // capability, a remote-mode shell could never update itself, which is the
             // scenario this bridge exists for.
+            // LISTENING IS PART OF THE BRIDGE, not a separate nicety (POD-2150).
+            // `install_update` reports its progress by emitting
+            // `podium://update-progress`, and a page that may invoke the install
+            // but may not subscribe to the event gets a spinner that never moves
+            // — the exact silence the progress events were added to end. The
+            // static `default.json` grants `core:default` (which includes
+            // listen) but declares no remote block, so it covers the local
+            // origin only; remote mode, where the page is served by the remote
+            // server, needs it named here alongside the commands it belongs to.
             let mut update_capability = tauri::ipc::CapabilityBuilder::new("update-bridge")
                 .window("main")
                 .permission("allow-claim-update-ownership")
                 .permission("allow-check-update")
-                .permission("allow-install-update");
+                .permission("allow-install-update")
+                .permission("core:event:allow-listen")
+                .permission("core:event:allow-unlisten");
             if let Some(server_url) = remote_window_server_url {
                 match remote_capability_pattern(&server_url) {
                     Ok(pattern) => {
@@ -890,11 +905,27 @@ fn main() {
                             .elapsed()
                             .as_millis()
                             .min(u64::MAX as u128) as u64;
-                        if crate::updater::should_show_native_dialog(
+                        let native = crate::updater::should_show_native_dialog(
                             update_ownership_for_window.load(Ordering::Acquire),
                             elapsed_ms,
                             crate::updater::OWNERSHIP_GRACE_MS,
-                        ) {
+                        );
+                        // TEST AID, same discipline as `running-version` above: record
+                        // WHICH update path this boot took, in the state dir rather than
+                        // the log, because under --appimage-extract-and-run AppRun
+                        // redirects stdout and the log is routinely empty on a healthy
+                        // boot. verify-update.sh's two arms both drive the NATIVE path,
+                        // and the page claiming ownership within the grace window is a
+                        // legitimate outcome that silently turns both of them into
+                        // assertions about nothing. An arm that cannot see which branch
+                        // ran cannot say NO, so it writes the branch down.
+                        if let Ok(state_dir) = std::env::var("PODIUM_STATE_DIR") {
+                            let path =
+                                std::path::Path::new(&state_dir).join("update-ownership");
+                            let _ = std::fs::create_dir_all(&state_dir);
+                            let _ = std::fs::write(path, if native { "native" } else { "page" });
+                        }
+                        if native {
                             crate::updater::check_and_prompt_update(
                                 updater_handle,
                                 update_channel,
