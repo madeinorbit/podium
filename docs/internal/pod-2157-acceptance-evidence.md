@@ -49,9 +49,16 @@ const trustedPubkey = delivery === 'bundle' ? deps.pinnedPubkey : deps.pubkey
 
 This matters most for the stable channel, because `resolveReleaseTarget` REFUSES a release
 manifest offering any non-feed delivery. A stable target is therefore feed-only by
-construction, and the last hop of a stable update cannot be completed on a host without the
-production key. Where that boundary is reached it is named explicitly rather than papered
-over.
+construction. Where that boundary is reached it is named explicitly rather than papered over.
+
+**Corrected once by measurement, and the correction is the reason to measure.** The
+paragraph above was written before driving, and its conclusion — that no positive feed arm
+was reachable here — was wrong. Podium publishes REAL production-signed releases, and the
+stable manifest resolves from this box right now (HTTP 200, version `0.1.3`, feed artifacts
+with production signatures). So the positive feed path is drivable after all, using
+artifacts Podium itself signed, without the private key ever being on this host. The
+absent dev key only rules out signing NEW feed artifacts locally, which is a much smaller
+claim than the one first written down.
 
 ## Instruments, all outside the product
 
@@ -94,6 +101,8 @@ command, which is all a unit is here.
 |---|---|---|
 | 1 | The WEB STEP plans, runs a real build, and moves the served website | **PASS** |
 | 2 | The panel reaches its your-turn state and tells the user to reload | **PASS**, screenshots attached |
+| 3 | A stable-pinned host plans an update against the stable authority | **PASS**, live |
+| — | Found: a stable installation is never offered an update | **FAIL** → `POD-2212` |
 | — | Adoption across a process death, on the drive's own evidence | **PASS** (second sighting) |
 
 ### 1. The web step — PASS, and it is the first time any drive has reached it
@@ -157,6 +166,58 @@ One state is deliberately NOT reported: the shot taken immediately after the
 commit at that moment, and that shot names the amended commit, so every panel
 state between the click and the restart is contaminated. It is discarded rather
 than cleaned up.
+
+### 3. The stable channel — PASS at the planning layer, and it found a defect
+
+The most important remaining claim, because until POD-2189 the operation channel
+was the literal `'dev'`, so a stable-pinned fleet got no operation at all, and
+every previous drive ran on the dev configuration where that is invisible.
+
+**A real stable release exists and resolves.** This was worth checking rather
+than assuming: `https://github.com/madeinorbit/podium/releases/latest/download/podium-update.json`
+returns HTTP 200 with version `0.1.3`, feed delivery, and production digests and
+signatures for `linux-x86_64`. No manifest was faked for this drive and no fetch
+was intercepted.
+
+The instance was relaunched with `PODIUM_UPDATE_CHANNEL=stable`; the fleet then
+read `ludovico … channel: "stable"`. `updates.start` on that host:
+
+```
+op_99716e2a-cc80-4294-8149-730a1d572250   state running → done in 8 ms
+details.channel      "stable"                      ← the HOST's channel, not 'dev'
+details.target       version 0.1.3, artifacts.headless.delivery "feed",
+                     digest sha256-/c0MiQRAnatMNKIshru3mDqReOuXKFrzk1z5fRJwbVg=
+details.fromVersion  "dev+03a2892"
+steps                []
+deferred             [{ ludovico, reason: "cannot-take-delivery" }]
+error                null
+```
+
+**A stable-pinned host gets an operation, and it is computed against the stable
+authority** — the claim POD-2189 was written for, now shown on a live server
+rather than in a planner test. The machine is `deferred` with
+`cannot-take-delivery`, which is the correct answer and not a failure: a SOURCE
+machine advertises `update.delivery.git` alone, and `resolveReleaseTarget`
+refuses any non-feed delivery in a release manifest, so a stable target is
+feed-only by construction. The absent machine did not hold the outcome open and
+nothing was invented for it.
+
+**Found here: a stable installation is never OFFERED an update — filed as
+`POD-2212`.** POD-2189 fixed the OPERATION's channel and did not fix the read
+path the panel's offer is built from. On the same running server, in the same
+second, the operation resolved the stable target `0.1.3` while `/version`
+advertised `dev+03a2892`: `server.ts:637` wires `/version`'s target as
+`devPublisher.publishTarget() ?? updates.target()`, and `UpdatesService.target`
+is declared `target(channel: UpdateChannel = 'dev')`. Both halves ask the dev
+authority. On an installed host the publisher half is disabled and the fallback
+resolves nothing, so `/version` carries no target and
+`use-update-state.ts` — which derives the whole offer from `server.target` —
+has nothing to show. The right helper already exists two methods away
+(`targetFor(machineId)`, and `operationChannel(hostMachineId)`).
+
+Honest limit on that finding: the disagreement is measured, the installed-host
+consequence is read off the code, because this drive's host is a source install
+whose publisher masks it. `POD-2212` says so.
 
 ### Adoption, seen again without being asked for
 
