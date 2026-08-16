@@ -1,0 +1,31 @@
+=== SUPERVISOR gen 1 starting 2026-08-16T23:36:44+02:00 VERSION=dev+03a2892 ===
+=== SUPERVISOR gen 1 exited rc=0 at 2026-08-16T23:36:48+02:00 VERSION=0.1.3 ===
+=== SUPERVISOR gen 2 starting 2026-08-16T23:36:50+02:00 VERSION=0.1.3 ===
+89525 |       throw new Error(`database has applied migration '${name2}', which this build does not define. ` + `The database is newer than this build \u2014 upgrade the Podium server ` + `(downgrades are not supported).
+error: database has applied migration '20260809112031_transcript-segment-incarnations', which this build does not define. The database is newer than this build — upgrade the Podium server (downgrades are not supported)
+=== SUPERVISOR gen 2 exited rc=0 at 2026-08-16T23:36:51+02:00 VERSION=0.1.3 ===
+=== SUPERVISOR gen 3 starting 2026-08-16T23:36:54+02:00 VERSION=0.1.3 ===
+89525 |       throw new Error(`database has applied migration '${name2}', which this build does not define. ` + `The database is newer than this build \u2014 upgrade the Podium server ` + `(downgrades are not supported).
+error: database has applied migration '20260809112031_transcript-segment-incarnations', which this build does not define. The database is newer than this build — upgrade the Podium server (downgrades are not supported)
+=== SUPERVISOR gen 3 exited rc=0 at 2026-08-16T23:36:54+02:00 VERSION=0.1.3 ===
+=== SUPERVISOR gen 4 starting 2026-08-16T23:36:56+02:00 VERSION=0.1.3 ===
+89525 |       throw new Error(`database has applied migration '${name2}', which this build does not define. ` + `The database is newer than this build \u2014 upgrade the Podium server ` + `(downgrades are not supported).
+error: database has applied migration '20260809112031_transcript-segment-incarnations', which this build does not define. The database is newer than this build — upgrade the Podium server (downgrades are not supported)
+=== SUPERVISOR gen 4 exited rc=0 at 2026-08-16T23:36:57+02:00 VERSION=0.1.3 ===
+=== SUPERVISOR gen 5 starting 2026-08-16T23:36:59+02:00 VERSION=0.1.3 ===
+89525 |       throw new Error(`database has applied migration '${name2}', which this build does not define. ` + `The database is newer than this build \u2014 upgrade the Podium server ` + `(downgrades are not supported).
+error: database has applied migration '20260809112031_transcript-segment-incarnations', which this build does not define. The database is newer than this build — upgrade the Podium server (downgrades are not supported)
+=== SUPERVISOR gen 5 exited rc=0 at 2026-08-16T23:37:00+02:00 VERSION=0.1.3 ===
+=== SUPERVISOR gen 6 starting 2026-08-16T23:37:02+02:00 VERSION=0.1.3 ===
+89525 |       throw new Error(`database has applied migration '${name2}', which this build does not define. ` + `The database is newer than this build \u2014 upgrade the Podium server ` + `(downgrades are not supported).
+error: database has applied migration '20260809112031_transcript-segment-incarnations', which this build does not define. The database is newer than this build — upgrade the Podium server (downgrades are not supported)
+=== SUPERVISOR gen 6 exited rc=0 at 2026-08-16T23:37:03+02:00 VERSION=0.1.3 ===
+=== SUPERVISOR gen 7 starting 2026-08-16T23:37:05+02:00 VERSION=0.1.3 ===
+89525 |       throw new Error(`database has applied migration '${name2}', which this build does not define. ` + `The database is newer than this build \u2014 upgrade the Podium server ` + `(downgrades are not supported).
+error: database has applied migration '20260809112031_transcript-segment-incarnations', which this build does not define. The database is newer than this build — upgrade the Podium server (downgrades are not supported)
+=== SUPERVISOR gen 7 exited rc=0 at 2026-08-16T23:37:06+02:00 VERSION=0.1.3 ===
+=== SUPERVISOR gen 8 starting 2026-08-16T23:37:08+02:00 VERSION=0.1.3 ===
+89525 |       throw new Error(`database has applied migration '${name2}', which this build does not define. ` + `The database is newer than this build \u2014 upgrade the Podium server ` + `(downgrades are not supported).
+error: database has applied migration '20260809112031_transcript-segment-incarnations', which this build does not define. The database is newer than this build — upgrade the Podium server (downgrades are not supported)
+=== SUPERVISOR gen 8 exited rc=0 at 2026-08-16T23:37:09+02:00 VERSION=0.1.3 ===
+=== SUPERVISOR stopped after 8 generations ===
