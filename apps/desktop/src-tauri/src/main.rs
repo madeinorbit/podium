@@ -275,7 +275,7 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     };
     // Desktop updates are available in every launch mode. The page may be remote or older
     // than this shell, so these methods are always present and are feature-detected by the page.
-    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: () => window.__TAURI_INTERNALS__.invoke('install_update')";
+    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('install_update', { channel })";
     // Hand a URL to the OS browser on purpose. The injected opener shim only rescues
     // CROSS-origin links (bootstrap::opener_shim_script); a page that wants the real browser
     // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
@@ -873,39 +873,36 @@ fn main() {
                     #[cfg(not(target_os = "macos"))]
                     let window_builder = window_builder.decorations(false);
 
-                    match window_builder.build() {
-                        Ok(_) => {
-                            let update_started_at = std::time::Instant::now();
-                            tauri::async_runtime::spawn(async move {
-                                let _ = tauri::async_runtime::spawn_blocking(move || {
-                                    std::thread::sleep(std::time::Duration::from_millis(
-                                        crate::updater::OWNERSHIP_GRACE_MS + 1,
-                                    ));
-                                })
-                                .await;
-                                let elapsed_ms = update_started_at
-                                    .elapsed()
-                                    .as_millis()
-                                    .min(u64::MAX as u128)
-                                    as u64;
-                                if crate::updater::should_show_native_dialog(
-                                    update_ownership_for_window.load(Ordering::Acquire),
-                                    elapsed_ms,
-                                    crate::updater::OWNERSHIP_GRACE_MS,
-                                ) {
-                                    if std::env::var("PODIUM_UPDATE_AUTOCONFIRM").as_deref() == Ok("1") {
-                                        crate::updater::check_and_prompt_update(
-                                            updater_handle,
-                                            update_channel,
-                                        )
-                                        .await;
-                                    } else {
-                                        log::info!("web update surface did not claim ownership; native interactive fallback disabled");
-                                    }
-                                }
-                            });
+                    // Schedule the fallback independently of window construction: a page that
+                    // never loads cannot claim ownership, and even a failed webview build must
+                    // leave the shell with a native update path.
+                    let update_started_at = std::time::Instant::now();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = tauri::async_runtime::spawn_blocking(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(
+                                crate::updater::OWNERSHIP_GRACE_MS + 1,
+                            ));
+                        })
+                        .await;
+                        let elapsed_ms = update_started_at
+                            .elapsed()
+                            .as_millis()
+                            .min(u64::MAX as u128) as u64;
+                        if crate::updater::should_show_native_dialog(
+                            update_ownership_for_window.load(Ordering::Acquire),
+                            elapsed_ms,
+                            crate::updater::OWNERSHIP_GRACE_MS,
+                        ) {
+                            crate::updater::check_and_prompt_update(
+                                updater_handle,
+                                update_channel,
+                            )
+                            .await;
                         }
-                        Err(e) => log::error!("window build failed: {e}"),
+                    });
+
+                    if let Err(error) = window_builder.build() {
+                        log::error!("window build failed: {error}");
                     }
                 });
             });
@@ -1090,7 +1087,8 @@ mod tests {
             let hook = native_desktop_hook(mode, None);
             assert!(hook.contains("claimUpdateOwnership"));
             assert!(hook.contains("checkUpdate: (channel)"));
-            assert!(hook.contains("installUpdate"));
+            assert!(hook.contains("installUpdate: (channel)"));
+            assert!(hook.contains("invoke('install_update', { channel })"));
         }
     }
 
