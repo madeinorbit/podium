@@ -102,7 +102,9 @@ command, which is all a unit is here.
 | 1 | The WEB STEP plans, runs a real build, and moves the served website | **PASS** |
 | 2 | The panel reaches its your-turn state and tells the user to reload | **PASS**, screenshots attached |
 | 3 | A stable-pinned host plans an update against the stable authority | **PASS**, live |
+| 4 | Stable FEED delivery: fetch, verify against the production key, swap | **PASS**, live |
 | — | Found: a stable installation is never offered an update | **FAIL** → `POD-2212` |
+| — | Found: a downgrade bricks the install, unrecoverably | **FAIL** → `POD-2213` |
 | — | Adoption across a process death, on the drive's own evidence | **PASS** (second sighting) |
 
 ### 1. The web step — PASS, and it is the first time any drive has reached it
@@ -218,6 +220,62 @@ has nothing to show. The right helper already exists two methods away
 Honest limit on that finding: the disagreement is measured, the installed-host
 consequence is read off the code, because this drive's host is a source install
 whose publisher masks it. `POD-2212` says so.
+
+### 4. Stable feed delivery, end to end — PASS, and it bricked the install
+
+The second half of the stable claim: not just planned, but *run*. It needed a
+machine that can take feed delivery, which a source checkout cannot
+(`deliveryCaps` is `['update.delivery.git']` for `installKind === 'source'`), so
+the drive used a disposable INSTALLED instance — staged from
+`dist-bun/headless`, the bundle this branch's own dev publisher built at boot,
+which is this branch's compiled binary. `PODIUM_HOME` being set is what makes it
+`installKind !== 'source'` and so feed-and-bundle capable.
+
+Instance `pod2157i`, ports 18931–3, its own state root, channel `stable`.
+
+```
+23:36:44  gen 1 starts        install VERSION dev+03a2892
+23:36:48  gen 1 exits rc=0    install VERSION 0.1.3
+```
+
+**Four seconds**, and in them the shipped daemon fetched the real
+`podium-headless-linux-x64.tar.gz` from GitHub, checked its digest, verified its
+signature against the baked production key `PODIUM_UPDATE_PUBKEY`, and swapped
+its own install directory. The swapped binary is demonstrably the published
+release and not the staged one: `podium-cli` is 101,386,368 bytes dated Aug 10
+21:31 (the release build) where the staged one was 102,156,416 bytes dated
+Aug 16 23:18. Reproduced twice from a clean re-stage.
+
+So the positive feed arm IS provable on this host — using artifacts Podium
+itself signed, with the private key never present. That corrects the
+pre-drive assumption recorded at the top of this document.
+
+**Then it never came back up — filed as `POD-2213`.** The target it converged to
+is OLDER than the build it was running, and the older binary refuses to start:
+
+```
+error: database has applied migration '20260809112031_transcript-segment-incarnations',
+       which this build does not define. The database is newer than this build —
+       upgrade the Podium server (downgrades are not supported).
+```
+
+It crash-looped through all 8 supervisor generations, each exiting in about a
+second, and it cannot recover on its own: `podium update` on the swapped install
+answers `already up to date (0.1.3)` because the feed has nothing newer, and the
+panel that might offer a fix is served by the server that will not boot.
+
+The downgrade itself is deliberate and correct —
+`packages/protocol/src/update/convergence.ts` opens by explaining that
+convergence is target EQUALITY and not `isNewer`, precisely so rollback stays
+possible, and noting that `dev+<sha>` has no ordering at all. The defect is the
+**collision**: the updater treats a downgrade as a supported rollback, the server
+declares downgrades unsupported and refuses to start, and nothing sits between
+them. A rollback across a migration boundary is not a rollback, it is a brick.
+
+Worth noting how easily it is reached: POD-2196 recorded that a source instance
+defaults to `stable`, so any build NEWER than the latest published release —
+every development build, and every machine between releases — is one convergence
+away from this. This drive reached it without asking for an update at all.
 
 ### Adoption, seen again without being asked for
 
