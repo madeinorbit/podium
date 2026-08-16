@@ -69,8 +69,8 @@ vi.mock('@/features/machines/ConnectionIndicator', () => ({
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
-import { StatusStrip } from './StatusStrip'
 import { resetUsageCache } from '@/features/usage/useUsageFeed'
+import { StatusStrip } from './StatusStrip'
 
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(NOW)
@@ -197,44 +197,80 @@ describe('StatusStrip burn and ship rates', () => {
     expect(burnShare).toContain('@podium_ade is burning $0.10/hr in tokens')
   })
 
-  it('counts only confirmed landed issues, including PR-backed merges', () => {
+  /** The verdict this used to require (`gitState.merged`) is probed live and
+   *  lost on every server restart, so it read "1 ship" on an 18-ship day. The
+   *  ship is now the close itself: done, on a branch, inside the trailing day. */
+  it('counts issues closed as done on a branch, over a trailing day', () => {
     fixture.extraIssues.push(
+      makeIssue({ id: 'landed', closedReason: 'done', closedAt: '2026-08-06T17:15:00.000Z' }),
+      // Yesterday evening — still inside 24h, outside the old 12h window.
       makeIssue({
-        id: 'merged-pr',
-        closedAt: '2026-08-06T17:15:00.000Z',
-        prUrl: 'https://github.com/podium/podium/pull/42',
-        gitState: {
-          updatedAt: '2026-08-06T18:00:00.000Z',
-          branch: 'issue/42',
-          shared: false,
-          ahead: 0,
-          dirtyFiles: 0,
-          merged: true,
-        },
+        id: 'landed-yesterday',
+        closedReason: 'done',
+        closedAt: '2026-08-05T20:00:00.000Z',
+      }),
+      // Just past the 24h edge.
+      makeIssue({ id: 'stale', closedReason: 'done', closedAt: '2026-08-05T17:00:00.000Z' }),
+      makeIssue({
+        id: 'cancelled',
+        closedReason: 'cancelled',
+        closedAt: '2026-08-06T17:30:00.000Z',
       }),
       makeIssue({
-        id: 'open-pr',
-        closedAt: '2026-08-06T17:30:00.000Z',
-        prUrl: 'https://github.com/podium/podium/pull/43',
-        gitState: {
-          updatedAt: '2026-08-06T18:00:00.000Z',
-          branch: 'issue/43',
-          shared: false,
-          ahead: 1,
-          dirtyFiles: 0,
-          merged: false,
-        },
+        id: 'no-branch',
+        closedReason: 'done',
+        branch: null,
+        closedAt: '2026-08-06T17:45:00.000Z',
+      }),
+      makeIssue({
+        id: 'deleted',
+        closedReason: 'done',
+        closedAt: '2026-08-06T17:50:00.000Z',
+        deletedAt: '2026-08-06T18:00:00.000Z',
       }),
     )
 
     render(<StatusStrip />)
 
-    expect(screen.getByTestId('status-strip-ship').textContent).toBe('0.08 ships/h')
+    expect(screen.getByTestId('status-strip-ship').textContent).toBe('2 ships/day')
+    expect(
+      screen.getByTestId('ship-rate-history').querySelectorAll('.status-strip-history-stack'),
+    ).toHaveLength(24)
     expect(screen.getByTestId('ship-rate-history').getAttribute('aria-label')).toContain(
-      '1 confirmed merge over the last 12 hours',
+      '2 issues shipped over the last 24 hours',
     )
     expect(
       decodeURIComponent(screen.getByLabelText('Share ship rate on X').getAttribute('href') ?? ''),
-    ).toContain('1 merge landed in the last 12h on @podium_ade')
+    ).toContain('2 issues shipped on @podium_ade in the last 24h')
+  })
+
+  it('keeps the singular reading when exactly one issue shipped', () => {
+    fixture.extraIssues.push(
+      makeIssue({ id: 'landed', closedReason: 'done', closedAt: '2026-08-06T17:15:00.000Z' }),
+    )
+
+    render(<StatusStrip />)
+
+    expect(screen.getByTestId('status-strip-ship').textContent).toBe('1 ship/day')
+  })
+
+  it('draws an empty bucket as a dimmed 1px floor, never as nothing', () => {
+    render(<StatusStrip />)
+
+    const stacks = screen
+      .getByTestId('ship-rate-history')
+      .querySelectorAll<HTMLElement>('.status-strip-history-stack')
+    expect(stacks).toHaveLength(24)
+    for (const stack of stacks) {
+      expect(stack.dataset.zero).toBe('true')
+      expect(stack.style.getPropertyValue('--history-height')).toBe('1px')
+    }
+  })
+
+  it('drops the 12h caption; the window is stated in the tooltip foot', () => {
+    const { container } = render(<StatusStrip />)
+
+    expect(container.querySelector('.status-strip-history-label')).toBeNull()
+    expect(screen.queryAllByText('12h')).toHaveLength(0)
   })
 })

@@ -18,10 +18,10 @@ export function shareTokenBurn(burnPerHour: string): string {
   return `@podium_ade is burning ${burnPerHour}/hr in tokens.\n\nI used to think that number would scare me.`
 }
 
-export function shareShipRate(shipped: number, shipsPerHour: string): string {
+export function shareShipRate(shipped: number): string {
   if (shipped === 0) {
-    return '0 ships in 12 hours on @podium_ade.\n\nthe runway is empty. this will not last.'
+    return '0 ships in 24 hours on @podium_ade.\n\nthe runway is empty. this will not last.'
   }
-  const noun = shipped === 1 ? 'merge' : 'merges'
-  return `${shipped} ${noun} landed in the last 12h on @podium_ade — ${shipsPerHour} ships/hr.\n\nI am no longer writing the diffs. I am waving them through.`
+  const noun = shipped === 1 ? 'issue' : 'issues'
+  return `${shipped} ${noun} shipped on @podium_ade in the last 24h.\n\nI am no longer writing the diffs. I am waving them through.`
 }

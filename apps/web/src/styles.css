@@ -1435,12 +1435,6 @@ html[data-density="balanced"] .header-quota-pools {
   border-radius: 2px;
   box-shadow: 0 0 0 1px var(--metric-color);
 }
-.status-strip-history-label {
-  color: var(--text-faint);
-  font-size: var(--shell-type-micro);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
 .status-strip-history-graph {
   display: grid;
   width: calc(var(--history-columns, 24) * 3px - 1px);
@@ -1460,6 +1454,11 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .status-strip-history-stack[data-current="true"] {
   opacity: 1;
+}
+/* The empty bucket's 1px floor: present, so the trace is continuous, but held
+   below the faintest real reading so absence never reads as a small value. */
+.status-strip-history-stack[data-zero="true"] {
+  opacity: 0.26;
 }
 .status-strip-history-stack[data-active="true"]::after {
   position: absolute;

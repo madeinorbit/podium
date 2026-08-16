@@ -1,3 +1,4 @@
+import { Share2 } from 'lucide-react'
 import {
   type CSSProperties,
   type JSX,
@@ -9,7 +10,6 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Share2 } from 'lucide-react'
 
 const GRAPH_HEIGHT = 12
 const TIP_PAD_PX = 8
@@ -58,9 +58,11 @@ function xIntent(text: string): string {
 }
 
 /**
- * One footer instrument: current reading, 12-hour trace, hover precision and a
+ * One footer instrument: current reading, hourly trace, hover precision and a
  * share action. The three metrics deliberately share structure but not colour,
  * so the strip reads as one small dashboard instead of three unrelated widgets.
+ * Each owns its own window (the graph sizes itself to the buckets it is handed)
+ * and states it in the tooltip's foot, which is why no caption sits beside it.
  */
 export function StatusMetric({
   testId,
@@ -134,9 +136,9 @@ export function StatusMetric({
         </a>
       )}
       <span className="status-strip-history">
-        <span className="status-strip-history-label" aria-hidden="true">
-          12h
-        </span>
+        {/* No "12h" caption: the window is stated in the tooltip's foot, and each
+            metric now spans its own window, so a single strip-wide label would be
+            wrong as often as it was redundant. */}
         <span
           className="status-strip-history-graph"
           data-testid={testId}
@@ -155,9 +157,13 @@ export function StatusMetric({
           onMouseMove={move}
         >
           {buckets.map((bucket, index) => {
+            // An empty bucket still draws its 1px floor. Zero used to render as
+            // literally nothing, which made a quiet stretch look like a gap in the
+            // instrument rather than a reading of nothing; the floor is dimmed
+            // (data-zero) so it stays legible as absence, not as a small value.
             const height =
               bucket.value <= 0
-                ? 0
+                ? 1
                 : Math.max(
                     1,
                     Math.round((Math.min(bucket.value, chartMax) / chartMax) * GRAPH_HEIGHT),
@@ -169,6 +175,7 @@ export function StatusMetric({
                 className="status-strip-history-stack"
                 data-active={index === safeIndex ? 'true' : 'false'}
                 data-current={index === lastIndex ? 'true' : 'false'}
+                data-zero={bucket.value <= 0 ? 'true' : 'false'}
                 data-over-cap={bucket.value > chartMax ? 'true' : 'false'}
                 style={
                   {

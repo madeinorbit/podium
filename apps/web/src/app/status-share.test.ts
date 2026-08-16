@@ -8,9 +8,9 @@ describe('status-strip X share copy', () => {
       shareAgentConcurrency(1),
       shareAgentConcurrency(4),
       shareTokenBurn('$12.40'),
-      shareShipRate(0, '0'),
-      shareShipRate(1, '0.08'),
-      shareShipRate(12, '1.0'),
+      shareShipRate(0),
+      shareShipRate(1),
+      shareShipRate(12),
     ]
     for (const post of posts) {
       expect(post).toContain('@podium_ade')
@@ -31,12 +31,10 @@ describe('status-strip X share copy', () => {
     )
   })
 
-  it('flexes landed ships and has a dry empty runway', () => {
-    expect(shareShipRate(1, '0.08')).toContain(
-      '1 merge landed in the last 12h on @podium_ade — 0.08 ships/hr',
-    )
-    expect(shareShipRate(12, '1.0')).toContain('12 merges landed')
-    expect(shareShipRate(0, '0')).toContain('0 ships in 12 hours on @podium_ade')
-    expect(shareShipRate(0, '0')).toContain('the runway is empty')
+  it('flexes the day of ships and has a dry empty runway', () => {
+    expect(shareShipRate(1)).toContain('1 issue shipped on @podium_ade in the last 24h')
+    expect(shareShipRate(12)).toContain('12 issues shipped on @podium_ade in the last 24h')
+    expect(shareShipRate(0)).toContain('0 ships in 24 hours on @podium_ade')
+    expect(shareShipRate(0)).toContain('the runway is empty')
   })
 })
