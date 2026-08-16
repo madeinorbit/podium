@@ -11,13 +11,24 @@
  *  · `classificationErrors` returning `[]` is indistinguishable from a lint
  *    whose rules all no-op, so it is shown reporting a real defect first.
  *  · "`send` is not in the table" is satisfied perfectly by an EMPTY table, so
- *    it is paired with the positive: `sendTurn` IS there, and there are seven.
+ *    it is paired with the positive: `sendTurn` IS there, and there are eight.
+ *
+ * EIGHT, NOT SEVEN (POD-1105). POD-782 added `ensureSession` to the table and to
+ * the contract file's prose but not to this file, so three assertions here sat
+ * red on main. The count now lives in ONE hand-typed place — `EIGHT` — and the
+ * length assertions are read off it rather than restating a numeral, because
+ * three copies of a number is what drifted: the numeral is not the check, the
+ * key list asserted against the table is, and a copy of it can only fail LATE.
  */
 
 import { OWNERSHIP_MATRIX, visibilityClassOf } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
-import { type AnyCommandContract, classificationErrors, registryClassificationErrors } from '../contract'
+import {
+  type AnyCommandContract,
+  classificationErrors,
+  registryClassificationErrors,
+} from '../contract'
 import {
   SUPERAGENT_COMMAND_NAMES,
   SUPERAGENT_CONTRACTS,
@@ -27,17 +38,18 @@ import {
   superagentUserFocus,
 } from './contracts'
 
-const SEVEN: SuperagentContractName[] = [
+const EIGHT: SuperagentContractName[] = [
   'sendTurn',
   'interruptTurn',
   'openInTerminal',
   'clear',
   'restart',
+  'ensureSession',
   'startBtw',
   'concierge',
 ]
 
-/** The matrix row all seven write into. */
+/** The matrix row all eight write into. */
 const SUPERAGENT_ROW = 'superagent-state'
 
 /**
@@ -51,9 +63,9 @@ const isDeclaredMatrixRow = (row: string): boolean =>
 const contracts = (): AnyCommandContract[] =>
   Object.values(SUPERAGENT_CONTRACTS).map((c) => c as AnyCommandContract)
 
-describe('the seven superagent thread contracts', () => {
-  it('declares exactly the seven thread commands', () => {
-    expect(Object.keys(SUPERAGENT_CONTRACTS).sort()).toEqual([...SEVEN].sort())
+describe('the eight superagent thread contracts', () => {
+  it('declares exactly the eight thread commands', () => {
+    expect(Object.keys(SUPERAGENT_CONTRACTS).sort()).toEqual([...EIGHT].sort())
   })
 
   /**
@@ -67,10 +79,10 @@ describe('the seven superagent thread contracts', () => {
   it('keeps ONE name for the turn command: sendTurn survives, send is gone', () => {
     expect(SUPERAGENT_COMMAND_NAMES).toContain('superagent.sendTurn')
     expect(SUPERAGENT_COMMAND_NAMES).not.toContain('superagent.send')
-    expect(SUPERAGENT_COMMAND_NAMES).toHaveLength(7)
+    expect(SUPERAGENT_COMMAND_NAMES).toHaveLength(EIGHT.length)
     // …and no two contracts share a body-shaped duplicate: every dotted name is
     // distinct, which `registryClassificationErrors` also checks, here made local.
-    expect(new Set(SUPERAGENT_COMMAND_NAMES).size).toBe(7)
+    expect(new Set(SUPERAGENT_COMMAND_NAMES).size).toBe(EIGHT.length)
   })
 
   it('passes the classification lint with no unclassified field', () => {
@@ -136,7 +148,15 @@ describe('the seven superagent thread contracts', () => {
     for (const contract of contracts()) expect(contract.visibility).not.toBe('per-user-state')
   })
 
-  it('records an offline class per command, six live and one entity-shaped', () => {
+  /**
+   * The two exceptions carry SEPARATE constants (POD-1105), so this asserts the
+   * reasoning as well as the class: `startBtw` upserts a thread under the
+   * matrix's `exp-rev` rule and `ensureSession` mints a session row, and a
+   * shared constant would attach one row's rule to the other's command — the
+   * derivation the contract file's header refuses. Reading the class alone
+   * cannot see that, which is why the texts are asserted distinct.
+   */
+  it('records an offline class per command, six live and two entity-shaped', () => {
     const byClass = Object.fromEntries(
       Object.entries(SUPERAGENT_CONTRACTS).map(([n, c]) => [n, c.delivery.class]),
     )
@@ -148,7 +168,11 @@ describe('the seven superagent thread contracts', () => {
       restart: 'online-only',
       concierge: 'online-only',
       startBtw: 'offline-eligible',
+      ensureSession: 'offline-eligible',
     })
+    expect(SUPERAGENT_CONTRACTS.startBtw.delivery.outboxReconciliation).not.toBe(
+      SUPERAGENT_CONTRACTS.ensureSession.delivery.outboxReconciliation,
+    )
     for (const contract of contracts()) {
       expect(contract.delivery.outboxReconciliation.length).toBeGreaterThan(80)
       expect(contract.delivery.applyTimeReauthorization).toContain('LIVE')
@@ -156,18 +180,28 @@ describe('the seven superagent thread contracts', () => {
   })
 
   /**
+   * The offline class permits `outbox`; it does not open it. ADR 3 D3 is
+   * default-closed, so making `ensureSession` offline-eligible must not have
+   * changed what any transport serves — asserted here rather than left to the
+   * exposure test above, which reads the arm and not the implication.
+   */
+  it('opens no transport by being offline-eligible — the class permits, the contract names', () => {
+    for (const contract of contracts()) expect(contract.exposure).not.toContain('outbox')
+  })
+
+  /**
    * ADR 3 Amendment 1 D18/D18.3 and readiness §3.1.4 M5, per arm.
    *
    * The three machine-placing commands must declare `use` AND keep unauthorized
-   * distinguishable from unreachable; the four control commands must declare no
+   * distinguishable from unreachable; the five control commands must declare no
    * verb at all. Both directions are asserted, so a verb spreading to a command
    * that places nothing fails here and not only in the lint.
    */
   it('declares machine `use` on exactly the three commands that place work on compute', () => {
     const placesWork: SuperagentContractName[] = ['sendTurn', 'concierge', 'openInTerminal']
-    for (const name of SEVEN) {
+    for (const name of EIGHT) {
       // Read through the ERASED type: the literal table's `policy` is a union of
-      // seven distinct shapes, only three of which have a `machineVerb` key at
+      // eight distinct shapes, only three of which have a `machineVerb` key at
       // all, so a direct property read does not typecheck — and the union is
       // itself the point being asserted.
       const contract = SUPERAGENT_CONTRACTS[name] as AnyCommandContract
@@ -188,7 +222,7 @@ describe('the seven superagent thread contracts', () => {
   })
 
   it('asks for confirmation on the destructive command and only that one', () => {
-    for (const name of SEVEN) {
+    for (const name of EIGHT) {
       expect([name, SUPERAGENT_CONTRACTS[name].policy.confirmation]).toEqual([
         name,
         name === 'clear' ? 'confirm' : 'none',
@@ -248,6 +282,8 @@ describe('the shared schema instances', () => {
   it('would notice a restatement — the identity assertions are not shape assertions', () => {
     const restated = superagentUserFocus.extend({})
     expect(restated).not.toBe(superagentUserFocus)
-    expect(Object.keys(restated.shape).sort()).toEqual(Object.keys(superagentUserFocus.shape).sort())
+    expect(Object.keys(restated.shape).sort()).toEqual(
+      Object.keys(superagentUserFocus.shape).sort(),
+    )
   })
 })

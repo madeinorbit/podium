@@ -58,7 +58,7 @@
  * per family rather than inherited from whichever contract was open.
  *
  * ---------------------------------------------------------------------------
- * DELIVERY: SIX ONLINE-ONLY, ONE OFFLINE-ELIGIBLE, DECIDED PER COMMAND
+ * DELIVERY: SIX ONLINE-ONLY, TWO OFFLINE-ELIGIBLE, DECIDED PER COMMAND
  * ---------------------------------------------------------------------------
  *
  * The matrix row's `offline: 'offline-eligible'` is a statement about
@@ -68,8 +68,10 @@
  * that is in flight, and a decision conditioned on liveness cannot be honoured
  * at drain time, when the world has moved. `startBtw` and `ensureSession` are
  * the exceptions and they earn it: each writes one row, runs no turn, and is
- * idempotent by construction. Each class carries its own reasoning in
- * `outboxReconciliation`; none is derived from a rule stated elsewhere.
+ * idempotent by construction — and they carry SEPARATE constants, because the
+ * row each writes is governed by a different rule (POD-1105). Each class carries
+ * its own reasoning in `outboxReconciliation`; none is derived from a rule
+ * stated elsewhere.
  *
  * NOTHING names `outbox`. ADR 3 D3 is default-closed: a transport is served
  * because a contract names it, never because a delivery class would have
@@ -180,7 +182,7 @@ const REAUTHORIZATION =
   'D20.2) so the refusal is not itself an existence oracle.'
 
 /**
- * The live-harness class. Six of the seven, and the reason is the same one each
+ * The live-harness class. Six of the eight, and the reason is the same one each
  * time — stated here once because restating it six times in six wordings is how
  * one rule becomes six.
  */
@@ -212,6 +214,28 @@ const THREAD_UPSERT_DELIVERY: DeliveryPolicy = {
     'than duplicating or overwriting one. NOT exposed on `outbox` — no client outbox path exists for ' +
     'the superagent, and ADR 3 D3 serves a transport because a contract NAMES it, never because a ' +
     'class would have permitted it.',
+  applyTimeReauthorization: REAUTHORIZATION,
+}
+
+/**
+ * `ensureSession`'s class, and it is the SECOND exception rather than a reuse of
+ * `startBtw`'s (POD-1105). The two earn the class for the same three reasons —
+ * one row, no turn, idempotent — but not by the same mechanism: `startBtw`
+ * upserts a THREAD under the matrix's `exp-rev` rule, and this mints a HEADLESS
+ * SESSION and binds it to a thread that already exists. Sharing one constant
+ * would attach `exp-rev` reasoning to a row that is not governed by it, which is
+ * the derivation this file's header refuses.
+ */
+const SESSION_MINT_DELIVERY: DeliveryPolicy = {
+  class: 'offline-eligible',
+  outboxReconciliation:
+    'Entity-shaped and idempotent: it mints one PTY-less session row and binds it to an existing ' +
+    'thread, starting no process and invoking no harness, so a drain after the world moved returns ' +
+    'the binding the thread already holds rather than minting a second. It is the ONE command here ' +
+    'whose replay is a no-op even against a thread that was cleared meanwhile: the re-minted row is ' +
+    'the invisible headless row the contract already accounts for, not a resumed conversation. NOT ' +
+    'exposed on `outbox` — no client outbox path exists for the superagent, and ADR 3 D3 serves a ' +
+    'transport because a contract NAMES it, never because a class would have permitted it.',
   applyTimeReauthorization: REAUTHORIZATION,
 }
 
@@ -258,7 +282,7 @@ const ATTRIBUTION: AttributionPolicy = {
 }
 
 /**
- * THE VISIBILITY CLASS OF WHAT ALL SEVEN WRITE (ADR 9 D3/D4 + D8 S2, matrix row
+ * THE VISIBILITY CLASS OF WHAT ALL EIGHT WRITE (ADR 9 D3/D4 + D8 S2, matrix row
  * `superagentState`). See the file header for why this is one constant, why it
  * is not `per-user-state`, and why the test that pins it needs a non-vacuity
  * probe to mean anything.
@@ -635,7 +659,7 @@ export const superagentEnsureSessionContract = {
       'Idempotent and reversible via `clear`, hence no confirmation.',
   },
   exposure: SERVED_ON,
-  delivery: LIVE_TURN_DELIVERY,
+  delivery: SESSION_MINT_DELIVERY,
   redaction: CONTROL_REDACTION,
   ownership: OWNED_BY_HUMAN(
     ['podium-session'],
@@ -660,7 +684,7 @@ export const superagentClearInput = z.object({
  * with the seed digest. A btw/concierge thread IS its context, so clearing one
  * archives it.
  *
- * `confirmation: 'confirm'` and it is the only one of the seven. Clearing the
+ * `confirmation: 'confirm'` and it is the only one of the eight. Clearing the
  * global thread kills its headless session and drops the harness binding: the
  * conversation the agent held is not recoverable from Podium afterwards, and a
  * btw thread is archived outright. ADR 3 D2 asks for confirmation on
@@ -707,7 +731,8 @@ export const superagentStartBtwInput = z.object({ sessionId: SessionIdField })
  * Ensure (or re-open) a `btw` thread for a chat session. NO TURN RUNS HERE: the
  * seed (new thread) or origin-transcript delta (re-open) is prepended to the
  * thread's next `sendTurn` by `composeContext`, so the harness sees it exactly
- * once. That is why this is the one offline-eligible contract of the seven.
+ * once. That is why this is offline-eligible — one of the two that are, with
+ * `ensureSession`, and for the same three reasons under a different row rule.
  */
 export const superagentStartBtwContract = {
   name: 'superagent.startBtw',
@@ -753,7 +778,7 @@ export const superagentStartBtwContract = {
 // ---------------------------------------------------------------------------
 
 /**
- * THE SEVEN, keyed by the BARE PROC NAME every transport already dispatches on.
+ * THE EIGHT, keyed by the BARE PROC NAME every transport already dispatches on.
  * The wire names are kept — renaming one is a client-compatibility change and
  * this is a migration. The single deliberate exception is the DELETION of
  * `send`, which is this issue's assignment and is argued in the file header.
