@@ -2181,7 +2181,13 @@ export class SessionRegistry {
         // it stops waiting is the moment those grants stop being believed. A
         // `done` operation has nothing in flight to end — and if a late machine
         // is still converging, it is converging successfully.
-        if (row.state !== 'done') updatesService.releaseInFlightGrants()
+        if (row.state !== 'done') {
+          updatesService.releaseInFlightGrants(
+            row.state === 'canceled'
+              ? 'The update was canceled while this machine was updating.'
+              : undefined,
+          )
+        }
       },
     })
     operationsModule.kinds.register(updateOperationKind())
