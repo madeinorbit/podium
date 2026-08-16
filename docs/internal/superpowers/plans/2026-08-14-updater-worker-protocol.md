@@ -155,6 +155,12 @@ resolved into main is worse than no green at all.
   issues, model, sync) are drift-red at the integration tip already — sweeping those in
   hides someone else's pending change behind yours. Recapture the one family your change
   touched and leave the rest red.
+- **Adding a server test file? Regenerate the shard roster in the same commit:**
+  `bun scripts/server-test-shards.ts --write`. This has now bitten twice (POD-2170 for
+  `operations/trpc.test.ts`, POD-2175 for `reconciler.test.ts`). The failure is nasty
+  because it is not a failing test: the exhaustiveness gate names your file unowned and
+  `apps/server#test` **refuses to start at all**, so the whole lane reports red for a reason
+  unrelated to anything you changed, and nobody's server green is honest until it is fixed.
 - **Clean up your build outputs before you close.** POD-2103 removed `dist-bun`,
   `apps/web/dist`, retained sourcemaps and its harness state dir on the way out and put
   **1.3 GB** back on a box that was at 99%. If you built anything, delete it; say how much
