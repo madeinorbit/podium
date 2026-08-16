@@ -1,7 +1,14 @@
 import type { ActivityComment, IssueEvent } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
-import { type IssueId, type IssueWire, parseIssueStatusValue } from '@podium/model'
+import {
+  type IssueCloseReason,
+  type IssueId,
+  type IssueWire,
+  parseIssueStatusValue,
+  type SessionMeta,
+} from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
+import { issueCloseBlockers } from './issue-close'
 
 /**
  * THE TASK PAGE'S CALL SURFACE [POD-724] — the phone half of the desktop's
@@ -106,13 +113,28 @@ export interface IssueWriteActions {
 export function issueCommands({
   trpc,
   issue,
+  sessions = [],
   run,
   actions,
+  requestClose,
 }: {
   trpc: MobileTrpc
   issue: IssueWire
+  /** The session roster, for the close guard's blocker check (POD-1129). */
+  sessions?: readonly SessionMeta[]
   run: RunMutation
   actions: IssueWriteActions
+  /** Hand a GUARDED close back to the host so it can raise `IssueCloseSheet`
+   *  first (POD-1129) — the phone's counterpart to the desktop runner's
+   *  `requestClose`. Closing is the one command here whose guard is not a
+   *  sentence: it lists what is still unresolved and is read, not acknowledged,
+   *  so the command set cannot own it the way it owns the delete/archive
+   *  confirms.
+   *
+   *  Optional, and for the desktop's reason: a host with no sheet mounted stays
+   *  usable and closes directly. It is also only ever CALLED when there is
+   *  something to say — see {@link issueCloseBlockers} at the call site. */
+  requestClose?: (reason: IssueCloseReason) => void
 }) {
   const id = issue.id
   const api = issueProcs(trpc).issues
@@ -192,12 +214,28 @@ export function issueCommands({
     /** Status sheet value: `stage:<lane>` patches the stage, `close:<reason>`
      *  closes. Same encoding and same fork as the desktop, because both parse it
      *  with the model's one `parseIssueStatusValue` (POD-1074) — including the
-     *  legacy `close:wontfix`, which lands as `cancelled`. */
+     *  legacy `close:wontfix`, which lands as `cancelled`.
+     *
+     *  A close goes to the host's guard ONLY when the shared derivation has
+     *  something to say (POD-1129). A press with nothing at stake still closes
+     *  on the press: the guard exists to name a cost, and interrupting to report
+     *  no cost taxes the most ordinary action on the surface where taps are
+     *  dearest. */
     selectStatus: (value: string): void => {
       const intent = parseIssueStatusValue(value)
       if (!intent) return
-      if (intent.kind === 'stage') update({ stage: intent.stage })
-      else void run(() => actions.closeIssue(id, intent.reason))
+      if (intent.kind === 'stage') {
+        update({ stage: intent.stage })
+      } else if (requestClose && issueCloseBlockers(issue, sessions).length > 0) {
+        requestClose(intent.reason)
+      } else {
+        void run(() => actions.closeIssue(id, intent.reason))
+      }
+    },
+    /** The close the host reaches for once its guard has been read and accepted
+     *  — the same verb `selectStatus` would have fired, minus the guard. */
+    closeNow: (reason: IssueCloseReason): void => {
+      void run(() => actions.closeIssue(id, reason))
     },
     addLabel: (label: string): void => {
       const next = label.trim()

@@ -1,6 +1,7 @@
 import { withoutShells } from '@podium/client-core/focus'
 import { subIssuesOf } from '@podium/client-core/viewmodels'
 import {
+  type IssueCloseReason,
   type IssueId,
   IssueType,
   type IssueWire,
@@ -25,6 +26,7 @@ import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
+import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
@@ -147,6 +149,9 @@ type OpenSheet =
   | { kind: 'menu' }
   | { kind: 'confirm-delete' }
   | { kind: 'confirm-archive' }
+  /** Carries the ending being recorded — the guard is raised BY a close, so it
+   *  has to remember which one it is guarding (POD-1129). */
+  | { kind: 'confirm-close'; reason: IssueCloseReason }
   | { kind: 'flag' }
   | { kind: 'colour' }
 
@@ -179,7 +184,16 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
       setBusy(false)
     }
   }
-  const commands = issueCommands({ trpc: store.trpc, issue, run, actions: store })
+  const commands = issueCommands({
+    trpc: store.trpc,
+    issue,
+    sessions: allSessions,
+    run,
+    actions: store,
+    // Only reached when the shared derivation found something to say; a clean
+    // close never gets this far (POD-1129).
+    requestClose: (reason) => setSheet({ kind: 'confirm-close', reason }),
+  })
   const { feed, mail, appendLocalComment } = useIssueActivity(issue)
 
   const sessions = useMemo(
@@ -524,6 +538,18 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         subtitle="It leaves active views, but it is not closed and its sessions are not retired."
         actions={[{ label: 'Archive', onPress: commands.toggleArchived }]}
         onClose={closeIf('confirm-archive')}
+      />
+
+      {/* Not an `ActionSheet` with a subtitle: what a close would cost is a LIST
+          — a count of retired decisions, a count of dirty files, each with its
+          own consequence — and a two-line subtitle can hold none of it. */}
+      <IssueCloseSheet
+        issue={issue}
+        sessions={allSessions}
+        reason={sheet?.kind === 'confirm-close' ? sheet.reason : null}
+        busy={busy}
+        onConfirm={commands.closeNow}
+        onClose={closeIf('confirm-close')}
       />
 
       <PromptSheet

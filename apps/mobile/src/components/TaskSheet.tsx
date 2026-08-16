@@ -8,6 +8,7 @@ import {
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
 import {
+  type IssueCloseReason,
   type IssueWire,
   issueStatusLabel,
   issueStatusMenuEntries,
@@ -21,8 +22,8 @@ import { ChevronDown, ChevronRight } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../client/hooks'
-import { StageGlyph } from './StageGlyph'
 import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
+import { issueCloseBlockers } from '../lib/issue-close'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import {
@@ -42,7 +43,9 @@ import { BottomSheet } from './BottomSheet'
 import { Composer } from './Composer'
 import { Icon } from './Icon'
 import { IdSquare } from './IdSquare'
+import { IssueCloseSheet } from './IssueCloseSheet'
 import { PressableScale } from './PressableScale'
+import { StageGlyph } from './StageGlyph'
 import { kindTone } from './spine'
 
 /**
@@ -151,6 +154,7 @@ function SheetHead({
 }) {
   const store = useMobileStore()
   const [stageOpen, setStageOpen] = useState(false)
+  const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const mine = useMemo(
     () => withoutShells([...sessions]).filter((s) => s.issueId === issue.id && !s.archived),
@@ -251,12 +255,30 @@ function SheetHead({
           onPress: () => {
             const intent = parseIssueStatusValue(entry.value)
             if (!intent) return
-            void (intent.kind === 'close'
-              ? store.closeIssue(issue.id, intent.reason)
-              : store.updateIssue(issue.id, { stage: intent.stage })
-            ).catch(() => {})
+            if (intent.kind === 'stage') {
+              void store.updateIssue(issue.id, { stage: intent.stage }).catch(() => {})
+              return
+            }
+            // The SAME guard the task page and the desktop raise (POD-1129),
+            // over the same derivation — and raised only when it has something
+            // to say, so a tidy task still closes on the press.
+            if (issueCloseBlockers(issue, sessions).length > 0) {
+              setCloseReason(intent.reason)
+              return
+            }
+            void store.closeIssue(issue.id, intent.reason).catch(() => {})
           },
         }))}
+      />
+
+      <IssueCloseSheet
+        issue={issue}
+        sessions={sessions}
+        reason={closeReason}
+        onConfirm={(reason) => {
+          void store.closeIssue(issue.id, reason).catch(() => {})
+        }}
+        onClose={() => setCloseReason(null)}
       />
     </View>
   )

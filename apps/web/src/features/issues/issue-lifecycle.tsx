@@ -1,4 +1,8 @@
-import { isSessionWorking } from '@podium/client-core/viewmodels'
+import {
+  blockingCloseConcerns,
+  type IssueCloseConcern,
+  issueCloseConcerns,
+} from '@podium/client-core/viewmodels'
 import { ISSUE_STATUS_LABELS, type IssueCloseReason, type SessionMeta } from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -21,95 +25,30 @@ import { issueRefLabel } from '@/lib/issue-labels'
  *  name here because every close call site in this feature already imports it. */
 export type { IssueCloseReason }
 
-export interface IssueCloseConcern {
-  key: string
-  label: string
-  detail: string
-  blocking: boolean
-  icon: 'attention' | 'sessions' | 'children' | 'git'
-}
+/** The derivation LEFT this file at POD-1129 — it is now
+ *  `viewmodels/issue-close.ts` in `@podium/client-core`, because the phone's two
+ *  close paths need exactly these facts and a guard that lists different things
+ *  per screen teaches that the list is advisory. Re-exported under the names
+ *  this feature already imports; what stays here is the desktop's presentation
+ *  of them. */
+export { type IssueCloseConcern, issueCloseConcerns }
 
 /**
- * Facts that should be visible before an issue is closed. This is deliberately
- * presentation-only: the server remains permissive while the UI makes every
- * issue-owned consequence explicit. Unattributed checkout state is deliberately
- * absent: it belongs to workspace Git surfaces, not an issue close decision.
+ * THE DESKTOP'S SPELLING OF "this issue's sessions".
+ *
+ * The derivation takes an issue's OWN sessions, already resolved, because the
+ * two platforms genuinely disagree about how to find them: the desktop holds
+ * `memberSessionIds` and looks them up in the store, the phone matches
+ * `session.issueId`. Here in one place so the single dialog and the batch
+ * summary cannot answer it two different ways — passing the WHOLE roster as
+ * members reads every session in the world as attached to every issue.
  */
-export function issueCloseConcerns(
+function issueMemberSessions(
   issue: IssueViewModel,
-  sessions: readonly SessionMeta[] = [],
-): IssueCloseConcern[] {
-  const concerns: IssueCloseConcern[] = []
+  sessions: readonly SessionMeta[],
+): SessionMeta[] {
   const memberIds = new Set(issue.memberSessionIds ?? [])
-  const members = sessions.filter((session) => memberIds.has(session.sessionId))
-  const offers = members.filter((session) => !session.archived && session.offer)
-  if (offers.length > 0) {
-    concerns.push({
-      key: 'offers',
-      label: `${offers.length} pending decision${offers.length === 1 ? '' : 's'}`,
-      // Closing retires standing offers (POD-290); surface them so "Close anyway"
-      // is an explicit choice rather than a silent drop.
-      detail: 'Closing retires these pending agent decisions.',
-      blocking: true,
-      icon: 'attention',
-    })
-  }
-  if (issue.needsHuman) {
-    concerns.push({
-      key: 'question',
-      label: 'Human input is still needed',
-      detail: issue.humanQuestion || 'A question or approval is still waiting for a response.',
-      blocking: true,
-      icon: 'attention',
-    })
-  }
-  const working = members.filter((session) => !session.archived && isSessionWorking(session))
-  if (working.length > 0) {
-    concerns.push({
-      key: 'working',
-      label: `${working.length} agent${working.length === 1 ? ' is' : 's are'} still working`,
-      detail: 'Closing the issue does not silently explain or retire active execution.',
-      blocking: true,
-      icon: 'sessions',
-    })
-  }
-  const openChildren = Math.max(0, issue.childCount - issue.childDoneCount)
-  if (openChildren > 0) {
-    concerns.push({
-      key: 'children',
-      label: `${openChildren} open sub-task${openChildren === 1 ? '' : 's'}`,
-      detail: 'The child issues remain open and independently visible.',
-      blocking: true,
-      icon: 'children',
-    })
-  }
-
-  const git = issue.gitState
-  if (git) {
-    const attributedDirty = git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0)
-    if (attributedDirty > 0) {
-      concerns.push({
-        key: 'dirty',
-        label: `${attributedDirty} dirty file${attributedDirty === 1 ? '' : 's'} attributed to this issue`,
-        detail: 'Commit, discard, or explicitly accept leaving this work behind.',
-        blocking: true,
-        icon: 'git',
-      })
-    }
-    const delivery = git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0)
-    if (delivery > 0 && git.merged !== true) {
-      concerns.push({
-        key: 'delivery',
-        label: `${delivery} commit${delivery === 1 ? '' : 's'} awaiting delivery`,
-        detail: git.shared
-          ? 'Attributed commits have not yet been reconciled with issue completion.'
-          : `The issue branch has not been merged into ${issue.parentBranch}.`,
-        blocking: true,
-        icon: 'git',
-      })
-    }
-  }
-  return concerns
+  return sessions.filter((session) => memberIds.has(session.sessionId))
 }
 
 /** What a batch close is about to do, issue by issue. `flagged` keeps the input
@@ -135,7 +74,9 @@ export function issueBulkCloseSummary(
   const flagged: IssueBulkCloseSummary['flagged'] = []
   let clear = 0
   for (const issue of issues) {
-    const concerns = issueCloseConcerns(issue, sessions).filter((concern) => concern.blocking)
+    const concerns = blockingCloseConcerns(
+      issueCloseConcerns(issue, issueMemberSessions(issue, sessions)),
+    )
     const [lead] = concerns
     if (lead) flagged.push({ issue, lead, concerns })
     else clear += 1
@@ -164,9 +105,12 @@ export function IssueCloseDialog({
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element {
-  const sessions = useStoreSelector((store) => store.sessions)
-  const concerns = issueCloseConcerns(issue, sessions)
-  const blockers = concerns.filter((concern) => concern.blocking)
+  // `?? []` because a host can mount this over a store slice that has not
+  // populated yet; the guard then finds no sessions rather than throwing, which
+  // is what the derivation's own session default used to absorb.
+  const sessions = useStoreSelector((store) => store.sessions) ?? []
+  const concerns = issueCloseConcerns(issue, issueMemberSessions(issue, sessions))
+  const blockers = blockingCloseConcerns(concerns)
   return (
     <AlertDialog open={reason !== null} onOpenChange={onOpenChange}>
       <AlertDialogContent className="sm:max-w-md">
@@ -265,7 +209,7 @@ export function IssueBulkCloseDialog({
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element | null {
-  const sessions = useStoreSelector((store) => store.sessions)
+  const sessions = useStoreSelector((store) => store.sessions) ?? []
   const summary = issueBulkCloseSummary(issues, sessions)
   const first = issues[0]
   if (!first) return null

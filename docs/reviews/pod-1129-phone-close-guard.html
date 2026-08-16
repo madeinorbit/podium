@@ -1,0 +1,317 @@
+<title>Phone Close Guard</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --ink: #16181d; --dim: #5c626e; --faint: #878d99;
+    --line: #e0e0dc; --accent: #2a62f0; --warn: #b07d10; --warn-bg: rgba(245, 197, 24, 0.16);
+    --danger: #c22030; --code-bg: #f0f0ed;
+    --phone-bg: #101216; --phone-surface: #1b1e24; --phone-border: #2b3038;
+    --phone-text: #e8eaee; --phone-body: #c3c8d1; --phone-faint: #878d99;
+    --phone-gold: #e3ba52; --phone-gold-bg: rgba(245, 197, 24, 0.12); --phone-danger: #e5303f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --dim: #a2a8b3; --faint: #7b8290;
+      --line: #262b33; --accent: #6f9dff; --warn: #e3ba52; --code-bg: #1e222a;
+      --danger: #e5606d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --dim: #a2a8b3; --faint: #7b8290;
+    --line: #262b33; --accent: #6f9dff; --warn: #e3ba52; --code-bg: #1e222a;
+    --danger: #e5606d;
+  }
+
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.62 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 62rem; margin: 0 auto; padding: 3.5rem 1.5rem 6rem; }
+  header { margin-bottom: 3rem; }
+  .eyebrow {
+    font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
+  }
+  h1 { font-size: 2rem; line-height: 1.2; letter-spacing: -0.022em; margin: 0.6rem 0 0.5rem; }
+  .lede { color: var(--dim); font-size: 1.0625rem; max-width: 44rem; margin: 0; }
+  h2 {
+    font-size: 0.75rem; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--faint); margin: 3rem 0 1rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600;
+  }
+  h3 { font-size: 1rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+  p { margin: 0 0 1rem; }
+  code {
+    font: 0.86em ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 1.25rem 1.4rem;
+  }
+  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); }
+  .decision {
+    border-left: 3px solid var(--accent); background: var(--panel);
+    border-radius: 0 12px 12px 0; padding: 1.1rem 1.4rem; margin-bottom: 1.25rem;
+  }
+  .decision p:last-child { margin: 0; }
+  .flow {
+    font: 12.5px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--dim); white-space: pre; overflow-x: auto; margin: 0;
+  }
+  .flow b { color: var(--ink); font-weight: 600; }
+  .tag {
+    display: inline-block; font: 600 10.5px/1.5 ui-monospace, monospace;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 0.1rem 0.45rem; border-radius: 4px; vertical-align: 0.08em;
+  }
+  .tag-cheap { background: rgba(42, 98, 240, 0.13); color: var(--accent); }
+  .tag-guard { background: var(--warn-bg); color: var(--warn); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .scroll { overflow-x: auto; }
+  th, td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line); }
+  th {
+    font: 600 10.5px/1.5 ui-monospace, monospace; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--faint);
+  }
+  td:first-child { white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+
+  /* The sheet rendering — values taken from IssueCloseSheet.tsx and theme.ts. */
+  .phone {
+    background: var(--phone-bg); border-radius: 26px; padding: 3.5rem 0 0;
+    border: 1px solid var(--phone-border); overflow: hidden; max-width: 23rem;
+  }
+  .sheet {
+    background: var(--phone-bg); border-top: 1px solid var(--phone-border);
+    border-radius: 18px 18px 0 0; padding: 10px 12px 8px;
+  }
+  .grabber {
+    width: 36px; height: 4px; border-radius: 2px;
+    background: #3a404a; margin: 0 auto 14px;
+  }
+  .sheet-head { text-align: center; padding: 0 16px 12px; }
+  .warn-badge {
+    width: 28px; height: 28px; border-radius: 14px; margin: 0 auto 6px;
+    background: var(--phone-gold-bg); color: var(--phone-gold);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sheet-title {
+    font-weight: 600; font-size: 14px; color: var(--phone-body); margin: 0 0 3px;
+  }
+  .sheet-sub { font-size: 12.5px; line-height: 1.45; color: var(--phone-faint); margin: 0; }
+  .sheet-group {
+    background: var(--phone-surface); border: 1px solid var(--phone-border);
+    border-radius: 12px; overflow: hidden; margin-bottom: 8px;
+  }
+  .concern {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 11px 14px; border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .sheet-group .concern:first-child { border-top: 0; }
+  .concern-icon { width: 26px; display: flex; justify-content: center; color: var(--phone-gold); padding-top: 1px; }
+  .concern-label { font-weight: 500; font-size: 14px; color: var(--phone-text); margin: 0 0 2px; }
+  .concern-detail { font-size: 12.5px; line-height: 1.45; color: var(--phone-faint); margin: 0; }
+  .sheet-action {
+    min-height: 52px; display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 14px; color: var(--phone-danger);
+  }
+  .sheet-cancel {
+    margin: 8px 12px 0; padding: 15px; text-align: center; border-radius: 12px;
+    background: var(--phone-surface); border: 1px solid var(--phone-border);
+    font-weight: 600; font-size: 16px; color: var(--phone-body);
+  }
+  .caption { font-size: 0.8125rem; color: var(--faint); margin-top: 0.75rem; }
+  ul { margin: 0; padding-left: 1.15rem; }
+  li { margin-bottom: 0.35rem; }
+  li:last-child { margin-bottom: 0; }
+  .files { font: 12.5px/1.9 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); }
+  .files b { color: var(--ink); font-weight: 600; }
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">POD-1129 · review</div>
+    <h1>Phone close guard</h1>
+    <p class="lede">
+      Marking a task Done from the phone used to call <code>closeIssue</code> straight through —
+      retiring pending agent decisions and walking away from uncommitted work without saying so.
+      Both phone paths now raise the desktop's guard, over the desktop's derivation, in the phone's
+      own grammar.
+    </p>
+  </header>
+
+  <h2>The decision you made</h2>
+  <div class="decision">
+    <h3>Cheap when clean, a stop when there's something to lose</h3>
+    <p>
+      The press closes instantly when the shared derivation finds no blockers. The sheet rises only
+      when there is a cost to name. The guard exists to state what closing would throw away — a
+      sheet that rises to report nothing at stake taxes the most ordinary action on the surface
+      where taps are dearest.
+    </p>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <h3><span class="tag tag-cheap">cheap</span> Tidy task</h3>
+      <p class="flow">[Done] ──────────────► <b>closed</b></p>
+      <p class="caption">One tap. Same as before this change.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag tag-guard">guarded</span> Work at stake</h3>
+      <p class="flow">[Done] ──► <b>sheet</b> ──► Close anyway
+       └─ Keep open ──► <b>nothing</b></p>
+      <p class="caption">Two taps, and the second one is informed.</p>
+    </div>
+  </div>
+
+  <h2>What the sheet says</h2>
+  <div class="grid" style="grid-template-columns: minmax(0, 23rem) minmax(0, 1fr); align-items: start;">
+    <div class="phone">
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="sheet-head">
+          <div class="warn-badge">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          </div>
+          <p class="sheet-title">This task still needs attention</p>
+          <p class="sheet-sub">Closing is still available, but it should be an explicit decision.</p>
+        </div>
+        <div class="sheet-group">
+          <div class="concern">
+            <span class="concern-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></span>
+            <span>
+              <p class="concern-label">2 pending decisions</p>
+              <p class="concern-detail">Closing retires these pending agent decisions.</p>
+            </span>
+          </div>
+          <div class="concern">
+            <span class="concern-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            <span>
+              <p class="concern-label">1 agent is still working</p>
+              <p class="concern-detail">Closing the issue does not silently explain or retire active execution.</p>
+            </span>
+          </div>
+          <div class="concern">
+            <span class="concern-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span>
+            <span>
+              <p class="concern-label">2 open sub-tasks</p>
+              <p class="concern-detail">The child issues remain open and independently visible.</p>
+            </span>
+          </div>
+          <div class="concern">
+            <span class="concern-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></svg></span>
+            <span>
+              <p class="concern-label">3 dirty files attributed to this issue</p>
+              <p class="concern-detail">Commit, discard, or explicitly accept leaving this work behind.</p>
+            </span>
+          </div>
+        </div>
+        <div class="sheet-group">
+          <div class="sheet-action">Close anyway</div>
+        </div>
+        <div class="sheet-cancel">Keep open</div>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom: 1rem;">
+        <h3>Every line comes from the desktop</h3>
+        <p style="margin: 0; color: var(--dim);">
+          Labels and detail sentences are the desktop dialog's, word for word, because they are the
+          same function's output. Only the presentation is native — an inset group with hairlines
+          instead of an <code>AlertDialog</code>.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Two layout rules, both about a moving thumb</h3>
+        <ul style="color: var(--dim);">
+          <li><b>Keep open is bottom-most</b>, where every sheet in the app puts Cancel. The sheet
+            rises from the bottom edge, so a tap that beats the animation lands on the safe row or
+            the backdrop — never on <em>Close anyway</em>.</li>
+          <li><b>Concerns sit above the destructive row</b>, so the more there is to lose, the
+            further that row travels from wherever the last tap landed. The interruption scales with
+            the cost.</li>
+        </ul>
+      </div>
+      <p class="caption">
+        Rendering built from the component's own style values and copy strings — not a device
+        screenshot. The mobile test lane cannot render a real sheet (filed as POD-1143).
+      </p>
+    </div>
+  </div>
+
+  <h2>Where the code went</h2>
+  <div class="card scroll">
+    <table>
+      <thead>
+        <tr><th>File</th><th>What changed</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>client-core/viewmodels/issue-close.ts</code></td>
+          <td><b>New.</b> The derivation, moved whole out of the web feature. Typed on a
+            six-field <code>Pick</code> of <code>IssueWire</code>, so both a bare wire row and the
+            web's richer view model satisfy it. Membership is now the caller's job — the one thing
+            the two platforms genuinely spell differently.</td>
+        </tr>
+        <tr>
+          <td><code>web/…/issue-lifecycle.tsx</code></td>
+          <td>Keeps the <code>AlertDialog</code> and the icon map; re-exports the derivation under
+            the names this feature already imports. Resolves members from
+            <code>memberSessionIds</code> before calling.</td>
+        </tr>
+        <tr>
+          <td><code>mobile/lib/issue-close.ts</code></td>
+          <td><b>New.</b> The phone's membership rule (<code>session.issueId</code>) plus the
+            blocker filter — the one place the "is there anything to say" question is asked.</td>
+        </tr>
+        <tr>
+          <td><code>mobile/components/IssueCloseSheet.tsx</code></td>
+          <td><b>New.</b> The native presentation. Derives the list live, so an agent that finishes
+            while the sheet is open empties it and the sheet says so rather than holding up a stale
+            warning.</td>
+        </tr>
+        <tr>
+          <td><code>mobile/components/TaskSheet.tsx</code></td>
+          <td>Path 1 — the inspector's status sheet. Splits stage from close and consults the guard
+            before closing.</td>
+        </tr>
+        <tr>
+          <td><code>mobile/lib/issue-detail.ts</code></td>
+          <td>Path 2 — <code>selectStatus</code> hands a guarded close back to the host via
+            <code>requestClose</code>, mirroring the desktop runner. New <code>closeNow</code> is the
+            close the host fires once the guard has been read.</td>
+        </tr>
+        <tr>
+          <td><code>mobile/screens/IssueScreen.tsx</code></td>
+          <td>Mounts the sheet beside the existing delete/archive confirms, on the same
+            one-sheet-at-a-time union.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Checks</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Green</h3>
+      <ul style="color: var(--dim);">
+        <li><b>19 new tests</b> — 6 on the derivation, 7 on the command fork, 6 on the sheet.</li>
+        <li>Repo typecheck, 24/24 packages.</li>
+        <li>Web issues suite, 359 passing.</li>
+        <li>Mobile lane, 284 passing.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Left alone, on purpose</h3>
+      <ul style="color: var(--dim);">
+        <li><b>Proposal screening's decline.</b> It closes unapproved proposals — no branch, no
+          sessions, nothing for the guard to say — one card at a time in a swipe deck that ends in
+          its own summary. A per-card sheet would break the flow to report nothing.</li>
+        <li><b>One pre-existing red test</b> in the mobile lane, unrelated to this work and filed
+          as POD-1143.</li>
+      </ul>
+    </div>
+  </div>
+</main>
