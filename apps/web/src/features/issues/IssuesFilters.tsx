@@ -148,8 +148,11 @@ export function BulkBar({
           It used to be a bare `{stage:'done'}` patch, which left the rows
           closed-by-predicate with `closedReason` null — folded rows then read
           "closed" because nothing knew which ending it had been. The terminal
-          picks now run the same close the single-issue menu runs, minus the
-          per-issue dialog, which has nothing to say about forty rows. */}
+          picks run the same close the single-issue menu runs, and since
+          POD-1126 behind the same guard: the single-issue dialog has nothing to
+          say about forty rows, but `IssueBulkCloseDialog` does — it names the
+          selected rows that still hold unresolved work. The host owns it; this
+          bar hands the pick up like every other one. */}
       <PropertyMenu
         options={issueStatusMenuEntries().map((entry) => ({
           value: entry.value,

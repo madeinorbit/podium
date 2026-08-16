@@ -29,6 +29,7 @@ import {
 import { IssuesKanban } from './IssuesKanban'
 import { type BoardFilter, clearChip } from './issue-board-filter'
 import { contextMenuTargets } from './issue-context-menu'
+import { IssueBulkCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 import {
   DISPLAY_KEY,
   type IssuesDisplay,
@@ -74,6 +75,12 @@ export function IssuesView(): JSX.Element {
     ids: string[]
     anchor: { x: number; y: number }
   } | null>(null)
+  // The batch close guard (POD-1126). Holds the selection it was asked for, not
+  // just the reason: the board keeps repainting underneath the dialog.
+  const [bulkClose, setBulkClose] = useState<{ ids: IssueId[]; reason: IssueCloseReason } | null>(
+    null,
+  )
+  const [bulkClosing, setBulkClosing] = useState(false)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [showShortcuts, setShowShortcuts] = useState(false)
   const issueScrollPositions = useRef<{
@@ -231,17 +238,36 @@ export function IssuesView(): JSX.Element {
   // it just has to record that the ending was `done` rather than dropping the
   // rows on the done lane with no reason at all, which is what the old bare
   // stage patch did.
+  //
+  // The terminal arm goes through the guard (POD-1126), like every other close
+  // in the app: a lane move is reversible by dragging the card back, an ending
+  // retires standing offers and leaves attributed work behind. The selection is
+  // captured with the reason — `selectedIds` can move while the dialog stands.
   const bulkStatus = (value: string): void => {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
+    if (intent.kind === 'close') {
+      setBulkClose({ ids: selectedIds, reason: intent.reason })
+      return
+    }
+    runMut(Promise.all(selectedIds.map((id) => updateIssue(id, { stage: intent.stage }))))
+  }
+  const bulkCloseTargets = useMemo(
+    () =>
+      bulkClose
+        ? bulkClose.ids
+            .map((id) => issues.find((issue) => issue.id === id))
+            .filter((issue): issue is IssueViewModel => issue !== undefined)
+        : [],
+    [bulkClose, issues],
+  )
+  const confirmBulkClose = (reason: IssueCloseReason): void => {
+    setBulkClosing(true)
     runMut(
-      Promise.all(
-        selectedIds.map((id) =>
-          intent.kind === 'close'
-            ? closeIssue(id, intent.reason)
-            : updateIssue(id, { stage: intent.stage }),
-        ),
-      ),
+      Promise.all(bulkCloseTargets.map((issue) => closeIssue(issue.id, reason))).finally(() => {
+        setBulkClosing(false)
+        setBulkClose(null)
+      }),
     )
   }
   const bulkPriority = (priority: number): void =>
@@ -389,6 +415,18 @@ export function IssuesView(): JSX.Element {
         <NewIssueDialog initialStage={creating.stage} onClose={() => setCreating(null)} />
       )}
       {showShortcuts && <BoardShortcutSheet onClose={() => setShowShortcuts(false)} />}
+      {/* Mounted outside the BulkBar's own conditional: confirming closes the
+          rows, and the bar goes with the selection while the dialog is still
+          animating out. */}
+      {bulkClose && bulkCloseTargets.length > 0 && (
+        <IssueBulkCloseDialog
+          issues={bulkCloseTargets}
+          reason={bulkClose.reason}
+          busy={bulkClosing}
+          onOpenChange={(open) => !open && setBulkClose(null)}
+          onConfirm={confirmBulkClose}
+        />
+      )}
       {selectedIds.length > 0 && (
         <BulkBar
           count={selectedIds.length}

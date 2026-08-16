@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { issueRefLabel } from '@/lib/issue-labels'
 
 /** Re-exported from the model (POD-1074), where the vocabulary now lives with
  *  its labels and its legacy `wontfix` → `cancelled` canonicalization. Kept as a
@@ -111,6 +112,37 @@ export function issueCloseConcerns(
   return concerns
 }
 
+/** What a batch close is about to do, issue by issue. `flagged` keeps the input
+ *  order so the list reads like the selection it came from. */
+export interface IssueBulkCloseSummary {
+  /** `lead` is the first of `concerns` — the icon the row is drawn with, carried
+   *  rather than re-indexed so the row cannot be rendered from an empty list. */
+  flagged: Array<{ issue: IssueViewModel; lead: IssueCloseConcern; concerns: IssueCloseConcern[] }>
+  /** Issues in the batch with nothing unresolved — a count, not a list: they are
+   *  the ordinary case and naming forty of them would bury the ones that matter. */
+  clear: number
+}
+
+/**
+ * The batch form of {@link issueCloseConcerns}. One close decision is being taken
+ * over many issues, so the guard cannot ask about one of them: it names the ones
+ * that still hold unresolved work and counts the rest.
+ */
+export function issueBulkCloseSummary(
+  issues: readonly IssueViewModel[],
+  sessions: readonly SessionMeta[] = [],
+): IssueBulkCloseSummary {
+  const flagged: IssueBulkCloseSummary['flagged'] = []
+  let clear = 0
+  for (const issue of issues) {
+    const concerns = issueCloseConcerns(issue, sessions).filter((concern) => concern.blocking)
+    const [lead] = concerns
+    if (lead) flagged.push({ issue, lead, concerns })
+    else clear += 1
+  }
+  return { flagged, clear }
+}
+
 const concernIcons: Record<IssueCloseConcern['icon'], ReactNode> = {
   attention: <MessageCircleQuestion size={15} aria-hidden="true" />,
   sessions: <Users size={15} aria-hidden="true" />,
@@ -202,6 +234,125 @@ export function IssueCloseDialog({
                 : blockers.length > 0
                   ? 'Close anyway'
                   : 'Close issue'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
+ * The same guard for a whole selection (POD-1126). The board's bulk status bar
+ * closes every selected issue at once, and {@link IssueCloseDialog} is
+ * single-issue by construction — it renders ONE issue's concerns and its footer
+ * speaks about "this issue". So the batch gets its own shape: which of the
+ * selected issues still hold unresolved work, and what each of them holds.
+ *
+ * A selection of one is handed to the single dialog, which says strictly more:
+ * it carries each concern's detail line, and a one-row batch has no batch to
+ * describe.
+ */
+export function IssueBulkCloseDialog({
+  issues,
+  reason,
+  busy = false,
+  onOpenChange,
+  onConfirm,
+}: {
+  issues: readonly IssueViewModel[]
+  reason: IssueCloseReason | null
+  busy?: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: (reason: IssueCloseReason) => void
+}): JSX.Element | null {
+  const sessions = useStoreSelector((store) => store.sessions)
+  const summary = issueBulkCloseSummary(issues, sessions)
+  const first = issues[0]
+  if (!first) return null
+  if (issues.length === 1)
+    return (
+      <IssueCloseDialog
+        issue={first}
+        reason={reason}
+        busy={busy}
+        onOpenChange={onOpenChange}
+        onConfirm={onConfirm}
+      />
+    )
+  const count = issues.length
+  const ending = reason && reason !== 'done' ? ISSUE_STATUS_LABELS[reason].toLowerCase() : null
+  return (
+    <AlertDialog open={reason !== null} onOpenChange={onOpenChange}>
+      <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogHeader>
+          <div className="mb-1 flex size-8 items-center justify-center rounded-full bg-amber-500/10 text-amber-500">
+            <AlertTriangle size={16} aria-hidden="true" />
+          </div>
+          <AlertDialogTitle>
+            {/* The headline counts what is WRONG when something is, because that
+                is the number the decision turns on — "3 of 12" is a different
+                press from "12 of 12". */}
+            {summary.flagged.length > 0
+              ? `${summary.flagged.length} of ${count} tasks still need attention`
+              : ending
+                ? `Close ${count} tasks as ${ending}?`
+                : `Close ${count} tasks?`}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {summary.flagged.length > 0
+              ? 'Review what remains. Closing is still available, but it should be an explicit decision.'
+              : 'No unresolved decisions, active work, open sub-tasks, or attributable delivery work were found in the selection.'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {summary.flagged.length > 0 && (
+          <div
+            className="flex max-h-64 flex-col gap-2 overflow-y-auto"
+            data-testid="issue-bulk-close-concerns"
+          >
+            {summary.flagged.map(({ issue, lead, concerns }) => (
+              <div
+                key={issue.id}
+                className="flex items-start gap-2.5 rounded-lg border border-border/70 bg-muted/25 px-3 py-2.5"
+              >
+                <span className="mt-0.5 text-amber-500">{concernIcons[lead.icon]}</span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-medium text-foreground">
+                    <span className="text-muted-foreground tabular-nums">
+                      {issueRefLabel(issue)}
+                    </span>{' '}
+                    {issue.title}
+                  </span>
+                  {/* The batch names each issue's concerns but drops their detail
+                      lines: the same sentence repeated down a list of twelve
+                      stops being read. The single dialog still carries them. */}
+                  <span className="mt-0.5 block text-[11.5px] leading-relaxed text-muted-foreground">
+                    {concerns.map((concern) => concern.label).join(' · ')}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {summary.flagged.length > 0 && summary.clear > 0 && (
+          <p className="text-[11.5px] text-muted-foreground">
+            The other {summary.clear} {summary.clear === 1 ? 'task has' : 'tasks have'} nothing
+            unresolved.
+          </p>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Keep open</AlertDialogCancel>
+          <AlertDialogAction
+            variant={summary.flagged.length > 0 ? 'destructive' : 'default'}
+            disabled={busy || reason === null}
+            onClick={() => reason && onConfirm(reason)}
+          >
+            {busy
+              ? 'Closing…'
+              : ending
+                ? `Close ${count} as ${ending}`
+                : summary.flagged.length > 0
+                  ? `Close ${count} anyway`
+                  : `Close ${count} tasks`}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
