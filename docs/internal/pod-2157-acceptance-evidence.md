@@ -59,6 +59,35 @@ No file under `apps/` or `packages/` was modified for any drive below.
 
 <!-- INSTRUMENTS -->
 
+## A foreground all-in-one has no supervisor, and a git update stops it
+
+Found while driving, and worth stating as a product fact rather than a harness
+detail, because it decides what "the all-in-one restarts itself" means.
+
+`apps/daemon/src/host-runtime.ts:389` gives the grant runner
+`restart: opts.restartAfterUpdate ?? (() => process.exit(0))`, and nothing in the
+shipped composition supplies `restartAfterUpdate`. So a daemon that has converged
+exits. What that costs depends entirely on whether the daemon is its own process:
+
+- **Installed all-in-one — PROTECTED.** In `apps/cli/src/cli.ts`, a bare invocation
+  with `config.persistence === 'systemd'` resolves an all-in-one to THREE units —
+  server, janitor and daemon — and `apps/cli/src/cli-systemd.ts` gives each its own
+  `ExecStart` and `Restart=always`. The daemon's exit restarts the daemon unit
+  alone; the coordinating server is never touched. The shipped update unit
+  (`cli-systemd.ts:330`) confirms the intent: it runs `podium update` and then
+  `systemctl --user try-restart <daemonUnit>` — the DAEMON unit, specifically.
+- **Foreground `podium all` — NOT PROTECTED.** The other branch of the same
+  function runs `runServer` and `runDaemon` in ONE process, and it is taken when
+  there is no persistence or when the mode is named explicitly as a subcommand.
+  There the daemon's `process.exit(0)` is the coordinating server's exit too, and
+  with nothing supervising it does not come back. The browser simply loses the
+  server mid-operation; the panel has no way to say so.
+
+This is not a defect in the installed product. It is an unobvious property of the
+shape a developer uses, and it is why this drive had to supply the supervisor that
+systemd supplies on a real host — a plain restart loop around the same launch
+command, which is all a unit is here.
+
 ## Results
 
 <!-- RESULTS -->
