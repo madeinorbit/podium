@@ -292,6 +292,45 @@ defaults to `stable`, so any build NEWER than the latest published release —
 every development build, and every machine between releases — is one convergence
 away from this. This drive reached it without asking for an update at all.
 
+### 5. `bun run test:e2e` — the prescribed command cannot pass right now
+
+Not because of anything in the updater. `test:e2e` is
+`bun run build && … vitest … tests/e2e`, and `bun run build` ends in
+`apps/web`'s bundle-size ratchet (`web-bundle-budget.ts dist --check`), which
+fails at this tip with five breaches:
+
+```
+[web-bundle-budget] eager parsed source bytes: 7475360 exceeds 7400000
+[web-bundle-budget] settings raw bytes:         261050 exceeds 105000
+[web-bundle-budget] settings gzip bytes:         76671 exceeds 30000
+[web-bundle-budget] settings Brotli bytes:       63419 exceeds 26000
+[web-bundle-budget] settings parsed source bytes: 867740 exceeds 280000
+error: script "build" exited with code 1
+```
+
+So the `&&` short-circuits and **no e2e test runs at all**. This is
+`POD-2206`'s territory (*"four of its size budgets have been failing on main"*),
+not a finding of this drive.
+
+The comparison that makes that claim safe is unusually simple here, so it is
+worth stating rather than gesturing at: **this branch changes no code at all.**
+`git diff --name-only 788d9b24c..HEAD | grep -v '^docs/'` returns nothing — the
+whole branch is this document, four screenshots and a log excerpt. A docs-only
+branch cannot move a bundle budget, so the red is inherited by construction, and
+no A/B run against the fork point is needed to say so.
+
+`build:dist` itself SUCCEEDED — the ratchet is a check that runs after it — so
+`apps/web/dist` exists and is stamped at this tip. The suite was therefore run
+directly, skipping only the ratchet:
+
+```
+PODIUM_TEST_WORKERS=1 NODE_OPTIONS=--conditions=@podium/source \
+  bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run \
+  --config vitest.integration.config.ts --maxWorkers=1 tests/e2e
+```
+
+<!-- E2E RESULT -->
+
 ### Adoption, seen again without being asked for
 
 Not a new claim — POD-2194 proved it — but this drive produced it as a side
