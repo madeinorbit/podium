@@ -190,3 +190,83 @@ describe('the brief the shelf carries', () => {
     }
   })
 })
+
+/**
+ * THE TAIL MOUNTS BETWEEN ROW COMMITS (POD-993 round 6).
+ *
+ * Reported as: the chat does not open at the bottom, "jump to bottom" returns
+ * to that same short position, and scrolling down to the real end is undone a
+ * few seconds later. The operator's own diagnosis was right — there is content
+ * below the last message ("Churned for 4m 0s", then "Waiting on your decision")
+ * that the snap was not counting.
+ *
+ * Not because it sits outside the scroller: it is a direct child. Because the
+ * resize observation is built from `el.children` AS OF a rowsToRender commit,
+ * and the tail mounts on ACTIVITY commits, which change no row. An element that
+ * arrives later is one this observer was never asked to watch, so it grows the
+ * document below the fold with no callback, no scroll event and no blockCount
+ * change — and the feed is left parked exactly one tail above the end, with the
+ * gap under the 80px "near" threshold, so the system agrees it is at the bottom
+ * and never offers the jump.
+ */
+describe('content that arrives after the rows', () => {
+  /** jsdom lays nothing out, so the scroller is given a content height. */
+  function stubHeights(el: HTMLElement, content: number): void {
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, value: content })
+    Object.defineProperty(el, 'clientHeight', { configurable: true, value: 400 })
+  }
+
+  /** MutationObserver delivers on a microtask. */
+  const settle = async (): Promise<void> => {
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  it('re-pins when an element mounts into the scroller between row commits', async () => {
+    mount()
+    const el = scroller()
+    held.pinnedToBottom.current = true
+    stubHeights(el, 1000)
+    el.scrollTop = 1000
+
+    // The tail arrives on an activity commit: taller document, no row change.
+    const tail = document.createElement('div')
+    stubHeights(el, 1050)
+    el.appendChild(tail)
+    await settle()
+
+    expect(el.scrollTop).toBe(1050)
+  })
+
+  it('leaves a reader who scrolled up exactly where they were', async () => {
+    mount()
+    const el = scroller()
+    // The pin is what gates this, and a reader who scrolled up has dropped it.
+    held.pinnedToBottom.current = false
+    stubHeights(el, 1000)
+    el.scrollTop = 200
+
+    stubHeights(el, 1050)
+    el.appendChild(document.createElement('div'))
+    await settle()
+
+    expect(el.scrollTop).toBe(200)
+  })
+
+  it('re-pins when that element goes away again', async () => {
+    mount()
+    const el = scroller()
+    held.pinnedToBottom.current = true
+    const tail = document.createElement('div')
+    stubHeights(el, 1050)
+    el.appendChild(tail)
+    await settle()
+
+    stubHeights(el, 1000)
+    tail.remove()
+    await settle()
+
+    expect(el.scrollTop).toBe(1000)
+  })
+})

@@ -294,7 +294,53 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       const row = rows[i]
       if (row instanceof Element) ro.observe(row)
     }
-    return () => ro.disconnect()
+    // ...INCLUDING THE CHILDREN THAT ARRIVE BETWEEN ROW COMMITS (POD-993 round
+    // 6, the "waiting on your decision" report). The set observed above is the
+    // children AS OF a rowsToRender commit — but not everything in the scroller
+    // is a row. The TAIL is mounted, unmounted and remounted (`key={kind}`) on
+    // ACTIVITY commits, which change no row and therefore never re-run this
+    // effect; the pending bubbles, the queued cards and the headless overlay
+    // mount on their own state the same way. Each such element is a node this
+    // observer has never been asked to watch.
+    //
+    // That asymmetry is the whole bug, and it is one-directional in effect: when
+    // an observed tail UNMOUNTS, its final resize callback still fires (the
+    // detached box reports 0×0) and the pin re-snaps — but the element mounted
+    // in a LATER commit grows the document below the fold with no callback, no
+    // scroll event and no blockCount change, so nothing re-asserts the pin and
+    // the view is left parked exactly one tail short of the end. Measured on a
+    // waiting-on-decision transcript: one unmount→remount cycle pins the feed
+    // 50px above the true bottom, permanently, with the gap under the 80px
+    // "near" threshold — so the system agrees this is the bottom, the jump
+    // affordance never offers, and a reader who scrolls down to the real end by
+    // hand is yanked back up by the next cycle. That is the reported triad:
+    // opens short, "jump to bottom" returns to the same short position, and the
+    // real end escapes upward seconds after you find it.
+    //
+    // A childList observer closes the gap at its source: every element joining
+    // the scroller joins the resize observation the moment it mounts, and the
+    // mount itself re-honours the pin (mutation callbacks run before paint, so
+    // the reader never sees the intermediate frame). Departures are handled in
+    // the same pass — this callback re-snaps either way, so dropping the
+    // observation costs nothing and stops a feed that flaps its tail for an hour
+    // from accumulating an observation per flap.
+    const mo = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node instanceof Element) ro.observe(node)
+        }
+        for (const node of mutation.removedNodes) {
+          if (node instanceof Element) ro.unobserve(node)
+        }
+      }
+      if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+      syncStickyPromptPositions()
+    })
+    mo.observe(el, { childList: true })
+    return () => {
+      mo.disconnect()
+      ro.disconnect()
+    }
   }, [syncStickyPromptPositions, rowsToRender])
 
   // Snap to bottom on pane switch-in: the keep-mounted panel deck hides inactive

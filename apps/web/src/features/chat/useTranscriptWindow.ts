@@ -806,6 +806,14 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
           // raw items; items fold into ≤ items rows, so adding the item count is a
           // safe over-estimate (renderStart clamps at 0 / the row total).
           setRenderCount((c) => c + fresh.length)
+        } else {
+          // Nothing fresh → nothing will be prepended, so the anchor captured
+          // above is never consumed by the re-anchor layout effect. Left in
+          // place, it survives until an UNRELATED blockCount change (a live
+          // delta appending at the tail) finally consumes it — computing a
+          // delta against a scrollHeight from minutes ago and teleporting the
+          // reader to a stale position. An anchor is consume-or-clear.
+          prependAnchor.current = null
         }
         // A page that came back entirely held means no genuinely earlier item is
         // reachable from this anchor — stop paging rather than re-fetch it forever.
