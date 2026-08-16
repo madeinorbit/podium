@@ -366,11 +366,14 @@ export async function createDaemonHostRuntime(args: {
   const grantRunner = createGrantRunner({
     currentVersion: () => build.appVersion ?? 'dev',
     caps: deliveryCaps(build),
-    fetchArtifact: (asset, delivery, signal) =>
+    fetchArtifact: (asset, delivery, signal, onProgress) =>
       fetchArtifact(asset, delivery, {
         fetch: globalThis.fetch,
         pubkey: PODIUM_UPDATE_PUBKEY,
         pinnedPubkey: identity.updatePubkey,
+        // Delivery decides WHEN there is news; `applyGrant` turns each one into
+        // an `updateStatus` frame (POD-2101).
+        ...(onProgress ? { onProgress } : {}),
         // One budget per convergence, established at the moment delivery
         // starts rather than once for the life of the daemon — and bound to
         // THIS grant's abort, so a superseding grant cancels the git steps

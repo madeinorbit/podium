@@ -35,6 +35,13 @@ export type ConvergenceState = (typeof CONVERGENCE_STATES)[number]
  * daemon -> server: progress against a grant, or an unsolicited report on
  * reconnect. The machine identity comes from the authenticated transport, not
  * from this payload.
+ *
+ * A FRAME IS ALSO A HEARTBEAT (POD-2101, spec §3.3). The same shape is sent
+ * repeatedly while one phase is still running, carrying how far it has got, so
+ * that "moving" and "stuck" are distinguishable by the server rather than
+ * guessed by whoever is watching. `percent` and `phaseDetail` are ADDITIVE and
+ * optional in both directions: a daemon that predates them sends neither and
+ * still converges, and a server that predates them ignores both.
  */
 export const UpdateStatusMessage = z.object({
   type: z.literal('updateStatus'),
@@ -44,5 +51,17 @@ export const UpdateStatusMessage = z.object({
   version: z.string().min(1),
   /** Human-readable detail for rejected/stuck reports. */
   detail: z.string().optional(),
+  /**
+   * How far the current phase has got, when the delivery can measure it at all.
+   * Integer percent: a download of unknown length reports its phase without one
+   * rather than inventing a denominator.
+   */
+  percent: z.number().int().min(0).max(100).optional(),
+  /**
+   * The phase within the state, as a short machine string (`downloading`,
+   * `git-fetch`, `git-checkout`). It names WHAT is taking the time; `detail` is
+   * still the sentence a human reads.
+   */
+  phaseDetail: z.string().min(1).optional(),
 })
 export type UpdateStatusMessage = z.infer<typeof UpdateStatusMessage>

@@ -63,6 +63,17 @@ export function withGitBudget(
   }
 }
 
+/**
+ * The steps a git convergence works through, in order (POD-2101).
+ *
+ * These are the heartbeat a source machine can produce: there is no byte count
+ * to divide, so what proves it is moving is that it has reached a later step.
+ * The names are machine strings on the wire (`phaseDetail`) and are therefore
+ * additive-only, exactly like everything else on that contract.
+ */
+export const GIT_PHASES = ['git-status', 'git-fetch', 'git-checkout'] as const
+export type GitPhase = (typeof GIT_PHASES)[number]
+
 export type GitConvergenceResult = { ok: true } | { ok: false; reason: string }
 
 function failed(reason: string): GitConvergenceResult {
@@ -92,12 +103,13 @@ function validArgument(value: string): boolean {
  */
 export async function convergeViaGit(
   artifact: { repo: string; sha: string },
-  deps: { run: GitRun },
+  deps: { run: GitRun; onPhase?: (phase: GitPhase) => void },
 ): Promise<GitConvergenceResult> {
   if (!validArgument(artifact.repo) || !validArgument(artifact.sha)) {
     return failed('invalid-git-reference')
   }
 
+  deps.onPhase?.('git-status')
   const clean = await deps.run('git', [
     '-C',
     artifact.repo,
@@ -122,11 +134,13 @@ export async function convergeViaGit(
   if (current.status !== 0) return failed('status-failed')
   if (current.stdout.trim().startsWith(artifact.sha)) return { ok: true }
 
+  deps.onPhase?.('git-fetch')
   const fetched = await deps.run('git', ['-C', artifact.repo, 'fetch', '--all', '--prune'])
   const fetchedStopped = stoppedBy(fetched.status)
   if (fetchedStopped) return failed(fetchedStopped)
   if (fetched.status !== 0) return failed('fetch-failed')
 
+  deps.onPhase?.('git-checkout')
   const checkedOut = await deps.run('git', [
     '-C',
     artifact.repo,

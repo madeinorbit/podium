@@ -21,8 +21,6 @@ export interface UpdatesDeps {
   now(): number
   nextGrantId(): string
   concurrency: number
-  /** Overridable only so tests can age a grant without waiting ten minutes. */
-  grantDeadlineMs?: number
   resolveTarget?(channel: 'edge' | 'stable'): Promise<UpdateTarget>
   /**
    * The instance's fleet default channel, read PER CALL so a Settings write is
@@ -81,26 +79,32 @@ interface MachineConvergenceState {
   /** Present only when this state was correlated with the active grant. */
   grantId?: string
   detail?: string
+  /** Last reported progress within the phase, when the daemon reports one. */
+  percent?: number
+  phaseDetail?: string
 }
 
 interface PendingGrant {
   channel: UpdateChannel
   grantId: string
   issuedAt: number
-  /** Last accepted phase report; the deadline is measured from here. */
-  lastProgressAt: number
 }
 
 /**
- * How long one issued grant may stay in flight before the coordinator stops
- * believing it. A daemon that goes silent — killed mid-download, rebooted into
- * a build that never reconnects — used to leave the row converging forever and
- * the Apply action permanently excluded by the planner. After this deadline the
- * grant ages into `stuck`, which is a state the operator can see and retry.
+ * WHERE THE GRANT DEADLINE WENT (POD-2101, spec §3.3).
+ *
+ * This service used to hold a ten-minute deadline that aged a silent grant into
+ * `stuck` — but only from inside `fleet()`, so it aged when somebody READ the
+ * fleet and not when time passed. An update nobody was watching was an update
+ * nothing was timing, which is the defect P4 names: deadlines fire on timers.
+ *
+ * The authority is now the operation's `machines` step, whose budget the engine
+ * arms a real timer for (`UPDATE_STEP_DEADLINES`). What this service still owns
+ * is ENDING a grant when told to: {@link abandonWait} for a specific verdict,
+ * {@link reissueGrants} for the one automatic retry, and
+ * {@link releaseInFlightGrants} when the operation that owned them terminates.
  */
-const GRANT_DEADLINE_MS = 10 * 60_000
-
-const GRANT_TIMED_OUT_DETAIL = 'The machine stopped reporting progress while updating.'
+export const GRANT_TIMED_OUT_DETAIL = 'The machine stopped reporting progress while updating.'
 
 /** The one decision an explicit per-machine Apply can produce. */
 export type MachineApplyOutcome =
@@ -433,23 +437,32 @@ export class UpdatesService {
     // this channel and target. Late reports from a channel the machine left are inert.
     if (message.grantId && message.grantId !== pendingGrant?.grantId) return
 
-    // The deadline measures SILENCE, not total duration. Every accepted phase
-    // report is progress, so it restarts the clock — otherwise a large download
-    // on a slow link would be aged out mid-transfer while it was working fine.
-    if (pendingGrant !== undefined) pendingGrant.lastProgressAt = this.deps.now()
-
     const effectiveState =
       message.state === 'current' &&
       message.version !== target.version &&
       pendingGrant !== undefined
         ? 'granted'
         : message.state
+    /**
+     * A HEARTBEAT IS AN ORDINARY REPORT (POD-2101). The same state arriving
+     * again with a new `percent` is accepted exactly like a phase change: it
+     * replaces this machine's state, and the caller in `relay.ts` turns it into
+     * the operation's progress event, which is what stamps `lastProgressAt` and
+     * re-arms the step's deadline.
+     *
+     * REPLACED WHOLE, never merged. A percentage the newest frame did not carry
+     * belongs to a phase that has ended, and a stale 62% sitting under
+     * `restarting` is worse than no number at all on a contract whose subject is
+     * liveness.
+     */
     this.machineStates.set(machineId, {
       channel,
       state: effectiveState,
       version: message.version,
       ...(message.grantId ? { grantId: message.grantId } : {}),
       ...(message.detail ? { detail: message.detail } : {}),
+      ...(message.percent !== undefined ? { percent: message.percent } : {}),
+      ...(message.phaseDetail ? { phaseDetail: message.phaseDetail } : {}),
     })
 
     const rollout = this.rollout(channel)
@@ -592,24 +605,15 @@ export class UpdatesService {
         return { ...machine, state: 'current', version: machine.version }
       }
       if (!currentState) return { ...machine }
-      // A silent daemon must not converge forever. Once the grant outlives its
-      // deadline the row becomes a failure the operator can see and retry.
-      if (IN_FLIGHT_STATES.has(currentState.state) && this.grantExpired(asMachineId(machine.id))) {
-        this.pendingGrants.delete(machine.id)
-        const timedOut: MachineConvergenceState = {
-          channel,
-          state: 'stuck',
-          version: currentState.version,
-          detail: GRANT_TIMED_OUT_DETAIL,
-        }
-        this.machineStates.set(machine.id, timedOut)
-        return { ...machine, state: 'stuck', version: timedOut.version, detail: timedOut.detail }
-      }
+      // NO AGEING HERE (POD-2101). Reading the fleet is not the passage of
+      // time; the operation's step deadline is what ends a silent grant now.
       return {
         ...machine,
         state: currentState.state,
         version: currentState.version,
         ...(currentState.detail ? { detail: currentState.detail } : {}),
+        ...(currentState.percent !== undefined ? { percent: currentState.percent } : {}),
+        ...(currentState.phaseDetail ? { phaseDetail: currentState.phaseDetail } : {}),
       }
     })
 
@@ -650,6 +654,66 @@ export class UpdatesService {
     return abandoned
   }
 
+  /**
+   * RE-ISSUE THE GRANT for machines this coordinator is still waiting on — the
+   * operation's ONE automatic retry after a stall (§3.3, POD-2101).
+   *
+   * It cannot be `tick()`: the wave planner deliberately excludes a machine it
+   * believes is mid-grant, so the retry the engine bought would select nobody
+   * and change nothing. Forgetting the in-flight record first is what makes the
+   * machine selectable again, and re-granting is safe because the daemon's own
+   * runner serializes: a repeat of the same grant id is ignored, and a newer one
+   * cancels the delivery in flight before taking over.
+   *
+   * Offline machines are left alone. A grant cannot be delivered to a machine
+   * that is not connected, and pretending otherwise would produce a fresh
+   * deadline for a message nobody received.
+   */
+  reissueGrants(channel: UpdateChannel, machineIds?: readonly string[]): string[] {
+    const candidates = this.fleet().filter(
+      (machine) =>
+        this.channelOf(machine) === channel &&
+        machine.online &&
+        IN_FLIGHT_STATES.has(machine.state) &&
+        (machineIds === undefined || machineIds.includes(machine.id)),
+    )
+    const target = this.target(channel)
+    if (!target || candidates.length === 0) return []
+
+    const replanned: WaveMachine[] = []
+    for (const machine of candidates) {
+      if (machine.version === target.version) continue
+      this.machineStates.delete(machine.id)
+      this.pendingGrants.delete(machine.id)
+      replanned.push({ ...machine, state: 'current' })
+    }
+    if (replanned.length === 0) return []
+    return this.issueGrants(
+      channel,
+      target,
+      replanned,
+      replanned.map((machine) => machine.id),
+    )
+  }
+
+  /**
+   * Stop believing in every grant still in flight, because the operation that
+   * owned them has finished (POD-2101).
+   *
+   * Without this the deletion of the poll-aged deadline would leave a permanent
+   * lie: a daemon that vanished mid-download would stay `downloading` forever,
+   * which excludes it from every future wave, keeps {@link operationActive}
+   * true, and with it suppresses the scheduled target refresh for its channel.
+   * The operation reaching a terminal state is exactly the moment nobody is
+   * waiting for those grants any more.
+   */
+  releaseInFlightGrants(detail: string = GRANT_TIMED_OUT_DETAIL): string[] {
+    const inFlight = this.fleet()
+      .filter((machine) => IN_FLIGHT_STATES.has(machine.state))
+      .map((machine) => machine.id)
+    return this.abandonWait(inFlight, detail)
+  }
+
   /** Raw handshake proof, deliberately bypassing optimistic convergence state. */
   machineBootedAtTarget(machineId: MachineId, targetVersion: string): boolean {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
@@ -681,14 +745,6 @@ export class UpdatesService {
     )
   }
 
-  private grantExpired(machineId: MachineId): boolean {
-    const pending = this.pendingGrants.get(machineId)
-    if (!pending) return false
-    return (
-      this.deps.now() - pending.lastProgressAt >= (this.deps.grantDeadlineMs ?? GRANT_DEADLINE_MS)
-    )
-  }
-
   private issueGrants(
     channel: UpdateChannel,
     target: UpdateTarget,
@@ -704,12 +760,10 @@ export class UpdatesService {
       }
       this.deps.send(asMachineId(machineId), grant)
       const machine = machines.find((candidate) => candidate.id === machineId)
-      const issuedAt = this.deps.now()
       this.pendingGrants.set(machineId, {
         channel,
         grantId: grant.grantId,
-        issuedAt,
-        lastProgressAt: issuedAt,
+        issuedAt: this.deps.now(),
       })
       this.machineStates.set(machineId, {
         channel,

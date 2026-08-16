@@ -2174,7 +2174,14 @@ export class SessionRegistry {
         // A version that arrived mid-update waits for the group to be free, and
         // this is the moment it becomes free — whatever the outcome was. It
         // re-creates the OFFER, never an operation (§3.2).
-        if (isTerminalOperationState(row.state)) updatesService.publishNextTargets()
+        if (!isTerminalOperationState(row.state)) return
+        updatesService.publishNextTargets()
+        // POD-2101: the deadline that used to end a silent grant aged inside a
+        // `fleet()` read. The operation owns that authority now, so the moment
+        // it stops waiting is the moment those grants stop being believed. A
+        // `done` operation has nothing in flight to end — and if a late machine
+        // is still converging, it is converging successfully.
+        if (row.state !== 'done') updatesService.releaseInFlightGrants()
       },
     })
     operationsModule.kinds.register(updateOperationKind())

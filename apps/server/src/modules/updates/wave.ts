@@ -12,6 +12,14 @@ export interface WaveMachine {
   busy: boolean
   detail?: string
   /**
+   * How far this machine's current phase has got, as its last heartbeat said
+   * (POD-2101). Absent for a daemon that predates progress reporting, or for a
+   * delivery whose length nothing declared — never a manufactured zero.
+   */
+  percent?: number
+  /** The phase that percentage is about: `downloading`, `git-fetch`, … */
+  phaseDetail?: string
+  /**
    * How this machine can take delivery, as its daemon reported at handshake
    * (`deliveryCaps` in apps/daemon/src/build-report.ts): a machine running from
    * SOURCE can only fetch git, an INSTALLED one can only take a feed or bundle.

@@ -13,6 +13,22 @@ type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
 /** The delivery result is deliberately small: verification happens before this seam. */
 export type GrantArtifact = { bytes: Uint8Array } | { git: true }
 
+/**
+ * What a delivery in flight says about itself — structurally `DeliveryProgress`
+ * from `@podium/runtime/update-delivery`, restated here so this file keeps
+ * depending on nothing but the protocol it reports over.
+ *
+ * The CADENCE IS NOT DECIDED HERE. Delivery already gates its reports (every
+ * 2 s or every 5 points, `decideProgressReport`), so every call becomes a frame:
+ * two places deciding when to speak is how one of them ends up silent.
+ */
+export interface GrantProgress {
+  phase: string
+  percent?: number
+  receivedBytes?: number
+  totalBytes?: number
+}
+
 export interface GrantApplyDeps {
   /** Read the label currently running, without ordering or semver parsing it. */
   currentVersion(): string
@@ -33,6 +49,7 @@ export interface GrantApplyDeps {
     asset: PlatformAsset | GitArtifact,
     delivery: UpdateArtifact['delivery'],
     signal?: AbortSignal,
+    onProgress?: (progress: GrantProgress) => void,
   ): Promise<GrantArtifact>
   /** Binary swap only. Database state is intentionally not part of this phase. */
   swap(bytes: Uint8Array): void | Promise<void>
@@ -56,6 +73,7 @@ function report(
   state: ConvergenceState,
   version: string,
   detail?: string,
+  progress?: GrantProgress,
 ): void {
   deps.report({
     type: 'updateStatus',
@@ -63,6 +81,8 @@ function report(
     state,
     version,
     ...(detail ? { detail } : {}),
+    ...(progress?.percent !== undefined ? { percent: progress.percent } : {}),
+    ...(progress?.phase ? { phaseDetail: progress.phase } : {}),
   })
 }
 
@@ -97,7 +117,21 @@ export async function applyGrant(
   report(deps, grant, 'downloading', current)
   try {
     const asset = plan.delivery === 'git' ? plan.artifact : plan.asset
-    const artifact = await deps.fetchArtifact(asset, plan.delivery, signal)
+    /**
+     * THE HEARTBEAT (POD-2101, spec §3.3). Same grant id, same `downloading`
+     * state, new numbers — so a server that predates this reads each one as the
+     * phase report it already understood, and one that does not sees the
+     * download move.
+     *
+     * A SUPERSEDED GRANT GOES QUIET. Delivery cancellation is best-effort (git
+     * steps finish what they started), and a report from a grant the server has
+     * replaced would refresh the liveness of a convergence nobody is waiting
+     * for.
+     */
+    const artifact = await deps.fetchArtifact(asset, plan.delivery, signal, (progress) => {
+      if (signal?.aborted) return
+      report(deps, grant, 'downloading', current, undefined, progress)
+    })
     // A superseded grant must not swap a binary or write a rollback marker: the
     // grant it would claim to be applying is no longer the one the server holds.
     if (signal?.aborted) return

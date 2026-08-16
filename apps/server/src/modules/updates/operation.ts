@@ -8,6 +8,11 @@ import type {
   StepPlace,
   UpdateTarget,
 } from '@podium/protocol'
+import {
+  DEFAULT_DOWNLOAD_TIMEOUT_MS,
+  PROGRESS_REPORT_INTERVAL_MS,
+} from '@podium/runtime/update-delivery'
+import { GIT_CONVERGENCE_BUDGET_MS } from '@podium/runtime/update-delivery-git'
 import type {
   OperationKindDefinition,
   OperationPlan,
@@ -656,6 +661,8 @@ export interface UpdateOperationContext {
   schedule?: (fn: () => void, ms: number) => void
   /** How often a watcher re-reads the world. */
   watchIntervalMs?: number
+  /** How often a watched step says it is still there. Injected so tests never sleep. */
+  heartbeatIntervalMs?: number
   now?: () => number
 }
 
@@ -667,41 +674,138 @@ function defaultSchedule(fn: () => void, ms: number): void {
 }
 
 /**
- * §3.3's per-step budgets. Silence is what fires, not slowness: a nine-minute
- * download reporting progress every few seconds is healthy, and a two-minute one
- * that says nothing is not.
+ * How often a step whose work is happening elsewhere says it is still there
+ * (POD-2101).
+ *
+ * FIFTEEN SECONDS IS NOT ARBITRARY: the panel calls a step stale after sixty
+ * seconds of silence, and a pack or a web rebuild runs for minutes with nothing
+ * to report. Four heartbeats inside that window means one lost tick never reads
+ * as trouble, and a step that genuinely dies is still visibly quiet long before
+ * its total runs out.
+ */
+export const STEP_HEARTBEAT_INTERVAL_MS = 15_000
+
+/**
+ * EVERY BUDGET IN THE UPDATE, IN ONE PLACE (POD-2101, spec §3.3).
+ *
+ * The numbers here nest, and the nesting is the point — it is asserted in
+ * `operation.test.ts` rather than left to whoever edits one of them next:
+ *
+ *  - a daemon's own download timeout (5 min) and its git convergence budget
+ *    (8 min) must expire BEFORE the coordinator gives up on that machine, so a
+ *    failure arrives with the machine's own reason attached instead of being
+ *    guessed from silence;
+ *  - the machines step's silence budget must therefore outlast the longest
+ *    legitimate quiet stretch any supported daemon can produce, which is the git
+ *    budget — not the heartbeat cadence;
+ *  - and every silence budget must be shorter than its step's total, or the
+ *    total would be the only deadline that could ever fire.
+ *
+ * WHY NOT NINETY SECONDS, which this issue's plan proposed for a download: a
+ * daemon that predates `percent` reports `downloading` once and then works in
+ * silence for up to its whole download timeout. A 90 s step deadline would stall
+ * and re-grant it mid-transfer, every time — the plan's own acceptance list
+ * requires those daemons to converge. Ninety seconds is the right number for a
+ * heartbeat that IS being sent (the panel's staleness line renders it from
+ * `lastProgressAt` and needs nothing from us); it is the wrong number for the
+ * deadline that fails a machine.
+ */
+export const UPDATE_BUDGETS = {
+  /** `DEFAULT_DOWNLOAD_TIMEOUT_MS` in `@podium/runtime/update-delivery`. */
+  downloadTimeoutMs: DEFAULT_DOWNLOAD_TIMEOUT_MS,
+  /** `GIT_CONVERGENCE_BUDGET_MS` — one budget for a whole git convergence. */
+  gitConvergenceMs: GIT_CONVERGENCE_BUDGET_MS,
+  /** The daemon's download heartbeat cadence, `PROGRESS_REPORT_INTERVAL_MS`. */
+  downloadHeartbeatMs: PROGRESS_REPORT_INTERVAL_MS,
+  /** This server's own heartbeat cadence for steps it is watching. */
+  stepHeartbeatMs: STEP_HEARTBEAT_INTERVAL_MS,
+  /** Margin between a daemon's longest silence and the step giving up on it. */
+  machineSilenceMarginMs: 2 * 60_000,
+} as const
+
+/**
+ * §3.3's per-step budgets, derived from {@link UPDATE_BUDGETS}. Silence is what
+ * fires, not slowness: a nine-minute download reporting progress every two
+ * seconds is healthy, and a two-minute one that says nothing is not.
  */
 export const UPDATE_STEP_DEADLINES: Record<string, StepDeadlines> = {
-  // A pack is a compile: quiet for its whole length, so only a total applies.
-  [UPDATE_STEP_PREPARE]: { totalMs: 20 * 60_000 },
-  // The same ten minutes the grant protocol already uses, now on a TIMER rather
-  // than ageing only when someone reads `fleet()`.
-  [UPDATE_STEP_MACHINES]: { silenceMs: 10 * 60_000, totalMs: 60 * 60_000 },
-  // A restart that has not produced a successor in five minutes is not coming.
+  // Heartbeats now arrive while the pack runs, so this step is judged on
+  // silence too rather than on its total alone.
+  [UPDATE_STEP_PREPARE]: { silenceMs: 3 * 60_000, totalMs: 20 * 60_000 },
+  // Ten minutes, and now DERIVED: the git convergence budget plus a margin, so
+  // whichever moves first stays coherent. Timer-armed by the engine rather than
+  // ageing when someone reads `fleet()`.
+  [UPDATE_STEP_MACHINES]: {
+    silenceMs: UPDATE_BUDGETS.gitConvergenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
+    totalMs: 60 * 60_000,
+  },
+  // A restart reports nothing while it happens — this process is the thing
+  // being replaced — so silence IS the restart deadline: five minutes without a
+  // successor means it is not coming. The total is the outer backstop for a
+  // successor that boots but never finishes adopting.
   [UPDATE_STEP_SERVER]: { silenceMs: 5 * 60_000, totalMs: 15 * 60_000 },
-  [UPDATE_STEP_WEB]: { silenceMs: 5 * 60_000, totalMs: 15 * 60_000 },
+  // The web rebuild heartbeats while it runs, so silence here means the watcher
+  // itself stopped, which is a much shorter wait than a build.
+  [UPDATE_STEP_WEB]: { silenceMs: 2 * 60_000, totalMs: 15 * 60_000 },
 }
 
 /** In-flight preparation, per operation: `ensure()` twice must be one build. */
 const preparing = new Map<string, Promise<unknown>>()
 
+/**
+ * Watch something this process handed off, reporting when it ends — and saying
+ * it is still there while it has not (POD-2101).
+ *
+ * THE HEARTBEAT IS EVIDENCE, NOT DECORATION: it is sent only while `poll()` is
+ * still answering "not finished", which means the watcher is alive, the work it
+ * is watching has not failed, and this server is the one saying so. What it buys
+ * is the difference between a pack that is running and a pack whose server died
+ * — sixty seconds of silence is the first thing the panel calls trouble, and a
+ * bundle takes minutes.
+ *
+ * `elapsed` names how long the step has been at it, so the sentence a human
+ * reads moves too rather than just the timestamp underneath it.
+ */
 function watch(
   context: UpdateOperationContext,
   operationId: string,
   stepId: string,
   poll: () => StepProgressPatch | undefined,
+  opts: {
+    /** True once someone else has reported the outcome: stop, say nothing. */
+    until?: () => boolean
+    heartbeat?: (elapsedMs: number) => StepProgressPatch
+  } = {},
 ): void {
   const schedule = context.schedule ?? defaultSchedule
   const interval = context.watchIntervalMs ?? DEFAULT_WATCH_INTERVAL_MS
+  const beat = context.heartbeatIntervalMs ?? STEP_HEARTBEAT_INTERVAL_MS
+  const now = context.now ?? Date.now
+  const startedAt = now()
+  let lastBeatAt = startedAt
   const tick = (): void => {
+    if (opts.until?.() === true) return
     const patch = poll()
     if (patch === undefined) {
+      const at = now()
+      if (opts.heartbeat && at - lastBeatAt >= beat) {
+        lastBeatAt = at
+        context.report?.(operationId, stepId, opts.heartbeat(at - startedAt))
+      }
       schedule(tick, interval)
       return
     }
     context.report?.(operationId, stepId, patch)
   }
   schedule(tick, interval)
+}
+
+/** "1 min 20 s", for a detail line that has to move while nothing else does. */
+function elapsedLabel(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.round(elapsedMs / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m ${seconds % 60}s`
 }
 
 /**
@@ -737,6 +841,19 @@ const prepareRunner: StepRunner<UpdateOperationContext> = {
 
     const inFlight = preparing.get(operation.id) ?? context.requestDestBundle()
     preparing.set(operation.id, inFlight)
+    // A PACK IS QUIET FOR MINUTES and has no percentage to offer, so its
+    // liveness is "the build this server started has not settled yet" — true,
+    // observable here, and the whole difference between a healthy prepare step
+    // and one the panel calls stuck after sixty seconds (POD-2101).
+    watch(context, operation.id, UPDATE_STEP_PREPARE, () => undefined, {
+      // The settle handlers below report the outcome; this watcher only ever
+      // reports that the outcome has not arrived yet.
+      until: () => !preparing.has(operation.id),
+      heartbeat: (elapsedMs) => ({
+        state: 'running',
+        detail: `Building the update package… ${elapsedLabel(elapsedMs)}`,
+      }),
+    })
     inFlight.then(
       () => {
         preparing.delete(operation.id)
@@ -812,6 +929,23 @@ const machinesRunner: StepRunner<UpdateOperationContext> = {
       }
     }
 
+    /**
+     * THE ONE AUTOMATIC RETRY, FOR A MACHINE MID-GRANT (§3.3, POD-2101).
+     *
+     * The engine re-enters `ensure()` after it has marked this step `stalled`,
+     * and by itself that would change nothing: the wave planner deliberately
+     * skips a machine it believes is mid-grant, so `tick()` would select nobody
+     * and the step would go straight back to waiting on the same silence. Re-
+     * issuing the grant is what a retry MEANS here — safe because the daemon's
+     * grant runner serializes: the same grant id is ignored, a newer one cancels
+     * the delivery in flight before taking over.
+     *
+     * `stalls` rather than `attempts`, because adoption after a server restart
+     * also re-enters this runner and that is not a stall — the successor should
+     * let the existing grants stand and watch them.
+     */
+    if ((step.stalls ?? 0) > 0) context.updates.reissueGrants(details.channel)
+
     context.updates.markAuthorized(details.channel)
     context.updates.tick(details.channel)
     const progress = projectMachines(operation, step, context)
@@ -866,6 +1000,16 @@ export function projectMachines(
       state: !machine.online ? 'offline' : resting ? 'pending' : machine.state,
       ...(machine.name ? { name: machine.name } : {}),
       ...(machine.detail ? { detail: machine.detail } : {}),
+      /**
+       * "vmi3407763 downloading 62%" (§6.2), from the daemon's own heartbeat.
+       * Carried only while the machine is actually converging: a percentage
+       * left on a resting or offline place would be a number describing work
+       * that is not happening, which is the failure mode this whole issue is
+       * about (POD-2101).
+       */
+      ...(machine.online && !resting && machine.percent !== undefined
+        ? { percent: machine.percent }
+        : {}),
     }
   })
   const done = places.filter(
@@ -967,19 +1111,32 @@ const webRunner: StepRunner<UpdateOperationContext> = {
     if (read?.() === expected) return { state: 'done', detail: 'The new app is being served.' }
 
     context.requestWebRebuild?.()
-    watch(context, operation.id, UPDATE_STEP_WEB, () => {
-      if (read?.() === expected) {
-        return { state: 'done', detail: 'The new app is being served.' }
-      }
-      const failure = context.preparation?.().failureDetail
-      if (failure !== undefined) {
-        return {
-          state: 'failed',
-          error: describeUpdateOperationFailure({ code: 'web-build-failed', detail: failure }),
+    watch(
+      context,
+      operation.id,
+      UPDATE_STEP_WEB,
+      () => {
+        if (read?.() === expected) {
+          return { state: 'done', detail: 'The new app is being served.' }
         }
-      }
-      return undefined
-    })
+        const failure = context.preparation?.().failureDetail
+        if (failure !== undefined) {
+          return {
+            state: 'failed',
+            error: describeUpdateOperationFailure({ code: 'web-build-failed', detail: failure }),
+          }
+        }
+        return undefined
+      },
+      {
+        // A rebuild is a compile too: minutes of nothing, and the stamp on disk
+        // only changes at the very end (POD-2101).
+        heartbeat: (elapsedMs) => ({
+          state: 'running',
+          detail: `Rebuilding the app… ${elapsedLabel(elapsedMs)}`,
+        }),
+      },
+    )
     return { state: 'running', detail: 'Rebuilding the app…' }
   },
 }
