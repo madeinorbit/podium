@@ -908,22 +908,14 @@ export function IssuePanelView({
   const [showRetired, setShowRetired] = useState(false)
 
   /**
-   * Move the SHELL to a task — THE SIDEBAR'S OWN GESTURE, not a second copy of
-   * it (POD-1151).
+   * Move the SHELL to a task (POD-1151).
    *
-   * This used to set the focus pointer and nothing else, and focus is the
-   * pointer INSIDE a mission: the sidebar highlights `selectedIssueId`, which is
-   * a mission ROOT, and `resolveFocus` throws away a focus naming a task the
-   * selected mission does not contain. So browsing a stranger's task in the
-   * explorer and asking to see it in the deck set a pointer that was discarded
-   * on arrival — the sidebar stayed on the mission it was already showing and
-   * the control read as dead.
-   *
-   * So the jump now answers both halves, the way a sidebar row click and the
-   * deck's own `openDeparture` do: SELECT the top-level issue the task hangs
-   * from (the task itself when it already is one), then FOCUS the task inside
-   * it. Which issue that is comes from `deckDestinationFor`, so the answer here
-   * and the decision to offer the control at all cannot drift apart.
+   * Setting focus alone — all this used to do — arrives nowhere: the sidebar
+   * highlights `selectedIssueId`, a mission ROOT, and `resolveFocus` discards a
+   * focus naming a task that mission does not contain. Both halves now, as a
+   * sidebar row click and the deck's `openDeparture` do: SELECT the top-level
+   * issue the task hangs from (itself when it already is one), then FOCUS the
+   * task within it.
    */
   const showInDeck = (target: IssueViewModel): void => {
     const root = deckDestinationFor(issues, sessions, target.id)
@@ -1004,10 +996,8 @@ export function IssuePanelView({
           became unscrollable the moment something data-sized (a stack of offer
           cards) was allowed into the fixed region — see the scroll test. */}
       <div className="flex-none border-b border-border/60" data-testid="dock-fixed">
-        {/* The jump is offered only where it can arrive. Inside the explorer,
-            because that is the surface with a trail to leave; and only for a
-            task the deck can actually put on screen — an archived one, or one
-            whose mission is an empty draft vessel, has nothing to select, and a
+        {/* Offered only where it can arrive: inside the explorer, which has a
+            trail to leave, and only for a task the deck can put on screen. A
             control that lands nowhere is worse than no control (POD-1151). */}
         <InspectHead
           issue={issue}

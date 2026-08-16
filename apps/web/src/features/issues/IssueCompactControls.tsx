@@ -146,14 +146,12 @@ export interface TaskAction {
  * work has left and closing is the only decision left); else nobody on it →
  * Start work.
  *
- * Sessions already working the issue resolve to NO primary action, and the head
- * renders no chip at all. There used to be an "Open coordinator" chip here; it
- * was pulled because it did not work (POD-1151). Its whole job was to jump to
- * the coordinator session, but the panel it sits in is the right dock, which
- * stays put — so from the workspace the click landed on a session already in
- * the pane and read as a dead button. Nothing is lost: the same sessions are
- * one click away on their own rows under "Agents & sessions", which open the
- * session AND switch the view.
+ * Sessions already working it resolve to NO action and the head renders no chip.
+ * An "Open coordinator" chip sat here until POD-1151: its job was to jump to the
+ * coordinator, but this panel is the right dock, which stays put, so from the
+ * workspace the click landed on a session already in the pane and read as dead.
+ * Nothing is lost — those sessions have their own rows under "Agents &
+ * sessions", which open the session AND switch the view.
  */
 export function resolveTaskAction(
   issue: IssueViewModel,

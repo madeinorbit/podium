@@ -301,22 +301,15 @@ export function selectedMissionRoot(
 }
 
 /**
- * WHAT THE DECK WOULD HAVE TO SELECT to put a given task on screen — the
- * mission root to re-root onto, or `undefined` when the deck cannot show that
- * task at all (POD-1151).
+ * WHAT THE DECK MUST SELECT to put a task on screen — the mission root to
+ * re-root onto, or `undefined` when it cannot show that task at all (POD-1151).
  *
- * The sidebar selects MISSIONS, not tasks: `selectedIssueId` is a root, and the
- * finer pointer inside it is focus, which `resolveFocus` discards the moment it
- * names something the selected mission does not contain. So "show me this task"
- * is two answers, not one — the root to select, and the task to focus — and a
- * caller that supplies only the second silently arrives nowhere.
- *
- * `undefined` is the honest answer for a task with no deck to arrive at: one the
- * replica does not carry, an archived or deleted one (the deck never lists
- * those), or one whose whole mission is an empty draft vessel, which
- * {@link selectedMissionRoot} already resolves to "no mission on screen". A
- * surface offering a jump reads this FIRST and offers nothing when it is
- * `undefined`, rather than shipping a control that lands somewhere blank.
+ * The sidebar selects MISSIONS: `selectedIssueId` is a root, and focus is the
+ * pointer inside it, which `resolveFocus` discards when it names something that
+ * mission does not contain. `undefined` covers a task with no deck to arrive at
+ * — absent from the replica, archived or deleted, or in a mission
+ * {@link selectedMissionRoot} already resolves to "nothing on screen". A surface
+ * offering a jump reads this first and offers none rather than landing blank.
  */
 export function deckDestinationFor(
   issues: readonly IssueNavigationModel[],
@@ -326,8 +319,7 @@ export function deckDestinationFor(
   if (!targetId) return undefined
   const target = issues.find((issue) => issue.id === targetId)
   // The target's OWN reachability, which `missionRootFor` does not ask: it
-  // checks ancestors so a live child of a retired epic still roots somewhere,
-  // and an archived target would otherwise resolve happily to itself.
+  // checks ancestors, so an archived target resolves happily to itself.
   if (!target || target.archived || target.deletedAt) return undefined
   const root = missionRootFor(issues, targetId)
   if (!root || isEmptyDraftVessel(root, sessions)) return undefined
