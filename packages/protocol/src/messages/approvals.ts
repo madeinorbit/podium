@@ -102,6 +102,24 @@ export type ApprovalStatus = z.infer<typeof ApprovalStatus>
  * WHAT REVERSES THIS: if `approval` is ever added to MetadataEntityKind or an
  * `approvalsChanged` entry to COLLECTION_MESSAGE_ELEMENTS, this decision EXPIRES
  * and the relocation-to-model question reopens (move + golden fixtures first).
+ *
+ * TEST 2 HAS NOW TRIPPED, AND THE DECISION STANDS ANYWAY — read why before
+ * treating it as expired (POD-2205). Two things moved under this comment:
+ *   - The constant was RENAMED `COLLECTION_MESSAGE_ELEMENTS` → `QUARANTINABLE`,
+ *     and with it the question it answers. It no longer means "is this an
+ *     element-wise delta collection?" but "is this a homogeneous array we can
+ *     quarantine per-element?" — `sessionsChanged` and `hostMetricsChanged` are
+ *     on it and are snapshots too.
+ *   - POD-2205 added the `approvalsChanged` entry, so that the closed op catalog
+ *     can GROW (a new op kind, a new `channel` target) without one row an older
+ *     bundle cannot read refusing the whole snapshot and freezing the operator's
+ *     pending list.
+ * So the membership test fires on its literal text while its PREMISE — that
+ * approvals is a snapshot read model rather than a replicated aggregate — is
+ * untouched, and test 1 still fails cleanly. Quarantining a row is not
+ * replicating an entity. The relocation-to-model question is filed as POD-2211
+ * rather than answered in passing here; it is a move plus golden fixtures, and
+ * it wants a decision, not a side effect of a channel fix.
  */
 
 /** One approval request as the web UI / CLI sees it. */
