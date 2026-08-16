@@ -84,7 +84,10 @@ resolved into main is worse than no green at all.
   `normalized-wire` projects, and `apps/web` has its own vitest config — so a web test file
   is never selected and the gate reports success having run nothing about your change
   (POD-2163 caught this: `use-update-state.test.tsx` was invisible to the prescribed gate).
-  If your change touches `apps/web`, **run its suites directly** and say which ones. Any
+  If your change touches `apps/web`, **run its suites directly** and say which ones —
+  **with the working directory set to `apps/web`**, not `vitest --root apps/web` from the
+  repo root, which fails at startup on the hermetic env import because the flag overrides
+  the config root and with it the fs allow-list (POD-2184). Any
   brief of mine that says "gate on test:related" for web work is wrong; correct it and tell
   me.
 - Repo gates, run **sequentially**, before merging: per-package typecheck (never repo-wide,
