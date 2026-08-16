@@ -113,10 +113,7 @@ export const OperationStep = z
     id: z.string(),
     state: OperationStepState,
     title: z.string().optional(),
-    progress: z
-      .object({ done: z.number(), total: z.number() })
-      .passthrough()
-      .optional(),
+    progress: z.object({ done: z.number(), total: z.number() }).passthrough().optional(),
     places: z.array(StepPlace).optional(),
     startedAt: z.number().optional(),
     lastProgressAt: z.number().optional(),

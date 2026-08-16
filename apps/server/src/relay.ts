@@ -107,6 +107,7 @@ import {
   NotifyService,
   type SessionNoticeInfo,
 } from './modules/notify/service'
+import { createOperations, type OperationsModule } from './modules/operations'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { ReadPositionService } from './modules/read-position/service'
 import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
@@ -203,6 +204,12 @@ export interface RegistryModules {
   sessions: SessionLifecycle
   machines: MachinesService
   updates: UpdatesService
+  /**
+   * Durable long-running operations (POD-2097) — the generic engine plus its
+   * kind registry. The registry is named here, not hidden behind the engine, so
+   * that a feature registering a new kind does it in a diff a reviewer sees.
+   */
+  operations: OperationsModule
   rpc: DaemonRpcService
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
@@ -2138,6 +2145,7 @@ export class SessionRegistry {
       sessions: sessionsSvc,
       machines,
       updates: updatesService,
+      operations: createOperations({ store: this.store.operations }),
       rpc,
       serverTransfer,
       loginPropagation,

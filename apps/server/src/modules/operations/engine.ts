@@ -8,6 +8,7 @@ import {
 import type {
   AnyOperationKindDefinition,
   OperationKindRegistry,
+  OperationPlan,
   StepOutcome,
   StepProgressPatch,
 } from './kinds'
@@ -120,7 +121,7 @@ export class OperationEngine {
     const held = this.deps.store.activeByGroup(def.exclusionGroup)
     if (held) return { started: false, alreadyRunning: held.id }
 
-    const plan = await (def.plan as (c: unknown) => Awaited<ReturnType<typeof def.plan>>)(context)
+    const plan = await (def.plan as (c: unknown) => OperationPlan | Promise<OperationPlan>)(context)
 
     const contended = this.deps.store.activeByGroup(def.exclusionGroup)
     if (contended) return { started: false, alreadyRunning: contended.id }

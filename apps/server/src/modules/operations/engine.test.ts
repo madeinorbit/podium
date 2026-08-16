@@ -1,8 +1,8 @@
 import type { Operation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
-import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from '../../migrations'
+import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import {
   type OperationClock,
   OperationEngine,
@@ -506,7 +506,9 @@ describe('adoption after a restart (P3, §3.4)', () => {
           : s,
       ),
     }))
-    registry.register(testKind({ reconcile, runners: { first: runner(first), second: runner(done) } }))
+    registry.register(
+      testKind({ reconcile, runners: { first: runner(first), second: runner(done) } }),
+    )
 
     const engine = successor(store, registry)
     const adopted = await engine.adoptOnBoot(() => ({ firstIsDone: true }))

@@ -58,7 +58,8 @@ function toRow(r: Record<string, unknown>): OperationRow {
     state: r.state as string,
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
-    finishedAt: r.finished_at === null || r.finished_at === undefined ? null : Number(r.finished_at),
+    finishedAt:
+      r.finished_at === null || r.finished_at === undefined ? null : Number(r.finished_at),
     payload,
     operation: parseStored(payload),
   }
@@ -165,9 +166,7 @@ export class OperationStore {
   history(kind?: string, limit: number = DEFAULT_HISTORY_LIMIT): OperationRow[] {
     const rows = (
       kind === undefined
-        ? this.db
-            .prepare('SELECT * FROM operations ORDER BY created_at DESC LIMIT ?')
-            .all(limit)
+        ? this.db.prepare('SELECT * FROM operations ORDER BY created_at DESC LIMIT ?').all(limit)
         : this.db
             .prepare('SELECT * FROM operations WHERE kind = ? ORDER BY created_at DESC LIMIT ?')
             .all(kind, limit)
@@ -195,16 +194,9 @@ export class OperationStore {
   }
 }
 
-function values(operation: PersistedOperation): [
-  string,
-  string,
-  string,
-  string,
-  number,
-  number,
-  number | null,
-  string,
-] {
+function values(
+  operation: PersistedOperation,
+): [string, string, string, string, number, number, number | null, string] {
   return [
     operation.id,
     operation.kind,

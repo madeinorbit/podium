@@ -1,7 +1,7 @@
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from '../../migrations'
+import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import { OperationStore, type PersistedOperation } from './store'
 
 /** A real database over the real migration chain — the operations table has to
@@ -29,7 +29,7 @@ describe('OperationStore round-trip', () => {
     s.insert(op())
     const row = s.get('op_1')
     expect(row?.state).toBe('running')
-    expect(row?.operation?.steps?.[0].id).toBe('first')
+    expect(row?.operation?.steps?.[0]?.id).toBe('first')
     expect(row?.finishedAt).toBeNull()
   })
 
@@ -41,7 +41,9 @@ describe('OperationStore round-trip', () => {
     s.insert({ ...op(), aFieldAddedNextYear: 'keep me' } as PersistedOperation)
     const read = s.get('op_1')?.operation as Record<string, unknown>
     s.update({ ...(read as unknown as PersistedOperation), updatedAt: 2000 })
-    expect((s.get('op_1')?.operation as Record<string, unknown>).aFieldAddedNextYear).toBe('keep me')
+    expect((s.get('op_1')?.operation as Record<string, unknown>).aFieldAddedNextYear).toBe(
+      'keep me',
+    )
   })
 
   it('serves the stored bytes verbatim alongside the parse', () => {
@@ -80,7 +82,7 @@ describe('activeByGroup is single-flight’s question', () => {
   })
 
   it('answers nothing once the operation reaches an outcome', () => {
-    for (const terminal of ['done', 'failed', 'canceled']) {
+    for (const terminal of ['done', 'failed', 'canceled'] as const) {
       const s = store()
       s.insert(op({ state: terminal }))
       expect(s.activeByGroup('lifecycle')).toBeUndefined()
@@ -88,7 +90,7 @@ describe('activeByGroup is single-flight’s question', () => {
   })
 
   it('holds for every non-terminal state, waiting included', () => {
-    for (const live of ['pending', 'running', 'waiting']) {
+    for (const live of ['pending', 'running', 'waiting'] as const) {
       const s = store()
       s.insert(op({ state: live }))
       expect(s.activeByGroup('lifecycle')?.state).toBe(live)

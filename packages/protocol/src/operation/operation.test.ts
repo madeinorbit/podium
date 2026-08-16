@@ -36,7 +36,9 @@ const full = {
       ],
     },
   ],
-  awaiting: [{ id: 'desktop-install', surface: 'desktop', title: 'Restart Podium', required: true }],
+  awaiting: [
+    { id: 'desktop-install', surface: 'desktop', title: 'Restart Podium', required: true },
+  ],
   deferred: [{ id: 'm_c', name: 'macbook', reason: 'offline' }],
   error: null,
   retryOf: 'op_01i',
@@ -62,7 +64,7 @@ describe('parseOperation is a frozen contract', () => {
     })
     const step = op?.steps?.[0] as Record<string, unknown> | undefined
     expect(step?.eta).toBe(42)
-    expect((step?.places as Record<string, unknown>[])[0].bytes).toBe(17)
+    expect((step?.places as Record<string, unknown>[] | undefined)?.[0]?.bytes).toBe(17)
   })
 
   for (const key of Object.keys(full)) {
@@ -98,7 +100,7 @@ describe('parseOperation is a frozen contract', () => {
       ...full,
       steps: [{ id: 's', state: 'running', places: [{ id: 'p', state: 'a-state-from-2027' }] }],
     })
-    expect(op?.steps?.[0].places?.[0].state).toBe('a-state-from-2027')
+    expect(op?.steps?.[0]?.places?.[0]?.state).toBe('a-state-from-2027')
   })
 })
 
