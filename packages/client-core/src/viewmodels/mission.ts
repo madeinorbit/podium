@@ -301,6 +301,40 @@ export function selectedMissionRoot(
 }
 
 /**
+ * WHAT THE DECK WOULD HAVE TO SELECT to put a given task on screen — the
+ * mission root to re-root onto, or `undefined` when the deck cannot show that
+ * task at all (POD-1151).
+ *
+ * The sidebar selects MISSIONS, not tasks: `selectedIssueId` is a root, and the
+ * finer pointer inside it is focus, which `resolveFocus` discards the moment it
+ * names something the selected mission does not contain. So "show me this task"
+ * is two answers, not one — the root to select, and the task to focus — and a
+ * caller that supplies only the second silently arrives nowhere.
+ *
+ * `undefined` is the honest answer for a task with no deck to arrive at: one the
+ * replica does not carry, an archived or deleted one (the deck never lists
+ * those), or one whose whole mission is an empty draft vessel, which
+ * {@link selectedMissionRoot} already resolves to "no mission on screen". A
+ * surface offering a jump reads this FIRST and offers nothing when it is
+ * `undefined`, rather than shipping a control that lands somewhere blank.
+ */
+export function deckDestinationFor(
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+  targetId: IssueId | null,
+): IssueNavigationModel | undefined {
+  if (!targetId) return undefined
+  const target = issues.find((issue) => issue.id === targetId)
+  // The target's OWN reachability, which `missionRootFor` does not ask: it
+  // checks ancestors so a live child of a retired epic still roots somewhere,
+  // and an archived target would otherwise resolve happily to itself.
+  if (!target || target.archived || target.deletedAt) return undefined
+  const root = missionRootFor(issues, targetId)
+  if (!root || isEmptyDraftVessel(root, sessions)) return undefined
+  return root
+}
+
+/**
  * The origin a spin-off was discovered from, or null when it is not one.
  *
  * An OUTGOING `discovered-from` dep is what `attach --spinoff` writes (see

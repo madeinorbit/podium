@@ -33,6 +33,9 @@ const RELATED = makeIssue({
 const CHILD_SESSION = {
   sessionId: 'cs',
   issueId: 'c',
+  title: 'Child agent',
+  agentKind: 'claude-code',
+  cwd: '/r',
   archived: false,
   status: 'live',
   lastActiveAt: '2026-08-06T00:00:00.000Z',
@@ -40,8 +43,24 @@ const CHILD_SESSION = {
 
 const setPane = vi.fn()
 const setView = vi.fn()
+const setSelectedIssueId = vi.fn()
 const markIssueRead = vi.fn()
 const markSessionRead = vi.fn()
+
+/**
+ * A draft vessel nobody ever filled: the composer minted it so a session had
+ * somewhere to live, and the session never started. No worktree, no work — the
+ * deck resolves it to "no mission on screen" and renders its empty state, so
+ * there is nothing for a jump to arrive at.
+ */
+const EMPTY_DRAFT = makeIssue({
+  id: 'x',
+  repoPath: '/r',
+  seq: 4,
+  title: 'New session',
+  draft: true,
+  worktreePath: undefined,
+})
 
 vi.mock('@/app/store', () => {
   const state = () =>
@@ -55,10 +74,11 @@ vi.mock('@/app/store', () => {
       httpOrigin: '',
       openFileInWorktree: vi.fn(),
       uiState: { get: () => null, set: vi.fn() },
-      issues: [PARENT, CHILD, RELATED],
+      issues: [PARENT, CHILD, RELATED, EMPTY_DRAFT],
       sessions: [CHILD_SESSION],
       setPane,
       setView,
+      setSelectedIssueId,
       markIssueRead,
       markSessionRead,
     }) as never
@@ -122,6 +142,40 @@ describe('IssuePanelView subissue rows', () => {
     )
     fireEvent.click(screen.getByTestId('dock-show-in-deck'))
     expect(setView).toHaveBeenCalledWith('workspace')
+  })
+
+  /**
+   * THE HALF THAT WAS MISSING (POD-1151). The sidebar highlights
+   * `selectedIssueId`, which is a mission ROOT; focus is the pointer inside it
+   * and is discarded when it names a task the selected mission does not hold.
+   * Setting focus alone — which is all this used to do — therefore arrived
+   * nowhere, and the control read as dead.
+   */
+  it('selects the top-level ancestor, not the sub-issue, when showing a child in the deck', () => {
+    render(
+      <OperatorFocusProvider missionId="p">
+        <IssuePanelView cwd="/r" issueId={'c' as never} onNavigate={vi.fn()} />
+      </OperatorFocusProvider>,
+    )
+    fireEvent.click(screen.getByTestId('dock-show-in-deck'))
+
+    // The MISSION is the parent — that is the row the sidebar can highlight —
+    // while the pane still opens the child's own session, so the operator lands
+    // on the task they asked for rather than on its epic.
+    expect(setSelectedIssueId).toHaveBeenCalledWith('p')
+    expect(setPane).toHaveBeenCalledWith('A', 'cs')
+    expect(setView).toHaveBeenCalledWith('workspace')
+  })
+
+  it('offers no jump for a task the deck cannot show', () => {
+    render(
+      <OperatorFocusProvider missionId="x">
+        <IssuePanelView cwd="/r" issueId={'x' as never} onNavigate={vi.fn()} />
+      </OperatorFocusProvider>,
+    )
+    // The mission resolves to nothing, so the deck would answer this jump with
+    // its empty state. A link that lands nowhere is worse than no link.
+    expect(screen.queryByTestId('dock-show-in-deck')).toBeNull()
   })
 
   it('shows the target status icon in relation rows', () => {

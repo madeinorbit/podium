@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildFlightDeckRows,
   coordinatorCount,
+  deckDestinationFor,
   deckIssueState,
   deckSessions,
   type FlightDeckRow,
@@ -263,6 +264,60 @@ describe('selectedMissionRoot', () => {
     const root = issue('root')
     const child = issue('child', { parentId: 'root', archived: true })
     expect(selectedMissionRoot([root, child], [], asIssueId('child'))?.id).toBe('root')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// deckDestinationFor
+// ---------------------------------------------------------------------------
+
+describe('deckDestinationFor', () => {
+  it('answers the top-level ancestor a sub-task hangs from', () => {
+    // The whole point: the sidebar selects MISSIONS, so showing a grandchild
+    // means selecting the root and focusing the child inside it.
+    const { issues, sessions } = mission()
+    expect(deckDestinationFor(issues, sessions, asIssueId('g2'))?.id).toBe('root')
+  })
+
+  it('answers a top-level task with itself', () => {
+    const { issues, sessions } = mission()
+    expect(deckDestinationFor(issues, sessions, asIssueId('root'))?.id).toBe('root')
+  })
+
+  it.each<[string, string | null]>([
+    ['nothing named', null],
+    ['an id the replica has not seen', 'ghost'],
+  ])('is undefined for %s', (_name, target) => {
+    const { issues, sessions } = mission()
+    expect(
+      deckDestinationFor(issues, sessions, target === null ? null : asIssueId(target)),
+    ).toBeUndefined()
+  })
+
+  it('is undefined for an archived or deleted target — the deck lists neither', () => {
+    // `missionRootFor` checks ANCESTORS, so a retired top-level task would
+    // otherwise resolve happily to itself and offer a jump to a row that is not
+    // there. This is the target's own reachability (POD-1151).
+    const issues = [
+      issue('dead', { archived: true }),
+      issue('gone', { deletedAt: '2026-07-01T00:00:00.000Z' }),
+    ]
+    expect(deckDestinationFor(issues, [], asIssueId('dead'))).toBeUndefined()
+    expect(deckDestinationFor(issues, [], asIssueId('gone'))).toBeUndefined()
+  })
+
+  it('is undefined when the mission is an empty draft vessel', () => {
+    // Same cold case `selectedMissionRoot` answers: the deck renders its empty
+    // state, so there is nothing for the jump to arrive at.
+    const vessel = issue('vessel', { draft: true, title: 'Draft', stage: 'backlog' })
+    expect(deckDestinationFor([vessel], [], asIssueId('vessel'))).toBeUndefined()
+  })
+
+  it('keeps a live child whose retired parent broke the walk', () => {
+    // `missionRootFor` stops below an archived parent, and the child is exactly
+    // what the sidebar promotes to a row of its own in that case.
+    const issues = [issue('dead', { archived: true }), issue('a', { parentId: 'dead' })]
+    expect(deckDestinationFor(issues, [], asIssueId('a'))?.id).toBe('a')
   })
 })
 

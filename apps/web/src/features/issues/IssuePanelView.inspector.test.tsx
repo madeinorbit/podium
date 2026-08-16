@@ -122,6 +122,7 @@ vi.mock('@/app/store', () => {
     repos: [],
     machines: [],
     setPane,
+    setSelectedIssueId: vi.fn(),
     setView,
     setOpenIssueId,
     navigateToSession: vi.fn(),
