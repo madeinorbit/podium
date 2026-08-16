@@ -32,6 +32,13 @@
   --color-ring: var(--ring);
   /* Podium semantic extras (agent/host state) — not in the stock shadcn set. */
   --color-success: var(--success);
+  /* Success as a FILL, and the ink that survives on it. `--success` is tuned to
+     be read as a line and as a tint; a solid band of it under 10.5px type is a
+     different job, and on paper it wants one step darker to clear the contrast
+     floor. The pair exists for the same reason `--attention-foreground` does:
+     the one place in the shell that fills with this hue must not guess. */
+  --color-success-solid: var(--success-solid);
+  --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   /* Activity accents: --live = "an agent is actively working" (dots, rails,
      working indicators); --info = the calm user/ready blue (You rail, ready
@@ -196,6 +203,8 @@
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --success: oklch(0.6 0.13 163);
+  --success-solid: oklch(0.52 0.13 163);
+  --success-foreground: #ffffff;
   --warning: oklch(0.78 0.16 70);
   --live: #2f6bff;
   --info: #3b82f6;
@@ -282,6 +291,8 @@
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
   --success: oklch(0.7 0.15 162);
+  --success-solid: oklch(0.7 0.15 162);
+  --success-foreground: oklch(0.22 0.05 162);
   --warning: oklch(0.83 0.16 82);
   --live: #6f9dff;
   --info: #3b82f6;
@@ -349,6 +360,10 @@
   --input: #e2e2e8;
   --ring: #d97706;
   --success: #059669;
+  /* White on #059669 is 3.8:1 — under the floor for 10.5px type. One step
+     darker clears it, and the band is still unmistakably the success hue. */
+  --success-solid: #047857;
+  --success-foreground: #ffffff;
   --warning: #d97706;
   --live: #2f6bff;
   --info: #3b82f6;
@@ -403,6 +418,8 @@
   --input: #2a2a34;
   --ring: #f59e0b;
   --success: #34d399;
+  --success-solid: #34d399;
+  --success-foreground: #05241a;
   --warning: #fbbf24;
   /* Activity hues (POD-166 R10): live/working reads calm blue, user/ready blue-500. */
   --live: #6f9dff;
@@ -501,6 +518,11 @@
      only difference. Royal Blue is the settled state, Accent Blue the moving
      one; both are already in the brand vocabulary (DESIGN.md §2). */
   --success: #1d4ed8;
+  /* No green here, so the gauge's done band cannot separate from running by
+     hue — it separates by WEIGHT instead, and Royal Blue is already dark
+     enough to carry white type solid. */
+  --success-solid: #1d4ed8;
+  --success-foreground: #ffffff;
   --warning: #8a6200;
   --live: #2a62f0;
   --info: #2a62f0;
@@ -646,6 +668,8 @@
   /* No green: host-health dots and quota meters render in the mock's blue.
      Live agent activity reads calm blue too (POD-166 R10). */
   --success: #2a62f0;
+  --success-solid: #1d4ed8;
+  --success-foreground: #ffffff;
   --warning: #e3ba52;
   --live: #6f9dff;
   --info: #2a62f0;

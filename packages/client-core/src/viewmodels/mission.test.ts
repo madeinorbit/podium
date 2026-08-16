@@ -1996,6 +1996,7 @@ describe('issueNote', () => {
     })
     expect(issueNote(subject, index([origin, subject, replacement]))).toEqual({
       kind: 'continued',
+      label: 'continued in',
       short: '#15',
       full: 'Work continued in #15',
     })

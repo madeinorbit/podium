@@ -8279,8 +8279,8 @@ a.ref-link--session::before {
    strip — which is genuinely narrower — gives way before a shallow one.
 
    The numbers are the arithmetic of the rule, not taste. Rigid furniture is
-   ~125px: the 20px chevron, the 13px stage glyph, the 70px state column and
-   four 6px gaps. Add the title's 150px floor and a bare strip needs 275px;
+   ~135px: the 20px chevron, the 13px stage glyph, the 80px state column and
+   four 6px gaps. Add the title's 150px floor and a bare strip needs 285px;
    each threshold above that is the width of the thing it decides about — a
    census icon (22), the payload chip and its bar (86), a relation chip (76).
    The strip is a container, so its inline size comes from the column rather
@@ -8290,38 +8290,146 @@ a.ref-link--session::before {
   container-name: deck-strip;
 }
 
-@container deck-strip (max-width: 360px) {
+@container deck-strip (max-width: 370px) {
   .deck-drop-relation {
     display: none;
   }
 }
 
-@container deck-strip (max-width: 340px) {
+@container deck-strip (max-width: 350px) {
   .deck-drop-payload {
     display: none;
   }
 }
 
-@container deck-strip (max-width: 300px) {
+@container deck-strip (max-width: 310px) {
   .deck-drop-crew {
     display: none;
   }
 }
 
-/* An AGENT row gives way on the same principle, with one thing to drop. Its
-   rigid parts are the 20px harness chip, the ref (which never truncates) and
-   the 70px state column; the name is the arbitrary-length one and the role is
-   the least load-bearing, so under ~300px the role leaves whole and the name
-   gets the room back. Its own container, because an agent row is inset further
-   than the strip it hangs under and narrows before it does. */
+/* ── THE STATE COLUMN — one width, everywhere in the column (POD-1146) ───────
+   Every strip, every agent row, every departure tick and every proposal parks
+   its right-hand fact in this one column, so the whole mission scans as a
+   single vertical read down the spine's edge.
+   80px, not 70: `DECK_LABEL` has two eleven-character values (`Standing by`,
+   `Not started`) and 70px holds neither — a state cut to `Not sta…` is a WRONG
+   state, which is the one thing this column exists to prevent. The departures'
+   own cell was already 80 (70px of text plus a 5px dot and its gap); the strips
+   now take the same measure rather than a near-miss.
+   Declared here rather than as an inline style so the narrow ladder below can
+   release it — a container query cannot outrank a style attribute. */
+:root {
+  --deck-state-col: 80px;
+}
+.deck-state-col {
+  width: var(--deck-state-col);
+}
+
+/* An AGENT row gives way on the same principle, and it is FOUR RIGID COLUMNS —
+   name · ref · role · state — so the roster reads down its edges instead of
+   ragging. The name takes the slack and is the only shrinker; the ref parks at
+   68px right-aligned, the role word at 96px, the state in the shared column.
+   Its own container, because an agent row is inset further than the strip it
+   hangs under and narrows before it does. */
 .deck-agent {
   container-type: inline-size;
   container-name: deck-agent;
 }
+.deck-agent-ref {
+  width: 68px;
+}
+.deck-agent-role {
+  width: 96px;
+}
+/* AT THE FLOOR NOTHING IS DROPPED — the row takes two lines instead.
+   The old rule hid `.deck-drop-role` outright under 300px, which threw away the
+   one word saying what an agent IS on this task. A flight deck's answer to a
+   narrow column is to SPEND THE LINE AND KEEP THE FACT: name and ref on line 1,
+   role and state on line 2, indented to the name's own left edge.
+   The `order` values are unconditional — the forced wrap below them is simply
+   not displayed until the ladder needs it — so the wide row depends on nothing
+   in the query block. */
+.deck-agent-break {
+  display: none;
+  order: 1;
+}
+.deck-agent-role {
+  order: 2;
+}
+.deck-agent-state {
+  order: 3;
+}
 
-@container deck-agent (max-width: 300px) {
-  .deck-drop-role {
-    display: none;
+@container deck-agent (max-width: 310px) {
+  .deck-agent {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding-bottom: 3px;
+  }
+  .deck-agent-break {
+    display: block;
+    flex: 0 0 100%;
+    height: 0;
+  }
+  /* Line 1 ends with the ref, hard against the right edge; line 2 opens under
+     the name with the role and ends with the state. Both cells give up their
+     rigid width — there is no column to line up with on a row of their own. */
+  .deck-agent-ref,
+  .deck-agent-role,
+  .deck-agent-state {
+    width: auto;
+  }
+  .deck-agent-role {
+    margin-left: 28px;
+  }
+  /* A row with no role still HOLDS the cell — it just does not indent an empty
+     box, or the state beside it would start 28px further out than everyone
+     else's. */
+  .deck-agent-role:empty {
+    margin-left: 0;
+  }
+  .deck-agent-state {
+    margin-left: auto;
+  }
+  /* THE OBLIGATION OPENS LINE 2 rather than closing it. `Needs you · 14h ago`
+     is the one thing on an agent row that must never be shortened or hunted
+     for, so at the floor it takes the name's own left edge — where the eye
+     already is — instead of parking at the right margin with the statuses. */
+  [data-needs-you='true'] .deck-agent-state {
+    margin-right: auto;
+    margin-left: 28px;
+  }
+}
+
+/* ── THE MISSION HEADER'S OWN LADDER (POD-1146) ──────────────────────────────
+   Nothing in the header could wrap, so a mission carrying a relation note, a
+   held seat and a long stage word simply collided at the column's floor. Both
+   the eyebrow and the control row are `flex-wrap` now, with the identity group
+   unshrinkable: the deck starts at 300px, and a flight deck may spend a line to
+   keep a fact.
+   The eyebrow's second line is the RELATION line. Identity (glyph · ref ·
+   stage) and the collapse chevron own line 1 and never move; the note drops
+   underneath them, left-aligned on the same 16px datum, where it can never run
+   into the chevron. `order` puts the chevron ahead of the note for the wrap
+   even though the note comes first in the DOM — which is what keeps the wide
+   row reading identity → note → chevron. */
+.deck-header {
+  container-type: inline-size;
+  container-name: deck-header;
+}
+
+@container deck-header (max-width: 400px) {
+  .deck-eyebrow-note {
+    flex: 0 0 100%;
+    order: 1;
+    /* Line 2 opens on the eyebrow's own 16px datum — the indent that separated
+       it from the identity above belongs to a row it is no longer sharing. */
+    padding-left: 0;
+    padding-bottom: 2px;
+  }
+  .deck-eyebrow-chevron {
+    order: 0;
   }
 }
 
@@ -8373,14 +8481,27 @@ a.ref-link--session::before {
   white-space: nowrap;
   transition: flex-grow 0.3s ease-out;
 }
-/* Two devices per band, not one: a 26% tint says roughly how much, a saturated
-   2px rule along the floor says exactly where it ends. That is also what keeps
-   done and running apart in Daylight, where Accent Blue and the working blue
-   sit close enough that hue alone would not carry it. */
+/* DONE IS THE GAUGE'S ONLY SOLID BAND, and everything unfinished is a tint.
+   Finished work is settled, so it is dense; work in flight is light and carries
+   the motion. That one weight step is what keeps done and running apart in
+   Daylight, where `--success` is itself a blue and hue alone could not carry it
+   — and in the presets that DO have a green it simply reinforces the hue.
+   `--success-solid` rather than `--success`: a fill under 10.5px type is a
+   different job from a line, and on paper it wants one step darker to clear the
+   contrast floor. */
 .gauge-band[data-s="done"] {
-  background-color: color-mix(in srgb, var(--success) 26%, transparent);
-  box-shadow: inset 0 -2px 0 var(--success);
-  color: var(--text-strong);
+  background-color: var(--success-solid);
+  color: var(--success-foreground);
+}
+/* NOTHING TO MEASURE — a closed or memberless root, where `total` is 0.
+   Not a success state and not an empty groove: nothing here is done, there is
+   simply nothing to count, so the band takes the neutral `to go` ground, says
+   so in one word, and keeps the track the same object at the same height. The
+   stage the mission IS in is already on the eyebrow two lines above. */
+.gauge-band[data-s="none"] {
+  background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--foreground) 22%, transparent);
+  color: var(--text-dim);
 }
 .gauge-band[data-s="run"] {
   background-color: color-mix(in srgb, var(--live) 26%, transparent);
@@ -8442,13 +8563,62 @@ a.ref-link--session::before {
     display: inline;
   }
 }
+@container gauge-band (min-width: 58px) {
+  .gauge-band[data-s="none"] .gauge-band-word {
+    display: inline;
+  }
+}
 @container gauge-band (min-width: 64px) {
-  .gauge-band[data-s="run"] .gauge-band-word,
   .gauge-band[data-s="review"] .gauge-band-word,
   .gauge-band[data-s="block"] .gauge-band-word {
     display: inline;
   }
 }
+/* `IN PROGRESS` is four characters longer than `RUNNING` was, so its rung moves
+   up with it — below this the band sheds to the count alone, exactly as before. */
+@container gauge-band (min-width: 86px) {
+  .gauge-band[data-s="run"] .gauge-band-word {
+    display: inline;
+  }
+}
+
+/* ── THE RUNNING BAND'S CELLS (POD-1146) ─────────────────────────────────────
+   The band used to carry `.row-progress-sweep` — a full-height sheen travelling
+   over the whole segment, which is right on the sidebar's 3px rule and wrong
+   here, because THIS band has words in it and the sweep washed straight across
+   them twice a second.
+   So the motion moves under the type: cells of the band's own blue, six on and
+   three off, stepping the length of the segment in eight discrete frames. It is
+   the braille spinner's grammar rendered as a meter — it ADVANCES rather than
+   glides — and at 42% it reads as texture beneath the count rather than as a
+   highlight over it.
+   Gated by its caller on `working` (an agent computing right now), never on the
+   stage: see the note in MissionGauge.tsx. */
+@keyframes podium-gauge-march {
+  from {
+    background-position: -72px 0;
+  }
+  to {
+    background-position: calc(100% + 72px) 0;
+  }
+}
+.gauge-band-march {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--live) 42%, transparent),
+    transparent
+  );
+  background-repeat: no-repeat;
+  background-size: 72px 100%;
+  background-position: -72px 0;
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
+  mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
+  animation: podium-gauge-march 1.3s steps(8, end) infinite;
+}
+
 /* THE GAUGE'S BLOCKED GROUND (POD-710).
    The same idea as `.deck-hatch`, and deliberately the same 135° rhythm —
    "stopped" is ONE texture in this app — one step denser and one step tighter,
@@ -8468,6 +8638,12 @@ a.ref-link--session::before {
   /* A band resizing is structural motion, but it is still motion. */
   .gauge-band {
     transition: none;
+  }
+  /* The cells stop marching; the band's own reserved working blue still says
+     which part of the mission is the moving part. */
+  .gauge-band-march {
+    animation: none;
+    opacity: 0;
   }
 }
 

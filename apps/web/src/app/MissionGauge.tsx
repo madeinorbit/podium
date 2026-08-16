@@ -18,12 +18,12 @@ import { cn } from '@/lib/utils'
  * It replaces a well that drew a tinted region, a floor rule and a three-word
  * legend for the same facts, so a one-task mission spent three devices saying
  * one thing. Now a mission of one running task is a single band reading
- * `1 RUNNING`, filling the track: one fact, one place. That is the operator's
+ * `1 IN PROGRESS`, filling the track: one fact, one place. That is the operator's
  * complaint answered at the bar as well as in the arithmetic — the counting
  * half lives in `missionProgress` (one unit of work is one task; the root is
  * the container being measured, not a segment of it).
  *
- * Bands run done → in review → running → blocked → to go, so review-stage
+ * Bands run done → in review → in progress → blocked → to go, so review-stage
  * work cannot masquerade as execution when the fleet chip correctly says zero
  * agents. The track fills from the left as work lands.
  *
@@ -58,11 +58,22 @@ import { cn } from '@/lib/utils'
  * COLOUR, TEXTURE, MOTION
  * ---------------------------------------------------------------------------
  *
- * Meters are data (DESIGN.md §5). Done takes Accent Blue (`--success`; Superade
- * has no green), running takes the working blue the spinner already wears
- * (`--live`), and the two are separated by more than hue: each band carries a
- * saturated 2px rule along its floor under a 26% tint of the same token, so the
- * ladder survives Daylight, where those two blues sit close together.
+ * Meters are data (DESIGN.md §5). Done takes `--success` — a real green in the
+ * Nova and Podium presets, Royal Blue in Daylight, which has none — and running
+ * takes the working blue the spinner already wears (`--live`).
+ *
+ * WEIGHT IS WHAT SEPARATES THEM, not hue: DONE IS THE GAUGE'S ONLY SOLID BAND
+ * and everything unfinished is a tint over a saturated floor rule. Finished
+ * work is settled, so it is dense; work in flight is light and carries the
+ * motion. That holds in Daylight, where done and running are two blues and hue
+ * alone could not carry it, and it reinforces the hue everywhere else.
+ *
+ * THE BAND IS CALLED `IN PROGRESS`, NOT `RUNNING`. In `missionProgress` the
+ * `run` bucket counts tasks whose STAGE is `in_progress`, while the motion
+ * gates on `working` — a session actually computing. Those are two different
+ * facts, and a band reading `3 RUNNING` sitting perfectly still claimed one
+ * while measuring the other. The band takes the stage's own name; the marching
+ * cells say whether anything is happening inside it.
  *
  * BLOCKED TAKES NO HUE AT ALL. `--warning` IS `--attention` (#f5c518) in
  * Superade, so a warning-toned band would spend the one signal colour on work
@@ -71,15 +82,28 @@ import { cn } from '@/lib/utils'
  * 28px row and the gauge has a 22px band — one texture for "stopped", in the
  * column and in the meter.
  *
- * MOTION GATES ON `working`, NOT ON `run`. The sweep is licensed by the
+ * MOTION GATES ON `working`, NOT ON `run`. The march is licensed by the
  * predicate the braille spinner is licensed by — an agent computing RIGHT NOW —
  * not by a task sitting in a stage (DESIGN.md §5, "The predicate, not the
  * device"). A mission parked in `in_progress` overnight with nothing attached
- * used to sweep all night, which is exactly the motion that outlives the
+ * used to animate all night, which is exactly the motion that outlives the
  * computing it depicts. This is the same gate `RowProgressMeter` uses, so the
  * row and the mission header can never disagree. `data-running` stays as the
  * task-stage fact, for anything that wants to know the mission has running
  * work; `data-working` is the motion fact.
+ *
+ * IT MARCHES, IT DOES NOT SWEEP. `.row-progress-sweep` is a full-height sheen
+ * travelling over the whole segment — right on the sidebar's 3px rule, wrong
+ * here, because this band has WORDS in it and the sheen washed across them
+ * twice a second. `.gauge-band-march` steps cells of the band's own blue along
+ * the segment instead, under the count rather than over it. The sidebar keeps
+ * the sweep; its meter has nothing to wash out.
+ *
+ * NOTHING TO MEASURE is a state, not a gap. `total === 0` (a closed root, or
+ * one whose members have all left) used to paint an empty groove beside
+ * "0 agents", which reads as broken. It gets one neutral band saying NO TASKS —
+ * in the `to go` ground, never a success colour: nothing is done, there is
+ * simply nothing to count.
  *
  * Fleet presence stays OUTSIDE the track, as a still neutral chip. The chip
  * says who is computing when someone is (`N working`), otherwise who is on
@@ -96,31 +120,38 @@ export function MissionGauge({
 }): JSX.Element {
   const { total, done, run, review, block, wait } = progress
   const crew = missionCrewLabel(live, working)
-  const reading =
-    [
-      `${done} of ${total} task${total === 1 ? '' : 's'} done`,
-      run > 0 ? `${run} running` : null,
-      review > 0 ? `${review} in review` : null,
-      block > 0 ? `${block} blocked` : null,
-      wait > 0 ? `${wait} to go` : null,
-    ]
-      .filter(Boolean)
-      .join(', ') + ` · ${crew}`
-  // A band exists iff it holds work. `total === 0` is only reachable for a
-  // mission whose root is itself archived; it leaves the empty groove, which is
-  // the honest picture of a mission with nothing to measure.
-  const bands = (
-    [
-      ['done', 'done', done],
-      ['review', 'in review', review],
-      ['run', 'running', run],
-      ['block', 'blocked', block],
-      ['wait', 'to go', wait],
-    ] as const
-  ).filter(([, , count]) => count > 0)
+  const work =
+    total === 0
+      ? 'No tasks'
+      : [
+          `${done} of ${total} task${total === 1 ? '' : 's'} done`,
+          run > 0 ? `${run} in progress` : null,
+          review > 0 ? `${review} in review` : null,
+          block > 0 ? `${block} blocked` : null,
+          wait > 0 ? `${wait} to go` : null,
+        ]
+          .filter(Boolean)
+          .join(', ')
+  const reading = `${work} · ${crew}`
+  // A band exists iff it holds work — with one exception, and it is not an
+  // exception to that rule: a mission with NOTHING to count gets the `none`
+  // band, which holds no work and says so. Everything else would be an empty
+  // groove, and an empty groove reads as a broken gauge.
+  const bands =
+    total === 0
+      ? ([['none', 'no tasks', 0]] as const)
+      : (
+          [
+            ['done', 'done', done],
+            ['review', 'in review', review],
+            ['run', 'in progress', run],
+            ['block', 'blocked', block],
+            ['wait', 'to go', wait],
+          ] as const
+        ).filter(([, , count]) => count > 0)
   return (
     <div
-      className="mt-3 flex items-center gap-2"
+      className="flex min-w-0 items-center gap-2"
       data-testid="mission-gauge"
       data-running={run > 0 ? 'true' : 'false'}
       data-working={working > 0 ? 'true' : 'false'}
@@ -138,7 +169,7 @@ export function MissionGauge({
           on paper the old value sat between the two band tints and the track
           stopped reading as the thing the bands are IN. */}
       <span
-        className="relative flex h-[24px] min-w-0 flex-1 items-center gap-[2px] overflow-hidden rounded-lg bg-background p-[2px] shadow-[inset_0_1px_2px_var(--carve-drop)]"
+        className="relative flex h-[26px] min-w-0 flex-1 items-center gap-[2px] overflow-hidden rounded-lg bg-background p-[2px] shadow-[inset_0_1px_2px_var(--carve-drop)]"
         data-testid="mission-gauge-track"
       >
         {bands.map(([state, word, count]) => (
@@ -147,18 +178,25 @@ export function MissionGauge({
             className={cn('gauge-band', state === 'block' && 'gauge-hatch')}
             data-testid="mission-gauge-band"
             data-s={state}
-            style={{ flexGrow: count }}
+            // The empty band holds no work, so its weight is not its count —
+            // it takes the whole track, because "nothing to count" is not a
+            // slice of anything.
+            style={{ flexGrow: state === 'none' ? 1 : count }}
           >
             {state === 'run' && working > 0 && (
-              <span className="row-progress-sweep" aria-hidden="true" />
+              <span className="gauge-band-march" aria-hidden="true" />
             )}
             <span className="gauge-band-text">
-              <b className="gauge-band-count" data-w={Math.min(3, String(count).length)}>
-                {count}
-              </b>
+              {/* The empty band counts nothing \u2014 it exists to say there is
+                  nothing to count \u2014 so it carries the word alone. */}
+              {state !== 'none' && (
+                <b className="gauge-band-count" data-w={Math.min(3, String(count).length)}>
+                  {count}
+                </b>
+              )}
               {/* The separating space belongs to the WORD, so shedding the word
                   sheds it too and a lone numeral is never left off-centre. */}
-              <span className="gauge-band-word">{`\u00a0${word}`}</span>
+              <span className="gauge-band-word">{state === 'none' ? word : `\u00a0${word}`}</span>
             </span>
           </span>
         ))}
@@ -169,7 +207,7 @@ export function MissionGauge({
           beside a recessed track read as two unrelated objects, and the rim
           was doing work the tone step already does. */}
       <span
-        className="shell-type-micro flex h-[24px] flex-none items-center gap-1.5 rounded-lg bg-background px-[9px] font-mono tabular-nums text-text-dim"
+        className="shell-type-micro flex h-[26px] flex-none items-center gap-1.5 rounded-lg bg-background px-[9px] font-mono tabular-nums text-text-dim"
         data-testid="mission-live-chip"
       >
         <Users size={12} aria-hidden="true" className="text-text-faint" />

@@ -1461,7 +1461,21 @@ export function discoveredPlacement(
 
 export interface IssueNote {
   kind: 'blocked' | 'waiting' | 'continued' | 'relation' | 'shape-own' | 'shape-mission'
-  /** What the strip prints: a display ref, a count, or the authored prose. */
+  /**
+   * THE RELATION, WRITTEN OUT — the small-caps half of the chip.
+   *
+   * A glyph cannot say *spun off from*. `↳ POD-775`, `⊘ POD-869` and
+   * `→ POD-1037` are three different facts an operator has to act on
+   * differently, and asking them to remember which arrow means which is the
+   * one thing a two-word label makes unnecessary. So the chip prints the
+   * relation and then the ref, and the whole sentence stays on `full`.
+   *
+   * Null when `short` is ALREADY the whole phrase — a block with no resolvable
+   * edge, where the authored prose is the only thing there is to print.
+   */
+  label: string | null
+  /** What the strip prints beside the label: a display ref, a count, or the
+   *  authored prose. */
   short: string
   /** The sentence, for the hover title and the accessible name. */
   full: string
@@ -1474,7 +1488,12 @@ export function issueNote(
 ): IssueNote | null {
   const continuation = issueContinuation(issue, byId, sessions)
   if (continuation) {
-    return { kind: 'continued', short: continuation.short, full: continuation.full }
+    return {
+      kind: 'continued',
+      label: 'continued in',
+      short: continuation.short,
+      full: continuation.full,
+    }
   }
   const refs = waitingRefs(issue, byId)
   const many = (): string => `${refs.length} tasks`
@@ -1482,15 +1501,18 @@ export function issueNote(
     const full = blockedByLabel(issue, byId)
     // No resolvable edge leaves only the authored prose, which IS the short form
     // — a chip reading "Blocked by" with nothing after it names nothing.
+    const named = refs.length > 0
     return {
       kind: 'blocked',
-      short: refs.length === 1 ? (refs[0] as string) : refs.length > 1 ? many() : full,
+      label: named ? 'blocked by' : null,
+      short: refs.length === 1 ? (refs[0] as string) : named ? many() : full,
       full,
     }
   }
   if (refs.length > 0) {
     return {
       kind: 'waiting',
+      label: 'waiting for',
       short: refs.length === 1 ? (refs[0] as string) : many(),
       full: waitingNote(issue, byId) as string,
     }
@@ -1505,6 +1527,7 @@ export function issueNote(
     return shape.placement === 'own'
       ? {
           kind: 'shape-own',
+          label: 'starts',
           short: 'on its own',
           full: origin
             ? `Starts on its own — ${origin} can close without it`
@@ -1512,6 +1535,7 @@ export function issueNote(
         }
       : {
           kind: 'shape-mission',
+          label: 'starts',
           short: 'in this mission',
           full: origin
             ? `Part of ${origin} — that task is not done until this is`
@@ -1519,7 +1543,12 @@ export function issueNote(
         }
   }
   const edge = relationEdge(issue, byId)
-  return edge ? { kind: 'relation', short: edge.ref, full: `${edge.verb} ${edge.ref}` } : null
+  // The edge's own verb IS the label — "Discovered from", "Related to" — so the
+  // chip never invents a second vocabulary for a relation the model has already
+  // named.
+  return edge
+    ? { kind: 'relation', label: edge.verb, short: edge.ref, full: `${edge.verb} ${edge.ref}` }
+    : null
 }
 
 /**

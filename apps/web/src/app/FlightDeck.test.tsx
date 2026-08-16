@@ -486,8 +486,14 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(card.textContent).toContain('Work continued in POD-963')
     expect(card.textContent).toContain('No session remains here.')
     expect(card.textContent).not.toContain('session ended')
-    expect(screen.getByText('Left this mission')).toBeTruthy()
-    expect(screen.getByTestId('flight-departure').textContent).toContain('POD-963')
+    // ONE REGION, ONE STATEMENT (POD-1146). The tip is the continuation AND a
+    // departure — it used to render as a card and again as a faint mono tick
+    // twelve pixels below it, in a different voice. The card is now the first
+    // row of the departures region, so POD-963 is said exactly once.
+    expect(screen.getByText('Where the work went')).toBeTruthy()
+    expect(screen.queryByText('Left this mission')).toBeNull()
+    expect(screen.queryByTestId('flight-departure')).toBeNull()
+    expect(screen.getByTestId('flight-departures').contains(card)).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: 'Open POD-963' }))
     expect(harness.setSelectedIssueId).toHaveBeenCalledWith('tip')

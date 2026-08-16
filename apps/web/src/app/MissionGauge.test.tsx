@@ -12,9 +12,9 @@ const label = (band: HTMLElement | undefined): string =>
   (band?.textContent ?? '').replace(/\u00a0/g, ' ')
 
 describe('Flight Deck mission gauge', () => {
-  it('sweeps while an agent computes, not merely while a task sits in progress', () => {
+  it('marches while an agent computes, not merely while a task sits in progress', () => {
     // The old gauge animated on `run > 0`, so a mission parked in `in_progress`
-    // overnight swept all night — motion outliving the computing it depicts
+    // overnight animated all night — motion outliving the computing it depicts
     // (DESIGN.md §5). The gate is now the one `RowProgressMeter` uses.
     const view = render(
       <MissionGauge
@@ -29,7 +29,7 @@ describe('Flight Deck mission gauge', () => {
 
     expect(gauge.getAttribute('data-running')).toBe('true')
     expect(gauge.getAttribute('data-working')).toBe('false')
-    expect(track.querySelector('.row-progress-sweep')).toBeNull()
+    expect(track.querySelector('.gauge-band-march')).toBeNull()
 
     // Presence is not a slice of the work.
     expect(track.parentElement).toBe(gauge)
@@ -45,10 +45,10 @@ describe('Flight Deck mission gauge', () => {
       />,
     )
     expect(gauge.getAttribute('data-working')).toBe('true')
-    const sweep = track.querySelector('.row-progress-sweep')
-    expect(sweep).not.toBeNull()
+    const march = track.querySelector('.gauge-band-march')
+    expect(march).not.toBeNull()
     // …and it belongs to the running band, not to the track at large.
-    expect(sweep?.closest('[data-testid="mission-gauge-band"]')?.getAttribute('data-s')).toBe('run')
+    expect(march?.closest('[data-testid="mission-gauge-band"]')?.getAttribute('data-s')).toBe('run')
 
     // Nothing is running any more: still working agents, but no running band to
     // sweep, so the gauge is completely still.
@@ -60,7 +60,7 @@ describe('Flight Deck mission gauge', () => {
       />,
     )
     expect(gauge.getAttribute('data-running')).toBe('false')
-    expect(track.querySelector('.row-progress-sweep')).toBeNull()
+    expect(track.querySelector('.gauge-band-march')).toBeNull()
   })
 
   it('gives a band to every state that has work and to no state that has none', () => {
@@ -73,9 +73,9 @@ describe('Flight Deck mission gauge', () => {
     )
     // The complaint, answered: one task is one band saying one thing.
     expect(bands().map((band) => band.getAttribute('data-s'))).toEqual(['run'])
-    expect(label(bands()[0])).toBe('1 running')
+    expect(label(bands()[0])).toBe('1 in progress')
     expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
-      '0 of 1 task done, 1 running · 1 working',
+      '0 of 1 task done, 1 in progress · 1 working',
     )
 
     view.rerender(
@@ -96,7 +96,7 @@ describe('Flight Deck mission gauge', () => {
     // Blocked is hueless: the deck's own "stopped" texture, never the signal colour.
     expect(bands()[2]?.className).toContain('gauge-hatch')
     expect(screen.getByTestId('mission-gauge').getAttribute('title')).toBe(
-      '3 of 8 tasks done, 2 running, 1 blocked, 2 to go · 5 working',
+      '3 of 8 tasks done, 2 in progress, 1 blocked, 2 to go · 5 working',
     )
   })
 
@@ -122,6 +122,27 @@ describe('Flight Deck mission gauge', () => {
     expect(screen.getByTestId('mission-live-chip').textContent).toBe('3 agents')
   })
 
+  // An empty groove beside "0 agents" reads as a broken gauge. Nothing here is
+  // done — there is simply nothing to count — so it says so, in the neutral
+  // `to go` ground rather than in a success colour.
+  it('says NO TASKS rather than painting an empty groove', () => {
+    render(
+      <MissionGauge
+        progress={{ total: 0, done: 0, run: 0, review: 0, block: 0, wait: 0 }}
+        live={0}
+        working={0}
+      />,
+    )
+
+    expect(bands().map((band) => band.getAttribute('data-s'))).toEqual(['none'])
+    expect(label(bands()[0])).toBe('no tasks')
+    // Not a done band, and not a done reading.
+    expect(bands()[0]?.className).not.toContain('gauge-hatch')
+    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
+      'No tasks · 0 agents',
+    )
+  })
+
   it('calls an unstaffed review task in review instead of running', () => {
     render(
       <MissionGauge
@@ -137,6 +158,6 @@ describe('Flight Deck mission gauge', () => {
       '0 of 1 task done, 1 in review · 0 agents',
     )
     expect(screen.getByTestId('mission-gauge').getAttribute('data-running')).toBe('false')
-    expect(screen.getByTestId('mission-gauge-track').querySelector('.row-progress-sweep')).toBeNull()
+    expect(screen.getByTestId('mission-gauge-track').querySelector('.gauge-band-march')).toBeNull()
   })
 })

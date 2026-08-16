@@ -52,14 +52,12 @@ import {
   ArrowDown,
   ArrowRight,
   ArrowUpRight,
-  Ban,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  CornerDownRight,
   Ellipsis,
   Hourglass,
   Search,
@@ -127,7 +125,7 @@ function MissionAgentMenu({
             type="button"
             variant="secondary"
             size="sm"
-            className="h-6 flex-none gap-1.5 px-2.5"
+            className="h-[26px] flex-none gap-1.5 px-2.5"
             disabled={busy}
             aria-label="Add agent to mission"
           >
@@ -228,9 +226,18 @@ const TICK_HEIGHT = 15
  *  outside — so attention is always the leftmost thing on the row. */
 const TICK_SELECTED_X = RAIL_INSET - 5
 const TICK_ATTENTION_X = -5
-/** The right-hand column every row parks its state in, so the whole mission
- *  scans as one vertical read. Rigid: the title is the only shrinker. */
-const STATE_COL = 70
+/**
+ * The right-hand column every row parks its state in, so the whole mission
+ * scans as one vertical read. Rigid: the title is the only shrinker.
+ *
+ * 80px, and the width lives in CSS (`--deck-state-col` / `.deck-state-col`) so
+ * the agent row's narrow ladder can release it — a container query cannot
+ * outrank a style attribute. `DECK_LABEL` has two eleven-character values
+ * (`Standing by`, `Not started`) and 70 held neither; the departure ticks were
+ * already 80 (70px of text plus a 5px dot and its gap), so the strips now take
+ * the same measure rather than a near-miss.
+ */
+const STATE_COL = 'deck-state-col'
 
 /**
  * THE LEAD RAIL.
@@ -441,30 +448,46 @@ function StateMark({ state }: { state: DeckState }): JSX.Element | null {
  * hover title, which is the only way it fits at the column's narrowest.
  */
 function IssueNoteChip({ note }: { note: IssueNote }): JSX.Element {
-  // `shape-own` is the one that leaves, and it takes the same arrow the
-  // departure tick below the spine uses — the chip and the tick are two halves
-  // of one story, so they may not be drawn with two different marks.
-  const Glyph =
-    note.kind === 'blocked'
-      ? Ban
-      : note.kind === 'waiting'
-        ? ArrowDown
-        : note.kind === 'shape-own'
-          ? ArrowUpRight
-          : note.kind === 'continued'
-            ? ArrowRight
-            : CornerDownRight
+  // BLOCKED AND WAITING TAKE THE ATTENTION INK AND A WARM RIM; provenance stays
+  // neutral. Those two are the ones that STOP work — they are the reason the
+  // operator is looking — where "discovered from" and "continued in" are facts
+  // about the task's shape that nothing hangs on.
+  const stopping = note.kind === 'blocked' || note.kind === 'waiting'
   return (
     <span
-      className="shell-type-micro deck-drop-relation flex max-w-[8rem] flex-none items-center gap-1 font-mono text-text-faint"
+      className={cn(
+        // WRITTEN OUT, NOT DRAWN. The chip used to be a glyph and a ref, and a
+        // `↳` cannot say *spun off from*: the difference between "this came
+        // from POD-775", "this is blocked by POD-869" and "this continued in
+        // POD-1037" is exactly what the operator needs off one glance. So the
+        // relation prints in 8px mono caps and the ref follows in the row's own
+        // micro mono, with the whole sentence still on the hover title.
+        //
+        // RIGID, WITH A CEILING. The title is the only shrinker on a strip, so
+        // the chip never gives ground to it — it either fits or it DROPS whole
+        // (`.deck-drop-relation`, at the strip's own 370px rung). The ceiling is
+        // what keeps a long relation from eating the title before that: past
+        // 168px the ref inside truncates rather than the chip growing.
+        'deck-drop-relation flex h-[17px] max-w-[10.5rem] flex-none items-center gap-1.5 rounded-[4px] border px-1.5',
+        stopping ? 'border-attention/40 text-attention' : 'border-hairline-bar text-text-dim',
+      )}
       data-testid="flight-issue-note"
       data-note={note.kind}
       title={note.full}
       role="img"
       aria-label={note.full}
     >
-      <Glyph size={9} aria-hidden className="flex-none" />
-      <span className="truncate">{note.short}</span>
+      {note.label && (
+        <span
+          className={cn(
+            'flex-none font-mono text-[8px] leading-none font-semibold tracking-[0.11em] uppercase',
+            stopping ? 'text-attention' : 'text-text-faint',
+          )}
+        >
+          {note.label}
+        </span>
+      )}
+      <span className="shell-type-micro min-w-0 truncate font-mono">{note.short}</span>
     </span>
   )
 }
@@ -481,12 +504,12 @@ function StateLabel({ value, label }: { value: DeckIssueState; label?: string })
   const word = label ?? value.label
   return (
     <span
-      // RIGID, AND ALWAYS THE SAME WIDTH. Every strip and every agent row parks
-      // its state in this one column, right-aligned, so the mission's states
-      // read down the edge of the spine as a single list. It never shrinks —
-      // the title does — because a half-rendered state is a wrong state.
-      className="flex flex-none items-center justify-end gap-1.5"
-      style={{ width: STATE_COL }}
+      // RIGID, AND ALWAYS THE SAME WIDTH. Every strip, every agent row, every
+      // departure tick and every proposal parks its right-hand fact in this one
+      // column, right-aligned, so the mission's states read down the edge of the
+      // spine as a single list. It never shrinks — the title does — because a
+      // half-rendered state is a wrong state.
+      className={cn('flex flex-none items-center justify-end gap-1.5', STATE_COL)}
       data-operational-state={value.state}
       data-attention={value.attention ? 'true' : undefined}
       title={value.attention ? `${word} · a session in here needs you` : word}
@@ -773,7 +796,22 @@ function NativeRows({
                 <span className="text-text-faint/70"> · {agent.id.slice(0, 8)}</span>
               )}
             </span>
-            <span className="flex-none">{agent.working ? 'working' : 'waiting'}</span>
+            {/* WHICH KIND OF THING THIS IS, said rather than guessed. A native
+                worker is the harness's own fan-out, not a Podium session: no
+                strip, no seat, no ref of its own. The badge after the id is what
+                stops `general-purpose · a7b1341d` from reading as one more
+                agent the operator could have started. */}
+            <span
+              aria-hidden
+              className="flex h-3 flex-none items-center rounded-[3px] bg-chip px-1 text-[8px] leading-none font-semibold tracking-[0.12em] uppercase"
+            >
+              native
+            </span>
+            {/* Their state follows the session that owns them, and it parks in
+                the same column every other row in the spine parks in. */}
+            <span className={cn('flex flex-none justify-end', STATE_COL)}>
+              {agent.working ? 'working' : 'waiting'}
+            </span>
           </button>
         </Hung>
       ))}
@@ -786,7 +824,11 @@ const ROLE_LABEL: Record<Exclude<SessionRole, { kind: 'spawned' }>['kind'], stri
   // "task lead", not "phase lead": the thing it leads is a task, and the spine
   // calls every node in it a task. Two words for one node is one too many.
   'phase-lead': 'task lead',
-  peer: 'operator-added peer',
+  // `peer`, not `operator-added peer`: the role column is 96px of 9px caps and
+  // the long form was the one word in it guaranteed to be cut. What "peer"
+  // leaves out — that you added it yourself — is on the row's own title, and
+  // the shorter word is the one that reads down the column.
+  peer: 'peer',
 }
 
 /** The role as the word after the name. A spawn edge is named by its PARENT —
@@ -818,25 +860,24 @@ const isLead = (role: SessionRole | null): boolean =>
  * Full strength for the mission's coordinator, 70% for a task's lead: a quiet
  * line, a readable word, and the two altitudes told apart without a second
  * device.
+ *
+ * IT IS A COLUMN, NOT A WORD AFTER THE NAME (POD-1146). Every role word parks
+ * in the same 96px cell, so a five-row roster reads as a table of agents rather
+ * than as five differently-spaced sentences — and the cell is held open even on
+ * a row that has no role to put in it, because a column that closes up is not
+ * a column.
  */
 function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.Element {
   const lead = isLead(role)
   return (
     <span
       className={cn(
-        // DROPPED WHOLE BEFORE THE NAME IS CRUSHED. A role is the row's least
-        // load-bearing fact — a lead is already named by its coloured rail and
-        // its fill, and everything here is on the hover title — so on a narrow
-        // column it leaves rather than squeezing the name to `D…`.
-        'shell-type-micro deck-drop-role font-mono',
-        // A LEAD'S WORD NEVER TRUNCATES while it is here. It is one of exactly
-        // two strings and both are short, and `COORDINAT…` is not a caption —
-        // it is a word that failed. Every other arm is a phrase that can lose
-        // its tail and still read ("by Spine desig…"), so those still shrink,
-        // and first.
-        lead
-          ? 'flex-none font-medium tracking-[0.1em] uppercase'
-          : 'min-w-0 flex-1 shrink-[8] truncate font-normal text-text-faint',
+        // ONE VOICE FOR THE WHOLE COLUMN — 9px mono caps, the shell's caption
+        // for a role — so `COORDINATOR`, `TASK LEAD`, `BY SPINE DESIGNER` and
+        // `PEER` read down one edge instead of alternating between two
+        // typographic registers.
+        'deck-agent-role flex-none truncate font-mono text-[9px] leading-none tracking-[0.14em] uppercase',
+        lead ? 'font-medium' : 'font-normal text-text-faint',
       )}
       style={
         lead ? { color: 'var(--issue)', opacity: role.kind === 'coordinator' ? 1 : 0.7 } : undefined
@@ -1022,17 +1063,17 @@ function SessionRow({
             setMenuAnchor({ x: event.clientX, y: event.clientY })
           }}
         >
-          {/* WorkerLabel already says "Handing over → <target>" mid-move, in the
+          {/* FOUR RIGID COLUMNS — name · ref · role · state (POD-1146).
+              The name takes all the slack and is the only shrinker; everything
+              to its right parks in a fixed cell, so every ref lines up under
+              every other ref and the roster reads as a table of agents rather
+              than as five differently-spaced sentences. The cells are held open
+              on rows that have nothing to put in them, because a column that
+              closes up when one row is empty is not a column.
+              WorkerLabel already says "Handing over → <target>" mid-move, in the
               same words the sidebar and the pane header use, so the row never
               invents a second vocabulary for the same event. */}
-          {/* `overflow-hidden` is the hard stop, and the shrink weights are the
-              policy: WHO this is outranks WHAT it is here as. The role used to
-              be `flex-none`, which cannot shrink — so on a long parent name it
-              took the width it wanted, squeezed the session's own name down to
-              "S." or "T…", and then ran straight under the Needs-you badge on
-              the right. The name now shrinks last (weight 1) and the role first
-              (weight 8), and both truncate instead of overlapping. */}
-          <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          <span className="deck-agent-name flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             <span className={cn('min-w-0', unread && 'font-semibold text-text-strong')}>
               <WorkerLabel session={session} chip />
             </span>
@@ -1042,31 +1083,37 @@ function SessionRow({
                 <span className="sr-only">unread</span>
               </>
             ) : null}
-            {/* THE REF IS THE HANDLE (POD-758). `POD-710-B` is what the operator
-                types, pastes and says out loud, and it is the one string on the
-                row that is worthless partly rendered — so it never truncates
-                and the NAME shrinks around it. Lifted straight off the session:
-                it is the permanent birth ref, so it survives a rename. */}
-            {session.displayRef && (
-              <span className="shell-type-micro flex-none font-mono font-normal text-text-faint">
-                {session.displayRef}
-              </span>
-            )}
-            {/* ATTENTION OUTRANKS PROVENANCE, here as on the elbow. An asking
-                row spends its width on the question and the answer; "operator-
-                added peer" squeezed to "op…" beside them is noise wearing the
-                shape of information. */}
-            {role && label && !needs && <RoleWord role={role} label={label} />}
           </span>
+          {/* THE REF IS THE HANDLE (POD-758). `POD-710-B` is what the operator
+              types, pastes and says out loud, and it is the one string on the
+              row that is worthless partly rendered — so it never truncates and
+              the NAME shrinks around it. Lifted straight off the session: it is
+              the permanent birth ref, so it survives a rename. */}
+          <span className="deck-agent-ref shell-type-micro flex-none text-right font-mono font-normal whitespace-nowrap text-text-faint">
+            {session.displayRef}
+          </span>
+          {/* ATTENTION OUTRANKS PROVENANCE, here as on the elbow. An asking row
+              spends its width on the question and the answer — but it leaves the
+              role cell STANDING rather than closing it up, so the state column
+              beside it does not step left on the one row the operator is
+              scanning for. */}
+          {role && label && !needs ? (
+            <RoleWord role={role} label={label} />
+          ) : (
+            <span aria-hidden className="deck-agent-role flex-none" />
+          )}
+          {/* The forced wrap: inert until the agent row's own container query
+              turns it on, at which point role and state drop to a second line
+              under the name. */}
+          <span aria-hidden className="deck-agent-break" />
           <span
             className={cn(
-              'flex flex-none items-center gap-1.5',
+              'deck-agent-state flex flex-none items-center gap-1.5',
               // Everything but the asking row parks in the shared state column.
               // "Needs you · 1:12" is the one line allowed to overrun it: it is
               // an obligation, not a status, and it earns the room.
-              !needs && 'justify-end',
+              needs ? 'justify-end' : cn('justify-end', STATE_COL),
             )}
-            style={needs ? undefined : { width: STATE_COL }}
           >
             {needs ? (
               <>
@@ -1228,6 +1275,20 @@ function HungRows(ctx: HungContext): JSX.Element | null {
           <motion.div
             key={session.sessionId}
             className="overflow-hidden"
+            // CONTAINED, BECAUSE THIS ONE ANIMATES HEIGHT (POD-1146).
+            //
+            // Animating `height` relayouts every frame. Without containment the
+            // webview is free to keep a stale tile of a row mid-collapse, and
+            // what the operator sees is one strip repeated three times with
+            // fragments of its neighbour torn between them — inside a scrolling
+            // container, which is where compositing bugs of this shape live.
+            // `contain: layout paint` makes the wrapper its own containing block
+            // and clips its subtree to it, so a growing row can never paint past
+            // its own bounds however the frame lands. The promoted layer is
+            // dropped for free at the end of the one-shot: `settle()` retires
+            // this session from `arrivals`, and the plain `<div>` below replaces
+            // the motion element entirely.
+            style={{ contain: 'layout paint' }}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
@@ -1634,11 +1695,20 @@ function ProposalRow({
           </span>
           {issue.title}
         </span>
-        {author && (
-          /* Never dropped: the author IS the proposal's secondary content, and
-             a row with only a title tells the operator nothing to act on. */
-          <span className="shell-type-micro flex-none font-mono text-fuchsia-500">by {author}</span>
-        )}
+        {/* Never dropped: the author IS the proposal's secondary content, and a
+            row with only a title tells the operator nothing to act on. It parks
+            in the spine's state column with the "by" gone — three refs reading
+            down one edge, not three ragged phrases — because the column already
+            says what this cell is by being where it is. */}
+        <span
+          className={cn(
+            'shell-type-micro flex-none truncate text-right font-mono text-fuchsia-500',
+            STATE_COL,
+          )}
+          title={author ? `Proposed by ${author}` : undefined}
+        >
+          {author}
+        </span>
       </button>
     </div>
   )
@@ -1676,7 +1746,12 @@ function DeckSection({
   children: ReactNode
 }): JSX.Element {
   return (
-    <section className="mt-2.5 px-2" data-testid={testId}>
+    // THE SECTION STARTS WHERE THE SPINE STARTS. It used to sit at 8px while
+    // every task strip began at GUTTER, so a proposal was visibly wider than the
+    // tasks it was being offered against and its label rule started in the
+    // rail's own gutter. Same left datum as a depth-1 strip, same right datum as
+    // everything else in the column.
+    <section className="mt-2.5 pr-2" style={{ paddingLeft: GUTTER }} data-testid={testId}>
       <div className="flex items-center gap-2">
         <h3
           className={cn(
@@ -1696,8 +1771,28 @@ function DeckSection({
   )
 }
 
+/** The state dot and word a departed task carries, in the spine's own state
+ *  column — the same cell every strip and every agent row parks its state in,
+ *  so the whole tail reads down the same edge as the tree above it. */
+function DepartedState({ state }: { state: DeckIssueState }): JSX.Element {
+  return (
+    <span
+      className={cn(
+        'shell-type-micro flex flex-none items-center justify-end gap-1.5 overflow-hidden font-mono whitespace-nowrap',
+        STATE_COL,
+      )}
+      data-attention={state.attention ? 'true' : undefined}
+    >
+      {state.attention && (
+        <span aria-hidden className="size-[5px] flex-none rounded-full bg-attention" />
+      )}
+      <span className="truncate">{state.label.toLowerCase()}</span>
+    </span>
+  )
+}
+
 /**
- * WHAT LEFT — the departure ticks under the spine (POD-679).
+ * WHERE THE WORK WENT — one region, one heading, one sentence (POD-679, POD-1146).
  *
  * Work discovered here and started as its own thing is not a member of this
  * mission any more: it holds no seat, wears no state mark, and does not move
@@ -1705,53 +1800,87 @@ function DeckSection({
  * operator watched an agent file it here — so the mission keeps one line each,
  * and the line is a way back to it.
  *
+ * THE REGION HAS TWO SHAPES AND ONLY ONE OF THEM AT A TIME.
+ *
+ *   still being worked — quiet ticks, no actions, because nothing here is
+ *     finished and nothing is asking;
+ *   the root itself vacated — the one destination is PROMOTED to a card with
+ *     Open and Tuck away, because it is the only thing left to act on.
+ *
+ * They used to be two components that did not know about each other, and a
+ * continuation target is by construction a started spin-off — so it always
+ * qualified as a departure too, and POD-1016 rendered once as a card with two
+ * buttons and again twelve pixels below as a faint mono tick in a different
+ * voice. The continuation is now simply the departure that has an action
+ * attached: it is filtered out of the ticks and drawn as the first row of the
+ * same region, wearing the state its tick used to carry.
+ *
+ * The old heading named a departure ("Left this mission"); this one answers the
+ * question the operator is actually asking.
+ *
  * Deliberately OUTSIDE the tree: no rail, no elbow, and a label above rather
  * than an indent below. A guide line running into these would say the one thing
  * this whole change exists to stop saying — that they are still in here.
  */
-export function DepartureTicks({
+export function WhereTheWorkWent({
+  continuation,
+  continuationState = null,
   departures,
   onOpen,
+  onTuck,
 }: {
+  /** The promoted destination, when this mission's own root has been vacated. */
+  continuation: IssueContinuation | null
+  /** Folded in off the tick this row replaces, so nothing is lost with it. */
+  continuationState?: DeckIssueState | null
+  /** Everything else that left — already filtered of the continuation target. */
   departures: readonly MissionDeparture[]
   onOpen: (issue: IssueNavigationModel) => void
+  onTuck: () => void
 }): JSX.Element | null {
-  if (departures.length === 0) return null
+  if (!continuation && departures.length === 0) return null
   return (
-    <div
-      className="mt-2 border-t border-hairline-soft pt-1.5"
-      style={{ marginLeft: GUTTER }}
-      data-testid="flight-departures"
+    <DeckSection
+      label="Where the work went"
+      count={departures.length + (continuation ? 1 : 0)}
+      testId="flight-departures"
     >
-      <div className="shell-type-micro font-mono tracking-wide text-text-faint uppercase">
-        Left this mission
+      {continuation && (
+        <ContinuationCard
+          continuation={continuation}
+          state={continuationState}
+          onOpen={onOpen}
+          onTuck={onTuck}
+        />
+      )}
+      <div className={cn('flex flex-col', continuation && departures.length > 0 && 'mt-2')}>
+        {departures.map((departure, index) => (
+          <div key={departure.issue.id}>
+            {/* A rule between ticks rather than a bare stack: two 26px rows
+                twenty-two pixels apart read as two unrelated lines. */}
+            {index > 0 && <div aria-hidden className="my-0.5 ml-1 h-px bg-hairline-soft" />}
+            <button
+              data-pressable
+              type="button"
+              data-testid="flight-departure"
+              data-departure-issue={departure.issue.id}
+              className="flex min-h-[26px] w-full items-center gap-2 rounded-md pr-2 pl-1 text-left text-text-faint hover:bg-muted hover:text-text-dim"
+              title={`${issueDisplayRef(departure.issue)} runs on its own · ${departure.state.label}`}
+              onClick={() => onOpen(departure.issue)}
+            >
+              <ArrowUpRight size={11} aria-hidden className="flex-none" />
+              <span className="shell-type-micro flex-none font-mono">
+                {issueDisplayRef(departure.issue)}
+              </span>
+              <span className="shell-type-secondary min-w-0 flex-1 truncate">
+                {departure.issue.title}
+              </span>
+              <DepartedState state={departure.state} />
+            </button>
+          </div>
+        ))}
       </div>
-      {departures.map((departure) => (
-        <button
-          data-pressable
-          type="button"
-          key={departure.issue.id}
-          data-testid="flight-departure"
-          data-departure-issue={departure.issue.id}
-          className="shell-type-micro flex min-h-[22px] w-full items-center gap-1.5 font-mono text-text-faint hover:text-text-dim"
-          title={`${issueDisplayRef(departure.issue)} runs on its own · ${departure.state.label}`}
-          onClick={() => onOpen(departure.issue)}
-        >
-          <ArrowUpRight size={9} aria-hidden className="flex-none" />
-          <span className="flex-none">{issueDisplayRef(departure.issue)}</span>
-          <span className="min-w-0 flex-1 truncate text-left">{departure.issue.title}</span>
-          <span className="flex-none">
-            {departure.state.attention && (
-              <span
-                aria-hidden
-                className="mr-1.5 inline-block size-[5px] rounded-full bg-attention align-middle"
-              />
-            )}
-            {departure.state.label.toLowerCase()}
-          </span>
-        </button>
-      ))}
-    </div>
+    </DeckSection>
   )
 }
 
@@ -1763,43 +1892,55 @@ export function DepartureTicks({
  * operator opens the old task hours later. Tucking is offered here because it
  * is the only remaining lifecycle choice; leaving the card alone keeps the
  * closed task in the sidebar.
+ *
+ * It is the FIRST ROW of the departures region rather than a card of its own
+ * (see {@link WhereTheWorkWent}), and it carries the state word its departure
+ * tick used to carry — so the destination is stated exactly once.
  */
 export function ContinuationCard({
   continuation,
+  state = null,
   onOpen,
   onTuck,
 }: {
   continuation: IssueContinuation
+  /** What the destination is doing now, folded in off its own tick. */
+  state?: DeckIssueState | null
   onOpen: (issue: IssueNavigationModel) => void
   onTuck: () => void
 }): JSX.Element {
   const target = continuation.target
   return (
     <div
-      className="mx-3 mt-2 rounded-[8px] border border-border bg-card/55 p-3"
+      className="rounded-[8px] border border-border bg-card/55 p-3"
       data-testid="flight-continuation"
     >
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex size-6 flex-none items-center justify-center rounded-full bg-muted text-text-dim">
+        <span className="mt-0.5 flex size-[22px] flex-none items-center justify-center rounded-full bg-muted text-text-dim">
           <ArrowRight size={12} aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="shell-type-secondary font-semibold text-text-strong">{continuation.full}</p>
+          <div className="flex items-baseline gap-2">
+            <p className="shell-type-secondary min-w-0 flex-1 font-semibold text-text-strong">
+              {continuation.full}
+            </p>
+            {state && <DepartedState state={state} />}
+          </div>
           <p className="shell-type-micro mt-1 text-text-dim">
             {continuation.kind === 'spinoff'
               ? 'No session remains here.'
               : 'No session remains on this closed task.'}
-            {target ? ` Continue with ${target.title}.` : ''}
+            {target ? ` ${target.title} is where it carried on.` : ''}
           </p>
         </div>
       </div>
-      <div className="mt-3 flex items-center gap-2 pl-[34px]">
+      <div className="mt-2.5 flex items-center gap-2 pl-[30px]">
         {target && (
-          <Button type="button" size="sm" className="h-7" onClick={() => onOpen(target)}>
+          <Button type="button" size="sm" className="h-[26px]" onClick={() => onOpen(target)}>
             Open {issueDisplayRef(target)}
           </Button>
         )}
-        <Button type="button" variant="outline" size="sm" className="h-7" onClick={onTuck}>
+        <Button type="button" variant="outline" size="sm" className="h-[26px]" onClick={onTuck}>
           <ArrowDown size={12} aria-hidden="true" /> Tuck away
         </Button>
       </div>
@@ -2123,7 +2264,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const progress = missionProgress(issues, sessions, root?.id)
   // What this mission discovered and no longer owns. Derived beside the rows
   // from the same membership set, so a departure can never also be a strip.
-  const departures = useMemo(
+  const allDepartures = useMemo(
     () => missionDepartures(issues, sessions, root?.id, allWorktreePaths),
     [issues, sessions, root, allWorktreePaths],
   )
@@ -2166,6 +2307,26 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    */
   const rootRow = rows[0]
   const rootContinuation = root ? issueContinuation(root, byId, sessions) : null
+  /**
+   * THE CONTINUATION IS A DEPARTURE — the one with an action attached.
+   *
+   * `missionDepartures` knows nothing about `issueContinuation`, and a
+   * continuation target is by construction a started spin-off, so it always
+   * qualified as a departure too: the same task rendered once as a card with two
+   * buttons and again as a faint mono tick twelve pixels below it, in a
+   * different voice. Filtering it out here and promoting it to the first row of
+   * the same region is what makes the tail say it once.
+   *
+   * Its tick's own state comes with it, so folding the two together loses
+   * nothing.
+   */
+  const continuationTargetId = rootContinuation?.target?.id
+  const departures = useMemo(
+    () => allDepartures.filter((departure) => departure.issue.id !== continuationTargetId),
+    [allDepartures, continuationTargetId],
+  )
+  const continuationState =
+    allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
   const rootNote = root ? issueNote(root, byId, sessions) : null
   const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
   // The whole slice as the fourth argument — the root's OWN sessions cannot see
@@ -2527,21 +2688,41 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     setView('workspace')
   }
 
+  /**
+   * THE COLLAPSE CHEVRON IS A MEMBER OF THE EYEBROW ROW (POD-1146).
+   *
+   * It used to be `absolute top-1 right-2` on the column itself, and the eyebrow
+   * then reserved `pr-11` to dodge a control that was floating over it. Two
+   * consequences: the eyebrow had an eleven-pixel hole in it that nothing
+   * explained, and the chevron's centre did not line up with the ⌕ and the
+   * fold-all control directly below it.
+   *
+   * As the last flex child of a row padded to 8px it is simply a 24px button
+   * like those two, so every glyph centre in the column stands 20px from the
+   * edge and the reservation goes away.
+   *
+   * The empty states have no eyebrow to sit in, so they keep the floating one —
+   * the column must always be collapsible, mission or no mission.
+   */
+  const collapseButton = (floating: boolean): JSX.Element => (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn(
+        'deck-eyebrow-chevron size-6 flex-none text-text-faint',
+        floating && 'absolute top-1 right-2 z-20',
+      )}
+      aria-label="Collapse Flight Deck"
+      title="Collapse Flight Deck"
+      onClick={onCollapse}
+    >
+      <ChevronLeft size={14} aria-hidden="true" />
+    </Button>
+  )
+
   return (
     <aside className="engraved-column relative" aria-label="Flight Deck">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        // Centred in the 32px eyebrow row below, which is the row the artifact
-        // puts it in: the chevron is part of the header's line, not a control
-        // floating over the corner of the column.
-        className="absolute top-1 right-2 z-20 size-6 text-text-faint"
-        aria-label="Collapse Flight Deck"
-        title="Collapse Flight Deck"
-        onClick={onCollapse}
-      >
-        <ChevronLeft size={14} aria-hidden="true" />
-      </Button>
+      {!root && collapseButton(true)}
 
       {root ? (
         <>
@@ -2561,25 +2742,38 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               reach the mission's own actions, or the one task in the column with
               no strip would be the one task with no menu. */}
           <div
-            className="relative flex-none"
+            className="deck-header relative flex-none"
             onContextMenu={(event) => openIssueMenu(root.id, event)}
           >
-            <div className="shell-type-micro flex h-8 items-center gap-1.5 px-4 pr-11 font-mono text-text-dim">
+            {/* THE EYEBROW MAY TAKE A SECOND LINE (POD-1146). Nothing in this
+                header could wrap, so a mission with a relation note, a held seat
+                and a long stage word simply collided at the column's 300px
+                floor. Identity and the chevron own line 1 and never shrink; the
+                note and the seat drop underneath them, left-aligned on the same
+                16px datum, where they can never run into the chevron. A flight
+                deck may spend a line to keep a fact. */}
+            <div className="shell-type-micro flex min-h-8 flex-wrap items-center gap-x-1.5 py-1 pr-2 pl-4 font-mono text-text-dim">
+              {/* Identity NEVER shrinks and never leaves line 1: the glyph, the
+                  ref and the stage word are what this row is for. */}
               <StatusGlyph status={issueStatusOf(root)} size={12} />
-              <span>{issueDisplayRef(root)}</span>
-              <span>{STAGE_LABELS[root.stage].toLowerCase()}</span>
+              <span className="flex-none leading-[24px]">{issueDisplayRef(root)}</span>
+              <span className="flex-none leading-[24px]">
+                {STAGE_LABELS[root.stage].toLowerCase()}
+              </span>
+              <span aria-hidden className="min-w-[8px] flex-1" />
               {/* The mission's own dependency or provenance, and the seat it is
                   holding if nobody is on it — in the same chips a strip wears.
                   The header IS a node, so it says what a node says, in the same
                   slot: a strip carries these on its right, and so does this. */}
               {(rootNote || rootSeat) && (
-                <span className="ml-auto flex min-w-0 items-center gap-1.5 pl-2">
+                <span className="deck-eyebrow-note flex min-w-0 shrink items-center gap-1.5 pl-2">
                   {rootNote && <IssueNoteChip note={rootNote} />}
                   {rootSeat && <SeatChip note={rootSeat} />}
                 </span>
               )}
+              {collapseButton(false)}
             </div>
-            <div className="px-4 pt-1 pb-3">
+            <div className="px-4 pt-0.5 pb-3.5">
               <button
                 data-pressable
                 type="button"
@@ -2617,8 +2811,16 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     root.activityNotes?.trim() ||
                     'Mission work, agents, and dependencies in one live execution view.'}
               </p>
-              <div className="flex items-end gap-2">
-                <div className="min-w-0 flex-1">
+              {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). The gauge, the
+                  crew chip and the mission's one action were three heights on
+                  two alignments; they are one row of 26px radius-8 objects now.
+                  The gauge takes all the slack and the action never shrinks —
+                  and when there is no longer room for both, the row WRAPS rather
+                  than crushing either. Add agent keeps its word at every width:
+                  it is the header's only action, and a bare glyph makes the
+                  operator guess. */}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="min-w-[9rem] flex-[1_1_9rem]">
                   <MissionGauge progress={progress} live={liveCount} working={workingCount} />
                 </div>
                 {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
@@ -2639,7 +2841,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               through the column, and its top rule is the seam the header no
               longer draws for itself. */}
           <div
-            className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-3"
+            className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2"
             style={{ paddingLeft: GUTTER }}
           >
             {/* The view bar sits in the spine's gutter rather than across it: its
@@ -2712,7 +2914,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           </div>
           {searchOpen && (
             <div
-              className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-3"
+              className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-2"
               style={{ paddingLeft: GUTTER }}
             >
               <span
@@ -2848,13 +3050,11 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 <p className="shell-type-secondary px-4 py-6 text-text-dim">
                   Nothing in this mission matches that.
                 </p>
-              ) : rootContinuation ? (
-                <ContinuationCard
-                  continuation={rootContinuation}
-                  onOpen={openDeparture}
-                  onTuck={tuckResolvedRoot}
-                />
-              ) : rootSessions.length > 0 ? null : (
+              ) : // A vacated root is not an empty spine — the region below says
+              // where the work went, and it says it once. This branch used to
+              // draw the continuation card itself, which is half of why the same
+              // destination appeared twice.
+              rootContinuation || rootSessions.length > 0 ? null : (
                 <p className="shell-type-secondary px-4 py-6 text-text-dim">
                   {presenceNote(root, rootRow?.sessions ?? [], byId, sessions)?.text ||
                     'No sessions or sub-tasks are attached.'}
@@ -2941,8 +3141,16 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 place on the screen, opposite meanings, so they stay two lists.
                 Not filtered by the mode or the search either: a departure is a
                 fact about this mission rather than a task in it, and the view
-                controls narrow the spine. */}
-            <DepartureTicks departures={departures} onOpen={openDeparture} />
+                controls narrow the spine.
+                The continuation card lives HERE now rather than in the tree's
+                empty branch above — one region, one heading, one sentence. */}
+            <WhereTheWorkWent
+              continuation={rootContinuation}
+              continuationState={continuationState}
+              departures={departures}
+              onOpen={openDeparture}
+              onTuck={tuckResolvedRoot}
+            />
           </div>
         </>
       ) : focusedSession?.agentKind === 'shell' ? (

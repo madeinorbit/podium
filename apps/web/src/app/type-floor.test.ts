@@ -53,6 +53,17 @@ const KNOWN_SUB_FLOOR = new Set<string>()
  */
 const SANCTIONED_SUB_FLOOR: Record<string, { sites: number; why: string }> = {
   'app/RightRail.tsx': { sites: 1, why: 'unread count badge inside a 16px circle' },
+  'app/FlightDeck.tsx': {
+    sites: 3,
+    why:
+      'the spine’s three mono micro-tokens: an issue-note chip’s relation prefix ' +
+      '(CONTINUED IN / BLOCKED BY, the small-caps half of a label-and-ref pair, which ' +
+      'has to sit BELOW the 10.5px ref it labels or the two stop reading as label and ' +
+      'value), the NATIVE badge on a harness subagent row, and the roster’s role ' +
+      'column (COORDINATOR / BY SPINE DESIGNER) — 96px of uppercase mono that the ' +
+      'floor would turn into a truncation. All three are machine voice beside a title, ' +
+      'read as marks rather than as prose, and none of them is ordinary shell text.',
+  },
   'features/shipping/ShippingPanel.tsx': {
     sites: 1,
     why: 'step-index badge inside a 16px circle',
@@ -192,23 +203,22 @@ describe('shell type floor', () => {
     return hits
   }
 
-  it.each(Object.entries(CSS_SUB_FLOOR_BUDGET))(
-    '%s carries no more than its remaining sub-floor budget',
-    (file, budget) => {
-      const source = readFileSync(join(sourceRoot, file), 'utf8')
-      const hits = cssSubFloorHits(source)
-        .filter((hit) => !SANCTIONED_CSS_SURFACES.some((s) => s.prefix.test(hit.selector)))
-        .map((hit) => `${hit.line}: ${hit.selector} { ${hit.decl} }`)
-      expect(
-        hits.length,
-        hits.length > budget
-          ? `${file} gained sub-10.5px font-size rules outside a sanctioned dense ` +
+  it.each(
+    Object.entries(CSS_SUB_FLOOR_BUDGET),
+  )('%s carries no more than its remaining sub-floor budget', (file, budget) => {
+    const source = readFileSync(join(sourceRoot, file), 'utf8')
+    const hits = cssSubFloorHits(source)
+      .filter((hit) => !SANCTIONED_CSS_SURFACES.some((s) => s.prefix.test(hit.selector)))
+      .map((hit) => `${hit.line}: ${hit.selector} { ${hit.decl} }`)
+    expect(
+      hits.length,
+      hits.length > budget
+        ? `${file} gained sub-10.5px font-size rules outside a sanctioned dense ` +
             `surface. Read the size from a --shell-type-* token instead:\n${hits.join('\n')}`
-          : `${file} is down to ${hits.length} sub-floor rules — lower ` +
+        : `${file} is down to ${hits.length} sub-floor rules — lower ` +
             `CSS_SUB_FLOOR_BUDGET['${file}'] to ${hits.length} to lock the gain in.`,
-      ).toBe(budget)
-    },
-  )
+    ).toBe(budget)
+  })
 
   /**
    * The sanctioned surfaces have to still EXIST. A renamed `.hp-` block would
@@ -230,7 +240,9 @@ describe('shell type floor', () => {
 
   it('holds the work list itself to the floor', () => {
     // The sidebar is what POD-783 was reported about; it carries no debt.
-    const worklist = [...subFloorSites().keys()].filter((file) => file.startsWith('features/worklist/'))
+    const worklist = [...subFloorSites().keys()].filter((file) =>
+      file.startsWith('features/worklist/'),
+    )
     expect(worklist, `sub-floor type is back in the work list:\n${worklist.join('\n')}`).toEqual([])
   })
 })

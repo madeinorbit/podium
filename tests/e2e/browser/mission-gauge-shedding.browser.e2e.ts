@@ -6,7 +6,7 @@ import { RELAY } from './_harness'
 /**
  * THE GAUGE MUST SHED, NEVER CLIP (POD-710 / POD-725).
  *
- * The mission gauge writes words INSIDE a meter — `4 DONE`, `2 RUNNING` — and the
+ * The mission gauge writes words INSIDE a meter — `4 DONE`, `2 IN PROGRESS` — and the
  * deck column it lives in is resizable from 300px, so a band running out of room
  * is routine rather than an edge case. Its answer is a ladder of `@container`
  * queries that shed the noun, then the digits, then down to bare material. The
@@ -74,14 +74,14 @@ test('the mission gauge sheds its words rather than clipping them, at every deck
       // exactly as MissionGauge sizes them.
       const SHAPE = [
         { s: 'done', word: 'done', count: 4 },
-        { s: 'run', word: 'running', count: 2 },
+        { s: 'run', word: 'in progress', count: 2 },
         { s: 'block', word: 'blocked', count: 1 },
         { s: 'wait', word: 'to go', count: 12 },
       ]
       // And the other end: one band takes the whole track, so it is the count
       // rung rather than the word rung that does the work — with three digits,
       // the widest the count can be.
-      const SOLO = [{ s: 'run', word: 'running', count: 128 }]
+      const SOLO = [{ s: 'run', word: 'in progress', count: 128 }]
 
       const host = document.createElement('div')
       host.style.cssText = 'position:fixed;left:-4000px;top:0'
@@ -93,7 +93,7 @@ test('the mission gauge sheds its words rather than clipping them, at every deck
         // — height is not an inline axis), but the padding and gap do share out
         // inline space, so they are modelled as the component sets them.
         track.style.cssText =
-          'display:flex;align-items:center;gap:2px;height:24px;padding:2px;overflow:hidden;min-width:0'
+          'display:flex;align-items:center;gap:2px;height:26px;padding:2px;overflow:hidden;min-width:0'
         for (const b of shape) {
           const band = document.createElement('span')
           band.className = b.s === 'block' ? 'gauge-band gauge-hatch' : 'gauge-band'

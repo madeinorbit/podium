@@ -156,7 +156,14 @@ export function WorkerLabel({
         chip={chip}
         dimmed={session.status === 'hibernated' || session.status === 'exited'}
       />
-      <span className="worker-name overflow-hidden text-ellipsis whitespace-nowrap" title={name}>
+      {/* `min-w-0` beside the overflow rules, belt and braces: this label is a
+          flex item in three different surfaces (the deck's agent rows, the
+          sidebar, the tab strip), and a name that refuses to shrink does not
+          ellipsis — it paints straight over the ref and the state beside it. */}
+      <span
+        className="worker-name min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+        title={name}
+      >
         {name}
       </span>
     </span>
