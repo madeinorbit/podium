@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const trpcMock = vi.hoisted(() => ({
   options: vi.fn(),
   commandFor: vi.fn(),
+  info: vi.fn(),
   complete: vi.fn(),
   join: vi.fn(),
   connect: vi.fn(),
@@ -20,6 +21,8 @@ vi.mock('@/app/trpc', async (importOriginal) => {
       setup: {
         options: { query: trpcMock.options },
         commandFor: { query: trpcMock.commandFor },
+        // NetworkStep seeds its URL field from the saved config before rendering (POD-1148).
+        info: { query: trpcMock.info },
         complete: { mutate: trpcMock.complete },
         join: { mutate: trpcMock.join },
         connect: { mutate: trpcMock.connect },
@@ -50,6 +53,7 @@ beforeEach(() => {
     command: 'tailscale funnel 18787',
     hint: 'Then paste the https URL it prints.',
   })
+  trpcMock.info.mockResolvedValue({ mode: null, publicUrl: null, serverUrl: null }) // first run
   trpcMock.complete.mockResolvedValue({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
   trpcMock.connect.mockResolvedValue({ mode: 'all-in-one' })
   // POD-1554 made "a password is already set" PER-ACCOUNT: SetupView reads
@@ -57,6 +61,10 @@ beforeEach(() => {
   // `enabled`. Mocking the old key left hasPassword false and the "keep" radio
   // unrendered.
   trpcMock.authStatus.mockResolvedValue({ hasOwnCredential: false }) // first run
+  // The reachability step POSTs /auth/login after a `complete` that carried a password, so it
+  // keeps a session through the guard that write just closed (POD-1148). Unstubbed, that call
+  // hits the real global `fetch` and never settles inside `flush()`.
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }))
 })
 
 afterEach(() => {
@@ -373,6 +381,12 @@ describe('SetupView', () => {
       mode: 'server',
       password: 'pw',
     })
+    // …and takes a cookie for it before handing back, or the guard the password just enabled
+    // locks this browser out of the instance it has only half finished configuring.
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/login'),
+      expect.objectContaining({ credentials: 'include' }),
+    )
     expect(onSaved).toHaveBeenCalled()
   })
 

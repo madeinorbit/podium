@@ -144,7 +144,14 @@ export class InstanceService {
   }) {
     const v = validatePublicUrl(input.publicUrl)
     if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
-    const password = input.password?.trim()
+    // RAW, NOT TRIMMED (POD-1148). Nothing else in the product trims: `/auth/login` verifies
+    // the string as typed and `auth.setPassword` hashes it as given. Trimming only here meant a
+    // password pasted with a leading or trailing space — the ordinary password-manager case —
+    // was stored as a string its owner could never enter again, and made this command and
+    // Settings → Security store DIFFERENT credentials for identical keystrokes. Trimming at
+    // login instead would be worse: it would silently rewrite what people already have and
+    // break any password that legitimately contains whitespace. Empty is still no password.
+    const password = input.password
     // Neither a new password NOR an explicit no-password ack is required when one
     // is ALREADY set — that's "keep the current password" (e.g. setting the URL
     // later from Settings → Machines). It is only a mandatory choice on a fresh,

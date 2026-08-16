@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react'
-import type { Trpc } from '@/app/trpc'
+import { serverConfig, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -50,18 +50,42 @@ type NetOptionInfo = Awaited<ReturnType<Trpc['setup']['options']['query']>>[numb
 /** The whole-wizard commit payload, derived from the router so it can't drift. */
 export type SetupCompleteInput = Parameters<Trpc['setup']['complete']['mutate']>[0]
 
-/** Reachability step: pick how to expose the relay, run the printed command, paste the resulting
- *  https URL, then persist it via setup.complete. Used both by first-run setup (full page) and,
- *  with `embedded`, inside Settings → Machines when the server has no publicUrl yet. */
-export function NetworkStep({
-  trpc,
-  onBack,
-  onSkip,
-  onSaved,
-  embedded = false,
-  mode,
-  onCollected,
-}: {
+/** What the form starts from: the state this instance is ALREADY in, resolved before a
+ *  single field is rendered. See `networkStepInitialState`. */
+export interface NetworkStepInitialState {
+  /** The saved reachable URL, seeded into the input. Empty when there is none. */
+  url: string
+  /** Which exposure option to preselect, or `null` for "don't claim to remember one". */
+  option: NetOption | null
+  /** Does the CALLER already have a credential — i.e. is "keep current password" offered. */
+  hasPassword: boolean
+}
+
+/**
+ * SEED THE FORM FROM THE INSTANCE, don't open it blank (POD-1148).
+ *
+ * `Change…` used to render an empty URL box and a preselected radio however the instance was
+ * actually configured, so the one thing the server does remember (`publicUrl`) was thrown away
+ * and the one thing it does NOT remember (the tunnel option) was displayed as if it did.
+ *
+ * The option is deliberately `null` once a URL exists rather than guessed from its hostname:
+ * `applySetup` stores only publicUrl/mode/port, so there is no saved answer to restore and a
+ * preselected radio would be an invention. Nothing selected = "pick one to print its command
+ * again", which is all these radios have ever done.
+ */
+export function networkStepInitialState(
+  info: { publicUrl: string | null } | null,
+  status: { hasOwnCredential: boolean } | null,
+): NetworkStepInitialState {
+  const url = info?.publicUrl ?? ''
+  return {
+    url,
+    option: url ? null : 'tailscale-funnel',
+    hasPassword: Boolean(status?.hasOwnCredential),
+  }
+}
+
+interface NetworkStepProps {
   trpc: Trpc
   onBack?: () => void
   onSkip?: () => void
@@ -74,19 +98,83 @@ export function NetworkStep({
    *  later sub-step (telemetry) can commit the whole wizard in one call
    *  [spec:SP-f933]. Absent = commit immediately (the embedded Settings use). */
   onCollected?: (payload: SetupCompleteInput) => void
-}): ReactNode {
+}
+
+/** Reachability step: pick how to expose the relay, run the printed command, paste the resulting
+ *  https URL, then persist it via setup.complete. Used both by first-run setup (full page) and,
+ *  with `embedded`, inside Settings → Machines when the server has no publicUrl yet.
+ *
+ *  NOTHING IS RENDERED UNTIL THE CURRENT CONFIG IS KNOWN, and the split into a loader plus an
+ *  inner form is what buys that: every field below is a `useState` INITIALISER over the resolved
+ *  answer, so no query can land later and overwrite what the user has already typed. It used to
+ *  render immediately with `authMode` guessed as 'password'; a password typed into that box was
+ *  silently dropped the moment `auth.status` resolved and flipped the mode to 'keep' (POD-1148). */
+export function NetworkStep(props: NetworkStepProps): ReactNode {
+  const { trpc, embedded = false } = props
+  const [initial, setInitial] = useState<NetworkStepInitialState | null>(null)
+
+  useEffect(() => {
+    let live = true
+    // Both reads are ADVISORY: a server that cannot answer either still gets a usable blank
+    // form, which is what this step did unconditionally before it seeded anything. `optional`
+    // is an async wrapper rather than a bare `.catch` so a synchronously-throwing client (a
+    // stub without `setup.info`) degrades the same way a rejection does, instead of killing
+    // the effect and leaving the step stuck on "Loading…".
+    const optional = async <T,>(read: () => Promise<T>): Promise<T | null> => {
+      try {
+        return await read()
+      } catch {
+        return null
+      }
+    }
+    void Promise.all([
+      optional(() => trpc.setup.info.query()),
+      optional(() => trpc.auth.status.query()),
+    ]).then(([info, status]) => {
+      if (live) setInitial(networkStepInitialState(info, status))
+    })
+    return () => {
+      live = false
+    }
+  }, [trpc])
+
+  if (!initial) {
+    return (
+      <div className={embedded ? 'setup-view' : 'setup-view mx-auto max-w-lg p-6'}>
+        <p className="text-[13px] text-muted-foreground">Loading…</p>
+      </div>
+    )
+  }
+  return <NetworkStepForm {...props} initial={initial} />
+}
+
+function NetworkStepForm({
+  trpc,
+  onBack,
+  onSkip,
+  onSaved,
+  embedded = false,
+  mode,
+  onCollected,
+  initial,
+}: NetworkStepProps & { initial: NetworkStepInitialState }): ReactNode {
+  const httpOrigin = serverConfig(window.location).httpOrigin
   const [options, setOptions] = useState<NetOptionInfo[]>([])
-  const [option, setOption] = useState<NetOption>('tailscale-funnel')
+  const [option, setOption] = useState<NetOption | null>(initial.option)
   const [cmd, setCmd] = useState<{ command: string; hint: string } | null>(null)
-  const [url, setUrl] = useState('')
-  // 'keep' = leave the already-set password untouched (only offered when one exists).
-  const [authMode, setAuthMode] = useState<'password' | 'open' | 'keep'>('password')
-  const [hasPassword, setHasPassword] = useState(false)
+  const [url, setUrl] = useState(initial.url)
+  // 'keep' = leave the already-set password untouched (only offered when one exists), and it is
+  // the default whenever the caller HAS one — re-entering a password to change a URL is not the
+  // ask. The credential is known before this component mounts, so this is never a guess.
+  const [authMode, setAuthMode] = useState<'password' | 'open' | 'keep'>(
+    initial.hasPassword ? 'keep' : 'password',
+  )
   const [password, setPassword] = useState('')
   const [ackNoPassword, setAckNoPassword] = useState(false)
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
+  const hasPassword = initial.hasPassword
   // Ephemeral quick-tunnel flag for the pasted URL (mirrors the CLI's warning).
   const urlWarning = quickTunnelWarning(url)
 
@@ -97,25 +185,15 @@ export function NetworkStep({
       .catch(() => {})
   }, [trpc])
   useEffect(() => {
+    if (option === null) {
+      setCmd(null)
+      return
+    }
     trpc.setup.commandFor
       .query({ option, port: reachablePort() })
       .then(setCmd)
       .catch(() => {})
   }, [trpc, option])
-  // If a login password is already set (e.g. setting the URL later from Settings → Machines),
-  // default to keeping it rather than forcing the user to re-enter one.
-  useEffect(() => {
-    trpc.auth.status
-      .query()
-      .then((s) => {
-        // The CALLER's own credential — "a password is already set" is per-account now.
-        if (s.hasOwnCredential) {
-          setHasPassword(true)
-          setAuthMode('keep')
-        }
-      })
-      .catch(() => {})
-  }, [trpc])
 
   const copy = (): void => {
     if (!cmd?.command) return
@@ -127,8 +205,11 @@ export function NetworkStep({
 
   const finish = async (): Promise<void> => {
     setErr('')
-    const passwordValue = password.trim()
-    if (authMode === 'password' && !passwordValue) {
+    // NOT `password.trim()` (POD-1148). The login route verifies the raw string and
+    // `auth.setPassword` hashes the raw string, so trimming here stored a credential the user
+    // could never type again — and made Settings → Security and Settings → Network disagree
+    // about what identical keystrokes mean. Empty is still empty; whitespace is a character.
+    if (authMode === 'password' && !password) {
       setErr('Enter a login password or choose no-password mode.')
       return
     }
@@ -142,7 +223,7 @@ export function NetworkStep({
       ...(mode ? { mode } : {}),
       // 'keep' sends neither field → the server leaves the existing password untouched.
       ...(authMode === 'password'
-        ? { password: passwordValue }
+        ? { password }
         : authMode === 'open'
           ? { acknowledgeNoPassword: true }
           : {}),
@@ -156,6 +237,21 @@ export function NetworkStep({
     }
     try {
       await trpc.setup.complete.mutate(payload)
+      // A PASSWORD LOCKS THIS DEVICE OUT OF THE WRITE IT JUST MADE (POD-1148). `complete`
+      // stores the password last; the instant it lands `credentialsRequired()` goes true and
+      // the open-mode synthetic-admin fallback stops applying, so the very next request —
+      // `onSaved()` → the caller's reload → setup.info — 401s, and the URL write that already
+      // committed is reported to the user as a failure. Take the cookie the guard now wants,
+      // exactly as Settings → Security does after `auth.setPassword`. Unchecked on purpose:
+      // a login hiccup must not turn a write that SUCCEEDED into an error message.
+      if (payload.password !== undefined) {
+        await fetch(`${httpOrigin}/auth/login`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ password: payload.password }),
+        }).catch(() => {})
+      }
       onSaved()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -184,6 +280,16 @@ export function NetworkStep({
         </div>
       )}
       <fieldset className="flex flex-col gap-2">
+        <legend className="text-[12px] text-muted-foreground">How to expose this instance</legend>
+        {/* Nothing is preselected once a URL is saved, because nothing about this choice IS
+            saved — `applySetup` records the URL, not how you produced it. Say so rather than
+            leave an invented radio standing where a remembered one would be. */}
+        {initial.option === null && (
+          <p className="text-[12px] text-muted-foreground">
+            Podium doesn’t record which of these you used. Pick one to print its command again, or
+            just edit the URL below.
+          </p>
+        )}
         {options.map((o) => (
           <label
             key={o.id}
@@ -366,11 +472,7 @@ export function NetworkStep({
             disabled={
               busy ||
               !url.trim() ||
-              (authMode === 'password'
-                ? !password.trim()
-                : authMode === 'open'
-                  ? !ackNoPassword
-                  : false)
+              (authMode === 'password' ? !password : authMode === 'open' ? !ackNoPassword : false)
             }
             onClick={() => void finish()}
           >
