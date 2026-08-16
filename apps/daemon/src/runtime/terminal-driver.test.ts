@@ -868,6 +868,108 @@ describe('the queue drain', () => {
     expect(world.abandoned[0]?.turns.map((turn) => turn.id)).toEqual(['msg-first', 'msg-second'])
   })
 
+  it('reports every queued turn before clear tears the session down', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    const first = session.send(
+      { id: 'msg-first', text: 'first' },
+      { origin: 'mail', delivery: 'queue' },
+    )
+    const second = session.send(
+      { id: 'msg-second', text: 'second' },
+      { origin: 'mail', delivery: 'queue' },
+    )
+    world.runtime.clear(sessionId)
+    world.runtime.clear(sessionId)
+
+    expect((await first).outcome).toBe('queued')
+    expect((await second).outcome).toBe('queued')
+    expect(world.abandoned).toEqual([
+      {
+        sessionId,
+        reason: 'teardown',
+        turns: [
+          { id: 'msg-first', text: 'first', origin: 'mail' },
+          { id: 'msg-second', text: 'second', origin: 'mail' },
+        ],
+      },
+    ])
+    expect(
+      world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn'),
+    ).toEqual([])
+  })
+
+  it('reports every session queue when the daemon runtime shuts down', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const first = await driver.create(SPEC)
+    const second = await driver.create(SPEC)
+
+    const firstReceipt = first.send(
+      { id: 'msg-first', text: 'first' },
+      { origin: 'mail', delivery: 'queue' },
+    )
+    const secondReceipt = second.send(
+      { id: 'msg-second', text: 'second' },
+      { origin: 'mail', delivery: 'queue' },
+    )
+    world.runtime.dispose()
+
+    expect((await firstReceipt).outcome).toBe('queued')
+    expect((await secondReceipt).outcome).toBe('queued')
+    expect(world.abandoned).toEqual([
+      {
+        sessionId: first.binding.sessionId,
+        reason: 'teardown',
+        turns: [{ id: 'msg-first', text: 'first', origin: 'mail' }],
+      },
+      {
+        sessionId: second.binding.sessionId,
+        reason: 'teardown',
+        turns: [{ id: 'msg-second', text: 'second', origin: 'mail' }],
+      },
+    ])
+  })
+
+  it('reports every session queue when the daemon supervisor restarts', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const first = await driver.create(SPEC)
+    const second = await driver.create(SPEC)
+
+    const firstReceipt = first.send(
+      { id: 'msg-first', text: 'first' },
+      { origin: 'mail', delivery: 'queue' },
+    )
+    const secondReceipt = second.send(
+      { id: 'msg-second', text: 'second' },
+      { origin: 'mail', delivery: 'queue' },
+    )
+    world.runtime.control.restartSupervisor()
+    world.runtime.control.restartSupervisor()
+
+    expect((await firstReceipt).outcome).toBe('queued')
+    expect((await secondReceipt).outcome).toBe('queued')
+    expect(world.abandoned).toEqual([
+      {
+        sessionId: first.binding.sessionId,
+        reason: 'teardown',
+        turns: [{ id: 'msg-first', text: 'first', origin: 'mail' }],
+      },
+      {
+        sessionId: second.binding.sessionId,
+        reason: 'teardown',
+        turns: [{ id: 'msg-second', text: 'second', origin: 'mail' }],
+      },
+    ])
+    expect(
+      world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn'),
+    ).toEqual([])
+  })
+
   it('does not report an abandonment when the queue drained (POD-2107)', async () => {
     const world = makeWorld()
     world.bindDuringLaunch()

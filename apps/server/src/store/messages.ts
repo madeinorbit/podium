@@ -495,15 +495,16 @@ export class MessagesRepository {
   }
 
   /**
-   * Record that the driver could not deliver before its ready deadline while
-   * leaving the row queued and retryable. First report wins until another
-   * injection attempt clears it, making repeated daemon reports idempotent.
+   * Record that the driver could not deliver before its ready deadline or
+   * teardown while leaving the durable row queued and retryable. First report
+   * wins until another injection attempt clears it, deduping repeated daemon
+   * reports by turn/message id.
    */
   markDeliveryDeferred(
     id: string,
     deliveredTo: SessionId,
     at: string,
-    reason: 'never-live',
+    reason: 'never-live' | 'teardown',
   ): boolean {
     const r = this.db
       .prepare(

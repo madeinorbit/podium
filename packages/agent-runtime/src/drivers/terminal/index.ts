@@ -38,6 +38,7 @@ export {
   type HookAcceptWatch,
   QUEUE_DRAIN_DEADLINE_MS,
   QUEUE_MESSAGE_SPACING_MS,
+  type QueueDrainAbandonedReason,
   type QueuedTurn,
   READY_FLOOR_MS,
   READY_MAX_MS,

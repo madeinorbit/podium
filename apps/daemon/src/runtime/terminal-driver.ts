@@ -62,6 +62,7 @@ import type {
   InteractionAnswerOutcome,
   InteractionAskSpec,
   PendingInteraction,
+  QueueDrainAbandonedReason,
   QueuedTurn,
   Refusal,
   RuntimeDriver,
@@ -218,8 +219,8 @@ export interface TerminalRuntimeHost {
   }): { ok: true } | { ok: false; reason: string }
   onDrainRejected?(input: { sessionId: SessionId; turn: QueuedTurn; reason: string }): void
   /**
-   * The drain reached its deadline with the session still not live, so the turns
-   * below were never typed (POD-2107). See
+   * The drain reached its deadline or was torn down with queued turns, so the
+   * turns below were never typed (POD-2107, POD-2202). See
    * `TerminalInjectionPorts.onDrainAbandoned` for why this cannot stay silent.
    *
    * OPTIONAL FOR THE SAME REASON `onDrainRejected` IS: the durable FIFO is the
@@ -232,7 +233,7 @@ export interface TerminalRuntimeHost {
   onDrainAbandoned?(input: {
     sessionId: SessionId
     turns: readonly QueuedTurn[]
-    reason: 'never-live'
+    reason: QueueDrainAbandonedReason
   }): void
 }
 
@@ -1011,24 +1012,25 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       needsSubmitVerification: () => profile?.needsSubmitVerification ?? false,
       observedTurnEpoch: () => session.turnEpoch,
       /**
-       * THE ABANDONED-QUEUE REPORT (POD-2107), and it is UNCONDITIONAL.
+       * THE ABANDONED-QUEUE REPORT (POD-2107, POD-2202), and it is
+       * UNCONDITIONAL.
        *
-       * A drain that gave up because the session never went live is the exact
-       * outcome a dropped `bind` produced, and it used to make no sound: the
-       * caller held a `queued` receipt and nothing anywhere said the words were
-       * never typed. One line naming the session and the turns is the least this
-       * can cost, and it is the difference between a bug someone can find and a
-       * session that quietly answers nothing.
+       * A drain that gave up because the session never went live and a teardown
+       * that discards its queue used to make no sound: the caller held a
+       * `queued` receipt and nothing anywhere said the words were never typed.
+       * One line naming the session, reason and turns is the least this can cost,
+       * and it is the difference between a bug someone can find and a session
+       * that quietly answers nothing.
        *
        * NOT EMITTED AS A `turn` EVENT, deliberately. A turn event on this stream
        * is a PROVIDER-CONFIRMED FENCE — the corpus pins that the driver emits
        * none of its own, because a consumer told a turn failed believes a turn
        * ran. These turns never started. Correcting the SENDER's receipt is a
-       * server-side surface (the durable FIFO is the server's) and it does not
-       * exist yet; `host.onDrainAbandoned` is where it attaches when it does.
+       * server-side surface (the durable FIFO is the server's), reached through
+       * `host.onDrainAbandoned` and its dedicated daemon frame.
        */
       onDrainAbandoned: (turns, reason) => {
-        log.warn('queued turns were never delivered: the session never went live', {
+        log.warn('queued turns were never delivered', {
           sessionId: session.sessionId,
           reason,
           turns: turns.length,

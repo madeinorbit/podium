@@ -3566,6 +3566,30 @@ describe('best-effort acks/notifications [POD-853]', () => {
       deliveryDeferredReason: 'never-live',
     })
   })
+
+  it('dedupes retryable teardown reports by turn id', () => {
+    const { svc, store } = harness([session({ sessionId: asSessionId('s1') })])
+    const sent = svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id) },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'survive the restart',
+        urgency: 'next-turn',
+      },
+    )
+
+    svc.onQueueDrainAbandoned(asSessionId('s1'), [sent.message.id, sent.message.id], 'teardown')
+    svc.onQueueDrainAbandoned(asSessionId('s1'), [sent.message.id], 'teardown')
+
+    expect(store.messages.getMessage(sent.message.id)).toMatchObject({
+      status: 'queued',
+      deliveryDeferredAt: '2026-07-13T00:00:00.000Z',
+      deliveryDeferredReason: 'teardown',
+    })
+    expect(store.events.listEventsSince(0, { kinds: ['message.delivery_deferred'] })).toHaveLength(
+      1,
+    )
+  })
 })
 
 describe('composer-draft delivery guard [POD-865]', () => {

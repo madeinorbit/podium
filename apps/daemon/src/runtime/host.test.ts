@@ -5,7 +5,10 @@ import type { DaemonContext } from '../control/context'
 import { daemonRuntimeHost } from './host'
 
 describe('daemonRuntimeHost', () => {
-  it('carries an abandoned terminal queue across the daemon wire', () => {
+  it.each([
+    'never-live',
+    'teardown',
+  ] as const)('carries a %s terminal queue abandonment across the daemon wire', (reason) => {
     const sent: DaemonMessage[] = []
     const host = daemonRuntimeHost({} as DaemonContext, (message) => sent.push(message))
     const sessionId = asSessionId('session-1')
@@ -16,7 +19,7 @@ describe('daemonRuntimeHost', () => {
         { id: 'msg-1', text: 'first', origin: 'mail' },
         { id: 'msg-2', text: 'second', origin: 'mail' },
       ],
-      reason: 'never-live',
+      reason,
     })
 
     expect(sent).toEqual([
@@ -24,7 +27,7 @@ describe('daemonRuntimeHost', () => {
         type: 'runtimeQueueDrainAbandoned',
         sessionId,
         turnIds: ['msg-1', 'msg-2'],
-        reason: 'never-live',
+        reason,
       },
     ])
   })

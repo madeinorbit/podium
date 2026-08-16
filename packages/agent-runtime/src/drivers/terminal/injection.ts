@@ -189,7 +189,8 @@ export interface TerminalInjectionPorts {
   /** A turn the drain refused. Reported, never silently dropped. */
   onDrainRejected?(turn: QueuedTurn, reason: string): void
   /**
-   * THE DRAIN GAVE UP, AND SOMEBODY HAS TO HEAR IT (POD-2107).
+   * THE DRAIN GAVE UP OR WAS TORN DOWN, AND SOMEBODY HAS TO HEAR IT
+   * (POD-2107, POD-2202).
    *
    * `QUEUE_DRAIN_DEADLINE_MS` elapsed with the session still not live, so the
    * turns below were never typed. Until this port existed that outcome made no
@@ -198,14 +199,18 @@ export interface TerminalInjectionPorts {
    * came. A queue whose failure mode is invisible is the POD-549 loss wearing a
    * durable row's clothes, and this is the seam that ends the silence.
    *
-   * THE TURNS ARE STILL QUEUED when this fires — nothing is shifted. The report
-   * is "not delivered inside the deadline", not "discarded": a later enqueue
-   * restarts the drain and takes these turns first, which is why the deadline is
-   * `retryable` rather than terminal. A consumer that wants to correct its own
-   * receipt has what it needs; one that does not is unchanged.
+   * `never-live` fires with the turns still in this queue, so a later enqueue can
+   * restart the drain and take them first. `teardown` fires immediately before
+   * disposal discards this in-memory copy; the durable source remains eligible
+   * to retry after the session or daemon returns. BOTH reports are retryable,
+   * can be repeated across restarts, and may contain turn ids a consumer already
+   * handled. CONSUMERS MUST DEDUPE BY TURN ID before correcting receipts or
+   * emitting transitions.
    */
-  onDrainAbandoned?(turns: readonly QueuedTurn[], reason: 'never-live'): void
+  onDrainAbandoned?(turns: readonly QueuedTurn[], reason: QueueDrainAbandonedReason): void
 }
+
+export type QueueDrainAbandonedReason = 'never-live' | 'teardown'
 
 export interface DeliverOptions {
   origin: InputOrigin
@@ -243,7 +248,7 @@ export interface TerminalInjectionMachine {
   interrupt(): void
   /** Open queue depth, for `snapshot()` and diagnostics. */
   queueDepth(): number
-  /** Stop every timer this machine owns (session teardown). */
+  /** Stop every timer and report then discard queued turns (session teardown). */
   dispose(): void
 }
 
@@ -497,10 +502,15 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
     },
     queueDepth: () => queue.length,
     dispose() {
+      if (disposed) return
       disposed = true
       for (const handle of timers) ports.clearTimer(handle)
       timers.clear()
-      queue.length = 0
+      try {
+        if (queue.length > 0) ports.onDrainAbandoned?.([...queue], 'teardown')
+      } finally {
+        queue.length = 0
+      }
     },
   }
 }

@@ -1071,15 +1071,15 @@ export const RuntimeSendResultMessage = z.object({
 export type RuntimeSendResultMessage = z.infer<typeof RuntimeSendResultMessage>
 
 /**
- * daemon → server: a terminal queue reached its ready deadline without the
- * session ever becoming live. No turn was started and the queue is intact, so
- * this is a retryable delivery-attempt correction, not a turn event or loss.
+ * daemon → server: a terminal queue reached its ready deadline or was torn
+ * down before delivery. No turn was started, so this is a retryable
+ * delivery-attempt correction, not a turn event. Consumers dedupe by turn id.
  */
 export const RuntimeQueueDrainAbandonedMessage = z.object({
   type: z.literal('runtimeQueueDrainAbandoned'),
   sessionId: z.string().min(1).pipe(SessionIdField),
   turnIds: z.array(z.string().min(1)).min(1),
-  reason: z.literal('never-live'),
+  reason: z.enum(['never-live', 'teardown']),
 })
 export type RuntimeQueueDrainAbandonedMessage = z.infer<typeof RuntimeQueueDrainAbandonedMessage>
 

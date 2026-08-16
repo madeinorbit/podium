@@ -1244,14 +1244,15 @@ export class MessageDeliveryService {
   }
 
   /**
-   * The terminal queue reached its ready deadline without typing these turns.
-   * The message remains queued because the driver kept the turn and may drain
-   * it later; this writes the sender-visible correction separately from status.
+   * The terminal queue reached its ready deadline or teardown without typing
+   * these turns. The durable message remains queued and retryable even when the
+   * driver's in-memory copy was discarded. The repository dedupes repeated
+   * reports by turn/message id before a transition is emitted.
    */
   onQueueDrainAbandoned(
     sessionId: SessionId,
     turnIds: readonly string[],
-    reason: 'never-live',
+    reason: 'never-live' | 'teardown',
   ): void {
     const at = this.deps.now()
     for (const messageId of turnIds) {

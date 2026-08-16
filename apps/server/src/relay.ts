@@ -926,14 +926,14 @@ export class SessionRegistry {
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
-      const queuedApplyHooks: {
-        applied?: (messageId: string, sessionId: SessionId) => void
-        injected?: (messageId: string, sessionId: SessionId) => void
-        abandoned?: (input: {
+    const queuedApplyHooks: {
+      applied?: (messageId: string, sessionId: SessionId) => void
+      injected?: (messageId: string, sessionId: SessionId) => void
+      abandoned?: (input: {
         sessionId: SessionId
         turnIds: readonly string[]
-          reason: 'never-live'
-        }) => void
+        reason: 'never-live' | 'teardown'
+      }) => void
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,

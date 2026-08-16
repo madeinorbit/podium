@@ -27,6 +27,7 @@ import {
   parseDaemonHandshakeReply,
   parseServerMessage,
   parseServerMessageLenient,
+  RuntimeQueueDrainAbandonedMessage,
   ServerMessage,
 } from './messages'
 import {
@@ -38,6 +39,22 @@ import {
 } from './daemon'
 
 describe('shared schemas', () => {
+  it('distinguishes retryable queue teardown from a never-live deadline', () => {
+    expect(
+      RuntimeQueueDrainAbandonedMessage.parse({
+        type: 'runtimeQueueDrainAbandoned',
+        sessionId: asSessionId('s1'),
+        turnIds: ['msg-1'],
+        reason: 'teardown',
+      }),
+    ).toEqual({
+      type: 'runtimeQueueDrainAbandoned',
+      sessionId: asSessionId('s1'),
+      turnIds: ['msg-1'],
+      reason: 'teardown',
+    })
+  })
+
   it('round-trips a SessionMeta (spawn origin)', () => {
     const meta = {
       sessionId: asSessionId('s1'),

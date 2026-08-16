@@ -86,11 +86,11 @@ export interface SessionLifecycleDeps {
   /** Record that the queued input's bytes reached the CLI, which is short of
    *  delivery: the agent takes it at its own turn boundary (POD-1242). */
   noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): void
-  /** Persist the sender-facing correction when a driver queue never became live. */
+  /** Persist the sender-facing correction when a driver queue abandons delivery. */
   queueDrainAbandoned?(input: {
     sessionId: SessionId
     turnIds: readonly string[]
-    reason: 'never-live'
+    reason: 'never-live' | 'teardown'
   }): void
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
