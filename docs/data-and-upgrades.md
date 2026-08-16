@@ -78,9 +78,16 @@ declines the move if anything is missing, reporting one of:
 
 - `schema-advanced` — the target genuinely cannot open this database. It names the
   first migration it lacks.
-- `schema-unknown` — the target does not declare its schema at all (every release
-  published before this check existed), so nothing can prove the move is safe.
+- `schema-unknown` — the target does not declare its schema (every release published
+  before this check existed) *and* is not a version this machine can prove is newer than
+  the one it runs, so nothing can tell whether the move is safe.
 - `schema-unreadable` — this machine's own ledger could not be read, so the same.
+
+**Moving forward is never gated by a missing declaration.** An update to a provably newer
+version cannot strand a database: the schema only ever advances through migrations the
+new build itself carries, and releases are expand-only, so a newer build defines
+everything an older one did. Only a step backwards — or between two labels with no
+order at all, such as `dev+<sha>` — has to be proven.
 
 In all three cases **nothing is fetched and nothing is swapped**: the machine stays on
 the version that works and keeps running. A downgrade whose schema did *not* advance is

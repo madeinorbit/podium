@@ -54,9 +54,21 @@ after `already-current`, before `downloading`.
 | Machine holds no database (every remote worker) | converges, ungated — §13.3, "a daemon owns no database" |
 | Nothing applied yet | converges, ungated |
 | Downgrade whose schema did not advance | **converges** — the rollback the expand-only policy keeps cheap |
+| Provably newer target, declaring nothing | **converges** — a step forward has no downgrade hazard |
 | Downgrade past a migration the target lacks | refused `schema-advanced`, naming the migration |
-| Target that does not declare its schema | refused `schema-unknown` |
+| Undeclared target that cannot be proven newer (older, equal, or `dev+<sha>`) | refused `schema-unknown` |
 | This machine's ledger could not be read | refused `schema-unreadable` — fail closed |
+
+The forward allowance is not a softening; it is the direction the hazard does not run in.
+The server running now opened this database, so what it has applied is within what the
+current build defines; releases are expand-only, so a newer build defines at least what
+the current one does; therefore a newer build defines everything applied. Neither link
+holds backwards. Refusing both directions alike — the first cut of this gate — would have
+left no installed machine able to accept **any** published release until a new one was
+cut, which is a worse failure than the one being fixed, and one a dev-only drive would
+never have seen, because dev targets do declare. Ordering comes from
+`packages/protocol/src/update/version-order.ts`, the one comparator in the update system,
+which fails closed: `dev+<sha>` on either side has no order and is refused.
 
 All three refusals keep the machine **running on the version that works**, in the same
 honest half-way state POD-2210 chose: nothing fetched, nothing swapped. Each is a
@@ -73,11 +85,11 @@ restoring silently would discard every write made since the schema advanced. Tha
 ## Honest limits
 
 - Every release published **before** this change declares nothing, so a machine with a
-  database now refuses to converge to one. That includes the exact move the acceptance
-  drive used to prove feed delivery end to end (`dev+03a2892` → `0.1.3`). The proof
-  path for that arm is now either a machine with no database or a target that declares
-  its schema. This is a deliberate trade: unproven is treated as unsafe, because the
-  machine that guesses wrong cannot start and cannot update itself back.
+  database refuses to move BACK to one. That includes the exact move the acceptance drive
+  used to prove feed delivery end to end (`dev+03a2892` → `0.1.3`) — which is precisely
+  the move that bricked. Proving the feed arm now needs a machine with no database, a
+  target that declares its schema, or an upgrade rather than a downgrade; upgrades to
+  undeclared releases are unaffected.
 - A declaration is a claim by the publisher, trusted exactly as much as the rest of the
   manifest (its URLs and digests already are). The artifact signature does not cover it.
 - The manifest grows by the migration list — 75 names, about 3 KB today.

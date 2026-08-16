@@ -188,7 +188,7 @@ describe('refuseSchemaRegression', () => {
     expect(refusal).toContain('dev+03a2892')
   })
 
-  it('refuses a target that will not say what schema it can open', () => {
+  it('refuses an undeclared target it cannot prove is ahead of this machine', () => {
     // Every release published before this gate existed. Unproven is not the
     // same as unsafe, but a machine that guesses wrong cannot start and cannot
     // update itself back, so the guess is not ours to make.
@@ -200,6 +200,85 @@ describe('refuseSchemaRegression', () => {
     })
     expect(refusal).toContain('cannot converge: schema-unknown')
     expect(refusal).toContain('0.1.3')
+  })
+
+  it('lets an UPGRADE to an undeclared target through — an unprovable step FORWARD has no downgrade hazard', () => {
+    // THE CASE THAT WOULD HAVE BEEN A WORSE BUG THAN THE ONE THIS GATE FIXES.
+    // No release published to date declares a schema, so gating every
+    // undeclared target alike would have left no installed machine able to
+    // accept ANY published release until a new one is cut — and a dev-only
+    // drive would never have seen it, exactly like the hardcoded channel.
+    //
+    // Unprovable-and-BEHIND and unprovable-and-AHEAD are not the same case.
+    // Going forward carries no downgrade hazard at all: the database is only
+    // ever moved by migrations the NEW build carries.
+    expect(
+      refuseSchemaRegression({
+        applied: [baseline],
+        targetDefines: undefined,
+        currentVersion: '0.1.3',
+        targetVersion: '0.1.4',
+      }),
+    ).toBeUndefined()
+  })
+
+  it('still refuses an undeclared target at the same version, or one it cannot order', () => {
+    // FAILS CLOSED on both. Equal versions never reach here through
+    // `planConvergence`, and a label with no ordering at all — `dev+<sha>` on
+    // either side — is not evidence of anything.
+    expect(
+      refuseSchemaRegression({
+        applied: [baseline],
+        targetDefines: undefined,
+        currentVersion: '0.1.4',
+        targetVersion: 'dev+03a2892',
+      }),
+    ).toContain('cannot converge: schema-unknown')
+    expect(
+      refuseSchemaRegression({
+        applied: [baseline],
+        targetDefines: undefined,
+        currentVersion: '0.1.4',
+        targetVersion: '0.1.4',
+      }),
+    ).toContain('cannot converge: schema-unknown')
+  })
+
+  it('lets a prerelease step forward through, and refuses the step back', () => {
+    // Podium's own versions ARE prereleases; an ordering that cannot read
+    // `0.1.4-edge.4` would answer "cannot prove" for every edge machine there
+    // is, which is the same shipping stall in a smaller blast radius.
+    expect(
+      refuseSchemaRegression({
+        applied: [baseline],
+        targetDefines: undefined,
+        currentVersion: '0.1.4-edge.3',
+        targetVersion: '0.1.4-edge.4',
+      }),
+    ).toBeUndefined()
+    expect(
+      refuseSchemaRegression({
+        applied: [baseline],
+        targetDefines: undefined,
+        currentVersion: '0.1.4-edge.4',
+        targetVersion: '0.1.4-edge.3',
+      }),
+    ).toContain('cannot converge: schema-unknown')
+  })
+
+  it('refuses a DECLARED target the database has outgrown even when it is newer', () => {
+    // The forward allowance is only for targets that will not say. One that
+    // DOES say is judged on what it says, in both directions — a newer build
+    // that genuinely dropped a migration is still a build that cannot open
+    // this database.
+    expect(
+      refuseSchemaRegression({
+        applied: [baseline, advanced],
+        targetDefines: [baseline],
+        currentVersion: '0.1.3',
+        targetVersion: '0.1.4',
+      }),
+    ).toContain('cannot converge: schema-advanced')
   })
 
   it('accepts a migration applied under its pre-rebase name when the target defines the canonical one', () => {

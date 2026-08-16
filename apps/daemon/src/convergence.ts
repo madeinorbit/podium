@@ -1,3 +1,4 @@
+import { isProvablyNewer } from '@podium/protocol'
 import { canonicalMigrationName } from '@podium/runtime/migration-ledger'
 import type { PendingGrant } from './pending-grant'
 
@@ -128,6 +129,22 @@ export function disarmExitSeam(input: { provided?: () => void; shape: ProcessSha
  * A downgrade whose schema did NOT advance still converges. That is the
  * rollback path the design deliberately keeps, and releases are expand-only
  * (§13.2) so it is the common case.
+ *
+ * AND NEITHER DOES AN UPGRADE PAY FOR THIS. The first cut of this gate refused
+ * every target that would not declare, in both directions, and no release
+ * published to date declares anything — so it would have left no installed
+ * machine able to accept ANY published release until a new one was cut. That is
+ * a worse failure than the one being fixed, and a dev-only drive would never
+ * have seen it, because dev targets DO declare.
+ *
+ * So unprovable-and-BEHIND and unprovable-and-AHEAD are separate cases, and only
+ * the first is a hazard. A step forward cannot brick anything: the database is
+ * moved only by migrations the NEW build carries, so the build being swapped in
+ * defines every migration it will find. The formal version: the server running
+ * now OPENED this database, so what it has applied is within what the current
+ * build defines; releases are expand-only, so a newer build defines at least
+ * what the current one does; therefore a newer build defines everything applied.
+ * Neither link holds backwards, which is exactly why the direction decides it.
  */
 const SCHEMA_ADVANCED = 'schema-advanced'
 const SCHEMA_UNKNOWN = 'schema-unknown'
@@ -160,11 +177,22 @@ export function refuseSchemaRegression(input: {
     `which is the version that works here.`
 
   if (targetDefines === undefined) {
+    /**
+     * The one thing left to ask about a target that will not say: is it at
+     * least AHEAD of us? `isProvablyNewer` fails closed, so `false` covers both
+     * "older" and "these two labels have no order at all" — a `dev+<sha>` on
+     * either side is not evidence of anything and is refused. That costs a dev
+     * checkout nothing, because the development publisher declares its schema
+     * from the commit it advertises.
+     */
+    if (isProvablyNewer(targetVersion, currentVersion)) return undefined
     return (
       `cannot converge: ${SCHEMA_UNKNOWN} — ${targetVersion} does not declare which schema ` +
-      `migrations it can open, and this machine's database has ${applied.length} applied, so ` +
-      `nothing here can tell whether that build would start against it. ${staysPut} A target ` +
-      `published before this check existed says nothing; a newer one will.`
+      `migrations it can open, it is not a version this machine can prove is newer than the ` +
+      `${currentVersion} it runs, and this machine's database has ${applied.length} applied, so ` +
+      `nothing here can tell whether that build would start against it. ${staysPut} An update ` +
+      `that moves FORWARD needs no declaration and is not affected by this; going back to a ` +
+      `build published before this check existed is what cannot be proven safe.`
     )
   }
 
