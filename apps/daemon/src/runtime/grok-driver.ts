@@ -12,6 +12,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol'
+import { grokAcpProcessKey } from './grok-acp-server.js'
 
 const log = createLogger('daemon:grok-driver')
 
@@ -100,15 +101,21 @@ export function createDaemonGrokRuntime(deps: {
     async adoptFromJournal(sessionId) {
       const entry = deps.host.journal.read(sessionId)
       if (!entry) return undefined
+      const processKey = grokAcpProcessKey(sessionId)
+      // The journal is evidence, not authority for identity. Its path is keyed
+      // by the requested Podium session, while its payload can be stale or
+      // replaced; derive the expected key independently and refuse a payload
+      // for any other logical incarnation before launching a new child.
+      if (entry.sessionId !== sessionId || entry.process.key !== processKey) return undefined
       try {
         const handle = await runtime.driver.adopt({
-          sessionId: entry.sessionId,
+          sessionId,
           driver: GROK_ACP_DRIVER_ID,
           family: 'server',
           harness: 'grok',
           workdir: entry.workdir,
           resume: { kind: 'grok-session', value: entry.grokSessionId },
-          process: entry.process,
+          process: { key: processKey },
           bindingVersion: entry.bindingVersion,
         })
         live.add(sessionId)

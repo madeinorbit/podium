@@ -125,7 +125,15 @@ export interface GrokAcpHostDeps {
   now?: () => number
 }
 
-const scopeLabel = (sessionId: SessionId): string =>
+/**
+ * Stable process identity for the logical Grok session.
+ *
+ * Adoption derives this from the Podium session id instead of trusting the
+ * binding journal. That gives the journal's recorded process key an
+ * independent identity to match before a fresh stdio child is allowed to load
+ * the native session it names.
+ */
+export const grokAcpProcessKey = (sessionId: SessionId): string =>
   `podium-gk-${String(sessionId)
     .replace(/[^a-zA-Z0-9_.-]/g, '-')
     .slice(-48)}`
@@ -179,7 +187,7 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
     if (live.size > 0) return
     children.delete(sessionId)
     if (!canScopeMaster()) return
-    const unit = scopeUnitName(scopeLabel(sessionId))
+    const unit = scopeUnitName(grokAcpProcessKey(sessionId))
     for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
   }
 
@@ -194,7 +202,7 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
         throw new Error(`${verdict.diagnostic.title}: ${verdict.diagnostic.body}`)
       }
 
-      const label = scopeLabel(input.sessionId)
+      const label = grokAcpProcessKey(input.sessionId)
       const scoped = canScopeMaster()
       const unit = scopeUnitName(label)
       if (scoped && liveChildren(input.sessionId).size === 0) {
