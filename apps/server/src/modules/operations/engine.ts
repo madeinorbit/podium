@@ -88,6 +88,9 @@ export const STALLED_ERROR_CODE = 'stalled'
 /** An operation whose kind this binary does not register — see {@link OperationEngine.adoptOnBoot}. */
 export const UNKNOWN_KIND_ERROR_CODE = 'unknown-operation-kind'
 
+/** `ensure()` outstayed its step's budget — see `invokeWithin`. */
+const OVERDUE = Symbol('operation-step-overdue')
+
 export class OperationEngine {
   private readonly deps: OperationEngineDeps
   /** One deadline timer per operation — §3.3's "a single scheduler". */
@@ -153,8 +156,15 @@ export class OperationEngine {
     this.contexts.set(operation.id, context)
     this.announce(operation.id)
 
-    await this.drive(operation.id)
-    return { started: true, operation: this.require(operation.id) }
+    // START CREATES THE OPERATION; IT DOES NOT RUN IT TO COMPLETION. The caller
+    // is a button press, and what it needs back is an identity to render — the
+    // operation object is the source of truth from here on (P2). Awaiting the
+    // drive would tie the response time of `start` to the behaviour of the
+    // first runner, which is how today's updater ends up holding a spinner for
+    // five silent minutes; a runner that wedges must cost the operation its
+    // deadline, never the click its answer.
+    void this.drive(operation.id)
+    return { started: true, operation }
   }
 
   /**
@@ -186,11 +196,22 @@ export class OperationEngine {
         (s) => ({ ...s, startedAt: s.startedAt ?? at }),
       )
       this.persist(next, at)
-      if (isStepFinished(next.steps?.find((s) => s.id === stepId)?.state ?? 'running')) {
-        await this.driveLocked(operationId)
-      } else {
-        this.armDeadline(operationId)
+
+      const reported = next.steps?.find((s) => s.id === stepId)?.state ?? 'running'
+      if (reported === 'failed') {
+        // A failure REPORTED is a failure, exactly as one RETURNED by `ensure()`
+        // is. Falling through to `driveLocked` here would be worse than losing
+        // the report: `isStepFinished` counts a failed step as finished, so the
+        // plan would step over it and the operation could reach `done` with a
+        // failed step in its own step list.
+        this.fail(next, stepId, patch.error ?? { code: 'step-failed' })
+        return
       }
+      if (isStepFinished(reported)) {
+        await this.driveLocked(operationId)
+        return
+      }
+      this.armDeadline(operationId)
     })
   }
 
@@ -358,7 +379,11 @@ export class OperationEngine {
       }
 
       const started = this.beginStep(operation, step.id)
-      const outcome = await this.invoke(runner, started, step.id)
+      const outcome = await this.invokeWithin(runner, started, step.id, def.deadlines?.[step.id])
+      if (outcome === OVERDUE) {
+        await this.onDeadline(operationId)
+        return
+      }
 
       const current = this.deps.store.get(operationId)?.operation
       if (!current || isTerminalOperationState(current.state)) return
@@ -375,6 +400,58 @@ export class OperationEngine {
         return
       }
     }
+  }
+
+  /**
+   * Run `ensure()`, but never for longer than the step's own budget.
+   *
+   * A RUNNER THAT NEVER RETURNS IS THE HANG THIS FRAMEWORK EXISTS TO END. The
+   * deadline timer cannot save us from it on its own: the timer callback goes
+   * through this operation's serial queue, and a pending `ensure()` is holding
+   * that queue — so arming a timer before the await would produce a deadline
+   * that fires into a lane it cannot enter. Racing here is what makes the
+   * budget real, whatever the runner does.
+   *
+   * The losing `ensure()` is simply dropped. It cannot reject (see below), and
+   * whatever it eventually answers is stale by definition — the step it was
+   * answering about has since been stalled, retried or failed, and `ensure()`
+   * is idempotent by contract, so nothing is owed to a call we stopped waiting
+   * for.
+   *
+   * A CONSEQUENCE WORTH NAMING for anyone writing a runner: `ensure()` must not
+   * await `recordProgress` for its own operation. That call queues behind the
+   * very work it is being called from, which is a deadlock the budget would
+   * merely convert into a stall. Report progress from wherever the news
+   * actually arrives — a daemon frame, a watcher — after returning `running`.
+   */
+  private async invokeWithin(
+    runner: { ensure: AnyOperationKindDefinition['runners'][string]['ensure'] },
+    operation: Operation,
+    stepId: string,
+    budget: StepDeadlines | undefined,
+  ): Promise<StepOutcome | typeof OVERDUE> {
+    const ensure = this.invoke(runner, operation, stepId)
+    const step = (operation.steps ?? []).find((s) => s.id === stepId)
+    const due = step ? deadlineDue(step, budget, this.now()) : undefined
+    if (due === undefined) return ensure
+
+    return new Promise<StepOutcome | typeof OVERDUE>((resolve) => {
+      let settled = false
+      const timer = this.deps.clock.setTimeout(
+        () => {
+          if (settled) return
+          settled = true
+          resolve(OVERDUE)
+        },
+        Math.max(0, due - this.now()),
+      )
+      void ensure.then((outcome) => {
+        if (settled) return
+        settled = true
+        this.deps.clock.clearTimeout(timer)
+        resolve(outcome)
+      })
+    })
   }
 
   /** `ensure()` throwing is a failed step, not a crashed server. */
@@ -611,7 +688,13 @@ export class OperationEngine {
     )
     this.persist(retrying, retryAt)
 
-    const outcome = await this.invoke(runner, retrying, step.id)
+    // Bounded exactly as the first attempt was: a retry that hangs is the same
+    // hang, and this one has already used the step's one stall.
+    const outcome = await this.invokeWithin(runner, retrying, step.id, budget)
+    if (outcome === OVERDUE) {
+      await this.onDeadline(operationId)
+      return
+    }
     const after = this.deps.store.get(operationId)?.operation
     if (!after || isTerminalOperationState(after.state)) return
     const at = this.now()

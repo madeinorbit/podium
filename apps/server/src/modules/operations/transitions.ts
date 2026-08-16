@@ -39,6 +39,15 @@ export function nextStep(operation: Operation): OperationStep | undefined {
  * dropped for good — and the fields most likely to be unknown are exactly the
  * ones a NEWER server wrote before this one adopted its operation.
  *
+ * A VALUE THE PATCH NAMES IS REPLACED, NOT MERGED, and that is deliberate:
+ * `progress` and `places` are a report of how things stand NOW, so merging
+ * would carry a field from an older report forward and present it as current —
+ * a stale `bytesPerSecond` sitting under a live percentage is worse than no
+ * field at all, on a contract whose whole subject is liveness. What the frozen
+ * law requires is that a value NOBODY named survives, and it does: the spreads
+ * below are conditional on the patch carrying the key, and no patch the engine
+ * builds for itself carries either of these.
+ *
  * `lastProgressAt` is stamped on every patch: the heartbeat is the point (P4).
  * `extra` is how a caller adds bookkeeping the patch has no vocabulary for —
  * an attempt count, a stall count, or a deliberate refusal to refresh the

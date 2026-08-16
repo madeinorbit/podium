@@ -99,6 +99,40 @@ function testKind(
 const step = (operation: Operation | null | undefined, id: string) =>
   (operation?.steps ?? []).find((s) => s.id === id)
 
+/**
+ * Start, then let the engine run until it blocks or ends.
+ *
+ * `start` deliberately does NOT wait for the plan — a click must not be held
+ * hostage to a runner — so a test that wants to assert on where the plan got
+ * to has to say when it is done waiting. Tests about a runner that never
+ * returns use `engine.start` directly, because for them there is nothing to
+ * wait for until the clock moves.
+ */
+const run = async (
+  engine: OperationEngine,
+  ...args: Parameters<OperationEngine['start']>
+): Promise<Awaited<ReturnType<OperationEngine['start']>>> => {
+  const result = await engine.start(...args)
+  if (result.started) await engine.whenSettled(result.operation.id)
+  return result
+}
+
+/** Start a plan whose first runner never returns; there is nothing to settle. */
+const startOnly = (engine: OperationEngine) => engine.start('test')
+
+/**
+ * Let the engine's own continuations run, with no clock involved.
+ *
+ * `whenSettled` is the wrong tool once a runner is deliberately wedged: the
+ * work queue is held by that runner on purpose, so waiting for it to drain is
+ * waiting for the thing under test not to happen. Draining the microtask queue
+ * a bounded number of times is deterministic — every step between a fired fake
+ * timer and the resulting persisted state is a promise, never a real timer.
+ */
+const drainMicrotasks = async () => {
+  for (let i = 0; i < 100; i++) await Promise.resolve()
+}
+
 describe('starting an operation', () => {
   it('runs the plan through, in order, and lands on done', async () => {
     const { registry, engine, store } = harness()
@@ -118,7 +152,7 @@ describe('starting an operation', () => {
       }),
     )
 
-    const result = await engine.start('test')
+    const result = await run(engine, 'test')
     expect(result).toMatchObject({ started: true })
     expect(order).toEqual(['first', 'second'])
     const row = store.get('op_1')
@@ -132,7 +166,7 @@ describe('starting an operation', () => {
     const second = vi.fn(done)
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(second) } }))
 
-    await engine.start('test')
+    await run(engine, 'test')
     expect(store.get('op_1')?.state).toBe('running')
     expect(step(store.get('op_1')?.operation, 'first')?.state).toBe('running')
     expect(second).not.toHaveBeenCalled()
@@ -154,7 +188,7 @@ describe('starting an operation', () => {
         },
       }),
     )
-    await engine.start('test')
+    await run(engine, 'test')
     expect(step(store.get('op_1')?.operation, 'first')?.startedAt).toBe(0)
   })
 
@@ -166,7 +200,7 @@ describe('starting an operation', () => {
   it('records who asked', async () => {
     const { registry, engine, store } = harness()
     registry.register(testKind())
-    await engine.start('test', undefined, { createdBy: 'user' })
+    await run(engine, 'test', undefined, { createdBy: 'user' })
     expect(store.get('op_1')?.operation?.createdBy).toBe('user')
   })
 
@@ -188,7 +222,7 @@ describe('starting an operation', () => {
       }),
     )
     const context = { fleet: ['vmi'] }
-    await engine.start('test', context)
+    await run(engine, 'test', context)
     expect(seen).toEqual([context, context])
   })
 })
@@ -198,8 +232,8 @@ describe('single-flight (P6)', () => {
     const { registry, engine } = harness()
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
 
-    await engine.start('test')
-    expect(await engine.start('test')).toEqual({ started: false, alreadyRunning: 'op_1' })
+    await run(engine, 'test')
+    expect(await run(engine, 'test')).toEqual({ started: false, alreadyRunning: 'op_1' })
   })
 
   it('holds even when two starts race through the async plan window', async () => {
@@ -224,8 +258,8 @@ describe('single-flight (P6)', () => {
   it('releases the group the moment the operation reaches an outcome', async () => {
     const { registry, engine } = harness()
     registry.register(testKind())
-    await engine.start('test')
-    expect(await engine.start('test')).toMatchObject({ started: true })
+    await run(engine, 'test')
+    expect(await run(engine, 'test')).toMatchObject({ started: true })
   })
 
   it('does not let one group block another', async () => {
@@ -239,7 +273,7 @@ describe('single-flight (P6)', () => {
         runners: { first: runner(blocks) },
       }),
     )
-    await engine.start('test')
+    await run(engine, 'test')
     expect(await engine.start('reindex')).toMatchObject({ started: true })
   })
 })
@@ -248,7 +282,7 @@ describe('progress and liveness (P4)', () => {
   it('stamps the heartbeat on every accepted report', async () => {
     const { registry, engine, store, clock } = harness()
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
-    await engine.start('test')
+    await run(engine, 'test')
 
     clock.advance(4000)
     await engine.recordProgress('op_1', 'first', { progress: { done: 1, total: 3 } })
@@ -262,7 +296,7 @@ describe('progress and liveness (P4)', () => {
   it('carries on with the plan when a report finishes the step', async () => {
     const { registry, engine, store } = harness()
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
-    await engine.start('test')
+    await run(engine, 'test')
 
     await engine.recordProgress('op_1', 'first', { state: 'done' })
     expect(store.get('op_1')?.state).toBe('done')
@@ -271,11 +305,159 @@ describe('progress and liveness (P4)', () => {
   it('ignores a report for a step that has already finished', async () => {
     const { registry, engine, store } = harness()
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(blocks) } }))
-    await engine.start('test')
+    await run(engine, 'test')
     await engine.recordProgress('op_1', 'first', { state: 'done' })
 
     await engine.recordProgress('op_1', 'first', { detail: 'late' })
     expect(step(store.get('op_1')?.operation, 'first')?.detail).toBeUndefined()
+  })
+})
+
+describe('a failure REPORTED is a failure (POD-2136 review)', () => {
+  it('fails the operation, rather than stepping over the failed step', async () => {
+    const { registry, engine, store } = harness()
+    const second = vi.fn(done)
+    registry.register(testKind({ runners: { first: runner(blocks), second: runner(second) } }))
+    await run(engine, 'test')
+
+    await engine.recordProgress('op_1', 'first', {
+      state: 'failed',
+      error: { code: 'machine-unreachable', places: ['vmi'] },
+    })
+
+    const row = store.get('op_1')
+    expect(row?.state).toBe('failed')
+    expect(row?.operation?.error).toMatchObject({ code: 'machine-unreachable' })
+    // The plan must not walk past it: `isStepFinished` counts a failed step as
+    // finished, so a naive drive would reach `done` with a failed step in view.
+    expect(second).not.toHaveBeenCalled()
+    expect(step(row?.operation, 'second')?.state).toBe('pending')
+  })
+
+  it('still finishes the plan when the report merely completes the step', async () => {
+    const { registry, engine, store } = harness()
+    registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
+    await run(engine, 'test')
+    await engine.recordProgress('op_1', 'first', { state: 'done' })
+    expect(store.get('op_1')?.state).toBe('done')
+  })
+
+  it('frees the exclusion group when a report fails the operation', async () => {
+    const { registry, engine } = harness()
+    registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
+    await run(engine, 'test')
+    await engine.recordProgress('op_1', 'first', { state: 'failed' })
+    expect(await run(engine, 'test')).toMatchObject({ started: true })
+  })
+})
+
+describe('a runner that never returns is still bound by its budget (POD-2136 review)', () => {
+  /** An `ensure()` that hangs forever — a wedged ssh, a dead socket. */
+  const hangs = () => new Promise<StepOutcome>(() => {})
+
+  const hanging = (over: Partial<OperationKindDefinition> = {}) =>
+    testKind({
+      plan: () => ({ steps: [{ id: 'first' }, { id: 'second' }] }),
+      runners: { first: runner(hangs), second: runner(done) },
+      deadlines: { first: { silenceMs: 1000 } },
+      ...over,
+    })
+
+  it('stalls it, retries once, then fails — without the runner ever answering', async () => {
+    const { registry, engine, store, clock } = harness()
+    const ensure = vi.fn(hangs)
+    registry.register(hanging({ runners: { first: runner(ensure), second: runner(done) } }))
+
+    // `start` returns while the runner is still pending: the engine is not
+    // allowed to be hostage to it.
+    await startOnly(engine)
+    expect(ensure).toHaveBeenCalledTimes(1)
+    expect(store.get('op_1')?.state).toBe('running')
+
+    clock.advance(1000)
+    await drainMicrotasks()
+    expect(step(store.get('op_1')?.operation, 'first')?.stalls).toBe(1)
+    expect(ensure).toHaveBeenCalledTimes(2)
+
+    clock.advance(1000)
+    await drainMicrotasks()
+    const row = store.get('op_1')
+    expect(row?.state).toBe('failed')
+    expect(row?.operation?.error?.code).toBe(STALLED_ERROR_CODE)
+  })
+
+  it('fails outright on a total budget, with no retry', async () => {
+    const { registry, engine, store, clock } = harness()
+    const ensure = vi.fn(hangs)
+    registry.register(
+      hanging({
+        runners: { first: runner(ensure), second: runner(done) },
+        deadlines: { first: { totalMs: 400 } },
+      }),
+    )
+    await startOnly(engine)
+
+    clock.advance(400)
+    await drainMicrotasks()
+    expect(store.get('op_1')?.state).toBe('failed')
+    expect(ensure).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a hanging runner alone when its kind declared no budget', async () => {
+    // Nothing to enforce, so nothing is invented — the operation stays running.
+    const { registry, engine, store, clock } = harness()
+    registry.register(hanging({ deadlines: {} }))
+    await startOnly(engine)
+    clock.advance(10_000)
+    await drainMicrotasks()
+    expect(store.get('op_1')?.state).toBe('running')
+  })
+
+  it('accepts the answer of a runner that returns inside its budget', async () => {
+    const { registry, engine, store, clock } = harness()
+    let release: (o: StepOutcome) => void = () => {}
+    registry.register(
+      hanging({
+        runners: {
+          first: runner(
+            () =>
+              new Promise<StepOutcome>((r) => {
+                release = r
+              }),
+          ),
+          second: runner(done),
+        },
+      }),
+    )
+    await engine.start('test')
+    clock.advance(500)
+    release({ state: 'done' })
+    await engine.whenSettled('op_1')
+    expect(store.get('op_1')?.state).toBe('done')
+  })
+})
+
+describe('stopping the engine (POD-2136 review)', () => {
+  it('disarms every deadline, so nothing wakes into a closed store', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(
+      testKind({
+        plan: () => ({ steps: [{ id: 'first' }] }),
+        runners: { first: runner(blocks) },
+        deadlines: { first: { silenceMs: 1000 } },
+      }),
+    )
+    await run(engine, 'test')
+    expect(clock.armed()).toBe(1)
+
+    engine.stop()
+    expect(clock.armed()).toBe(0)
+
+    clock.advance(10_000)
+    await engine.whenSettled('op_1')
+    // Untouched: the successor adopts it and re-derives from reality instead.
+    expect(store.get('op_1')?.state).toBe('running')
+    expect(step(store.get('op_1')?.operation, 'first')?.stalls).toBeUndefined()
   })
 })
 
@@ -292,7 +474,7 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
     const { registry, engine, store, clock } = harness()
     const ensure = vi.fn(blocks)
     registry.register(stalling({ runners: { first: runner(ensure) } }))
-    await engine.start('test')
+    await run(engine, 'test')
     expect(ensure).toHaveBeenCalledTimes(1)
 
     clock.advance(1000)
@@ -315,7 +497,7 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
   it('lets progress push the deadline out', async () => {
     const { registry, engine, store, clock } = harness()
     registry.register(stalling())
-    await engine.start('test')
+    await run(engine, 'test')
 
     clock.advance(600)
     await engine.recordProgress('op_1', 'first', { detail: 'still going' })
@@ -331,7 +513,7 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
   it('records a stall that recovered instead of erasing it', async () => {
     const { registry, engine, store, clock } = harness()
     registry.register(stalling())
-    await engine.start('test')
+    await run(engine, 'test')
 
     clock.advance(1000)
     await engine.whenSettled('op_1')
@@ -349,7 +531,7 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
     registry.register(
       stalling({ runners: { first: runner(ensure) }, deadlines: { first: { totalMs: 500 } } }),
     )
-    await engine.start('test')
+    await run(engine, 'test')
 
     clock.advance(500)
     await engine.whenSettled('op_1')
@@ -361,14 +543,14 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
   it('arms nothing for a step whose kind declares no budget', async () => {
     const { registry, engine, clock } = harness()
     registry.register(stalling({ deadlines: {} }))
-    await engine.start('test')
+    await run(engine, 'test')
     expect(clock.armed()).toBe(0)
   })
 
   it('drops the timer when the operation ends', async () => {
     const { registry, engine, clock } = harness()
     registry.register(stalling())
-    await engine.start('test')
+    await run(engine, 'test')
     expect(clock.armed()).toBe(1)
     await engine.recordProgress('op_1', 'first', { state: 'done' })
     expect(clock.armed()).toBe(0)
@@ -389,7 +571,7 @@ describe('failure', () => {
         },
       }),
     )
-    await engine.start('test')
+    await run(engine, 'test')
     const row = store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error).toMatchObject({ code: 'machine-dirty-checkout' })
@@ -408,7 +590,7 @@ describe('failure', () => {
         },
       }),
     )
-    await engine.start('test')
+    await run(engine, 'test')
     const row = store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error?.code).toBe('step-threw')
@@ -418,7 +600,7 @@ describe('failure', () => {
   it('fails an operation whose plan names a step with no runner', async () => {
     const { registry, engine, store } = harness()
     registry.register(testKind({ plan: () => ({ steps: [{ id: 'ghost' }] }) }))
-    await engine.start('test')
+    await run(engine, 'test')
     expect(store.get('op_1')?.operation?.error?.code).toBe('no-runner')
   })
 })
@@ -427,7 +609,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
   it('cancels while the step in flight says it is safe', async () => {
     const { registry, engine, store } = harness()
     registry.register(testKind({ runners: { first: runner(blocks, true), second: runner(done) } }))
-    await engine.start('test')
+    await run(engine, 'test')
 
     expect(engine.cancel('op_1')).toMatchObject({ canceled: true })
     expect(store.get('op_1')?.state).toBe('canceled')
@@ -437,7 +619,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
   it('refuses once an irreversible step is in flight, and names it', async () => {
     const { registry, engine, store } = harness()
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
-    await engine.start('test')
+    await run(engine, 'test')
 
     expect(engine.cancel('op_1')).toEqual({
       canceled: false,
@@ -453,7 +635,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     registry.register(
       testKind({ runners: { first: runner(blocks, undefined), second: runner(done) } }),
     )
-    await engine.start('test')
+    await run(engine, 'test')
     expect(engine.cancel('op_1')).toMatchObject({ refused: 'irreversible' })
   })
 
@@ -461,16 +643,16 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     const { registry, engine } = harness()
     registry.register(testKind())
     expect(engine.cancel('op_nope')).toEqual({ canceled: false, refused: 'not-found' })
-    await engine.start('test')
+    await run(engine, 'test')
     expect(engine.cancel('op_1')).toEqual({ canceled: false, refused: 'already-finished' })
   })
 
   it('frees the group once canceled', async () => {
     const { registry, engine } = harness()
     registry.register(testKind({ runners: { first: runner(blocks, true), second: runner(done) } }))
-    await engine.start('test')
+    await run(engine, 'test')
     engine.cancel('op_1')
-    expect(await engine.start('test')).toMatchObject({ started: true })
+    expect(await run(engine, 'test')).toMatchObject({ started: true })
   })
 })
 
@@ -621,7 +803,7 @@ describe('surface-scoped asks hold the operation open only when they must (§3.5
   it('waits on an ask that gates correctness', async () => {
     const { registry, engine, store } = harness()
     registry.register(withAsk(true))
-    await engine.start('test')
+    await run(engine, 'test')
     expect(store.get('op_1')?.state).toBe('waiting')
     expect(store.get('op_1')?.finishedAt).toBeNull()
   })
@@ -629,14 +811,14 @@ describe('surface-scoped asks hold the operation open only when they must (§3.5
   it('completes despite a voluntary ask — stragglers self-serve', async () => {
     const { registry, engine, store } = harness()
     registry.register(withAsk(false))
-    await engine.start('test')
+    await run(engine, 'test')
     expect(store.get('op_1')?.state).toBe('done')
   })
 
   it('finishes once the ask that held it is settled', async () => {
     const { registry, engine, store } = harness()
     registry.register(withAsk(true))
-    await engine.start('test')
+    await run(engine, 'test')
     await engine.settleAsk('op_1', 'desktop-install')
     expect(store.get('op_1')?.state).toBe('done')
     expect(store.get('op_1')?.operation?.awaiting).toEqual([])
@@ -645,8 +827,8 @@ describe('surface-scoped asks hold the operation open only when they must (§3.5
   it('still holds the group while it waits', async () => {
     const { registry, engine } = harness()
     registry.register(withAsk(true))
-    await engine.start('test')
-    expect(await engine.start('test')).toMatchObject({ alreadyRunning: 'op_1' })
+    await run(engine, 'test')
+    expect(await run(engine, 'test')).toMatchObject({ alreadyRunning: 'op_1' })
   })
 })
 
@@ -687,7 +869,7 @@ describe('observers', () => {
       },
     })
 
-    await engine.start('test')
+    await run(engine, 'test')
     expect(seen[0]).toBe('running')
     expect(seen.at(-1)).toBe('done')
   })

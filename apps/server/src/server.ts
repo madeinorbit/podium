@@ -6,8 +6,16 @@ import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
 import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
-import { type LocalDaemonLink, MIN_SUPPORTED_VERSION, type MobileWebIdentity, PeerHelloReply, type UpdateTarget, WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import {
+  type LocalDaemonLink,
+  MIN_SUPPORTED_VERSION,
+  type MobileWebIdentity,
+  PeerHelloReply,
+  type UpdateTarget,
+  WIRE_VERSION,
+  wireSchemaDigest,
+} from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { loadConfig, resolveDevArtifactOrigin, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
@@ -32,13 +40,13 @@ import {
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import {
+  type ClientCredentialHeaders,
   clientAuthGuard,
   isSecureRequest,
   maintainClientCredentialByHash,
   registerAuthRoute,
-  resolveClientCredential,
   requestUserId,
-  type ClientCredentialHeaders,
+  resolveClientCredential,
 } from './auth-route'
 import { captureServerBuildVersion } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
@@ -72,8 +80,8 @@ import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
-import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
+import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -1108,6 +1116,12 @@ export async function startServer(
             // An armed refresh timer that outlives the server would resolve a
             // target against a service whose store is already closed.
             ['updates.stopTargetRefresh', () => targetRefresh.stop()],
+            // Same hazard, same window (POD-2097): an armed operation deadline
+            // that outlives the server would wake into a closed store and try
+            // to persist a stall against it. Operations are durable, so losing
+            // the timer costs nothing — the successor adopts the operation and
+            // re-derives it from reality, which is the stronger answer anyway.
+            ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
             // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
             // final network flush: shutdown is a user-visible latency path
             // (POD-611 made it deterministic and fast), and a report is worth

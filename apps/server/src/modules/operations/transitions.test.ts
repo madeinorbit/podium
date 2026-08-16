@@ -47,6 +47,35 @@ describe('applyStepPatch', () => {
     expect((next.steps?.[0] as Record<string, unknown>).aFieldAddedNextYear).toBe('keep me')
   })
 
+  it('keeps unknown fields nested inside progress and inside a place (POD-2136 review)', () => {
+    // The frozen law reaches all the way down: a patch that does not name
+    // `progress` or `places` must not disturb what a newer server wrote there.
+    const rich = {
+      ...step(),
+      progress: { done: 1, total: 3, bytesPerSecond: 900 },
+      places: [{ id: 'm_a', state: 'downloading', eta: 42 }],
+    } as OperationStep
+    const next = applyStepPatch(operation([rich]), 'first', { detail: 'still going' }, 7)
+    const patched = next.steps?.[0] as Record<string, unknown>
+    expect(patched.progress).toEqual({ done: 1, total: 3, bytesPerSecond: 900 })
+    expect((patched.places as Record<string, unknown>[])[0]).toEqual({
+      id: 'm_a',
+      state: 'downloading',
+      eta: 42,
+    })
+  })
+
+  it('replaces a value the patch DOES name, rather than merging it', () => {
+    // Deliberate: progress is a report of how things stand now, and merging
+    // would carry an older report's field forward as though it were current.
+    const rich = {
+      ...step(),
+      progress: { done: 1, total: 3, bytesPerSecond: 900 },
+    } as OperationStep
+    const next = applyStepPatch(operation([rich]), 'first', { progress: { done: 2, total: 3 } }, 7)
+    expect(next.steps?.[0]?.progress).toEqual({ done: 2, total: 3 })
+  })
+
   it('lets `extra` overrule the heartbeat — the stall case', () => {
     // Noticing a stall is not progress, so the silence clock must not restart.
     const next = applyStepPatch(
