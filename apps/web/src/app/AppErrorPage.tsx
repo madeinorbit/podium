@@ -130,7 +130,7 @@ export function AppErrorPage({
         </div>
         {detail && (
           <details className="mt-6 border-t border-border pt-3">
-            <summary className="cursor-pointer list-none font-mono text-[9.5px] tracking-[0.1em] text-muted-foreground/70 uppercase hover:text-muted-foreground">
+            <summary className="cursor-pointer list-none font-mono shell-type-micro tracking-[0.1em] text-muted-foreground/70 uppercase hover:text-muted-foreground">
               What happened
             </summary>
             <pre className="mt-2.5 mb-0 font-mono text-[10.5px] leading-[1.7] whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]">
