@@ -126,6 +126,7 @@ export class UpdatesService {
   private readonly machineStates = new Map<string, MachineConvergenceState>()
   private readonly pendingGrants = new Map<string, PendingGrant>()
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
+  private readonly forcedChecksInFlight = new Map<UpdateChannel, Promise<void>>()
 
   constructor(private readonly deps: UpdatesDeps) {}
 
@@ -271,11 +272,24 @@ export class UpdatesService {
         results.push(cached)
         continue
       }
-      await this.refreshTarget(channel)
+      await this.refreshTargetForCheck(channel)
       const record = this.checks.get(channel)
       if (record) results.push(record)
     }
     return results
+  }
+
+  private refreshTargetForCheck(channel: UpdateChannel): Promise<void> {
+    const inFlight = this.forcedChecksInFlight.get(channel)
+    if (inFlight) return inFlight
+
+    const refresh = this.refreshTarget(channel).finally(() => {
+      if (this.forcedChecksInFlight.get(channel) === refresh) {
+        this.forcedChecksInFlight.delete(channel)
+      }
+    })
+    this.forcedChecksInFlight.set(channel, refresh)
+    return refresh
   }
 
   /**

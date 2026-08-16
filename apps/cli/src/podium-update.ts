@@ -83,9 +83,18 @@ const numericOrText = (id: string): string | number => (/^\d+$/.test(id) ? Numbe
 function parseVersion(raw: string): ParsedVersion | null {
   const m = SEMVER.exec(raw.trim())
   if (!m) return null
+  if (
+    [m[1], m[2], m[3]].some((identifier) =>
+      identifier === undefined ? false : /^0\d+$/.test(identifier),
+    )
+  )
+    return null
+  const prerelease = (m[4] ?? '').length === 0 ? [] : (m[4] as string).split('.')
+  if (prerelease.some((identifier) => /^0\d+$/.test(identifier))) return null
+
   return {
     core: [Number(m[1]), Number(m[2]), Number(m[3])],
-    prerelease: (m[4] ?? '').length === 0 ? [] : (m[4] as string).split('.').map(numericOrText),
+    prerelease: prerelease.map(numericOrText),
   }
 }
 

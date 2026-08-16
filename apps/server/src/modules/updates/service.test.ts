@@ -629,6 +629,23 @@ describe('target refresh bookkeeping', () => {
       expect(second[0]?.checkedAt).toBe(1_000)
     })
 
+    it('coalesces concurrent checks into one release-feed resolve', async () => {
+      let finishResolve!: (resolved: typeof target) => void
+      const resolving = new Promise<typeof target>((resolve) => {
+        finishResolve = resolve
+      })
+      const resolveTarget = vi.fn(() => resolving)
+      const { svc } = build(resolveTarget as never)
+
+      const first = svc.checkNow()
+      const second = svc.checkNow()
+
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      finishResolve(target)
+      const [firstResult, secondResult] = await Promise.all([first, second])
+      expect(secondResult).toEqual(firstResult)
+    })
+
     it('re-resolves once the rate window has passed', async () => {
       const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
       const { svc, advance } = build(resolveTarget as never)

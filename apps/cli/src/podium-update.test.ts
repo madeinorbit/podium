@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  compareVersions,
   isNewer,
   manifestUrlFor,
   parseManifest,
@@ -58,6 +59,25 @@ describe('isNewer', () => {
   for (const [candidate, current, newer, why] of cases) {
     it(`${newer ? 'updates' : 'stays put'}: ${candidate || '<empty>'} vs ${current} — ${why}`, () => {
       expect(isNewer(candidate, current)).toBe(newer)
+    })
+  }
+})
+
+describe('compareVersions numeric prerelease syntax', () => {
+  const cases: [left: string, right: string, order: number | null, why: string][] = [
+    ['0.1.4-edge.0', '0.1.4-edge.1', -1, 'zero itself is a valid numeric identifier'],
+    ['0.1.4-edge.10', '0.1.4-edge.2', 1, 'multi-digit identifiers may start nonzero'],
+    ['00.1.5', '0.1.4', null, 'a major component cannot have a leading zero'],
+    ['0.01.5', '0.1.4', null, 'a minor component cannot have a leading zero'],
+    ['0.1.05', '0.1.4', null, 'a patch component cannot have a leading zero'],
+    ['0.1.4-edge.00', '0.1.4-edge.0', null, 'multiple zeroes are malformed'],
+    ['0.1.4-edge.01', '0.1.4-edge.1', null, 'a leading zero is malformed on the left'],
+    ['0.1.5', '0.1.4-edge.01', null, 'a leading zero is malformed on the right'],
+  ]
+
+  for (const [left, right, order, why] of cases) {
+    it(`${left} vs ${right} — ${why}`, () => {
+      expect(compareVersions(left, right)).toBe(order)
     })
   }
 })
