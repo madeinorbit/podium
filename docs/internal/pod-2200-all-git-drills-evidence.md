@@ -63,8 +63,25 @@ STEPS: [(machines, pending), (server, pending)]
 deferred: []   awaiting: []
 ```
 
-**No `prepare` step.** No pack, no web build. The premise everything below depends on holds
-against this code, and POD-2195's *"Waiting for the update package."* never appeared once.
+**No `prepare` step**, and the `machines` step granted without one — the grant counter moved
+on the operation's own start, and POD-2195's *"Waiting for the update package."* never
+appeared once.
+
+**The guarantee is zero PACK steps, not zero build steps** — stated precisely because the
+looser wording invites a false failure report. The plan for a fleet like this is `machines`,
+then `server` if this server is behind and can restart itself (a restart, not a build), then
+`web` if the served website's digest differs from the target — and on a source install that
+last one runs a vite build of `apps/web`. A `web` step is therefore not a failure of the
+premise. It did not appear here because the served dist was already stamped at the target
+commit (see above), which is what makes this drive's plan free of any build at all; on a
+host with disk to spare, letting the `web` step run is the ordinary case.
+
+**Precondition, checked first.** Unknown delivery capabilities deliberately count as needing
+the pack, so a machine that has never handshaken its caps plans a `prepare` step and looks
+exactly like the old behaviour. This fleet's one machine reported
+`deliveryCaps: ["update.delivery.git"]` on every `updates.fleet` read of the drive, before
+and after each operation. The premise was tested against a machine that had actually said
+what it can take.
 
 (The `server` step was planned because `INVOCATION_ID` was inherited from the launching
 session, so the server believed a supervisor could restart it. It was unset for every later
@@ -75,7 +92,7 @@ for the same fleet is `[machines]` alone.)
 
 | # | Claim | Verdict |
 |---|---|---|
-| 1 | All-git fleet updates end to end, zero build steps planned | **PASS** |
+| 1 | All-git fleet updates end to end, no pack planned or needed | **PASS** |
 | 2 | A granted machine that goes silent stalls on the step's own timer | **PASS** |
 | 3 | Straggler reconciliation | **PASS**, four arms |
 | 4 | A cancelled operation grants nothing afterwards | **PASS** |
