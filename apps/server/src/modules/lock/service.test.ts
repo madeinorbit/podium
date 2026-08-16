@@ -25,7 +25,7 @@ function harness(opts?: { alive?: Set<string>; workspace?: Map<string, string> }
     transact: (fn) => store.transact(fn),
     funnel: { run: (op) => op.write() },
     now: () => nowMs,
-    resolveRepoId: (repoPath) => asRepoId(`repo:`),
+    resolveRepoId: (repoPath) => asRepoId(`repo:${repoPath}`),
     sessionAlive: (sessionId) => alive.has(sessionId),
     sessionWorkspace: (sessionId) => workspace.get(sessionId) ?? null,
     sendMail,

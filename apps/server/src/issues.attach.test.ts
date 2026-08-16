@@ -390,6 +390,9 @@ describe('attachSession', () => {
     svc.update(origin.id, { worktreePath: '/r/.worktrees/o', branch: 'issue/1-origin' })
     issueBySession.set(asSessionId('s1'), origin.id)
     issueBySession.set(asSessionId('s2'), origin.id)
+    // s2 stays behind and coordinates, so POD-878's replacement rule is met and
+    // the attach gets far enough to exercise the worktree hand-over decision.
+    svc.setCoordinator(origin.id, asSessionId('s2'))
     const spun = svc.attachSession({
       sessionId: asSessionId('s1'),
       newSpinoff: { title: 'Side quest', origin: 'agent' },
