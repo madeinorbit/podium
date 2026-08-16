@@ -224,6 +224,62 @@ describe('UpdatesService', () => {
     expect(send).toHaveBeenCalledTimes(3)
   })
 
+  /**
+   * ONE GRANT PER MACHINE, PER WIDENING STEP (POD-2180).
+   *
+   * The two ways a wave continues used to be able to run INSIDE each other.
+   * `tick()` read the fleet; `fleet()`, finding the canary proven at the target
+   * in the machine directory, ticked the channel back from inside that read. The
+   * inner tick granted b and c and returned the projection it had built BEFORE
+   * those grants — so the outer tick planned against a fleet in which nobody was
+   * in flight, and granted b and c a second time with fresh grant ids.
+   *
+   * It is not a cosmetic duplicate. The daemon's grant runner cancels the
+   * delivery in flight when a NEWER grant id arrives, so the second grant
+   * restarts every download the first one had already begun.
+   */
+  it('grants each widened machine exactly once', () => {
+    const machines = [m('a'), m('b'), m('c')]
+    const { svc, send } = make(machines)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+
+    expect(svc.authorize()).toEqual(['a'])
+    const canary = machines[0]
+    if (!canary) throw new Error('test canary missing')
+    // The canary proves the target by RECONNECTING: the directory, not a status
+    // frame, is what makes the wave widen on the next tick.
+    canary.version = '0.4.2'
+    send.mockClear()
+
+    expect(svc.tick()).toEqual(['b', 'c'])
+    expect(send.mock.calls.map(([machineId]) => machineId)).toEqual(['b', 'c'])
+  })
+
+  /**
+   * A READ THAT CONTINUES A WAVE MUST DESCRIBE THE WAVE IT CONTINUED (POD-2180).
+   *
+   * `fleet()` may still widen — that is what stops the panel reaching "1 of N"
+   * and waiting for a second Apply. What it must not do is answer with the
+   * projection it took before granting: a caller told that b is idle a
+   * microsecond after b was handed an update will plan against that, which is
+   * how the duplicate above was issued in the first place.
+   */
+  it('reports the grants it issued from inside a fleet read', () => {
+    const machines = [m('a'), m('b'), m('c')]
+    const { svc } = make(machines)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.authorize()
+
+    const canary = machines[0]
+    if (!canary) throw new Error('test canary missing')
+    canary.version = '0.4.2'
+
+    const seen = new Map(svc.fleet().map((machine) => [machine.id, machine.state]))
+    expect(seen.get('a')).toBe('current')
+    expect(seen.get('b')).toBe('granted')
+    expect(seen.get('c')).toBe('granted')
+  })
+
   it('requires the raw reconnect identity instead of optimistic current status', () => {
     const machines = [m('a')]
     const { svc } = make(machines)
