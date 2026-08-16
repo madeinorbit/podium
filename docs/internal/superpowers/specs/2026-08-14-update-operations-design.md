@@ -560,7 +560,7 @@ would invent "behind" places that the global action must never grant. It changes
 dialog *counts*, not merely which authority it asks. Recorded in POD-2191 and in a comment
 where a reader meets it.
 
-### 19.2d §9.2 is not delivered as written
+### 19.2d §9.2 is delivered as written (it was not, for one release)
 
 The source drive (POD-2194) proved the central claim — an operation adopted across a real
 coordinator restart, same id, same step positions, exactly one operation on record — and in
@@ -570,6 +570,15 @@ so git is an alternative offered *alongside* the bundle rather than instead of i
 advertising only git delivery waits for a package it can never use. §9.2 says that machine
 "needs no build and no download". Tracked as POD-2195; the likely honest shape is that the
 pack is planned *per delivery capability of the selected machines*, not always or never.
+
+POD-2198 landed that shape. The pack is planned for the machines in scope that cannot take a
+delivery the target already offers, and for nobody else — so a git-only fleet plans no pack at
+all, a mixed fleet packs once and waves *both* machines (the artifact the installed one needs
+is a step of this operation, not a state of the world it must be deferred for), and a machine
+that has never reported its capabilities counts as needing one, because skipping a needed pack
+costs a wave of rejections while an unnecessary one costs a build. The machines runner and the
+fleet read model asked the same target-only question and were moved with it. Written up in
+`docs/internal/pod-2198-pack-per-delivery-capability.md`.
 
 ### 19.3 Known-open at the time of writing
 
