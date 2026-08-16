@@ -93,6 +93,24 @@ function setupTransport(
   )
 }
 
+/**
+ * A Podium shell around the page. `checkUpdate` answers null by default — the
+ * all-in-one case, where the release feed knows nothing about a dev target and
+ * the operation's ask is the only thing that says an install is owed.
+ */
+function stubDesktopShell(over: Record<string, unknown> = {}): void {
+  vi.stubGlobal('__PODIUM_DESKTOP__', {
+    platform: 'linux',
+    minimize: vi.fn(async () => {}),
+    toggleMaximize: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
+    claimUpdateOwnership: vi.fn(async () => {}),
+    checkUpdate: vi.fn(async () => null),
+    installUpdate: vi.fn(async () => {}),
+    ...over,
+  })
+}
+
 function setPageVersion(version: string): void {
   document.head.querySelector('meta[name="podium-version"]')?.remove()
   const meta = document.createElement('meta')
@@ -107,6 +125,10 @@ afterEach(() => {
   // otherwise be the next test's first render.
   resetPolledQueryCache()
   globalThis.sessionStorage?.clear()
+  // The restart handoff is deliberately localStorage — it has to outlive the
+  // process — so it has to be swept here too, or one test's update becomes the
+  // next one's news.
+  globalThis.localStorage?.clear()
   document.head.querySelector('meta[name="podium-version"]')?.remove()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -246,6 +268,122 @@ describe('useUpdateState — the outcome, which `active` cannot carry', () => {
   })
 })
 
+/**
+ * THE ALL-IN-ONE FLOW (§4, §5): one click, one restart, and the same operation
+ * id reading `done` on the far side. Every assertion here is about a shape the
+ * other surfaces never see — an operation with NO STEPS whose entire content is
+ * one required ask addressed to this shell.
+ */
+describe('useUpdateState — all-in-one: one click, one restart', () => {
+  const waitingOnTheShell = {
+    id: 'op_aio',
+    kind: 'update',
+    state: 'waiting',
+    details: { target: { version: '0.4.2' } },
+    steps: [],
+    awaiting: [
+      {
+        id: 'desktop-install',
+        surface: 'desktop-all-in-one',
+        title: 'Install the update in Podium Desktop',
+        required: true,
+      },
+    ],
+  }
+
+  /**
+   * The regression this exists for: `canInstallDesktop` used to be computed
+   * ONLY from the offer-time facts — the release feed and the server's target
+   * artifact — and in all-in-one neither is present. The shell the operation
+   * was explicitly waiting for offered Reload, which does nothing, while the
+   * ask it was meant to answer sat there for the ten-minute grace.
+   */
+  it('offers Restart Podium on the strength of the ask alone', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    stubDesktopShell()
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('waiting-you'))
+    expect(results.at(-1)?.view.primary?.kind).toBe('install-desktop')
+    expect(results.at(-1)?.view.primary?.label).toBe('Restart Podium')
+  })
+
+  it('installs on the channel the server resolved, not the shell’s own config', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    const install = vi.fn(
+      () => new Promise<void>(() => {}), // never settles: the process is replaced
+    )
+    stubDesktopShell({ installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('waiting-you'))
+
+    void results.at(-1)?.run('install-desktop')
+    await waitFor(() => expect(install).toHaveBeenCalledWith('stable'))
+  })
+
+  /**
+   * THE ACCEPTANCE LINE. The shell execs, the webview process is replaced, and
+   * a page that has never seen this operation before is handed the successor
+   * server's `done`. Without the localStorage handoff the reloaded page
+   * congratulates nobody — `watched` is an in-memory Set, and sessionStorage
+   * dies with the process too — so one click and one restart end in silence.
+   */
+  it('still renders done for the operation it restarted for', async () => {
+    setPageVersion('0.4.2')
+    setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
+    stubDesktopShell()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    const before: UpdateStateResult[] = []
+    render(<Probe onResult={(result) => before.push(result)} behind={0} />)
+    await waitFor(() => expect(before.at(-1)?.operation?.id).toBe('op_aio'))
+
+    // The restart. Everything in memory goes; localStorage is what crosses.
+    cleanup()
+    resetPolledQueryCache()
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...waitingOnTheShell, state: 'done', awaiting: [], finishedAt: Date.now() - 2_000 },
+    ])
+    const after: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => after.push(result)} behind={0} />)
+
+    await waitFor(() => expect(after.at(-1)?.view.state).toBe('done'))
+    expect(after.at(-1)?.operation?.id).toBe('op_aio')
+  })
+
+  /**
+   * The bound on the handoff. It is a baton passed between two lives of the
+   * same app, not a memory of every update this machine has ever run — an app
+   * opened the next morning has nothing to celebrate (§6.2).
+   */
+  it('lets the handoff expire rather than congratulating tomorrow’s launch', async () => {
+    setPageVersion('0.4.2')
+    setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
+    stubDesktopShell()
+    globalThis.localStorage?.setItem(
+      'podium.update.watched-operation',
+      JSON.stringify({ id: 'op_aio', at: Date.now() - 60 * 60_000 }),
+    )
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...waitingOnTheShell, state: 'done', awaiting: [], finishedAt: Date.now() - 60 * 60_000 },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
+
+    await waitFor(() => expect(mocks.history).toHaveBeenCalled())
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('none'))
+  })
+})
+
 describe('useUpdateState — dispatching actions', () => {
   it('starts the update through the operation verb', async () => {
     setupTransport()
@@ -365,6 +503,29 @@ describe('useUpdateState — dispatching actions', () => {
     await results.at(-1)?.run('cancel')
     await waitFor(() => expect(results.at(-1)?.view.note).toMatch(/finish or fail/i))
     expect(results.at(-1)?.view.state).toBe('running')
+  })
+
+  /**
+   * `install_update` ends in `app.restart()`, which diverges: on success the
+   * promise is dropped with the process. So a RESOLVED install is the shell
+   * saying it installed and stayed put, and until now that produced a silent
+   * no-op — the panel cleared its spinner and went back to offering the same
+   * update (POD-2152, which found `restart-failed` had no producer at all).
+   */
+  it('treats an install that returned instead of restarting as restart-failed', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    const install = vi.fn(async () => {})
+    stubDesktopShell({ installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+
+    await results.at(-1)?.run('install-desktop')
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(results.at(-1)?.view.error?.message).toMatch(/could not restart itself/i)
+    expect(results.at(-1)?.view.error?.nextAction).toMatch(/open it again/i)
   })
 
   it('reports “up to date” after a manual check finds nothing', async () => {

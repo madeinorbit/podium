@@ -900,6 +900,61 @@ describe('surviving the coordinator restart', () => {
     await successor.whenSettled('op_1')
     expect(h.read().state).toBe('done')
   })
+
+  /**
+   * THE ALL-IN-ONE ACCEPTANCE (§5, POD-2104): one click, one restart, the SAME
+   * operation id reading `done` on the other side.
+   *
+   * This is the one shape with no steps at all, so every assertion the drills
+   * above make is unavailable — there is no `server` step whose state proves the
+   * restart happened. The ask is the whole operation, and the successor's own
+   * version is the only evidence that it was answered.
+   */
+  async function killWaitingOnTheDesktopAsk(appVersion: string) {
+    const h = harness({
+      machines: [machine({ id: 'macbook', supervised: true })],
+      hostMachineId: 'macbook',
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.read().state).toBe('waiting')
+    // The user pressed Restart Podium. The shell installs and execs; this
+    // process — the embedded server — dies with it.
+    h.engine.stop()
+
+    const successor = h.successor()
+    await successor.adoptOnBoot(
+      () => ({
+        appVersion,
+        servedWebDigest: WEB_DIGEST,
+        machineDirectory: [machine({ id: 'macbook', supervised: true, version: appVersion })],
+        now: h.clock.clock.now(),
+      }),
+      () => h.context(),
+    )
+    await successor.whenSettled('op_1')
+    return h.read()
+  }
+
+  it('completes the all-in-one operation when the shell came back at the target', async () => {
+    const operation = await killWaitingOnTheDesktopAsk('dev+abc1234')
+    expect(operation.state).toBe('done')
+    expect(operation.awaiting ?? []).toEqual([])
+  })
+
+  /**
+   * The shell restarted without installing (a crash, a declined dialog, a
+   * failed swap). Answering the ask here would tell the user an update they
+   * never got had been applied, and the panel would stop offering the one
+   * button that could still finish it.
+   */
+  it('keeps the desktop ask when the shell came back on the old version', async () => {
+    const operation = await killWaitingOnTheDesktopAsk('0.4.1')
+    expect(operation.state).toBe('waiting')
+    expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
+  })
 })
 
 // ────────────────── §3.2 single-flight and nextTarget ────────────────

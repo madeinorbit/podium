@@ -585,6 +585,32 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
     next = patchStep(next, UPDATE_STEP_PREPARE, (step) => ({ ...step, state: 'pending' }))
   }
 
+  /**
+   * THE ALL-IN-ONE ASK, ANSWERED FROM THE FAR SIDE OF THE RESTART (§3.4, §5).
+   *
+   * An all-in-one plan has NO STEPS: the whole update is the shell replacing
+   * itself, and the only thing holding the operation open is the required
+   * `desktop-install` ask. So nothing above this line can advance it, and
+   * nothing on the wire ever will either — the process that would have reported
+   * the install is the one that died, and the page that clicked the button died
+   * with it.
+   *
+   * What CAN be observed is the same fact the `server` step is judged on, read
+   * one layer out: the server reading these bytes lives INSIDE that shell, and
+   * it is now running the target. That is the install, seen from after the
+   * restart. Reality over memory, applied to an ask instead of a step.
+   *
+   * Without this the ask outlives the restart it was asking for, the reloaded
+   * panel offers "Restart Podium" for an update that is already installed —
+   * which then fails as `no-update-available`, because there is nothing left to
+   * install — and the operation sits in `waiting` until its ten-minute grace
+   * quietly calls it done, long after the user stopped believing it.
+   */
+  if (reality.appVersion === targetVersion) {
+    const awaiting = (next.awaiting ?? []).filter((ask) => ask.id !== DESKTOP_INSTALL_ASK)
+    if (awaiting.length !== (next.awaiting ?? []).length) next = { ...next, awaiting }
+  }
+
   return { ...next, updatedAt: reality.now }
 }
 

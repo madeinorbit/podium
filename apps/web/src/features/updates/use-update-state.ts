@@ -258,6 +258,48 @@ function terminalToShow(
 }
 
 /**
+ * WATCHING IT RUN HAS TO SURVIVE THE PROCESS DYING (§3.4, POD-2104).
+ *
+ * `watched` is what makes a finished operation news to the tab that saw it and
+ * silence to a stranger, and an in-memory Set says that correctly for every
+ * surface except the one whose update is a RESTART. In the all-in-one flow the
+ * user presses Restart Podium, the shell installs and execs, and the page that
+ * watched the operation is gone — along with `watched`, and with sessionStorage
+ * too, which the new webview process does not inherit. The successor server
+ * adopts the operation and reports `done`; the reloaded page has never heard of
+ * it and renders nothing. One click, one restart, and no confirmation that any
+ * of it worked — the acceptance line this exists to satisfy.
+ *
+ * So the id is handed across the restart in localStorage, and BOUNDED: this is
+ * a handoff between two lives of the same app, not a memory of what this
+ * machine has ever seen. A window wide enough for an install and relaunch keeps
+ * "a fresh tab an hour later has nothing to celebrate" true (§6.2).
+ */
+const WATCHED_KEY = 'podium.update.watched-operation'
+const WATCHED_HANDOFF_MS = 5 * 60_000
+
+function rememberWatched(id: string, now: number): void {
+  try {
+    globalThis.localStorage?.setItem(WATCHED_KEY, JSON.stringify({ id, at: now }))
+  } catch {
+    // Private mode or a storage-less embedder: the handoff degrades to nothing,
+    // which is exactly the behaviour that shipped before it existed.
+  }
+}
+
+function watchedHandoff(now: number): string[] {
+  try {
+    const raw = globalThis.localStorage?.getItem(WATCHED_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as { id?: unknown; at?: unknown }
+    if (typeof parsed.id !== 'string' || typeof parsed.at !== 'number') return []
+    return now - parsed.at <= WATCHED_HANDOFF_MS ? [parsed.id] : []
+  } catch {
+    return []
+  }
+}
+
+/**
  * The acknowledgement survives a reload, deliberately: a failure the user has
  * already read and dismissed must not come back because they refreshed. Per
  * tab, like every other piece of panel UI state.
@@ -298,8 +340,13 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [fleetState, setFleetState] = useState<UpdateFleetState>(options.fleet ?? EMPTY_FLEET)
   const [live, setOperation] = useState<Operation | null>(null)
   const [latest, setLatest] = useState<Operation | null>(null)
-  /** Operations THIS tab watched run. A completion is only news to those. */
-  const watched = useRef<Set<string>>(new Set())
+  /**
+   * Operations THIS tab watched run. A completion is only news to those — and
+   * the seed is what carries that across a shell restart (see `watchedHandoff`).
+   */
+  const watched = useRef<Set<string>>(
+    new Set(watchedHandoff((options.now ?? Date.now)())),
+  )
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
   const [desktopChannel, setDesktopChannel] = useState<NativeDesktopUpdateChannel>('stable')
   const [desktopProgress, setDesktopProgress] = useState<NativeDesktopUpdateProgress | undefined>()
@@ -372,13 +419,17 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     // follow-up effect lands one flush late, and the panel is supposed to move
     // when the answer does.
     onData: ({ operation: live, latest, fleet, serverRaw, buildRaw }) => {
-      if (live) watched.current.add(live.id)
+      const at = clock()
+      if (live) {
+        watched.current.add(live.id)
+        rememberWatched(live.id, at)
+      }
       setOperation(live)
       setLatest(latest)
       if (serverRaw !== undefined) setServer(parseServerVersion(serverRaw))
       if (buildRaw !== undefined) setLocalBuild(localBuildFrom(buildRaw))
       if (fleet !== null) setFleetState(fleet)
-      setNow(clock())
+      setNow(at)
     },
   })
 
@@ -481,8 +532,29 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     (operationTarget !== undefined && operationTarget !== localVersion)
 
   const installUpdate = nativeDesktopBridge()?.installUpdate
+  /**
+   * THE OPERATION'S ASK OUTRANKS THE OFFER-TIME CHECK (§3.5, §5).
+   *
+   * The other two facts here are both answers to "did anything tell us, before
+   * this started, that a desktop artifact exists?" — the release feed
+   * (`desktopUpdate`) and the server's target (`desktopTargeted`). In the
+   * all-in-one flow NEITHER is true: the plan is empty, the target's artifact is
+   * `headless`, and the dev feed publishes no desktop build. So the shell that
+   * the operation is explicitly WAITING for would compute "I can't install
+   * anything", fall through to Reload, and offer a button that changes nothing
+   * while the required ask it was meant to answer sits there forever.
+   *
+   * A required ask addressed to THIS surface is the server saying "you are the
+   * one who has to act". Read off `surface` rather than the ask's id, because
+   * ids are the kind's vocabulary and this bundle is swapped during the very
+   * operation it is drawing (P8).
+   */
+  const desktopAsked =
+    surface.startsWith('desktop') &&
+    (operation?.awaiting ?? []).some((ask) => ask.surface === surface)
   const canInstallDesktop =
-    typeof installUpdate === 'function' && (desktopUpdate !== undefined || desktopTargeted)
+    typeof installUpdate === 'function' &&
+    (desktopUpdate !== undefined || desktopTargeted || desktopAsked)
 
   /**
    * The silent hard-reload budget, explained after the fact (spec §6.2.3). The
@@ -533,8 +605,25 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           case 'install-desktop':
           case 'restart-app': {
             const install = nativeDesktopBridge()?.installUpdate
-            if (install) await install(desktopChannel)
-            break
+            if (!install) break
+            await install(desktopChannel)
+            /**
+             * REACHING THIS LINE IS ITSELF THE FAILURE (POD-2152).
+             *
+             * `install_update` ends in `app.restart()`, which diverges — the
+             * process is replaced and this promise is dropped unresolved along
+             * with everything else. So a SETTLED install means the shell
+             * installed the update and then did not restart, and the page is
+             * the only thing left alive to say so. That is what gives
+             * `restart-failed` a producer: it had exactly one construction site
+             * in the whole repo and that site was inside its own Rust test, so
+             * the panel's handler for it was a sentence nobody could ever read.
+             */
+            setActionError({
+              code: 'restart-failed',
+              message: 'The desktop update installed, but Podium did not restart.',
+            })
+            return
           }
           case 'check':
             await trpc.updates.checkNow.mutate()
