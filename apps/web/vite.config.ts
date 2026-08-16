@@ -125,7 +125,8 @@ export default defineConfig(({ mode }) => {
         disable: isDevBuild,
         registerType: 'prompt',
         // Generate icons + apple-touch-icon + favicon from one source SVG
-        // (see pwa-assets.config.ts); inject head links + manifest icons.
+        // (see pwa-assets.config.ts); inject head links. NOT the manifest icons
+        // — `icons` below is declared by hand, which switches that injection off.
         pwaAssets: { config: true },
         manifest: {
           name: 'Podium',
@@ -135,6 +136,34 @@ export default defineConfig(({ mode }) => {
           background_color: '#0e0e12',
           display: 'standalone',
           start_url: '/',
+          /**
+           * DECLARED BY HAND, and that is what makes the Android icon correct
+           * [POD-1109]. vite-plugin-pwa only generates this array when the
+           * manifest has no `icons` key: `injectManifestIcons` returns early
+           * unless `'icons' in manifest ? overrideManifestIcons : true`. Leaving
+           * `overrideManifestIcons` unset (default false) therefore means these
+           * entries ship verbatim — so DO NOT set it, and keep the two
+           * transparent entries in step with pwa-assets.config.ts, which is
+           * still what rasterises them into dist.
+           *
+           * The maskable is the odd one out: it is a committed file in public/
+           * rather than a build output, drawn separately because the generator
+           * cannot take a per-slot source. See scripts/icon-maskable-src.svg for the
+           * border it fixes, and scripts/generate-maskable-icon.ts to re-render
+           * it. PNG rather than the SVG master on purpose — SVG maskable icons
+           * are not a documented-safe path through Chrome's WebAPK minting.
+           */
+          icons: [
+            { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },
+            { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+            { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+            {
+              src: 'icon-maskable-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+          ],
         },
         workbox: {
           // Precache the built shell so an installed app cold-starts instantly.
