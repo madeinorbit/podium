@@ -90,4 +90,87 @@ command, which is all a unit is here.
 
 ## Results
 
-<!-- RESULTS -->
+| # | Claim | Verdict |
+|---|---|---|
+| 1 | The WEB STEP plans, runs a real build, and moves the served website | **PASS** |
+| 2 | The panel reaches its your-turn state and tells the user to reload | **PASS**, screenshots attached |
+| — | Adoption across a process death, on the drive's own evidence | **PASS** (second sighting) |
+
+### 1. The web step — PASS, and it is the first time any drive has reached it
+
+POD-2200 avoided this step by stamping the served dist by hand. Here it was
+planned, granted and run for real.
+
+The plan, read off the persisted operation rather than inferred:
+
+```
+op_d9e0763a-a0f2-42cd-8e4b-5d0cfb7bf308   created 21:00:17.647Z
+steps:    [machines, web]          ← no `prepare`, and no `server`
+awaiting: [reload-surfaces  surface=web  required=false]
+```
+
+**No `prepare` step**, which is POD-2198's all-git guarantee holding on a fleet
+whose one machine advertised `update.delivery.git` alone. **No `server` step**,
+because `INVOCATION_ID` was unset, so `createSourceUnitRequest` returns undefined
+and `canRestartServer` is false — the honest setting for an instance with no unit.
+
+The step ran a real vite build, not a re-stamp. Three independent facts say so:
+
+```
+21:17:38.436  machines done   ludovico current 100%
+              @podium/web build:dist: ✓ built in 8.46s
+              [precompress] 73 files: 5.79 MB raw -> 1.38 MB br / 1.65 MB gzip
+              build stamp: version dev+03a2892, bundle bundle+CZdXHa7z, source 03a2892
+21:18:06.798  web done        "The new app is being served."
+21:18:06.800  operation done
+```
+
+- the served stamp moved `d994fbb → 03a2892` and its `builtAt` is 21:18:05.713Z;
+- the entry chunk hash moved `bundle+yhtREioC → bundle+CZdXHa7z`;
+- the still-open browser tab began logging **404s for its own chunk filenames** —
+  the old hashed files were physically replaced, which a re-stamp cannot do.
+
+Afterwards all four authorities agree on the target: the served `index.html` meta
+is `dev+03a2892`, `/version` reports `appVersion dev+03a2892`, the fleet reads
+`targetVersion dev+03a2892, behind 0, state current`, and the checkout HEAD is
+`03a2892`.
+
+### 2. The panel, photographed in the branch app — PASS
+
+Real clicks in a real Chromium page against the disposable instance, one page kept
+open for the whole drive (the your-turn state is about the build running THAT page,
+so a fresh page per shot would destroy the state being captured).
+
+| Shot | State | What it says |
+| --- | --- | --- |
+| `01-app-no-panel.png` | — | nothing to update: no panel in the DOM at all |
+| `02-panel-offer-available.png` | `offer` | *Podium dev+03a2892 is available*, with place rows in user language: *This app and your server (127.0.0.1) — will rebuild; this page will need to reload*; *Podium on your phone — will rebuild; reload it there*; *ludovico — will not be interrupted*; *Your sessions keep running.* Buttons: **Hide**, **Update Podium** |
+| `03-panel-your-turn-reload.png` | `waiting-you` | *Podium dev+03a2892 is ready here* / *Everything else is updated. This page is still on the previous build.* Both steps ticked — *Updating your machines · 1 of 1 · ludovico current 100%*, *Serving the new app · The new app is being served.* — then *Reloads this page, about 2 seconds; your sessions keep running.* Buttons: **Hide**, **Reload** |
+| `04-after-reload-panel-gone.png` | none | after clicking **Reload**: no panel in the DOM, the page is on `dev+03a2892` |
+
+The panel is non-modal throughout, bottom-right, and the app stays usable behind
+it. **The your-turn state does tell the user to reload, in those words**, and the
+panel disappears once the page is current — it is never dismissed for them.
+
+One state is deliberately NOT reported: the shot taken immediately after the
+**Update Podium** click. A second session briefly amended this drive's target
+commit at that moment, and that shot names the amended commit, so every panel
+state between the click and the restart is contaminated. It is discarded rather
+than cleaned up.
+
+### Adoption, seen again without being asked for
+
+Not a new claim — POD-2194 proved it — but this drive produced it as a side
+effect and the numbers are worth keeping, because this time the predecessor did
+not exit politely: it was taken down mid-step by the daemon it shares a process
+with (see above), 13 supervisor generations before the successor stuck.
+
+```
+BEFORE: op_d9e0763a  createdAt 1786914017647  machines running  web pending
+AFTER:  op_d9e0763a  createdAt 1786914017647  machines done     web done
+```
+
+Same id, same `createdAt`, same step order. The successor picked up a `machines`
+step whose place had been mid-`downloading` when the process died, settled it as
+`current`, and carried the operation to `done`.
+
