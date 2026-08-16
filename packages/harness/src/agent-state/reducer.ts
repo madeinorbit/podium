@@ -51,17 +51,25 @@ function withSubagents(list: NonNullable<AgentRuntimeState['nativeSubagents']> |
 }
 
 /**
- * Carry the live-subagent facts of `prev` onto a state some other channel built.
+ * THE carried set: everything a transcript rebuild cannot reconstruct.
  *
- * SubagentStart/Stop are the only events that move `nativeSubagents`, and they
- * exist on the hook channel alone — so a state rebuilt from the transcript
- * classifier (or a poller) reports no children whether or not any are running.
- * Publishing that state wholesale erases the live ones, and nothing takes it
- * back: with the identity list gone, the real SubagentStop reduces to nothing
- * (see {@link applyTaskDelta}'s anonymous floor), so the count stays wrong for
- * the rest of the session. Every subagent surface reads these two fields, and
- * terminal proof reads the count to refuse a terminal verdict while a child is
- * still live. [POD-1130]
+ * A reconnect rebuilds the turn from `initialAgentState` plus transcript-derived
+ * boot events, which is legitimate for what the transcript actually records —
+ * phase, turn boundaries, verdicts. It is destructive for everything else, and
+ * "everything else" is exactly two things:
+ *
+ *  - The live subagents. `nativeSubagents` moves on SubagentStart/Stop alone, so
+ *    a rebuild reports no children whether or not any are running. That erasure
+ *    is permanent: with the identity list gone the real SubagentStop reduces to
+ *    nothing (see {@link applyTaskDelta}'s anonymous floor), so the count never
+ *    comes back. Terminal proof reads the count to refuse a verdict while a
+ *    child is live, and every subagent surface reads the pair.
+ *  - The accumulated working time. {@link workingMsAt} can only ADD to `prev`,
+ *    so a rebuilt zero is proof of a reseed rather than a measurement — it
+ *    resets the user-visible clocks and reorders attention ranking with them.
+ *
+ * Add any future field the transcript cannot rebuild here, in this one place.
+ * [POD-1130]
  *
  * The rebuild keeps its phase, with one exception: idle. A parent whose children
  * are live is not idle — that is the hold `turn_completed` already applies while
@@ -70,14 +78,23 @@ function withSubagents(list: NonNullable<AgentRuntimeState['nativeSubagents']> |
  * turn from the transcript, and often resolves no verdict at all). Leaving the
  * idle in place is the other half of the reported symptom: the parent reads idle
  * while it is still waiting on the child.
+ *
+ * Idempotent, so callers layered over one another (the daemon builds the state,
+ * the observer inherits it) cannot double-count: the clock takes the greater of
+ * the two totals rather than their sum.
  */
-export function carryLiveSubagents(
+export function carryAcrossRebuild(
   next: AgentRuntimeState,
   prev: AgentRuntimeState | undefined,
 ): AgentRuntimeState {
-  if (!prev || prev.nativeSubagentCount <= 0) return next
+  if (!prev) return next
+  const workingMsTotal = Math.max(next.workingMsTotal ?? 0, prev.workingMsTotal ?? 0)
+  if (prev.nativeSubagentCount <= 0) {
+    return workingMsTotal === (next.workingMsTotal ?? 0) ? next : { ...next, workingMsTotal }
+  }
   const carried = {
     ...next,
+    workingMsTotal,
     nativeSubagentCount: prev.nativeSubagentCount,
     ...withSubagents(prev.nativeSubagents),
   }

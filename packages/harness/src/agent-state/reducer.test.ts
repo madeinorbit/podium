@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { carryLiveSubagents, initialAgentState, reduceAgentState, withEventTime } from './reducer'
+import { carryAcrossRebuild, initialAgentState, reduceAgentState, withEventTime } from './reducer'
 
 const T0 = '2026-06-12T10:00:00.000Z'
 const T1 = '2026-06-12T10:00:01.000Z'
@@ -456,7 +456,7 @@ describe('reduceAgentState', () => {
   })
 })
 
-describe('carryLiveSubagents', () => {
+describe('carryAcrossRebuild', () => {
   const held = reduceAgentState(
     reduceAgentState(
       reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0),
@@ -469,7 +469,7 @@ describe('carryLiveSubagents', () => {
 
   it('carries the identity list and count onto a state rebuilt elsewhere', () => {
     expect(held).toMatchObject({ phase: 'working', awaitingSubagents: true })
-    const rebuilt = carryLiveSubagents(
+    const rebuilt = carryAcrossRebuild(
       reduceAgentState(initialAgentState(T1), { kind: 'prompt_submitted' }, T1),
       held,
     )
@@ -483,7 +483,7 @@ describe('carryLiveSubagents', () => {
   })
 
   it('holds a rebuilt idle as working while the carried children are live', () => {
-    const rebuilt = carryLiveSubagents(
+    const rebuilt = carryAcrossRebuild(
       reduceAgentState(
         initialAgentState(T1),
         { kind: 'turn_completed', verdict: { kind: 'done' } },
@@ -499,10 +499,40 @@ describe('carryLiveSubagents', () => {
     expect(rebuilt.idle).toBeUndefined()
   })
 
-  it('leaves a state alone when no children are live', () => {
+  it('leaves a state alone when there is nothing to carry', () => {
     const fresh = initialAgentState(T1)
-    expect(carryLiveSubagents(fresh, undefined)).toBe(fresh)
-    expect(carryLiveSubagents(fresh, initialAgentState(T0))).toBe(fresh)
+    expect(carryAcrossRebuild(fresh, undefined)).toBe(fresh)
+    expect(carryAcrossRebuild(fresh, initialAgentState(T0))).toBe(fresh)
+  })
+
+  // The half that fires on EVERY reconnect, subagents or not: workingMsAt can
+  // only add to prev, so a rebuilt 0 is a reseed rather than a measurement, and
+  // it resets the visible clocks and the attention ranking that reads them.
+  it('carries accumulated working time, with or without children', () => {
+    const worked = { ...initialAgentState(T0), phase: 'idle' as const, workingMsTotal: 347_914 }
+    expect(carryAcrossRebuild(initialAgentState(T1), worked)).toMatchObject({
+      phase: 'unknown',
+      workingMsTotal: 347_914,
+    })
+    expect(carryAcrossRebuild(initialAgentState(T1), held).workingMsTotal).toBe(held.workingMsTotal)
+  })
+
+  // The daemon builds the rebuilt state and the observer inherits it, so the
+  // carry runs twice over the same pair — the clock must not double-count.
+  it('is idempotent', () => {
+    const worked = { ...initialAgentState(T0), phase: 'idle' as const, workingMsTotal: 60_000 }
+    const rebuilt = reduceAgentState(initialAgentState(T1), { kind: 'session_started' }, T1)
+    const once = carryAcrossRebuild(rebuilt, worked)
+    expect(carryAcrossRebuild(once, worked)).toEqual(once)
+    expect(once.workingMsTotal).toBe(60_000)
+  })
+
+  // Never a rewind either: a rebuild that measured more than the checkpoint had
+  // keeps its own total, since the clock only ever moves forward.
+  it('never lowers the clock', () => {
+    const behind = { ...initialAgentState(T0), phase: 'idle' as const, workingMsTotal: 10 }
+    const ahead = { ...initialAgentState(T1), workingMsTotal: 5_000 }
+    expect(carryAcrossRebuild(ahead, behind).workingMsTotal).toBe(5_000)
   })
 
   // The whole shape of POD-1130: the transcript tail re-reads the Stop the hook
@@ -510,7 +540,7 @@ describe('carryLiveSubagents', () => {
   // that rebuild lands on the same held state the hooks had — and, crucially,
   // the child's own Stop can still settle it.
   it('lets a classifier rebuild of the same Stop hold, then settle on the real SubagentStop', () => {
-    const rebuilt = carryLiveSubagents(
+    const rebuilt = carryAcrossRebuild(
       reduceAgentState(
         initialAgentState(T1),
         {

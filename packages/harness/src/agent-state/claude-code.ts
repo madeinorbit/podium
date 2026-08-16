@@ -9,7 +9,7 @@ import type {
 } from '@podium/protocol'
 import { locateClaudeSessionFile } from './claude-locate.js'
 import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
-import { carryLiveSubagents, reduceAgentState } from './reducer.js'
+import { carryAcrossRebuild, reduceAgentState } from './reducer.js'
 import type { TranscriptClassifier } from './transcript-classifier.js'
 import {
   type AgentInstrumentation,
@@ -405,10 +405,11 @@ export class ClaudeCausalObserver {
       options.bootstrapAdvanced &&
       (checkpoint.terminalFence === null || reconciledNewEpoch)
     // Reconciling means preferring the transcript's account of the turn, which
-    // is blind to subagents — carry the accepted checkpoint's live children
-    // across it rather than inheriting a state that says there are none. [POD-1130]
+    // is the right call for what the transcript records and no account at all of
+    // what it does not — live children, accumulated working time. Carry those
+    // across rather than inheriting a state that reports them as zero. [POD-1130]
     this.state = reconciledState
-      ? carryLiveSubagents(options.bootstrapState, checkpoint?.turnState)
+      ? carryAcrossRebuild(options.bootstrapState, checkpoint?.turnState)
       : (checkpoint?.turnState ?? options.bootstrapState)
     this.turnEpoch = (checkpoint?.turnEpoch ?? 0) + reconciledEpochs
     this.providerPromptId = reconciledNewEpoch ? null : (checkpoint?.providerPromptId ?? null)

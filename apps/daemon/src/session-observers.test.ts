@@ -2604,6 +2604,9 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
           awaitingSubagents: true,
           nativeSubagentCount: 1,
           nativeSubagents: [{ id: 'a4f754707ecbc72b4', type: 'general-purpose' }],
+          // The clock the reconnect used to reset — the half that fires on every
+          // working session, subagent or not.
+          workingMsTotal: 347_914,
         },
       })
       const applied = acceptAgentObservation(checkpoint, lease, bootstrap, at)
@@ -2623,9 +2626,98 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         phase: 'working',
         awaitingSubagents: true,
         nativeSubagentCount: 1,
+        workingMsTotal: 347_914,
       })
     } finally {
       observers.clearSession(asSessionId('podium-1'))
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  // A live subagent has to be running at the instant of a reconnect for the
+  // count to be lost, which makes that half rare. The clock has no such
+  // precondition: every reconnected session that had worked at all came back
+  // reading zero, resetting the visible timer and the attention ranking with it.
+  it('keeps accumulated working time across a rebuild with no subagents [POD-1130]', async () => {
+    const at = '2026-08-16T17:53:00.000Z'
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-clock-wipe-'))
+    const transcript = join(dir, 'claude-1.jsonl')
+    const acceptedText = `${JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'do the thing' },
+    })}\n`
+    await writeFile(
+      transcript,
+      `${acceptedText}${JSON.stringify({
+        type: 'assistant',
+        timestamp: at,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Done. Tests pass.' }] },
+      })}\n`,
+    )
+    const acceptedCursor = {
+      segmentId: claudeTranscriptSegmentId('claude-1', await captureClaudeTranscript(transcript)),
+      components: { transcript: Buffer.byteLength(acceptedText), hook: 2 },
+    }
+    const checkpoint: SessionObservationCheckpointV1 = {
+      schemaVersion: 1,
+      podiumSessionId: asSessionId('podium-clock'),
+      provider: 'claude-code',
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      lifecycleObservationGeneration: 7,
+      providerCursor: acceptedCursor,
+      bootstrapCursor: acceptedCursor,
+      lastAcceptedLiveCursor: acceptedCursor,
+      turnEpoch: 3,
+      providerTurnId: null,
+      providerPromptId: 'prompt-3',
+      turnState: { phase: 'working', since: at, workingMsTotal: 912_004, nativeSubagentCount: 0 },
+      terminalFence: null,
+      providerAt: at,
+      acceptedAt: at,
+      lastLiveReceiptAt: at,
+      lastTransitionId: 'working-3',
+    }
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'reattach',
+          sessionId: asSessionId('podium-clock'),
+          durableLabel: 'podium-podium-clock',
+          agentKind: 'claude-code',
+          cwd: dir,
+          geometry: G,
+          resume: { kind: 'claude-session', value: 'claude-1' },
+          pathHint: transcript,
+          observationGeneration: 8,
+          observationBindingVersion: 2,
+          observationCheckpoint: checkpoint,
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      observers.onHookPayload(asSessionId('podium-clock'), {
+        hook_event_name: 'SessionStart',
+        session_id: 'claude-1',
+        transcript_path: transcript,
+        cwd: dir,
+      })
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+      })
+      const bootstrap = sent.find((message) => message.type === 'agentObservation')!.observation
+      // The transcript still owns the phase — it genuinely says the turn ended.
+      expect(bootstrap.state.phase).toBe('idle')
+      expect(bootstrap.state.workingMsTotal).toBe(912_004)
+    } finally {
+      observers.clearSession(asSessionId('podium-clock'))
       await rm(dir, { recursive: true, force: true })
     }
   })

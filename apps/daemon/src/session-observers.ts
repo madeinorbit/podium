@@ -5,7 +5,7 @@ import {
   type AgentStateProvider,
   ClaudeCausalObserver,
   captureClaudeTranscript,
-  carryLiveSubagents,
+  carryAcrossRebuild,
   claudePromptHookFingerprint,
   claudeTranscriptSegmentId,
   declaredValue,
@@ -591,13 +591,14 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           new Date().toISOString(),
         )
       }
-      // The rebuild above classifies the transcript, and the transcript cannot
-      // see subagents — only hooks move that list, so this state reports no
-      // children whether or not any are running. Publishing it wholesale erases
-      // the live ones permanently (their SubagentStop has no list left to remove
-      // from) and drops the parent to idle while it is still waiting on them.
-      // Carry the accepted checkpoint's children back over the guess. [POD-1130]
-      bootstrapState = carryLiveSubagents(bootstrapState, checkpoint?.turnState)
+      // The rebuild above starts from zero and replays what the TRANSCRIPT
+      // records, which is right for phase and turn boundaries and destructive
+      // for everything else: live subagents (hook-only, and unrecoverable once
+      // the identity list is gone) and accumulated working time (a rebuilt 0 is
+      // a reseed, not a measurement). A reconnect runs this on essentially every
+      // working session, so the loss is routine, not a rare race. Carry the
+      // accepted checkpoint's share of the state back over it. [POD-1130]
+      bootstrapState = carryAcrossRebuild(bootstrapState, checkpoint?.turnState)
     }
     // UserPromptSubmit is the causal boundary. Claude may append the prompt to
     // JSONL before posting the hook, so a tail classification at hook receipt
