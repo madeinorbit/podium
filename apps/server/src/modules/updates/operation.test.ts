@@ -1340,10 +1340,7 @@ describe('a silent grant, with nobody watching', () => {
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    const place = h
-      .read()
-      .steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
-      ?.places?.[0]
+    const place = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.places?.[0]
     expect(place).toMatchObject({ state: 'restarting' })
     expect(place).not.toHaveProperty('percent')
   })

@@ -127,7 +127,9 @@ export function verifyTarball(
 }
 
 /** The declared length, or undefined when the server did not declare a usable one. */
-function declaredLength(res: { headers?: { get(name: string): string | null } }): number | undefined {
+function declaredLength(res: {
+  headers?: { get(name: string): string | null }
+}): number | undefined {
   const raw = res.headers?.get('content-length')
   if (raw === null || raw === undefined) return undefined
   const parsed = Number(raw)

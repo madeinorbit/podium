@@ -1,8 +1,8 @@
-import { createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
+import { createHash, sign as cryptoSign, generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
-  decideProgressReport,
   type DeliveryProgress,
+  decideProgressReport,
   fetchArtifact,
   PROGRESS_REPORT_INTERVAL_MS,
   PROGRESS_REPORT_PERCENT_STEP,
@@ -64,8 +64,9 @@ describe('decideProgressReport', () => {
   })
 
   it('speaks again once the interval has passed, even with no percentage', () => {
-    expect(decideProgressReport(1_000, undefined, 1_000 + PROGRESS_REPORT_INTERVAL_MS, undefined))
-      .toBe(true)
+    expect(
+      decideProgressReport(1_000, undefined, 1_000 + PROGRESS_REPORT_INTERVAL_MS, undefined),
+    ).toBe(true)
     expect(decideProgressReport(1_000, 10, 1_000 + PROGRESS_REPORT_INTERVAL_MS - 1, 10)).toBe(false)
   })
 

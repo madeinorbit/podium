@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { convergeViaGit, type GitPhase, GIT_PHASES } from './update-delivery-git'
+import { convergeViaGit, GIT_PHASES, type GitPhase } from './update-delivery-git'
 
 /**
  * GIT DELIVERY'S HEARTBEAT (POD-2101). A checkout has no byte count to divide,
