@@ -192,6 +192,40 @@ afterEach(() => {
 const chevron = (title: string): HTMLElement =>
   screen.getByRole('button', { name: new RegExp(`^(Expand|Collapse) ${title}$`) })
 
+describe('the cold deck (POD-1112)', () => {
+  /** The composer's placeholder: a draft issue minted so a session has somewhere
+   *  to live. After a reload the selection can still point at one whose session
+   *  never started. */
+  const vessel = (over: Issue = {}): Issue =>
+    issue('v1', { title: 'Draft', stage: 'backlog', draft: true, ...over })
+
+  it('shows the empty state for a selection left on an empty draft vessel', () => {
+    harness.issues = [vessel()]
+    harness.sessions = []
+    harness.selectedIssueId = 'v1'
+    deck()
+    expect(screen.getByTestId('flight-empty')).toBeTruthy()
+    // Not the mission chrome the vessel used to get: no header, no view bar.
+    expect(screen.queryByText('Draft')).toBeNull()
+    expect(screen.queryByText('Full spine')).toBeNull()
+  })
+
+  it('still shows the mission once the vessel has its session', () => {
+    harness.issues = [vessel({ memberSessionIds: ['s-new'] })]
+    harness.sessions = [session('s-new', { issueId: 'v1' })]
+    harness.selectedIssueId = 'v1'
+    deck()
+    expect(screen.queryByTestId('flight-empty')).toBeNull()
+    expect(screen.getByText('Full spine')).toBeTruthy()
+  })
+
+  it('shows the empty state when nothing at all is selected', () => {
+    harness.selectedIssueId = null as unknown as string
+    deck()
+    expect(screen.getByTestId('flight-empty')).toBeTruthy()
+  })
+})
+
 describe('flight deck mission agent action', () => {
   it('adds the selected agent to the mission root, even while a sub-task is focused', async () => {
     harness.issues = harness.issues.map((candidate) =>

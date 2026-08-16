@@ -11,7 +11,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase } from './session-status'
-import type { IssueNavigationModel } from './slices/issues'
+import { type IssueNavigationModel, isEmptyDraftVessel } from './slices/issues'
 import { isCoordinatorSession } from './slices/terminal'
 
 export type FlightDeckMode = 'full' | 'active' | 'needs-you'
@@ -237,6 +237,33 @@ export function missionRootFor(
     current = parent
   }
   return current
+}
+
+/**
+ * THE MISSION THE OPERATOR IS SUPERVISING — `missionRootFor` with the cold case
+ * answered honestly (POD-1112).
+ *
+ * `missionRootFor` answers a structural question ("which root does this task
+ * hang from?") and every task has an answer. The shell's columns ask a
+ * different one: "is there a mission on screen at all?" — and after a reload
+ * the persisted selection routinely points at an EMPTY DRAFT VESSEL, a
+ * composer placeholder whose session never started. Rendering that as a mission
+ * gave the Flight Deck a header, a progress gauge and a view bar for a task
+ * that is not work and has no agents, instead of the deck's own empty state.
+ *
+ * So a vessel with nothing in it resolves to `undefined`: nothing is selected,
+ * and the surfaces that read this say so. A draft that IS filling — the live
+ * composer case — still has its session and still resolves, because that deck
+ * has something to show.
+ */
+export function selectedMissionRoot(
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+  selectedIssueId: IssueId | null,
+): IssueNavigationModel | undefined {
+  const root = missionRootFor(issues, selectedIssueId)
+  if (!root || isEmptyDraftVessel(root, sessions)) return undefined
+  return root
 }
 
 /**

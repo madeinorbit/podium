@@ -4,7 +4,7 @@ import {
   type MissionProgress,
   missionCrewLabel,
   missionProgress,
-  missionRootFor,
+  selectedMissionRoot,
 } from '@podium/client-core/viewmodels'
 import type { IssueColorSlot } from '@podium/model/browser'
 import { ChevronRight, MessageCircleQuestion, Users } from 'lucide-react'
@@ -214,7 +214,13 @@ export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX
   const issues = useReplicaIssues()
   // This bar is mounted for as long as the deck is folded, so the mission walk
   // is memoized here exactly as the open column memoizes it.
-  const root = useMemo(() => missionRootFor(issues, selectedIssueId), [issues, selectedIssueId])
+  // Folded and open read the SAME selection rule (POD-1112): a bar that names a
+  // mission the open column shows as empty is the two halves of one control
+  // disagreeing about what is on screen.
+  const root = useMemo(
+    () => selectedMissionRoot(issues, sessions, selectedIssueId),
+    [issues, sessions, selectedIssueId],
+  )
   const rows = useMemo(
     () => (root ? buildFlightDeckRows(issues, sessions, root.id) : []),
     [issues, sessions, root],

@@ -222,6 +222,30 @@ export function isDraftAgentVessel(issue: IssueWire, sessions: readonly SessionM
   return Boolean(issue.draft) && !issue.worktreePath && sessions.length > 0
 }
 
+/**
+ * The SAME vessel with its agents gone — a draft nobody ever filled.
+ *
+ * The composer mints a draft issue up front so a session has somewhere to live,
+ * and if the session never starts (or is archived later) the vessel outlives
+ * it: an issue with a placeholder title, no worktree, no work and nothing to
+ * show. It is the empty half of {@link isDraftAgentVessel}, and the two
+ * together cover every draft — a vessel either IS its agents or is nothing.
+ *
+ * Surfaces that ask "what is the operator supervising?" must answer NOTHING for
+ * one of these rather than dressing it up as a mission (POD-1112).
+ */
+export function isEmptyDraftVessel(
+  issue: Pick<IssueWire, 'id' | 'draft' | 'worktreePath'>,
+  sessions: readonly SessionMeta[],
+): boolean {
+  if (!issue.draft || issue.worktreePath) return false
+  // Attachment only, deliberately: a vessel has no worktree, so cwd
+  // containment — the fallback `sessionsForIssueNav` uses — cannot put a
+  // session in one. Archived sessions do not count as content; an emptied
+  // vessel is as cold as one that was never filled.
+  return !sessions.some((session) => session.issueId === issue.id && !session.archived)
+}
+
 // ---------------------------------------------------------------------------
 // What the human is being asked to decide.
 // ---------------------------------------------------------------------------

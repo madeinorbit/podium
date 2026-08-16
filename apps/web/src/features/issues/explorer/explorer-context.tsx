@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { missionIssueIds, missionRootFor } from '@podium/client-core/viewmodels'
+import { missionIssueIds, selectedMissionRoot } from '@podium/client-core/viewmodels'
 import {
   createContext,
   type ReactElement,
@@ -85,11 +85,17 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
   // explorer does writes back to it. Walking a relation into another team's
   // task must not move the deck out from under the work in progress.
   const target = useMemo(() => {
-    const root = missionRootFor(issues, selectedIssueId)
+    const root = selectedMissionRoot(issues, sessions, selectedIssueId)
     return resolveFocus(
       focusedIssueId,
       root ? missionIssueIds(issues, root.id, sessions) : new Set<string>(),
-      root?.id ?? selectedIssueId,
+      // NO FALLBACK TO THE RAW SELECTION (POD-1112). With no mission resolved
+      // there is nothing for the explorer to point at, and it opens where a
+      // tool with no subject should: level 0, the task list. The selection this
+      // used to fall back to is exactly the case that resolved to nothing — an
+      // empty draft vessel, or an id no longer in the replica — so the fallback
+      // could only ever open the panel on a task the operator did not choose.
+      root?.id ?? null,
     )
   }, [focusedIssueId, issues, selectedIssueId, sessions])
 

@@ -40,6 +40,7 @@ import {
   presenceNote,
   relationNote,
   reuseFlightDeckRows,
+  selectedMissionRoot,
   sessionAsksOnIssue,
   sessionNeedsHuman,
   waitingNote,
@@ -214,6 +215,38 @@ describe('missionRootFor', () => {
       issue('c', { parentId: 'b' }),
     ]
     expect(['a', 'b', 'c']).toContain(missionRootFor(issues, asIssueId('a'))?.id)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// selectedMissionRoot
+// ---------------------------------------------------------------------------
+
+describe('selectedMissionRoot', () => {
+  const vessel = issue('vessel', { draft: true, title: 'Draft', stage: 'backlog' })
+
+  it('resolves an ordinary selection exactly as missionRootFor does', () => {
+    const { issues, sessions } = mission()
+    expect(selectedMissionRoot(issues, sessions, asIssueId('g2'))?.id).toBe('root')
+  })
+
+  it('is undefined for an empty draft vessel — the cold deck (POD-1112)', () => {
+    expect(selectedMissionRoot([vessel], [], asIssueId('vessel'))).toBeUndefined()
+  })
+
+  it('is undefined for a vessel whose only session was archived', () => {
+    const sessions = [sess('s-dead', { issueId: 'vessel', archived: true })]
+    expect(selectedMissionRoot([vessel], sessions, asIssueId('vessel'))).toBeUndefined()
+  })
+
+  it('keeps a draft that is FILLING — the live composer still has a deck', () => {
+    const sessions = [sess('s-new', { issueId: 'vessel' })]
+    expect(selectedMissionRoot([vessel], sessions, asIssueId('vessel'))?.id).toBe('vessel')
+  })
+
+  it('keeps a draft that grew a worktree of its own', () => {
+    const real = issue('vessel', { draft: true, worktreePath: '/r/acme/.worktrees/v' })
+    expect(selectedMissionRoot([real], [], asIssueId('vessel'))?.id).toBe('vessel')
   })
 })
 

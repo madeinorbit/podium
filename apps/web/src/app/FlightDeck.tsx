@@ -22,13 +22,13 @@ import {
   missionDepartures,
   missionIssueIds,
   missionProgress,
-  missionRootFor,
   motionPhase,
   nativeSubagentRows,
   type PresenceNote,
   presenceNote,
   reposToViews,
   reuseFlightDeckRows,
+  selectedMissionRoot,
   type SessionRole,
   sessionAsksOnIssue,
   sessionNeedsHuman,
@@ -2030,7 +2030,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const headerIntent = useClickIntent()
-  const root = missionRootFor(issues, selectedIssueId)
+  // `selectedMissionRoot`, not `missionRootFor`: a persisted selection left
+  // pointing at an empty draft vessel is not a mission, and this column shows
+  // `EmptyDeck` for it rather than a header and a gauge over nothing (POD-1112).
+  const root = selectedMissionRoot(issues, sessions, selectedIssueId)
   const rootIssue = root ? issues.find((issue) => issue.id === root.id) : undefined
   const computedRows = useMemo(
     () => (root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),

@@ -112,6 +112,7 @@ afterEach(() => {
   cleanup()
   state.selectedIssueId = null
   state.issues = BASE_ISSUES
+  state.sessions = [] as never[]
   vi.clearAllMocks()
 })
 
@@ -134,6 +135,44 @@ describe('issue explorer navigation', () => {
     expect(screen.getByTestId('explorer-list')).toBeTruthy()
     // The trail is rooted at the list even when the list is all there is.
     expect(screen.getByTestId('explorer-crumbs').textContent).toContain('Tasks')
+  })
+
+  it('opens on the task list when the selection is an empty draft vessel (POD-1112)', () => {
+    // The composer's placeholder, still selected after a reload with its session
+    // never started. It is not a task the operator chose, so the explorer must
+    // not open on it — the cold shell gets level 0.
+    // A vessel has no checkout of its own — that is what makes it a placeholder.
+    const vessel = makeIssue({
+      id: 'v',
+      seq: 111,
+      title: 'Draft',
+      stage: 'backlog',
+      draft: true,
+      worktreePath: null,
+    })
+    state.issues = [...BASE_ISSUES, vessel]
+    state.selectedIssueId = 'v'
+    mount('v')
+    expect(screen.getByTestId('explorer-list')).toBeTruthy()
+    expect(screen.queryByTestId('detail')).toBeNull()
+    expect(screen.getByTestId('explorer-crumbs').textContent).toContain('Tasks')
+  })
+
+  it('opens on a vessel that HAS its session — the composer still has a subject', () => {
+    // A vessel has no checkout of its own — that is what makes it a placeholder.
+    const vessel = makeIssue({
+      id: 'v',
+      seq: 111,
+      title: 'Draft',
+      stage: 'backlog',
+      draft: true,
+      worktreePath: null,
+    })
+    state.issues = [...BASE_ISSUES, vessel]
+    state.sessions = [{ sessionId: 's-new', issueId: 'v', archived: false }] as never[]
+    state.selectedIssueId = 'v'
+    mount('v')
+    expect(detail().getAttribute('data-issue-id')).toBe('v')
   })
 
   it('opens on the bucket that has something in it', () => {
