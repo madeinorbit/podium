@@ -538,6 +538,28 @@ reconciliation; both desktop halves; and the daemon/channel hardening.
 - **Terminal outcomes withdraw authorization first**, before releasing in-flight grants,
   because that release is itself a fleet read and could otherwise issue the next grant.
 
+### 19.2b The one that mattered most, found last
+
+For most of this epic the updater **did not work on any real installation**. The operation
+channel was hardcoded to `dev` at both composition roots while the fleet default is `stable`,
+so on anything but a development checkout the planner threw "no dev update target is
+published" and the fleet got no operation at all. Every drive that appeared to prove the
+design worked had been run on the one configuration where the bug is invisible. The channel
+now comes from the host's own authority, reusing the same resolution that decides who gets
+granted, so it cannot disagree with it (POD-2189).
+
+The lesson generalises beyond this bug: a system verified only in the configuration its
+authors run is verified in the configuration least likely to be wrong. §16's build order
+should have put a stable-channel drive before a dev one, not after.
+
+### 19.2c Still dev-scoped, deliberately
+
+The fleet **read model** remains dev-scoped, and widening it is not a one-line change: edge
+and stable machines carry their own per-row targets, so comparing them against the dev target
+would invent "behind" places that the global action must never grant. It changes what the
+dialog *counts*, not merely which authority it asks. Recorded in POD-2191 and in a comment
+where a reader meets it.
+
 ### 19.3 Known-open at the time of writing
 
 A double grant when a wave widens past its canary; the eager web bundle over budget; the
