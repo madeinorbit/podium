@@ -69,7 +69,7 @@ import { checkIssueAccess } from './issue-authz'
 import { checkMachineUse, ownershipFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { NativeLoginService } from './modules/accounts/native-login'
-import { ApprovalService } from './modules/approvals/service'
+import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
@@ -339,6 +339,8 @@ export class SessionRegistry {
   private readonly ledger: Ledger
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
+  /** Stalled-approval deadline (POD-2223) — modules/approvals. */
+  private readonly approvalStallSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
   private readonly issueAutoArchive: IssueAutoArchive
   /** Parent-branch movement watch (POD-384) — modules/issues. */
@@ -1617,6 +1619,9 @@ export class SessionRegistry {
       store: this.store.approvals,
       now: () => new Date().toISOString(),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      // The stall deadline runs only while a machine's daemon is actually attached:
+      // `toMachine` queues for an absent one, so that frame is parked, not lost.
+      hasDaemon: (machineId) => machines.hasDaemon(machineId),
       clients: () => clientRegistry.values(),
       sessionIssueId: (sessionId) => {
         const s = sessionsSvc.sessionById(sessionId)
@@ -2434,6 +2439,14 @@ export class SessionRegistry {
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
+    // An approved op whose daemon takes the frame and never answers must not sit
+    // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
+    // daemon in the fleet is one that drops it.
+    this.approvalStallSweep = setInterval(
+      () => approvals.sweepStalledExecutions(),
+      APPROVAL_STALL_SWEEP_MS,
+    )
+    this.approvalStallSweep.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
     // jobs now run on the fenced janitor surface (parity-proven in unit tests).
     // Classes remain for tests / manual pruneNow; start() is no longer called.
@@ -2523,6 +2536,7 @@ export class SessionRegistry {
     this.eventRetention.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
+    clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
     this.issueAutoArchive.dispose()
     this.issueGitWatch.dispose()

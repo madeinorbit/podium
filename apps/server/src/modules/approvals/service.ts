@@ -40,7 +40,34 @@ export interface ApprovalServiceDeps {
   /** Server-owned operations return a result string. null means this operation
    * belongs to the daemon executor. */
   executeServerOp?(op: ApprovalOp, sessionId: SessionId): string | null
+  /** True when `machineId` has a live daemon socket RIGHT NOW. The stall deadline
+   *  below runs only while this is true — see {@link ApprovalService.sweepStalledExecutions}. */
+  hasDaemon?(machineId: MachineId): boolean
+  /** Elapsed-time clock for the stall deadline, separate from `now()` because that one
+   *  yields the ISO string that goes ON the row and this one only ever gets subtracted.
+   *  Both the dispatch that starts a row's clock and the sweep that reads it must come
+   *  from the SAME source, or the deadline measures the gap between two clocks. */
+  nowMs?(): number
 }
+
+/**
+ * How long a daemon-executed approval may sit `executing` with a reachable daemon
+ * before the server calls it stalled (POD-2223).
+ *
+ * Bounded on both sides, and both bounds are load-bearing:
+ *   - ABOVE the daemon's own executor ceiling. `runApprovalExec` spawns the podium
+ *     binary with `timeout: 300_000` and reports EITHER outcome, so a daemon that is
+ *     merely slow always answers inside 5 minutes. 7 gives that two minutes of slack.
+ *   - BELOW `APPROVAL_WAIT_MS` (10 min), the window the requesting agent's CLI blocks
+ *     for. Firing inside it means the agent's own command prints the real answer and
+ *     exits, instead of printing "the request is still live … you will be told the
+ *     outcome" — which, for a row nobody will ever answer, is false twice over.
+ */
+export const APPROVAL_EXEC_DEADLINE_MS = 7 * 60_000
+
+/** How often {@link ApprovalService.sweepStalledExecutions} should be driven. One
+ *  minute keeps the fire window at 7–8 min, still two minutes inside the CLI's wait. */
+export const APPROVAL_STALL_SWEEP_MS = 60_000
 
 export class ApprovalService {
   /** When the requesting CLI last polled (it blocks on the decision, so a recent
@@ -51,7 +78,34 @@ export class ApprovalService {
    *  1.5s); anything staler means nobody is listening on that command. */
   private static readonly WAITER_LIVE_MS = 15_000
 
+  /**
+   * When each in-flight approval's stall clock started — the moment the exec request
+   * was handed to a REACHABLE daemon.
+   *
+   * It is a clock, not a timestamp, because `toMachine` QUEUES for an offline machine
+   * and flushes on its next attach: a row parked for three days has not been waiting on
+   * anything, and failing it the instant its machine comes back would report a stall for
+   * a frame the daemon has not even seen yet. So the sweep DELETES the entry whenever the
+   * daemon is away and restarts it on the next tick that finds it back — the deadline
+   * only ever measures time a daemon had the frame and stayed silent.
+   *
+   * In memory on purpose. A server restart loses it, the next sweep re-seeds from `now`,
+   * and the only cost is one extra deadline of patience on a row that was already stuck —
+   * the conservative direction. Making it durable would be a column, a migration and a
+   * ledger for an error path measured in minutes.
+   */
+  private readonly stallClock = new Map<string, number>()
+
+  /** Rows this server failed for stalling. Kept so a result that arrives ANYWAY can
+   *  correct the record rather than be dropped on a transition that no longer matches
+   *  — being told "it failed" about an op that ran is worse than being told nothing. */
+  private readonly stalled = new Set<string>()
+
   constructor(private readonly deps: ApprovalServiceDeps) {}
+
+  private nowMs(): number {
+    return this.deps.nowMs?.() ?? Date.now()
+  }
 
   private toWire(row: ApprovalRow): ApprovalWire {
     const issue = row.issueId ? this.deps.issueInfo(row.issueId) : null
@@ -202,6 +256,9 @@ export class ApprovalService {
       return this.toWire(this.row(id))
     }
     this.deps.toMachine(row.machineId, { type: 'approvalExecRequest', requestId: id, op: row.op })
+    // Start the stall clock (POD-2223). `stop` is exempt for the same reason it gets an
+    // early notify below: its row staying `executing` is honest, not stuck.
+    if (row.op.kind !== 'stop') this.stallClock.set(id, this.nowMs())
     // A 'stop' kills the daemon mid-exec — its result may never arrive, so the
     // decision itself is the last thing we can reliably deliver.
     if (row.op.kind === 'stop') this.notify(row, 'approved — executing')
@@ -228,14 +285,91 @@ export class ApprovalService {
     const row = this.deps.store.get(msg.requestId)
     if (!row) return
     const text = msg.output.slice(0, 4000) || (msg.ok ? 'ok' : `exit ${msg.exitCode ?? '?'}`)
+    this.stallClock.delete(msg.requestId)
+    // A LATE result for a row the deadline already failed (POD-2223). Rare by
+    // construction — the sweep only fires while the daemon is connected, and a daemon
+    // that HAS the frame answers it — but if it happens, the record must move to what
+    // actually occurred. Nothing else re-opens a terminal row.
+    const from = this.stalled.delete(msg.requestId) ? 'failed' : 'executing'
+    const late = from === 'failed'
     if (
-      !this.deps.store.transition(msg.requestId, 'executing', msg.ok ? 'succeeded' : 'failed', text)
+      !this.deps.store.transition(msg.requestId, from, msg.ok ? 'succeeded' : 'failed', text)
     )
       return
     this.log(row, msg.ok ? 'issue.approval_succeeded' : 'issue.approval_failed', {
       exitCode: msg.exitCode,
+      ...(late ? { late: true } : {}),
     })
-    this.notify(row, `${msg.ok ? 'succeeded' : 'FAILED'} — ${text.slice(0, 400)}`)
+    const prefix = late ? 'reported LATE, after the server had given up — ' : ''
+    this.notify(row, `${prefix}${msg.ok ? 'succeeded' : 'FAILED'} — ${text.slice(0, 400)}`)
     this.broadcast()
+  }
+
+  /**
+   * Fail approvals whose daemon took the exec request and never answered (POD-2223).
+   *
+   * WHY THIS EXISTS AT ALL, given the daemon now answers a frame it cannot read: the
+   * daemon arm ships in the same release as the value that needs it, so on the day that
+   * release lands every daemon in the fleet is one WITHOUT the arm — the frame is dropped
+   * by `warnDropped` and no result is ever sent. That is not an edge case, it is the
+   * default state of the world for as long as it takes a fleet to converge, which is the
+   * thing this epic is for. Until every daemon carries the arm, this deadline is the only
+   * thing standing between an operator and a row that says `executing` forever.
+   *
+   * The three exemptions are all about not lying:
+   *   - `stop` kills its own daemon mid-exec, so no result is EXPECTED. Documented as
+   *     honest where it is dispatched, and left alone here.
+   *   - a machine whose daemon is away has its frame QUEUED, not lost: it still runs on
+   *     the next attach. Its clock is reset instead (see {@link stallClock}).
+   *   - a row seen for the first time (a restart, or one already stuck when this shipped)
+   *     starts its clock now rather than being failed on sight.
+   *
+   * Drive it from a timer at {@link APPROVAL_STALL_SWEEP_MS}. Idempotent and cheap.
+   */
+  sweepStalledExecutions(now: number = this.nowMs()): void {
+    const rows = this.deps.store.listExecuting()
+    if (rows.length === 0) {
+      this.stallClock.clear()
+      return
+    }
+    const live = new Set<string>()
+    let changed = false
+    for (const row of rows) {
+      if (row.op.kind === 'stop') continue
+      live.add(row.id)
+      if (this.deps.hasDaemon && !this.deps.hasDaemon(row.machineId)) {
+        // Parked, not stalled: the frame is queued for this machine's next attach.
+        this.stallClock.delete(row.id)
+        continue
+      }
+      const since = this.stallClock.get(row.id)
+      if (since === undefined) {
+        this.stallClock.set(row.id, now)
+        continue
+      }
+      if (now - since < APPROVAL_EXEC_DEADLINE_MS) continue
+      if (this.failStalled(row, now - since)) changed = true
+    }
+    for (const id of this.stallClock.keys()) if (!live.has(id)) this.stallClock.delete(id)
+    if (changed) this.broadcast()
+  }
+
+  /** Move one stalled row to `failed` and tell everyone who was waiting on it. */
+  private failStalled(row: ApprovalRow, waitedMs: number): boolean {
+    const minutes = Math.round(waitedMs / 60_000)
+    // Say what is known and no more. The machine may in fact have run the op and lost
+    // its reply, so this must NOT claim nothing happened — it must name the one thing
+    // that is certainly true and the one thing the operator can do about it.
+    const text =
+      `no result from ${this.deps.machineName(row.machineId) ?? row.machineId} after ${minutes} minutes. ` +
+      `Its daemon was connected and did not answer, which usually means that machine's podium ` +
+      `predates this operation and dropped the request — check its version, update it, then ask again. ` +
+      `The operation may or may not have run; \`podium fleet\` shows what that machine is actually on.`
+    if (!this.deps.store.transition(row.id, 'executing', 'failed', text)) return false
+    this.stallClock.delete(row.id)
+    this.stalled.add(row.id)
+    this.log(row, 'issue.approval_failed', { stalled: true, waitedMs })
+    this.notify(row, `FAILED — ${text}`)
+    return true
   }
 }

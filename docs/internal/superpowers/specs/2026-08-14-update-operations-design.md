@@ -611,6 +611,60 @@ clearly. The nicer shape is still open: this deserves the §3.5 **ask** the desk
 gets ("finish this in your terminal") rather than a failure, which needs the host daemon's
 shape as a fact on the wire.
 
+### 19.2f The op catalog widened and its tolerance shipped with it (P8), decided both ways
+
+`98f65d411` added `dev` to `ApprovalChannelTarget` **and**, in the same commit, put
+`approvalsChanged` on the codec's quarantine table so an older bundle survives an approval
+row it cannot read. P8 says an older consumer must tolerate what a newer producer sends —
+and tolerance that ships *with* the value it protects against protects nobody, because the
+population it is written for is by construction the population without it. Both halves of
+that seam were verified by running the pre-widening protocol (`98f65d411^`) against the
+frames the current server sends, not by reading: the old daemon's `ControlMessage.parse`
+throws `invalid_enum_value: received "dev"`, and the old bundle throws away the whole
+`approvalsChanged` snapshot. The same frames carrying `edge` pass both. The two halves got
+opposite answers, and the difference is the useful part.
+
+**The daemon half is fixed with a net that does not wait for convergence (POD-2223).** A
+daemon predating the widening dropped `approvalExecRequest` in silence — `payloadRejectionReply`
+answered only `repoOpRequest` — and the row then sat `executing` forever: gone from the
+operator's popup (`listPending` is `pending` only), no transition so no mail fallback, and
+the agent's CLI giving up after ten minutes saying the outcome would be reported. Two
+changes, and they are for different populations. The daemon now answers an approval frame it
+cannot parse with `approvalExecResult { ok: false }` naming the op, its own version and the
+remedy — but that arm lives on the daemon that *cannot read the frame*, so it is worth
+nothing to this widening and everything to the next one. What covers the fleet that is
+already out there is a **server-side deadline**: an approval whose daemon is attached and
+silent past `APPROVAL_EXEC_DEADLINE_MS` is failed with text an operator can act on. It is
+bounded above the daemon's own 5-minute executor ceiling and below the CLI's 10-minute wait,
+so the agent's own command prints the real answer. Rows parked for an absent daemon are
+exempt (their frame is queued, not lost), `stop` is exempt (its daemon kills itself), and a
+result that arrives anyway corrects the record.
+
+**The bundle half is accepted, and the split that would have avoided it was declined on
+purpose.** Splitting was still available when this was decided — the epic had not merged, so
+`dev` could have been held back one release behind its quarantine. It was not, for four
+reasons. (1) The reason to split was the daemon half, and the daemon half now has a guarantee
+that does not depend on any fleet converging. (2) The bundle failure is loud, correctly
+diagnosed and lossless: `recordSkew` drives `describeWireSkew` to the severe copy, which
+names reload as the remedy, and the approval rows are durable with no timeout, so the frozen
+list costs a reload and nothing else. (3) It needs a reload, not a fleet convergence — one
+per-session act, prompted by copy already on screen, which is a different and far cheaper
+thing than the convergence this epic exists to manage. (4) The trigger is an agent asking for
+`dev`, and `dev` is the only channel a *source checkout's* own `dev+<sha>` target is ever
+published on, so the population that can provoke it and the population that reloads
+constantly are close to the same people. Against that, splitting costs a release of exactly
+the capability POD-2199 shipped — an agent on a source machine pinning its own box to the
+only channel its target appears on — and leaves a half-shipment for someone to remember.
+
+**The rule this leaves, so the next widening is not decided by default.** Tolerance goes in
+one release and the value that needs it in the next — *unless* the receiver-side failure is
+loud, lossless and self-healing, or a producer-side net covers it independently of
+convergence. A closed enum on a frame that carries **one** element, rather than an array, has
+no quarantine available to it at all and must take the producer-side net; that is the
+distinction between `approvalExecRequest` and `approvalsChanged`, and it is why one of them
+needed code and the other needed a decision. Written up in
+`docs/reviews/2026-08-17-p8-shipment-decision.md`.
+
 ### 19.3 Known-open at the time of writing
 
 A double grant when a wave widens past its canary; the eager web bundle over budget; the

@@ -65,6 +65,18 @@ export class ApprovalsRepository {
     ).map(toRow)
   }
 
+  /** Every row handed to a daemon and not yet answered (POD-2223). The stall sweep
+   *  reads this; it is bounded by how many approvals are in flight at once, which is
+   *  a human-paced number. `decided_at` is the approve instant — `transition` sets it
+   *  on the first move out of `pending`, and pending → executing IS that move. */
+  listExecuting(): ApprovalRow[] {
+    return (
+      this.db
+        .prepare(`SELECT * FROM approval_requests WHERE status = 'executing' ORDER BY decided_at`)
+        .all() as Record<string, unknown>[]
+    ).map(toRow)
+  }
+
   /** Atomic state transition; returns false when the row wasn't in `from`
    *  (double-click / racing decisions decide once). */
   transition(id: string, from: ApprovalStatus, to: ApprovalStatus, resultText?: string): boolean {
