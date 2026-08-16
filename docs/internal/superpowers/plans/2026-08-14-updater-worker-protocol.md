@@ -66,6 +66,17 @@ Every sub-issue of the updater epic follows this protocol. It is part of your br
 
 ## Done
 
+- **Finish every gate and comparison BEFORE you close.** Closing triggers the system
+  worktree cleanup, which deletes your checkout out from under anything still running —
+  POD-2099 lost a broad lane this way and it failed *silently* (2 of 27 tasks done, the
+  rest "unable to spawn child process", no error that looks like a deletion). Order is:
+  gates → comparison recorded in issue state → merge → close.
+- **Wire-golden fixtures: recapture only your own family.** An additive field on a wire
+  type can still break `packages/protocol` wire-golden, because the corpus pins bytes.
+  `fixtures:wire:update` rewrites *every* family, and five of them (feature-state, feed,
+  issues, model, sync) are drift-red at the integration tip already — sweeping those in
+  hides someone else's pending change behind yours. Recapture the one family your change
+  touched and leave the rest red.
 - Update your issue: `podium issue state <id> --set "…"` (what landed, how verified),
   `podium issue close <id> --note "…"`.
 - Mail the epic: `podium issue mail send 2087 --body "POD-<id> merged to integration:
