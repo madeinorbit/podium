@@ -327,8 +327,18 @@ function livenessLine(operation: Operation, step: OperationStep | undefined, now
   return 'Working…'
 }
 
+/**
+ * An ask, as a sentence for somebody who is NOT the one who can act on it.
+ *
+ * `required` picks which field: a required ask gates correctness, and the
+ * server writes its `detail` for the onlooker ("Finish this in Podium Desktop
+ * on ludovico"), which is exactly what this surface needs to say. A voluntary
+ * ask's detail is written for the ACTOR ("Reloads this page in about two
+ * seconds") and would be a lie here, so its `title` is used instead.
+ */
 function askLine(ask: AwaitingAsk): string {
-  const parts = [ask.title ?? ask.detail ?? ask.id]
+  const chosen = ask.required ? (ask.detail ?? ask.title) : (ask.title ?? ask.detail)
+  const parts = [chosen ?? ask.id]
   if (ask.place && !parts[0]?.includes(ask.place)) parts.push(`on ${ask.place}`)
   return parts.join(' ')
 }

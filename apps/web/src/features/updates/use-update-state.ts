@@ -514,7 +514,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       try {
         switch (kind) {
           case 'start':
-            await startUpdate(trpc)
+            await startUpdate(trpc, surface)
             break
           case 'retry':
             await retryUpdate(trpc, operationId)
@@ -551,7 +551,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         setDesktopProgress(undefined)
       }
     },
-    [desktopChannel, operationId, options.reload, refresh, trpc],
+    [desktopChannel, operationId, options.reload, refresh, surface, trpc],
   )
 
   const checkNow = useCallback(async (): Promise<void> => {

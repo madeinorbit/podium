@@ -82,21 +82,18 @@ export async function readLatestOperation(trpc: Trpc): Promise<Operation | null>
   return parseOperation(rows[0])
 }
 
-type LooseProcedure = { mutate: (input?: unknown) => Promise<unknown> }
-type LooseRouter = Record<string, LooseProcedure | undefined>
-
-function updatesRouter(trpc: Trpc): LooseRouter {
-  return trpc.updates as unknown as LooseRouter
-}
-
 /**
  * Start the one update operation. Single-flight lives on the SERVER (P6): a
- * second tab pressing this gets the running operation back, not a second one,
- * and both tabs then render the same object.
+ * second tab pressing this gets the running operation back (`alreadyRunning`),
+ * not a second one, and both tabs then render the same object — which is why
+ * this answers nothing and lets the poll do the rendering.
+ *
+ * `surface` travels with the click because the plan depends on it: an
+ * all-in-one server plans a desktop-install ask, a browser plans a reload.
  */
-export async function startUpdate(trpc: Trpc): Promise<void> {
+export async function startUpdate(trpc: Trpc, surface?: string): Promise<void> {
   try {
-    await updatesRouter(trpc).start?.mutate()
+    await trpc.updates.start.mutate(surface ? { surface } : undefined)
   } catch (error) {
     if (!isMissingProcedure(error)) throw error
     await trpc.updates.converge.mutate()
@@ -105,8 +102,11 @@ export async function startUpdate(trpc: Trpc): Promise<void> {
 
 /** Retry is a NEW operation over the remainder (§3.2); an old server just re-converges. */
 export async function retryUpdate(trpc: Trpc, operationId?: string): Promise<void> {
+  // Nothing to retry the remainder OF: start a fresh operation instead of
+  // asking the server about an id we do not have.
+  if (!operationId) return startUpdate(trpc)
   try {
-    await updatesRouter(trpc).retry?.mutate(operationId ? { id: operationId } : undefined)
+    await trpc.updates.retry.mutate({ id: operationId })
   } catch (error) {
     if (!isMissingProcedure(error)) throw error
     await startUpdate(trpc)
