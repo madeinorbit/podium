@@ -12,6 +12,7 @@ import {
 import { OperationKindRegistry } from '../operations/kinds'
 import { OperationStore } from '../operations/store'
 import {
+  admissibleDeferredPlaces,
   classifyMachineFailure,
   createUpdateFleetBridge,
   DESKTOP_INSTALL_ASK,
@@ -34,7 +35,7 @@ import {
   updateOperationKind,
 } from './operation'
 import { UpdatesService } from './service'
-import type { WaveMachine } from './wave'
+import { offeredDeliveries, type WaveMachine } from './wave'
 
 /**
  * THE `update` KIND (POD-2098), proven the way the framework next door is: a
@@ -1135,11 +1136,15 @@ describe('the fleet bridge', () => {
    */
   it('leaves a machine deferred when it reconnects after the wave finished', async () => {
     const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
+    // A server step AFTER the wave, so the operation is still RUNNING when the
+    // laptop wakes up: that is what puts the finished-STEP guard under test
+    // rather than the terminal-OPERATION one, which would refuse for a reason
+    // this case is not about.
     const h = harness({
       machines: fleet,
       target: packedTarget(),
-      appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
+      requestCoordinatorRestart: vi.fn(),
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
@@ -1150,6 +1155,7 @@ describe('the fleet bridge', () => {
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('done')
+    expect(h.read().state).toBe('running')
 
     fleet[1] = machine({ id: 'laptop' })
     bridge.onFleetChanged()
@@ -1178,6 +1184,31 @@ describe('the fleet bridge', () => {
     expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
     const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.places?.map((place) => place.id)).toEqual(['vmi'])
+  })
+
+  /**
+   * …and the same exclusion when the caps question CANNOT answer it.
+   *
+   * The case above is guarded twice over: a packed target offers a delivery, and
+   * `machineCanTakeDelivery` refuses a supervised daemon whatever its caps say.
+   * While the target is still a bare `dev+<sha>` identity it offers NOTHING, so
+   * that question is skipped for everyone — and the supervised exclusion is the
+   * only thing standing between a wave and the inside of a signed .app.
+   */
+  it('excludes a supervised daemon even from a target that offers no delivery yet', () => {
+    const fleet = [machine({ id: 'laptop', supervised: true })]
+    const h = harness({ machines: fleet })
+    const operation = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      deferred: [{ id: 'laptop', name: 'laptop', reason: 'offline' }],
+    } as Operation
+
+    expect(offeredDeliveries(devTarget())).toEqual([])
+    expect(
+      admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
+    ).toEqual([])
   })
 })
 
