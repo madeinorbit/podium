@@ -561,7 +561,10 @@ export class UpdatesService {
    * machine's terminal state before planning.
    */
   authorizeMachine(machineId: MachineId): MachineApplyOutcome {
-    const machine = this.fleet().find((candidate) => candidate.id === machineId)
+    // `project()`, because this issues a grant (POD-2180): a wave continued from
+    // inside the lookup would move machines this row is not about, and then this
+    // method would plan against the fleet as it was before that happened.
+    const machine = this.project().machines.find((candidate) => candidate.id === machineId)
     if (!machine) return { result: 'unknown-machine' }
     const channel = this.channelOf(machine)
     const target = this.target(channel)
@@ -605,7 +608,13 @@ export class UpdatesService {
     const rollout = this.rollout(channel)
     if (!target || rollout.halted) return []
 
-    const machines = this.fleet()
+    // THE PROJECTION, NOT THE READ MODEL (POD-2180). `fleet()` continues an
+    // authorized wave from inside itself, so planning against what it returned
+    // meant planning against a snapshot taken BEFORE the grants that read had
+    // just issued — every widened machine selected, and granted, twice.
+    // {@link project} is the same computation with that continuation removed,
+    // which is what makes this method the only thing granting on this path.
+    const { machines } = this.project()
     const channelMachines = machines.filter((machine) => this.channelOf(machine) === channel)
     const selected = planWave({
       machines: channelMachines,
@@ -617,8 +626,51 @@ export class UpdatesService {
     return this.issueGrants(channel, target, channelMachines, selected)
   }
 
-  /** Wave-machine projection used by the fleet read model and the planner. */
+  /**
+   * The fleet read model: the projection, plus the one wave continuation a read
+   * is allowed to perform.
+   *
+   * WHY A READ GRANTS AT ALL. An installed daemon normally proves its new build
+   * by reconnecting, which refreshes the machine directory before an
+   * `updateStatus` message is guaranteed to arrive. Nothing else is watching for
+   * that edge, so without this the panel reaches "1 of N" and waits for a second
+   * Apply that should never be necessary.
+   *
+   * WHY IT IS TWO PROJECTIONS AND NOT ONE (POD-2180). The continuation issues
+   * grants, and the snapshot taken before it is a description of the fleet that
+   * stopped being true halfway through this method. Returning it told every
+   * caller that the machines this call had just handed an update to were idle —
+   * and `tick()`, one such caller, believed it and granted them again. The
+   * second projection is the honest answer to "what is the fleet now", and the
+   * work is one pass over the machine directory.
+   */
   fleet(): WaveMachine[] {
+    const { machines, continuing } = this.project()
+    if (continuing.size === 0) return machines
+    for (const channel of continuing) this.tick(channel)
+    // The re-read cannot continue anything further: a machine is only ever
+    // `continuing` because its directory version proved the target while a
+    // convergence record still stood, and the projection above deleted that
+    // record. So this is a projection, not a second round of the same question.
+    return this.project().machines
+  }
+
+  /**
+   * The projection ALONE — every fact the read model reports, and not one grant
+   * (POD-2180).
+   *
+   * `continuing` names the channels whose canary has just been proved by the
+   * machine directory while an operator authorization still stands; acting on
+   * that is {@link fleet}'s job, and deliberately not this method's. Everything
+   * that plans a wave reads through here instead, so no caller can be handed a
+   * snapshot that something granted against behind its back.
+   *
+   * The state it does write is reconciliation, not rollout: the directory proof
+   * makes the canary healthy and forgets the convergence record it supersedes.
+   * Both are idempotent, both are true the moment the handshake landed, and
+   * neither sends anything to a machine.
+   */
+  private project(): { machines: WaveMachine[]; continuing: Set<UpdateChannel> } {
     const channelsReadyToContinue = new Set<UpdateChannel>()
     const fleet: WaveMachine[] = this.deps.machines().map((machine) => {
       const channel = this.channelOf(machine)
@@ -651,15 +703,7 @@ export class UpdatesService {
       }
     })
 
-    // An installed daemon normally proves its new build by reconnecting. That
-    // refreshes the machine directory before an updateStatus message is
-    // guaranteed to arrive. The directory proof already made the canary
-    // healthy above; continue the authorized wave here as well, otherwise the
-    // UI reaches "1 of N" and waits for a second Apply that should never be
-    // necessary. Run only after the projection is complete so tick() can read
-    // fleet() again without re-entering this transition.
-    for (const channel of channelsReadyToContinue) this.tick(channel)
-    return fleet
+    return { machines: fleet, continuing: channelsReadyToContinue }
   }
 
   /**
@@ -671,9 +715,15 @@ export class UpdatesService {
    * dialog turns into retry guidance.
    */
   abandonWait(machineIds: readonly string[], detail: string): string[] {
+    // Projected ONCE, outside the loop, and never through the read model: this
+    // is cleanup, and a cleanup that continues a wave from inside its own lookup
+    // is how the operation that just ended gets to grant one more machine
+    // (POD-2180). Abandoning one machine does not change another's projection,
+    // so one pass answers for all of them.
+    const { machines } = this.project()
     const abandoned: string[] = []
     for (const machineId of machineIds) {
-      const machine = this.fleet().find((candidate) => candidate.id === machineId)
+      const machine = machines.find((candidate) => candidate.id === machineId)
       if (!machine || !IN_FLIGHT_STATES.has(machine.state)) continue
       const channel = this.channelOf(machine)
       this.pendingGrants.delete(machineId)
@@ -704,7 +754,11 @@ export class UpdatesService {
    * deadline for a message nobody received.
    */
   reissueGrants(channel: UpdateChannel, machineIds?: readonly string[]): string[] {
-    const candidates = this.fleet().filter(
+    // `project()`, for the sharpest form of POD-2180: this selects on IN_FLIGHT
+    // and then re-grants what it selects. Reading through `fleet()` would let
+    // the read's own wave continuation hand a machine its first grant and this
+    // method immediately cancel and re-issue it.
+    const candidates = this.project().machines.filter(
       (machine) =>
         this.channelOf(machine) === channel &&
         machine.online &&
@@ -742,8 +796,13 @@ export class UpdatesService {
    * waiting for those grants any more.
    */
   releaseInFlightGrants(detail: string = GRANT_TIMED_OUT_DETAIL): string[] {
-    const inFlight = this.fleet()
-      .filter((machine) => IN_FLIGHT_STATES.has(machine.state))
+    // Projected, not read (POD-2180). The caller withdraws authorization before
+    // reaching here precisely because this used to be able to grant from inside
+    // its own lookup; that ordering still stands and is still right, but it is
+    // no longer the only thing standing between a cancel and one more machine
+    // being handed the update it cancelled.
+    const inFlight = this.project()
+      .machines.filter((machine) => IN_FLIGHT_STATES.has(machine.state))
       .map((machine) => machine.id)
     return this.abandonWait(inFlight, detail)
   }
