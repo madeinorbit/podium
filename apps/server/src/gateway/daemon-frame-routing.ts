@@ -70,6 +70,12 @@ export const DAEMON_FRAME_PORTS = {
   // session's driver produces. Session-owned like every other per-session
   // observation, and attributed to the machine that sent it.
   runtimeEvent: ['sessions'],
+  /**
+   * THE TURNS A QUEUE NEVER TYPED (POD-2132, POD-2202). Session-owned, and the
+   * ownership check matters more here than for a read-only observation: acting on
+   * this frame dead-letters durable rows, so only the machine that holds the
+   * session may report that its queue gave up on them.
+   */
   runtimeQueueDrainAbandoned: ['sessions'],
   /**
    * THE PROTOCOL ASK (POD-2023). Session-owned like every other per-session

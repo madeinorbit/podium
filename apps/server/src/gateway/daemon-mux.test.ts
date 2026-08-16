@@ -183,7 +183,12 @@ describe('machine scope and the writer class', () => {
     // the same reason and with more at stake: the ownership check is what stops
     // a machine from opening a blocking ask against a session it does not hold,
     // and an ask nobody can answer is the stuck session §4 exists to abolish.
-    expect(sessionFrames.length).toBe(25)
+    //
+    // 26 since POD-2132. `runtimeQueueDrainAbandoned` names the turns a session's
+    // queue never typed, and what it triggers is a TERMINAL write to those durable
+    // rows. Session-owned with the ownership check earning its keep: a machine that
+    // does not hold the session must not be able to dead-letter its mail.
+    expect(sessionFrames.length).toBe(26)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
