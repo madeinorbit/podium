@@ -41,7 +41,10 @@ your branch. Two workers solved this two ways, both fine:
   leftover directories for packages that no longer exist in git (`agent-bridge`, `core`,
   `domain`), and linking those re-creates the exact resolve-into-main hazard the farm exists
   to prevent. Drop them, then prove resolution (`Bun.resolveSync`, or a deliberate type error
-  that must come back naming *your* worktree's file).
+  that must come back naming *your* worktree's file). **`node_modules/.vite-temp` must be a
+  REAL local directory, never a link into main** — otherwise vite writes its temp config into
+  the shared checkout and then fails to import it back, killing the run at config load. Same
+  for `.vite`, `.cache`, `.vitest` (POD-2161).
 - **Install (cheap, but measure).** `du` overstates badly because bun hardlinks: a sibling's
   2.0 GB tree cost ~0.1 GB beyond the shared cache (POD-2158). Measure before, respect the
   margin below.
@@ -111,8 +114,16 @@ resolved into main is worse than no green at all.
   re-run `acquire` and treat either word as ownership. `podium lock status <name>` tells you
   the holder and is worth checking when in doubt (it can be slow under load, so give it a
   timeout rather than assuming it hung).
-  **Do not run repo-wide `bun run typecheck` on this box at all** — see POD-2159; scope it
-  with `turbo run typecheck --filter=@podium/<pkg> --concurrency=1`, one package at a time. Focused vitest on your own files needs no lock. **Commit before you run a heavy
+  **Do not run repo-wide `bun run typecheck` on this box at all** — see POD-2159. Use
+  `turbo run typecheck --filter=@podium/<pkg> --concurrency=1`, and understand *why* it
+  survives (POD-2161 measured this): **`--filter` does NOT run one package** — it runs that
+  package plus its workspace deps, eleven tasks for `@podium/server`, the same eleven that
+  killed three sessions. **`--concurrency=1` is what makes it survivable, not the filter.**
+  The same fan-out hides in vitest: `PODIUM_TEST_WORKERS` unset defaults to CPU count (8
+  forks here), each with its own Bun/Vite module graph — **pin it to 1**.
+  **Never wrap `podium lock acquire` in `timeout`** — that kills your queue entry before the
+  grant lands. Run it unbounded; a fresh "granted to you" notice in the issue mail inbox is
+  the reliable cross-check. Focused vitest on your own files needs no lock. **Commit before you run a heavy
   lane**, so a kill costs you the run and not the work.
 - **Disk is tight (98% as of 2026-08-14, POD-2111).** Check `df -h` before any build or
   full-suite run; below ~3 GB free, stop and mail 2087 instead of risking a silently
