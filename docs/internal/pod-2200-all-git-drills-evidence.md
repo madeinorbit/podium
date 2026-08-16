@@ -31,3 +31,6 @@ With the only machine offline, the plan was empty and the operation reached `don
 `deferred: [{ ludovico, reason: offline }]` and no error.
 
 A machine that answered `rejected` was then reconnected three times and no grant followed.
+
+Reconnected one version behind, the straggler converged in one second with nobody looking,
+no second click, and no new operation on record.
