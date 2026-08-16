@@ -1061,7 +1061,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   /** Never throws: an unreadable tree publishes no declaration, which the
    *  daemon reads as unproven and refuses. */
   const readMigrationsAt = async (sha: string): Promise<string[] | undefined> => {
-    const read = deps.migrationsAt ?? ((at: string) => migrationsAtRevision(deps.root, at))
+    const read =
+      deps.migrationsAt ?? ((at: string) => migrationsAtRevision(deps.root ?? SOURCE_ROOT, at))
     try {
       return await read(sha)
     } catch {

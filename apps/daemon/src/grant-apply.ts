@@ -131,13 +131,15 @@ export async function applyGrant(
     return
   }
   /**
-   * AFTER `already-current`, BEFORE `downloading` (POD-2210).
+   * AFTER `already-current`, BEFORE `downloading` (POD-2210, POD-2213).
    *
    * After, because a daemon that is already on the target has nothing to refuse
    * and saying `current` keeps its fleet row true. Before, because the whole
    * value of this refusal is that nothing was fetched, swapped or checked out —
-   * see {@link refuseConvergence} for why a half-applied convergence is worse
-   * here than a refused one.
+   * see `refuseConvergence` for why a half-applied convergence is worse here
+   * than a refused one, and `refuseSchemaRegression` for the refusal where
+   * "later" would mean a server that cannot open its own database and cannot be
+   * updated back.
    */
   const refusal = deps.refuse?.(grant.target)
   if (refusal) {
