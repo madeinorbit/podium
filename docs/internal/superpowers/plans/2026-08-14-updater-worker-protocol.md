@@ -19,6 +19,23 @@ Every sub-issue of the updater epic follows this protocol. It is part of your br
   discover adjacent work, file it (`podium issue create` + `dep-add … 2087 --type
   discovered-from --outside-scope`), do not do it.
 
+## Before anything: check what your worktree is cut from
+
+`issue start` does **not** inherit the epic's branch — if the issue was created without
+`--parent-branch worktree-updater-spec`, your worktree comes off `main` and is missing every
+landing in this epic. POD-2158 nearly gated the wrong code this way: HEAD sat 24 commits
+behind the integration tip with none of the change it was sent to verify.
+
+First command of your session:
+`git log --oneline -1 && git merge-base --is-ancestor worktree-updater-spec HEAD && echo BASE-OK`.
+If that does not print `BASE-OK`, repoint onto the integration tip before doing anything else,
+and say so in your issue state.
+
+A worktree with **no `node_modules`** is the same hazard in a different costume: bun resolves
+`@podium/*` up the tree into the MAIN checkout, so a green describes main's packages, not
+your branch. Install if you must — measure first (`du` overstates: bun hardlinks, so a
+sibling's 2.0G tree costs ~0.1G beyond the shared cache) and respect the disk margin below.
+
 ## Branch and merge
 
 - Your issue branch was created off the integration branch **`worktree-updater-spec`**. Work
