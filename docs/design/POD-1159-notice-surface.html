@@ -1,4 +1,15 @@
-<title>Notice Surface</title>
+<title>One Box, Seven Jobs</title>
+
+<script>
+  // Resolve the chassis before first paint: Ink is the signature, Paper mirrors
+  // it. The switch in the masthead overrides this afterwards.
+  (function () {
+    var r = document.documentElement;
+    var t = r.getAttribute('data-theme');
+    var light = t === 'light' || (t !== 'dark' && window.matchMedia('(prefers-color-scheme: light)').matches);
+    r.setAttribute('data-chassis', light ? 'paper' : 'dark');
+  })();
+</script>
 
 <!--
 DIRECTION CONTRACT — POD-1159
@@ -1504,12 +1515,8 @@ section > .row + .row { margin-top: 30px; }
   (function () {
     var root = document.documentElement;
 
-    // Initial chassis follows the viewer's theme; the switch is the product's own.
-    var explicit = root.getAttribute('data-theme');
-    var prefersLight =
-      explicit === 'light' ||
-      (explicit !== 'dark' && window.matchMedia('(prefers-color-scheme: light)').matches);
-    setChassis(prefersLight ? 'paper' : 'dark');
+    // The head script already resolved the chassis; sync the switch to it.
+    setChassis(root.getAttribute('data-chassis') || 'dark');
 
     function setChassis(v) {
       root.setAttribute('data-chassis', v);
