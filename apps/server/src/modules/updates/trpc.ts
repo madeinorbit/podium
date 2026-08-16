@@ -130,6 +130,21 @@ export interface UpdateFleetSnapshot {
   nextTargetVersion?: string
 }
 
+/**
+ * STILL DEV-SCOPED, AND NOW OUT OF STEP WITH THE OPERATION — say so out loud.
+ *
+ * POD-2189 fixed the OPERATION's channel: it follows the host rather than the
+ * literal `'dev'` both composition roots used to write. This read model was NOT
+ * changed with it, and that is a decision rather than an oversight — the
+ * narrowing below is POD-2100's, with a stated reason, and widening it changes
+ * what the dialog counts as behind rather than only which authority it asks.
+ *
+ * The consequence is real and worth naming where a reader will meet it: on a
+ * fleet with no dev machines, `targetVersion` is null and `total`/`behind` are
+ * zero while a perfectly good `stable` operation runs. The panel renders off the
+ * operation and is fine; the Settings fleet counts are the surface that lies.
+ * Filed separately rather than widened here.
+ */
 function fleetSnapshot(
   updates: UpdatesService,
   reconciler?: { convergedBy(machine: WaveMachine): 'reconciler' | undefined },
