@@ -248,9 +248,26 @@ export function ToolBatchView({
    * wide. The git pane already had the right object for this: a full sheet with
    * a real gutter and room for the hunks. This routes the chat at it.
    *
-   * The sheet's rail is SCOPED to the files this run touched, so it opens as a
+   * The sheet's rail is SCOPED to the files this run CHANGED, so it opens as a
    * view of "what this batch changed" rather than of the whole worktree — which
    * is what makes it belong to the row you clicked.
+   *
+   * "Changed", and not "touched", is the whole of a bug that shipped in round
+   * three. The rail was built from `toolPaths` — every path any call in the run
+   * reported, reads included — so a run that edited one file and read two listed
+   * three, disagreeing with the "1 edit" on the folded line right behind it. And
+   * because a read has no recorded diff, opening one fell through to `git diff`
+   * on a path that git could not accept:
+   *
+   *     fatal: '/home/podium/.claude/projects/…/land-locally-no-push.md' is
+   *     outside repository at '/home/podium/podium/.worktrees/issue-1122-…'
+   *
+   * An agent reads and writes plenty of files that are not in the repo it is
+   * working in — its own memory, a log, something under /tmp — and none of them
+   * are diffable against that repo's HEAD. So the rail is the recorded EDITS
+   * now. Every entry therefore has a diff from the transcript, which means the
+   * git fallback is gone from this path entirely and cannot produce that error
+   * again for any path, in-repo or out.
    *
    * AND WHAT IT SHOWS IS THE RUN'S OWN DIFF, not a fresh `git diff` of the path.
    * The transcript already recorded the change — the exact text each call
@@ -258,32 +275,36 @@ export function ToolBatchView({
    * git instead answers a different question ("what does this file hold now"),
    * and answers it with silence for any edit since committed or written over:
    * the first cut of this did exactly that and showed "No textual change" on a
-   * row whose whole subject was a change. Only a path with no recorded edit
-   * (a Read, a harness that reports paths but not input) falls back to git,
-   * where the worktree is genuinely the only thing left to show.
+   * row whose whole subject was a change.
    */
   const [diffPath, setDiffPath] = useState<string | null>(null)
-  const { editedPaths, diffSources } = useMemo(() => {
+  const { editedPaths, diffSources, pathByBlock } = useMemo(() => {
     const seen: string[] = []
     const patches = new Map<string, string[]>()
     const created = new Set<string>()
-    const add = (raw: string | undefined): string | undefined => {
-      const path = raw?.replace(/^\.\//, '')
-      if (path && !seen.includes(path)) seen.push(path)
-      return path
+    const byBlock = new Map<string, string>()
+    // An agent names files however its harness does — `./x`, a path relative to
+    // the session's cwd, or an absolute one. The sheet reads better on the short
+    // form, and the rail's dir/name split is meaningless on a full absolute
+    // path, so everything inside the cwd is shown relative to it. A file outside
+    // it keeps its absolute name, which is the only honest thing to call it.
+    const prefix = cwd.endsWith('/') ? cwd : `${cwd}/`
+    const normalise = (raw: string): string => {
+      const path = raw.replace(/^\.\//, '')
+      return path.startsWith(prefix) ? path.slice(prefix.length) : path
     }
     for (const b of row.blocks) {
-      // Both sources: `toolPaths` is what the harness reported the call touched,
-      // and the parsed edit carries the path for harnesses that report only the
-      // input JSON. A call can have either, and an edit is exactly the case the
-      // sheet exists for.
-      for (const raw of b.item.toolPaths ?? []) add(raw)
+      // ONLY a recorded edit. `toolPaths` is every path the call reported —
+      // reads included, and files outside the repo — and neither belongs in a
+      // list of what this run changed. See the note above.
       const edit = parseToolEdit(b.item.toolInputJson)
-      const path = add(edit?.path)
-      if (!edit || !path) continue
-      if (edit.mode === 'write') created.add(path)
+      if (!edit?.path) continue
       const text = toolEditUnifiedDiff(edit, SHEET_LINE_CAP)
       if (!text) continue
+      const path = normalise(edit.path)
+      if (!seen.includes(path)) seen.push(path)
+      if (edit.mode === 'write') created.add(path)
+      byBlock.set(b.item.id, path)
       // Several calls can edit one file in a single run; they stack in the
       // order the agent made them, which is the order they should be read in.
       patches.set(path, [...(patches.get(path) ?? []), text])
@@ -302,8 +323,9 @@ export function ToolBatchView({
         untracked: false,
       })),
       diffSources: sources,
+      pathByBlock: byBlock,
     }
-  }, [row.blocks])
+  }, [row.blocks, cwd])
   const expanded = open || forceOpen
   const rowClass = cn(
     'transcript-row',
@@ -415,7 +437,8 @@ export function ToolBatchView({
                   sessionId={sessionId}
                   cwd={cwd}
                   openFile={openFile}
-                  onOpenDiff={editedPaths.length > 0 ? setDiffPath : undefined}
+                  onOpenDiff={setDiffPath}
+                  diffPath={pathByBlock.get(b.item.id)}
                 />
               ))}
             </div>

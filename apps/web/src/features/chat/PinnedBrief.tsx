@@ -10,6 +10,17 @@ import type { JSX, MouseEvent as ReactMouseEvent, RefObject, WheelEvent } from '
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { PinnedBrief as PinnedBriefState } from './use-transcript-scroll'
 
+/** Three lines of the shelf's own 23px setting — see `.brief-shelf-text`. The
+ *  height is driven from here rather than from CSS because the expand ANIMATES,
+ *  and a transition needs two numbers it can interpolate between: `max-height`
+ *  to a keyword, or to a cap far above the content, either eases across space
+ *  the text does not occupy and reads as a pause before anything moves. */
+const COLLAPSED_MAX = 69
+/** However long the brief, the shelf stops here and scrolls — it is drawn OVER
+ *  the feed, and a shelf that can cover the whole column is a modal nobody
+ *  asked for. */
+const OPEN_MAX = 320
+
 export function PinnedBrief({
   brief,
   scrollerRef,
@@ -42,11 +53,16 @@ export function PinnedBrief({
    * the pane width: the same sentence is two lines wide and five lines narrow.
    */
   const textRef = useRef<HTMLDivElement | null>(null)
-  const [clipped, setClipped] = useState(false)
+  const [contentHeight, setContentHeight] = useState(0)
   useLayoutEffect(() => {
     const el = textRef.current
     if (!el) return
-    const measure = (): void => setClipped(el.scrollHeight > el.clientHeight + 2)
+    // `scrollHeight` is the FULL height of the brief whether the shelf is open
+    // or shut, so one measurement answers both "is it cut" and "how tall does it
+    // open to". Reading `clientHeight` instead — which is what the first cut
+    // did — measures the CLAMP while shut and the content while open, so the
+    // answer changed with the state that depends on it.
+    const measure = (): void => setContentHeight(el.scrollHeight)
     measure()
     if (typeof ResizeObserver === 'undefined') return
     // Re-measure as the pane is dragged: a control that should exist at one
@@ -54,7 +70,14 @@ export function PinnedBrief({
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+    // ...AND WHEN THE SHELF CHANGES HANDS. This ran once on mount, so the height
+    // measured for the FIRST brief was still in force for every brief after it:
+    // scroll from a one-line prompt to a ten-line one and the shelf clamped it
+    // with no "Show full" anywhere, because `clipped` still described the prompt
+    // before it. The observer does not cover this — the box never resizes, only
+    // its contents do.
+  }, [brief?.key, brief?.html])
+  const clipped = contentHeight > COLLAPSED_MAX + 2
 
   if (!brief) return null
 
@@ -101,6 +124,14 @@ export function PinnedBrief({
           // of a two-line clamp.
           ref={textRef}
           className="chat-md brief-shelf-text"
+          // The measured height, so the expand travels exactly the distance the
+          // text needs and stops. Before the first measurement lands this is the
+          // clamp, which is what the shelf should be drawn at anyway.
+          style={{
+            maxHeight: open
+              ? `${Math.min(contentHeight || COLLAPSED_MAX, OPEN_MAX)}px`
+              : `${COLLAPSED_MAX}px`,
+          }}
           // biome-ignore lint/security/noDangerouslySetInnerHtml: lifted verbatim from the row's own body, which renderMarkdown already sanitized
           dangerouslySetInnerHTML={{ __html: brief.html }}
         />

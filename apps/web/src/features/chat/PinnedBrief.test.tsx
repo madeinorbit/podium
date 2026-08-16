@@ -139,6 +139,45 @@ describe('the pinned brief', () => {
     expect(shelf()?.dataset.clipped).toBeUndefined()
   })
 
+  /**
+   * THE MEASUREMENT FOLLOWS THE BRIEF (round 5). It ran once on mount, so the
+   * height measured for the FIRST brief stayed in force for every brief after
+   * it: scroll from a short prompt to a long one and the shelf clamped it with
+   * no "Show full" anywhere, which is how "the truncate and read-more are
+   * missing" was reported. Nothing resized — only the contents changed — so the
+   * ResizeObserver could not cover it either.
+   */
+  it('re-measures when the shelf changes hands', () => {
+    clipped = false
+    render(brief('7', '<p>two words</p>'))
+    expect(toggle()).toBeNull()
+
+    clipped = true
+    render(brief('9', '<p>a brief that runs well past three lines</p>'))
+    expect(toggle()?.textContent).toBe('Show full')
+    expect(shelf()?.dataset.clipped).toBe('true')
+
+    // …and back the other way, so a short brief after a long one is not left
+    // wearing the previous one's control.
+    clipped = false
+    render(brief('11', '<p>short again</p>'))
+    expect(toggle()).toBeNull()
+  })
+
+  it('expands to the height it measured, so the open can be animated', () => {
+    render(brief('7', '<p>a brief that runs well past three lines</p>'))
+    const text = (): HTMLElement => host.querySelector('.brief-shelf-text') as HTMLElement
+    // Shut: the three-line clamp. A transition needs two real numbers, so this
+    // is a length and never a keyword.
+    expect(text().style.maxHeight).toBe('69px')
+    act(() => {
+      toggle()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    // Open: the measured content height (999 in this suite), capped at 320 so a
+    // pasted spec cannot cover the column it is drawn over.
+    expect(text().style.maxHeight).toBe('320px')
+  })
+
   it('omits the clock rather than inventing one', () => {
     render(brief('7', '<p>no timestamp on this row</p>', ''))
     expect(host.querySelector('.brief-shelf-time')).toBeNull()

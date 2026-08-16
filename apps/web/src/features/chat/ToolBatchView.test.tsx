@@ -325,6 +325,120 @@ describe('ToolBatchView — the settle', () => {
 })
 
 /**
+ * THE RAIL IS WHAT THE RUN CHANGED (POD-993 round 5).
+ *
+ * It was built from `toolPaths` — every path any call reported, reads included
+ * — so a run that edited one file and read two listed three, disagreeing with
+ * the "1 edit" on the folded line right behind it. Worse, a read has no
+ * recorded diff, so opening one fell through to `git diff` on a path git could
+ * not accept. An agent reads and writes plenty of files outside the repo it is
+ * working in — its own memory, a log, something under /tmp — and the reported
+ * failure was exactly that:
+ *
+ *     fatal: '/home/podium/.claude/projects/…/land-locally-no-push.md' is
+ *     outside repository at '/home/podium/podium/.worktrees/issue-1122-…'
+ */
+describe('ToolBatchView — the diff rail lists edits, not everything touched', () => {
+  const edit = (path: string): string =>
+    JSON.stringify({
+      kind: 'file-edit',
+      path,
+      mode: 'replace',
+      hunks: [{ path, oldText: 'a', newText: 'b' }],
+      added: 1,
+      removed: 1,
+    })
+
+  const openSheet = async (): Promise<Element> => {
+    const line = host.querySelector('[data-testid="work-line"]')!
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
+    })
+    const openable = host.querySelector<HTMLButtonElement>('.tool-row[title^="Open "]')!
+    act(() => {
+      openable.click()
+    })
+    for (let i = 0; i < 20 && host.querySelector('[data-testid="diff-sheet"]') === null; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10))
+      })
+    }
+    return host.querySelector('[data-testid="diff-sheet"]')!
+  }
+
+  it('leaves out a file the run only read, and never asks git about it', async () => {
+    git.calls.length = 0
+    mount(
+      batchOf([
+        call({
+          id: 'e',
+          toolName: 'Edit',
+          toolInput: 'ChatView.tsx',
+          toolInputJson: edit('/r/apps/web/ChatView.tsx'),
+          toolUseId: 'u1',
+        }),
+        call({ id: 'e-res', toolUseId: 'u1', toolResult: 'ok' }),
+        // A read of a file OUTSIDE the repo — the shape that produced the fatal.
+        call({
+          id: 'r',
+          toolName: 'Read',
+          toolInput: 'memory.md',
+          toolPaths: ['/home/podium/.claude/projects/x/memory.md'],
+          toolUseId: 'u2',
+        }),
+        call({ id: 'r-res', toolUseId: 'u2', toolResult: 'ok' }),
+      ]),
+    )
+    const sheet = await openSheet()
+    expect(sheet.textContent).toContain('ChatView.tsx')
+    expect(sheet.textContent).not.toContain('memory.md')
+    // Every entry now has a transcript diff, so git is never consulted at all.
+    expect(git.calls).toEqual([])
+  })
+
+  it('shows an edited path relative to the session, not as an absolute one', async () => {
+    mount(
+      batchOf([
+        call({
+          id: 'e',
+          toolName: 'Edit',
+          toolInput: 'ChatView.tsx',
+          toolInputJson: edit('/r/apps/web/ChatView.tsx'),
+          toolUseId: 'u1',
+        }),
+        call({ id: 'e-res', toolUseId: 'u1', toolResult: 'ok' }),
+      ]),
+    )
+    // `cwd` is /r in this suite, so the rail reads apps/web/… and the sheet's
+    // dir/name split has something to split.
+    const sheet = await openSheet()
+    expect(sheet.textContent).toContain('apps/web')
+    expect(sheet.textContent).not.toContain('/r/apps/web/ChatView.tsx')
+  })
+
+  it('offers no diff on a call that changed nothing', () => {
+    mount(
+      batchOf([
+        call({
+          id: 'r',
+          toolName: 'Read',
+          toolInput: 'a.ts',
+          toolPaths: ['/r/a.ts'],
+          toolUseId: 'u1',
+        }),
+        call({ id: 'r-res', toolUseId: 'u1', toolResult: 'ok' }),
+      ]),
+    )
+    const line = host.querySelector('[data-testid="work-line"]')!
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
+    })
+    // The row unfolds in place instead — a read has nothing to diff.
+    expect(line.querySelector('.tool-row[title^="Open "]')).toBeNull()
+  })
+})
+
+/**
  * THE PREVIEW STAYS INSIDE THE FEED (POD-993 round 4).
  *
  * Reported as a z-index fault — the panel covering the prompt box — and the

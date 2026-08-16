@@ -2907,12 +2907,23 @@ html[data-density="balanced"] .header-quota-pools {
 .brief-shelf-text.chat-md {
   flex: 1;
   min-width: 0;
+  /* The live value is set inline from the measured content — see PinnedBrief.
+     This is the pre-measurement fallback and the shut height: three lines of
+     the 23px setting below. */
   max-height: 69px;
   overflow: hidden;
   font-size: 14.5px;
   line-height: 23px;
   color: var(--foreground);
   text-wrap: pretty;
+  /* THE EXPAND IS A MOVE, NOT A CUT. "Show full" used to swap the clamp for a
+     taller one between two frames: the shelf was one height and then it was
+     another, and everything under it — the feed it overlays — jumped by the
+     difference with nothing to say why. On the design's own curve it reads as
+     the shelf making room, which is what it is. Height is the only property
+     that can carry this, so it is the one that animates; the distance is
+     measured, so the easing is spent on the text and not on empty space. */
+  transition: max-height 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* The fade is only for a brief that is ACTUALLY cut — a two-line message inside
    a three-line clamp must not have its last line dimmed for nothing. */
@@ -2920,8 +2931,11 @@ html[data-density="balanced"] .header-quota-pools {
   -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 46px, transparent 100%);
   mask-image: linear-gradient(to bottom, #000 0, #000 46px, transparent 100%);
 }
+/* Open, the height comes from the inline measurement; this only releases the
+   overflow so a brief past the cap can be scrolled. `auto` is deliberately not
+   set until the transition would be over — a scrollbar appearing mid-animation
+   reflows the text it is animating. */
 .brief-shelf[data-open="true"] .brief-shelf-text {
-  max-height: 320px;
   overflow-y: auto;
   -webkit-mask-image: none;
   mask-image: none;
@@ -2973,7 +2987,8 @@ html[data-density="balanced"] .header-quota-pools {
   .brief-shelf-layer {
     animation: none;
   }
-  .brief-shelf-toggle {
+  .brief-shelf-toggle,
+  .brief-shelf-text.chat-md {
     transition: none;
   }
 }

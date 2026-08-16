@@ -68,6 +68,37 @@ export interface UseTranscriptScrollResult {
   pinnedBrief: PinnedBrief | null
 }
 
+/**
+ * How long a bottom-snap keeps re-asserting itself, in frames.
+ *
+ * The transcript's own late-layout sources — a code block being measured, an
+ * image arriving, a work line unfolding, the composer growing an offer card —
+ * all settle within a few frames of the write that asked for the bottom. Ten
+ * frames is about 160ms: long enough to outlast them, short enough that a user
+ * who immediately scrolls up feels nothing, since the very first scroll of
+ * theirs clears the pin and ends the loop.
+ */
+const SETTLE_FRAMES = 10
+
+/**
+ * Hold the view at the bottom while the layout under it is still moving.
+ *
+ * Every caller here wants the same thing and used to write it the same way —
+ * `el.scrollTop = el.scrollHeight`, once — which is correct only if nothing
+ * below the fold changes size afterwards. This re-asserts across the settle
+ * window and abandons immediately if the pin is dropped, so it can never fight
+ * a user who has taken the scroll back.
+ */
+function settleToBottom(el: HTMLElement, pinned: RefObject<boolean>): void {
+  let frame = 0
+  const step = (): void => {
+    if (!pinned.current) return
+    el.scrollTop = el.scrollHeight
+    if (++frame < SETTLE_FRAMES) requestAnimationFrame(step)
+  }
+  step()
+}
+
 export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTranscriptScrollResult {
   const {
     scrollerRef,
@@ -208,9 +239,19 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
 
   // Initial-load snap: the growth effect above can fire before markdown/code
   // blocks have laid out (it measures a shorter scrollHeight and lands above the
-  // tail). On the first populated render, defer two frames so layout settles,
-  // then pin to the bottom. One-shot per session — incremental growth is handled
-  // above and must still honour a user who scrolled up.
+  // tail). On the first populated render, wait for layout to settle, then pin to
+  // the bottom. One-shot per session — incremental growth is handled above and
+  // must still honour a user who scrolled up.
+  //
+  // TWO FRAMES WAS A GUESS AT HOW LONG THAT TAKES, and it is the shape of the
+  // "entering a chat does not always go to the bottom" report: a transcript
+  // whose last screen is prose lands correctly, and one ending in a long code
+  // block or an image resolves its real height after the two frames are spent,
+  // leaving the view a screen short of the tail. "Not always" is what a race
+  // looks like from outside. Re-asserting across the settle window costs
+  // nothing on the transcripts that were already landing right, and the pin is
+  // still what gates it, so a reader who scrolls up during the load keeps their
+  // place.
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot keyed off the block count
   useEffect(() => {
     if (didInitialScroll.current || blockCount === 0) return
@@ -218,9 +259,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const el = scrollerRef.current
     if (!el) return
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
-      })
+      requestAnimationFrame(() => settleToBottom(el, pinnedToBottom))
     })
   }, [blockCount])
 
@@ -287,7 +326,19 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const el = scrollerRef.current
     if (!el) return
     pinnedToBottom.current = true
-    el.scrollTop = el.scrollHeight
+    // ONE WRITE IS NOT ENOUGH, because "the bottom" is a number that is still
+    // moving when the click lands. `scrollHeight` is whatever has laid out SO
+    // FAR: a code block still measuring, an image without intrinsic size, a
+    // work line unfolding, or the composer growing an offer card underneath —
+    // each of which settles a frame or three later, and each of which leaves a
+    // single synchronous write short of an end that has since moved.
+    //
+    // Reported as "jump to bottom goes not all the way down". Not reproduced
+    // here — measured at 0px from the bottom on this transcript, including
+    // through a 170px offer card appearing — so this is written as hardening
+    // for a race rather than as a fix for an understood defect: re-assert while
+    // the layout settles, and stop the moment the user takes the scroll back.
+    settleToBottom(el, pinnedToBottom)
     setAtBottom(true)
     syncStickyPromptPositions()
   }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions])

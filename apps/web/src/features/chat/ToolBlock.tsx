@@ -32,6 +32,7 @@ export function ToolBlock({
   cwd,
   openFile,
   onOpenDiff,
+  diffPath,
 }: {
   block: ChatBlock
   sessionId: SessionId
@@ -41,6 +42,11 @@ export function ToolBlock({
    *  to unfolding its diff in place, which is what happens anywhere the sheet
    *  cannot be mounted. */
   onOpenDiff?: ((path: string) => void) | undefined
+  /** The path this row opens, already resolved and normalised by the batch that
+   *  owns the sheet. Absent → this call changed nothing the sheet can show, and
+   *  the row unfolds instead. Deciding this here rather than in the row is what
+   *  keeps the rail and the rows describing the same set of files. */
+  diffPath?: string | undefined
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const { item } = block
@@ -59,9 +65,13 @@ export function ToolBlock({
   // A CALL THAT CHANGED A FILE OPENS THE FILE. For everything else the row's own
   // click is still the only way to see what it returned, so the two behaviours
   // live on the same control rather than adding a second one beside it.
-  const diffPath = onOpenDiff && edit ? (edit.path ?? item.toolPaths?.[0]) : undefined
+  //
+  // This row used to pick the path itself — `edit.path ?? toolPaths[0]` — which
+  // could name a file the call only READ, and which the sheet then had no diff
+  // for. The batch resolves it now, from the recorded edit alone.
+  const openable = onOpenDiff && diffPath ? diffPath : undefined
   const activate = (): void => {
-    if (diffPath && onOpenDiff) onOpenDiff(diffPath.replace(/^\.\//, ''))
+    if (openable && onOpenDiff) onOpenDiff(openable)
     else setOpen((v) => !v)
   }
   return (
@@ -71,7 +81,7 @@ export function ToolBlock({
         type="button"
         className="tool-row cursor-pointer py-0.5 text-left hover:text-foreground"
         onClick={activate}
-        {...(diffPath ? { title: `Open ${diffPath}` } : { 'aria-expanded': open })}
+        {...(openable ? { title: `Open ${openable}` } : { 'aria-expanded': open })}
       >
         <span
           className={cn(
