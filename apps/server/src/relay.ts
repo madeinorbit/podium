@@ -2191,6 +2191,14 @@ export class SessionRegistry {
           updatesReconciler?.onOperationStarted()
           return
         }
+        // THE CONSENT DIES WITH THE OPERATION THAT HELD IT (POD-2169, §3.2).
+        //
+        // FIRST of everything here, and that ordering is the fix rather than a
+        // tidiness: `releaseInFlightGrants` below reads `fleet()`, and `fleet()`
+        // continues an authorized wave from inside the read. Withdrawing second
+        // would let the cleanup itself grant the next machine — after a cancel,
+        // the very thing the cancel was for.
+        updatesService.withdrawAuthorization()
         // A version that arrived mid-update waits for the group to be free, and
         // this is the moment it becomes free — whatever the outcome was. It
         // re-creates the OFFER, never an operation (§3.2).

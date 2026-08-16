@@ -213,6 +213,9 @@ export function updateOperationContext(input: {
     report: (operationId, stepId, patch) => {
       void input.operations.engine.recordProgress(operationId, stepId, patch)
     },
+    // The other half of the same seam (POD-2173): `report` is how a watcher
+    // says something, and this is how it learns to stop.
+    stepActive: (operationId, stepId) => input.operations.engine.watching(operationId, stepId),
   }
 }
 

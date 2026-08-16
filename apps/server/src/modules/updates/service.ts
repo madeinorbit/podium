@@ -515,6 +515,40 @@ export class UpdatesService {
   }
 
   /**
+   * TAKE THE AUTHORITY BACK, because the operation that held it has finished
+   * (POD-2169, spec §3.2).
+   *
+   * `markAuthorized` is the operator's consent, and {@link fleet} acts on it
+   * WITHOUT being asked to: a machine whose directory version proves the target
+   * makes the canary healthy and continues the wave, from inside a read. That is
+   * what stops the panel reaching "1 of N" and waiting for a second Apply while
+   * an update is running — and it is exactly wrong once the operation is over.
+   *
+   * The failure it produces is not theoretical. A cancel marks the in-flight
+   * machines `stuck`, but a grant already sent is never recalled and the daemon's
+   * swap is crash-safe, so the machine finishes anyway and reconnects at the
+   * target. The next read of `fleet()` — the Settings page, the panel's idle
+   * poll, anything — then sees that proof, finds the consent still standing, and
+   * GRANTS THE NEXT MACHINE: an update the user cancelled, continuing with no
+   * operation, no deadline and no panel watching it.
+   *
+   * Withdrawn on every terminal outcome, `done` included. After a finished
+   * operation the machines still behind belong to the standing reconciliation
+   * (§3.6), which converges them one at a time and refuses anyone who said no —
+   * a wave continued from a stale flag can do neither.
+   *
+   * With no channel, every channel: the caller is the operation ending, and an
+   * operation is not the reason any channel's consent should outlive it.
+   */
+  withdrawAuthorization(channel?: UpdateChannel): void {
+    const channels = channel ? [channel] : [...this.rollouts.keys()]
+    for (const each of channels) {
+      const rollout = this.rollouts.get(each)
+      if (rollout) rollout.authorized = false
+    }
+  }
+
+  /**
    * Authorize only the selected machine; changing one row never widens another
    * row's wave.
    *

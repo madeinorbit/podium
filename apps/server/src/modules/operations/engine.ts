@@ -449,6 +449,28 @@ export class OperationEngine {
     return this.deps.store.active()[0]
   }
 
+  /**
+   * IS THIS STILL THE STEP THE ENGINE IS WATCHING? (POD-2173.)
+   *
+   * A runner that hands work off leaves something behind to watch it, and that
+   * watcher outlives the call that made it — by design, since the point is to
+   * report news arriving after `ensure()` returned. What it must not outlive is
+   * the step. `recordProgress` already refuses a report for a finished step or a
+   * terminal operation, so a stale watcher is silent; being silent is not the
+   * same as being STOPPED, and a `web` watcher whose step ran out of time went
+   * on reading a digest off disk twice a second for the life of the process.
+   *
+   * The engine is the only thing that knows the answer — the timers belong to
+   * the kind, so `stop()` cannot sweep them — so it has to be askable. It is a
+   * read, not a lock: a watcher may still be mid-tick when this turns false, and
+   * the report it sends is dropped exactly as before.
+   */
+  watching(operationId: string, stepId: string): boolean {
+    const operation = this.deps.store.get(operationId)?.operation
+    if (!operation || isTerminalOperationState(operation.state)) return false
+    return inFlightStep(operation)?.id === stepId
+  }
+
   history(kind?: string, limit?: number): OperationRow[] {
     return this.deps.store.history(kind, limit)
   }

@@ -563,6 +563,17 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
       if (machine.version === targetVersion) {
         return { ...place, state: 'current', percent: 100 }
       }
+      /**
+       * AND ACROSS THE RESTART TOO (POD-2172). This is where the same ordering
+       * bit hardest: `adoptOnBoot` is awaited before the daemon gateway listens,
+       * so NO machine is connected when reconciliation runs. Rewriting every
+       * unfinished place to `offline` therefore erased the verdict of every
+       * machine that had already given one, on every adoption — the persisted
+       * `stuck` that the successor's whole job is to act on.
+       */
+      if (place.state !== undefined && TERMINAL_STATES.has(place.state as never)) {
+        return { ...place, ...(machine.name ? { name: machine.name } : {}) }
+      }
       return {
         ...place,
         state: machine.online ? place.state : 'offline',
@@ -657,6 +668,14 @@ export interface UpdateOperationContext {
    * is the same reason those runners answer `running` rather than blocking.
    */
   report?: (operationId: string, stepId: string, patch: StepProgressPatch) => void
+  /**
+   * Is this step still the one the engine is watching (POD-2173)? The fence for
+   * anything this file leaves running after `ensure()` has returned.
+   *
+   * Optional, and absent means "carry on": a context assembled without an engine
+   * has nothing that could have ended the step behind the watcher's back.
+   */
+  stepActive?: (operationId: string, stepId: string) => boolean
   /** Deferred wake-up for the watchers. Injected so a test never sleeps. */
   schedule?: (fn: () => void, ms: number) => void
   /** How often a watcher re-reads the world. */
@@ -1004,9 +1023,22 @@ export function projectMachines(
      * place whose turn has not come.
      */
     const resting = machine.state === 'current'
+    /**
+     * A VERDICT OUTLIVES THE CONNECTION THAT CARRIED IT (POD-2172).
+     *
+     * `offline` describes reachability; `rejected` and `stuck` describe what the
+     * machine SAID. Testing reachability first threw the second away: a daemon
+     * that reported `stuck` with a dirty working tree and was then restarted so
+     * the operator could look at the checkout projected as `offline`, which
+     * {@link settleMachines} does not fail on — so the wave stopped seeing a
+     * failure it had already been told about and waited out ten minutes of
+     * silence to end with a nameless `stalled` instead of the one sentence that
+     * says what to fix.
+     */
+    const verdict = TERMINAL_STATES.has(machine.state) ? machine.state : undefined
     return {
       ...place,
-      state: !machine.online ? 'offline' : resting ? 'pending' : machine.state,
+      state: verdict ?? (!machine.online ? 'offline' : resting ? 'pending' : machine.state),
       ...(machine.name ? { name: machine.name } : {}),
       ...(machine.detail ? { detail: machine.detail } : {}),
       /**
@@ -1138,6 +1170,24 @@ const webRunner: StepRunner<UpdateOperationContext> = {
         return undefined
       },
       {
+        /**
+         * THE EXIT THIS WATCHER DID NOT HAVE (POD-2173).
+         *
+         * `poll()` above answers `undefined` until the digest matches or the
+         * publisher reports a failure, and neither can happen once a rebuild has
+         * outrun the step's fifteen-minute total — which is the one deadline
+         * that CAN fire here, because the heartbeat comes from this very
+         * watcher, so the two-minute silence budget can never expire while it
+         * lives. The step failed and the watcher it left behind carried on
+         * reading a digest off disk twice a second for the life of the process,
+         * one more of them for every re-entry, and `engine.stop()` could not
+         * sweep any of them: these timers belong to the kind.
+         *
+         * `prepare` has had this guard all along, keyed on its own in-flight
+         * map. `web` hands its work to a publisher it does not own, so the fence
+         * is the engine's answer instead: the step is no longer in flight.
+         */
+        until: () => !(context.stepActive?.(operation.id, UPDATE_STEP_WEB) ?? true),
         // A rebuild is a compile too: minutes of nothing, and the stamp on disk
         // only changes at the very end (POD-2101).
         heartbeat: (elapsedMs) => ({
