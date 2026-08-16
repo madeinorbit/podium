@@ -732,6 +732,83 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2, providerPromptId: 'p2' })
   })
 
+  // Subagent identity lives on the hook channel alone, so a restart that
+  // reconciles the transcript's account of the turn used to publish "no
+  // children" over children that were still running. Nothing recovered it: with
+  // the identity list gone, the child's own SubagentStop reduced to nothing and
+  // the count stayed zero for the rest of the session, blanking every subagent
+  // surface and letting terminal proof call the parent done. [POD-1130]
+  it('keeps live subagents across a restart that reconciles the transcript [POD-1130]', async () => {
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observationGeneration: 7,
+    }
+    const causal = observer()
+    const boot = causal.bootstrap()
+    if (!boot) throw new Error('expected bootstrap snapshot')
+    const booted = acceptAgentObservation(null, lease, boot, at)
+    if (booted.kind === 'rejected') throw new Error(booted.rejectionReason)
+    const opened = await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    if (!opened) throw new Error('expected an opening observation')
+    const working = acceptAgentObservation(booted.checkpoint, lease, opened, at)
+    if (working.kind === 'rejected') throw new Error(working.rejectionReason)
+    const spawned = await causal.observeHook(
+      hook('SubagentStart', {
+        prompt_id: 'p1',
+        agent_id: 'child-1',
+        agent_type: 'general-purpose',
+      }),
+      120,
+    )
+    if (!spawned) throw new Error('expected a subagent observation')
+    const withChild = acceptAgentObservation(working.checkpoint, lease, spawned, at)
+    if (withChild.kind === 'rejected') throw new Error(withChild.rejectionReason)
+    const stopped = await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 130)
+    if (!stopped) throw new Error('expected a terminal observation')
+    const held = acceptAgentObservation(withChild.checkpoint, lease, stopped, at)
+    if (held.kind === 'rejected') throw new Error(held.rejectionReason)
+    // The hook channel's account of the hold: still working, child still named.
+    expect(held.checkpoint.turnState).toMatchObject({
+      phase: 'working',
+      awaitingSubagents: true,
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'child-1', type: 'general-purpose' }],
+    })
+
+    // The restart's tail classification re-reads that same Stop and rebuilds the
+    // turn from it — with no idea a child is running.
+    const restarted = restartMidTurn(held.checkpoint)
+    const restartLease = { ...lease, observationGeneration: 8 }
+    const snapshot = restarted.bootstrap()
+    if (!snapshot) throw new Error('expected a restart snapshot')
+    expect(snapshot.state).toMatchObject({
+      phase: 'working',
+      awaitingSubagents: true,
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'child-1', type: 'general-purpose' }],
+    })
+    const reconciled = acceptAgentObservation(held.checkpoint, restartLease, snapshot, at)
+    if (reconciled.kind === 'rejected') throw new Error(reconciled.rejectionReason)
+    expect(reconciled.checkpoint.turnState.nativeSubagentCount).toBe(1)
+    expect(reconciled.checkpoint.terminalFence).toBeNull()
+
+    // And the count can still come back down, which is what the wipe destroyed.
+    const settled = await restarted.observeHook(
+      hook('SubagentStop', { prompt_id: 'p1', agent_id: 'child-1' }),
+      950,
+    )
+    expect(settled).toMatchObject({
+      transitionKind: 'subagent_bookkeeping',
+      state: { nativeSubagentCount: 0 },
+    })
+    if (!settled) throw new Error('expected child bookkeeping')
+    expect(acceptAgentObservation(reconciled.checkpoint, restartLease, settled, at).kind).not.toBe(
+      'rejected',
+    )
+  })
+
   it('opens epochs only on exact-session provider-confirmed prompts and preserves input origins', async () => {
     const causal = observer({ ...idle, idle: { kind: 'done' as const } })
     causal.bootstrap()

@@ -2495,6 +2495,140 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     }
     observers.clearSession(asSessionId('podium-1'))
   })
+
+  // The reported incident: hooks held the turn open for a live subagent, then a
+  // rebuild off the transcript tail re-read the very Stop those hooks had already
+  // reported and republished the turn as idle with no children — a wipe, not a
+  // reduction, because the classifier channel cannot see subagents at all. The
+  // subagent rows blanked, the parent read idle while it waited, and the count
+  // never came back: the child's SubagentStop had no identity list to remove
+  // from. [POD-1130]
+  it('keeps a held turn and its live subagent across a transcript rebuild [POD-1130]', async () => {
+    const at = '2026-08-16T19:40:13.156Z'
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-subagent-wipe-'))
+    const transcript = join(dir, 'claude-1.jsonl')
+    const record = (content: string) =>
+      `${JSON.stringify({
+        type: 'assistant',
+        timestamp: at,
+        message: { role: 'assistant', content: [{ type: 'text', text: content }] },
+      })}\n`
+    const acceptedText = `${JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'delegate the sweep' },
+    })}\n`
+    // The tail advances past the accepted cursor with the turn's finishing
+    // record — the one the hook channel already reported as Stop.
+    await writeFile(transcript, `${acceptedText}${record('Delegated. Waiting on the subagent.')}`)
+    const acceptedCursor = {
+      segmentId: claudeTranscriptSegmentId('claude-1', await captureClaudeTranscript(transcript)),
+      components: { transcript: Buffer.byteLength(acceptedText), hook: 4 },
+    }
+    const checkpoint: SessionObservationCheckpointV1 = {
+      schemaVersion: 1,
+      podiumSessionId: asSessionId('podium-1'),
+      provider: 'claude-code',
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      lifecycleObservationGeneration: 7,
+      providerCursor: acceptedCursor,
+      bootstrapCursor: acceptedCursor,
+      lastAcceptedLiveCursor: acceptedCursor,
+      turnEpoch: 5,
+      providerTurnId: null,
+      providerPromptId: 'prompt-5',
+      // What the hooks proved: Stop arrived, and the turn is held open because a
+      // named child is still running. [spec:SP-dae6]
+      turnState: {
+        phase: 'working',
+        since: at,
+        workingMsTotal: 347_914,
+        awaitingSubagents: true,
+        nativeSubagentCount: 1,
+        nativeSubagents: [{ id: 'a4f754707ecbc72b4', type: 'general-purpose' }],
+      },
+      terminalFence: null,
+      providerAt: at,
+      acceptedAt: at,
+      lastLiveReceiptAt: at,
+      lastTransitionId: 'stop-5',
+    }
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      observationGeneration: 8,
+    }
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'reattach',
+          sessionId: asSessionId('podium-1'),
+          durableLabel: 'podium-podium-1',
+          agentKind: 'claude-code',
+          cwd: dir,
+          geometry: G,
+          resume: { kind: 'claude-session', value: 'claude-1' },
+          pathHint: transcript,
+          observationGeneration: 8,
+          observationBindingVersion: 2,
+          observationCheckpoint: checkpoint,
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      const sessionStart = {
+        hook_event_name: 'SessionStart',
+        session_id: 'claude-1',
+        transcript_path: transcript,
+        cwd: dir,
+      }
+      observers.onHookPayload(asSessionId('podium-1'), sessionStart)
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+      })
+      const bootstrap = sent.find((message) => message.type === 'agentObservation')!.observation
+      expect(bootstrap).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        nextPhase: 'working',
+        state: {
+          phase: 'working',
+          awaitingSubagents: true,
+          nativeSubagentCount: 1,
+          nativeSubagents: [{ id: 'a4f754707ecbc72b4', type: 'general-purpose' }],
+        },
+      })
+      const applied = acceptAgentObservation(checkpoint, lease, bootstrap, at)
+      expect(applied.kind).toBe('snapshot_applied')
+      if (applied.kind === 'rejected') throw new Error(applied.rejectionReason)
+      expect(applied.checkpoint.turnState.nativeSubagentCount).toBe(1)
+      expect(applied.checkpoint.turnState).toMatchObject({
+        phase: 'working',
+        awaitingSubagents: true,
+      })
+      // No terminal fence while the child is live, so terminal proof — which
+      // reads this checkpoint — cannot call the parent done underneath it.
+      expect(applied.checkpoint.terminalFence).toBeNull()
+      // The daemon's own fold of the same bootstrap, which local consumers read
+      // to decide whether the session is idle, must agree with what it published.
+      expect(observers.trackedState(asSessionId('podium-1'))).toMatchObject({
+        phase: 'working',
+        awaitingSubagents: true,
+        nativeSubagentCount: 1,
+      })
+    } finally {
+      observers.clearSession(asSessionId('podium-1'))
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('Grok causal hook ingest', () => {

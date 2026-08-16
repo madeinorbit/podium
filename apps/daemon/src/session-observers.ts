@@ -5,6 +5,7 @@ import {
   type AgentStateProvider,
   ClaudeCausalObserver,
   captureClaudeTranscript,
+  carryLiveSubagents,
   claudePromptHookFingerprint,
   claudeTranscriptSegmentId,
   declaredValue,
@@ -590,6 +591,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           new Date().toISOString(),
         )
       }
+      // The rebuild above classifies the transcript, and the transcript cannot
+      // see subagents — only hooks move that list, so this state reports no
+      // children whether or not any are running. Publishing it wholesale erases
+      // the live ones permanently (their SubagentStop has no list left to remove
+      // from) and drops the parent to idle while it is still waiting on them.
+      // Carry the accepted checkpoint's children back over the guess. [POD-1130]
+      bootstrapState = carryLiveSubagents(bootstrapState, checkpoint?.turnState)
     }
     // UserPromptSubmit is the causal boundary. Claude may append the prompt to
     // JSONL before posting the hook, so a tail classification at hook receipt

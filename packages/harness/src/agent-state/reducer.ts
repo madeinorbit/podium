@@ -51,6 +51,42 @@ function withSubagents(list: NonNullable<AgentRuntimeState['nativeSubagents']> |
 }
 
 /**
+ * Carry the live-subagent facts of `prev` onto a state some other channel built.
+ *
+ * SubagentStart/Stop are the only events that move `nativeSubagents`, and they
+ * exist on the hook channel alone — so a state rebuilt from the transcript
+ * classifier (or a poller) reports no children whether or not any are running.
+ * Publishing that state wholesale erases the live ones, and nothing takes it
+ * back: with the identity list gone, the real SubagentStop reduces to nothing
+ * (see {@link applyTaskDelta}'s anonymous floor), so the count stays wrong for
+ * the rest of the session. Every subagent surface reads these two fields, and
+ * terminal proof reads the count to refuse a terminal verdict while a child is
+ * still live. [POD-1130]
+ *
+ * The rebuild keeps its phase, with one exception: idle. A parent whose children
+ * are live is not idle — that is the hold `turn_completed` already applies while
+ * the count is positive [spec:SP-dae6], restated here because a rebuild reaches
+ * idle without the reducer ever seeing the count (the classifier resolves the
+ * turn from the transcript, and often resolves no verdict at all). Leaving the
+ * idle in place is the other half of the reported symptom: the parent reads idle
+ * while it is still waiting on the child.
+ */
+export function carryLiveSubagents(
+  next: AgentRuntimeState,
+  prev: AgentRuntimeState | undefined,
+): AgentRuntimeState {
+  if (!prev || prev.nativeSubagentCount <= 0) return next
+  const carried = {
+    ...next,
+    nativeSubagentCount: prev.nativeSubagentCount,
+    ...withSubagents(prev.nativeSubagents),
+  }
+  if (carried.phase !== 'idle') return carried
+  const { idle: _resolved, ...held } = carried
+  return { ...held, phase: 'working', awaitingSubagents: true }
+}
+
+/**
  * Apply a task_delta to the identity list + count.
  * Identity mode (non-empty nativeSubagents): list is the single source of truth;
  * nativeSubagentCount = list.length. Anonymous deltas (no agentId) are ignored so

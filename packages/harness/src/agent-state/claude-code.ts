@@ -9,7 +9,7 @@ import type {
 } from '@podium/protocol'
 import { locateClaudeSessionFile } from './claude-locate.js'
 import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
-import { reduceAgentState } from './reducer.js'
+import { carryLiveSubagents, reduceAgentState } from './reducer.js'
 import type { TranscriptClassifier } from './transcript-classifier.js'
 import {
   type AgentInstrumentation,
@@ -404,8 +404,11 @@ export class ClaudeCausalObserver {
       checkpoint &&
       options.bootstrapAdvanced &&
       (checkpoint.terminalFence === null || reconciledNewEpoch)
+    // Reconciling means preferring the transcript's account of the turn, which
+    // is blind to subagents — carry the accepted checkpoint's live children
+    // across it rather than inheriting a state that says there are none. [POD-1130]
     this.state = reconciledState
-      ? options.bootstrapState
+      ? carryLiveSubagents(options.bootstrapState, checkpoint?.turnState)
       : (checkpoint?.turnState ?? options.bootstrapState)
     this.turnEpoch = (checkpoint?.turnEpoch ?? 0) + reconciledEpochs
     this.providerPromptId = reconciledNewEpoch ? null : (checkpoint?.providerPromptId ?? null)
@@ -430,11 +433,17 @@ export class ClaudeCausalObserver {
     } else if (acceptedCursor) {
       this.predecessorSegmentId = acceptedCursor.segmentId
     }
+    // Every child the inherited state still names is live, however the epoch
+    // stands: its SubagentStop is the only thing that can settle the hold, and
+    // that hook is matched against this set. Seeding it only when the fence
+    // already said `closing` left a restart with an empty set, so the Stop that
+    // followed computed closing=false and every SubagentStop after it was
+    // dropped — the hold could never settle. [POD-1130]
+    for (const child of this.state.nativeSubagents ?? []) {
+      this.activeChildren.add(child.id)
+    }
     if (checkpoint?.terminalFence?.closing && !reconciledNewEpoch && this.state.awaitingSubagents) {
       this.closing = true
-      for (const child of this.state.nativeSubagents ?? []) {
-        this.activeChildren.add(child.id)
-      }
     } else if (
       checkpoint &&
       this.turnEpoch > 0 &&

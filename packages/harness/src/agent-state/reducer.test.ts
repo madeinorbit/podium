@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { initialAgentState, reduceAgentState, withEventTime } from './reducer'
+import { carryLiveSubagents, initialAgentState, reduceAgentState, withEventTime } from './reducer'
 
 const T0 = '2026-06-12T10:00:00.000Z'
 const T1 = '2026-06-12T10:00:01.000Z'
@@ -453,6 +453,103 @@ describe('reduceAgentState', () => {
       freshPollAt,
     )
     expect(freshPoll).toMatchObject({ phase: 'idle', stateSource: 'poll' })
+  })
+})
+
+describe('carryLiveSubagents', () => {
+  const held = reduceAgentState(
+    reduceAgentState(
+      reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0),
+      { kind: 'task_delta', delta: 1, agentId: 'child-1', agentType: 'general-purpose' },
+      T0,
+    ),
+    { kind: 'turn_completed' },
+    T0,
+  )
+
+  it('carries the identity list and count onto a state rebuilt elsewhere', () => {
+    expect(held).toMatchObject({ phase: 'working', awaitingSubagents: true })
+    const rebuilt = carryLiveSubagents(
+      reduceAgentState(initialAgentState(T1), { kind: 'prompt_submitted' }, T1),
+      held,
+    )
+    // The rebuild still owns the phase — a new turn is genuinely working.
+    expect(rebuilt).toMatchObject({
+      phase: 'working',
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'child-1', type: 'general-purpose' }],
+    })
+    expect(rebuilt.awaitingSubagents).toBeUndefined()
+  })
+
+  it('holds a rebuilt idle as working while the carried children are live', () => {
+    const rebuilt = carryLiveSubagents(
+      reduceAgentState(
+        initialAgentState(T1),
+        { kind: 'turn_completed', verdict: { kind: 'done' } },
+        T1,
+      ),
+      held,
+    )
+    expect(rebuilt).toMatchObject({
+      phase: 'working',
+      awaitingSubagents: true,
+      nativeSubagentCount: 1,
+    })
+    expect(rebuilt.idle).toBeUndefined()
+  })
+
+  it('leaves a state alone when no children are live', () => {
+    const fresh = initialAgentState(T1)
+    expect(carryLiveSubagents(fresh, undefined)).toBe(fresh)
+    expect(carryLiveSubagents(fresh, initialAgentState(T0))).toBe(fresh)
+  })
+
+  // The whole shape of POD-1130: the transcript tail re-reads the Stop the hook
+  // channel already reported and rebuilds the turn from scratch. Carried over,
+  // that rebuild lands on the same held state the hooks had — and, crucially,
+  // the child's own Stop can still settle it.
+  it('lets a classifier rebuild of the same Stop hold, then settle on the real SubagentStop', () => {
+    const rebuilt = carryLiveSubagents(
+      reduceAgentState(
+        initialAgentState(T1),
+        {
+          kind: 'turn_completed',
+          verdict: { kind: 'done' },
+          source: 'classifier',
+          confidence: 0.3,
+        },
+        T1,
+      ),
+      held,
+    )
+    expect(rebuilt).toMatchObject({
+      phase: 'working',
+      awaitingSubagents: true,
+      nativeSubagentCount: 1,
+    })
+    const settled = reduceAgentState(
+      rebuilt,
+      { kind: 'task_delta', delta: -1, agentId: 'child-1', source: 'hook', confidence: 1 },
+      T1,
+    )
+    expect(settled).toMatchObject({ phase: 'idle', nativeSubagentCount: 0, idle: { kind: 'done' } })
+    expect(settled.nativeSubagents).toBeUndefined()
+  })
+
+  // Without the carry the rebuild reports zero children, and that erasure is
+  // terminal: the child's SubagentStop hits an empty identity list and reduces
+  // to nothing, so the count can never come back.
+  it('is what keeps the wipe from being unrecoverable', () => {
+    const wiped = reduceAgentState(
+      initialAgentState(T1),
+      { kind: 'turn_completed', verdict: { kind: 'done' }, source: 'classifier', confidence: 0.3 },
+      T1,
+    )
+    expect(wiped).toMatchObject({ phase: 'idle', nativeSubagentCount: 0 })
+    expect(reduceAgentState(wiped, { kind: 'task_delta', delta: -1, agentId: 'child-1' }, T1)).toBe(
+      wiped,
+    )
   })
 })
 
