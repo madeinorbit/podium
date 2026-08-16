@@ -175,6 +175,9 @@ vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => nul
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
+// Since POD-1077 the ISSUE menu confirms cascades through the same app-wide
+// dialog, so it too wants a provider this focused tree does not mount.
+vi.mock('@/lib/hooks/use-confirm', () => ({ useConfirm: () => vi.fn(async () => true) }))
 
 afterEach(() => {
   cleanup()
