@@ -148,6 +148,7 @@ export class OperationEngine {
       updatedAt: at,
       steps: plan.steps.map((step) => ({ ...step, state: step.state ?? 'pending' })),
       details: plan.details,
+      ...(plan.retryOf ? { retryOf: plan.retryOf } : {}),
       awaiting: plan.awaiting ?? [],
       deferred: plan.deferred ?? [],
       error: null,

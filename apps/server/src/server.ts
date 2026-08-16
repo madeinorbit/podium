@@ -82,6 +82,7 @@ import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
+import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -460,22 +461,6 @@ export async function startServer(
     schedule: timerSchedule,
   })
 
-  /**
-   * ADOPT WHATEVER THE PREVIOUS PROCESS WAS DOING (POD-2097, spec §3.4).
-   *
-   * The process that runs an update is the process an update replaces, so a
-   * successor booting with an operation still open is the NORMAL path, not the
-   * exceptional one. Each live operation is handed to its kind to be re-derived
-   * from observable facts and then resumed.
-   *
-   * `reality` is empty here because no kind is registered yet — the `update`
-   * kind and the facts it reconciles against (this server's own version, the
-   * served web stamp, the machine directory) arrive with it. This call is the
-   * seam that kind plugs into, and it runs before the server serves, so no
-   * client can observe a stale operation this boot was going to correct.
-   */
-  await registry.modules.operations.engine.adoptOnBoot(() => ({}))
-
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
   // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)
@@ -587,6 +572,63 @@ export async function startServer(
     signingKey: updateSigningKey.privateKey,
     locks: registry.modules.locks,
   })
+
+  /**
+   * ADOPT WHATEVER THE PREVIOUS PROCESS WAS DOING (POD-2097/POD-2098, spec §3.4).
+   *
+   * The process that runs an update is the process an update replaces, so a
+   * successor booting with an operation still open is the NORMAL path, not the
+   * exceptional one. Each live operation is handed to its kind to be re-derived
+   * from OBSERVABLE FACTS — never from what the dead process believed:
+   *
+   *  - `appVersion` is this binary's own identity. It is the whole answer to
+   *    "did the server reach the target?", and getting it wrong in the other
+   *    direction is today's silent bug: a rollback re-offers the same update
+   *    instead of saying the swap failed.
+   *  - `servedWebDigest` is the WEBSITE's — both dists, via the same reader the
+   *    request path uses (POD-1980), so a phone export left behind is not read
+   *    as a finished web step.
+   *  - `machineDirectory` is the daemons' handshakes, which is the fact that
+   *    outlives the coordinator; in-memory convergence state does not.
+   *
+   * IT RUNS HERE, not with the other module bootstrapping above, because the
+   * update kind's runners need the publisher, the redeploy request and the
+   * served stamps — none of which exist before this line — and it must still
+   * precede `serveNative` below, so no client can observe a stale operation this
+   * boot was going to correct.
+   */
+  const updateOperationBoot = () =>
+    updateOperationContext({
+      updates: registry.modules.updates,
+      operations: registry.modules.operations,
+      channel: 'dev',
+      appVersion: () => appVersion,
+      hostMachineId,
+      ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
+      ...(devPublisher.requestWebRebuild
+        ? { requestWebRebuild: devPublisher.requestWebRebuild }
+        : {}),
+      ...(devPublisher.enabled
+        ? {
+            requestDestBundle: () => devPublisher.requestBuild(true),
+            preparation: devPublisher.preparation,
+          }
+        : {}),
+      servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
+      servedMobileWeb: () => servedWebIdentity(phoneWebDir()),
+    })
+  await registry.modules.operations.engine.adoptOnBoot(
+    () => ({
+      appVersion,
+      servedWebDigest: websiteDigestReader(
+        () => servedWebSourceDigest(desktopWebDir()),
+        () => servedWebIdentity(phoneWebDir()),
+      )?.(),
+      machineDirectory: registry.modules.updates.fleet(),
+      now: Date.now(),
+    }),
+    updateOperationBoot,
+  )
 
   const requestPeerAddresses = new WeakMap<Request, string>()
   const readiness = createServerReadiness({

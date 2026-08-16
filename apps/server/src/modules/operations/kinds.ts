@@ -73,6 +73,14 @@ export interface OperationPlan {
   details?: Record<string, unknown>
   awaiting?: AwaitingAsk[]
   deferred?: DeferredPlace[]
+  /**
+   * The operation this one retries the remainder of (§3.2). Set by the KIND,
+   * because only the kind knows what a remainder is — but carried here, and
+   * written onto the top-level `retryOf` the protocol already defines, so
+   * history has one definition of the link rather than a second copy under
+   * `details` that every reader would have to learn (POD-2098).
+   */
+  retryOf?: string
 }
 
 export interface OperationKindDefinition<Ctx = unknown, Reality = unknown> {

@@ -129,7 +129,19 @@ describe('UpdatesService', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('ticks an authorized wave when the same version gains a headless artifact', () => {
+  /**
+   * REPLACES "ticks an authorized wave when the same version gains a headless
+   * artifact" (POD-2098).
+   *
+   * Re-publishing a descriptor used to also start granting, which made
+   * publishing a way to run a wave and made a mid-update publication mutate one
+   * (spec §3.2, §10.2). Sequencing belongs to the durable operation now: the
+   * `machines` step ticks explicitly, once, after `prepare`. What setTarget must
+   * still do — and this is the half that would silently strand an update if it
+   * were lost — is REPLACE the descriptor without resetting the proof already
+   * made for that version.
+   */
+  it('swaps a same-version descriptor in place without granting anything', () => {
     const { svc, send } = make([m('a')])
     svc.setTarget({
       version: 'dev+47a01e3',
@@ -147,8 +159,12 @@ describe('UpdatesService', () => {
         headless: { delivery: 'bundle', platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } } },
       },
     } as never)
-    expect(send).toHaveBeenCalledTimes(1)
-    expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant' })
+    // The bytes the wave is about to deliver are now published…
+    expect(svc.target('dev')?.artifacts.headless).toBeDefined()
+    // …and the authorization survived the swap, so the operation's own tick
+    // will grant against the packed descriptor.
+    expect(send).not.toHaveBeenCalled()
+    expect(svc.tick('dev')).toEqual(['a'])
   })
 
   it('does not auto-grant when a same-version tarball appears without authorization', () => {

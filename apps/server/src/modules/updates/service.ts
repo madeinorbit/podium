@@ -33,6 +33,16 @@ export interface UpdatesDeps {
   fleetChannel?(): UpdateChannel
   /** Overridable only so tests can exercise the forced-check window. */
   forcedCheckIntervalMs?: number
+  /**
+   * Is a durable exclusive operation (spec §3.0's `lifecycle` group) running?
+   *
+   * SINGLE-FLIGHT'S OTHER HALF (P6, POD-2098). Refusing a second `updates.start`
+   * is not enough: a new version can be PUBLISHED mid-update by the release
+   * feed's refresh timer or by the development publisher, and the old behaviour
+   * let that publication mutate the running wave. Read per call, not captured —
+   * the answer changes on every transition.
+   */
+  exclusiveOperationActive?(): boolean
 }
 
 /** What one channel's last release-target lookup produced. */
@@ -127,6 +137,8 @@ export class UpdatesService {
   private readonly pendingGrants = new Map<string, PendingGrant>()
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
   private readonly forcedChecksInFlight = new Map<UpdateChannel, Promise<void>>()
+  /** Versions published while an exclusive operation held the group (§3.2). */
+  private readonly nextTargets = new Map<UpdateChannel, UpdateTarget>()
 
   constructor(private readonly deps: UpdatesDeps) {}
 
@@ -171,6 +183,10 @@ export class UpdatesService {
     this.unavailableReasons.set(channel, reason)
     this.targets.delete(channel)
     this.rollouts.delete(channel)
+    // A queued version on a channel that can no longer advertise anything is not
+    // waiting its turn, it is stale. Publishing it later would offer an update
+    // this coordinator has just said it cannot produce.
+    this.nextTargets.delete(channel)
     for (const [machineId, pending] of this.pendingGrants) {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
     }
@@ -196,18 +212,34 @@ export class UpdatesService {
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
     if (!target) throw new Error(`missing ${channel} update target`)
 
-    this.unavailableReasons.delete(channel)
-
-    // Re-publishing the same label can replace its artifact descriptor without
-    // invalidating the proof already made for that target. An authorized wave
-    // that was waiting for a consumable artifact (dev+ identity → headless
-    // tarball) must tick now — setTarget used to swap the descriptor and stop.
+    // Re-publishing the same label replaces its artifact descriptor without
+    // invalidating the proof already made for that target: a dev+ identity
+    // gaining its packed tarball is the SAME update acquiring the bytes it is
+    // about to deliver, and the running operation is waiting for exactly that.
+    // So it lands immediately even mid-operation — it is not a new version.
+    //
+    // WHAT IS GONE (POD-2098, spec §3.2/§10.2): this used to also `tick()` an
+    // authorized wave from here, which made publishing a descriptor a way to
+    // start granting. Sequencing is the operation's job now — the `machines`
+    // step ticks explicitly, after `prepare`, exactly once, where a reader can
+    // see it happen.
     if (this.targets.get(channel)?.version === target.version) {
+      this.unavailableReasons.delete(channel)
       this.targets.set(channel, target)
-      if (this.rollout(channel).authorized) this.tick(channel)
       return
     }
 
+    // A DIFFERENT version arriving mid-operation is queued, never applied (P6,
+    // §3.2, §8's "a new version lands mid-update"). Mutating the wave under a
+    // running update is what made a mid-flight publication change what the panel
+    // was describing; the queued target re-surfaces as an OFFER once the
+    // operation terminates — it never becomes an operation by itself.
+    if (this.deps.exclusiveOperationActive?.()) {
+      this.nextTargets.set(channel, target)
+      return
+    }
+
+    this.unavailableReasons.delete(channel)
     this.targets.set(channel, target)
     this.rollouts.set(channel, freshRollout())
     for (const [machineId, state] of this.machineStates) {
@@ -216,6 +248,37 @@ export class UpdatesService {
     for (const [machineId, pending] of this.pendingGrants) {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
     }
+  }
+
+  /**
+   * The version waiting its turn on this channel, if one was published while an
+   * operation held the group. Read by the fleet model and by the panel: "0.4.4
+   * will be offered when this update finishes" is a true sentence the old design
+   * had no way to say.
+   */
+  nextTarget(channel: UpdateChannel): UpdateTarget | undefined {
+    return this.nextTargets.get(channel)
+  }
+
+  /**
+   * Publish everything that was queued — called on an operation's TERMINAL
+   * transition, whatever the outcome.
+   *
+   * It re-creates the OFFER, not an operation (§3.2). The human decision that
+   * started the finished operation was about the version that operation carried;
+   * it is not consent to install whatever landed while it ran.
+   */
+  publishNextTargets(): UpdateChannel[] {
+    const published: UpdateChannel[] = []
+    for (const [channel, target] of [...this.nextTargets]) {
+      this.nextTargets.delete(channel)
+      // Guarded, not asserted: if something else already moved this channel
+      // onto that version, re-applying it would reset a wave for no reason.
+      if (this.targets.get(channel)?.version === target.version) continue
+      this.setTarget(channel, target)
+      published.push(channel)
+    }
+    return published
   }
 
   /** Refresh one selected authority without turning a failed lookup into a stale grant. */

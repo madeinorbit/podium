@@ -29,7 +29,12 @@ import type {
   LocalPortableStateControl,
   VisibilityResolver,
 } from '@podium/protocol'
-import { formatIssueRef, SubscriptionRegistry, wireSchemaDigest } from '@podium/protocol'
+import {
+  formatIssueRef,
+  isTerminalOperationState,
+  SubscriptionRegistry,
+  wireSchemaDigest,
+} from '@podium/protocol'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import { resolveUpdateChannel } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
@@ -136,6 +141,11 @@ import {
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
+import {
+  createUpdateFleetBridge,
+  LIFECYCLE_EXCLUSION_GROUP,
+  updateOperationKind,
+} from './modules/updates/operation'
 import { resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
@@ -416,6 +426,11 @@ export class SessionRegistry {
       this.store.repos,
     )
     let updates: UpdatesService | undefined
+    // Forward-declared for the same reason `updates` is: the update SERVICE has
+    // to be able to ask whether a durable operation holds the lifecycle group
+    // (single-flight's other half, P6), and the operations module is composed
+    // further down, after everything it announces changes to.
+    let operations: OperationsModule | undefined
     const machines = new MachinesService({
       instanceId,
       ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
@@ -485,6 +500,10 @@ export class SessionRegistry {
       // Settings → Updates writes the fleet default into config.json, and an
       // unpinned machine must follow the CURRENT value (POD-1882).
       fleetChannel: () => resolveUpdateChannel(),
+      // Read per call: a version published while an update is running is queued
+      // as `nextTarget` instead of mutating the running wave (POD-2098, §3.2).
+      exclusiveOperationActive: () =>
+        operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
     })
     updates = updatesService
     const requestBroker = new DaemonRequestBroker({
@@ -2139,13 +2158,47 @@ export class SessionRegistry {
       cursors: this.store.readPositions,
       ledger,
     })
+
+    /**
+     * DURABLE OPERATIONS, AND THE ONE KIND THIS BINARY KNOWS (POD-2097/POD-2098).
+     *
+     * The registry is named on the module seam precisely so this registration is
+     * a line a reviewer can see rather than a reach-through from inside the
+     * engine. Registering `update` here — next to the `UpdatesService` it drives
+     * — is what turns "an update" from four independently polled facts into one
+     * object with an id, a plan and an outcome (spec §3.0/§3.1).
+     */
+    const operationsModule = createOperations({
+      store: this.store.operations,
+      onChanged: (row) => {
+        // A version that arrived mid-update waits for the group to be free, and
+        // this is the moment it becomes free — whatever the outcome was. It
+        // re-creates the OFFER, never an operation (§3.2).
+        if (isTerminalOperationState(row.state)) updatesService.publishNextTargets()
+      },
+    })
+    operationsModule.kinds.register(updateOperationKind())
+    operations = operationsModule
+    /**
+     * The wave's own events are the operation's heartbeat (§3.3). Wired to the
+     * daemon frames and the connection edges rather than to a poll, so a step's
+     * liveness is a fact about the fleet and not about who happens to be
+     * watching the panel.
+     */
+    const updateFleetBridge = createUpdateFleetBridge({
+      engine: operationsModule.engine,
+      updates: updatesService,
+    })
+    this.bus.on('machine.connected', () => updateFleetBridge.onFleetChanged())
+    this.bus.on('machine.disconnected', () => updateFleetBridge.onFleetChanged())
+
     this.modules = {
       bus: this.bus,
       funnel,
       sessions: sessionsSvc,
       machines,
       updates: updatesService,
-      operations: createOperations({ store: this.store.operations }),
+      operations: operationsModule,
       rpc,
       serverTransfer,
       loginPropagation,
@@ -2365,7 +2418,12 @@ export class SessionRegistry {
           run: (machineId, msg) => void agentRelayGate.run(machineId, msg),
         },
         updates: {
-          onUpdateStatus: (machineId, msg) => updatesService.onStatus(machineId, msg),
+          onUpdateStatus: (machineId, msg) => {
+            updatesService.onStatus(machineId, msg)
+            // …and the same frame is the running operation's progress event.
+            // The service still owns convergence; the operation only learns.
+            updateFleetBridge.onFleetChanged()
+          },
         },
       },
     })

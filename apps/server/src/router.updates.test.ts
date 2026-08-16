@@ -460,12 +460,21 @@ describe('updates tRPC', () => {
 
     const result = await caller.updates.converge()
     expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
-    expect(requestWebRebuild).toHaveBeenCalledOnce()
+    /**
+     * ORDER REVERSED, DELIBERATELY (POD-2098). The old choreography rebuilt the
+     * website first and then packed around it. The operation packs first,
+     * because an EXPLICIT pack rebuilds `apps/web/dist` on its way to the
+     * tarball (`decideWebDist`) — so the website is a consequence of preparing,
+     * not a separate round, and the `web` step's reality check then usually
+     * passes without acting. One build instead of two.
+     */
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
-    expect(requestDestBundle.mock.invocationCallOrder[0]).toBeGreaterThan(
-      requestWebRebuild.mock.invocationCallOrder[0] ?? 0,
-    )
+    // Nothing is granted while the target is still a bare identity: the wave
+    // may not learn by failing (POD-2004), and the `machines` step says so by
+    // staying in flight rather than by handing out a package that does not
+    // exist.
     expect(grants).toEqual([])
+    expect(requestWebRebuild).not.toHaveBeenCalled()
     registry.dispose()
   })
 
@@ -534,7 +543,18 @@ describe('updates tRPC', () => {
     registry.dispose()
   })
 
-  it('redeploys this server when dest packaging fails and the server is behind', async () => {
+  /**
+   * REPLACES "redeploys this server when dest packaging fails and the server is
+   * behind" (POD-2098, spec §7).
+   *
+   * Restarting anyway was a silent substitution: the operator asked for an
+   * update of every place and got one place, with the failure visible only as a
+   * log line. `preparation-failed` is a TYPED outcome with a sentence and a next
+   * action, and the operation it attaches to is retryable — which is the whole
+   * of P7. Nothing was handed out before the pack failed, so nothing is
+   * half-applied by refusing to continue.
+   */
+  it('fails with a typed preparation error instead of silently redeploying', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
     const requestCoordinatorRestart = vi.fn()
     const requestDestBundle = vi.fn().mockRejectedValue(new Error('compile failed'))
@@ -555,8 +575,17 @@ describe('updates tRPC', () => {
       artifacts: { web: { digest: '47a01e3' } },
     })
 
-    await caller.updates.converge()
-    await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
+    // The legacy alias has only one failure channel — a rejection — so that is
+    // how the shipped dialog still hears about it.
+    await expect(caller.updates.converge()).rejects.toThrow('compile failed')
+    expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+
+    // …and the operation itself is on record, typed and retryable.
+    const failed = await caller.operations.history({ kind: 'update' })
+    expect(failed[0]).toMatchObject({
+      state: 'failed',
+      error: { code: 'preparation-failed' },
+    })
     registry.dispose()
   })
 
@@ -591,7 +620,40 @@ describe('updates tRPC', () => {
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+
+    /**
+     * THE PACK RESOLVES, AND THE SERVER STILL DOES NOT RESTART YET.
+     *
+     * This is the step ordering the old 250 ms poll loop
+     * (`restartCoordinatorAfterDevelopmentFleet`) used to express: the machines
+     * go first, because restarting this process is what ends the process
+     * driving them. It is now simply the order of the plan — `machines` before
+     * `server` — with no loop and no 60-minute backstop.
+     */
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: {
+        web: { digest: '47a01e3' },
+        headless: {
+          delivery: 'bundle',
+          platforms: { 'linux-x64': { url: 'http://bundle', digest: 'd', signature: 's' } },
+        },
+      },
+    })
     finish?.()
+    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+    expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+
+    // The one machine reports the target, so the wave is done and the plan
+    // reaches the step that replaces this process.
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:01.000Z',
+    )
+    registry.bus.emit('machine.connected', { machineId: registry.sessionStore.hostMachineId })
     await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
     registry.dispose()
   })
@@ -837,6 +899,122 @@ describe('updates tRPC', () => {
       throw new Error('The update transport is unavailable.')
     })
     await expect(caller.updates.converge()).rejects.toThrow('The update transport is unavailable.')
+    registry.dispose()
+  })
+})
+
+/**
+ * THE DURABLE UPDATE OPERATION, through the router (POD-2098).
+ *
+ * `updates.start` is what the panel calls; `updates.converge` above is the
+ * shipped dialog's entry point, kept for one release and now a thin alias over
+ * this. Everything here is about the properties the OPERATION adds: an identity,
+ * single-flight, a queue, a remainder retry.
+ */
+describe('the update operation', () => {
+  function behindHarness(options: Parameters<typeof harness>[0] = {}) {
+    process.env.PODIUM_APP_VERSION = '0.4.1'
+    const built = harness(options)
+    built.registry.modules.machines.setMachineBuild(
+      built.registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    built.registry.modules.updates.setTarget(target())
+    return built
+  }
+
+  it('answers an operation id, and puts it on the fleet payload for the old panel', async () => {
+    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const started = await caller.updates.start()
+    expect(started.operationId).toMatch(/^op_/)
+    expect(started.alreadyRunning).toBe(false)
+    expect(started.operation).toMatchObject({ kind: 'update', state: 'running' })
+
+    const fleet = await caller.updates.fleet()
+    expect(fleet.operationId).toBe(started.operationId)
+
+    const active = (await caller.operations.active()) as { id: string } | null
+    expect(active?.id).toBe(started.operationId)
+    registry.dispose()
+  })
+
+  /**
+   * §8's "two tabs / two users click Update". The second caller is handed the
+   * SAME operation rather than an error, which is what makes both tabs render
+   * one panel instead of one of them reporting a conflict.
+   */
+  it('gives two concurrent starts one operation id', async () => {
+    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const [first, second] = await Promise.all([caller.updates.start(), caller.updates.start()])
+    expect(second.operationId).toBe(first.operationId)
+    expect(second.alreadyRunning).toBe(true)
+    expect(await caller.operations.history({ kind: 'update' })).toHaveLength(1)
+    registry.dispose()
+  })
+
+  /**
+   * §3.2/§8: "a new version lands mid-update". The running wave is NEVER
+   * mutated; the newcomer waits and is offered when the operation terminates.
+   */
+  it('queues a version published mid-operation and does not change the running target', async () => {
+    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    await caller.updates.start()
+    registry.modules.updates.setTarget(target('0.4.3'))
+
+    expect(registry.modules.updates.target('dev')?.version).toBe('0.4.2')
+    const fleet = await caller.updates.fleet()
+    expect(fleet.targetVersion).toBe('0.4.2')
+    expect(fleet.nextTargetVersion).toBe('0.4.3')
+
+    // The operation ends; the queued version becomes an OFFER, not a second
+    // operation — the human decision was about the version that just finished.
+    registry.modules.operations.engine.cancel(fleet.operationId as string)
+    expect(registry.modules.updates.target('dev')?.version).toBe('0.4.3')
+    expect((await caller.updates.fleet()).nextTargetVersion).toBeUndefined()
+    expect(registry.modules.operations.engine.active('lifecycle')).toBeUndefined()
+    registry.dispose()
+  })
+
+  it('retries the remainder as a NEW operation, linked to the one it retries', async () => {
+    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const first = await caller.updates.start()
+    registry.modules.operations.engine.cancel(first.operationId)
+
+    const retried = await caller.updates.retry({ id: first.operationId })
+    expect(retried.operationId).not.toBe(first.operationId)
+    expect(retried.operation).toMatchObject({ retryOf: first.operationId })
+    // History stays honest: the attempt that failed is still on record.
+    const history = await caller.operations.history({ kind: 'update' })
+    expect(history).toHaveLength(2)
+    registry.dispose()
+  })
+
+  it('refuses to retry an update it has no record of', async () => {
+    const { registry, caller } = behindHarness()
+    await expect(caller.updates.retry({ id: 'op_nope' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    registry.dispose()
+  })
+
+  it('still refuses to start when every place is already on target', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    const { registry, caller } = harness()
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget(target())
+    await expect(caller.updates.start()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Podium is already at this version everywhere.',
+    })
+    // …and no operation was manufactured just to carry that refusal (§6.3).
+    expect(await caller.operations.history({ kind: 'update' })).toHaveLength(0)
     registry.dispose()
   })
 })

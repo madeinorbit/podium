@@ -1,26 +1,29 @@
-import { asMachineId, type MachineId } from '@podium/model'
-import type { ConvergenceState, MobileWebIdentity } from '@podium/protocol'
+import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
+import type { ConvergenceState, MobileWebIdentity, Operation } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
+import { z } from 'zod'
 import { serverBuildVersion } from '../../build-version'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
+import type { OperationsModule } from '../operations'
+import {
+  canGrantDevelopmentFleet,
+  LIFECYCLE_EXCLUSION_GROUP,
+  planInputFrom,
+  planUpdateOperation,
+  UPDATE_OPERATION_KIND,
+  UPDATE_STEP_MACHINES,
+  UPDATE_STEP_PREPARE,
+  type UpdateOperationContext,
+  type UpdatePlanInput,
+  type UpdateSurface,
+  updateOperationDetails,
+} from './operation'
 import type { ChannelCheckRecord, UpdatesService } from './service'
 import type { WaveMachine } from './wave'
 
 const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
 const FAILED: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
-const COORDINATOR_RESTART_POLL_MS = 250
-/**
- * Backstop only. The wait normally ends when the grants it is waiting on stop
- * being in flight — the same inactivity deadline the service applies — so this
- * is deliberately generous and must never be the thing that ends a healthy,
- * slowly-progressing update.
- */
-const COORDINATOR_RESTART_DEADLINE_MS = 60 * 60_000
-const COORDINATOR_WAIT_ABANDONED_DETAIL =
-  'The machine stopped reporting progress while updating, so the server stopped waiting for it.'
-const WEB_IDENTITY_POLL_MS = 500
-const WEB_IDENTITY_WAIT_MS = 5 * 60_000
 
 /**
  * ASKED, NOT ASSUMED (POD-2100). This used to default an unpinned machine to
@@ -30,22 +33,6 @@ const WEB_IDENTITY_WAIT_MS = 5 * 60_000
  */
 function isDevelopmentMachine(updates: UpdatesService, machine: WaveMachine): boolean {
   return updates.channelOf(machine) === 'dev'
-}
-
-/** dest+HEAD with no dest tarball cannot be delivered to dest bundle/feed machines. */
-function canGrantDevelopmentFleet(target: {
-  version: string
-  artifacts: { headless?: unknown }
-}): boolean {
-  if (!target.version.startsWith('dev+')) return true
-  return target.artifacts.headless !== undefined
-}
-
-function needsDevelopmentBundle(target: {
-  version: string
-  artifacts: { headless?: unknown }
-}): boolean {
-  return target.version.startsWith('dev+') && target.artifacts.headless === undefined
 }
 
 /**
@@ -78,26 +65,6 @@ export function websiteDigestReader(
     if (desktop === undefined) return undefined
     const phone = readPhone()
     return phone.present && phone.digest !== desktop ? undefined : desktop
-  }
-}
-
-export async function waitForServedWebDigest(
-  expected: string,
-  read: () => string | undefined,
-  pollMs = WEB_IDENTITY_POLL_MS,
-  deadlineMs = WEB_IDENTITY_WAIT_MS,
-  now: () => number = Date.now,
-): Promise<void> {
-  const started = now()
-  for (;;) {
-    if (read() === expected) return
-    if (now() - started >= deadlineMs) {
-      throw new Error('The website did not finish rebuilding in time.')
-    }
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, pollMs)
-      timer.unref?.()
-    })
   }
 }
 
@@ -136,6 +103,21 @@ export interface UpdateFleetSnapshot {
    * been checked has no entry rather than a fabricated one.
    */
   channelChecks: ChannelCheckRecord[]
+  /**
+   * The durable operation currently converging this fleet, if one is (POD-2098).
+   *
+   * ADDITIVE, and deliberately only an id: this payload is the OLD read model
+   * and it stays exactly as it was, so the current dialog and Settings do not
+   * change. The id is the thread from here to `operations.active`, which the
+   * update panel picks up in its own issue. An old bundle ignores it (P8).
+   */
+  operationId?: string
+  /**
+   * A version published while the operation ran, waiting its turn (§3.2). Shown
+   * so "0.4.4 arrived and will be offered when this finishes" is sayable rather
+   * than a target that silently changes underneath the panel.
+   */
+  nextTargetVersion?: string
 }
 
 function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
@@ -167,100 +149,178 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
 }
 
 /**
- * Wait for the development fleet to boot at the target, then restart the
- * coordinator. A daemon that reported its correlated `restarting` phase and
- * disconnected has also crossed the handoff boundary: requiring its next
- * handshake would deadlock when the target changed the wire schema and needs
- * the coordinator restart before that handshake can succeed.
+ * THE UPDATE OPERATION'S CONTEXT, assembled from the request (POD-2098).
  *
- * The wait is BOUNDED, and bounded by the SAME rule as the grants it waits on:
- * it continues while at least one outstanding machine is still in flight, and
- * stops as soon as none is. A daemon that never comes back used to leave this
- * polling every 250ms forever, holding the coordinator on the old build with
- * nothing in the UI ever failing; now the service's inactivity deadline turns
- * that machine into a visible `stuck` and this wait ends with it.
- *
- * It gives up WITHOUT restarting when a machine has not reached either safe
- * boundary. Restarting under an unknown fleet state is the outcome the gate
- * exists to prevent.
+ * Deliberately built here rather than at composition time: half of it (the
+ * publisher, the redeploy request, the served stamps) is optional plumbing the
+ * tRPC context already carries, and the OTHER half — `report` — needs the
+ * engine, which is what turns a runner's "I handed this out" into a persisted
+ * transition. Boot assembles the same shape from the same pieces (`server.ts`),
+ * which is the point of it being a plain object and not a service.
  */
-export function restartCoordinatorAfterDevelopmentFleet(
-  updates: UpdatesService,
-  targetVersion: string,
-  affectedMachineIds: readonly MachineId[],
-  requestCoordinatorRestart: () => void,
-  pollMs = COORDINATOR_RESTART_POLL_MS,
-  deadlineMs = COORDINATOR_RESTART_DEADLINE_MS,
-  now: () => number = Date.now,
-): void {
-  const startedAt = now()
-  const check = (): void => {
-    // Capture the handoff before fleet() ages an expired grant into `stuck` and
-    // intentionally discards its pending-grant correlation.
-    const crossedRestartBoundary = new Set(
-      affectedMachineIds.filter((machineId) =>
-        updates.machineCrossedRestartBoundary(machineId, targetVersion),
-      ),
-    )
-    // Reading the fleet is what ages a silent grant, so this poll and the
-    // service share ONE notion of failure.
-    const fleet = new Map(updates.fleet().map((machine) => [machine.id, machine]))
-    const outstanding = affectedMachineIds.filter((machineId) => {
-      if (updates.machineBootedAtTarget(machineId, targetVersion)) return false
-      return !crossedRestartBoundary.has(machineId)
-    })
-    if (outstanding.length === 0) {
-      requestCoordinatorRestart()
-      return
-    }
-
-    // Keep waiting exactly as long as the grants themselves are alive. A
-    // machine reporting `restarting` at minute nine is progress, not a reason
-    // to give up; the service's silence deadline decides when it stops being
-    // progress, and this stops when it does. An absolute clock here would have
-    // abandoned a working update the service was still happy with.
-    const stillWorking = outstanding.some((machineId) => {
-      const state = fleet.get(machineId)?.state
-      return state !== undefined && IN_FLIGHT.has(state)
-    })
-    if (!stillWorking) return
-
-    // Backstop only: never leave a timer running forever if a machine somehow
-    // stays in flight without the service ever aging it out.
-    if (now() - startedAt >= deadlineMs) {
-      updates.abandonWait(outstanding, COORDINATOR_WAIT_ABANDONED_DETAIL)
-      return
-    }
-    const timer = setTimeout(check, pollMs)
-    timer.unref?.()
+export function updateOperationContext(input: {
+  updates: UpdatesService
+  operations: OperationsModule
+  channel: UpdateChannel
+  appVersion: () => string
+  hostMachineId?: string
+  surface?: UpdateSurface
+  onlyMachines?: readonly string[]
+  retryOf?: string
+  servedWebDigest?: () => string | undefined
+  servedMobileWeb?: () => MobileWebIdentity
+  requestCoordinatorRestart?: () => void
+  requestWebRebuild?: () => void
+  requestDestBundle?: () => Promise<unknown>
+  preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
+}): UpdateOperationContext {
+  // ONE WEBSITE, TWO DISTS: the operation's `web` step is about the WEBSITE, so
+  // it reads the same combined answer the old path did (POD-1980).
+  const website = websiteDigestReader(input.servedWebDigest, input.servedMobileWeb)
+  return {
+    updates: input.updates,
+    channel: input.channel,
+    appVersion: input.appVersion,
+    ...(input.hostMachineId ? { hostMachineId: input.hostMachineId } : {}),
+    ...(input.surface ? { surface: input.surface } : {}),
+    ...(input.onlyMachines ? { onlyMachines: input.onlyMachines } : {}),
+    ...(input.retryOf ? { retryOf: input.retryOf } : {}),
+    ...(website ? { servedWebDigest: website } : {}),
+    ...(input.requestCoordinatorRestart
+      ? { requestCoordinatorRestart: input.requestCoordinatorRestart }
+      : {}),
+    ...(input.requestWebRebuild ? { requestWebRebuild: input.requestWebRebuild } : {}),
+    ...(input.requestDestBundle ? { requestDestBundle: input.requestDestBundle } : {}),
+    ...(input.preparation ? { preparation: input.preparation } : {}),
+    report: (operationId, stepId, patch) => {
+      void input.operations.engine.recordProgress(operationId, stepId, patch)
+    },
   }
-  check()
+}
+
+function contextFor(
+  ctx: Context,
+  extra: { onlyMachines?: readonly string[]; retryOf?: string; surface?: UpdateSurface } = {},
+): UpdateOperationContext {
+  const state = familyState(ctx)
+  return updateOperationContext({
+    updates: state.modules.updates,
+    operations: state.modules.operations,
+    // The dev authority is what the global panel has always converged; a
+    // machine pinned elsewhere keeps its own per-row action (POD-2100).
+    channel: 'dev',
+    appVersion: serverBuildVersion,
+    hostMachineId: state.store.hostMachineId,
+    ...extra,
+    ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
+    ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
+    ...(ctx.requestCoordinatorRestart
+      ? { requestCoordinatorRestart: ctx.requestCoordinatorRestart }
+      : {}),
+    ...(ctx.requestWebRebuild ? { requestWebRebuild: ctx.requestWebRebuild } : {}),
+    ...(ctx.requestDestBundle ? { requestDestBundle: ctx.requestDestBundle } : {}),
+    ...(ctx.updatePreparation ? { preparation: ctx.updatePreparation } : {}),
+  })
+}
+
+/**
+ * The preconditions that must refuse BEFORE an operation exists (§6.3).
+ *
+ * "Never show an internal precondition as an error" cuts both ways: the panel
+ * must not render one, and the server must not manufacture an operation that
+ * exists only to fail with one. A refusal here is the same sentence the old
+ * `startUpdate` produced, so the current dialog's copy is unchanged.
+ */
+export function assertUpdateStartable(input: UpdatePlanInput): void {
+  const plan = planUpdateOperation(input)
+  if (plan.steps.length === 0 && (plan.awaiting ?? []).length === 0) {
+    if ((plan.deferred ?? []).length > 0) return
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Podium is already at this version everywhere.',
+    })
+  }
+  const expectedWeb = input.target.artifacts.web?.digest
+  const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
+  const serverBehind = input.appVersion !== input.target.version
+  if (webBehind && !serverBehind && !input.canRebuildWeb && !input.canPrepare) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'This Podium installation cannot rebuild its web app automatically.',
+    })
+  }
+}
+
+/**
+ * START ONE UPDATE (§3.2, P6) — the single-flight entry point.
+ *
+ * A second caller is not told "no": it is handed the operation that is already
+ * running, which is what makes two tabs pressing Update render the same panel
+ * instead of one of them seeing an error about the other.
+ */
+export async function startUpdateOperation(
+  ctx: Context,
+  extra: { onlyMachines?: readonly string[]; retryOf?: string; surface?: UpdateSurface } = {},
+): Promise<{ operationId: string; operation: Operation | null; alreadyRunning: boolean }> {
+  const state = familyState(ctx)
+  const context = contextFor(ctx, extra)
+  const updates = state.modules.updates
+  if (!updates.target(context.channel)) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'No update target is configured.',
+    })
+  }
+  assertUpdateStartable(planInputFrom(context))
+
+  const engine = state.modules.operations.engine
+  const result = await engine.start(UPDATE_OPERATION_KIND, context, { createdBy: 'user' })
+  if (!result.started) {
+    if ('alreadyRunning' in result) {
+      const row = engine.active(LIFECYCLE_EXCLUSION_GROUP)
+      return {
+        operationId: result.alreadyRunning,
+        operation: row?.operation ?? null,
+        alreadyRunning: true,
+      }
+    }
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'This server cannot run update operations.',
+    })
+  }
+  return { operationId: result.operation.id, operation: result.operation, alreadyRunning: false }
 }
 
 /** The fleet read model used by the dialog and Settings. */
 export function updateFleet(ctx: Context): UpdateFleetSnapshot {
-  const fleet = fleetSnapshot(familyState(ctx).modules.updates)
+  const state = familyState(ctx)
+  const updates = state.modules.updates
+  const fleet = fleetSnapshot(updates)
   const preparation = ctx.updatePreparation?.()
-  return preparation ? { ...fleet, preparation } : fleet
+  const active = state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
+  const queued = updates.nextTarget('dev')
+  return {
+    ...fleet,
+    ...(preparation ? { preparation } : {}),
+    ...(active?.kind === UPDATE_OPERATION_KIND ? { operationId: active.id } : {}),
+    ...(queued ? { nextTargetVersion: queued.version } : {}),
+  }
 }
 
 /**
- * Human-authorized entry point for every place behind the server's target. The
- * wave service remains the authority for what gets granted; this procedure
- * records the operator's one decision and starts its planner-controlled wave.
+ * THE LEGACY SHAPE, computed from the operation.
+ *
+ * `updates.converge` is kept for one release so the shipped dialog and Settings
+ * keep working while the panel is built (its own issue). Every number here now
+ * comes from the operation's plan — which is the point of P2: there is one
+ * computation of update progress, and this is a projection of it rather than a
+ * fourth opinion.
  */
-export function startUpdate(
+function legacyConvergeResult(
   updates: UpdatesService,
-  currentVersion = serverBuildVersion(),
-  requestCoordinatorRestart?: () => void,
-  opts?: {
-    servedWebDigest?: string | (() => string | undefined)
-    /** The phone website on disk, read when asked. Absent means "no phone app
-     *  here", which is not a stale phone app — see `servedWebIdentity` (POD-1980). */
-    servedMobileWeb?: () => MobileWebIdentity
-    requestWebRebuild?: () => void
-    requestDestBundle?: () => Promise<unknown>
-  },
+  operation: Operation | null,
+  fallbackVersion: string,
 ): {
   state: 'in-progress'
   version: string
@@ -270,136 +330,39 @@ export function startUpdate(
   grantedMachineIds: string[]
   includesBundle: boolean
 } {
-  const target = updates.target()
-  if (!target) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'No update target is configured.',
-    })
-  }
-  const initialFleet = fleetSnapshot(updates)
-  const serverBehind = currentVersion !== target.version
-  const expectedWeb = target.artifacts.web?.digest
-  const readDesktopWeb =
-    typeof opts?.servedWebDigest === 'function'
-      ? opts.servedWebDigest
-      : opts?.servedWebDigest !== undefined
-        ? () => opts.servedWebDigest as string
-        : undefined
-  // The WEBSITE is both dists, so that is what "behind" is measured against.
-  const readWebsite = websiteDigestReader(readDesktopWeb, opts?.servedMobileWeb)
-  const webBehind = expectedWeb !== undefined && readWebsite?.() !== expectedWeb
-  if (!serverBehind && !webBehind && initialFleet.behind === 0 && initialFleet.converging === 0) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'Podium is already at this version everywhere.',
-    })
-  }
-  const rebuildWeb = opts?.requestWebRebuild ?? requestCoordinatorRestart
-  if (webBehind && !serverBehind && !rebuildWeb) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'This Podium installation cannot rebuild its web app automatically.',
-    })
-  }
-
-  const grantable = canGrantDevelopmentFleet(target)
-  const packDevelopment = needsDevelopmentBundle(target) && opts?.requestDestBundle !== undefined
-  const grantedMachineIds = grantable ? updates.authorize() : []
-  if (!grantable && packDevelopment) updates.markAuthorized()
-
-  const affectedMachineIds = initialFleet.machines
-    .filter((machine) => machine.online && machine.version !== target.version)
-    .map((machine) => machine.id)
-
-  if (packDevelopment && opts.requestDestBundle) {
-    if (webBehind && rebuildWeb) rebuildWeb()
-    void continueDevelopmentUpdate({
-      updates,
-      targetVersion: target.version,
-      expectedWeb,
-      webBehind,
-      // The DESKTOP dist, deliberately, though `webBehind` above counts both.
-      // This wait exists so a tarball is not packed around yesterday's website,
-      // and the tarball carries `apps/web/dist` only — waiting on the phone
-      // export here would hold every remote machine's update for bytes none of
-      // them receive. A phone-only staleness therefore satisfies this wait at
-      // once and is finished by the page's own wait instead (POD-1980).
-      readServedWeb: readDesktopWeb,
-      requestDestBundle: opts.requestDestBundle,
-      serverBehind,
-      requestCoordinatorRestart,
-      affectedMachineIds,
-    })
-  } else if (serverBehind && requestCoordinatorRestart) {
-    if (grantedMachineIds.length > 0) {
-      restartCoordinatorAfterDevelopmentFleet(
-        updates,
-        target.version,
-        affectedMachineIds,
-        requestCoordinatorRestart,
-      )
-    } else {
-      requestCoordinatorRestart()
-    }
-  } else if (webBehind && rebuildWeb) {
-    rebuildWeb()
-  }
-
+  const steps = operation?.steps ?? []
+  const done = steps.filter((step) => step.state === 'done' || step.state === 'skipped').length
+  const fleet = fleetSnapshot(updates)
   return {
     state: 'in-progress',
-    version: target.version,
-    done: 0,
-    total: Math.max(
-      1,
-      (serverBehind ? 1 : 0) +
-        (webBehind ? 1 : 0) +
-        (packDevelopment ? 1 : 0) +
-        Math.max(initialFleet.behind, initialFleet.converging),
-    ),
-    fleet: fleetSnapshot(updates),
-    grantedMachineIds,
-    includesBundle: packDevelopment,
+    version:
+      updateOperationDetails(operation ?? ({} as Operation))?.target.version ?? fallbackVersion,
+    done,
+    total: Math.max(1, steps.length),
+    fleet,
+    grantedMachineIds: fleet.machines
+      .filter((machine) => IN_FLIGHT.has(machine.state))
+      .map((machine) => machine.id),
+    includesBundle: steps.some((step) => step.id === UPDATE_STEP_PREPARE),
   }
 }
 
 /**
- * Website first (the development tarball packing gate asserts the served stamp),
- * then the tarball, then remotes (setTarget ticks an authorized wave), then
- * this server. A failed pack still redeploys this host when it is behind.
+ * A failure the FIRST PASS of the plan produced has to reach the OLD client as a
+ * thrown error, because a thrown error is the only failure channel it has (see
+ * `use-update-state.ts`'s catch → `describeUpdateFailure`). An operation that
+ * failed that early failed before anything was handed out — a target the
+ * transport cannot deliver, a publisher that refused outright — so throwing is
+ * not losing it: it is recorded, retryable and in history either way.
+ *
+ * `updates.start`, the endpoint that replaces this one, never throws for a
+ * failure: it answers the operation, and the panel renders the typed error.
  */
-function continueDevelopmentUpdate(input: {
-  updates: UpdatesService
-  targetVersion: string
-  expectedWeb: string | undefined
-  webBehind: boolean
-  readServedWeb?: () => string | undefined
-  requestDestBundle: () => Promise<unknown>
-  serverBehind: boolean
-  requestCoordinatorRestart?: () => void
-  affectedMachineIds: readonly MachineId[]
-}): void {
-  void (async () => {
-    if (input.webBehind && input.expectedWeb && input.readServedWeb) {
-      await waitForServedWebDigest(input.expectedWeb, input.readServedWeb)
-    }
-    await input.requestDestBundle()
-    if (!input.serverBehind || !input.requestCoordinatorRestart) return
-    const published = input.updates.target()
-    if (published && canGrantDevelopmentFleet(published)) {
-      restartCoordinatorAfterDevelopmentFleet(
-        input.updates,
-        input.targetVersion,
-        input.affectedMachineIds,
-        input.requestCoordinatorRestart,
-      )
-      return
-    }
-    input.requestCoordinatorRestart()
-  })().catch(() => {
-    if (input.serverBehind && input.requestCoordinatorRestart) {
-      input.requestCoordinatorRestart()
-    }
+function throwIfFailedOnStart(operation: Operation | null): void {
+  if (operation?.state !== 'failed') return
+  throw new TRPCError({
+    code: 'PRECONDITION_FAILED',
+    message: operation.error?.detail ?? operation.error?.message ?? 'The update could not start.',
   })
 }
 
@@ -423,18 +386,86 @@ export function updateProcedures() {
       ctx.requestCoordinatorRestart()
       return { state: 'in-progress' as const, version: serverBuildVersion() }
     }),
-    converge: t.procedure.mutation(({ ctx }) =>
-      startUpdate(
-        familyState(ctx).modules.updates,
-        serverBuildVersion(),
-        ctx.requestCoordinatorRestart,
-        {
-          ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
-          ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
-          ...(ctx.requestWebRebuild ? { requestWebRebuild: ctx.requestWebRebuild } : {}),
-          ...(ctx.requestDestBundle ? { requestDestBundle: ctx.requestDestBundle } : {}),
-        },
-      ),
-    ),
+    /**
+     * The one human click, as a durable operation (§3.2). Answers the operation
+     * itself so the caller can render it immediately and then follow
+     * `operations.active` — there is no second endpoint to learn.
+     */
+    start: t.procedure
+      .input(z.object({ surface: z.string().optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+        const started = await startUpdateOperation(ctx, {
+          ...(input?.surface ? { surface: input.surface as UpdateSurface } : {}),
+        })
+        return {
+          operationId: started.operationId,
+          alreadyRunning: started.alreadyRunning,
+          operation: started.operation,
+        }
+      }),
+
+    /**
+     * RETRY (§3.2): a NEW operation whose plan is the remainder — the machines
+     * that are still not at the target — linked to the one it retries. History
+     * stays honest: the failure is not overwritten by its own second attempt.
+     */
+    retry: t.procedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+      const engine = familyState(ctx).modules.operations.engine
+      const row = engine.history(UPDATE_OPERATION_KIND, 100).find((r) => r.id === input.id)
+      if (!row) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'That update is no longer on record.' })
+      }
+      const previous = row.operation
+      const machinesStep = (previous?.steps ?? []).find((step) => step.id === UPDATE_STEP_MACHINES)
+      // The REMAINDER, from the failed operation's own record of where each
+      // place got to. A place that reached the target is not retried — that is
+      // what makes "Try again" cheap after a half-applied update (§8).
+      const remainder = (machinesStep?.places ?? [])
+        .filter((place) => place.state !== 'current')
+        .map((place) => place.id)
+      const started = await startUpdateOperation(ctx, {
+        retryOf: input.id,
+        ...(remainder.length > 0 ? { onlyMachines: remainder } : {}),
+      })
+      return {
+        operationId: started.operationId,
+        alreadyRunning: started.alreadyRunning,
+        operation: started.operation,
+      }
+    }),
+
+    /**
+     * KEPT FOR ONE RELEASE (POD-2098): the shipped dialog's entry point, now a
+     * thin alias over `start`. It exists so this issue does not regress the live
+     * UI while the operation panel is built in its own issue; the moment that
+     * lands, this and its shape go.
+     */
+    converge: t.procedure.mutation(async ({ ctx }) => {
+      const state = familyState(ctx)
+      const engine = state.modules.operations.engine
+      const started = await startUpdateOperation(ctx)
+      /**
+       * THE ONE PLACE THAT WAITS, and only because the OLD contract does.
+       *
+       * `engine.start` deliberately no longer awaits the drive: a click must not
+       * be held for the length of the first runner. But this endpoint's shipped
+       * caller reads `done`, `total` and `grantedMachineIds` out of the
+       * response, and it has no way to hear about a failure except a rejection
+       * — so it needs the answer the old `startUpdate` gave, which was "the
+       * plan has run until something is genuinely in flight".
+       *
+       * `whenSettled` is EXACTLY that and no more: every runner here hands its
+       * work out and answers `running`, so the queue empties as soon as the plan
+       * blocks. It is not a poll, it has no sleep, and it goes away with this
+       * endpoint when the panel lands.
+       */
+      await engine.whenSettled(started.operationId)
+      const operation =
+        engine.active(LIFECYCLE_EXCLUSION_GROUP)?.operation ??
+        engine.history(UPDATE_OPERATION_KIND, 1)[0]?.operation ??
+        started.operation
+      throwIfFailedOnStart(operation)
+      return legacyConvergeResult(state.modules.updates, operation, serverBuildVersion())
+    }),
   }
 }
