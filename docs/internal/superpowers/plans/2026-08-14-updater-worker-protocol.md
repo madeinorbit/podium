@@ -114,6 +114,11 @@ resolved into main is worse than no green at all.
   re-run `acquire` and treat either word as ownership. `podium lock status <name>` tells you
   the holder and is worth checking when in doubt (it can be slow under load, so give it a
   timeout rather than assuming it hung).
+  **What you may run, calibrated by measurement rather than fear:** a *scoped* typecheck
+  (`--filter` + `--concurrency=1`) is cheap and safe — POD-2175 ran it twice at ~2.5 GB free,
+  finishing in under a minute at 11/11 tasks, nothing killed. So: check `free -g`; at **≥2 GB
+  available** with the lane free, take the lane and run it. Below that, or for a **build**,
+  ask the coordinator. Focused single-file vitest needs no lock and no permission.
   **Do not run repo-wide `bun run typecheck` on this box at all** — see POD-2159. Use
   `turbo run typecheck --filter=@podium/<pkg> --concurrency=1`, and understand *why* it
   survives (POD-2161 measured this): **`--filter` does NOT run one package** — it runs that
