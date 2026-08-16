@@ -487,21 +487,28 @@ function harness(options: HarnessOptions = {}) {
   const clock = fakeClock()
   const sent: Array<{ machineId: string; message: UpdateGrantMessage }> = []
   const fleet = options.machines ?? [machine({ id: 'vmi' })]
-  const updates = new UpdatesService({
-    machines: () => fleet,
-    send: (machineId, message) => sent.push({ machineId, message }),
-    now: () => clock.clock.now(),
-    nextGrantId: () => `grant_${sent.length + 1}`,
-    concurrency: 3,
-    fleetChannel: () => 'dev',
-  })
-  updates.setTarget('dev', options.target ?? devTarget())
+  const newUpdatesService = () => {
+    const service = new UpdatesService({
+      machines: () => fleet,
+      send: (machineId, message) => sent.push({ machineId, message }),
+      now: () => clock.clock.now(),
+      nextGrantId: () => `grant_${sent.length + 1}`,
+      concurrency: 3,
+      fleetChannel: () => 'dev',
+    })
+    service.setTarget('dev', options.target ?? devTarget())
+    return service
+  }
+  const updates = newUpdatesService()
 
   /** Deferred work the watchers schedule; drained explicitly, never slept on. */
   const scheduled: Array<() => void> = []
   let engine: OperationEngine
-  const context = (): UpdateOperationContext => ({
-    updates,
+  const contextOver = (
+    service: UpdatesService,
+    driver: () => OperationEngine,
+  ): UpdateOperationContext => ({
+    updates: service,
     channel: 'dev',
     appVersion: () => options.appVersion ?? '0.4.1',
     ...(options.hostMachineId ? { hostMachineId: options.hostMachineId } : {}),
@@ -513,12 +520,12 @@ function harness(options: HarnessOptions = {}) {
       : {}),
     ...(options.preparation ? { preparation: options.preparation } : {}),
     report: (id, stepId, patch) => {
-      void engine.recordProgress(id, stepId, patch)
+      void driver().recordProgress(id, stepId, patch)
     },
     // Wired exactly as `updateOperationContext` wires it, because a watcher
     // that cannot be stopped is precisely what POD-2173 was about: a harness
     // that left this out would prove the fix nothing.
-    stepActive: (id, stepId) => engine.watching(id, stepId),
+    stepActive: (id, stepId) => driver().watching(id, stepId),
     schedule: (fn) => {
       scheduled.push(fn)
     },
@@ -529,6 +536,7 @@ function harness(options: HarnessOptions = {}) {
       ? { heartbeatIntervalMs: options.heartbeatIntervalMs }
       : {}),
   })
+  const context = (): UpdateOperationContext => contextOver(updates, () => engine)
 
   const registry = new OperationKindRegistry()
   registry.register(updateOperationKind())
@@ -566,6 +574,23 @@ function harness(options: HarnessOptions = {}) {
     /** A second engine over the SAME store — the successor process (§3.4). */
     successor(): OperationEngine {
       return new OperationEngine({ store, registry, clock: clock.clock })
+    },
+    /**
+     * THE WHOLE PROCESS, REPLACED. `successor()` keeps the `UpdatesService` the
+     * dead engine was using, which is fine for a drill about the operation ROW —
+     * but a real restart loses every in-memory grant with the process, and a
+     * successor that still believes a machine is mid-download will never plan
+     * one. This is the boundary reconciliation actually crosses: same store,
+     * same fleet, nothing else.
+     */
+    reboot(): { engine: OperationEngine; updates: UpdatesService; context: () => UpdateOperationContext } {
+      const nextUpdates = newUpdatesService()
+      const nextEngine = new OperationEngine({ store, registry, clock: clock.clock })
+      return {
+        engine: nextEngine,
+        updates: nextUpdates,
+        context: () => contextOver(nextUpdates, () => nextEngine),
+      }
     },
   }
 }
@@ -971,6 +996,75 @@ describe('surviving the coordinator restart', () => {
     expect(operation.state).toBe('waiting')
     expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
   })
+
+  /**
+   * THE WINDOW THE OTHER DRILLS STEP OVER (POD-2167).
+   *
+   * Every case above hands the successor a machine that is already at the
+   * target — so the wave has nothing left to do and adoption looks complete.
+   * The real boot is not like that: `adoptOnBoot` is awaited BEFORE the daemon
+   * gateway listens (`server.ts`), so the resumed `machines` step runs its
+   * `ensure()` against a fleet in which every machine is offline. It grants
+   * nobody, answers `running`, and the daemons arrive seconds later.
+   *
+   * Until now nothing carried that arrival back into the step. The reconnect
+   * reached the bridge, which recorded progress and re-armed a deadline, and the
+   * wave sat at zero grants for its whole ten-minute silence budget — the STALL
+   * RETRY was what issued the first grant. An update resumed, but not restarted.
+   */
+  it('re-drives the wave when the daemons reconnect, instead of waiting out the stall', async () => {
+    const fleet = [machine({ id: 'vmi', name: 'vmi3407763' })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.sent).toHaveLength(1)
+    h.engine.stop()
+
+    // The wave had been running a while when the coordinator went down — long
+    // enough that the places carry stamps older than the whole silence budget.
+    // A successor judged on those would stall the instant it resumed, on the
+    // predecessor's silence rather than on any of its own.
+    h.clock.advance((UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs ?? 0) + 60_000)
+
+    // The coordinator restarts. The daemon gateway is not listening yet, so the
+    // machine directory this boot reads says everyone is unreachable.
+    fleet[0] = machine({ id: 'vmi', name: 'vmi3407763', online: false })
+    const boot = h.reboot()
+    const sentBefore = h.sent.length
+    await boot.engine.adoptOnBoot(
+      () => ({
+        appVersion: 'dev+abc1234',
+        servedWebDigest: WEB_DIGEST,
+        machineDirectory: fleet,
+        now: h.clock.clock.now(),
+      }),
+      () => boot.context(),
+    )
+    await boot.engine.whenSettled('op_1')
+    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(h.sent).toHaveLength(sentBefore)
+
+    // …and now the daemon reconnects, well inside the silence budget.
+    const bridge = createUpdateFleetBridge({
+      engine: boot.engine,
+      updates: boot.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.clock.advance(3_000)
+    fleet[0] = machine({ id: 'vmi', name: 'vmi3407763' })
+    bridge.onFleetChanged()
+    await boot.engine.whenSettled('op_1')
+
+    // A grant, three seconds after the reconnect — not ten minutes after it.
+    expect(h.sent.length).toBeGreaterThan(sentBefore)
+    expect(h.sent.at(-1)?.machineId).toBe('vmi')
+    expect(h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.stalls ?? 0).toBe(0)
+  })
 })
 
 // ────────────────── §3.2 single-flight and nextTarget ────────────────
@@ -1068,7 +1162,12 @@ describe('the fleet bridge', () => {
     const recordProgress = vi.fn(() => Promise.resolve())
     const admitDeferred = vi.fn(() => Promise.resolve())
     createUpdateFleetBridge({
-      engine: { active: () => undefined, recordProgress, admitDeferred },
+      engine: {
+        active: () => undefined,
+        recordProgress,
+        admitDeferred,
+        reensure: () => Promise.resolve(),
+      },
       updates: h.updates,
     }).onFleetChanged()
     expect(recordProgress).not.toHaveBeenCalled()
@@ -1688,5 +1787,193 @@ describe('two machines, one of them dead', () => {
     }
     expect(h.read().state).toBe('running')
     expect(machinesStep(h)?.stalls ?? 0).toBe(0)
+  })
+})
+
+/**
+ * A VERDICT IS NOT A CONNECTION (POD-2172).
+ *
+ * `offline` describes reachability. `rejected` and `stuck` describe what the
+ * machine SAID, and a machine that has said one of those has already told the
+ * operator everything §7 exists to tell them. Testing reachability first threw
+ * that away and left the wave to guess from silence instead.
+ */
+describe('a machine that says why, and then goes quiet', () => {
+  const dirtyThenGone = async (order: 'reported first' | 'both at once') => {
+    const fleet = [machine({ id: 'vmi', name: 'vmi3407763' })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      state: 'stuck',
+      version: '0.4.1',
+      detail: 'dirty-working-tree',
+    })
+    if (order === 'reported first') {
+      bridge.onFleetChanged()
+      await h.engine.whenSettled('op_1')
+    }
+    // The operator restarts that daemon to go and look at the checkout.
+    fleet[0] = machine({ id: 'vmi', name: 'vmi3407763', online: false })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+    return h.read()
+  }
+
+  it('keeps the reason when the disconnect follows the report', async () => {
+    const operation = await dirtyThenGone('reported first')
+    expect(operation.state).toBe('failed')
+    expect(operation.error?.code).toBe('machine-dirty-checkout')
+  })
+
+  /**
+   * The case the ordering actually broke: nothing had projected the wave between
+   * the daemon's last frame and its disconnect, so `offline` was the first thing
+   * written about a machine that had already given its verdict — and `offline`
+   * is not a state {@link settleMachines} fails on. The wave then waited out ten
+   * minutes of silence and ended with a nameless stall.
+   */
+  it('keeps the reason when the report and the disconnect arrive together', async () => {
+    const operation = await dirtyThenGone('both at once')
+    expect(operation.state).toBe('failed')
+    expect(operation.error?.code).toBe('machine-dirty-checkout')
+    expect(operation.error?.places).toEqual(['vmi'])
+    // The sentence that says what to do, instead of "it stopped responding".
+    expect(operation.error?.message).toContain('Commit or stash them there')
+  })
+
+  /**
+   * WHERE THE ORDERING BIT ON EVERY ADOPTION. `adoptOnBoot` is awaited before
+   * the daemon gateway listens, so no machine is connected when the successor
+   * reconciles — and rewriting every unfinished place to `offline` erased the
+   * verdict of anyone who had already given one, every single time.
+   */
+  it('survives the coordinator restart, where no daemon is connected at all', async () => {
+    const fleet = [machine({ id: 'vmi', name: 'vmi3407763' })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // The verdict is persisted onto the place, and then this process dies
+    // before anything can settle the operation on it.
+    const store = h.store.get('op_1')?.operation
+    const stuckPlaces = (store?.steps ?? []).map((step) =>
+      step.id === UPDATE_STEP_MACHINES
+        ? {
+            ...step,
+            places: [{ id: 'vmi', name: 'vmi3407763', state: 'stuck', detail: 'dirty-working-tree' }],
+          }
+        : step,
+    )
+    h.store.update({
+      ...(store as NonNullable<typeof store>),
+      steps: stuckPlaces,
+      exclusionGroup: LIFECYCLE_EXCLUSION_GROUP,
+      createdAt: 0,
+      updatedAt: 0,
+    })
+    h.engine.stop()
+
+    // Nobody is connected: `adoptOnBoot` is awaited before the daemon gateway
+    // listens, so this is the whole fleet as the successor can see it.
+    fleet[0] = machine({ id: 'vmi', name: 'vmi3407763', online: false })
+    const boot = h.reboot()
+    await boot.engine.adoptOnBoot(
+      () => ({
+        appVersion: 'dev+abc1234',
+        servedWebDigest: WEB_DIGEST,
+        machineDirectory: fleet,
+        now: h.clock.clock.now(),
+      }),
+      () => boot.context(),
+    )
+    await boot.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('failed')
+    expect(operation.error?.code).toBe('machine-dirty-checkout')
+  })
+})
+
+/**
+ * THE WATCHER THAT COULD NOT BE STOPPED (POD-2173).
+ *
+ * `web`'s poll only ends when the digest matches or the publisher reports a
+ * failure, and once the step has run out of time neither can happen. Its
+ * heartbeat came from the watcher itself, so the short silence budget could not
+ * fire while it lived — and every re-entry started another one that
+ * `engine.stop()` had no way to sweep, because the timer belongs to the kind.
+ */
+describe('the web rebuild watcher stops when its step does', () => {
+  const stuckRebuild = () => {
+    let reads = 0
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      // Never reaches the expected digest, and the publisher never says why:
+      // the step can only end on its own deadline.
+      servedWebDigest: () => {
+        reads++
+        return 'older99'
+      },
+      requestWebRebuild: () => {},
+      preparation: () => ({ webReady: false, bundleReady: false }),
+    })
+    return { h, reads: () => reads }
+  }
+
+  it('polls no more once the step has failed, watchers and retry alike', async () => {
+    const { h, reads } = stuckRebuild()
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(stepState(h.read(), UPDATE_STEP_WEB)).toBe('running')
+
+    const silenceMs = UPDATE_STEP_DEADLINES[UPDATE_STEP_WEB]?.silenceMs ?? 0
+    // Silence, a stall, its one retry (which starts a SECOND watcher), then the
+    // failure. Nothing is drained in between, so no heartbeat rescues it.
+    h.clock.advance(silenceMs)
+    await h.engine.whenSettled('op_1')
+    h.clock.advance(silenceMs)
+    await h.engine.whenSettled('op_1')
+    expect(h.read().state).toBe('failed')
+
+    // Both watchers are still queued at this point — the fix is that each one
+    // now finds the step gone and declines to reschedule itself.
+    await h.drain()
+    const settled = reads()
+    await h.drain()
+    h.clock.advance(60_000)
+    await h.drain()
+    expect(reads()).toBe(settled)
+  })
+
+  it('is still watching while the step is genuinely in flight', async () => {
+    // The guard must not be a watcher that never runs: a live step keeps
+    // polling, which is the behaviour the exit condition has to leave alone.
+    const { h, reads } = stuckRebuild()
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const before = reads()
+    await h.drain()
+    expect(reads()).toBeGreaterThan(before)
   })
 })

@@ -1046,6 +1046,29 @@ export function projectMachines(
     const { percent: _endedWithItsPhase, ...place } = carried
     const machine = fleet.get(place.id)
     if (!machine) return { ...place, state: 'offline' }
+    /**
+     * THE PERSISTED VERDICT IS THE ONLY COPY, ACROSS A RESTART (POD-2172).
+     *
+     * Everything below reads the LIVE service, whose convergence state is
+     * in-memory and dies with the process. So a machine that reported `stuck`
+     * before a coordinator restart has its answer in exactly one place
+     * afterwards — the place this projection is about to overwrite. Fixing the
+     * ordering in {@link reconcileUpdateOperation} alone would not have helped:
+     * `ensure()` re-projects immediately and would lose it again a moment later.
+     *
+     * Held only while the machine is unreachable and still behind. A daemon that
+     * has come back speaks for itself, and the target-version proof below is
+     * always allowed to overrule a verdict — a machine that is now ON the target
+     * did not, in the end, fail to update.
+     */
+    if (
+      !machine.online &&
+      machine.version !== targetVersion &&
+      place.state !== undefined &&
+      TERMINAL_STATES.has(place.state as never)
+    ) {
+      return { ...place, ...(machine.name ? { name: machine.name } : {}) }
+    }
     if (targetVersion !== undefined && machine.version === targetVersion) {
       return { ...place, state: 'current', percent: 100, name: machine.name ?? place.name }
     }

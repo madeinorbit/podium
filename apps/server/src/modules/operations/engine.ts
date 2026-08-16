@@ -714,6 +714,11 @@ export class OperationEngine {
   /** Mark a step running and count the attempt, before anything is attempted. */
   private beginStep(operation: Operation, stepId: string): Operation {
     const at = this.now()
+    // Read BEFORE the patch: `extra` is handed the step with `running` already
+    // written onto it, so asking there whether this is an entry or a re-entry
+    // can only ever answer "re-entry".
+    const entering =
+      (operation.steps ?? []).find((step) => step.id === stepId)?.state !== 'running'
     const next = this.applyPatch(operation, stepId, { state: 'running' }, at, (step) => ({
       ...step,
       startedAt: step.startedAt ?? at,
@@ -730,7 +735,7 @@ export class OperationEngine {
        * every clock from it would hand back the wave-wide silence this all
        * exists to remove.
        */
-      ...(step.state !== 'running' && step.places
+      ...(entering && step.places
         ? { places: restartPlaceClocks(step.places, at) ?? step.places }
         : {}),
     }))
