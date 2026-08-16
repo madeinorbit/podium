@@ -85,10 +85,12 @@ export function parseDiff(text: string, cap: number = DIFF_ROW_CAP): ParsedDiff 
   let removed = 0
   let binary = false
   let truncated = 0
-  // `undefined` once a numberless hunk header has been seen: the rows below it
-  // are real, their positions are not known, and neither is invented.
-  let oldNo: number | undefined = 0
-  let newNo: number | undefined = 0
+  // Numbers come from hunk headers and from nowhere else. Git's diffs always
+  // open with one; a transcript's recorded edit knows its text but not where it
+  // landed, so its rows stay unnumbered rather than counting up from a 1 nobody
+  // verified. Starting these at 0 would have quietly invented that gutter.
+  let oldNo: number | undefined
+  let newNo: number | undefined
 
   // The counters keep running past the cap so the header's totals describe the
   // whole diff, not the part that fit.

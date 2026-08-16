@@ -110,6 +110,13 @@ describe('a hunk that knows its content but not its offset', () => {
     }
   })
 
+  it('numbers nothing when there is no header at all', () => {
+    // A single-place edit needs no header — and got a gutter counting from 0
+    // when the counters started there instead of at "unknown".
+    const bare = parseDiff([' ctx', '-old', '+new'].join('\n'))
+    expect(bare.rows.every((r) => r.oldNo === undefined && r.newNo === undefined)).toBe(true)
+  })
+
   it('still numbers a NUMBERED hunk that follows it', () => {
     const mixed = parseDiff(['@@ @@ a.ts', '+x', '@@ -12,2 +12,2 @@', ' y'].join('\n'))
     expect(mixed.rows[1]?.newNo).toBeUndefined()

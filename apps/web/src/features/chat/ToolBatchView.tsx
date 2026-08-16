@@ -246,6 +246,7 @@ export function ToolBatchView({
   const { editedPaths, diffSources } = useMemo(() => {
     const seen: string[] = []
     const patches = new Map<string, string[]>()
+    const created = new Set<string>()
     const add = (raw: string | undefined): string | undefined => {
       const path = raw?.replace(/^\.\//, '')
       if (path && !seen.includes(path)) seen.push(path)
@@ -260,6 +261,7 @@ export function ToolBatchView({
       const edit = parseToolEdit(b.item.toolInputJson)
       const path = add(edit?.path)
       if (!edit || !path) continue
+      if (edit.mode === 'write') created.add(path)
       const text = toolEditUnifiedDiff(edit, SHEET_LINE_CAP)
       if (!text) continue
       // Several calls can edit one file in a single run; they stack in the
@@ -268,7 +270,19 @@ export function ToolBatchView({
     }
     const sources: Record<string, string> = {}
     for (const [path, parts] of patches) sources[path] = parts.join('\n')
-    return { editedPaths: seen, diffSources: sources }
+    return {
+      // The rail's status word is the sheet's, and the sheet's vocabulary is
+      // git's index: "modified (staged)" is a claim about the working tree that
+      // a transcript cannot make. These entries sit on the unstaged axis, where
+      // the word is plainly "modified" — or "added", for a file the run wrote.
+      editedPaths: seen.map((path) => ({
+        x: ' ',
+        y: created.has(path) ? 'A' : 'M',
+        path,
+        untracked: false,
+      })),
+      diffSources: sources,
+    }
   }, [row.blocks])
   const expanded = open || forceOpen
   const rowClass = cn(
@@ -391,7 +405,7 @@ export function ToolBatchView({
         <Suspense fallback={null}>
           <DiffSheet
             cwd={cwd}
-            entries={editedPaths.map((path) => ({ x: 'M', y: ' ', path, untracked: false }))}
+            entries={editedPaths}
             initialPath={diffPath}
             sources={diffSources}
             onClose={() => setDiffPath(null)}
