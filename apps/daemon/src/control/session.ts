@@ -5,6 +5,7 @@ import {
   bindHarnessLaunch,
   agentStateProviderFor,
   declaredValue,
+  type DriverId,
   harnessCapabilitiesFor,
   type LaunchFile,
   manifestFor,
@@ -271,7 +272,11 @@ export function wireBridge(
  * with, so it takes the launch and leaves the binding to the frame that carries
  * an authenticated one.
  */
-export async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
+export async function launchSpawn(
+  ctx: DaemonContext,
+  msg: SpawnControl,
+  runtimeSelection: { requestedDriverId?: string } = {},
+): Promise<void> {
   try {
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
     // is known before the agent has run a single hook. Every server-side spawn funnels
@@ -423,6 +428,9 @@ export async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promis
       // sends down the legacy PTY path, for a session that has no PTY.
       ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
       ...(driverId ? { driverId } : {}),
+      ...(runtimeSelection.requestedDriverId
+        ? { requestedDriverId: runtimeSelection.requestedDriverId }
+        : {}),
     })
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)
@@ -566,8 +574,9 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
    * the whole of the "default-path sessions are byte-identical" claim on this
    * path.
    */
-  if (await launchServerDriverSession(ctx, msg)) return
-  await launchSpawn(ctx, msg)
+  const runtimeLaunch = await launchServerDriverSession(ctx, msg)
+  if (runtimeLaunch.handled) return
+  await launchSpawn(ctx, msg, runtimeLaunch)
 }
 
 /**
@@ -703,9 +712,39 @@ async function adoptServerDriverSession(
   }
 }
 
-async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl): Promise<boolean> {
+type ServerDriverLaunchResult = { handled: true } | { handled: false; requestedDriverId?: string }
+
+/**
+ * Emit the operator-facing record for the one permitted runtime-driver
+ * degradation and return the dropped preference for the bind projection.
+ * Keeping both consequences behind one guard prevents the log and read surface
+ * from disagreeing about whether a degradation happened.
+ */
+export function reportDriverPreferenceDegrade(input: {
+  sessionId: SessionId
+  agentKind: AgentKind
+  preference: string | undefined
+  resolved: DriverId
+  reason: string
+}): string | undefined {
+  const dropped = droppedDriverPreference(input)
+  if (dropped === undefined) return undefined
+  log.warn('a machine-wide runtime driver preference was not honoured', {
+    sessionId: input.sessionId,
+    preferred: dropped,
+    resolved: input.resolved,
+    agentKind: input.agentKind,
+    reason: input.reason,
+  })
+  return dropped
+}
+
+async function launchServerDriverSession(
+  ctx: DaemonContext,
+  msg: SpawnControl,
+): Promise<ServerDriverLaunchResult> {
   const requested = runtimeDriverFor(runtimeDriverByEnv(), msg.runtimeContract)
-  if (!requested) return false
+  if (!requested) return { handled: false }
   /**
    * WHAT *THIS SPAWN* SAID, as opposed to what the machine was configured to
    * prefer. `requested` has the env default folded in and cannot tell them
@@ -804,7 +843,7 @@ async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl):
       sessionId: msg.sessionId,
       message: `${requestedProbe.diagnostic.title}: ${requestedProbe.diagnostic.body}`,
     })
-    return true
+    return { handled: true }
   }
   const resolution = resolveRuntimeDriver({
     agentKind: msg.agentKind,
@@ -815,9 +854,7 @@ async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl):
     // so an explicit preference for it falls through rather than producing a
     // session that cannot start.
     available: availableDriverIds({
-      grokDrivable: isServerDriver(msg.agentKind, 'grok-acp')
-        ? grokProbe().drivable
-        : false,
+      grokDrivable: isServerDriver(msg.agentKind, 'grok-acp') ? grokProbe().drivable : false,
       opencodeDrivable: probe.drivable,
       // The SAME three-answer verdict, asked the same way. An UNSUPPORTED codex
       // legitimately drops out of this list and degrades; an UNPROBEABLE one
@@ -831,7 +868,7 @@ async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl):
   })
   if (!resolution.ok) {
     ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: resolution.reason })
-    return true
+    return { handled: true }
   }
   /**
    * THIS SPAWN NAMED A SERVER DRIVER AND DID NOT GET IT — REFUSED (POD-2113).
@@ -870,7 +907,7 @@ async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl):
       sessionId: msg.sessionId,
       message: `this spawn asked for runtime driver '${unhonoured}' and it cannot be honoured here — ${why}`,
     })
-    return true
+    return { handled: true }
   }
   if (!isServerDriver(msg.agentKind, resolution.driverId)) {
     /**
@@ -883,9 +920,8 @@ async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl):
      * terminal, and went looking had nothing to find: no error, no warning, and
      * no driver id on any read surface.
      *
-     * A log line is not a read surface and does not pretend to be one; it is the
-     * one place a degrade can be recorded without a protocol change, and it
-     * names the machine's own reason so the next step is obvious.
+     * The warning remains the machine-level operational trace and names the
+     * reason; the same guard now also supplies requested-versus-actual to bind.
      */
     // Only for a SERVER-family preference that was dropped. A terminal id
     // resolving to its sibling is not a degrade, and `true` names no driver at
@@ -893,26 +929,21 @@ async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl):
     // matters. Per-spawn server ids never reach here; they were refused above,
     // so what remains is the machine-wide default, which is exactly the value
     // that must degrade rather than refuse. The guard is a function so a test
-    // can pin it — this line is the degrade's only trace anywhere.
-    const dropped = droppedDriverPreference({
+    // pins both the warning and the bind projection.
+    const droppedProbe = probeFor(requested)
+    const requestedDriverId = reportDriverPreferenceDegrade({
+      sessionId: msg.sessionId,
+      agentKind: msg.agentKind,
       preference: requested,
       resolved: resolution.driverId,
+      reason: droppedProbe.drivable
+        ? 'the harness does not declare it'
+        : droppedProbe.diagnostic.title,
     })
-    if (dropped !== undefined) {
-      // `probeFor(dropped)` for the same reason the refusal above uses it: the
-      // only record this degrade leaves must name the binary it is about.
-      const droppedProbe = probeFor(dropped)
-      log.warn('a machine-wide runtime driver preference was not honoured', {
-        sessionId: msg.sessionId,
-        preferred: dropped,
-        resolved: resolution.driverId,
-        agentKind: msg.agentKind,
-        reason: droppedProbe.drivable
-          ? 'the harness does not declare it'
-          : droppedProbe.diagnostic.title,
-      })
+    return {
+      handled: false,
+      ...(requestedDriverId ? { requestedDriverId } : {}),
     }
-    return false
   }
   /**
    * WHICH REGISTRY, chosen by the DRIVER the resolution picked rather than by
@@ -933,7 +964,7 @@ async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl):
       sessionId: msg.sessionId,
       message: `driver '${resolution.driverId}' is not wired on this daemon`,
     })
-    return true
+    return { handled: true }
   }
   try {
     await runtime.launch({
@@ -969,7 +1000,7 @@ async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl):
       message: err instanceof Error ? err.message : String(err),
     })
   }
-  return true
+  return { handled: true }
 }
 
 // Reattach is the hot path on (re)connect: a burst of ~30 arrives at once. Each is
@@ -1084,6 +1115,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       // sends down the legacy PTY path, for a session that has no PTY.
       ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
       ...(driverId ? { driverId } : {}),
+      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
     })
     existing.redraw()
     // Re-push agent state for the same reason we re-seed the transcript below: a
@@ -1218,6 +1250,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       // sends down the legacy PTY path, for a session that has no PTY.
       ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
       ...(driverId ? { driverId } : {}),
+      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
     })
     // attachAbducoAgent nudges the PTY before the bridge is wired, so that
     // initial repaint can be lost. Nudge once more after bind to make a fresh

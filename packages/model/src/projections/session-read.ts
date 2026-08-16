@@ -73,6 +73,9 @@ export interface SessionStatusResult {
   /** Runtime driver actually bound by the daemon; null when no driver was
    * reported. */
   driverId: string | null
+  /** Machine-wide driver preference that degraded to driverId; null when the
+   * selected driver was honoured or no preference was reported. */
+  requestedDriverId: string | null
   /** SCHEMA: SessionLifecycle.status */
   status: string
   /** SCHEMA: AgentRuntimeState.phase, flattened for display. */

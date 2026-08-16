@@ -225,6 +225,9 @@ export class SessionDaemonLifecycle {
           // The resolved driver comes from the daemon's live handle binding, not
           // from the requested override. Older daemons and legacy sessions omit it.
           s.driverId = msg.driverId
+          // Present only for the permitted machine-default degradation. The
+          // reattach message echoes it so daemon reconnects preserve the fact.
+          s.requestedDriverId = msg.requestedDriverId
           this.persist(s)
           this.autoContinue.onSessionLive(s.sessionId)
         }

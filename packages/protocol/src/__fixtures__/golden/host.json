@@ -262,6 +262,10 @@
                 {
                   "kind": "claude-code",
                   "installed": true,
+                  "probeError": {
+                    "reason": "timed-out",
+                    "timeoutMs": 1
+                  },
                   "version": "machines[0].inventory.agents[0].version",
                   "path": "machines[0].inventory.agents[0].path",
                   "login": {
@@ -280,6 +284,10 @@
                 {
                   "name": "machines[0].inventory.tools[0].name",
                   "installed": true,
+                  "probeError": {
+                    "reason": "timed-out",
+                    "timeoutMs": 1
+                  },
                   "version": "machines[0].inventory.tools[0].version",
                   "path": "machines[0].inventory.tools[0].path"
                 }
@@ -302,7 +310,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"machinesChanged\",\"machines\":[{\"id\":\"machines[0].id\",\"name\":\"machines[0].name\",\"hostname\":\"machines[0].hostname\",\"online\":true,\"lastSeenAt\":\"machines[0].lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"machines[0].inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"machines[0].inventory.agents[0].version\",\"path\":\"machines[0].inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"machines[0].inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"machines[0].inventory.agents[0].login.identity.fingerprint\",\"email\":\"machines[0].inventory.agents[0].login.identity.email\",\"providerAccountId\":\"machines[0].inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"tools\":[{\"name\":\"machines[0].inventory.tools[0].name\",\"installed\":true,\"version\":\"machines[0].inventory.tools[0].version\",\"path\":\"machines[0].inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"machines[0].appVersion\",\"wireSchemaDigest\":\"machines[0].wireSchemaDigest\",\"installKind\":\"machines[0].installKind\",\"deliveryCaps\":[\"machines[0].deliveryCaps[0]\"],\"supervised\":true,\"buildReportedAt\":\"machines[0].buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"machines[0].targetVersion\",\"targetUnavailableReason\":\"machines[0].targetUnavailableReason\"}]}"
+      "encoded": "{\"type\":\"machinesChanged\",\"machines\":[{\"id\":\"machines[0].id\",\"name\":\"machines[0].name\",\"hostname\":\"machines[0].hostname\",\"online\":true,\"lastSeenAt\":\"machines[0].lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"machines[0].inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"machines[0].inventory.agents[0].version\",\"path\":\"machines[0].inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"machines[0].inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"machines[0].inventory.agents[0].login.identity.fingerprint\",\"email\":\"machines[0].inventory.agents[0].login.identity.email\",\"providerAccountId\":\"machines[0].inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"tools\":[{\"name\":\"machines[0].inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"machines[0].inventory.tools[0].version\",\"path\":\"machines[0].inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"machines[0].appVersion\",\"wireSchemaDigest\":\"machines[0].wireSchemaDigest\",\"installKind\":\"machines[0].installKind\",\"deliveryCaps\":[\"machines[0].deliveryCaps[0]\"],\"supervised\":true,\"buildReportedAt\":\"machines[0].buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"machines[0].targetVersion\",\"targetUnavailableReason\":\"machines[0].targetUnavailableReason\"}]}"
     },
     {
       "schema": "MemoryBreakdownRequestMessage",

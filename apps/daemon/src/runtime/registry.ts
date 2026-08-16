@@ -296,11 +296,9 @@ export function unhonouredSpawnDriver(input: {
  * consequences — which is the whole shape of this feature, and the reason it is
  * one function rather than two similar conditions that can drift.
  *
- * Extracted so the degrade's guard is pinned by a test (review finding 3): a
- * `log.warn` is the ONLY trace a machine-wide degrade leaves anywhere until a
- * driver id reaches a read surface (POD-2122), so a silent regression in the
- * condition that decides whether to emit it would be invisible by construction.
- * The emission itself needs a daemon and is not asserted here; the decision is.
+ * Shared by the warning and bind projection so requested-versus-actual cannot
+ * disagree with the operator log. The focused test pins the emitted record as
+ * well as the positive and negative guard decisions.
  */
 export function droppedDriverPreference(input: {
   preference: string | undefined

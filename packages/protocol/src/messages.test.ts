@@ -634,6 +634,7 @@ describe('DaemonMessage (daemon -> server)', () => {
       geometry,
       runtimeContract: true,
       driverId: 'claude-pty',
+      requestedDriverId: 'opencode-server',
     },
     {
       type: 'bind',
@@ -768,6 +769,7 @@ describe('Layer 3 reattach messages', () => {
       agentKind: 'claude-code' as const,
       cwd: '/p',
       geometry: { cols: 80, rows: 24 },
+      requestedDriverId: 'opencode-server',
     }
     expect(parseControlMessage(encode(msg))).toEqual(msg)
   })

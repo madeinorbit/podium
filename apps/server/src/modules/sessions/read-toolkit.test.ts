@@ -103,6 +103,7 @@ describe('session status (tier 1)', () => {
           contextUsagePercent: 22.3,
           accountId: 'native:claude-code',
           driverId: 'claude-pty',
+          requestedDriverId: 'opencode-server',
           draftUpdatedAt: '2026-07-17T20:00:00.000Z',
           agentState: {
             phase: 'working',
@@ -126,6 +127,7 @@ describe('session status (tier 1)', () => {
       sessionId: asSessionId('s1'),
       harness: 'claude-code',
       driverId: 'claude-pty',
+      requestedDriverId: 'opencode-server',
       phase: 'working',
       machine: 'buildbox',
       model: 'claude-opus-4-8',

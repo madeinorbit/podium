@@ -13,9 +13,11 @@ import { readFileSync, statSync } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { addSink, type LogRecord } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { reportDriverPreferenceDegrade } from '../control/session'
 import { runtimeContractEnabledFor, runtimeDriverFor } from './flag'
 import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
 import {
@@ -191,16 +193,34 @@ describe('driver resolution', () => {
     )
   })
 
-  it('pins the guard on the degrade warning, which is the degrade’s ONLY trace', () => {
+  it('pins the degrade warning and the requested-driver projection together', () => {
+    const records: LogRecord[] = []
+    const dispose = addSink({ name: 'driver-degrade-test', write: (record) => records.push(record) })
+    const requestedDriverId = reportDriverPreferenceDegrade({
+      sessionId: SESSION,
+      agentKind: 'opencode',
+      preference: 'opencode-server',
+      resolved: 'generic-pty',
+      reason: 'opencode version unsupported',
+    })
+    dispose()
+    expect(requestedDriverId).toBe('opencode-server')
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        level: 'warn',
+        msg: 'a machine-wide runtime driver preference was not honoured',
+        sessionId: SESSION,
+        preferred: 'opencode-server',
+        resolved: 'generic-pty',
+        reason: 'opencode version unsupported',
+      }),
+    )
     /**
-     * A MACHINE-WIDE PREFERENCE THAT QUIETLY BECAME A TERMINAL SESSION leaves
-     * exactly one mark anywhere in the system: a `log.warn` in the spawn path.
-     * Until a driver id reaches a read surface (POD-2122) there is nothing else
-     * for an operator to find — so a regression in the condition that decides
-     * whether to emit it would be invisible by construction, which is why the
-     * condition is a function rather than an inline `&&` (review finding 3).
+     * A machine-wide preference that becomes a terminal session must emit the
+     * warning above and return the requested id for the bind read surface. The
+     * shared guard prevents those two facts from drifting (review finding 3).
      *
-     * The EMISSION needs a daemon and is not asserted here. The DECISION is.
+     * The emission is asserted above; the remaining cases pin the guard negatives.
      */
     expect(
       droppedDriverPreference({ preference: 'opencode-server', resolved: 'generic-pty' }),

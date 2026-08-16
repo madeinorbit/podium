@@ -181,6 +181,7 @@ export class SessionReadToolkit {
       agentKind: target.agentKind,
       harness: target.agentKind,
       driverId: target.driverId ?? null,
+      requestedDriverId: target.requestedDriverId ?? null,
       status: target.status,
       phase,
       machine: target.machineName || target.machineId || null,

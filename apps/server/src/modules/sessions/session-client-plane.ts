@@ -111,6 +111,7 @@ export class SessionClientPlane {
         ? { createdAtMs: Date.parse(session.createdAt) }
         : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
+      ...(session.requestedDriverId ? { requestedDriverId: session.requestedDriverId } : {}),
     } as ControlMessage
   }
 

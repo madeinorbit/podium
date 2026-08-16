@@ -12,6 +12,7 @@ const STATUS = {
   machine: 'buildbox',
   harness: 'claude-code',
   driverId: 'claude-pty',
+  requestedDriverId: 'opencode-server',
   model: 'claude-opus-4-8',
   effort: 'high',
   contextUsagePercent: 22.3,
@@ -292,7 +293,7 @@ describe('podium session status/read (#237 read toolkit)', () => {
     expect(c.sessions.status.query).toHaveBeenCalledWith({ ref: 's1' })
     expect(out).toContain('live/working')
     expect(out).toContain(
-      'runtime: driver=claude-pty harness=claude-code model=claude-opus-4-8 effort=high context=22.3%',
+      'runtime: driver=claude-pty requested=opencode-server degraded=true harness=claude-code model=claude-opus-4-8 effort=high context=22.3%',
     )
     expect(out).toContain('placement: machine=buildbox account=native:claude-code')
     expect(out).toContain('nativeSubagentCount=2 draft=yes')

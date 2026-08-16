@@ -149,6 +149,8 @@ const SESSION_META_FULL = {
   snoozedUntil: '2026-07-30T12:00:00.000Z',
   draftUpdatedAt: '2026-07-30T09:58:00.000Z',
   draftSyncEngine: true,
+  driverId: 'generic-pty',
+  requestedDriverId: 'opencode-server',
   queuedMessageCount: 2,
   offer: SESSION_OFFER_FULL,
   handoffTarget: 'machine-2',

@@ -1680,12 +1680,12 @@
         "type": "runtimeQueueDrainAbandoned",
         "sessionId": "sessionId",
         "turnIds": ["turnIds[0]"],
-        "reason": "never-live"
+        "reason": "teardown"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"never-live\"}"
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"teardown\"}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -2789,12 +2789,12 @@
         "type": "runtimeQueueDrainAbandoned",
         "sessionId": "sessionId",
         "turnIds": ["turnIds[0]"],
-        "reason": "never-live"
+        "reason": "teardown"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"never-live\"}"
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"teardown\"}"
     },
     {
       "schema": "RuntimeMessage",

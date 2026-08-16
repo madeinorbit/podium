@@ -495,6 +495,9 @@ export const ReattachMessage = z.object({
   // Draft Sync v2 (POD-859): as SpawnMessage.draftSync — the daemon runs its
   // composer engine for this reattached session only when true.
   draftSync: z.boolean().optional(),
+  /** Prior daemon-reported machine preference that degraded for this live
+   * session. Echoed on reattach so a daemon reconnect does not erase it. */
+  requestedDriverId: z.string().min(1).optional(),
   /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
   observationGeneration: z.number().int().positive().optional(),
   /** Version of the exact provider binding carried by this lease. */
@@ -578,6 +581,9 @@ export const BindMessage = z.object({
    * either an older daemon or a legacy session with no runtime handle.
    */
   driverId: z.string().min(1).optional(),
+  /** Machine-wide driver preference that degraded to `driverId`. Present only
+   * when requested and actual differ; per-spawn preferences refuse instead. */
+  requestedDriverId: z.string().min(1).optional(),
 })
 export const AgentFrameMessage = z.object({
   type: z.literal('agentFrame'),

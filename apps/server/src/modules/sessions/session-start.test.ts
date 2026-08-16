@@ -87,6 +87,7 @@ describe('resolved runtime driver projection', () => {
       geometry: { cols: 80, rows: 24 },
       runtimeContract: true,
       driverId: 'codex-app-server',
+      requestedDriverId: 'opencode-server',
     })
 
     expect(
@@ -94,6 +95,7 @@ describe('resolved runtime driver projection', () => {
     ).toMatchObject({
       status: 'live',
       driverId: 'codex-app-server',
+      requestedDriverId: 'opencode-server',
     })
   })
 })
