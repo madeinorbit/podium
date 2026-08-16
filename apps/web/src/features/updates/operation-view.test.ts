@@ -142,12 +142,20 @@ describe('operationView — the seven states', () => {
     expect(result.cancel).toEqual({ label: 'Cancel', operationId: 'op_01j' })
   })
 
+  it('keeps saying "running" while a step is merely quiet', () => {
+    const payload = operationPayload()
+    const steps = (payload as { steps: { lastProgressAt?: number }[] }).steps
+    // A real `prepare` packs a bundle for a minute without one progress report.
+    steps[1] = { ...steps[1], lastProgressAt: NOW - (STALE_AFTER_MS - 20_000) }
+    expect(view(payload).liveness).toBe('Running for 30 s')
+  })
+
   it('says how long a step has been silent once the heartbeat goes stale', () => {
     const payload = operationPayload()
     const steps = (payload as { steps: { lastProgressAt?: number }[] }).steps
-    steps[1] = { ...steps[1], lastProgressAt: NOW - STALE_AFTER_MS - 20_000 }
+    steps[1] = { ...steps[1], lastProgressAt: NOW - 300_000 }
     const result = view(payload)
-    expect(result.liveness).toBe('No progress for 40 s')
+    expect(result.liveness).toBe('No progress for 5 min')
     // Still "animating": the engine, not the renderer, decides it has stalled.
     expect(result.indicator).toBe('animating')
   })

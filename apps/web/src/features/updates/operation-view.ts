@@ -49,11 +49,15 @@ export type UpdateSurface = 'web' | 'desktop-all-in-one' | 'desktop-remote' | 'm
 /**
  * A heartbeat older than this reads as "stopped", not as "working" (P4).
  *
- * Deliberately well under any step deadline: the point is that the USER can
- * tell a slow step from a stuck one long before the engine gives up on it, and
- * a step that is genuinely alive re-stamps `lastProgressAt` every few seconds.
+ * Well under the engine's own stall deadline — §7's `stalled` copy talks in
+ * minutes — so the user can tell a slow step from a stuck one long before the
+ * engine gives up on it. But not much under: the first drive against a live
+ * engine had `prepare` packing a bundle for a minute without a single progress
+ * report, and a twenty-second threshold called that stuck while it was plainly
+ * working. Crying wolf on every quiet build is the same failure as saying
+ * nothing — the user still cannot tell the two apart.
  */
-export const STALE_AFTER_MS = 20_000
+export const STALE_AFTER_MS = 60_000
 
 /** How long a finished panel stays up before collapsing to the indicator (§6.2.4). */
 export const DONE_COLLAPSE_MS = 6_000
@@ -442,10 +446,13 @@ function errorCopy(
         nextAction: 'Try again, or cancel.',
       }
     case 'preparation-failed':
+      // The SERVER's sentence, verbatim when it has one. §7's template — "The
+      // server couldn't prepare this update: <public reason>" — is what the
+      // server already writes, so wrapping it again produced the sentence
+      // twice in one line, which is what a real failed pack showed on the
+      // first drive against a live engine.
       return {
-        message: message
-          ? `The server couldn't prepare this update: ${message}`
-          : "The server couldn't prepare this update.",
+        message: message ?? "The server couldn't prepare this update.",
         nextAction: 'Try again once the reason above is resolved.',
       }
     // The desktop shell's half of the taxonomy (POD-2135).

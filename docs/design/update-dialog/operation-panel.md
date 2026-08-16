@@ -8,13 +8,20 @@ These replace the old dialog shots in this folder (`available-*.png`, `in-progre
 exists: three progress models, four dismiss labels, up to three co-equal primary buttons.
 
 **How they were taken, exactly.** The branch app, served by vite from source, against the
-e2e harness relay — the real component tree, the real CSS, the real status strip. The
-operation payloads were supplied at the tRPC boundary (`operations.active` /
-`operations.history`) rather than by the engine, because the server-side `update` KIND is
-POD-2098's deliverable and lands in parallel. That substitution is exactly the seam the
-design puts there: the panel is a pure function of the operation payload
-(`operation-view.ts`), and the payloads used here are the §3.1 shape verbatim. What is NOT
-demonstrated by these shots is the server producing those payloads.
+e2e harness relay — the real component tree, the real CSS, the real status strip.
+
+Two kinds of shot, and the difference matters:
+
+- **From a real engine** — the last one on this page. POD-2098's `update` kind had landed on
+  the integration branch by then, so `updates.start` created an operation, the engine drove
+  it, `prepare` failed for real, and the panel read the outcome out of `operations.history`.
+  Nothing was faked: that is a server-authored `preparation-failed` on the wire.
+- **From injected payloads** — everything above it. The harness has no update target and no
+  fleet, so an offer, a converging wave and a completion cannot happen there. Those payloads
+  were supplied at the tRPC boundary in the §3.1 shape. That substitution is exactly the seam
+  the design puts there — the panel is a pure function of the operation payload
+  (`operation-view.ts`) — but it is a substitution, and what those shots do NOT demonstrate
+  is the server producing those bytes.
 
 ---
 
@@ -98,3 +105,24 @@ bug, and for the in-progress panel that never came back.
 Idle dot for an offer, animated while running, warning on failed or stalled; the
 `aria-label` states the situation ("Update running: step 2 of 4"). Clicking it toggles the
 panel.
+
+---
+
+## The same panel, from a real engine
+
+![Failed, from a real server](operation-failed-real-server.png)
+
+No injection anywhere in this one. `updates.start` created an operation, the engine planned
+`prepare → web`, the pack failed because the harness checkout has no built web dist, and the
+panel read the outcome from `operations.history` — the path that exists because
+`operations.active` filters terminal states out.
+
+Two things this drive caught that no unit test would have:
+
+- the copy read "The server couldn't prepare this update: The server couldn't prepare this
+  update: …", because §7's template is what the SERVER already writes and the panel wrapped
+  it again. It shows the server's sentence verbatim now.
+- `prepare` packs a bundle for a minute without emitting one progress report, and a
+  twenty-second staleness threshold called that stuck while it was plainly working. The
+  threshold is sixty seconds — still far inside the engine's own stall deadline, which §7
+  measures in minutes.

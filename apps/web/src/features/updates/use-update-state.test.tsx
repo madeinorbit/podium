@@ -231,14 +231,18 @@ describe('useUpdateState — the outcome, which `active` cannot carry', () => {
   })
 
   it('does not congratulate a tab that never watched the update run', async () => {
-    setupTransport()
+    // Everything already on the target, so nothing but the completion could
+    // possibly put a panel on screen.
+    setPageVersion('0.4.2')
+    setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
     mocks.active.mockResolvedValue(null)
     mocks.history.mockResolvedValue([finished('done', Date.now() - 5_000)])
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} behind={0} />)
-    await waitFor(() => expect(results.length).toBeGreaterThan(0))
+    await waitFor(() => expect(mocks.history).toHaveBeenCalled())
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('none'))
+    expect(results.at(-1)?.view.indicator).toBe('none')
   })
 })
 
