@@ -346,6 +346,45 @@ describe('the fleet counted is the fleet the global action would grant', () => {
   })
 
   /**
+   * WHY THE READ MODEL IS PART OF THE OFFER AND NOT ONLY OF SETTINGS.
+   *
+   * Fixing `/version` alone is enough whenever the COORDINATOR is itself behind,
+   * because `serverBehind` then produces a place and the panel has something to
+   * show. This is the fleet where it is not: the coordinator is current, its
+   * website is current, and the only place left to name is other machines —
+   * which `describeUpdate` draws from `fleet.behind` alone. Dev-scoped, that
+   * count is zero on a stable fleet, `placesFor` returns nothing, and
+   * `describeUpdate` answers `{state:'none'}`: no offer, for a wave
+   * `updates.start` would plan and grant in full.
+   */
+  it('counts a behind stable machine when the coordinator itself is current', async () => {
+    const { registry, caller } = harness()
+    hostAt(registry, 'stable', '0.1.3')
+    registry.sessionStore.machines.upsertMachine({
+      id: 'stable-vps',
+      name: 'VPS',
+      hostname: 'vps',
+      tokenHash: 'vps-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
+    registry.modules.machines.setMachineBuild(
+      asMachineId('stable-vps'),
+      { appVersion: '0.1.2' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget('stable', target('0.1.3'))
+
+    const fleet = await caller.updates.fleet()
+
+    expect(fleet.total).toBe(2)
+    // The one number the panel's remaining place row is drawn from.
+    expect(fleet.behind).toBe(1)
+    registry.dispose()
+  })
+
+  /**
    * THE NARROWING THAT MUST SURVIVE. A dev coordinator still counts only its
    * dev wave: a stable machine sitting in the same directory is not the global
    * action's business, keeps its own per-row action, and must not appear as a
