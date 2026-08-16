@@ -205,23 +205,22 @@ export const grokManifest: AgentManifest = {
     return { cmd: 'grok', args: [...(model ? ['--model', model] : []), '--single', prompt] }
   }),
 
-  // TERMINAL TODAY, BUT NOT TERMINAL-BY-NATURE — and the distinction is the
-  // whole point of writing a reason. POD-2025's probe (reproduced independently
-  // on grok 0.2.118) falsified the spec's original "Grok, Cursor: terminal only"
-  // row: `grok agent stdio` speaks ACP, with real turn receipts, structured
-  // permission requests, resume, interrupt and durable cursors. So the gap here
-  // is UNFINISHED, not permanent, which is exactly what a reader of this
-  // declaration needs to know.
   runtime: {
-    server: unsupported(
-      'grok speaks ACP over stdio (`grok agent stdio`) — probe-verified on 0.2.118, so a server driver is possible; deliberately deferred behind the opencode pilot (POD-2027), and this build ships no ACP driver to name here',
-    ),
+    server: supported({
+      driverId: 'grok-acp',
+      kind: 'jsonrpc',
+      spawn: ['grok', 'agent', 'stdio'],
+      transport: 'stdio',
+      requiresPerSessionSecret: false,
+      // 0.2.23 is the first build with the complete agent operator set. The
+      // protocol shapes are fixture-pinned separately against the W7 captures.
+      versionRange: supported('>=0.2.23'),
+    }),
     embedded: unsupported('grok ships no library to host in-process'),
-    // No blocking Stop hook, so there is no causal accept signal — transcript
-    // echo is the only proof available, and `unverified` is the honest outcome
-    // when it does not arrive.
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
+    // ACP is the preferred Grok mechanism: it preserves subscription auth while
+    // providing receipts, permission asks, interrupt, resume and durable cursors.
+    select: (ctx) => selectRuntimeDriver(ctx, ['grok-acp', 'generic-pty']),
   },
   headless: supported({
     driver: 'resume-exec',

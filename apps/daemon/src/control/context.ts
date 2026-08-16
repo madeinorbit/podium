@@ -13,9 +13,10 @@ import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
+import type { DaemonCodexRuntime } from '../runtime/codex-driver'
+import type { DaemonGrokRuntime } from '../runtime/grok-driver'
 import type { OpencodeClientTerminals } from '../runtime/opencode-attach'
 import type { DaemonOpencodeRuntime } from '../runtime/opencode-driver'
-import type { DaemonCodexRuntime } from '../runtime/codex-driver'
 import type { TerminalRuntime } from '../runtime/terminal-driver'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
@@ -119,6 +120,8 @@ export interface DaemonContext {
    * call site in its own order.
    */
   codexRuntime?: DaemonCodexRuntime
+  /** Grok sessions driven over ACP stdio. */
+  grokRuntime?: DaemonGrokRuntime
   /** The machine-wide `PODIUM_RUNTIME_CONTRACT` switch, read ONCE at bootstrap.
    *  OR-ed with each session's own `runtimeContract` field — see
    *  `runtime/flag.ts` for why both exist and why neither wins. */

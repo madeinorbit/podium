@@ -61,11 +61,16 @@ export * from './attach.js'
 export * from './binding.js'
 export * from './capabilities.js'
 export * from './driver.js'
-/** The terminal family's app-independent half (POD-1761 W3): the receipt state
- *  machine, the capability declaration, the exemption table, the envelope
- *  assembly. The concrete `RuntimeDriver` lives in `apps/daemon/src/runtime`,
- *  because it is composed of daemon internals this layer may not import. */
-export * from './drivers/terminal/index.js'
+/** The codex app-server driver, WHOLE (POD-1761 W6). Same split as the opencode
+ *  driver: everything here is JSON-RPC and bookkeeping, and the one thing a
+ *  package may not do — spawn `codex app-server` and write its binding journal —
+ *  lives in `apps/daemon/src/runtime/codex-app-server.ts`, reached through
+ *  `CodexRuntimeHost`. */
+export * from './drivers/codex/index.js'
+/** Grok's ACP stdio driver. Process ownership and its durable binding journal
+ * stay in the daemon; the live protocol, receipts, permissions and reducer
+ * integration live in this package. */
+export * from './drivers/grok-acp/index.js'
 /** The opencode server driver, WHOLE (POD-1761 W5). Unlike the terminal family,
  *  whose concrete driver had to live in the daemon because it is composed of
  *  daemon internals, this one is composed of HTTP and SSE and so lives here in
@@ -73,12 +78,11 @@ export * from './drivers/terminal/index.js'
  *  part a package may not do: spawn a child under a systemd scope and write its
  *  binding journal — reached through `OpencodeRuntimeHost`. */
 export * from './drivers/opencode/index.js'
-/** The codex app-server driver, WHOLE (POD-1761 W6). Same split as the opencode
- *  driver: everything here is JSON-RPC and bookkeeping, and the one thing a
- *  package may not do — spawn `codex app-server` and write its binding journal —
- *  lives in `apps/daemon/src/runtime/codex-app-server.ts`, reached through
- *  `CodexRuntimeHost`. */
-export * from './drivers/codex/index.js'
+/** The terminal family's app-independent half (POD-1761 W3): the receipt state
+ *  machine, the capability declaration, the exemption table, the envelope
+ *  assembly. The concrete `RuntimeDriver` lives in `apps/daemon/src/runtime`,
+ *  because it is composed of daemon internals this layer may not import. */
+export * from './drivers/terminal/index.js'
 export * from './errors.js'
 export * from './events.js'
 export * from './families.js'

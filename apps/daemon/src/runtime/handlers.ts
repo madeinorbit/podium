@@ -42,7 +42,8 @@ function handleFor(ctx: DaemonContext, sessionId: SessionId): AgentSessionHandle
   return (
     ctx.runtime?.handleFor(sessionId) ??
     ctx.opencodeRuntime?.handleFor(sessionId) ??
-    ctx.codexRuntime?.handleFor(sessionId)
+    ctx.codexRuntime?.handleFor(sessionId) ??
+    ctx.grokRuntime?.handleFor(sessionId)
   )
 }
 
@@ -60,7 +61,8 @@ export function sessionIsBehindContract(ctx: DaemonContext, sessionId: SessionId
   return (
     ctx.runtime?.has(sessionId) === true ||
     ctx.opencodeRuntime?.has(sessionId) === true ||
-    ctx.codexRuntime?.has(sessionId) === true
+    ctx.codexRuntime?.has(sessionId) === true ||
+    ctx.grokRuntime?.has(sessionId) === true
   )
 }
 
@@ -230,7 +232,13 @@ export const runtimeHandlers: Pick<
       // directional constraint the runtime family's header explains — so the
       // contract value is WIDER than the schema's inferred type in exactly that
       // one field and identical everywhere else.
-      .then((snapshot) => answer({ snapshot: snapshot as RuntimeSnapshotResultMessage['result'] extends { snapshot: infer S } ? S : never }))
+      .then((snapshot) =>
+        answer({
+          snapshot: snapshot as RuntimeSnapshotResultMessage['result'] extends { snapshot: infer S }
+            ? S
+            : never,
+        }),
+      )
       .catch(() => answer({ reason: 'not_running' }))
   },
 }

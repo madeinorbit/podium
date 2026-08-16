@@ -1,0 +1,1351 @@
+/**
+ * Grok as a real server-family session over `grok agent stdio` (ACP).
+ *
+ * The child is process-per-session and its inherited pipes are the complete
+ * transport: no port, socket, rendezvous file or correlation secret exists.
+ * The daemon owns process launch and native-file export through the host port;
+ * this package owns protocol, receipts, permissions, observation and resume.
+ */
+import {
+  type AgentStateEvent,
+  initialAgentState,
+  reduceAgentState,
+  translateGrokUpdatePayload,
+} from '@podium/harness'
+import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
+import type {
+  ArchiveFile,
+  ProcessIdentity,
+  SessionArchive,
+  SessionBinding,
+  SessionSnapshot,
+} from '../../binding.js'
+import type { ConfigureRequest, SessionHealth, UsageSnapshot } from '../../capabilities.js'
+import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
+import type { EventStreamStart, RuntimeEvent, RuntimeEventBody, WatchLevel } from '../../events.js'
+import type {
+  InteractionAnswerOutcome,
+  PendingInteraction,
+  PermissionAnswer,
+} from '../../interactions.js'
+import type { SessionSpec } from '../../session-spec.js'
+import type {
+  AnswerOptions,
+  AttachmentRef,
+  Refusal,
+  SendOptions,
+  TurnInput,
+  TurnReceipt,
+} from '../../turns.js'
+import { stampRuntimeEvent } from '../terminal/envelope.js'
+import { grokAcpCapabilities } from './capabilities.js'
+import {
+  createGrokAcpClient,
+  type GrokAcpClient,
+  type GrokAcpClientConfig,
+  type GrokAcpServerRequest,
+} from './client.js'
+import {
+  asPermissionAnswer,
+  type GrokPermissionAsk,
+  grokPermissionAction,
+  grokPermissionAsk,
+} from './map.js'
+import {
+  GROK_ACP_METHODS,
+  type GrokAcpFrame,
+  GrokAcpPermissionRequest,
+  type GrokAcpPromptResult,
+  GrokAcpPromptResult as GrokAcpPromptResultSchema,
+  GrokAcpSessionResult,
+  grokAcpEventOrdinal,
+  parseGrokAcpSessionUpdate,
+} from './protocol.js'
+
+export const GROK_ACP_DRIVER_ID = 'grok-acp'
+export const GROK_ACP_EVENT_LOG_LIMIT = 512
+const WHEN_READY_TIMEOUT_MS = 10 * 60_000
+
+export interface GrokAcpEndpoint {
+  transport: GrokAcpClientConfig['transport']
+  process: ProcessIdentity
+  stop(): Promise<void>
+  kill(): Promise<void>
+  memoryBytes(): number | undefined
+  alive(): boolean
+}
+
+export interface GrokAcpRuntimeHost {
+  launch(input: {
+    sessionId: SessionId
+    workdir: string
+    env?: Readonly<Record<string, string>>
+  }): Promise<GrokAcpEndpoint>
+  readArchive?(input: {
+    sessionId: SessionId
+    grokSessionId: string
+    workdir: string
+  }): Promise<readonly ArchiveFile[] | undefined>
+  attachClient?(input: {
+    sessionId: SessionId
+    grokSessionId: string
+    mode: AttachRequest['mode']
+  }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
+  journal: GrokAcpJournal
+  now(): number
+  mintSessionId(): SessionId
+  makeClient?(config: GrokAcpClientConfig): GrokAcpClient
+}
+
+export interface GrokAcpJournalEntry {
+  sessionId: SessionId
+  grokSessionId: string
+  workdir: string
+  process: ProcessIdentity
+  providerEventSeq: number
+  seq: number
+  turnEpoch: number
+  bindingVersion: number
+}
+
+export interface GrokAcpJournal {
+  read(sessionId: SessionId): GrokAcpJournalEntry | undefined
+  write(entry: GrokAcpJournalEntry): void
+  clear(sessionId: SessionId): void
+}
+
+interface QueuedTurn {
+  input: TurnInput
+  options: SendOptions
+}
+
+interface DriverSession {
+  sessionId: SessionId
+  spec: SessionSpec
+  endpoint: GrokAcpEndpoint
+  client: GrokAcpClient
+  grokSessionId: string
+  binding: SessionBinding
+  observerGeneration: number
+  turnEpoch: number
+  openTurnEpoch: number | undefined
+  providerEventSeq: number
+  lastEventId: string | undefined
+  seq: number
+  busy: boolean
+  interruptPending: boolean
+  loading: boolean
+  interactions: Map<string, GrokPermissionAsk>
+  answered: Set<string>
+  queue: QueuedTurn[]
+  lease: SessionLease | null
+  draft: string
+  watchers: { coarse: number; fine: number }
+  log: { seq: number; event: RuntimeEvent }[]
+  wakers: Set<() => void>
+  idleWaiters: Set<() => void>
+  state: AgentRuntimeState
+  transcriptItems: TranscriptItem[]
+  transcriptIds: Set<string>
+  userBuffer: { id: string; text: string; at: string } | undefined
+  assistantBuffer: { id: string; text: string; at: string } | undefined
+  ignoreUserEcho: string | undefined
+  usage: UsageSnapshot
+  disposed: boolean
+  ingestChain: Promise<void>
+}
+
+export interface GrokAcpRuntime {
+  driver: RuntimeDriver
+  createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
+  handleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  has(sessionId: SessionId): boolean
+  readonly journal: GrokAcpJournal
+  forget(sessionId: SessionId): void
+  dispose(): void
+}
+
+interface BufferedConnection {
+  client: GrokAcpClient
+  bind(handlers: {
+    notification(frame: GrokAcpFrame): void
+    request(request: GrokAcpServerRequest): void
+    closed(): void
+  }): void
+}
+
+export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
+  const sessions = new Map<SessionId, DriverSession>()
+  const handles = new Map<SessionId, AgentSessionHandle>()
+  const capabilities = grokAcpCapabilities()
+  const iso = (ms?: number): string => new Date(ms ?? host.now()).toISOString()
+
+  const cursorFor = (session: DriverSession): ProviderCursor => ({
+    segmentId: session.grokSessionId || session.binding.process.key,
+    ...(session.lastEventId ? { pathHint: session.lastEventId } : {}),
+    components: { event: session.providerEventSeq, seq: session.seq },
+  })
+
+  const persist = (session: DriverSession): void => {
+    host.journal.write({
+      sessionId: session.sessionId,
+      grokSessionId: session.grokSessionId,
+      workdir: session.spec.workdir,
+      process: session.binding.process,
+      providerEventSeq: session.providerEventSeq,
+      seq: session.seq,
+      turnEpoch: session.turnEpoch,
+      bindingVersion: session.binding.bindingVersion,
+    })
+  }
+
+  function emit(
+    session: DriverSession,
+    body: RuntimeEventBody,
+    at: string,
+    provenance: ObservationProvenance = 'live',
+    native?: { eventId?: string; ordinal?: number },
+  ): void {
+    if (session.disposed) return
+    if (native?.ordinal !== undefined) {
+      session.providerEventSeq = Math.max(session.providerEventSeq, native.ordinal)
+    }
+    if (native?.eventId) session.lastEventId = native.eventId
+    session.seq += 1
+    const event = stampRuntimeEvent(body, at, provenance, {
+      cursor: cursorFor(session),
+      observerGeneration: session.observerGeneration,
+      turnEpoch: session.turnEpoch,
+    })
+    session.log.push({ seq: session.seq, event })
+    if (session.log.length > GROK_ACP_EVENT_LOG_LIMIT) {
+      session.log.splice(0, session.log.length - GROK_ACP_EVENT_LOG_LIMIT)
+    }
+    for (const wake of [...session.wakers]) wake()
+    persist(session)
+  }
+
+  function foldState(
+    session: DriverSession,
+    change: AgentStateEvent,
+    at: string,
+    provenance: ObservationProvenance,
+    native?: { eventId?: string; ordinal?: number },
+  ): void {
+    const next = reduceAgentState(session.state, change, at)
+    if (next === session.state) return
+    session.state = next
+    emit(session, { t: 'state', change }, at, provenance, native)
+  }
+
+  function addItem(
+    session: DriverSession,
+    item: TranscriptItem,
+    at: string,
+    provenance: ObservationProvenance,
+    native?: { eventId?: string; ordinal?: number },
+  ): void {
+    if (session.transcriptIds.has(item.id)) {
+      const index = session.transcriptItems.findIndex((candidate) => candidate.id === item.id)
+      if (index >= 0) session.transcriptItems[index] = item
+    } else {
+      session.transcriptIds.add(item.id)
+      session.transcriptItems.push(item)
+    }
+    emit(session, { t: 'item', item: { kind: 'complete', item } }, at, provenance, native)
+  }
+
+  function flushUser(
+    session: DriverSession,
+    provenance: ObservationProvenance,
+    native?: { eventId?: string; ordinal?: number },
+  ): void {
+    const buffer = session.userBuffer
+    if (!buffer) return
+    session.userBuffer = undefined
+    const text = buffer.text.trim()
+    if (!text) return
+    if (session.ignoreUserEcho && text === session.ignoreUserEcho.trim()) {
+      session.ignoreUserEcho = undefined
+      return
+    }
+    addItem(
+      session,
+      { id: buffer.id, role: 'user', text, ts: buffer.at },
+      buffer.at,
+      provenance,
+      native,
+    )
+  }
+
+  function flushAssistant(
+    session: DriverSession,
+    provenance: ObservationProvenance,
+    native?: { eventId?: string; ordinal?: number },
+  ): void {
+    const buffer = session.assistantBuffer
+    if (!buffer) return
+    session.assistantBuffer = undefined
+    const text = buffer.text.trim()
+    if (!text) return
+    addItem(
+      session,
+      { id: buffer.id, role: 'assistant', text, ts: buffer.at },
+      buffer.at,
+      provenance,
+      native,
+    )
+  }
+
+  const record = (value: unknown): Record<string, unknown> | undefined =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined
+
+  function contentText(value: unknown): string {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value)) return value.map(contentText).filter(Boolean).join('')
+    const object = record(value)
+    if (!object) return ''
+    for (const key of ['text', 'content', 'delta', 'chunk']) {
+      const text = contentText(object[key])
+      if (text) return text
+    }
+    return ''
+  }
+
+  function updateText(update: Record<string, unknown>): string {
+    for (const key of ['content', 'text', 'delta', 'chunk']) {
+      const text = contentText(update[key])
+      if (text) return text
+    }
+    return ''
+  }
+
+  function ingestTranscriptUpdate(
+    session: DriverSession,
+    update: Record<string, unknown>,
+    at: string,
+    provenance: ObservationProvenance,
+    native: { eventId?: string; ordinal?: number },
+  ): void {
+    const kind = typeof update.sessionUpdate === 'string' ? update.sessionUpdate : ''
+    switch (kind) {
+      case 'user_message_chunk': {
+        const text = updateText(update)
+        if (!text) return
+        const current = session.userBuffer
+        if (current) current.text += text
+        else {
+          session.userBuffer = {
+            id: `grok-user-${native.eventId ?? session.seq + 1}`,
+            text,
+            at,
+          }
+        }
+        return
+      }
+      case 'agent_message_chunk': {
+        flushUser(session, provenance, native)
+        const text = updateText(update)
+        if (!text) return
+        const current = session.assistantBuffer
+        if (current) current.text += text
+        else {
+          session.assistantBuffer = {
+            id: `grok-assistant-${native.eventId ?? session.seq + 1}`,
+            text,
+            at,
+          }
+        }
+        const buffer = session.assistantBuffer
+        if (!buffer) return
+        if (session.watchers.fine > 0) {
+          emit(
+            session,
+            {
+              t: 'item',
+              item: {
+                kind: 'delta',
+                itemId: buffer.id,
+                textDelta: text,
+              },
+            },
+            at,
+            provenance,
+            native,
+          )
+        }
+        return
+      }
+      case 'tool_call': {
+        flushUser(session, provenance, native)
+        flushAssistant(session, provenance, native)
+        const id =
+          (typeof update.toolCallId === 'string' && update.toolCallId) ||
+          (typeof update.tool_call_id === 'string' && update.tool_call_id) ||
+          `grok-tool-${native.eventId ?? session.seq + 1}`
+        const title = typeof update.title === 'string' ? update.title : undefined
+        const kindName =
+          (typeof update.kind === 'string' && update.kind) ||
+          (typeof update.name === 'string' && update.name) ||
+          'tool'
+        const rawInput = update.rawInput ?? update.raw_input ?? update.input
+        let toolInput: string | undefined
+        try {
+          toolInput = rawInput === undefined ? title : JSON.stringify(rawInput)
+        } catch {
+          toolInput = title
+        }
+        addItem(
+          session,
+          {
+            id,
+            role: 'tool',
+            text: '',
+            ts: at,
+            toolName: kindName,
+            ...(toolInput ? { toolInput } : {}),
+            ...(title ? { toolTitle: title } : {}),
+            toolUseId: id,
+          },
+          at,
+          provenance,
+          native,
+        )
+        return
+      }
+      case 'response_completed':
+      case 'turn_completed':
+        flushUser(session, provenance, native)
+        flushAssistant(session, provenance, native)
+        return
+      default:
+        return
+    }
+  }
+
+  function ingestNotification(
+    session: DriverSession,
+    frame: GrokAcpFrame,
+    provenance: ObservationProvenance,
+  ): void {
+    const notification = parseGrokAcpSessionUpdate(frame)
+    if (!notification || notification.params.sessionId !== session.grokSessionId) return
+    const eventId = notification.params._meta?.eventId
+    const ordinal = grokAcpEventOrdinal(eventId)
+    // Every event Podium treats as causal must carry the provider cursor. The
+    // W7 probe found uncursored `_x.ai/*` side channels; they stay side channels.
+    if (ordinal === undefined) return
+    const at = iso(notification.params._meta?.agentTimestampMs)
+    const native = { ...(eventId ? { eventId } : {}), ordinal }
+    ingestTranscriptUpdate(session, notification.params.update, at, provenance, native)
+    const payload = {
+      ...frame,
+      timestamp: at,
+    }
+    session.ingestChain = session.ingestChain.then(async () => {
+      const changes = await translateGrokUpdatePayload(payload, { classifyIdleVerdict: false })
+      for (const change of changes) foldState(session, change, change.at ?? at, provenance, native)
+    })
+  }
+
+  function answeredBy(options?: AnswerOptions): 'policy' | 'superagent' | 'human' {
+    return options?.principal?.kind === 'system'
+      ? 'policy'
+      : options?.principal?.kind === 'agent'
+        ? 'superagent'
+        : 'human'
+  }
+
+  function closeAsk(
+    session: DriverSession,
+    id: string,
+    at: string,
+    by: 'policy' | 'superagent' | 'human',
+  ): void {
+    if (!session.interactions.delete(id)) return
+    emit(session, { t: 'interaction', ev: { ev: 'answered', id, answeredBy: by, at } }, at)
+    foldState(session, { kind: session.busy ? 'activity' : 'turn_completed' }, at, 'live')
+    if (!session.busy) void drainQueue(session)
+  }
+
+  function expireAsk(session: DriverSession, id: string, at: string): void {
+    if (!session.interactions.delete(id)) return
+    emit(session, { t: 'interaction', ev: { ev: 'expired', id, at } }, at)
+  }
+
+  function ingestServerRequest(session: DriverSession, request: GrokAcpServerRequest): void {
+    if (request.method !== GROK_ACP_METHODS.requestPermission) {
+      // fs/read_text_file cannot legitimately arrive because initialize
+      // declares it false. Still answer every request so a vendor regression
+      // becomes an error instead of a deadlocked turn.
+      session.client.respondError(
+        request.id,
+        -32601,
+        `Podium does not implement '${request.method}'`,
+      )
+      return
+    }
+    const parsed = GrokAcpPermissionRequest.safeParse(request.params)
+    if (!parsed.success || parsed.data.sessionId !== session.grokSessionId) {
+      session.client.respondError(request.id, -32602, 'invalid Grok permission request')
+      return
+    }
+    const at = iso()
+    const ask = grokPermissionAsk({
+      requestId: request.id,
+      request: parsed.data,
+      podiumSessionId: session.sessionId,
+      at,
+    })
+    session.interactions.set(ask.interaction.id, ask)
+    emit(session, { t: 'interaction', ev: { ev: 'asked', interaction: ask.interaction } }, at)
+    const payload = ask.interaction.payload
+    if ('toolName' in payload) {
+      foldState(
+        session,
+        {
+          kind: 'needs_user',
+          need: 'permission',
+          summary: payload.inputSummary,
+          ask: {
+            toolName: payload.toolName,
+            ...(payload.inputSummary ? { detail: payload.inputSummary } : {}),
+            canAlwaysAllow: payload.canAlwaysAllow,
+          },
+        },
+        at,
+        'live',
+      )
+    }
+  }
+
+  function connect(endpoint: GrokAcpEndpoint): BufferedConnection {
+    const notifications: GrokAcpFrame[] = []
+    const requests: GrokAcpServerRequest[] = []
+    let sawClose = false
+    let handlers:
+      | {
+          notification(frame: GrokAcpFrame): void
+          request(request: GrokAcpServerRequest): void
+          closed(): void
+        }
+      | undefined
+    const make = host.makeClient ?? createGrokAcpClient
+    const client = make({
+      transport: endpoint.transport,
+      onNotification(frame) {
+        if (handlers) handlers.notification(frame)
+        else notifications.push(frame)
+      },
+      onServerRequest(request) {
+        if (handlers) handlers.request(request)
+        else requests.push(request)
+      },
+      onClose() {
+        if (handlers) handlers.closed()
+        else sawClose = true
+      },
+    })
+    return {
+      client,
+      bind(next) {
+        handlers = next
+        for (const frame of notifications.splice(0)) next.notification(frame)
+        for (const request of requests.splice(0)) next.request(request)
+        if (sawClose) next.closed()
+      },
+    }
+  }
+
+  function attachSession(input: {
+    sessionId: SessionId
+    spec: SessionSpec
+    endpoint: GrokAcpEndpoint
+    connection: BufferedConnection
+    grokSessionId: string
+    bindingVersion: number
+    observerGeneration: number
+    providerEventSeq?: number
+    seq?: number
+    turnEpoch?: number
+  }): AgentSessionHandle {
+    const now = iso()
+    const state = reduceAgentState(initialAgentState(now), { kind: 'session_started' }, now)
+    const session: DriverSession = {
+      sessionId: input.sessionId,
+      spec: input.spec,
+      endpoint: input.endpoint,
+      client: input.connection.client,
+      grokSessionId: input.grokSessionId,
+      binding: {
+        sessionId: input.sessionId,
+        driver: GROK_ACP_DRIVER_ID,
+        family: 'server',
+        harness: 'grok',
+        workdir: input.spec.workdir,
+        resume: { kind: 'grok-session', value: input.grokSessionId },
+        process: input.endpoint.process,
+        bindingVersion: input.bindingVersion,
+      },
+      observerGeneration: input.observerGeneration,
+      turnEpoch: input.turnEpoch ?? 0,
+      openTurnEpoch: undefined,
+      providerEventSeq: input.providerEventSeq ?? 0,
+      lastEventId: undefined,
+      seq: input.seq ?? 0,
+      busy: false,
+      interruptPending: false,
+      loading: false,
+      interactions: new Map(),
+      answered: new Set(),
+      queue: [],
+      lease: null,
+      draft: '',
+      watchers: { coarse: 0, fine: 0 },
+      log: [],
+      wakers: new Set(),
+      idleWaiters: new Set(),
+      state,
+      transcriptItems: [],
+      transcriptIds: new Set(),
+      userBuffer: undefined,
+      assistantBuffer: undefined,
+      ignoreUserEcho: undefined,
+      usage: {},
+      disposed: false,
+      ingestChain: Promise.resolve(),
+    }
+    sessions.set(input.sessionId, session)
+    const handle = buildHandle(session)
+    handles.set(input.sessionId, handle)
+    input.connection.bind({
+      notification(frame) {
+        ingestNotification(session, frame, session.loading ? 'replay' : 'live')
+      },
+      request(request) {
+        ingestServerRequest(session, request)
+      },
+      closed() {
+        if (session.disposed) return
+        const at = iso()
+        emit(
+          session,
+          {
+            t: 'process',
+            ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
+          },
+          at,
+        )
+        foldState(session, { kind: 'session_ended' }, at, 'live')
+      },
+    })
+    persist(session)
+    return handle
+  }
+
+  function wakeIdle(session: DriverSession): void {
+    for (const resolve of [...session.idleWaiters]) resolve()
+    session.idleWaiters.clear()
+  }
+
+  async function waitForIdle(session: DriverSession): Promise<boolean> {
+    if (!session.busy) return true
+    return new Promise<boolean>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer)
+        session.idleWaiters.delete(done)
+        resolve(!session.busy)
+      }
+      const timer = setTimeout(done, WHEN_READY_TIMEOUT_MS)
+      if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+      session.idleWaiters.add(done)
+    })
+  }
+
+  function promptFailure(result: GrokAcpPromptResult): {
+    reason: 'provider-error' | 'interrupted'
+    disposition: 'retryable' | 'fatal'
+  } | null {
+    if (result.stopReason === 'end_turn') return null
+    if (result.stopReason === 'cancelled')
+      return { reason: 'interrupted', disposition: 'retryable' }
+    return {
+      reason: 'provider-error',
+      disposition: result.stopReason === 'max_tokens' ? 'retryable' : 'fatal',
+    }
+  }
+
+  function updateUsage(session: DriverSession, result: GrokAcpPromptResult): void {
+    const usage = result._meta?.usage
+    if (!usage) return
+    session.usage = {
+      ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+      ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+      ...(usage.costUsdTicks !== undefined ? { costUsd: usage.costUsdTicks / 10_000_000_000 } : {}),
+    }
+  }
+
+  function finishPrompt(
+    session: DriverSession,
+    epoch: number,
+    result: GrokAcpPromptResult | undefined,
+    error?: unknown,
+  ): void {
+    if (session.disposed || session.openTurnEpoch !== epoch) return
+    const at = iso()
+    flushUser(session, 'live')
+    flushAssistant(session, 'live')
+    session.busy = false
+    session.openTurnEpoch = undefined
+    session.interruptPending = false
+    if (result) updateUsage(session, result)
+    const failure = result
+      ? promptFailure(result)
+      : { reason: 'provider-error' as const, disposition: 'retryable' as const }
+    if (!failure) {
+      emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' } }, at)
+      foldState(session, { kind: 'turn_completed' }, at, 'live')
+    } else {
+      emit(
+        session,
+        {
+          t: 'turn',
+          ev: {
+            ev: 'failed',
+            turnEpoch: epoch,
+            reason: failure.reason,
+            disposition: failure.disposition,
+            detail: result?.stopReason ?? String(error),
+          },
+        },
+        at,
+      )
+      foldState(
+        session,
+        failure.reason === 'interrupted'
+          ? { kind: 'turn_completed', verdict: { kind: 'interrupted' } }
+          : {
+              kind: 'turn_failed',
+              errorClass: result?.stopReason ?? 'provider_error',
+              retryable: failure.disposition === 'retryable',
+            },
+        at,
+        'live',
+      )
+    }
+    wakeIdle(session)
+    void drainQueue(session)
+  }
+
+  function startPrompt(
+    session: DriverSession,
+    input: TurnInput,
+    options: SendOptions,
+    deliveredAs: 'when-ready' | 'queue' | 'interrupt',
+  ): TurnReceipt {
+    const at = iso()
+    const promise = session.client.call<unknown>(GROK_ACP_METHODS.sessionPrompt, {
+      sessionId: session.grokSessionId,
+      prompt: [{ type: 'text', text: input.text }],
+    })
+    session.turnEpoch += 1
+    const epoch = session.turnEpoch
+    session.openTurnEpoch = epoch
+    session.busy = true
+    session.ignoreUserEcho = input.text
+    addItem(
+      session,
+      { id: `grok-user-turn-${epoch}`, role: 'user', text: input.text, ts: at },
+      at,
+      'live',
+    )
+    foldState(session, { kind: 'prompt_submitted' }, at, 'live')
+    emit(
+      session,
+      { t: 'turn', ev: { ev: 'started', turnEpoch: epoch, origin: options.origin } },
+      at,
+    )
+    void promise.then(
+      (raw) => finishPrompt(session, epoch, GrokAcpPromptResultSchema.parse(raw)),
+      (error) => finishPrompt(session, epoch, undefined, error),
+    )
+    return {
+      outcome: 'accepted',
+      turnEpoch: epoch,
+      deliveredAs,
+      provenBy: 'protocol-ack',
+      at,
+    }
+  }
+
+  async function drainQueue(session: DriverSession): Promise<void> {
+    if (
+      session.disposed ||
+      session.busy ||
+      session.interactions.size > 0 ||
+      session.queue.length === 0
+    ) {
+      return
+    }
+    if (session.lease?.kind === 'human-controller') return
+    const queued = session.queue.shift()
+    if (!queued) return
+    startPrompt(session, queued.input, queued.options, 'queue')
+  }
+
+  function buildHandle(session: DriverSession): AgentSessionHandle {
+    const refused = (reason: Refusal['reason'], detail?: string): TurnReceipt => ({
+      outcome: 'refused',
+      refusal: { reason, ...(detail ? { detail } : {}) },
+    })
+
+    return {
+      get binding() {
+        return session.binding
+      },
+
+      async stop() {
+        session.disposed = true
+        session.client.close()
+        await session.endpoint.stop()
+        sessions.delete(session.sessionId)
+        handles.delete(session.sessionId)
+        wakeIdle(session)
+      },
+
+      async hibernate() {
+        if (!session.binding.resume) return { reason: 'no_resume_ref' as const }
+        session.disposed = true
+        session.client.close()
+        await session.endpoint.stop()
+        sessions.delete(session.sessionId)
+        handles.delete(session.sessionId)
+        wakeIdle(session)
+        return { ok: true as const }
+      },
+
+      async kill() {
+        session.disposed = true
+        session.client.close()
+        await session.endpoint.kill()
+        host.journal.clear(session.sessionId)
+        sessions.delete(session.sessionId)
+        handles.delete(session.sessionId)
+        wakeIdle(session)
+      },
+
+      async health(): Promise<SessionHealth> {
+        const bytes = session.endpoint.memoryBytes()
+        return {
+          alive: session.endpoint.alive(),
+          ...(bytes !== undefined ? { memoryBytes: bytes } : {}),
+          ...(session.binding.process.scopeUnit
+            ? { scopeUnit: session.binding.process.scopeUnit }
+            : {}),
+          oomEvents: 0,
+        }
+      },
+
+      async snapshot(): Promise<SessionSnapshot> {
+        return {
+          binding: session.binding,
+          state: session.state,
+          cursor: cursorFor(session),
+          observerGeneration: session.observerGeneration,
+          turnEpoch: session.turnEpoch,
+          interactions: [...session.interactions.values()].map((ask) => ask.interaction),
+          ...(session.draft ? { draft: session.draft } : {}),
+          at: iso(),
+        }
+      },
+
+      async export(): Promise<SessionArchive> {
+        const files = await host.readArchive?.({
+          sessionId: session.sessionId,
+          grokSessionId: session.grokSessionId,
+          workdir: session.spec.workdir,
+        })
+        if (!files) throw new Error('Grok native session files are unavailable for export')
+        const resume: ResumeRef = { kind: 'grok-session', value: session.grokSessionId }
+        return {
+          harness: 'grok',
+          formatVersion: 1,
+          resume,
+          files,
+          binding: {
+            sessionId: session.sessionId,
+            driver: GROK_ACP_DRIVER_ID,
+            family: 'server',
+            harness: 'grok',
+            workdir: session.spec.workdir,
+            resume,
+            ...(session.binding.principal ? { principal: session.binding.principal } : {}),
+          },
+        }
+      },
+
+      async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        if (session.disposed || !session.endpoint.alive()) return refused('not_running')
+        if (session.interactions.size > 0) return refused('needs_user')
+        if (!input.text.trim()) return refused('unsupported', 'Grok ACP requires a text prompt')
+        if (input.attachments?.length) {
+          return refused('unsupported', 'Grok ACP attachment mapping is not implemented')
+        }
+        const deliveredAs = options.delivery === 'steer' ? 'queue' : options.delivery
+        if (session.lease?.kind === 'human-controller') {
+          session.queue.push({ input, options })
+          return {
+            outcome: 'queued',
+            position: session.queue.length,
+            deliveredAs: 'queue',
+            at: iso(),
+          }
+        }
+        if (session.busy) {
+          if (options.delivery === 'interrupt') {
+            await this.interrupt()
+            if (!(await waitForIdle(session)))
+              return refused('busy', 'Grok did not confirm cancellation')
+            return startPrompt(session, input, options, 'interrupt')
+          }
+          if (options.delivery === 'when-ready') {
+            if (!(await waitForIdle(session))) return refused('busy', 'Grok turn did not finish')
+            if (session.interactions.size > 0) return refused('needs_user')
+            return startPrompt(session, input, options, 'when-ready')
+          }
+          session.queue.push({ input, options })
+          return {
+            outcome: 'queued',
+            position: session.queue.length,
+            deliveredAs: 'queue',
+            at: iso(),
+          }
+        }
+        return startPrompt(session, input, options, deliveredAs)
+      },
+
+      async stageAttachment(_source: {
+        bytes: Uint8Array
+        filename: string
+      }): Promise<AttachmentRef> {
+        throw new Error('grok-acp does not stage attachments: ACP file blocks are not negotiated')
+      },
+
+      async interrupt() {
+        if (!session.busy || session.disposed) return
+        session.interruptPending = true
+        for (const [id, ask] of [...session.interactions]) {
+          session.client.respond(ask.requestId, { outcome: { outcome: 'cancelled' } })
+          expireAsk(session, id, iso())
+        }
+        // ACP defines session/cancel as a notification. The pending
+        // session/prompt response carrying stopReason=cancelled is the fence.
+        session.client.notify(GROK_ACP_METHODS.sessionCancel, {
+          sessionId: session.grokSessionId,
+        })
+      },
+
+      async answer(
+        interactionId: string,
+        answer: unknown,
+        options?: AnswerOptions,
+      ): Promise<InteractionAnswerOutcome> {
+        if (session.answered.has(interactionId)) {
+          return { ok: false, reason: 'already-answered' }
+        }
+        const ask = session.interactions.get(interactionId)
+        if (!ask) return { ok: false, reason: 'unknown-interaction' }
+        if (
+          typeof answer === 'object' &&
+          answer !== null &&
+          'index' in answer &&
+          typeof answer.index === 'number'
+        ) {
+          const option = ask.request.options[answer.index]
+          if (!option) {
+            return {
+              ok: false,
+              reason: 'not-yet-supported',
+              detail: 'permission option index is unavailable',
+            }
+          }
+          try {
+            session.client.respond(ask.requestId, {
+              outcome: { outcome: 'selected', optionId: option.optionId },
+            })
+          } catch (error) {
+            return { ok: false, reason: 'delivery-failed', detail: String(error) }
+          }
+          session.answered.add(interactionId)
+          closeAsk(session, interactionId, iso(), answeredBy(options))
+          return { ok: true }
+        }
+        const normalized: PermissionAnswer | undefined =
+          asPermissionAnswer(answer) ??
+          (typeof answer === 'object' && answer !== null && 'decision' in answer
+            ? {
+                kind: 'permission',
+                decision:
+                  answer.decision === 'allow' || answer.decision === 'once'
+                    ? 'allow-once'
+                    : answer.decision === 'always'
+                      ? 'allow-always'
+                      : answer.decision === 'deny' || answer.decision === 'reject'
+                        ? 'deny'
+                        : ('' as 'deny'),
+              }
+            : undefined)
+        if (!normalized || !['allow-once', 'allow-always', 'deny'].includes(normalized.decision)) {
+          return {
+            ok: false,
+            reason: 'not-yet-supported',
+            detail: 'permission answer shape mismatch',
+          }
+        }
+        const action = grokPermissionAction(ask, normalized)
+        if (!action.ok) {
+          return { ok: false, reason: 'not-yet-supported', detail: action.refusal.detail }
+        }
+        try {
+          session.client.respond(ask.requestId, {
+            outcome: { outcome: 'selected', optionId: action.option.optionId },
+          })
+        } catch (error) {
+          return { ok: false, reason: 'delivery-failed', detail: String(error) }
+        }
+        session.answered.add(interactionId)
+        closeAsk(session, interactionId, iso(), answeredBy(options))
+        return { ok: true }
+      },
+
+      async interactions(): Promise<readonly PendingInteraction[]> {
+        return [...session.interactions.values()].map((ask) => ask.interaction)
+      },
+
+      events(after: EventStreamStart): AsyncIterable<RuntimeEvent> {
+        return {
+          async *[Symbol.asyncIterator]() {
+            let position =
+              after === 'bootstrap'
+                ? 0
+                : session.log.findIndex((entry) => entry.seq > Number(after.components.seq ?? 0))
+            if (position < 0) position = session.log.length
+            const bootstrapUntil = after === 'bootstrap' ? session.seq : 0
+            while (true) {
+              while (position < session.log.length) {
+                const entry = session.log[position]
+                position += 1
+                if (!entry) continue
+                yield entry.seq <= bootstrapUntil
+                  ? ({ ...entry.event, provenance: 'bootstrap' } as RuntimeEvent)
+                  : entry.event
+              }
+              if (session.disposed) return
+              await new Promise<void>((resolve) => {
+                const wake = (): void => {
+                  session.wakers.delete(wake)
+                  resolve()
+                }
+                session.wakers.add(wake)
+              })
+            }
+          },
+        }
+      },
+
+      async watch(level: WatchLevel): Promise<() => void> {
+        session.watchers[level] += 1
+        let released = false
+        return () => {
+          if (released) return
+          released = true
+          session.watchers[level] = Math.max(0, session.watchers[level] - 1)
+        }
+      },
+
+      async state() {
+        return session.state
+      },
+
+      transcript: {
+        async history(range): Promise<readonly TranscriptItem[]> {
+          if (!range.from || range.from.segmentId !== session.grokSessionId) {
+            return session.transcriptItems.slice(-range.limit)
+          }
+          const anchor = range.from.components.item
+          if (anchor === undefined) return session.transcriptItems.slice(-range.limit)
+          return session.transcriptItems.slice(anchor + 1, anchor + 1 + range.limit)
+        },
+      },
+
+      async attach(req: AttachRequest): Promise<AttachEndpoint | Refusal> {
+        if (
+          req.mode === 'takeover' &&
+          session.lease &&
+          (session.lease.holder !== req.holder || session.lease.kind !== 'human-controller')
+        ) {
+          return { reason: 'lease_held', detail: `control is held by ${session.lease.holder}` }
+        }
+        const endpoint = await host.attachClient?.({
+          sessionId: session.sessionId,
+          grokSessionId: session.grokSessionId,
+          mode: req.mode,
+        })
+        if (!endpoint) {
+          return {
+            reason: 'unsupported',
+            detail: 'this machine cannot host a Grok ACP client terminal',
+          }
+        }
+        if (req.mode === 'takeover') {
+          session.lease = {
+            holder: req.holder,
+            kind: 'human-controller',
+            acquiredAt: iso(),
+          }
+        }
+        return {
+          kind: 'client',
+          placement: 'on-machine',
+          stream: { id: endpoint.streamId },
+          warm: { ttlMs: endpoint.warmTtlMs },
+        }
+      },
+
+      lease: {
+        async acquire(holder, kind) {
+          if (session.lease && session.lease.holder !== holder) {
+            return {
+              reason: 'lease_held' as const,
+              detail: `control is held by ${session.lease.holder}`,
+            }
+          }
+          session.lease = { holder, kind, acquiredAt: iso() }
+          return session.lease
+        },
+        async release(holder) {
+          if (session.lease?.holder !== holder) return
+          session.lease = null
+          void drainQueue(session)
+        },
+        async state() {
+          return session.lease
+        },
+      },
+
+      draft: {
+        async get() {
+          return session.draft
+        },
+        async set(text) {
+          session.draft = text
+          return { ok: true as const }
+        },
+      },
+
+      async configure(request: ConfigureRequest) {
+        if (request.model !== undefined || request.effort !== undefined) {
+          return {
+            reason: 'unsupported' as const,
+            detail: 'Grok ACP exposes no sticky model/effort RPC',
+          }
+        }
+        if (request.permissionMode !== undefined) {
+          try {
+            await session.client.call(GROK_ACP_METHODS.sessionSetMode, {
+              sessionId: session.grokSessionId,
+              modeId: request.permissionMode,
+            })
+          } catch (error) {
+            return { reason: 'unsupported' as const, detail: String(error) }
+          }
+        }
+        return { ok: true as const }
+      },
+
+      async usage() {
+        return session.usage
+      },
+    }
+  }
+
+  async function initializedConnection(endpoint: GrokAcpEndpoint): Promise<BufferedConnection> {
+    const connection = connect(endpoint)
+    const initialized = await connection.client.initialize()
+    if (initialized.agentCapabilities?.loadSession === false) {
+      throw new Error('Grok ACP initialize declined session/load')
+    }
+    return connection
+  }
+
+  async function setInteractivePermissionMode(session: DriverSession): Promise<void> {
+    try {
+      // A user's config may default to auto-approve. `default` makes the
+      // server→client permission channel authoritative for this session.
+      await session.client.call(GROK_ACP_METHODS.sessionSetMode, {
+        sessionId: session.grokSessionId,
+        modeId: 'default',
+      })
+    } catch {
+      // Older admitted builds may omit the optional mode switch. The ACP
+      // permission request handler remains correct whenever an ask occurs.
+    }
+  }
+
+  async function createWithId(
+    sessionId: SessionId,
+    spec: SessionSpec,
+  ): Promise<AgentSessionHandle> {
+    const endpoint = await host.launch({
+      sessionId,
+      workdir: spec.workdir,
+      ...(spec.env ? { env: spec.env } : {}),
+    })
+    const connection = await initializedConnection(endpoint)
+    const created = GrokAcpSessionResult.parse(
+      await connection.client.call(GROK_ACP_METHODS.sessionNew, {
+        cwd: spec.workdir,
+        mcpServers: [],
+      }),
+    )
+    const handle = attachSession({
+      sessionId,
+      spec,
+      endpoint,
+      connection,
+      grokSessionId: created.sessionId,
+      bindingVersion: 1,
+      observerGeneration: 1,
+    })
+    const session = sessions.get(sessionId)
+    if (session) await setInteractivePermissionMode(session)
+    if (spec.initialPrompt) {
+      await handle.send({ text: spec.initialPrompt }, { origin: 'human', delivery: 'when-ready' })
+    }
+    return handle
+  }
+
+  async function loadSession(input: {
+    sessionId: SessionId
+    spec: SessionSpec
+    grokSessionId: string
+    bindingVersion: number
+    observerGeneration: number
+    providerEventSeq?: number
+    seq?: number
+    turnEpoch?: number
+  }): Promise<AgentSessionHandle> {
+    const endpoint = await host.launch({
+      sessionId: input.sessionId,
+      workdir: input.spec.workdir,
+      ...(input.spec.env ? { env: input.spec.env } : {}),
+    })
+    const connection = await initializedConnection(endpoint)
+    const handle = attachSession({
+      ...input,
+      endpoint,
+      connection,
+    })
+    const session = sessions.get(input.sessionId)
+    if (!session) throw new Error('Grok ACP session disappeared during load')
+    session.loading = true
+    try {
+      await connection.client.call(GROK_ACP_METHODS.sessionLoad, {
+        sessionId: input.grokSessionId,
+        cwd: input.spec.workdir,
+        mcpServers: [],
+      })
+      await session.ingestChain
+    } finally {
+      session.loading = false
+    }
+    await setInteractivePermissionMode(session)
+    return handle
+  }
+
+  const adoptedSpec = (workdir: string): SessionSpec => ({
+    harness: 'grok',
+    selection: { auth: 'subscription', platform: 'linux', available: [GROK_ACP_DRIVER_ID] },
+    workdir,
+    model: {},
+    instructions: { supported: false, reason: 'adopted session carries its own context' },
+    mcpServers: { supported: false, reason: 'adopted session carries its own config' },
+  })
+
+  const driver: RuntimeDriver = {
+    id: GROK_ACP_DRIVER_ID,
+    harness: 'grok',
+    family: 'server',
+    capabilities: () => capabilities,
+    create: (spec) => createWithId(host.mintSessionId(), spec),
+    resume: (ref, spec) =>
+      loadSession({
+        sessionId: host.mintSessionId(),
+        spec,
+        grokSessionId: ref.value,
+        bindingVersion: 1,
+        observerGeneration: 1,
+      }),
+    async adopt(binding) {
+      const entry = host.journal.read(binding.sessionId)
+      if (!entry) {
+        throw new Error(
+          `grok-acp cannot adopt ${binding.sessionId}: no binding journal entry to resume from`,
+        )
+      }
+      if (entry.process.key !== binding.process.key) {
+        throw new Error(
+          `grok-acp cannot adopt ${binding.sessionId}: journal names process ${entry.process.key}, binding names ${binding.process.key}`,
+        )
+      }
+      const handle = await loadSession({
+        sessionId: binding.sessionId,
+        spec: adoptedSpec(entry.workdir),
+        grokSessionId: entry.grokSessionId,
+        bindingVersion: binding.bindingVersion + 1,
+        observerGeneration: binding.bindingVersion + 1,
+        providerEventSeq: entry.providerEventSeq,
+        seq: entry.seq,
+        turnEpoch: entry.turnEpoch,
+      })
+      const session = sessions.get(binding.sessionId)
+      if (session) {
+        emit(
+          session,
+          { t: 'process', ev: { ev: 'adopted', bindingVersion: session.binding.bindingVersion } },
+          iso(),
+        )
+      }
+      return handle
+    },
+  }
+
+  return {
+    driver,
+    createWithId,
+    journal: host.journal,
+    handleFor: (sessionId) => handles.get(sessionId),
+    has: (sessionId) => handles.has(sessionId),
+    forget(sessionId) {
+      const session = sessions.get(sessionId)
+      if (!session) return
+      session.disposed = true
+      sessions.delete(sessionId)
+      handles.delete(sessionId)
+      wakeIdle(session)
+    },
+    dispose() {
+      for (const session of sessions.values()) {
+        session.disposed = true
+        session.client.close()
+        wakeIdle(session)
+      }
+      sessions.clear()
+      handles.clear()
+    },
+  }
+}

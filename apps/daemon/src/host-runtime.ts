@@ -57,6 +57,7 @@ import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { reportLongTick, startLoopAttribution } from './loop-attribution'
 import { AGENT_RELAY_ENDPOINT, describePortConflict, HOOK_INGEST_ENDPOINT } from './loopback-listen'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
+import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { OutputScheduler } from './output-scheduler'
 import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
@@ -64,17 +65,15 @@ import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { createReattachGates } from './reattach-gates'
-import { attributeMemory, snapshotProcesses } from './memory-breakdown'
-import { runtimeContractEnabledByEnv } from './runtime/flag'
-import {
-  createDaemonOpencodeRuntime,
-  type DaemonOpencodeRuntime,
-} from './runtime/opencode-driver'
 import { createCodexHost } from './runtime/codex-app-server'
 import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
-import { createOpencodeClientTerminals } from './runtime/opencode-attach'
-import { createOpencodeHost } from './runtime/opencode-server'
+import { runtimeContractEnabledByEnv } from './runtime/flag'
+import { createGrokAcpHost } from './runtime/grok-acp-server'
+import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
 import { daemonRuntimeHost } from './runtime/host'
+import { createOpencodeClientTerminals } from './runtime/opencode-attach'
+import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
+import { createOpencodeHost } from './runtime/opencode-server'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
@@ -128,6 +127,7 @@ export async function createDaemonHostRuntime(args: {
   let terminalRuntime: TerminalRuntime | undefined
   let opencodeRuntime: DaemonOpencodeRuntime | undefined
   let codexRuntime: DaemonCodexRuntime | undefined
+  let grokRuntime: DaemonGrokRuntime | undefined
   const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
   /**
    * Every outbound daemon frame, past the driver's observation tap.
@@ -634,6 +634,20 @@ export async function createDaemonHostRuntime(args: {
     }),
   })
   ctx.codexRuntime = codexRuntime
+  grokRuntime = createDaemonGrokRuntime({
+    send,
+    host: createGrokAcpHost({
+      memoryBytes: ({ sessionId, label, pid }) =>
+        attributeMemory(
+          snapshotProcesses(),
+          [{ sessionId, label, ...(pid !== undefined ? { pid } : {}) }],
+          [],
+          { selfPid: process.pid },
+        ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+    }),
+  })
+  ctx.grokRuntime = grokRuntime
+
   const frameGuard = createFrameGuard(ctx)
 
   const metricsBackground = opts.metrics?.background ?? true
@@ -747,6 +761,7 @@ export async function createDaemonHostRuntime(args: {
     opencodeRuntime?.dispose()
     codexRuntime?.dispose()
     observers.disposeObservers()
+    grokRuntime?.dispose()
     composerEngine.disposeAll()
     await Promise.all(durableReaps)
   }

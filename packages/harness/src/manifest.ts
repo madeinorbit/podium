@@ -566,6 +566,8 @@ export const DRIVER_IDS = [
   'codex-app-server',
   /** `opencode serve` over HTTP + SSE on a secret-guarded loopback port (W5). */
   'opencode-server',
+  /** `grok agent stdio` over ACP JSON-RPC (W7). */
+  'grok-acp',
   /** The Claude Agent SDK loop, hosted in a runtime-owned worker child. */
   'claude-sdk',
   /** Today's interactive Claude CLI under abduco, wrapped (W3). */

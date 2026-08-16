@@ -148,11 +148,26 @@ describe('per-harness selection (spec §2 matrix)', () => {
     }
   })
 
-  it.each(['grok', 'cursor'] as const)('leaves %s terminal-only', (kind) => {
+  it('leaves cursor terminal-only', () => {
+    const kind = 'cursor' as const
     const runtime = AGENT_MANIFESTS[kind].runtime
     expect(runtime.server.supported).toBe(false)
     expect(runtime.embedded.supported).toBe(false)
     expect(runtime.terminal.driverId).toBe('generic-pty')
+  })
+
+  it('prefers Grok ACP when the admitted driver is available', () => {
+    const runtime = AGENT_MANIFESTS.grok.runtime
+    expect(runtime.server.supported).toBe(true)
+    expect(runtime.embedded.supported).toBe(false)
+    expect(runtime.terminal.driverId).toBe('generic-pty')
+    expect(
+      runtime.select({
+        auth: 'subscription',
+        platform: 'linux',
+        available: ['grok-acp', 'generic-pty'],
+      }),
+    ).toBe('grok-acp')
   })
 })
 

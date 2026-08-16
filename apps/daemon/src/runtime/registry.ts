@@ -25,8 +25,8 @@
 
 import {
   AGENT_MANIFESTS,
-  declaredValue,
   type DriverId,
+  declaredValue,
   harnessNeedsSubmitVerification,
   harnessUsesRawFirstTurn,
   manifestFor,
@@ -101,6 +101,8 @@ export function availableDriverIds(probe: {
    * version string is how it was reached.
    */
   opencodeDrivable: boolean
+  /** Has the Grok ACP version gate admitted this machine's binary? */
+  grokDrivable?: boolean
   /**
    * The same question for codex (POD-1761 W6), memoized the same way behind
    * `codexAppServerVersionDiagnostic()`.
@@ -115,6 +117,7 @@ export function availableDriverIds(probe: {
 }): readonly DriverId[] {
   const ids: DriverId[] = ['claude-pty', 'generic-pty']
   if (probe.opencodeDrivable) ids.push('opencode-server')
+  if (probe.grokDrivable) ids.push('grok-acp')
   if (probe.codexDrivable) ids.push('codex-app-server')
   return ids
 }
@@ -126,13 +129,12 @@ export function availableDriverIds(probe: {
 const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
   'claude-pty',
   'generic-pty',
+  'grok-acp',
   'opencode-server',
   'codex-app-server',
 ])
 
-export type DriverResolution =
-  | { ok: true; driverId: DriverId }
-  | { ok: false; reason: string }
+export type DriverResolution = { ok: true; driverId: DriverId } | { ok: false; reason: string }
 
 /**
  * Resolve the driver for one spawn: the explicit override if there is one, the

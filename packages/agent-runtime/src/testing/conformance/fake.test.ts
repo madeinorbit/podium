@@ -116,7 +116,7 @@ describe('the permitted-failures table', () => {
     for (const family of ['server', 'embedded', 'terminal'] as const) {
       expect(permits(family, 'no-native-steer')).toBe(true)
     }
-    expect([...NO_NATIVE_STEER_DRIVERS]).toEqual(['generic-pty', 'opencode-server'])
+    expect([...NO_NATIVE_STEER_DRIVERS]).toEqual(['generic-pty', 'opencode-server', 'grok-acp'])
     // The absence with a date on it: W6's driver has `turn/steer` in its own
     // protocol, so a codex-server declining steer is a bug in the driver, not a
     // weakness of its harness.

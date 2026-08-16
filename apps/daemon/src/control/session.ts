@@ -29,14 +29,14 @@ import {
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
-import { runtimeContractEnabledFor, runtimeDriverByEnv, runtimeDriverFor } from '../runtime/flag'
-import { sessionIsBehindContract } from '../runtime/handlers'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
+import { runtimeContractEnabledFor, runtimeDriverByEnv, runtimeDriverFor } from '../runtime/flag'
+import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
+import { sessionIsBehindContract } from '../runtime/handlers'
 import { opencodeVersionProbe } from '../runtime/opencode-server'
 import {
   availableDriverIds,
   droppedDriverPreference,
-  harnessOwningServerDriver,
   isServerDriver,
   resolveRuntimeDriver,
   spawnNamedServerDriver,
@@ -621,6 +621,14 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
  * written by the server driver's own launch, so its presence IS the statement
  * that this session was server-driven.
  */
+export function serverDriverAdoptionCandidates(ctx: DaemonContext) {
+  return [
+    { runtime: ctx.opencodeRuntime, what: 'opencode serve' },
+    { runtime: ctx.codexRuntime, what: 'codex app-server' },
+    { runtime: ctx.grokRuntime, what: 'grok agent stdio' },
+  ] as const
+}
+
 async function adoptServerDriverSession(
   ctx: DaemonContext,
   msg: ReattachControl,
@@ -639,10 +647,7 @@ async function adoptServerDriverSession(
    * chose a driver once and that driver's launch wrote the entry — so this is a
    * lookup rather than a precedence, and the first entry found is the answer.
    */
-  const candidates = [
-    { runtime: ctx.opencodeRuntime, what: 'opencode serve' },
-    { runtime: ctx.codexRuntime, what: 'codex app-server' },
-  ] as const
+  const candidates = serverDriverAdoptionCandidates(ctx)
   const found = candidates.find(
     (candidate) => candidate.runtime?.journal.read(msg.sessionId) !== undefined,
   )
@@ -695,10 +700,7 @@ async function adoptServerDriverSession(
   }
 }
 
-async function launchServerDriverSession(
-  ctx: DaemonContext,
-  msg: SpawnControl,
-): Promise<boolean> {
+async function launchServerDriverSession(ctx: DaemonContext, msg: SpawnControl): Promise<boolean> {
   const requested = runtimeDriverFor(runtimeDriverByEnv(), msg.runtimeContract)
   if (!requested) return false
   /**
@@ -737,6 +739,9 @@ async function launchServerDriverSession(
   let codexVerdict: ReturnType<typeof codexAppServerVersionProbe> | undefined
   const codexProbe = (): ReturnType<typeof codexAppServerVersionProbe> =>
     (codexVerdict ??= codexAppServerVersionProbe())
+  let grokVerdict: ReturnType<typeof grokAcpVersionProbe> | undefined
+  const grokProbe = (): ReturnType<typeof grokAcpVersionProbe> =>
+    (grokVerdict ??= grokAcpVersionProbe())
   /**
    * THE PROBE THAT MATTERS IS THE ONE FOR THE DRIVER THAT WAS ASKED FOR.
    *
@@ -755,8 +760,18 @@ async function launchServerDriverSession(
    * that could not answer is a fact about this machine and only a per-spawn
    * instruction outranks it.
    */
-  const probeFor = (driverId: string): ReturnType<typeof codexAppServerVersionProbe> | typeof probe =>
-    harnessOwningServerDriver(driverId) === 'codex' ? codexProbe() : probe
+  const probeFor = (
+    driverId: string,
+  ):
+    | ReturnType<typeof codexAppServerVersionProbe>
+    | ReturnType<typeof grokAcpVersionProbe>
+    | typeof probe => {
+    return driverId === 'codex-app-server'
+      ? codexProbe()
+      : driverId === 'grok-acp'
+        ? grokProbe()
+        : probe
+  }
   const requestedProbe = probeFor(requested)
   /**
    * REFUSED ONLY WHEN *THIS SPAWN* NAMED THE DRIVER — the fix to a defect this
@@ -776,7 +791,11 @@ async function launchServerDriverSession(
    * `namedHere === requested` whenever this fires (the per-spawn field wins in
    * `runtimeDriverFor`), so `requestedProbe` is this driver's own probe.
    */
-  if (namedHere !== undefined && !requestedProbe.drivable && requestedProbe.reason === 'unprobeable') {
+  if (
+    namedHere !== undefined &&
+    !requestedProbe.drivable &&
+    requestedProbe.reason === 'unprobeable'
+  ) {
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -793,6 +812,9 @@ async function launchServerDriverSession(
     // so an explicit preference for it falls through rather than producing a
     // session that cannot start.
     available: availableDriverIds({
+      grokDrivable: isServerDriver(msg.agentKind, 'grok-acp')
+        ? grokProbe().drivable
+        : false,
       opencodeDrivable: probe.drivable,
       // The SAME three-answer verdict, asked the same way. An UNSUPPORTED codex
       // legitimately drops out of this list and degrades; an UNPROBEABLE one
@@ -800,9 +822,7 @@ async function launchServerDriverSession(
       // …and asked at all only when this harness DECLARES a server driver. One
       // that declares none can never resolve to `codex-app-server`, so probing
       // for it would be paying for an answer that cannot change the outcome.
-      codexDrivable: manifestFor(msg.agentKind)?.runtime.server
-        ? codexProbe().drivable
-        : false,
+      codexDrivable: manifestFor(msg.agentKind)?.runtime.server ? codexProbe().drivable : false,
     }),
     platform: process.platform,
   })
@@ -899,9 +919,11 @@ async function launchServerDriverSession(
    * first.
    */
   const runtime =
-    harnessOwningServerDriver(resolution.driverId) === 'codex'
+    resolution.driverId === 'codex-app-server'
       ? ctx.codexRuntime
-      : ctx.opencodeRuntime
+      : resolution.driverId === 'grok-acp'
+        ? ctx.grokRuntime
+        : ctx.opencodeRuntime
   if (!runtime) {
     ctx.send({
       type: 'spawnError',

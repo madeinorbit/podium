@@ -141,6 +141,8 @@ export const permits = (family: DriverFamily, failure: PermittedFailure): boolea
 export const NO_NATIVE_STEER_DRIVERS = [
   'generic-pty',
   'opencode-server',
+  // ACP exposes prompt queueing and cancel, but no in-flight steer method.
+  'grok-acp',
 ] as const satisfies readonly DriverId[]
 
 export const permitsNoNativeSteer = (driverId: DriverId): boolean =>
