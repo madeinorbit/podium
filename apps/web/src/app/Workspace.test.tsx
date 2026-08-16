@@ -514,3 +514,50 @@ describe('Workspace splitting', () => {
     expect(call[1][1]).toBeCloseTo(0.48)
   })
 })
+
+// The pane the selection left behind (POD-1153): archiving the selected task —
+// or leaving the selection on a vessel nobody filled — takes the row out of the
+// sidebar and the mission off the deck, and this column has to go cold with
+// them rather than offer a ＋ menu with nothing to attach to.
+describe('Workspace with no mission on screen', () => {
+  const emptyPane = () => ({
+    'mission:task-1': {
+      ...makeLayout(),
+      panes: { p1: { id: 'p1', tabs: [] as string[], activeTabId: null as string | null } },
+    },
+  })
+
+  it('keeps the empty-pane state while the mission is live', () => {
+    state.workspaces = emptyPane()
+    render(<Workspace />)
+
+    expect(screen.getByTestId('pane-empty-new-panel')).toBeTruthy()
+    expect(screen.queryByTestId('workspace-cold-deck')).toBeNull()
+  })
+
+  it('falls back to the cold deck when the selected task is archived', () => {
+    replicaIssues = [{ ...task, archived: true } as IssueWire]
+    state.workspaces = emptyPane()
+    render(<Workspace />)
+
+    expect(screen.getByTestId('workspace-cold-deck')).toBeTruthy()
+    expect(screen.queryByTestId('pane-empty-new-panel')).toBeNull()
+  })
+
+  it('falls back to the cold deck for a draft vessel nobody filled', () => {
+    replicaIssues = [{ ...task, draft: true, worktreePath: null } as IssueWire]
+    state.sessions = []
+    state.workspaces = emptyPane()
+    render(<Workspace />)
+
+    expect(screen.getByTestId('workspace-cold-deck')).toBeTruthy()
+  })
+
+  it('renders the open tabs rather than the composer, whatever the selection says', () => {
+    replicaIssues = [{ ...task, archived: true } as IssueWire]
+    render(<Workspace />)
+
+    expect(screen.queryByTestId('workspace-cold-deck')).toBeNull()
+    expect(tab('s1')).toBeTruthy()
+  })
+})

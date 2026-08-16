@@ -248,6 +248,22 @@ describe('selectedMissionRoot', () => {
     const real = issue('vessel', { draft: true, worktreePath: '/r/acme/.worktrees/v' })
     expect(selectedMissionRoot([real], [], asIssueId('vessel'))?.id).toBe('vessel')
   })
+
+  it('is undefined for an archived selection — nothing is on screen (POD-1153)', () => {
+    const gone = issue('gone', { archived: true })
+    expect(selectedMissionRoot([gone], [], asIssueId('gone'))).toBeUndefined()
+  })
+
+  it('is undefined for a deleted selection', () => {
+    const gone = issue('gone', { deletedAt: '2026-08-17T00:00:00.000Z' })
+    expect(selectedMissionRoot([gone], [], asIssueId('gone'))).toBeUndefined()
+  })
+
+  it('still resolves an archived SUB-task to its live mission', () => {
+    const root = issue('root')
+    const child = issue('child', { parentId: 'root', archived: true })
+    expect(selectedMissionRoot([root, child], [], asIssueId('child'))?.id).toBe('root')
+  })
 })
 
 // ---------------------------------------------------------------------------

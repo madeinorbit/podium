@@ -280,6 +280,14 @@ export function missionRootFor(
  * and the surfaces that read this say so. A draft that IS filling — the live
  * composer case — still has its session and still resolves, because that deck
  * has something to show.
+ *
+ * AN ARCHIVED MISSION IS NOT ON SCREEN EITHER (POD-1153). Archiving takes the
+ * row out of every list the operator can see, and the selection is left
+ * pointing at it — so the columns would go on supervising a task the sidebar no
+ * longer shows as selected. The walk already refuses to climb THROUGH an
+ * archived parent for the same reason; this is the same rule applied to where
+ * it lands. Archiving a SUB-task is unaffected: the walk still resolves it to
+ * its live ancestor, and that mission is genuinely still on screen.
  */
 export function selectedMissionRoot(
   issues: readonly IssueNavigationModel[],
@@ -287,7 +295,8 @@ export function selectedMissionRoot(
   selectedIssueId: IssueId | null,
 ): IssueNavigationModel | undefined {
   const root = missionRootFor(issues, selectedIssueId)
-  if (!root || isEmptyDraftVessel(root, sessions)) return undefined
+  if (!root || root.archived || root.deletedAt) return undefined
+  if (isEmptyDraftVessel(root, sessions)) return undefined
   return root
 }
 

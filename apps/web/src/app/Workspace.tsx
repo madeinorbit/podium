@@ -28,6 +28,7 @@ import {
   resizeSplit,
   type SplitAxis,
   type SplitNode,
+  selectedMissionRoot,
 } from '@podium/client-core/viewmodels'
 import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
 import {
@@ -345,10 +346,30 @@ export function Workspace(): JSX.Element {
     }
   })
 
-  if (selectedIssueId === null) {
+  /**
+   * NO MISSION AND NOTHING OPEN IS THE COLD DECK (POD-1153).
+   *
+   * `selectedMissionRoot` is the flight deck's own question — "is there a
+   * mission on screen at all?" — so both columns go cold together. A selection
+   * left pointing at an ARCHIVED task, or at an empty draft vessel, is not a
+   * mission: the sidebar shows nothing selected for either, and this column
+   * used to answer with "Nothing open in this pane" anyway.
+   *
+   * That empty state is a DEAD END here, which is why it cannot be the
+   * fallback: its ＋ menu spawns INTO an issue, and there is no issue to attach
+   * to, so every route out of it is closed. The composer is the honest surface
+   * — it makes the task the pane would need.
+   *
+   * TABS WIN OVER THE COMPOSER: a pane with something in it is not cold,
+   * whatever the selection says. A vessel that is FILLING never reaches here
+   * anyway — the spawn inserts its session optimistically, so the draft
+   * resolves as a mission from the click rather than from the broadcast.
+   */
+  const missionOnScreen = selectedMissionRoot(issues, sessions, selectedIssueId)
+  if (!missionOnScreen && deckTabs.length === 0) {
     const hasAnyTask = issues.some((candidate) => !candidate.deletedAt)
     return (
-      <section className="native-agents-pane relative">
+      <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
         <div className="workspace-sheet relative flex min-h-0 flex-1">
           <Suspense fallback={null}>
             <ColdStartComposer first={!hasAnyTask} />

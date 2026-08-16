@@ -14,7 +14,16 @@ vi.mock('./store', () => ({
   useReplicaIssues: () => [],
 }))
 
+// `selectedMissionRoot` is what the bar reads (the mission it is folded over);
+// `missionRootFor` stays because the module is replaced wholesale and other
+// call sites in the render path still reach for it.
 vi.mock('@podium/client-core/viewmodels', () => ({
+  selectedMissionRoot: () => ({
+    id: 'root',
+    seq: 710,
+    linearIdentifier: 'POD-710',
+    title: 'Mission',
+  }),
   missionRootFor: () => ({ id: 'root', seq: 710, linearIdentifier: 'POD-710', title: 'Mission' }),
   buildFlightDeckRows: () => state.rows,
   missionProgress: () => state.progress,
