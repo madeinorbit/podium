@@ -335,6 +335,32 @@ describe('UpdateReconciler', () => {
     expect(h.reconciler.pending()).toEqual(['b'])
   })
 
+  /**
+   * A CANCEL IS CONSENT BEING WITHDRAWN. The sweep's whole licence is that the
+   * human decided when the operation started (§9.1); after a cancel there is no
+   * such decision, and handing out the update seconds after someone stopped it
+   * is the worst possible moment to be helpful.
+   */
+  it('does not sweep after a canceled operation', () => {
+    const h = harness([machine({ id: 'a' }), machine({ id: 'b' })], { operationActive: true })
+    h.updates.setTarget('dev', target())
+
+    h.setOperationActive(false)
+    h.reconciler.onOperationSettled('canceled')
+
+    expect(h.granted()).toEqual([])
+  })
+
+  it('does sweep after a failed one, so nobody waits for a human to retry', () => {
+    const h = harness([machine({ id: 'a' }), machine({ id: 'b' })], { operationActive: true })
+    h.updates.setTarget('dev', target())
+
+    h.setOperationActive(false)
+    h.reconciler.onOperationSettled('failed')
+
+    expect(h.granted()).toEqual(['a'])
+  })
+
   /** §3.6 visibility: the fleet payload can say who moved a row that moved with
    *  nobody looking, and stops saying it once an operation takes over. */
   it('marks the machines it converged, and yields the label to an operation', () => {

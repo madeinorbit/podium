@@ -47,6 +47,16 @@ import {
  *  3. **It says who moved a machine.** {@link UpdateReconciler.convergedBy}
  *     marks the machines this converged, so the fleet payload can label a row
  *     that moved with nobody looking (additive; see the `convergedBy` field).
+ *
+ * WHAT IT IS DELIBERATELY NOT WIRED TO: publishing a target.
+ * -----------------------------------------------------------
+ * A new version arriving is an OFFER (§3.2, §6.1) — the thing a human decides
+ * about. If this listened for it, every publication would install itself on the
+ * whole connected fleet, which is not convergence but auto-update, and nobody
+ * asked for it. Its two triggers are a machine RECONNECTING and an operation
+ * ENDING, and both inherit a decision that was already made: the first by §9.1
+ * ("stragglers converge to the current target without a new human decision"),
+ * the second by the click that started the operation.
  */
 
 const log = createLogger('server:updates')
@@ -190,8 +200,22 @@ export class UpdateReconciler {
    * behind. This is the line that makes a FAILED operation self-healing — the
    * machines it never reached converge in the background instead of waiting for
    * a human to press Try again (§3.6, plan task 4).
+   *
+   * EXCEPT A CANCEL, and the exception is the whole reason this takes the
+   * outcome rather than nothing. The sweep's licence is decision §9.1: the human
+   * decision was made when the operation STARTED, so finishing its remainder in
+   * the background needs no second click. A cancel is that decision being
+   * withdrawn — sweeping after one would hand out exactly the update the person
+   * just stopped, seconds after they stopped it, which is the worst possible
+   * moment to be helpful.
+   *
+   * A later RECONNECT is still converged, and that is not a contradiction: the
+   * standing reconciliation is scoped to "any daemon that reconnects behind the
+   * current target" (§3.6), not to any one operation. The cancel ended an
+   * operation; it did not unpublish the target.
    */
-  onOperationSettled(): void {
+  onOperationSettled(outcome?: string): void {
+    if (outcome === 'canceled') return
     for (const machine of this.deps.updates.fleet()) this.enqueue(machine.id)
     this.pump()
   }

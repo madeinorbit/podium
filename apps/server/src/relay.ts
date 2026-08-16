@@ -2212,7 +2212,7 @@ export class SessionRegistry {
         // cleans up after itself without a human pressing Try again (§3.6).
         // AFTER the release above, so the sweep sees machines whose grants have
         // just stopped being believed rather than refusing them as in-flight.
-        updatesReconciler?.onOperationSettled()
+        updatesReconciler?.onOperationSettled(row.state)
       },
     })
     operationsModule.kinds.register(updateOperationKind())
