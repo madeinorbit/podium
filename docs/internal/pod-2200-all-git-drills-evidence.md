@@ -24,3 +24,10 @@ with the checkout moved from `b647162` to `68fc342`, planned `[machines, server]
 
 The operation reached `done` in 2.8 s. The machine converged by git delivery, the process
 restarted onto the moved checkout, and the successor adopted the same operation id.
+
+### 3. Straggler reconciliation — offline machine is deferred
+
+With the only machine offline, the plan was empty and the operation reached `done` carrying
+`deferred: [{ ludovico, reason: offline }]` and no error.
+
+A machine that answered `rejected` was then reconnected three times and no grant followed.
