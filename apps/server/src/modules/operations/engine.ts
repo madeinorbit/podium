@@ -286,7 +286,12 @@ export class OperationEngine {
       if (deferred.length === before.length) return
 
       const at = this.now()
-      const next = this.applyPatch({ ...operation, deferred }, stepId, { ...patch, state: 'running' }, at)
+      const next = this.applyPatch(
+        { ...operation, deferred },
+        stepId,
+        { ...patch, state: 'running' },
+        at,
+      )
       this.persist(next, at)
       this.armDeadline(operationId)
     })

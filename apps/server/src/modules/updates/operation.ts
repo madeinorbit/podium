@@ -1278,7 +1278,7 @@ export function admissibleDeferredPlaces(
   const admitted: StepPlace[] = []
   for (const place of deferred) {
     const machine = fleet.get(place.id)
-    if (!machine || !machine.online) continue
+    if (!machine?.online) continue
     if (machine.version === details.target.version) continue
     if (updates.channelOf(machine) !== details.channel) continue
     if (deliveries.length > 0 && !machineCanTakeDelivery(machine, deliveries)) continue
