@@ -735,6 +735,19 @@ export async function startServer(
           cloud,
           principal,
           capability: principal.capability,
+          // The accounts repository, WITHOUT which every credential write refuses.
+          // `auth.*` is per-account since POD-1554, so `familyState` forwards this to
+          // InstanceService and `requireAccountStore` throws 'account store unavailable'
+          // when it is missing — which is what setup.complete-with-password,
+          // auth.setPassword and auth.setLoginRequired all did while it went unset.
+          // `Context.users` is optional (a server assembled without a store serves no
+          // login at all), so omitting it here type-checks and fails only at runtime.
+          users: store.users,
+          // The SAME composed predicate the guard, the login route and pairing get, for the
+          // reason given where it is defined: those four must never answer "is login
+          // required" differently. Unset, `auth.status` fell back to `?? false` and reported
+          // login as OFF over tRPC no matter how many credentials existed.
+          loginRequired: credentialsRequired,
           modules: registry.modules,
           // Only so telemetry.preview can show the REAL report [spec:SP-f933];
           // consent lives in config.json and is never read through the context.
