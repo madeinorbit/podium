@@ -7,7 +7,7 @@ import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import type { OperationsModule } from '../operations'
 import {
-  canGrantDevelopmentFleet,
+  fleetCanTakeTargetNow,
   LIFECYCLE_EXCLUSION_GROUP,
   planInputFrom,
   planUpdateOperation,
@@ -164,7 +164,11 @@ function fleetSnapshot(
   })
   const machines = allMachines.filter((machine) => isDevelopmentMachine(updates, machine))
   const target = updates.target()
-  const grantable = target !== undefined && canGrantDevelopmentFleet(target)
+  // PER MACHINE, not per target (POD-2195): a fleet that can take git delivery
+  // is converging on a bare `dev+<sha>` identity right now, and zeroing its live
+  // counts for the want of a tarball nobody is waiting for made Settings say
+  // nothing was happening while a machine fetched.
+  const grantable = target !== undefined && fleetCanTakeTargetNow(target, machines)
   const behind = targetVersion
     ? machines.filter((machine) => machine.version !== targetVersion).length
     : 0
@@ -290,6 +294,34 @@ export function assertUpdateStartable(input: UpdatePlanInput): void {
   }
 }
 
+const CHANNEL_PROSE: Record<UpdateChannel, string> = {
+  stable: 'stable',
+  edge: 'edge',
+  dev: 'development',
+}
+
+/**
+ * WHY THERE IS NOTHING TO UPDATE TO, in a sentence the person who asked can use
+ * (§6.3, POD-2197).
+ *
+ * "No update target is configured." is the internal precondition §6.3 set out to
+ * make unreachable: it describes this server's bookkeeping and offers no next
+ * action. Two things are actually true when a target is missing, and they are
+ * different sentences. Either the publisher REFUSED and knows why — a dirty
+ * checkout, a website not built for HEAD — in which case its own words are the
+ * whole answer, including what to do about it. Or nothing has been published on
+ * this channel at all, which is an ordinary state of the world and sayable as
+ * one.
+ *
+ * Observed live (POD-2194): a checkout with two uncommitted changes produced the
+ * useful sentence in `preparation.failureDetail` and the useless one at the
+ * caller.
+ */
+export function missingTargetReason(channel: UpdateChannel, failureDetail?: string): string {
+  if (failureDetail !== undefined && failureDetail.length > 0) return failureDetail
+  return `Nothing has been published on the ${CHANNEL_PROSE[channel] ?? channel} channel yet.`
+}
+
 /**
  * START ONE UPDATE (§3.2, P6) — the single-flight entry point.
  *
@@ -307,7 +339,7 @@ export async function startUpdateOperation(
   if (!updates.target(context.channel)) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
-      message: 'No update target is configured.',
+      message: missingTargetReason(context.channel, ctx.updatePreparation?.().failureDetail),
     })
   }
   assertUpdateStartable(planInputFrom(context))

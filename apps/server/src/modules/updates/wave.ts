@@ -63,13 +63,15 @@ export function offeredDeliveries(target: {
  * `[update.delivery.git]`) and one is installed (caps `[feed, bundle]`, no git).
  * A `dev+<sha>` target with no packed tarball offers git ALONE, so the installed
  * machine could never take it — but a source machine reporting `current` ticked
- * the wave, which granted that machine the target anyway. `startUpdate` already
- * refuses to authorize such a target (`canGrantDevelopmentFleet`); nothing
- * enforced it where grants are actually issued.
+ * the wave, which granted that machine the target anyway. The plan already
+ * refused to wave such a machine (`machineCanTakeTargetNow`); nothing enforced
+ * it where grants are actually issued.
  *
  * A machine that cannot take it is simply not selected. It stays `behind` —
  * honest, and it converges the moment a target it CAN take is published, which
- * for the development channel is the tarball being packed a minute later.
+ * for the development channel is the tarball being packed a minute later. The
+ * mirror of that (POD-2195) is that a machine which CAN take git needs no
+ * tarball at all, so the plan packs one only for the machines that do.
  *
  * UNKNOWN CAPS MEAN YES. A machine that has never reported a build predates the
  * report or has not handshaken yet; refusing it would silently strand it

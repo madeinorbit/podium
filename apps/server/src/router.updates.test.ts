@@ -313,13 +313,43 @@ describe('updates tRPC', () => {
     registry.dispose()
   })
 
-  it('refuses a convergence request when no target is configured', async () => {
+  /**
+   * §6.3's last line: never show an internal precondition as an error. "No
+   * update target is configured." is the internal precondition — it describes
+   * the server's own bookkeeping and tells the operator nothing they can act
+   * on. An empty channel is an ordinary state of the world, and it is sayable.
+   */
+  it('refuses a convergence request in prose when nothing is published', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const { registry, caller } = harness()
 
     await expect(caller.updates.converge()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: 'No update target is configured.',
+      message: 'Nothing has been published on the development channel yet.',
+    })
+    registry.dispose()
+  })
+
+  /**
+   * POD-2197. A dirty source checkout is the reason a target is missing, and the
+   * publisher already knows the sentence — "The source checkout has 2
+   * uncommitted changes and no longer matches HEAD (ee135e3). Commit or stash
+   * them to publish dev+ee135e3." Observed live (POD-2194): that sentence stayed
+   * in `preparation.failureDetail` while the caller was told "No update target
+   * is configured.", which is both the banned string and the useless half.
+   */
+  it('quotes the publisher when it is the reason there is no target', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+ee135e3'
+    const detail =
+      'The source checkout has 2 uncommitted changes and no longer matches HEAD (ee135e3). ' +
+      'Commit or stash them to publish dev+ee135e3.'
+    const { registry, caller } = harness({
+      updatePreparation: () => ({ webReady: false, bundleReady: false, failureDetail: detail }),
+    })
+
+    await expect(caller.updates.converge()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: detail,
     })
     registry.dispose()
   })
@@ -367,6 +397,85 @@ describe('updates tRPC', () => {
     const result = await caller.updates.converge()
     expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
     expect(requestWebRebuild).toHaveBeenCalledOnce()
+    registry.dispose()
+  })
+
+  /**
+   * POD-2195, END TO END. A machine running from source advertises git delivery
+   * and nothing else; the bare `dev+<sha>` identity the publisher puts up names
+   * a repo and a sha, which is everything that machine needs. Spec §9.2: it
+   * needs no build and no download. So the update must reach it WITHOUT the
+   * server first packing a tarball nothing in this plan will read.
+   *
+   * Observed on the live box before this fix (POD-2194): the plan was
+   * [prepare, machines, web], the only machine in the fleet advertised
+   * `update.delivery.git` alone, and it sat at "Waiting for the update package."
+   */
+  function sourceFleet(requestDestBundle: () => Promise<unknown>) {
+    const { registry, caller } = harness({ servedWebDigest: '47a01e3', requestDestBundle })
+    const grants: unknown[] = []
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.sessionStore.machines.upsertMachine({
+      id: 'source-machine',
+      name: 'Source',
+      hostname: 'source',
+      tokenHash: 'source-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('source-machine'), 'dev')
+    // The caps a daemon running from a checkout reports (`build-report.ts`):
+    // git and nothing else. It cannot take a tarball, and does not need one.
+    registry.modules.machines.setMachineBuild(
+      asMachineId('source-machine'),
+      { appVersion: 'dev+aaaaaaa' },
+      ['update.delivery.git'],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon('source-machine', (message) => grants.push(message))
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: {
+        web: { digest: '47a01e3' },
+        headlessAlternatives: [{ delivery: 'git', repo: '/src/podium', sha: '47a01e3' }],
+      },
+    } as UpdateTarget)
+    return { registry, caller, grants }
+  }
+
+  it('grants a source machine its own commit without packing anything', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+    const requestDestBundle = vi.fn().mockResolvedValue(undefined)
+    const { registry, caller, grants } = sourceFleet(requestDestBundle)
+
+    const result = await caller.updates.converge()
+    expect(result).toMatchObject({
+      state: 'in-progress',
+      version: 'dev+47a01e3',
+      grantedMachineIds: ['source-machine'],
+    })
+    expect(requestDestBundle).not.toHaveBeenCalled()
+    expect(grants).toHaveLength(1)
+    registry.dispose()
+  })
+
+  /**
+   * The read model has to agree with the wave, or Settings tells the operator
+   * nothing is happening while a machine is mid-fetch. Its `grantable` flag
+   * asked the target-only question too, so a source fleet's live counts were
+   * zeroed for the want of a tarball nobody wanted.
+   */
+  it('counts a source machine mid-grant as converging', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+    const { registry, caller } = sourceFleet(vi.fn().mockResolvedValue(undefined))
+
+    await caller.updates.converge()
+    await expect(caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
     registry.dispose()
   })
 

@@ -291,20 +291,59 @@ export function needsDevelopmentBundle(target: {
   return target.version.startsWith('dev+') && target.artifacts.headless === undefined
 }
 
-/**
- * Can this descriptor be handed to a machine AT ALL?
- *
- * A `dev+<sha>` identity names a commit; until it has been packed it offers
- * nothing an installed daemon can consume. Granting it anyway is how the fleet
- * used to learn by failing, and it is why this question is asked in the two
- * places that could otherwise disagree — the plan (should there be a machines
- * step?) and the runner (may it tick right now?).
- */
-export function canGrantDevelopmentFleet(target: {
+/** What a pack adds to a bare identity, and the only thing it adds. */
+const PACKED_DELIVERY = 'bundle'
+
+type DeliverableTarget = {
   version: string
-  artifacts: { headless?: unknown }
-}): boolean {
-  return !needsDevelopmentBundle(target)
+  artifacts: {
+    headless?: { delivery: string }
+    headlessAlternatives?: readonly { delivery: string }[]
+  }
+}
+
+/**
+ * Can THIS machine be handed THIS descriptor, as it stands, right now?
+ *
+ * The question used to be asked of the target alone — "has it been packed?" —
+ * and that is what made git delivery an alternative offered ALONGSIDE the pack
+ * rather than a substitute for it (POD-2195). A `dev+<sha>` identity is not
+ * empty: it names a repo and a sha, which is everything a machine that owns the
+ * checkout needs (spec §9.2 — no build, no download). It is only the machines
+ * that cannot fetch git for which that identity is nothing.
+ */
+export function machineCanTakeTargetNow(
+  machine: Pick<WaveMachine, 'deliveryCaps' | 'supervised'>,
+  target: DeliverableTarget,
+): boolean {
+  const deliveries = offeredDeliveries(target)
+  // Nothing offered and nothing packed is nothing to hand anyone. Granting it
+  // anyway is how the fleet used to learn by failing.
+  if (deliveries.length === 0) return !needsDevelopmentBundle(target)
+  return machineCanTakeDelivery(machine, deliveries)
+}
+
+/** Is there anyone here this descriptor can be handed to as it stands? */
+export function fleetCanTakeTargetNow(
+  target: DeliverableTarget,
+  machines: readonly Pick<WaveMachine, 'deliveryCaps' | 'supervised'>[],
+): boolean {
+  if (!needsDevelopmentBundle(target)) return true
+  return machines.some((machine) => machineCanTakeTargetNow(machine, target))
+}
+
+/**
+ * DOES THIS MACHINE NEED THE PACK — the stricter question, and deliberately so.
+ *
+ * {@link machineCanTakeDelivery} answers YES for a machine that has never
+ * reported its capabilities, because refusing it would strand it forever. Here
+ * the cost of being wrong runs the other way: skipping the pack for a machine
+ * that turns out to need it buys a wave of rejections, while packing for one
+ * that did not costs a build. So an unknown machine counts as needing it.
+ */
+function machineNeedsPack(machine: WaveMachine, target: DeliverableTarget): boolean {
+  if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
+  return !machineCanTakeTargetNow(machine, target)
 }
 
 function placeOf(machine: WaveMachine): StepPlace {
@@ -380,15 +419,6 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const deferred: DeferredPlace[] = []
   const awaiting: AwaitingAsk[] = []
 
-  if (needsDevelopmentBundle(target) && input.canPrepare) {
-    steps.push({ id: UPDATE_STEP_PREPARE, title: 'Preparing the update', state: 'pending' })
-  }
-
-  // NOTHING CAN BE DELIVERED, AND NOTHING WILL PACK IT. A bare dev identity on
-  // a server with no publisher has no bytes to hand anyone, so planning a
-  // machines step would plan a step that can never finish.
-  const deliverable = canGrantDevelopmentFleet(target) || input.canPrepare
-
   // A supervised daemon is the SHELL's to update, never the wave's (POD-2099,
   // spec §4). It is excluded outright rather than deferred: deferred means
   // "will be done later by us", and this one will never be ours to do.
@@ -398,15 +428,39 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
       machine.supervised !== true &&
       (input.onlyMachines === undefined || input.onlyMachines.includes(machine.id)),
   )
-  // Delivery capability is only asked when the artifact ALREADY EXISTS. While a
-  // `prepare` step is planned the target is a bare identity, so its offered
-  // deliveries are empty and every machine would trivially pass — the wave
-  // planner asks again at grant time, with the packed descriptor in hand.
-  const deliveries = offeredDeliveries(target)
-  const core = behind.filter(
-    (machine) =>
-      machine.online && (deliveries.length === 0 || machineCanTakeDelivery(machine, deliveries)),
-  )
+
+  /**
+   * THE PACK IS PLANNED PER DELIVERY CAPABILITY (POD-2195).
+   *
+   * It used to be planned for every bare `dev+<sha>` identity, whoever was in
+   * the fleet — so a machine advertising git delivery alone waited on a package
+   * it could never consume, and the server built 325 MB nothing would read.
+   * Spec §9.2 says the machine that owns the checkout needs no build and no
+   * download; §9.3 says the development path IS the production mechanism, so it
+   * must not be the one path that needs a compiler.
+   *
+   * The honest question is therefore about the machines and not about the
+   * target: pack when someone we are going to update cannot take what the
+   * target already offers. `behind` rather than the wave's own selection,
+   * because a machine that is merely ASLEEP converges against whatever is
+   * published when it wakes (§3.6) — leaving it a bare identity would strand it
+   * until a human ran another update.
+   */
+  const packable = needsDevelopmentBundle(target) && input.canPrepare
+  if (packable && behind.some((machine) => machineNeedsPack(machine, target))) {
+    steps.push({ id: UPDATE_STEP_PREPARE, title: 'Preparing the update', state: 'pending' })
+  }
+
+  /**
+   * A machine belongs in the wave if it can take this target NOW or once the
+   * pack this plan just committed to has run. The second half is why a mixed
+   * fleet's installed machine is waved rather than deferred: the artifact it
+   * needs is a planned step of this very operation, not a state of the world.
+   */
+  const canTakeEventually = (machine: WaveMachine): boolean =>
+    machineCanTakeTargetNow(machine, target) ||
+    (packable && machineCanTakeDelivery(machine, [PACKED_DELIVERY]))
+  const core = behind.filter((machine) => machine.online && canTakeEventually(machine))
   // §3.6: a machine that is asleep must not hold the outcome open. It goes to
   // `deferred` with an honest note and the standing reconciliation converges it
   // when it reconnects.
@@ -418,7 +472,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
       reason: machine.online ? 'cannot-take-delivery' : 'offline',
     })
   }
-  if (core.length > 0 && deliverable) {
+  if (core.length > 0) {
     steps.push({
       id: UPDATE_STEP_MACHINES,
       title: 'Updating your machines',
@@ -952,15 +1006,28 @@ const machinesRunner: StepRunner<UpdateOperationContext> = {
     if (settled) return settled
 
     /**
-     * NEVER GRANT WHAT CANNOT BE DELIVERED. `prepare` is supposed to have left
-     * a packed descriptor published for this version; if it has not, ticking
-     * would hand every installed daemon a bare `dev+<sha>` identity it can only
-     * refuse — the fleet learning by failing, which is exactly the defect the
-     * delivery-capability work removed. Staying `running` instead means the
-     * step's own deadline decides, visibly, rather than a wave of rejections.
+     * NEVER GRANT WHAT CANNOT BE DELIVERED — asked of the MACHINES this step is
+     * waiting on, not of the target alone (POD-2195).
+     *
+     * `prepare` is supposed to have left a packed descriptor published for this
+     * version; if it has not, ticking would hand an installed daemon a bare
+     * `dev+<sha>` identity it can only refuse — the fleet learning by failing,
+     * which is exactly the defect the delivery-capability work removed. Staying
+     * `running` instead means the step's own deadline decides, visibly, rather
+     * than a wave of rejections.
+     *
+     * But a machine that owns a checkout can take that identity TODAY: it names
+     * a repo and a sha, which is the whole of what git delivery needs. Asking
+     * only "has it been packed?" held such a machine behind a package it could
+     * never consume, for a package this plan may not even contain (spec §9.2).
+     * The wave planner does the same per-machine filtering at grant time, so a
+     * mixed fleet advances the git machines here and picks the rest up when the
+     * packed descriptor arrives.
      */
     const published = context.updates.target(details.channel) ?? details.target
-    if (!canGrantDevelopmentFleet(published)) {
+    const awaited = new Set((step.places ?? []).map((place) => place.id))
+    const waiting = context.updates.fleet().filter((machine) => awaited.has(machine.id))
+    if (!fleetCanTakeTargetNow(published, waiting)) {
       return {
         state: 'running',
         detail: 'Waiting for the update package.',
