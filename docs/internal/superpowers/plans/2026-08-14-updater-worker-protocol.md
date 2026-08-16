@@ -113,8 +113,14 @@ resolved into main is worse than no green at all.
   and the kernel has already OOM-killed 38 processes here; a session that runs `typecheck`
   or a broad suite while a sibling is doing the same is *killed mid-command with no error*,
   which looks exactly like a wedge and loses everything uncommitted. So:
-  `podium lock acquire updater-heavy-lane --ttl 20m --wait` before **any** `typecheck`,
-  broad `test`, or build — and release the moment it finishes.
+  `podium lock acquire updater-heavy-lane --ttl 20m --wait` before a **build** or a **broad
+  suite** — and release the moment it finishes.
+  **A scoped typecheck no longer needs the lane** when `free -g` shows ≥2.5 GB available:
+  it costs under a minute at `--concurrency=1` and depends only on `^typecheck`, never
+  `^build`. This rule changed because the queue was worse than the contention — two sessions
+  died *waiting* for a lane they only wanted for a one-minute check, and a lane held by a
+  session that then ended blocked three others. Queue for what is genuinely expensive; run
+  the cheap thing.
   **Two words mean you hold it: `acquired` *and* `renewed`.** POD-2161 was told to gate on
   `acquired` alone, saw `queued at position 1` then `agent relay timed out`, and correctly
   refused to run — but the grant had landed *after* the relay gave up, and its retry then
