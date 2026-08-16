@@ -437,9 +437,9 @@ describe('ChatView composer', () => {
     // One noun for every not-yet-delivered bubble, whatever parked it.
     expect(queued?.textContent).toContain('pending · sends after this turn')
     expect(queued?.querySelector('.msg-action--retract')).not.toBeNull()
-    const queueNotice = container.querySelector('[data-notice="queue"]')
-    expect(queueNotice?.textContent).toContain('Queued · 1')
-    expect(queueNotice?.textContent).toContain('sends after this turn')
+    // The bubble IS the queue notice now: the composer no longer repeats the
+    // count above the field.
+    expect(container.querySelector('[data-notice="queue"]')).toBeNull()
   })
 
   it('retracts a pending durable message and removes it from the transcript', async () => {

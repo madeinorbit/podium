@@ -130,7 +130,6 @@ export interface ChatSurface {
   submitDraft: (draft: string) => void
   pending: readonly PendingItem[]
   restoredQueued: readonly QueuedChatMessage[]
-  queuedTotal: number
   ctxSeq: number | null
   offer: SessionMeta['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
@@ -645,7 +644,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     submitDraft,
     pending: send.pending,
     restoredQueued: queued.restored,
-    queuedTotal: queued.total,
     ctxSeq: send.ctxSeq,
     offer,
     sendOfferPrompt: send.sendOfferPrompt,

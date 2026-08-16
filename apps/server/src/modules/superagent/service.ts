@@ -521,7 +521,7 @@ export class SuperagentService {
     // A TURN IS ALREADY RUNNING — QUEUE, DON'T REFUSE (POD-782).
     //
     // This used to throw "a turn is already running on this thread". The main
-    // chat has queued sends since forever (`Queued · N` in the composer), so the
+    // chat has queued sends since forever (the pending bubble in the feed), so the
     // superagent was the one surface in the product where typing a second
     // thought lost it and returned an error — and the orchestrator's turns are
     // the LONGEST in the product, which is exactly when a person types again.

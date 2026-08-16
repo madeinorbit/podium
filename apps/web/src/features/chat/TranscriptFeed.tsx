@@ -7,7 +7,11 @@ import type {
   TranscriptPhase,
   TranscriptSearchState,
 } from '@podium/client-core/viewmodels'
-import { attributionForRole, isInteractiveTool } from '@podium/client-core/viewmodels'
+import {
+  attributionForRole,
+  isInteractiveTool,
+  sessionWaking,
+} from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { ArrowUp, Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
@@ -546,7 +550,13 @@ export function TranscriptFeed({
           and dimmed until the pointer arrives. Its foot carries what it is
           waiting for and the way out: Retract sits with the other message
           actions, in one idiom, and only takes destructive ink under the
-          pointer, because changing your mind is not an error. */}
+          pointer, because changing your mind is not an error.
+
+          This foot is now the ONLY place the queue is stated: the composer used
+          to repeat the count above the field, which said the same fact twice
+          about the very bubble sitting an inch above it. So the wording the
+          composer carried comes here — a parked session has no turn to send
+          after, it has a process to start first (POD-762). */}
       {restoredQueued.map((message) => (
         <div
           key={message.id}
@@ -561,7 +571,11 @@ export function TranscriptFeed({
               </div>
             </div>
             <div className="msg-foot" data-side="right">
-              <span className="transcript-delivery">pending · sends after this turn</span>
+              <span className="transcript-delivery">
+                {sessionWaking(session)
+                  ? 'pending · sends once the agent is up'
+                  : 'pending · sends after this turn'}
+              </span>
               <button
                 data-pressable
                 type="button"

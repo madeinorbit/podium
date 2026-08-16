@@ -126,7 +126,6 @@ function ScopedChatComposer({
       onOfferAction={chat.sendOfferPrompt}
       onOfferDismiss={chat.dismissOffer}
       session={chat.session}
-      queuedTotal={chat.queuedTotal}
       turnError={chat.headlessTurn.turnError}
       offlineAsOf={chat.offlineAsOf}
       attached={chat.attached}

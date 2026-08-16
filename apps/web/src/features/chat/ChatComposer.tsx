@@ -1,7 +1,6 @@
-import { sessionWaking } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 import type { useVoiceInput } from '@podium/terminal-client-react'
-import { ArrowUp, Clock, CloudOff, MessageSquareText, Paperclip, Square, X } from 'lucide-react'
+import { ArrowUp, CloudOff, MessageSquareText, Paperclip, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useReplicaIssues } from '@/app/store'
@@ -125,7 +124,6 @@ export function ChatComposer({
   onOfferAction,
   onOfferDismiss,
   session,
-  queuedTotal,
   turnError,
   offlineAsOf,
   attached,
@@ -155,7 +153,6 @@ export function ChatComposer({
   /** "None of these" — clears the offer without sending a turn. */
   onOfferDismiss: (offerAt: string) => Promise<void>
   session: SessionMeta | undefined
-  queuedTotal: number
   turnError: string | null
   offlineAsOf: number | null
   /** "Ask superagent (BTW)" (POD-1069): the session the NEXT turn will carry a
@@ -420,11 +417,10 @@ export function ChatComposer({
           />
         </div>
       )}
-      {(queuedTotal > 0 || turnError !== null || offlineAsOf !== null || attached) && (
+      {(turnError !== null || offlineAsOf !== null || attached) && (
         <div className="composer-notices" aria-live="polite">
           {/* The attachment leads: it is the only notice here that describes
-              what the NEXT send will carry, and it is dismissible, so it must
-              not be pushed under a queue count the operator cannot act on. */}
+              what the NEXT send will carry, and it is dismissible. */}
           {attached && (
             <div className="composer-notice" data-notice="attached">
               {/* The context menu's own icon, not the attachment paperclip:
@@ -441,19 +437,6 @@ export function ChatComposer({
               >
                 <X size={11} aria-hidden="true" />
               </button>
-            </div>
-          )}
-          {queuedTotal > 0 && (
-            <div className="composer-notice" data-notice="queue">
-              <Clock size={12} aria-hidden="true" />
-              <strong>Queued · {queuedTotal}</strong>
-              {/* A parked session has no turn to send after — it has a process
-                  to start first (POD-762). Saying "after this turn" there names
-                  a turn that does not exist and is not what the operator is
-                  waiting on. */}
-              <span>
-                {sessionWaking(session) ? 'sends once the agent is up' : 'sends after this turn'}
-              </span>
             </div>
           )}
           {turnError !== null && (

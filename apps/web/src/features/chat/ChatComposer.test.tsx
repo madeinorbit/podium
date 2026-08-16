@@ -54,7 +54,6 @@ async function mount(
     draft?: string
     onSend?: () => void
     attachments?: UseAttachmentsResult
-    queuedTotal?: number
     turnError?: string | null
     canInterrupt?: boolean
     onInterrupt?: () => void
@@ -83,7 +82,6 @@ async function mount(
         onOfferAction={async () => {}}
         onOfferDismiss={async () => {}}
         session={undefined}
-        queuedTotal={opts.queuedTotal ?? 0}
         turnError={opts.turnError ?? null}
         offlineAsOf={null}
         autoFocusKey="s1"
@@ -213,13 +211,11 @@ describe('ChatComposer, non-compact (the main chat)', () => {
     }
     await mount({
       compact: false,
-      queuedTotal: 2,
       turnError: 'Connection refused',
       attachments,
     })
     const notices = container.querySelector('.composer-notices')
     if (!notices) throw new Error('composer notices missing')
-    expect(notices?.textContent).toContain('Queued · 2')
     expect(notices?.textContent).toContain('Not sent')
     expect(notices.compareDocumentPosition(well()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(well().querySelector('[data-testid="attachment-strip"]')?.textContent).toContain(
@@ -328,7 +324,6 @@ describe('ChatComposer backend rail', () => {
           onOfferAction={async () => {}}
           onOfferDismiss={async () => {}}
           session={undefined}
-          queuedTotal={0}
           turnError={null}
           offlineAsOf={null}
           autoFocusKey="s1"
