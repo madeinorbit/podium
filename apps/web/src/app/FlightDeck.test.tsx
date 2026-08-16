@@ -26,7 +26,8 @@ import { clearHoveredSession, setHoveredSession } from './session-hover'
 const harness = vi.hoisted(() => ({
   issues: [] as unknown[],
   sessions: [] as unknown[],
-  selectedIssueId: 'root',
+  selectedIssueId: null as string | null,
+  paneA: null as string | null,
   openSessionTab: vi.fn(),
   setPanelMode: vi.fn(),
   setSelectedIssueId: vi.fn(),
@@ -67,7 +68,7 @@ vi.mock('./store', () => ({
       sessions: harness.sessions,
       repos: [],
       selectedIssueId: harness.selectedIssueId,
-      paneA: null,
+      paneA: harness.paneA,
       paneB: null,
       split: false,
       drafts: {},
@@ -163,6 +164,7 @@ beforeEach(() => {
   harness.ui.clear()
   harness.listeners.clear()
   harness.selectedIssueId = 'root'
+  harness.paneA = null
   harness.openSessionTab.mockClear()
   harness.setPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
@@ -731,5 +733,69 @@ describe('flight deck tab-strip hover link', () => {
 
     act(() => clearHoveredSession('s2'))
     expect(pointed('s2')).toBeNull()
+  })
+})
+
+/**
+ * THE DECK WITH NO MISSION UNDER THE SELECTION (POD-1139).
+ *
+ * Three different facts, three different answers, and the discriminator is the
+ * focused session itself — its kind, then whether it knows its task. The screen
+ * this replaced ("Ready when you are", over a copy of the right dock's
+ * Task/Plan/Team rows) gave all three the same agent words, the shell included,
+ * and a shell is never going to organize anything.
+ */
+describe('flight deck without a mission', () => {
+  beforeEach(() => {
+    harness.selectedIssueId = null
+  })
+
+  it('offers the ghost tree and its advice when nothing is focused', () => {
+    deck()
+    expect(screen.getByTestId('flight-empty')).toBeTruthy()
+    expect(screen.getByText('Every agent, in one tree')).toBeTruthy()
+  })
+
+  // A panel-menu agent and a resumed conversation both arrive with no vessel,
+  // and "pick a task or start one" is the whole answer for them — the same
+  // answer the unfocused column gives, so it is the same column.
+  it('gives a session on no task the empty deck, not a screen of its own', () => {
+    harness.sessions = [session('loose', { issueId: null })]
+    harness.paneA = 'loose'
+    deck()
+    expect(screen.getByTestId('flight-empty')).toBeTruthy()
+    expect(screen.queryByTestId('flight-settling')).toBeNull()
+  })
+
+  // The composer's spawn paints the vessel and the session together, so the
+  // session knows its task before the selection does. That gap is a load.
+  it('ghosts, wordlessly, while a spawned session waits for its selection', () => {
+    harness.sessions = [session('fresh', { issueId: 'root' })]
+    harness.paneA = 'fresh'
+    deck()
+    expect(screen.getByTestId('flight-settling')).toBeTruthy()
+    expect(screen.getByTestId('flight-ghost-settling')).toBeTruthy()
+    // Nothing to read, because a beat later there is a real tree here.
+    expect(screen.queryByText('Every agent, in one tree')).toBeNull()
+    expect(screen.getByTestId('flight-settling').textContent).toBe('')
+  })
+
+  it('tells a shell what it is instead of promising it an agent', () => {
+    harness.sessions = [session('sh', { agentKind: 'shell', issueId: null })]
+    harness.paneA = 'sh'
+    deck()
+    expect(screen.getByTestId('flight-shell')).toBeTruthy()
+    expect(screen.getByText('A shell joins no task')).toBeTruthy()
+    expect(screen.queryByTestId('flight-empty')).toBeNull()
+  })
+
+  // A shell that DOES sit in a started worktree (`issue add-shell`) still gets
+  // the shell answer rather than the load: it is not waiting for anything.
+  it('keeps the shell answer even when the shell carries a task id', () => {
+    harness.sessions = [session('sh', { agentKind: 'shell', issueId: 'root' })]
+    harness.paneA = 'sh'
+    deck()
+    expect(screen.getByTestId('flight-shell')).toBeTruthy()
+    expect(screen.queryByTestId('flight-settling')).toBeNull()
   })
 })

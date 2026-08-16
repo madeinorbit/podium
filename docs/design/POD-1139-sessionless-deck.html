@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POD-1139 — The deck with no mission in it</title>
+<style>
+  /* ── The two palettes, lifted verbatim from apps/web/src/index.css ──────────
+     Same declaration block POD-1058's sheet uses, so the two pages can be read
+     against each other without either drifting from the app. */
+  .thm {
+    --background:#f2f1ed; --foreground:#38362f; --card:#fff; --secondary:#eceae4;
+    --muted:#f0efe9; --muted-foreground:#5f5d55; --success:#1d4ed8;
+    --sidebar:#f4f3f0; --engraved:#f4f3f0; --bar:#f7f7f5; --tabstrip:#faf9f7;
+    --rail:#eceae4; --chip:#fff; --hairline-soft:#eeede8; --hairline-bar:#e6e5e0;
+    --text-strong:#1d1c19; --text-dim:#8f8d85; --text-faint:#a3a199;
+    --attention:#8a6200; --claude:#b8532e;
+    --ghost-1:color-mix(in srgb,var(--foreground) 18%,transparent);
+    --ghost-2:color-mix(in srgb,var(--foreground) 14%,transparent);
+    --ghost-3:color-mix(in srgb,var(--foreground) 10%,transparent);
+    --ghost-4:color-mix(in srgb,var(--foreground) 6%,transparent);
+  }
+  .thm.dark {
+    --background:#16171a; --foreground:#d7dae0; --card:#23262d; --secondary:#2c3038;
+    --muted:#1e2024; --muted-foreground:#a8adb6; --success:#2a62f0;
+    --sidebar:#191a1e; --engraved:#191a1e; --bar:#1b1d21; --tabstrip:#202228;
+    --rail:#1e2024; --chip:#252830; --hairline-soft:#24272d; --hairline-bar:#26292f;
+    --text-strong:#f2f3f5; --text-dim:#848a94; --text-faint:#6f7580;
+    --attention:#e3ba52; --claude:#d97757;
+    --ghost-1:color-mix(in srgb,var(--foreground) 12%,transparent);
+    --ghost-2:color-mix(in srgb,var(--foreground) 9%,transparent);
+    --ghost-3:color-mix(in srgb,var(--foreground) 5.5%,transparent);
+    --ghost-4:color-mix(in srgb,var(--foreground) 2.5%,transparent);
+  }
+
+  /* NEVER ANIMATED — no keyframe anywhere in this file, deliberately. */
+  .ghost {
+    --hold:34%; --end:100%;
+    -webkit-mask-image:linear-gradient(to bottom,#000 0,#000 var(--hold),transparent var(--end));
+    mask-image:linear-gradient(to bottom,#000 0,#000 var(--hold),transparent var(--end));
+    pointer-events:none; user-select:none;
+  }
+  .bar{display:block;border-radius:4px}
+  .sq{display:block;flex:none;border-radius:3px}
+  .g1{background:var(--ghost-1)} .g2{background:var(--ghost-2)}
+  .g3{background:var(--ghost-3)} .g4{background:var(--ghost-4)}
+  .dot{display:block;flex:none;border-radius:50%;opacity:.4}
+
+  /* ── page chrome ─────────────────────────────────────────────────────────── */
+  :root{color-scheme:light dark}
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:44px 40px 80px;background:#eceae4;color:#1d1c19;
+    font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  h1{font-size:23px;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:15px;letter-spacing:-.01em;margin:44px 0 4px;padding-top:20px;border-top:1px solid #dedbd4}
+  .lede{max-width:78ch;color:#5f5d55;margin:0 0 4px}
+  .meta{font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#8f8d85}
+  .note{max-width:78ch;color:#5f5d55;font-size:13px;margin:8px 0 0}
+  .pair{display:flex;flex-wrap:wrap;gap:22px;margin-top:16px;align-items:flex-start}
+  .cap{font:11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#8f8d85;
+       text-transform:uppercase;letter-spacing:.12em;margin-bottom:7px}
+  .frame{border-radius:11px;overflow:hidden;border:1px solid #cdc9c0;
+         box-shadow:0 14px 34px -22px rgba(29,28,25,.5)}
+  .frame.gone{border-style:dashed;border-color:#c9b2a6;box-shadow:none;opacity:.85}
+  code{font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;background:#e4e1d9;
+       padding:1px 5px;border-radius:4px}
+  .callout{max-width:78ch;margin-top:14px;padding:14px 16px;border-radius:9px;
+           background:#fdf7e7;border:1px solid #e6d6a8;font-size:13px}
+  ul{max-width:78ch;padding-left:19px;color:#38362f;font-size:13px}
+  li{margin:5px 0}
+  table{border-collapse:collapse;margin-top:14px;font-size:13px}
+  th,td{text-align:left;padding:7px 16px 7px 0;border-bottom:1px solid #dedbd4;vertical-align:top}
+  th{font:11px/1 ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.1em;color:#8f8d85}
+
+  .col{display:flex;flex-direction:column;background:var(--sidebar);color:var(--text-strong);
+       font:14px/1.55 ui-sans-serif,system-ui,sans-serif}
+</style>
+</head>
+<body>
+
+<h1>The deck with no mission in it</h1>
+<p class="lede">The flight deck has three ways to have nothing to show, and until now they shared one
+screen written for the rarest of them. This splits them: a load draws a ghost and says nothing, a
+shell is told what it is, and a session that simply has no task gets the empty deck that already
+says the right sentence.</p>
+<p class="meta">POD-1139 · apps/web/src/app/FlightDeck.tsx · both Superade themes</p>
+
+<div class="callout">
+  <strong>What this page is.</strong> A token-accurate reconstruction, not a screenshot — the same
+  <code>--ghost-1..4</code> ramp, palette, geometry and copy the components resolve, so both themes
+  can be judged side by side. Two of the three states are hard to photograph honestly: the settling
+  ghost is a few hundred milliseconds long, and the shell state needs a shell in pane A. It is
+  <em>not</em> a live capture.
+</div>
+
+<h2>What was there — one screen for three facts</h2>
+<p class="meta">removed: FlightDeck.tsx → IntakeCanvas</p>
+<p class="note">Shown to every focused session the deck could not root: a spawn mid-settle, a
+panel-menu agent, a resumed conversation, and a bash shell. It named the session, then printed
+Task&nbsp;/&nbsp;Plan&nbsp;/&nbsp;Team placeholders — the same three rows the right dock's
+<code>IntakeDock</code> was printing in the other column at the same moment — and closed with a line
+of philosophy. For the common case it was on screen for about as long as it takes to read the
+heading.</p>
+<div class="pair" id="before"></div>
+
+<h2>1 · The mission is still arriving — a ghost, and no words</h2>
+<p class="meta">FlightDeck.tsx → SettlingDeck · <code>focusedSession.issueId</code> set, no root yet</p>
+<p class="note">The composer's spawn paints the draft vessel and the session together, so the session
+already knows its task and only the selection is behind. That gap is a <em>load</em>, so it draws
+the shape that is about to arrive and writes nothing: one task strip with one session under the
+tree's own rail. Not <code>EmptyDeck</code>'s four rows — that ghost teaches the shape of the pane
+to someone who has never loaded it, while this one stands in for a specific tree exactly one strip
+deep, and a ghost that collapses on resolve reads worse than no ghost at all.</p>
+<div class="pair" id="settling"></div>
+
+<h2>2 · A shell — its own words, never the agent's</h2>
+<p class="meta">FlightDeck.tsx → ShellDeck · <code>agentKind === 'shell'</code></p>
+<p class="note">“New Shell” in the panel menu creates a session with no task and no draft vessel, and
+it lands in pane A like anything else — so this is durable, not a flash. It used to be told that
+“the agent will organize this workspace as you talk”, over a bash prompt that will do nothing of the
+kind. It now takes the shape <code>standbyCopy</code> already uses for the same case (“A shell keeps
+no transcript”): state the limit, then point at where the answer is. The ghost stays, because the
+column is still a task tree and picking one is what fills it.</p>
+<div class="pair" id="shell"></div>
+
+<h2>3 · A session on no task at all — the empty deck, unchanged</h2>
+<p class="meta">FlightDeck.tsx → EmptyDeck · no <code>issueId</code>, or nothing focused</p>
+<p class="note">A panel-menu agent and every resume arrive with no vessel and will not grow one on
+their own. “Pick a task on the left or start a new one” is not first-run advice for them — it is the
+whole answer, and it is already written here. So this state stopped having a screen of its own.
+Nothing about this surface changed; it just covers one more case.</p>
+<div class="pair" id="empty"></div>
+
+<h2>The branch</h2>
+<table>
+  <tr><th>Focused session</th><th>Deck</th><th>Why</th></tr>
+  <tr><td>kind <code>shell</code></td><td>ShellDeck</td><td>Will never become a task. Checked first, so a shell in a started worktree still gets shell words rather than a load.</td></tr>
+  <tr><td>has <code>issueId</code></td><td>SettlingDeck</td><td>Knows its task; the selection is catching up. A load.</td></tr>
+  <tr><td>no <code>issueId</code></td><td>EmptyDeck</td><td>Not on a task and will not become one. Same answer as no session at all.</td></tr>
+  <tr><td>none</td><td>EmptyDeck</td><td>Unchanged.</td></tr>
+</table>
+
+<h2>What to look at</h2>
+<ul>
+  <li><strong>The settling column is empty of text on purpose.</strong> Whatever is written there is
+      a sentence the operator watches get taken away a beat later. The test asserts its
+      <code>textContent</code> is the empty string, so a future line cannot creep back in unnoticed.</li>
+  <li><strong>The shell heading is a statement, not an invitation.</strong> It is the one state here
+      that is not going anywhere, so it is the one that gets a heading at all.</li>
+  <li><strong>Nothing moves, everything fades.</strong> Both ghosts obey POD-1058's rules — no
+      shimmer, bottom mask rather than a hard cut, and the session dot is the only hue.</li>
+  <li><strong>One duplicate is gone.</strong> The right dock's <code>IntakeDock</code> keeps its
+      Task&nbsp;/&nbsp;Plan&nbsp;/&nbsp;Team rows; the deck no longer prints a second copy of them
+      in the other column at the same moment.</li>
+</ul>
+
+<script>
+// Panels are built from data so the light and dark halves cannot drift apart —
+// one description, rendered twice per state.
+const el = (t, cls, css, kids) => {
+  const n = document.createElement(t)
+  if (cls) n.className = cls
+  if (css) n.style.cssText = css
+  for (const k of kids || []) n.appendChild(k)
+  return n
+}
+const bar = (tier, w, h, extra) =>
+  el('span', 'bar g' + tier, `width:${w};height:${h}px;${extra || ''}`)
+const sq = (tier, s) => el('span', 'sq g' + tier, `width:${s}px;height:${s}px`)
+const dot = (tone, s) => el('span', 'dot', `width:${s}px;height:${s}px;background:${tone}`)
+
+const COL = 'width:388px;height:430px;background:var(--card)'
+
+// The deck's real anatomy: GUTTER 24, RAIL_INSET 8, DEPTH_STEP 16.
+const task = (tier, dashed) => {
+  const r = el('div', '', 'display:flex;align-items:center;gap:10px;padding-left:24px')
+  if (dashed) r.appendChild(el('span', '', 'width:34px;height:13px;flex:none;border-radius:4px;border:1px dashed var(--ghost-1)'))
+  else { r.appendChild(sq(tier, 10)); r.appendChild(bar(tier, '34px', 13, 'flex:none')) }
+  r.appendChild(bar(Math.min(tier + 1, 4), 'auto', 9, 'flex:1;min-width:0'))
+  if (!dashed) r.appendChild(bar(4, '14px', 9, 'flex:none'))
+  return r
+}
+const branch = (kids) => {
+  const b = el('div', '', 'position:relative;display:flex;flex-direction:column;gap:15px')
+  b.appendChild(el('span', '', 'position:absolute;left:32px;top:-6px;bottom:9px;width:1px;background:var(--ghost-4)'))
+  for (const k of kids) b.appendChild(k)
+  return b
+}
+const sess = (tone, w, tier, meta) => {
+  const r = el('div', '', 'display:flex;align-items:center;gap:10px;padding-left:40px')
+  r.appendChild(dot(tone, 7)); r.appendChild(bar(tier, w, 8))
+  if (meta) r.appendChild(bar(4, meta + 'px', 8))
+  return r
+}
+const heading = (title, body) => {
+  const head = el('div', '', 'flex:none;padding:24px 26px 0')
+  const h = el('p', '', 'margin:0;font:600 17px/1.3 ui-sans-serif,system-ui,sans-serif;letter-spacing:-.02em;color:var(--text-strong)')
+  h.textContent = title
+  head.appendChild(h)
+  const p = el('p', '', 'margin:8px 0 0;font:13px/1.55 ui-sans-serif,system-ui,sans-serif;color:var(--muted-foreground)')
+  p.textContent = body
+  head.appendChild(p)
+  return head
+}
+
+/* ── The screen this replaces ────────────────────────────────────────────── */
+function before() {
+  const col = el('div', 'col', COL + ';padding:16px 44px 24px 16px')
+
+  const id = el('div', '', 'display:flex;align-items:center;gap:8px;font:10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim)')
+  const chip = el('span', '', 'width:20px;height:20px;flex:none;border-radius:6px;background:var(--claude);display:flex;align-items:center;justify-content:center;font-size:11px')
+  chip.textContent = '▚'
+  id.appendChild(chip)
+  id.appendChild(document.createTextNode('NEW SESSION'))
+  col.appendChild(id)
+
+  const h = el('p', '', 'margin:10px 0 0;font:600 17px/1.3 ui-sans-serif,system-ui,sans-serif;color:var(--text-strong)')
+  h.textContent = 'Ready when you are'
+  col.appendChild(h)
+  const p = el('p', '', 'margin:7px 0 0;font:12px/1.6 ui-sans-serif,system-ui,sans-serif;color:var(--muted-foreground)')
+  p.textContent = 'The agent will organize this workspace as you talk in podium.'
+  col.appendChild(p)
+
+  const rows = el('div', '', 'margin-top:16px')
+  const field = (label, value, faint) => {
+    const r = el('div', '', 'display:grid;grid-template-columns:46px minmax(0,1fr);gap:8px;align-items:center;min-height:44px;border-top:1px solid var(--hairline-soft)')
+    const l = el('span', '', 'font:10.5px/1 ui-monospace,Menlo,monospace;color:var(--text-dim)')
+    l.textContent = label
+    r.appendChild(l)
+    const v = el('span', '', `font:12px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--text-${faint ? 'faint' : 'dim'});overflow:hidden;text-overflow:ellipsis;white-space:nowrap`)
+    v.textContent = value
+    r.appendChild(v)
+    return r
+  }
+  rows.appendChild(field('Task', 'Waiting for your first message', true))
+  rows.appendChild(field('Plan', 'The agent will outline the work', false))
+  rows.appendChild(field('Team', 'New session · ready', false))
+  col.appendChild(rows)
+
+  const foot = el('p', '', 'margin:16px 0 0;font:10.5px/1.5 ui-monospace,Menlo,monospace;color:var(--text-faint)')
+  foot.textContent = 'Names and rows crossfade into place; no task is invented.'
+  col.appendChild(foot)
+  return col
+}
+
+/* ── 1 · settling ────────────────────────────────────────────────────────── */
+function settling() {
+  const col = el('div', 'col', COL)
+  const g = el('div', 'ghost', 'flex:none;display:flex;flex-direction:column;gap:15px;margin-top:24px;padding-right:24px')
+  g.appendChild(task(1, false))
+  g.appendChild(branch([sess('var(--success)', '46%', 2, 22)]))
+  col.appendChild(g)
+  return col
+}
+
+/* ── 2 · shell ───────────────────────────────────────────────────────────── */
+function shell() {
+  const col = el('div', 'col', COL)
+  col.appendChild(heading(
+    'A shell joins no task',
+    'This pane runs commands beside the work, not on it. Pick a task on the left to see the agents on it here.',
+  ))
+  const g = el('div', 'ghost', 'flex:1;min-height:0;display:flex;flex-direction:column;gap:15px;margin-top:24px;padding-right:24px;--end:92%')
+  g.appendChild(task(1, false))
+  g.appendChild(branch([sess('var(--ghost-3)', '52%', 3, null)]))
+  g.appendChild(task(3, false))
+  col.appendChild(g)
+  return col
+}
+
+/* ── 3 · empty (unchanged) ───────────────────────────────────────────────── */
+function empty() {
+  const col = el('div', 'col', COL)
+  col.appendChild(heading(
+    'Every agent, in one tree',
+    'Pick a task on the left or start a new one. You’ll see the agents on it, what each is doing, and the follow-ups they propose.',
+  ))
+  const g = el('div', 'ghost', 'flex:1;min-height:0;display:flex;flex-direction:column;gap:15px;margin-top:24px;padding-right:24px;--end:92%')
+  g.appendChild(task(1, false))
+  g.appendChild(branch([sess('var(--success)', '46%', 2, 22), sess('var(--attention)', '60%', 3, null)]))
+  g.appendChild(task(3, false))
+  g.appendChild(branch([sess('var(--ghost-3)', '52%', 4, null)]))
+  g.appendChild(task(4, true))
+  col.appendChild(g)
+  return col
+}
+
+for (const [id, build, gone] of [
+  ['before', before, true],
+  ['settling', settling, false],
+  ['shell', shell, false],
+  ['empty', empty, false],
+]) {
+  const host = document.getElementById(id)
+  for (const [label, dark] of [['Light', false], ['Dark', true]]) {
+    const wrap = el('div')
+    const cap = el('p', 'cap')
+    cap.textContent = gone ? label + ' · removed' : label
+    wrap.appendChild(cap)
+    const frame = el('div', 'frame' + (gone ? ' gone' : ''))
+    const thm = el('div', 'thm' + (dark ? ' dark' : ''))
+    thm.appendChild(build())
+    frame.appendChild(thm)
+    wrap.appendChild(frame)
+    host.appendChild(wrap)
+  }
+}
+</script>
+
+</body>
+</html>

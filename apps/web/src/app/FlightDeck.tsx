@@ -40,7 +40,12 @@ import {
   treeGuides,
 } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
-import { type AgentKind, type IssueId, issueStatusOf, type SessionId, type SessionMeta } from '@podium/model/browser'
+import {
+  type IssueId,
+  issueStatusOf,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,
@@ -1803,74 +1808,81 @@ export function ContinuationCard({
 }
 
 /**
- * The empty deck: a canvas that fills as the conversation does, never an error
- * and never a demand for a task. A fresh Codex keeps its ordinary chat and
- * composer; this column simply shows what it has learned so far.
+ * THE DECK WHILE ITS MISSION IS STILL ARRIVING (POD-1139).
+ *
+ * A LOAD, NOT A STATE — and therefore WORDLESS. The session already carries an
+ * `issueId`: the composer's spawn paints the draft vessel and the session
+ * together (`optimisticDraftIssue` / `optimisticStartingSession`), so a root
+ * exists and this column is only waiting for the selection to catch up. What
+ * follows is a real tree a beat later, so anything written here is a sentence
+ * the operator watches get taken away.
+ *
+ * ONE TASK, ONE SESSION — not `EmptyDeck`'s four rows. That ghost teaches the
+ * shape of the pane to someone who has never loaded it; this one stands in for
+ * a specific tree that is exactly one strip deep, and a ghost that COLLAPSES on
+ * resolve reads worse than no ghost at all.
  */
-function IntakeCanvas({
-  session,
-  draft,
-  repoName,
-}: {
-  session: SessionMeta | undefined
-  draft: string | undefined
-  repoName: string | null
-}): JSX.Element {
-  const kind: AgentKind = session?.agentKind ?? 'codex'
-  const fields: Array<{ label: string; value: string; loading?: boolean }> = [
-    draft?.trim()
-      ? { label: 'Task', value: draft.trim() }
-      : { label: 'Task', value: 'Waiting for your first message', loading: true },
-    { label: 'Plan', value: 'The agent will outline the work' },
-    {
-      label: 'Team',
-      value: session ? `${sessionDisplayName(session)} · ready` : 'Agents will appear as they join',
-    },
-  ]
+function SettlingDeck(): JSX.Element {
   return (
-    <div
-      className="min-h-0 flex-1 overflow-y-auto pt-4 pr-11 pb-6 pl-4"
-      data-testid="flight-intake"
-    >
-      <div className="shell-type-micro flex items-center gap-2 font-mono tracking-wide text-text-dim uppercase">
-        <KindIcon kind={kind} chip />
-        {session ? sessionDisplayName(session) : 'New session'}
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="flight-settling">
+      <GhostPreview
+        className="mt-6 flex flex-none flex-col gap-[15px] pr-6"
+        testId="flight-ghost-settling"
+      >
+        <GhostTaskRow tier={1} />
+        <div className="relative flex flex-col gap-[15px]">
+          <span
+            className="absolute w-px bg-(--ghost-4)"
+            style={{ left: GUTTER + RAIL_INSET, top: -6, bottom: 9 }}
+          />
+          <GhostSessionRow tone="var(--success)" width="46%" tier={2} meta={22} />
+        </div>
+      </GhostPreview>
+    </div>
+  )
+}
+
+/**
+ * THE DECK BEHIND A SHELL (POD-1139).
+ *
+ * A shell reaches this column for real and durably: "New Shell" in the panel
+ * menu creates a session with no `issueId` and no draft vessel, and it lands in
+ * pane A like any other panel. It used to inherit the agent intake canvas,
+ * which told the operator that "the agent will organize this workspace as you
+ * talk" over a bash prompt that will do nothing of the kind.
+ *
+ * So it says the shell thing instead, in the shape `standbyCopy` already uses
+ * for this exact case ("A shell keeps no transcript"): state the limit, then
+ * point at where the answer actually is. The ghost stays — the column is still
+ * a task tree, and picking one is what fills it.
+ */
+function ShellDeck(): JSX.Element {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="flight-shell">
+      <div className="flex-none px-[26px] pt-6 pr-11">
+        <h2 className="shell-type-column-title font-semibold tracking-[-.02em] text-text-strong">
+          A shell joins no task
+        </h2>
+        <p className="mt-2 text-[13px] leading-[1.55] text-muted-foreground text-pretty">
+          This pane runs commands beside the work, not on it. Pick a task on the left to see the
+          agents on it here.
+        </p>
       </div>
-      {/* The deck's title slot, at the deck's title size — an empty column and a
-          loaded one are the same column, so its one heading does not shrink
-          because there is no mission in it yet. */}
-      <h2 className="mt-2.5 shell-type-column-title font-semibold text-text-strong">
-        Ready when you are
-      </h2>
-      <p className="shell-type-secondary mt-[7px] leading-[1.6] text-muted-foreground">
-        The agent will organize this workspace as you talk
-        {repoName ? ` in ${repoName}` : ''}.
-      </p>
-      <div className="mt-4">
-        {fields.map((field) => (
-          <div
-            key={field.label}
-            className="grid min-h-11 grid-cols-[46px_minmax(0,1fr)] items-center gap-2 border-t border-hairline-soft"
-          >
-            <span className="shell-type-micro font-mono text-text-dim">{field.label}</span>
-            {/* The artifact shimmers the pending field. Stillness is the signal
-                here (DESIGN.md §5) and the braille spinner means "an agent is
-                computing", which nothing is yet — so a pending field simply
-                reads fainter. */}
-            <span
-              className={cn(
-                'shell-type-secondary truncate',
-                field.loading ? 'text-text-faint' : 'text-text-dim',
-              )}
-            >
-              {field.value}
-            </span>
-          </div>
-        ))}
-      </div>
-      <p className="shell-type-micro mt-4 font-mono text-text-faint">
-        Names and rows crossfade into place; no task is invented.
-      </p>
+      <GhostPreview
+        className="mt-6 flex min-h-0 flex-1 flex-col gap-[15px] pr-6"
+        fadeTo="92%"
+        testId="flight-ghost-shell"
+      >
+        <GhostTaskRow tier={1} />
+        <div className="relative flex flex-col gap-[15px]">
+          <span
+            className="absolute w-px bg-(--ghost-4)"
+            style={{ left: GUTTER + RAIL_INSET, top: -6, bottom: 9 }}
+          />
+          <GhostSessionRow tone="var(--ghost-3)" width="52%" tier={3} />
+        </div>
+        <GhostTaskRow tier={3} />
+      </GhostPreview>
     </div>
   )
 }
@@ -1943,10 +1955,14 @@ function GhostTaskRow({
  * shape.
  *
  * NO BUTTON, AND NO HEADER TITLE. The work list and the composer own both ways
- * in; a third one here would be a third thing to explain. And there is no
- * session to name yet — `IntakeCanvas` below still handles the case where there
- * IS one (a session open with no mission around it), which is a different state
- * wearing different words.
+ * in; a third one here would be a third thing to explain.
+ *
+ * ALSO THE DECK BEHIND A SESSION ON NO TASK (POD-1139). "Pick a task on the
+ * left or start a new one" is not first-run advice — it is the whole answer for
+ * a panel-menu agent or a resumed conversation, neither of which gets a draft
+ * vessel. That case used to have a screen of its own (`IntakeCanvas`) that said
+ * a softer version of the same thing over a duplicate of the right dock's
+ * Task/Plan/Team rows; two surfaces for one sentence is one surface too many.
  */
 function EmptyDeck(): JSX.Element {
   return (
@@ -2310,8 +2326,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
   const rootDraft = useSessionDraft(draftFilling ? rootSession?.sessionId : undefined)
-  const focusedDraft = useSessionDraft(root ? undefined : focusedSession?.sessionId)
-  const repoName = useMemo(() => reposToViews(repos)[0]?.name ?? null, [repos])
   // The root is never in the fold set — see `rootRow`. Neither are proposals:
   // they left the tree, and "fold every branch" is about the tree.
   const foldable = useMemo(
@@ -2931,12 +2945,18 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             <DepartureTicks departures={departures} onOpen={openDeparture} />
           </div>
         </>
-      ) : focusedSession ? (
-        // A session with no mission around it: the intake canvas names THAT
-        // session and shows what it has learned so far. Different state,
-        // different words — see `EmptyDeck` for the one below it.
-        <IntakeCanvas session={focusedSession} draft={focusedDraft} repoName={repoName} />
+      ) : focusedSession?.agentKind === 'shell' ? (
+        // A shell will never become a task, so it never gets agent words.
+        <ShellDeck />
+      ) : focusedSession?.issueId ? (
+        // The session already knows its task; only the selection is behind. A
+        // load, so a ghost — never a sentence the resolve then contradicts.
+        <SettlingDeck />
       ) : (
+        // NO SESSION, or a session on no task at all ("New Shell"'s agent
+        // siblings in the panel menu, and every resume, create one with no
+        // vessel). Both want the same words — pick a task or start one — which
+        // is what `EmptyDeck` already says, so it says them for both.
         <EmptyDeck />
       )}
       {issueMenu && menuIssue && (
