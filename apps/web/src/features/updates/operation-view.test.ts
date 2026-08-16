@@ -142,6 +142,84 @@ describe('operationView — the seven states', () => {
     expect(result.cancel).toEqual({ label: 'Cancel', operationId: 'op_01j' })
   })
 
+  /**
+   * The kind writes `current` for a converged machine, never `done` (POD-2171):
+   * `projectMachines` in apps/server/src/modules/updates/operation.ts produces
+   * `current` from the version comparison. A filter that only knew the spec's
+   * illustrative `done` named the finished machine as the one still moving.
+   */
+  it('names the machine that is still moving, not one the server calls current', () => {
+    const payload = operationPayload({
+      steps: [
+        {
+          id: 'machines',
+          title: 'Updating your machines',
+          state: 'running',
+          startedAt: NOW - 30_000,
+          lastProgressAt: NOW - 1_000,
+          progress: { done: 1, total: 2 },
+          places: [
+            { id: 'm_a', name: 'alpha', state: 'current', percent: 100 },
+            { id: 'm_b', name: 'beta', state: 'downloading', percent: 62 },
+          ],
+        },
+      ],
+    })
+    expect(view(payload).steps[0]?.substatus).toBe('1 of 2 · beta downloading 62%')
+  })
+
+  it('treats a machine resting behind the target as waiting, not moving', () => {
+    const payload = operationPayload({
+      steps: [
+        {
+          id: 'machines',
+          title: 'Updating your machines',
+          state: 'running',
+          places: [
+            { id: 'm_a', name: 'alpha', state: 'pending' },
+            { id: 'm_b', name: 'beta', state: 'restarting' },
+          ],
+        },
+      ],
+    })
+    expect(view(payload).steps[0]?.substatus).toBe('beta restarting')
+  })
+
+  it('names the machine that reported a verdict when nothing is moving', () => {
+    const payload = operationPayload({
+      steps: [
+        {
+          id: 'machines',
+          title: 'Updating your machines',
+          state: 'failed',
+          places: [
+            { id: 'm_a', name: 'alpha', state: 'current', percent: 100 },
+            { id: 'm_b', name: 'beta', state: 'stuck', detail: 'The checkout has local changes.' },
+            { id: 'm_c', name: 'macbook', state: 'pending' },
+          ],
+        },
+      ],
+    })
+    expect(view(payload).steps[0]?.substatus).toBe('beta stuck')
+  })
+
+  it('names an unfamiliar place word as movement rather than ranking it last', () => {
+    const payload = operationPayload({
+      steps: [
+        {
+          id: 'machines',
+          title: 'Updating your machines',
+          state: 'running',
+          places: [
+            { id: 'm_a', name: 'alpha', state: 'pending' },
+            { id: 'm_b', name: 'beta', state: 'verifying', percent: 10 },
+          ],
+        },
+      ],
+    })
+    expect(view(payload).steps[0]?.substatus).toBe('beta verifying 10%')
+  })
+
   it('keeps saying "running" while a step is merely quiet', () => {
     const payload = operationPayload()
     const steps = (payload as { steps: { lastProgressAt?: number }[] }).steps
@@ -218,6 +296,47 @@ describe('operationView — the seven states', () => {
     expect(result.primary).toBeUndefined()
     expect(result.awaitingElsewhere).toEqual(['Waiting for Podium Desktop on macbook'])
     expect(result.indicator).toBe('animating')
+  })
+
+  /**
+   * THE ALL-IN-ONE CASE (POD-2168, §3.5/§4). The plan is empty and the one
+   * required ask belongs to the desktop shell, so a browser tab is behind by
+   * construction — the server has not been replaced yet. Being behind is not
+   * evidence that this page is the last one, and a Reload here fetches the same
+   * old bundle from the same un-updated server.
+   */
+  it('never turns a browser’s own staleness into a button while another surface is asked', () => {
+    const payload = operationPayload({
+      state: 'waiting',
+      steps: [],
+      awaiting: [
+        {
+          id: 'desktop-install',
+          surface: 'desktop-all-in-one',
+          title: 'Install the update in Podium Desktop',
+          detail: 'Finish this in Podium Desktop on ludovico.',
+          place: 'm_host',
+          required: true,
+        },
+      ],
+    })
+    const result = view(payload, { local: BEHIND, surface: 'web' })
+    expect(result.state).toBe('waiting-elsewhere')
+    expect(result.primary).toBeUndefined()
+    expect(result.title).toBe('Podium 0.4.3 is finishing elsewhere')
+    // `toContain`, not `toBe`: `askLine` also appends the ask's `place`, which
+    // the server sets to the machine ID while the detail names the machine, so
+    // the sentence carries a raw id. Filed separately rather than widened into
+    // this fix — see the discovered issue on the epic.
+    expect(result.subtitle).toContain('Finish this in Podium Desktop on ludovico.')
+    expect(result.indicatorLabel).toBe('Update waiting for another place')
+  })
+
+  it('still self-serves a stale surface when the wait belongs to nobody else', () => {
+    const payload = operationPayload({ state: 'waiting', steps: [], awaiting: [] })
+    const result = view(payload, { local: BEHIND, surface: 'web' })
+    expect(result.state).toBe('waiting-you')
+    expect(result.primary).toMatchObject({ kind: 'reload' })
   })
 
   it('names the version and the deferred places when it is done', () => {
@@ -392,11 +511,13 @@ describe('surfaces render the same operation differently', () => {
       state: 'waiting',
       awaiting: [{ id: 'x', surface: 'desktop-all-in-one', title: 'Restart Podium', place: 'mac' }],
     })
+    // `behind: true` on purpose (POD-2168): every non-asked surface is stale
+    // while the shell installs, and that staleness must not become a button.
     for (const surface of surfaces) {
       const result = view(payload, {
         surface,
         local: {
-          behind: false,
+          behind: true,
           canReload: surface !== 'desktop-all-in-one',
           canInstallDesktop: false,
         },

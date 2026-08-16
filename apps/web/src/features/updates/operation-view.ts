@@ -244,14 +244,49 @@ function placeLine(place: {
   return undefined
 }
 
+/**
+ * THE KIND'S VOCABULARY, READ WHERE THE KIND WRITES IT (POD-2171).
+ *
+ * Place states are the kind's open vocabulary, not a frozen contract like step
+ * ids, so a filter that switches on them owes its reader a source. This one is
+ * `projectMachines` and `reconcileUpdateOperation` in
+ * `apps/server/src/modules/updates/operation.ts`: the update kind writes
+ * `current`, `restarting`, `offline` and `pending`, plus the raw convergence
+ * words a daemon reports (`granted`, `downloading`, `rejected`, `stuck`).
+ *
+ * It never writes `done` — that word appears only in §3.1's illustrative
+ * payload — and the previous filter excluded exactly that word, so a machine
+ * that had FINISHED (`current`) matched "moving" as readily as one still
+ * downloading, and the step line named the wrong machine for the whole of the
+ * other's download. `done` stays listed as converged anyway: reading a word the
+ * spec prints costs nothing and is what the frozen-contract law asks of a
+ * reader (P8).
+ *
+ * Only the two ends of the vocabulary are named. Everything else — including a
+ * word this bundle has never heard of — counts as movement, because a new place
+ * state is overwhelmingly a new phase, and ranking it below `pending` would
+ * make the panel go quiet exactly when the kind learned to say more.
+ */
+const PLACE_CONVERGED: ReadonlySet<string> = new Set(['current', 'done'])
+const PLACE_RESTING: ReadonlySet<string> = new Set(['pending', 'offline'])
+const PLACE_VERDICT: ReadonlySet<string> = new Set(['rejected', 'stuck'])
+
 /** The place a human wants named: the one actually moving, else the first one left. */
 function interestingPlace(step: OperationStep): string | undefined {
   const places = step.places ?? []
-  const moving = places.find(
-    (place) => place.state !== undefined && place.state !== 'done' && place.state !== 'pending',
+  const left = places.filter(
+    (place) => place.state === undefined || !PLACE_CONVERGED.has(place.state),
   )
-  const remaining = places.find((place) => place.state !== 'done')
-  return placeLine(moving ?? remaining ?? places[0] ?? {})
+  const moving = left.find(
+    (place) =>
+      place.state !== undefined &&
+      !PLACE_RESTING.has(place.state) &&
+      !PLACE_VERDICT.has(place.state),
+  )
+  // Nothing is moving, so the machine that said why is the news — and on a
+  // stalled or failed step it is the only place a machine gets named at all.
+  const verdict = left.find((place) => place.state !== undefined && PLACE_VERDICT.has(place.state))
+  return placeLine(moving ?? verdict ?? left[0] ?? places[0] ?? {})
 }
 
 function substatusFor(step: OperationStep): string | undefined {
@@ -719,7 +754,29 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     const mine = (operation.awaiting ?? []).some(
       (ask) => ask.surface === undefined || ask.surface === input.surface,
     )
-    const primary = mine || input.local.behind ? localAction(input) : undefined
+    /**
+     * BEING BEHIND IS NOT EVIDENCE THAT THIS SURFACE IS THE LAST ONE (POD-2168,
+     * §3.5/§4).
+     *
+     * `behind` used to stand alone here, and in the all-in-one flow that is
+     * always true for a browser: the plan is empty, the one required ask
+     * belongs to the desktop shell, and the server cannot have been replaced
+     * until that shell installs. So every tab was told "the shared steps are
+     * done, this page is the last one" and offered a Reload that fetches the
+     * same old bundle from the same un-updated server — three sentences, all
+     * false, and the `waiting-elsewhere` branch written for precisely this case
+     * was unreachable, because it required a surface to be current before the
+     * install it is waiting for had happened.
+     *
+     * So this surface's own staleness only earns a button when nobody ELSE is
+     * being asked. When someone is, the honest reading is that the wait is
+     * theirs; a surface that is genuinely stale on its own account gets its
+     * button back the moment the operation finishes, from the straggler branch
+     * above. A browser is never offered an action only the desktop app can take
+     * (P5).
+     */
+    const selfServes = input.local.behind && elsewhere.length === 0
+    const primary = mine || selfServes ? localAction(input) : undefined
     if (primary) {
       return {
         ...base,
