@@ -134,6 +134,38 @@
   so it belongs to the relations menu.
 </p>
 
+<h2>How Linear does it</h2>
+<p>
+  Linear has no "closed". It has five <strong>categories</strong> — Backlog, Unstarted, Started,
+  <strong>Completed</strong>, <strong>Canceled</strong> — and a team's named states each live in one
+  of them. <em>Duplicate</em> is a state in the Canceled category, not a fourth thing. The picker is a
+  flat list ordered by category with no headings; the icons carry the grouping.
+</p>
+<p>
+  The part worth stealing is that <strong>Completed and Canceled are kept apart on purpose</strong>.
+  "We finished it" and "we are not doing it" are different answers, and one word over both destroys
+  the distinction for every count, filter and chart downstream. An earlier cut of this work put Done,
+  Cancelled and Duplicate under one <em>Closed</em> heading — exactly the fusion Linear avoids. That
+  heading is gone. What is left is three categories we have members for, separated by rules and named
+  by nothing:
+</p>
+<div class="menu wide" style="margin: 0 0 14px;">
+  <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--faint)"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></svg> Backlog</div>
+  <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg> Planning</div>
+  <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:#2f6feb"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 0 1 9.77 5.4 Z" fill="currentColor"/></svg> In Progress</div>
+  <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:#0ea5e9"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 1 1 4.23 5.4 Z" fill="currentColor"/></svg> Review</div>
+  <div class="sep"></div>
+  <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--success)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.5 7.2 6.3 9l3.2-3.6" stroke="var(--panel)" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Done</div>
+  <div class="sep"></div>
+  <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M5 5l4 4M9 5l-4 4" stroke="var(--panel)" stroke-width="1.55" fill="none" stroke-linecap="round"/></svg> Cancelled</div>
+  <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.3 9.1V5.2a.95.95 0 0 1 .95-.95h3.9" stroke="var(--panel)" stroke-width="1.25" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="5.9" y="5.9" width="4.1" height="4.1" rx="1.05" fill="var(--panel)"/></svg> Duplicate</div>
+</div>
+<p>
+  The same split now runs through the rest of the product: the explorer has a <strong>Done</strong>
+  tab and a <strong>Cancelled</strong> tab instead of one bucket, and the board filter can ask for
+  Cancelled or Duplicate on its own.
+</p>
+
 <h2>The right-sidebar menu</h2>
 <div class="cols">
   <div>
@@ -170,12 +202,13 @@
       <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:#0ea5e9"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 1 1 4.23 5.4 Z" fill="currentColor"/></svg> Review</div>
       <div class="sep"></div>
       <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--success)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.5 7.2 6.3 9l3.2-3.6" stroke="var(--panel)" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Done</div>
+      <div class="sep"></div>
       <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M5 5l4 4M9 5l-4 4" stroke="var(--panel)" stroke-width="1.55" fill="none" stroke-linecap="round"/></svg> Cancelled</div>
       <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.3 9.1V5.2a.95.95 0 0 1 .95-.95h3.9" stroke="var(--panel)" stroke-width="1.25" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="5.9" y="5.9" width="4.1" height="4.1" rx="1.05" fill="var(--panel)"/></svg> Duplicate</div>
     </div>
     <p class="caption">
-      Lanes, a rule, then the endings as states. Done moves below the rule because picking it
-      <em>is</em> a close — it records a reason and runs the close guard.
+      Ordered by category, a rule wherever the category changes, no headings — the glyphs do the
+      grouping. Done stands alone because <em>Completed</em> is its own category.
     </p>
   </div>
 </div>
@@ -239,11 +272,18 @@
   <li><strong>Activity feed</strong> — an event logged years ago as <code>wontfix</code> reads back "closed (cancelled)".</li>
   <li><strong>CLI</strong> — <code>podium issue close --reason done|cancelled|duplicate|superseded</code>. <code>wontfix</code> still works and stores <code>cancelled</code>.</li>
 </ul>
+<p>
+  One inherited inconsistency, unchanged by this work and worth knowing: the close-guard dialog runs
+  on the issue page and the issue panel, which pass a handler for it. The board sidebar and the
+  flight deck right-click menu close immediately instead. That fork predates this issue — the old
+  "Close (done)" / "Close (wontfix)" actions behaved the same way — and is filed separately rather
+  than widened here.
+</p>
 
 <h2>Two smaller corrections that came with it</h2>
 <ul>
-  <li>The explorer's <strong>Done</strong> tab is now <strong>Closed</strong> — it buckets by stage, and every ending parks on the done lane, so calling the bucket Done told you the cancelled rows in it had been completed.</li>
-  <li><strong>Bulk stage move</strong> and the phone's quick deck move no longer offer <em>Done</em>. Setting the done lane in bulk closed issues with <em>no reason recorded at all</em> — the exact incoherence this issue is about. Closing stays a single-issue decision with the guard dialog behind it.</li>
+  <li>The explorer's end buckets are now <strong>Done</strong> and <strong>Cancelled</strong>, keyed on status rather than stage. Every ending parks on the done lane, so the old single tab counted cancelled rows as completed work.</li>
+  <li><strong>Bulk status</strong> and the phone's deck card offer the whole list, endings included — marking a batch Done needs no extra justification. What changed is that they now run a real <em>close</em> so the ending is recorded; they used to write a bare <code>stage: done</code> patch, which left the rows closed with <code>closedReason</code> empty and folded as a flat "closed".</li>
 </ul>
 
 </main>

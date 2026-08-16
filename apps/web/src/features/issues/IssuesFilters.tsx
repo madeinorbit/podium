@@ -4,8 +4,8 @@ import {
   ISSUE_STATUS_LABELS,
   type IssueId,
   type IssueStage,
+  issueStatusMenuEntries,
   IssueType,
-  PICKABLE_OPEN_ISSUE_STATUSES,
 } from '@podium/model/browser'
 import { Check, ListFilter, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -127,13 +127,13 @@ export function AnchoredIssueMenu({
 
 export function BulkBar({
   count,
-  onStage,
+  onStatus,
   onPriority,
   onDelete,
   onClear,
 }: {
   count: number
-  onStage: (stage: IssueStage) => void
+  onStatus: (value: string) => void
   onPriority: (priority: number) => void
   onDelete: () => void
   onClear: () => void
@@ -142,21 +142,25 @@ export function BulkBar({
     <div className="-translate-x-1/2 fixed bottom-4 left-1/2 z-40 flex items-center gap-2 rounded-lg border border-border bg-popover px-3 py-2 shadow-lg">
       <span className="text-[13px] text-foreground tabular-nums">{count} selected</span>
       <div className="mx-1 h-4 w-px bg-border" />
-      {/* Bulk stage move — the OPEN lanes only (POD-1074). `done` used to be in
-          this list, which let a whole selection be parked on the done lane with
-          no reason recorded: closed by the predicate, but with nothing to say
-          which ending it was. Closing stays a single-issue decision with a
-          dialog behind it. */}
+      {/* Bulk STATUS — the same list every other picker shows (POD-1074),
+          endings included. Marking a batch Done needs no extra justification;
+          what it does need is to be a real close, so the ending is RECORDED.
+          It used to be a bare `{stage:'done'}` patch, which left the rows
+          closed-by-predicate with `closedReason` null — folded rows then read
+          "closed" because nothing knew which ending it had been. The terminal
+          picks now run the same close the single-issue menu runs, minus the
+          per-issue dialog, which has nothing to say about forty rows. */}
       <PropertyMenu
-        options={PICKABLE_OPEN_ISSUE_STATUSES.map((stage) => ({
-          value: stage,
-          label: ISSUE_STATUS_LABELS[stage],
-          icon: <StatusGlyph status={stage} />,
+        options={issueStatusMenuEntries().map((entry) => ({
+          value: entry.value,
+          label: entry.label,
+          icon: <StatusGlyph status={entry.status} />,
+          groupKey: entry.outcome,
         }))}
-        onSelect={(value) => onStage(value as IssueStage)}
+        onSelect={onStatus}
         trigger={
           <Button type="button" variant="outline" size="sm">
-            Stage
+            Status
           </Button>
         }
       />

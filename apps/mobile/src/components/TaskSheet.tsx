@@ -10,7 +10,9 @@ import {
 import {
   type IssueWire,
   issueStatusLabel,
-  PICKABLE_OPEN_ISSUE_STATUSES,
+  issueStatusMenuEntries,
+  issueStatusValueOf,
+  parseIssueStatusValue,
   type SessionMeta,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -19,10 +21,10 @@ import { ChevronDown, ChevronRight } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../client/hooks'
+import { StageGlyph } from './StageGlyph'
 import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { STAGE_LABEL } from '../theme/stage'
 import {
   color,
   font,
@@ -232,21 +234,27 @@ function SheetHead({
         <Text style={styles.presence}>{presence.text}</Text>
       ) : null}
 
-      {/* The deck's quick move is LANES only (POD-1074) — closing wants the
-          reason and the guard the task detail's Status sheet gives it, and a
-          swipe-up card is not where that decision belongs. `Done` is therefore
-          absent here, where it used to sit as a bare stage with no ending
-          recorded. */}
+      {/* The deck card gets the SAME status list as everywhere else (POD-1074),
+          endings included — marking a task done from the deck is the most
+          ordinary thing anyone does here. The terminal picks close with their
+          reason rather than parking the row on the done lane with none. */}
       <ActionSheet
         visible={stageOpen}
-        title="Stage"
+        title="Status"
         onClose={() => setStageOpen(false)}
-        actions={PICKABLE_OPEN_ISSUE_STATUSES.map((stage) => ({
-          label: STAGE_LABEL[stage],
-          selected: stage === issue.stage,
-          disabled: stage === issue.stage,
+        actions={issueStatusMenuEntries().map((entry) => ({
+          label: entry.label,
+          ...(entry.hint ? { hint: entry.hint } : {}),
+          icon: <StageGlyph stage={entry.status} size={15} ground={color.surface} />,
+          selected: entry.value === issueStatusValueOf(issue),
+          disabled: entry.value === issueStatusValueOf(issue),
           onPress: () => {
-            void store.updateIssue(issue.id, { stage }).catch(() => {})
+            const intent = parseIssueStatusValue(entry.value)
+            if (!intent) return
+            void (intent.kind === 'close'
+              ? store.closeIssue(issue.id, intent.reason)
+              : store.updateIssue(issue.id, { stage: intent.stage })
+            ).catch(() => {})
           },
         }))}
       />

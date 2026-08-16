@@ -1,5 +1,11 @@
 import { issueIsActionable } from '@podium/client-core/viewmodels'
-import { ISSUE_STATUS_LABELS, type IssueStage, type SessionMeta } from '@podium/model/browser'
+import {
+  ISSUE_STATUS_LABELS,
+  type IssueStage,
+  issueStatusOf,
+  issueStatusOutcome,
+  type SessionMeta,
+} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 
@@ -12,8 +18,13 @@ import type { IssueViewModel } from '@/app/store'
  * stops the surface being one endless scroll.
  */
 
-/** `needs` is not a stage — it is the attention bucket, and it comes first. */
-export type ExplorerTab = 'needs' | IssueStage
+/**
+ * `needs` is not a status — it is the attention bucket, and it comes first.
+ * Everything else is a STATUS bucket, not a stage bucket (POD-1074): `done`,
+ * `cancelled`, `duplicate` and `superseded` all park on the done LANE, so a
+ * stage-keyed tab could only ever offer one lump for all four.
+ */
+export type ExplorerTab = 'needs' | Exclude<IssueStage, 'shipping'> | 'cancelled'
 
 export const EXPLORER_TABS: readonly { id: ExplorerTab; label: string }[] = [
   { id: 'needs', label: 'Needs you' },
@@ -22,12 +33,34 @@ export const EXPLORER_TABS: readonly { id: ExplorerTab; label: string }[] = [
   { id: 'planning', label: ISSUE_STATUS_LABELS.planning },
   { id: 'backlog', label: ISSUE_STATUS_LABELS.backlog },
   { id: 'proposed', label: ISSUE_STATUS_LABELS.proposed },
-  // "Closed", not "Done" (POD-1074). The tab buckets by STAGE, and every ending
-  // — done, cancelled, duplicate, superseded — parks on the done lane. Calling
-  // the bucket Done said the cancelled rows in it had been completed; each row's
-  // own glyph and pill now say which ending it actually was.
-  { id: 'done', label: 'Closed' },
+  // TWO end buckets, not one, for the reason Linear keeps Completed and
+  // Canceled apart: "we finished it" and "we are not doing it" are different
+  // answers, and one tab holding both makes the Done count a lie. `Cancelled`
+  // gathers the whole cancelled category — cancelled, duplicate, superseded.
+  { id: 'done', label: ISSUE_STATUS_LABELS.done },
+  { id: 'cancelled', label: ISSUE_STATUS_LABELS.cancelled },
 ]
+
+/**
+ * Which bucket a row belongs to. Null = no bucket: `shipping` is system-owned
+ * custody with no tab of its own, and it must not fall into another one (the
+ * stage-keyed version silently made its count `NaN`).
+ */
+export function explorerTabOf(issue: IssueViewModel): ExplorerTab | null {
+  const status = issueStatusOf(issue)
+  switch (status) {
+    // The whole cancelled CATEGORY lands in one bucket — the row's own glyph
+    // says which of the three it was.
+    case 'cancelled':
+    case 'duplicate':
+    case 'superseded':
+      return 'cancelled'
+    case 'shipping':
+      return null
+    default:
+      return status
+  }
+}
 
 /** Sessions per issue, by the same membership rule the rest of the shell uses
  *  (attached by `issueId`, or declared in `memberSessionIds`). Built once for a
@@ -108,7 +141,7 @@ export function explorerRows(
       .filter((issue) => issueIsActionable(issue, byIssue.get(issue.id) ?? []))
       .sort(byRecency)
   }
-  return open.filter((issue) => issue.stage === opts.tab).sort(byRecency)
+  return open.filter((issue) => explorerTabOf(issue) === opts.tab).sort(byRecency)
 }
 
 /** The count beside each tab. `needs` runs the SAME predicate as the rail's
@@ -118,7 +151,7 @@ export function explorerCounts(
   sessions: readonly SessionMeta[],
 ): Record<ExplorerTab, number> {
   const byIssue = sessionsByIssue(issues, sessions)
-  const counts = {
+  const counts: Record<ExplorerTab, number> = {
     needs: 0,
     proposed: 0,
     backlog: 0,
@@ -126,10 +159,12 @@ export function explorerCounts(
     in_progress: 0,
     review: 0,
     done: 0,
-  } as Record<ExplorerTab, number>
+    cancelled: 0,
+  }
   for (const issue of issues) {
     if (!listable(issue)) continue
-    counts[issue.stage] += 1
+    const tab = explorerTabOf(issue)
+    if (tab) counts[tab] += 1
     if (issueIsActionable(issue, byIssue.get(issue.id) ?? [])) counts.needs += 1
   }
   return counts

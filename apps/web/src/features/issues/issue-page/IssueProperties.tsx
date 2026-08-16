@@ -127,16 +127,20 @@ export function IssueProperties({
     (s) => s.refIssueId === issue.id && s.issueId != null && s.issueId !== issue.id && !s.archived,
   )
 
-  // ---- Status (POD-1074): ONE list, the lanes then the endings, exactly as the
-  // dock and the board context menu render it. Picking a lane on a closed issue
-  // reopens it; the endings are guarded by the shared close dialog mounted on
-  // the full page. The "Closed" heading is what earns the endings their plain
-  // nouns — nothing has to say "Close:" to be understood. ----
+  // ---- Status (POD-1074): ONE list, ordered by category with a rule wherever
+  // the category changes, exactly as the dock and the board context menu render
+  // it. Picking a lane on a closed issue reopens it; the endings are guarded by
+  // the shared close dialog mounted on the full page.
+  //
+  // `groupKey`, not `group`: the rules are drawn, the categories are NOT written
+  // out. A heading here would have to say something over `Done`, and every word
+  // available ("Closed") lumps it in with Cancelled — the one fusion Linear's
+  // status model exists to prevent. The glyphs already say it. ----
   const statusOptions: PropertyOption[] = issueStatusMenuEntries().map((entry) => ({
     value: entry.value,
     label: entry.label,
     icon: <StatusGlyph status={entry.status} />,
-    ...(entry.terminal ? { group: 'Closed' } : {}),
+    groupKey: entry.outcome,
   }))
 
   // The fold opens itself when it has something to say — see the module note.

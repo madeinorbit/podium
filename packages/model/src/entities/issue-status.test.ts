@@ -119,11 +119,27 @@ describe('applying a picked status', () => {
 })
 
 describe('the status menu', () => {
-  it('offers the lanes, then the endings, with one rule between them', () => {
+  // TWO rules, not one. Completed and Canceled are separate categories in
+  // Linear's model and separate here, so `Done` stands alone between them —
+  // a single "Closed" run would say finishing and abandoning are one ending.
+  it('draws a rule wherever the category changes', () => {
     const entries = issueStatusMenuEntries()
     expect(entries.map((entry) => entry.status)).toEqual([...PICKABLE_ISSUE_STATUSES])
     expect(entries.filter((entry) => entry.startsGroup).map((entry) => entry.status)).toEqual([
       'done',
+      'cancelled',
+    ])
+  })
+
+  it('carries the category on every entry', () => {
+    expect(issueStatusMenuEntries().map((entry) => entry.outcome)).toEqual([
+      'open',
+      'open',
+      'open',
+      'open',
+      'completed',
+      'cancelled',
+      'cancelled',
     ])
   })
 

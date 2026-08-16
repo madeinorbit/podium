@@ -19,6 +19,12 @@ export interface PropertyOption {
   icon?: ReactNode
   /** When set, options that share a group render under one heading. */
   group?: string
+  /** Split runs WITHOUT naming them: consecutive options sharing a `groupKey`
+   *  are separated by a rule and no heading. The status picker uses this — its
+   *  categories are carried by the glyphs (POD-1074), and writing the category
+   *  out would put a word like "Closed" over `Done`, fusing the two endings
+   *  Linear deliberately keeps apart. Falls back to `group` when absent. */
+  groupKey?: string
 }
 
 /** Linear-style property picker: dropdown with type-ahead + optional free text. */

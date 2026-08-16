@@ -1,4 +1,9 @@
-import { asUserId, type IssueId, type IssueStage } from '@podium/model/browser'
+import {
+  asUserId,
+  type IssueId,
+  type IssueStage,
+  parseIssueStatusValue,
+} from '@podium/model/browser'
 import { ListTree, Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -50,6 +55,7 @@ export function IssuesView(): JSX.Element {
   const updateIssue = useStoreSelector((store) => store.updateIssue)
   const setIssueLabels = useStoreSelector((store) => store.setIssueLabels)
   const deleteIssue = useStoreSelector((store) => store.deleteIssue)
+  const closeIssue = useStoreSelector((store) => store.closeIssue)
   const isMobile = useIsMobile()
   // Display options are per-user REPLICATED, so they are subscribed rather than
   // seeded — a `useState` initializer reads the key before the replica has the
@@ -220,8 +226,24 @@ export function IssuesView(): JSX.Element {
     setKeyState(next.keyState)
     setCtxMenu({ ids: next.targetIds, anchor: { x: event.clientX, y: event.clientY } })
   }, [])
-  const bulkStage = (stage: IssueStage): void =>
-    runMut(Promise.all(selectedIds.map((id) => updateIssue(id, { stage }))))
+  // Bulk status (POD-1074): the lane arm patches the stage, the terminal arm
+  // CLOSES with its reason. Marking a batch Done is an ordinary thing to want —
+  // it just has to record that the ending was `done` rather than dropping the
+  // rows on the done lane with no reason at all, which is what the old bare
+  // stage patch did.
+  const bulkStatus = (value: string): void => {
+    const intent = parseIssueStatusValue(value)
+    if (!intent) return
+    runMut(
+      Promise.all(
+        selectedIds.map((id) =>
+          intent.kind === 'close'
+            ? closeIssue(id, intent.reason)
+            : updateIssue(id, { stage: intent.stage }),
+        ),
+      ),
+    )
+  }
   const bulkPriority = (priority: number): void =>
     runMut(Promise.all(selectedIds.map((id) => updateIssue(id, { priority }))))
   const bulkDelete = (): void => {
@@ -370,7 +392,7 @@ export function IssuesView(): JSX.Element {
       {selectedIds.length > 0 && (
         <BulkBar
           count={selectedIds.length}
-          onStage={bulkStage}
+          onStatus={bulkStatus}
           onPriority={bulkPriority}
           onDelete={bulkDelete}
           onClear={() => dispatchKey({ kind: 'clear' })}

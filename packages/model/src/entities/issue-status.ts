@@ -123,11 +123,27 @@ export function isIssueStatus(value: unknown): value is IssueStatus {
 }
 
 /**
- * What a status MEANS for the work, in the three buckets every surface actually
- * branches on: still moving, finished, or abandoned. This is the axis that
- * decides a glyph's colour — a green check for completed, a muted mark for
- * everything cancelled — and it is why `duplicate` and `superseded` must not
- * wear the success tick they inherited when they were "just closed".
+ * THE CATEGORY a status belongs to — Linear's idea, and the reason its status
+ * model holds up.
+ *
+ * Linear does not have a "closed" bucket. It has five CATEGORIES (Backlog,
+ * Unstarted, Started, Completed, Canceled), each holding any number of named
+ * states a team defines, and `Duplicate` is a state in the CANCELED category,
+ * not a fourth thing. Completed and Canceled are deliberately kept apart,
+ * because "we finished it" and "we are not doing it" are different answers that
+ * a single word like "closed" destroys — and every count, filter and chart in
+ * the product then inherits that destruction.
+ *
+ * So this is not a display detail. It is the axis that decides a glyph's colour
+ * (green check for completed, muted mark for everything cancelled), how the
+ * pickers are grouped, and which tab a finished row lands under. `duplicate`
+ * and `superseded` must not wear the success tick they inherited back when they
+ * were merely "closed".
+ *
+ * Our three categories are the five collapsed onto the stages we actually have:
+ * `open` covers Linear's Backlog/Unstarted/Started (our lanes already carry
+ * that distinction in their own order), and Completed / Canceled are kept
+ * separate exactly as Linear keeps them.
  */
 export type IssueStatusOutcome = 'open' | 'completed' | 'cancelled'
 
@@ -324,8 +340,10 @@ export function issueStatusValueOf(row: IssueStatusFields): string {
  * `ActionSheet` action — so what is shared is the LIST, not a component, and it
  * lives here rather than in either app.
  *
- * The shape is Linear's: one flat list, open lanes first, a rule, then the
- * terminal outcomes named as states rather than as operations. What used to read
+ * The shape is Linear's: ONE flat list of states, ordered by category, with a
+ * rule wherever the category changes and NO headings — the glyphs carry the
+ * grouping, which is the whole reason the glyph family is a shape language.
+ * What used to read
  *
  *     Backlog · Planning · In Progress · Review · Done
  *     Close: done
@@ -335,13 +353,21 @@ export function issueStatusValueOf(row: IssueStatusFields): string {
  *
  *     Backlog · Planning · In Progress · Review
  *     ─────────────────────────────────────────
- *     Done · Cancelled · Duplicate
+ *     Done                                        ← Completed
+ *     ─────────────────────────────────────────
+ *     Cancelled · Duplicate                       ← Canceled
  *
  * "Close: wontfix" was two problems in one label: it leaked the mutation into
  * the noun, and `wontfix` was a value nobody chose on purpose. Both go. `Done`
- * moves BELOW the rule because picking it IS a close — it records a reason and
- * passes the close guard — and grouping it with the lane moves was why the old
- * menu needed the "Close:" prefix to explain itself at all.
+ * moves out of the lane run because picking it IS a close — it records a reason
+ * and passes the close guard — and grouping it with the lane moves was why the
+ * old menu needed the "Close:" prefix to explain itself at all.
+ *
+ * THE SECOND RULE IS THE POINT. Done stands alone between two rules because
+ * Completed is its own category (see {@link IssueStatusOutcome}). An earlier cut
+ * of this put all three under one "Closed" heading — which is exactly the fusion
+ * Linear avoids: it tells the reader that finishing the work and abandoning it
+ * are the same kind of ending.
  */
 export interface IssueStatusMenuEntry {
   status: IssueStatus
@@ -350,25 +376,28 @@ export interface IssueStatusMenuEntry {
   label: string
   /** One line of help, for the surfaces with room (phone sheet, palette). */
   hint?: string
+  /** The category this entry belongs to — what the rules are drawn from. */
+  outcome: IssueStatusOutcome
   /** Terminal statuses route through a close, not a bare stage patch. */
   terminal: boolean
-  /** Draw a separator ABOVE this entry — true for the first terminal status. */
+  /** Draw a separator ABOVE this entry — true wherever the category changes. */
   startsGroup: boolean
 }
 
 export function issueStatusMenuEntries(): IssueStatusMenuEntry[] {
-  let seenTerminal = false
+  let previous: IssueStatusOutcome | null = null
   return PICKABLE_ISSUE_STATUSES.map((status) => {
     const reason = canonicalIssueCloseReason(status)
-    const terminal = isTerminalIssueStatus(status)
-    const startsGroup = terminal && !seenTerminal
-    if (terminal) seenTerminal = true
+    const outcome = issueStatusOutcome(status)
+    const startsGroup = previous !== null && previous !== outcome
+    previous = outcome
     return {
       status,
       value: issueStatusValue(status),
       label: ISSUE_STATUS_LABELS[status],
       ...(reason ? { hint: ISSUE_CLOSE_REASON_HINTS[reason] } : {}),
-      terminal,
+      outcome,
+      terminal: outcome !== 'open',
       startsGroup,
     }
   })
