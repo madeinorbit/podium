@@ -136,7 +136,8 @@ export class UpdatesService {
   private readonly machineStates = new Map<string, MachineConvergenceState>()
   private readonly pendingGrants = new Map<string, PendingGrant>()
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
-  private readonly forcedChecksInFlight = new Map<UpdateChannel, Promise<void>>()
+  /** One shared resolve per channel, for EVERY caller of `refreshTarget` (POD-2153). */
+  private readonly refreshesInFlight = new Map<UpdateChannel, Promise<void>>()
   /** Versions published while an exclusive operation held the group (§3.2). */
   private readonly nextTargets = new Map<UpdateChannel, UpdateTarget>()
 
@@ -281,8 +282,39 @@ export class UpdatesService {
     return published
   }
 
-  /** Refresh one selected authority without turning a failed lookup into a stale grant. */
-  async refreshTarget(channel: UpdateChannel): Promise<void> {
+  /**
+   * Refresh one selected authority without turning a failed lookup into a stale grant.
+   *
+   * SINGLE-FLIGHT PER CHANNEL, and it lives HERE rather than at any call site
+   * (POD-2153). Six production callers reach this method — the two boot resolves
+   * and the periodic tick in `server.ts`, `onFleetChannelChanged`, and both fleet
+   * handlers — plus {@link checkNow}. The in-flight map used to sit on the forced
+   * check alone, which guarded that one caller against itself and nothing else.
+   *
+   * The duplicate feed request is the lesser half. The greater half is that every
+   * one of these paths ends in {@link setTarget}, which is last-writer-wins by
+   * COMPLETION order, not request order: a slow resolve that started first can
+   * land after a fresh one and overwrite a newer target with a staler one. Sharing
+   * one promise per channel removes the overlap that makes the ordering question
+   * exist at all, so the guard cannot be reintroduced by adding a seventh caller.
+   */
+  refreshTarget(channel: UpdateChannel): Promise<void> {
+    const inFlight = this.refreshesInFlight.get(channel)
+    if (inFlight) return inFlight
+
+    const refresh = this.resolveIntoTarget(channel).finally(() => {
+      // Identity-checked so a slot re-taken by a later caller is never deleted by
+      // an earlier one settling; `finally` also covers the failure path, or one
+      // unreachable second would pin the channel shut for the life of the process.
+      if (this.refreshesInFlight.get(channel) === refresh) {
+        this.refreshesInFlight.delete(channel)
+      }
+    })
+    this.refreshesInFlight.set(channel, refresh)
+    return refresh
+  }
+
+  private async resolveIntoTarget(channel: UpdateChannel): Promise<void> {
     if (channel === 'dev') {
       // Dev is publisher-pushed, so "refreshing" it is only ever a report on what
       // the source server has already published.
@@ -335,24 +367,15 @@ export class UpdatesService {
         results.push(cached)
         continue
       }
-      await this.refreshTargetForCheck(channel)
+      // Plain `refreshTarget`: the coalescing is the method's own now, so a forced
+      // check shares one resolve with a boot, a tick or a fleet handler — not just
+      // with another forced check. The rate window above is untouched and remains
+      // the user-facing semantic: inside it, the recorded outcome comes straight back.
+      await this.refreshTarget(channel)
       const record = this.checks.get(channel)
       if (record) results.push(record)
     }
     return results
-  }
-
-  private refreshTargetForCheck(channel: UpdateChannel): Promise<void> {
-    const inFlight = this.forcedChecksInFlight.get(channel)
-    if (inFlight) return inFlight
-
-    const refresh = this.refreshTarget(channel).finally(() => {
-      if (this.forcedChecksInFlight.get(channel) === refresh) {
-        this.forcedChecksInFlight.delete(channel)
-      }
-    })
-    this.forcedChecksInFlight.set(channel, refresh)
-    return refresh
   }
 
   /**

@@ -676,6 +676,105 @@ describe('target refresh bookkeeping', () => {
   })
 
   /**
+   * POD-2153: the in-flight map used to sit on `checkNow` alone, so it only ever
+   * guarded that one caller against itself. Six production sites reach
+   * `refreshTarget` directly — the two boot resolves and the periodic tick in
+   * `server.ts`, `onFleetChannelChanged` in `modules/instance/trpc.ts`, and both
+   * fleet handlers — and every one of them opened a second concurrent request to
+   * the release feed.
+   *
+   * The duplicate request is the small half. The large half is that both resolves
+   * end in `setTarget`, which is LAST-WRITER-WINS BY COMPLETION ORDER: a slow
+   * resolve that started first can land after a fresh one and overwrite a newer
+   * target with a staler one. Sharing the in-flight promise removes the overlap
+   * that makes the ordering question exist at all.
+   */
+  describe('refresh coalescing across callers', () => {
+    /** A resolver that hangs until released, so two callers are genuinely concurrent. */
+    const suspended = () => {
+      let finish!: (resolved: typeof target) => void
+      const resolving = new Promise<typeof target>((resolve) => {
+        finish = resolve
+      })
+      return { resolveTarget: vi.fn(() => resolving), finish: () => finish(target) }
+    }
+
+    it('a forced check joins a refresh already in flight from another caller', async () => {
+      const { resolveTarget, finish } = suspended()
+      const { svc } = build(resolveTarget as never)
+
+      // The periodic tick (server.ts:440) — also the shape of boot and both fleet handlers.
+      const tick = svc.refreshTarget('stable')
+      // …and the user hits "Check now" while it is mid-flight.
+      const forced = svc.checkNow()
+
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      finish()
+      const [, forcedResult] = await Promise.all([tick, forced])
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      // The joined caller still gets a real answer, not a silent no-op.
+      expect(forcedResult).toEqual([
+        { channel: 'stable', checkedAt: 1_000, outcome: { status: 'ok' } },
+      ])
+    })
+
+    it('a fleet-handler refresh joins a forced check already in flight', async () => {
+      const { resolveTarget, finish } = suspended()
+      const { svc } = build(resolveTarget as never)
+
+      const forced = svc.checkNow()
+      // machineApplyUpdateHandler / machineSetUpdateChannelHandler / onFleetChannelChanged.
+      const handler = svc.refreshTarget('stable')
+
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      finish()
+      await Promise.all([forced, handler])
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+    })
+
+    it('coalesces per channel, not globally', async () => {
+      const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
+      const { svc } = build(resolveTarget as never)
+
+      await Promise.all([svc.refreshTarget('stable'), svc.refreshTarget('edge')])
+
+      expect(resolveTarget.mock.calls.map(([channel]) => channel)).toEqual(['stable', 'edge'])
+    })
+
+    it('releases the in-flight slot so a later caller resolves again', async () => {
+      const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
+      const { svc, advance } = build(resolveTarget as never)
+
+      await svc.refreshTarget('stable')
+      advance(60_000)
+      await svc.refreshTarget('stable')
+
+      expect(resolveTarget).toHaveBeenCalledTimes(2)
+    })
+
+    /**
+     * A rejected resolve must not pin the channel's slot forever — that would be a
+     * permanent outage manufactured out of one unreachable second.
+     */
+    it('releases the in-flight slot after a failed resolve', async () => {
+      let fail = true
+      const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => {
+        if (fail) throw new Error('stable target unavailable: fetch failed')
+        return target
+      })
+      const { svc, advance } = build(resolveTarget as never)
+
+      await svc.refreshTarget('stable')
+      fail = false
+      advance(60_000)
+      await svc.refreshTarget('stable')
+
+      expect(resolveTarget).toHaveBeenCalledTimes(2)
+      expect(svc.target('stable')).toBe(target)
+    })
+  })
+
+  /**
    * The scheduled refresh asks this before it re-resolves. `setTarget` clears the
    * channel's pending grants on a version change, so refreshing under a live wave
    * would strand the machine mid-download against a descriptor nobody publishes.
