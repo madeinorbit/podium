@@ -54,6 +54,12 @@ Every sub-issue of the updater epic follows this protocol. It is part of your br
   detached worktree at that SHA — no `bun install` there, `--root` is the repo root). Any
   delta that plausibly touches your files must be resolved before merging; record the
   comparison (both failure sets, the SHA) in your issue state.
+- **Rust: cargo DOES exist here.** The older specs and my earlier briefs claimed "no local
+  cargo"; that is wrong — `cargo 1.96.1` is at `~/.cargo/bin` (verified 2026-08-16, POD-2142).
+  There is no warm build cache, though, and disk is tight, so a full `cargo build` of the
+  Tauri crate is expensive: prefer `cargo test` scoped to the pure functions you added, judge
+  the cost against free space first, and let CI remain the authority for a full build. What
+  you must not do is *claim* a build you did not run — say plainly which of the two you did.
 - **Disk is tight (98% as of 2026-08-14, POD-2111).** Check `df -h` before any build or
   full-suite run; below ~3 GB free, stop and mail 2087 instead of risking a silently
   truncated write. For A/B base runs prefer a detached in-place checkout of your own
