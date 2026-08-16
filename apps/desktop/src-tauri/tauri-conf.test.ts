@@ -127,7 +127,16 @@ describe('tauri desktop config', () => {
   it('reveals a native semantic material only through the macOS command bar', () => {
     expect(cargoSource).toContain('"macos-private-api"')
     expect(mainSource).toContain('.transparent(true)')
-    expect(mainSource).toContain('.effect(Effect::HeaderView)')
+    // Sidebar, not HeaderView, and the difference is measured rather than a taste
+    // call. HeaderView is the semantic pick for a command bar, so it is what the
+    // next reader will reach for — but the material composites with the WINDOW's
+    // NSAppearance, and in dark mode it lands within ~3% luminance of the opaque
+    // bar it replaces (#232628 against --bar #1b1d21). That reads as opaque: the
+    // translucency ships, and no one can see it. Sidebar is the visibly
+    // translucent chrome material (Finder, Notes) and is what POD-1034's effect
+    // was actually for. Swapping back needs a new measurement, not a rename.
+    expect(mainSource).toContain('.effect(Effect::Sidebar)')
+    expect(mainSource).not.toContain('Effect::HeaderView')
     expect(mainSource).toContain('.state(EffectState::FollowsWindowActiveState)')
     expect(webStyles).toContain(
       'html[data-podium-platform="macos"] .desktop-topbar {\n  background: transparent;',

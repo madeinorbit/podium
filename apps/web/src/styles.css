@@ -484,7 +484,7 @@ html[data-podium-platform="macos"] .desktop-topbar {
 html[data-podium-platform="macos"] .desktop-topbar-nav {
   margin-left: 6px;
 }
-/* The macOS shell places a semantic HeaderView NSVisualEffectView behind its
+/* The macOS shell places a semantic Sidebar NSVisualEffectView behind its
    transparent WKWebView. Keep every ancestor over the command bar clear so
    that native material reaches the pixels, then restore the normal opaque app
    ground at the content row. Browsers and the other desktop shells keep the
