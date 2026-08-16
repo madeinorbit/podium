@@ -62,9 +62,24 @@ claim than the one first written down.
 
 ## Instruments, all outside the product
 
-No file under `apps/` or `packages/` was modified for any drive below.
+No file under `apps/` or `packages/` was modified for any drive below, and no
+file was written inside the disposable checkout either — a file there would make
+it dirty and trip the publisher's dirty refusal, which is a different drill.
 
-<!-- INSTRUMENTS -->
+- **A supervisor**, because the disposable instance had none. A plain `while`
+  loop around the same launch command, recording each generation. See the section
+  above for why it is needed and what a real install has instead.
+- **A screenshot driver**: one Chromium page, opened once and kept open for the
+  whole drive, taking commands from a file. It is a single page on purpose — the
+  panel's your-turn state is a fact about the build running THAT page.
+- **`PODIUM_UPDATE_CHANNEL`**, the documented env seam, to pin the host to
+  `stable`. No code change and no fetch interception: the stable manifest is
+  Podium's real published one.
+
+Two things this drive deliberately did NOT use, both of which earlier drives did:
+no `BUN_BIN` build stub (the builds here are real, which was the point) and no
+hand-stamped `podium-build.json` (POD-2200 used one to avoid the web step; this
+drive exists to run it).
 
 ## A foreground all-in-one has no supervisor, and a git update stops it
 
