@@ -155,6 +155,10 @@ resolved into main is worse than no green at all.
   issues, model, sync) are drift-red at the integration tip already — sweeping those in
   hides someone else's pending change behind yours. Recapture the one family your change
   touched and leave the rest red.
+- **Clean up your build outputs before you close.** POD-2103 removed `dist-bun`,
+  `apps/web/dist`, retained sourcemaps and its harness state dir on the way out and put
+  **1.3 GB** back on a box that was at 99%. If you built anything, delete it; say how much
+  you freed.
 - Update your issue: `podium issue state <id> --set "…"` (what landed, how verified),
   `podium issue close <id> --note "…"`.
 - Mail the epic: `podium issue mail send 2087 --body "POD-<id> merged to integration:
