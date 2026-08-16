@@ -515,6 +515,10 @@ function harness(options: HarnessOptions = {}) {
     report: (id, stepId, patch) => {
       void engine.recordProgress(id, stepId, patch)
     },
+    // Wired exactly as `updateOperationContext` wires it, because a watcher
+    // that cannot be stopped is precisely what POD-2173 was about: a harness
+    // that left this out would prove the fix nothing.
+    stepActive: (id, stepId) => engine.watching(id, stepId),
     schedule: (fn) => {
       scheduled.push(fn)
     },
@@ -802,7 +806,7 @@ describe('the step runners', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates })
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
     h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
@@ -833,7 +837,7 @@ describe('the step runners', () => {
 
     // The daemon reconnects on the new build: the machine DIRECTORY is the proof.
     fleet[0] = machine({ id: 'vmi', version: 'dev+abc1234' })
-    createUpdateFleetBridge({ engine: h.engine, updates: h.updates }).onFleetChanged()
+    createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() }).onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(h.read().state).toBe('done')
   })
@@ -1089,7 +1093,7 @@ describe('the fleet bridge', () => {
       state: 'downloading',
       version: '0.4.1',
     })
-    createUpdateFleetBridge({ engine: h.engine, updates: h.updates }).onFleetChanged()
+    createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
@@ -1118,7 +1122,7 @@ describe('the fleet bridge', () => {
     expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
 
     fleet[1] = machine({ id: 'laptop' })
-    createUpdateFleetBridge({ engine: h.engine, updates: h.updates }).onFleetChanged()
+    createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     const operation = h.read()
@@ -1151,7 +1155,7 @@ describe('the fleet bridge', () => {
 
     // `vmi` arrives, which is the whole of the planned wave.
     fleet[0] = machine({ id: 'vmi', version: 'dev+abc1234' })
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates })
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('done')
@@ -1178,7 +1182,7 @@ describe('the fleet bridge', () => {
     await h.engine.whenSettled('op_1')
 
     fleet[1] = machine({ id: 'laptop', supervised: true })
-    createUpdateFleetBridge({ engine: h.engine, updates: h.updates }).onFleetChanged()
+    createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
@@ -1399,7 +1403,13 @@ describe('a silent grant, with nobody watching', () => {
 
     const operation = h.read()
     expect(operation.state).toBe('failed')
-    expect(operation.error?.code).toBe('stalled')
+    // AND IT SAYS WHO (POD-2167). This used to be a bare `stalled` with no
+    // places — the generic sentence, on the one failure §7 invented `places`
+    // for. The machine whose own clock ran out is named, in the code, in the
+    // list, and in the sentence a human reads.
+    expect(operation.error?.code).toBe('machine-unreachable')
+    expect(operation.error?.places).toEqual(['vmi'])
+    expect(operation.error?.message).toContain('vmi3407763')
     // And the coordinator stops believing in the grant it was waiting on, so
     // the machine is not excluded from every future wave (POD-2101).
     expect(h.updates.releaseInFlightGrants()).toEqual(['vmi'])
@@ -1409,7 +1419,7 @@ describe('a silent grant, with nobody watching', () => {
     const h = silentWave()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates })
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
 
     for (const percent of [20, 55, 91]) {
       h.clock.advance(silenceMs - 60_000)
@@ -1437,7 +1447,7 @@ describe('a silent grant, with nobody watching', () => {
     const h = silentWave()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates })
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
 
     h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
@@ -1460,5 +1470,223 @@ describe('a silent grant, with nobody watching', () => {
     const place = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.places?.[0]
     expect(place).toMatchObject({ state: 'restarting' })
     expect(place).not.toHaveProperty('percent')
+  })
+})
+
+/**
+ * THE FLEET SIZE THE OLD DESIGN COULD NOT SEE (POD-2167).
+ *
+ * Every stall case above has ONE machine — the only fleet size where the step's
+ * silence and a machine's silence are the same number. With two, the difference
+ * is the whole defect: the step's single `lastProgressAt` was stamped by any
+ * fleet event from anyone, so a healthy machine's two-second heartbeats held the
+ * budget open over a dead one for as long as the healthy one kept working.
+ */
+describe('two machines, one of them dead', () => {
+  const silenceMs = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs ?? 0
+  const machinesStep = (h: ReturnType<typeof harness>) =>
+    h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+
+  /**
+   * A wave grants a CANARY alone and only widens once it is healthy, so the
+   * fleet that can have two machines in flight at once needs three: `canary`
+   * converges, then `busy` and `silent` are granted together — the shape the
+   * whole defect lives in.
+   */
+  const trio = () => {
+    const fleet = [
+      machine({ id: 'a-canary', name: 'macbook' }),
+      machine({ id: 'busy', name: 'ludovico' }),
+      machine({ id: 'silent', name: 'vmi3407763' }),
+    ]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
+    return {
+      ...h,
+      bridge,
+      /** Take the canary all the way to the target — proof, not optimism. */
+      async openTheWave(): Promise<void> {
+        await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+        await h.engine.whenSettled('op_1')
+        const canary = fleet[0]
+        if (canary) canary.version = 'dev+abc1234'
+        h.updates.onStatus(asMachineId('a-canary'), {
+          type: 'updateStatus',
+          grantId: 'grant_1',
+          state: 'current',
+          version: 'dev+abc1234',
+        })
+        // The canary's own frame goes through the bridge in production, and it
+        // is what first projects the widened wave — so this is where the two
+        // newly granted machines get their clocks.
+        bridge.onFleetChanged()
+        await h.engine.whenSettled('op_1')
+      },
+    }
+  }
+
+  /**
+   * WHICH MACHINES HAVE BEEN GRANTED SOMETHING, once each.
+   *
+   * Deliberately a set rather than the message sequence: `tick()` reads
+   * `fleet()`, `fleet()` continues a ready wave by calling `tick()` back, and the
+   * outer call then plans against the snapshot it took before the inner one
+   * granted anything — so widening past the canary sends every newly selected
+   * machine a second grant. That is a coordinator defect of its own (filed), it
+   * predates this work, and the daemon supersedes the duplicate; asserting on the
+   * raw sequence here would only tie these cases to it.
+   */
+  const grantedMachines = (h: { sent: Array<{ machineId: string }> }): string[] => [
+    ...new Set(h.sent.map((grant) => grant.machineId)),
+  ]
+
+  /** The grant this machine is actually holding — a status quoting any other is inert. */
+  const grantIdFor = (h: { sent: Array<{ machineId: string; message: { grantId?: string } }> }, id: string) =>
+    [...h.sent].reverse().find((grant) => grant.machineId === id)?.message.grantId
+
+  /** One machine reports a fresh percentage; the others say nothing, ever. */
+  const reports = (
+    h: ReturnType<typeof harness>,
+    bridge: { onFleetChanged: () => void },
+    id: string,
+    percent: number,
+  ) => {
+    h.updates.onStatus(asMachineId(id), {
+      type: 'updateStatus',
+      ...(grantIdFor(h, id) ? { grantId: grantIdFor(h, id) } : {}),
+      state: 'downloading',
+      version: '0.4.1',
+      percent,
+    })
+    bridge.onFleetChanged()
+  }
+  const busyReports = (
+    h: ReturnType<typeof harness>,
+    bridge: { onFleetChanged: () => void },
+    percent: number,
+  ) => reports(h, bridge, 'busy', percent)
+
+  it('stalls on the silent one while the other is still talking', async () => {
+    const h = trio()
+    await h.openTheWave()
+    // The canary, then both of the others: two machines in flight at once.
+    expect(grantedMachines(h)).toEqual(['a-canary', 'busy', 'silent'])
+    const bridge = h.bridge
+
+    // Ten one-minute steps of a perfectly healthy download on the other
+    // machine. Under the step's single clock every one of these re-armed the
+    // budget, and `silent` could not be noticed until `busy` had finished.
+    for (let minute = 1; minute <= 10; minute++) {
+      h.clock.advance(60_000)
+      busyReports(h, bridge, minute * 9)
+      await h.engine.whenSettled('op_1')
+    }
+
+    const step = machinesStep(h)
+    expect(step?.stalls).toBe(1)
+    // The retry is a RE-ISSUED grant, and it went to the machine that stopped —
+    // the wave planner skips a machine it believes is mid-grant, so a plain tick
+    // would have selected nobody and changed nothing.
+    expect(h.sent.at(-1)?.machineId).toBe('silent')
+    // …and the wave was never failed out from under the healthy machine.
+    expect(h.read().state).toBe('running')
+  })
+
+  it('gives the retry its own window instead of failing it on inherited silence', async () => {
+    const h = trio()
+    await h.openTheWave()
+    const bridge = h.bridge
+
+    h.clock.advance(silenceMs)
+    await h.engine.whenSettled('op_1')
+    expect(machinesStep(h)?.stalls).toBe(1)
+    expect(machinesStep(h)?.state).toBe('running')
+
+    // Just short of a second full budget: the retry is judged from when it was
+    // made, not from the silence that provoked it.
+    h.clock.advance(silenceMs - 1000)
+    busyReports(h, bridge, 40)
+    await h.engine.whenSettled('op_1')
+    expect(h.read().state).toBe('running')
+
+    h.clock.advance(2000)
+    await h.engine.whenSettled('op_1')
+    expect(h.read().state).toBe('failed')
+  })
+
+  it('fails naming the machine that stopped, and not the one that was fine', async () => {
+    const h = trio()
+    await h.openTheWave()
+    const bridge = h.bridge
+
+    for (let round = 0; round < 3; round++) {
+      h.clock.advance(silenceMs - 1000)
+      busyReports(h, bridge, 20 + round * 20)
+      await h.engine.whenSettled('op_1')
+    }
+    h.clock.advance(silenceMs)
+    await h.engine.whenSettled('op_1')
+
+    const error = h.read().error
+    expect(h.read().state).toBe('failed')
+    // §7's promise, kept on the most likely machine failure there is: the panel
+    // can say "vmi3407763 stopped responding" instead of "a machine failed".
+    expect(error?.code).toBe('machine-unreachable')
+    expect(error?.places).toEqual(['silent'])
+    expect(error?.message).toContain('vmi3407763')
+    expect(error?.message).not.toContain('ludovico')
+  })
+
+  it('does not start a clock on a machine whose turn has not come', async () => {
+    // A canary plus four, at a concurrency of three: once the canary is through,
+    // `waiting` is granted nothing, so it reports nothing — and a per-place clock
+    // that counted it would stall a wave that is working perfectly well, on every
+    // fleet larger than its own concurrency.
+    const fleet = [
+      machine({ id: 'a-canary' }),
+      machine({ id: 'b' }),
+      machine({ id: 'c' }),
+      machine({ id: 'd' }),
+      machine({ id: 'waiting' }),
+    ]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const canary = fleet[0]
+    if (canary) canary.version = 'dev+abc1234'
+    h.updates.onStatus(asMachineId('a-canary'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      state: 'current',
+      version: 'dev+abc1234',
+    })
+    await h.engine.whenSettled('op_1')
+    expect(grantedMachines(h)).toEqual(['a-canary', 'b', 'c', 'd'])
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    const claimed = machinesStep(h)
+      ?.places?.filter((place) => place.lastProgressAt !== undefined)
+      .map((place) => place.id)
+    expect(claimed).toEqual(['b', 'c', 'd'])
+
+    for (let round = 0; round < 3; round++) {
+      h.clock.advance(silenceMs - 1000)
+      for (const id of ['b', 'c', 'd']) reports(h, bridge, id, 20 + round * 20)
+      await h.engine.whenSettled('op_1')
+    }
+    expect(h.read().state).toBe('running')
+    expect(machinesStep(h)?.stalls ?? 0).toBe(0)
   })
 })

@@ -1339,6 +1339,14 @@ export function createUpdateFleetBridge(deps: {
     reensure(id: string, stepId: string, patch?: StepProgressPatch): Promise<void>
   }
   updates: UpdatesService
+  /**
+   * THE ENGINE'S CLOCK, because this is where the places get their timestamps
+   * (POD-2167). A bridge reading `Date.now()` while the engine it reports to is
+   * on another clock writes stamps that engine can only read as the far future —
+   * which silently disables every deadline the step has. Defaults to real time,
+   * which is what the composition root's engine uses.
+   */
+  now?: () => number
 }): { onFleetChanged: () => void } {
   return {
     onFleetChanged: () => {
@@ -1352,6 +1360,7 @@ export function createUpdateFleetBridge(deps: {
         updates: deps.updates,
         channel: details.channel,
         appVersion: () => details.fromVersion ?? '',
+        ...(deps.now ? { now: deps.now } : {}),
       }
 
       // §3.6: a deferred machine that woke up while its own step is still

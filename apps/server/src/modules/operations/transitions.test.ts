@@ -6,6 +6,7 @@ import {
   deadlineDue,
   inFlightStep,
   nextStep,
+  restartPlaceClocks,
   withPersistenceFacts,
 } from './transitions'
 
@@ -150,5 +151,74 @@ describe('deadlines', () => {
   it('measures silence from the last progress and the total from the start', () => {
     const breach = deadlineBreach(step({ startedAt: 0, lastProgressAt: 400 }), {}, 500)
     expect(breach).toMatchObject({ silentMs: 100, elapsedMs: 500, kind: 'none' })
+  })
+})
+
+/**
+ * PER-PLACE SILENCE (POD-2167). The step's own clock is stamped by any accepted
+ * report, so for a step acting on several places at once it says only "somebody
+ * spoke" — and a wave's healthy members will keep saying it right up until the
+ * moment the wave ends. These cases are the arithmetic that replaces it.
+ */
+describe('a step is as silent as its quietest place', () => {
+  const withPlaces = (
+    places: Array<{ id: string; lastProgressAt?: number }>,
+    over: Partial<OperationStep> = {},
+  ): OperationStep => step({ startedAt: 0, lastProgressAt: 900, places, ...over })
+
+  it('is judged on the OLDEST place, not on whoever spoke last', () => {
+    // The step's own clock says 900 — a busy machine reporting a moment ago.
+    // The one that stopped at 100 is what the budget is about.
+    const s = withPlaces([{ id: 'busy', lastProgressAt: 900 }, { id: 'silent', lastProgressAt: 100 }])
+    expect(deadlineDue(s, { silenceMs: 500 }, 900)).toBe(600)
+    expect(deadlineBreach(s, { silenceMs: 500 }, 900)).toMatchObject({
+      kind: 'silence',
+      silentMs: 800,
+    })
+  })
+
+  it('names the places whose own clocks ran out, and only those', () => {
+    const s = withPlaces([
+      { id: 'busy', lastProgressAt: 900 },
+      { id: 'silent', lastProgressAt: 100 },
+      { id: 'alsoSilent', lastProgressAt: 200 },
+    ])
+    expect(deadlineBreach(s, { silenceMs: 500 }, 900).places).toEqual(['silent', 'alsoSilent'])
+  })
+
+  it('ignores a place that makes no claim — a turn that has not come is not silence', () => {
+    // `pending` and arrived places carry no stamp, which is how the kind says
+    // the step is not waiting on them. Counting them would stall a healthy wave
+    // the moment it grew larger than its own concurrency.
+    const s = withPlaces([{ id: 'notYet' }, { id: 'busy', lastProgressAt: 900 }])
+    expect(deadlineBreach(s, { silenceMs: 500 }, 900).kind).toBe('none')
+  })
+
+  it('falls back to the step when no place claims anything at all', () => {
+    const s = withPlaces([{ id: 'notYet' }], { lastProgressAt: 100 })
+    expect(deadlineDue(s, { silenceMs: 500 }, 900)).toBe(600)
+    expect(deadlineBreach(s, { silenceMs: 500 }, 900).kind).toBe('silence')
+  })
+
+  it('names nobody on a total breach — that one is about the step', () => {
+    const s = withPlaces([{ id: 'silent', lastProgressAt: 100 }])
+    expect(deadlineBreach(s, { silenceMs: 500, totalMs: 800 }, 900)).toMatchObject({
+      kind: 'total',
+      places: [],
+    })
+  })
+})
+
+describe('restartPlaceClocks', () => {
+  it('restarts the places the step is waiting on and invents no claim for the rest', () => {
+    const places = [{ id: 'busy', lastProgressAt: 100 }, { id: 'notYet' }]
+    expect(restartPlaceClocks(places, 900)).toEqual([
+      { id: 'busy', lastProgressAt: 900 },
+      { id: 'notYet' },
+    ])
+  })
+
+  it('has nothing to say about a step with no places', () => {
+    expect(restartPlaceClocks(undefined, 900)).toBeUndefined()
   })
 })
