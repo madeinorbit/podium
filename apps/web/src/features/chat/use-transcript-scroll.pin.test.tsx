@@ -270,3 +270,89 @@ describe('content that arrives after the rows', () => {
     expect(el.scrollTop).toBe(1000)
   })
 })
+
+/**
+ * LEAVING THE BOTTOM IS AN INTENT, NOT A DISTANCE (POD-993 round 9).
+ *
+ * `onScroll` re-pins within 80px of the end. With a bottom-writer beside it — a
+ * streaming answer resizing rows many times a second — escaping needs one
+ * inter-frame move bigger than that band, in a single step. A wheel notch is not
+ * that, and WebKit scrolls a notch as an animation, so a reader can push
+ * repeatedly and never get away: measured against a bottom-writer, twelve
+ * ordinary upward notches moved the view 0px.
+ *
+ * Two halves. The wheel drops the pin before any of it reaches a scroll offset,
+ * and the drop LATCHES — being nearly back is not consent to be taken back, so
+ * only arriving at the end re-pins.
+ */
+describe('the pin lets go on intent', () => {
+  const settle = async (): Promise<void> => {
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+  /** jsdom lays nothing out; the scroller is given a geometry. */
+  function geometry(el: HTMLElement, scrollHeight: number, clientHeight = 400): void {
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scrollHeight })
+    Object.defineProperty(el, 'clientHeight', { configurable: true, value: clientHeight })
+  }
+  const wheel = (el: HTMLElement, deltaY: number): void => {
+    el.dispatchEvent(new WheelEvent('wheel', { deltaY, bubbles: true }))
+  }
+
+  it('drops the pin on an upward wheel, before the scroll offset says anything', async () => {
+    mount()
+    const el = scroller()
+    geometry(el, 1000)
+    held.pinnedToBottom.current = true
+    wheel(el, -120)
+    await settle()
+    expect(held.pinnedToBottom.current).toBe(false)
+  })
+
+  it('keeps the pin when the wheel goes DOWN — that is following, not leaving', async () => {
+    mount()
+    const el = scroller()
+    geometry(el, 1000)
+    held.pinnedToBottom.current = true
+    wheel(el, 120)
+    await settle()
+    expect(held.pinnedToBottom.current).toBe(true)
+  })
+
+  it('does not re-pin merely for being NEAR the end again', async () => {
+    mount()
+    const el = scroller()
+    geometry(el, 1000)
+    held.pinnedToBottom.current = true
+    wheel(el, -120)
+    await settle()
+    // 30px from the end: inside the 80px band that used to re-pin, and the whole
+    // of the trap. The reader asked to leave and has not arrived back.
+    el.scrollTop = 570
+    act(() => api?.onScroll())
+    expect(held.pinnedToBottom.current).toBe(false)
+  })
+
+  it('re-pins on arriving at the end', async () => {
+    mount()
+    const el = scroller()
+    geometry(el, 1000)
+    held.pinnedToBottom.current = true
+    wheel(el, -120)
+    await settle()
+    el.scrollTop = 600
+    act(() => api?.onScroll())
+    expect(held.pinnedToBottom.current).toBe(true)
+  })
+
+  it('an explicit jump clears the latch outright', async () => {
+    mount()
+    const el = scroller()
+    geometry(el, 1000)
+    wheel(el, -120)
+    await settle()
+    act(() => api?.jumpToBottom())
+    expect(held.pinnedToBottom.current).toBe(true)
+  })
+})

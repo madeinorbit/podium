@@ -93,18 +93,17 @@ const settling = new WeakMap<HTMLElement, number>()
  * window and abandons immediately if the pin is dropped, so it can never fight
  * a user who has taken the scroll back.
  *
- * WHY EVERY BOTTOM-WRITE GOES THROUGH IT NOW, INCLUDING THE OBSERVERS. A single
- * synchronous write assumes the engine has already recomputed the scrollable
- * overflow region by the time it lands: `scrollTop` is CLAMPED to the current
- * maximum, so a write of the new height against a stale maximum silently lands
- * short, and the view sits above an end it believes it has reached. Chromium
- * recomputes on the `scrollHeight` read, which is why the same code is correct
- * there and short in WebKit — the operator sees this in Safari only.
+ * IT IS NOT A FIX FOR A STALE CLAMP, which is what I once wrote here. That
+ * theory — that `scrollTop` clamps against a maximum the engine has not
+ * recomputed — was tested in WebKit and is false: a second write on a later
+ * frame got zero pixels further. What was actually wrong was
+ * `overflow-anchor: none` on the scroller, which made WebKit under-compute the
+ * scrollable region outright; see TranscriptFeed.
  *
- * Re-asserting on the following frames is the engine-agnostic form of the same
- * intent: read the height again once layout has settled, and write again if the
- * two still disagree. It costs a handful of clamped no-op writes on the engines
- * that were already right.
+ * What re-asserting genuinely buys is the case it was first written for: the
+ * height the write aimed at is whatever had laid out so far, and a code block
+ * being measured or an image arriving moves it a frame or three later. So it
+ * stays where a DELIBERATE request for the bottom was made, and nowhere else.
  */
 function settleToBottom(el: HTMLElement, pinned: RefObject<boolean>): void {
   const running = (settling.get(el) ?? 0) > 0
@@ -142,6 +141,9 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
 
   const [atBottom, setAtBottom] = useState(true)
   const [pinnedBrief, setPinnedBrief] = useState<PinnedBrief | null>(null)
+  /** The reader has asked to leave the bottom with a wheel or a touch, and has
+   *  not arrived back yet. See the intent listeners below. */
+  const releasedByIntent = useRef(false)
   /**
    * The ELEMENT currently on the shelf, not its index.
    *
@@ -300,14 +302,12 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const ro = new ResizeObserver(() => {
       // A SINGLE WRITE HERE, deliberately. These callbacks fire constantly while
       // an answer streams, and routing them through the settle loop (round 7)
-      // kept a rAF loop permanently renewed, writing the bottom every frame. The
-      // loop only yields when `pinnedToBottom` goes false, and that is set from
-      // the SCROLL event — which WebKit defers during momentum scrolling. So a
-      // reader scrolling up was fought for as long as the stream kept the
-      // observers busy, and the operator reported the jump-back had got WORSE
-      // immediately after that change. Re-asserting belongs to a DELIBERATE
-      // request for the bottom (a jump, the initial load, a send), where the
-      // reader has just asked for it and nothing is competing.
+      // kept a rAF loop permanently renewed, writing the bottom every frame,
+      // which the operator reported as the jump-back getting WORSE. Re-asserting
+      // belongs to a DELIBERATE request for the bottom (a jump, the initial
+      // load, a send), where the reader has just asked for it and nothing is
+      // competing. The trap that made it worse is closed properly by the
+      // pointer-intent listeners below, not by the write policy here.
       if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
       syncStickyPromptPositions()
     })
@@ -371,14 +371,12 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       }
       // A SINGLE WRITE HERE, deliberately. These callbacks fire constantly while
       // an answer streams, and routing them through the settle loop (round 7)
-      // kept a rAF loop permanently renewed, writing the bottom every frame. The
-      // loop only yields when `pinnedToBottom` goes false, and that is set from
-      // the SCROLL event — which WebKit defers during momentum scrolling. So a
-      // reader scrolling up was fought for as long as the stream kept the
-      // observers busy, and the operator reported the jump-back had got WORSE
-      // immediately after that change. Re-asserting belongs to a DELIBERATE
-      // request for the bottom (a jump, the initial load, a send), where the
-      // reader has just asked for it and nothing is competing.
+      // kept a rAF loop permanently renewed, writing the bottom every frame,
+      // which the operator reported as the jump-back getting WORSE. Re-asserting
+      // belongs to a DELIBERATE request for the bottom (a jump, the initial
+      // load, a send), where the reader has just asked for it and nothing is
+      // competing. The trap that made it worse is closed properly by the
+      // pointer-intent listeners below, not by the write policy here.
       if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
       syncStickyPromptPositions()
     })
@@ -403,11 +401,72 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     }
   }, [active, syncStickyPromptPositions])
 
+  /**
+   * THE PIN LETS GO ON INTENT, NOT ON DISTANCE.
+   *
+   * `onScroll` below re-pins whenever the view is within 80px of the end, which
+   * is the right rule for where the reader IS and the wrong one for what they
+   * are DOING. Put a frequent bottom-writer beside it — a streaming answer
+   * resizing rows many times a second — and escaping the bottom requires moving
+   * more than 80px between two writes, in one go. A wheel notch does not do
+   * that: WebKit animates wheel input in roughly 15–40px steps, so a reader can
+   * push repeatedly against a feed that pulls back every frame and never get
+   * away. That is the "it jumps back up" report, and the mechanism is a trap
+   * rather than a race — no amount of tuning the write policy escapes it,
+   * because the writes are correct for a reader the code believes is at the
+   * bottom.
+   *
+   * A wheel or a touch is the reader saying otherwise, before any of it shows
+   * up in a scroll offset. Passive listeners: this only ever reads the event.
+   *
+   * DROPPING THE PIN IS NOT ENOUGH ON ITS OWN, and measuring it is the only
+   * reason I know that. WebKit scrolls a wheel notch as an ANIMATION, so the
+   * scroll event that follows still reports a position inside the 80px band —
+   * `onScroll` re-pins, the next frame writes the bottom, and the notch is
+   * undone. Measured with a bottom-writer running and twelve ordinary upward
+   * notches: Chromium escaped 1440px on the listener alone, WebKit moved 0px.
+   *
+   * So the release LATCHES. Once the reader has asked to leave, returning to the
+   * end is what re-pins them — genuinely at it, not merely near it — and the
+   * 80px band goes back to meaning only what it should have meant all along:
+   * whether to offer the jump affordance.
+   */
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    const release = (): void => {
+      pinnedToBottom.current = false
+      releasedByIntent.current = true
+    }
+    // Only UPWARD wheeling counts. Wheeling down at the bottom is not a request
+    // to leave it, and treating it as one would drop the pin on a reader who
+    // is trying to follow the stream.
+    const onWheel = (e: WheelEvent): void => {
+      if (e.deltaY < 0) release()
+    }
+    el.addEventListener('wheel', onWheel, { passive: true })
+    // Touch has no direction until the finger moves, and a drag that turns out
+    // to go down re-pins through `onScroll` a frame later at no cost.
+    el.addEventListener('touchstart', release, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchstart', release)
+    }
+  }, [scrollerRef, pinnedToBottom])
+
   const onScroll = useCallback(() => {
     const el = scrollerRef.current
     if (!el) return
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-    pinnedToBottom.current = near
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+    const near = gap < 80
+    // NEAR THE END AND FOLLOWING IT ARE TWO QUESTIONS. `near` decides whether to
+    // offer the jump affordance, and has always been generous on purpose. The
+    // PIN is whether to keep writing the bottom under the reader, and after they
+    // have asked to leave, "nearly there" is not consent to be taken back — see
+    // the intent listeners above. Only arriving at the end re-pins them, within
+    // the pixel or so of fractional residue WebKit reports at a true bottom.
+    pinnedToBottom.current = releasedByIntent.current ? gap <= 4 : near
+    if (pinnedToBottom.current) releasedByIntent.current = false
     setAtBottom(near)
     syncStickyPromptPositions()
     // Near the TOP and more exists above → reveal/fetch older content.
@@ -418,6 +477,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const el = scrollerRef.current
     if (!el) return
     pinnedToBottom.current = true
+    releasedByIntent.current = false
     // ONE WRITE IS NOT ENOUGH, because "the bottom" is a number that is still
     // moving when the click lands. `scrollHeight` is whatever has laid out SO
     // FAR: a code block still measuring, an image without intrinsic size, a
@@ -439,6 +499,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   // let the growth effect above do the scrolling once the bubble mounts.
   const pinToBottom = useCallback(() => {
     pinnedToBottom.current = true
+    releasedByIntent.current = false
     setAtBottom(true)
   }, [pinnedToBottom])
 
