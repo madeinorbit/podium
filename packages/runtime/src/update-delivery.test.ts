@@ -6,6 +6,7 @@ import {
   fetchArtifact,
   PROGRESS_REPORT_INTERVAL_MS,
   PROGRESS_REPORT_PERCENT_STEP,
+  verifyTarball,
 } from './update-delivery'
 
 /**
@@ -150,5 +151,47 @@ describe('fetchArtifact progress', () => {
         onProgress: () => {},
       }),
     ).rejects.toThrow(/digest/i)
+  })
+})
+
+/**
+ * THE PURE SECURITY PRIMITIVE, consolidated here by POD-2106. These arms lived
+ * in `apps/cli/src/podium-update.test.ts` against the CLI's own byte-identical
+ * copy of `verifyTarball`; the copy is gone and the CLI imports this one, so
+ * the tests come with it rather than being left guarding a deleted function.
+ *
+ * The suite above signs real bodies and exercises verification through
+ * `fetchArtifact`. This one goes at the function directly, because the cases
+ * that matter are the REJECTIONS — and a rejection reached through the whole
+ * download path is indistinguishable from a download that simply failed.
+ */
+describe('verifyTarball', () => {
+  // An independent keypair, so payloads can be signed deterministically in the
+  // test; the committed dev pubkey default is exercised by the round-trip path.
+  const keys = generateKeyPairSync('ed25519')
+  const pubB64 = keys.publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
+  const payload = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])
+  const sigB64 = cryptoSign(null, payload, keys.privateKey).toString('base64')
+
+  it('accepts a correctly-signed payload', () => {
+    expect(verifyTarball(payload, sigB64, pubB64)).toBe(true)
+  })
+  it('REJECTS a tampered payload (same signature)', () => {
+    const tampered = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 9])
+    expect(verifyTarball(tampered, sigB64, pubB64)).toBe(false)
+  })
+  it('REJECTS a wrong signature (signed by a different key)', () => {
+    const other = generateKeyPairSync('ed25519').privateKey
+    const wrongSig = cryptoSign(null, payload, other).toString('base64')
+    expect(verifyTarball(payload, wrongSig, pubB64)).toBe(false)
+  })
+  it('REJECTS a missing/empty signature', () => {
+    expect(verifyTarball(payload, '', pubB64)).toBe(false)
+  })
+  it('REJECTS garbage that is not a valid signature (no throw)', () => {
+    expect(verifyTarball(payload, 'not-base64-sig!!', pubB64)).toBe(false)
+  })
+  it('REJECTS a malformed public key rather than throwing out of the caller', () => {
+    expect(verifyTarball(payload, sigB64, 'not-a-key')).toBe(false)
   })
 })

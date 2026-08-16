@@ -105,8 +105,15 @@ function matchesDigest(bytes: Uint8Array, expected: string): boolean {
 }
 
 /**
- * Pure, testable Ed25519 verification of a downloaded artifact. A malformed
- * key, missing signature, or crypto failure is a rejection, never a pass.
+ * THE signature check, for every path that takes bytes off a wire: this
+ * module's own delivery and `podium update`'s self-update, which imports it
+ * (POD-2106). It used to be two byte-identical copies, and a security
+ * primitive with two homes is one that can be fixed in one of them.
+ *
+ * Returns true iff `signatureB64` is a valid Ed25519 signature over `bytes`
+ * under the base64 SPKI/DER public key `pubkeyB64`. A missing or empty
+ * signature, a malformed key, or any crypto error returns false and never
+ * throws, so every caller fails CLOSED without needing a try block of its own.
  */
 export function verifyTarball(
   bytes: Uint8Array,

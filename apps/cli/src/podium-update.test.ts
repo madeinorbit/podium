@@ -13,7 +13,6 @@ import {
   parseManifest,
   platformTarget,
   runUpdate,
-  verifyTarball,
 } from './podium-update'
 
 /**
@@ -133,34 +132,11 @@ describe('podium update helpers', () => {
   })
 })
 
-// --- Ed25519 verifyTarball (the pure security primitive) --------------------
-describe('verifyTarball', () => {
-  // Independent keypair so we can sign payloads deterministically in-test; the dev
-  // pubkey constant is exercised separately via the round-trip default path.
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
-  const pubB64 = publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
-  const payload = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])
-  const sigB64 = cryptoSign(null, payload, privateKey).toString('base64')
-
-  it('accepts a correctly-signed payload', () => {
-    expect(verifyTarball(payload, sigB64, pubB64)).toBe(true)
-  })
-  it('REJECTS a tampered payload (same signature)', () => {
-    const tampered = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 9])
-    expect(verifyTarball(tampered, sigB64, pubB64)).toBe(false)
-  })
-  it('REJECTS a wrong signature (signed by a different key)', () => {
-    const other = generateKeyPairSync('ed25519').privateKey
-    const wrongSig = cryptoSign(null, payload, other).toString('base64')
-    expect(verifyTarball(payload, wrongSig, pubB64)).toBe(false)
-  })
-  it('REJECTS a missing/empty signature', () => {
-    expect(verifyTarball(payload, '', pubB64)).toBe(false)
-  })
-  it('REJECTS garbage that is not a valid signature (no throw)', () => {
-    expect(verifyTarball(payload, 'not-base64-sig!!', pubB64)).toBe(false)
-  })
-})
+// The `verifyTarball` arms that stood here moved to
+// `packages/runtime/src/update-delivery.test.ts` with the function itself
+// (POD-2106) — the CLI had a byte-identical copy, and one security primitive
+// gets one home. `runUpdate`'s signature GATE is still tested below, where it
+// belongs: that is the CLI's own behaviour, not the primitive's.
 
 // --- crash-safe swap (FIX wave 1) -------------------------------------------
 // These exercise runUpdate's real download → extract → atomic-swap path against a tiny

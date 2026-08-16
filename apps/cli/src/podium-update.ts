@@ -19,12 +19,11 @@
  * is left untouched. (The desktop AppImage path uses a separate Tauri minisign keypair.)
  */
 import { execFileSync } from 'node:child_process'
-import { verify as cryptoVerify } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { resolveInstallDir, resolveUpdateTarget } from '@podium/runtime/config'
 import { instanceServiceName, resolveInstanceId } from '@podium/runtime/instance'
-import { PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
+import { PODIUM_UPDATE_PUBKEY, verifyTarball } from '@podium/runtime/update-delivery'
 
 export type SystemctlExec = (command: string, args: string[]) => string
 
@@ -198,31 +197,6 @@ export function parseManifest(
   const plat = m.platforms[target]
   if (!plat?.url) throw new Error(`manifest has no ${target} artifact`)
   return { version: m.version, url: plat.url, signature: plat.signature ?? '' }
-}
-
-/**
- * Pure, testable Ed25519 verification of a downloaded tarball. Returns true iff
- * `signatureB64` is a valid Ed25519 signature of `bytes` under the base64 SPKI/DER
- * public key `pubkeyB64`. A missing/empty signature, a malformed key, or any crypto
- * error returns false (never throws) so callers can fail closed.
- */
-export function verifyTarball(
-  bytes: Uint8Array,
-  signatureB64: string,
-  pubkeyB64: string = PODIUM_UPDATE_PUBKEY,
-): boolean {
-  if (!signatureB64) return false
-  try {
-    const key = {
-      key: Buffer.from(pubkeyB64, 'base64'),
-      format: 'der' as const,
-      type: 'spki' as const,
-    }
-    // Ed25519 verify takes (algorithm=null, data, key, signature).
-    return cryptoVerify(null, bytes, key, Buffer.from(signatureB64, 'base64'))
-  } catch {
-    return false
-  }
 }
 
 function installDir(): string {

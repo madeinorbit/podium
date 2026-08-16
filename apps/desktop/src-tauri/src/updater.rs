@@ -345,16 +345,14 @@ pub fn should_show_native_dialog(claimed: bool, elapsed_ms: u64, grace_ms: u64) 
     !claimed && elapsed_ms > grace_ms
 }
 
-/// Build the templated updater endpoint from a pluggable base URL.
-///
-/// The `{{target}}`/`{{arch}}`/`{{current_version}}` placeholders are filled in by
-/// the Tauri updater at request time; we only assemble the path shape here.
-pub fn feed_endpoint(base: &str) -> String {
-    format!(
-        "{}/update/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}",
-        base.trim_end_matches('/')
-    )
-}
+// `feed_endpoint`, which templated an updater base URL into
+// `<base>/update/{{target}}/{{arch}}/{{current_version}}`, was removed in
+// POD-2106. It read as production configuration and was not: the shipped
+// endpoint is the static GitHub asset in `tauri.conf.json`, and the only thing
+// that ever wanted the templated shape — `apps/desktop/scripts/verify-update.sh`
+// — writes it into a throwaway config itself, in node, without asking Rust.
+// Its two tests therefore asserted a string against itself. If a pluggable base
+// is ever needed again, it belongs next to a caller that has one.
 
 /// Whether this release is FORCED, read from the manifest's structured field.
 ///
@@ -534,22 +532,6 @@ pub async fn check_and_prompt_update(app: AppHandle, config_channel: UpdateChann
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn feed_endpoint_templates_the_base() {
-        assert_eq!(
-            feed_endpoint("http://h:8788/"),
-            "http://h:8788/update/{{target}}/{{arch}}/{{current_version}}"
-        );
-    }
-
-    #[test]
-    fn feed_endpoint_handles_base_without_trailing_slash() {
-        assert_eq!(
-            feed_endpoint("http://127.0.0.1:8788"),
-            "http://127.0.0.1:8788/update/{{target}}/{{arch}}/{{current_version}}"
-        );
-    }
 
     #[test]
     fn critical_is_read_from_the_structured_field() {

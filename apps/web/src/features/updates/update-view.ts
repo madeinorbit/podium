@@ -212,16 +212,23 @@ function placesFor(input: UpdateInput): Place[] {
   return places
 }
 
-/**
- * True when this app is the only place and its update comes from the desktop
- * release feed rather than the server's target. Verified against the live dev
- * coordinator, whose target publishes `headless` artifacts only.
- */
 /** A short git SHA is the source-host web identity, not a packaged web artifact. */
 function isSourceWebDigest(digest: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(digest)
 }
 
+/**
+ * True when this app is the only place and its update comes from the desktop
+ * release feed rather than the server's target. Verified against the live dev
+ * coordinator, whose target publishes `headless` artifacts only.
+ *
+ * POD-2106 came to delete this as version-namespace guesswork the operation
+ * model made unnecessary, and it is not: operations describe an update already
+ * under way, while this runs earlier, on the OFFER, to pick which of two
+ * version streams to name. Both arms are pinned by tests — forcing either to
+ * `false` reds `update-view.test.ts` — so it stays until something replaces the
+ * two-streams problem itself rather than the code that copes with it.
+ */
 function appOnlyFromReleaseFeed(input: UpdateInput): boolean {
   if (input.desktopUpdate === undefined) return false
   if (input.server.target?.artifacts.desktop) return false
