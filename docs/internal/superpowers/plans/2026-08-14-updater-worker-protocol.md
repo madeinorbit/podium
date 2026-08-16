@@ -35,6 +35,11 @@ A worktree with **no `node_modules`** is the same hazard in a different costume:
 `@podium/*` up the tree into the MAIN checkout, so a green describes main's packages, not
 your branch. Two workers solved this two ways, both fine:
 
+- **Hardlink-copy a sibling's tree (cheapest and simplest — try this first).**
+  `cp -al <sibling-worktree>/node_modules node_modules` when that sibling's `bun.lock` blob
+  is identical to yours. POD-2179 did it in **9 seconds with no measurable disk cost**, then
+  proved resolution landed in its own worktree. Verify the lock blobs match first
+  (`git rev-parse HEAD:bun.lock` on both) — a mismatched tree is worse than none.
 - **Symlink farm (free, preferred at low disk).** In-checkout `@podium/*` symlinks plus a
   `.bin` symlink farm satisfies the workspace-link gate at zero bytes — POD-2155 did this
   rather than install against 2.8 GB free. **Do not mirror main blindly:** main still carries
