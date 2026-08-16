@@ -513,7 +513,17 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
       // same signal with the very read the probe exists to avoid; a probe that
       // finds a difference re-stamps correctly through `readNewest`.
       reconciledSignalRef.current = signal
-      void probeNewest().catch(() => {}) // transient failure — the heartbeat retries
+      void probeNewest().catch(() => {
+        // A STAMP IS A CLAIM, AND A FAILED PROBE PROVED NOTHING. Leaving it
+        // standing would re-create this very bug on the failure path: the next
+        // reveal would compare equal and skip outright, while both fallbacks
+        // can be unavailable — the heartbeat needs a LIVE session, and the
+        // 400ms reconcile needs the row to move again, neither of which holds
+        // for a session that has just finished. Withdrawing the claim (null =
+        // "we do not know when this window was last current") re-arms both, and
+        // the identity check keeps a delta that landed meanwhile authoritative.
+        if (reconciledSignalRef.current === signal) reconciledSignalRef.current = null
+      })
       return
     }
     if (wokeToLive || becameActive) void readNewest(true).catch(() => {}) // keep the held window
@@ -544,45 +554,43 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // the ACTIVE pane pays anything; a backgrounded chat keeps its subscription
   // and re-reads on activation as before.
   //
-  // ONE THING IT MUST NOT DO: run while the reader IS READING HISTORY.
-  // `readNewest` drops `older` — correct on a switch or a file roll, ruinous
-  // under someone's scroll, because it would throw away the pages they just
-  // paged in and take their position with it.
+  // ONE THING IT MUST NOT DO: run while the reader has paged HISTORY in.
+  // `readNewest` drops `older` — correct on a switch or a file roll, ruinous on
+  // a timer, because it would throw away the pages someone just scrolled up to
+  // read and take their scroll position with it. Someone reading history is by
+  // definition not watching the tail, so the reconcile simply waits.
   //
-  // WHERE THE READER IS LOOKING, NOT WHAT HAPPENS TO BE LOADED [POD-1132]. That
-  // stand-down used to key on `pagedBack` alone, and `older` is only ever
-  // cleared BY a tail re-read — so the one condition that suppressed the
-  // re-read was also the only thing the re-read could clear. Scrolling up once
-  // therefore latched BOTH self-healing paths off for the rest of the mount,
-  // and the pane ran on the lossy delta stream alone with no recovery. The
-  // escape hatch the original reasoning named — "the next activation re-reads
-  // as it always did" — stopped existing when POD-725 taught activation to skip
-  // the read.
+  // THE ESCAPE HATCH, RESTORED [POD-1132]. That stand-down was always meant to
+  // be a pause — "the next activation re-reads as it always did" — and POD-725
+  // then taught activation to skip the read, which turned the pause into a
+  // LATCH: `older` is only ever cleared BY a tail re-read, so the one condition
+  // suppressing the re-read was also the only thing the re-read could clear, and
+  // one scroll-up left the pane running on the lossy delta stream for the rest
+  // of its mount. The repair belongs at the ACTIVATION, not here: the reveal
+  // path above no longer skips blindly, so a paged-back pane that has genuinely
+  // fallen behind is caught by its probe and healed, while one that has not
+  // keeps the reader's pages — which is the whole point of standing down.
   //
-  // A reader pinned to the live tail has nothing above them to protect: the
-  // pages being dropped are off-screen, and the bottom pin survives the
-  // shrink (ChatView's ResizeObserver re-pins). So the stand-down lasts exactly
-  // as long as they are away from the tail. Read at CALL time, never mirrored at
-  // render time: `pinnedToBottom` is a scroll-driven ref that moves without a
-  // render, so a render-time copy would be stale precisely when it matters.
+  // Widening this predicate instead (to "paged back AND scrolled away from the
+  // tail") was the wrong lever: `loadOlder` is reachable while still pinned to
+  // the bottom — the "Earlier transcript" button, and a short transcript where
+  // ChatView's scroll-up trigger and its near-bottom threshold overlap — so it
+  // would have dropped pages the reader had just asked for.
   const readNewestRef = useRef(readNewest)
   readNewestRef.current = readNewest
   const live = session?.status === 'live' || session?.status === 'starting'
   const pagedBack = older.length > 0
+  // Mirrored so the timers below can ask per TICK instead of taking it as a
+  // dependency — paging a page in must not tear the heartbeat down and rebuild
+  // it. Safe as a render-time mirror: `older` only ever moves through setState.
   const pagedBackRef = useRef(false)
   pagedBackRef.current = pagedBack
-  const readingHistory = useCallback(
-    () => pagedBackRef.current && !pinnedToBottom.current,
-    // Both are refs owned by this hook — stable for the life of the mount.
-    [],
-  )
   // One string, so the effect re-runs on any of the four moving parts without
   // four dependencies that each re-run it on the others' changes.
   const activitySignal = `${session?.lastActiveAt ?? ''}|${session?.agentState?.phase ?? ''}|${session?.agentState?.since ?? ''}|${session?.busy ?? ''}`
   activitySignalRef.current = activitySignal
   useEffect(() => {
-    if (!active || !initialLoaded) return
-    if (readingHistory()) return
+    if (!active || !initialLoaded || pagedBack) return
     // The signal as of the last moment the window was KNOWN current — stamped by
     // every completed read and by the warm-activation cache hit. Comparing
     // against it rather than against the previous render is what keeps POD-725's
@@ -592,31 +600,32 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     // Trailing debounce: a working agent moves these fields several times a
     // second, and the point is to be current, not to re-read once per tick.
     const t = setTimeout(() => {
-      // Re-asked here, not just above: the reader can scroll into history during
-      // the 400ms, and this is the callback that would drop it under them.
-      if (readingHistory()) return
+      // Re-asked here, not just above: a page can land during the 400ms, and
+      // this is the callback that would drop it under the reader.
+      if (pagedBackRef.current) return
       if (reconciledSignalRef.current === activitySignal) return
       void readNewestRef.current().catch(() => {})
     }, 400)
     return () => clearTimeout(t)
-  }, [active, initialLoaded, activitySignal, readingHistory])
+  }, [active, initialLoaded, pagedBack, activitySignal])
   useEffect(() => {
     if (!active || !initialLoaded || !live) return
     if (typeof document === 'undefined') return
     // The stand-down is checked per TICK rather than taken as a dependency, so
     // paging a page in and out does not tear the interval down and rebuild it.
     const beat = setInterval(() => {
-      if (readingHistory()) return
+      if (pagedBackRef.current) return
       void probeNewest().catch(() => {})
     }, LIVE_HEARTBEAT_MS)
     // A tab that was hidden may have had its timers throttled to nothing and
     // its socket dropped; coming back is the moment to be sure.
     const onVisible = (): void => {
       if (document.visibilityState !== 'visible') return
-      // Same protection as the timer: this one goes STRAIGHT to the full read,
-      // so a reader who left the tab mid-scroll must not come back to a feed
-      // that has thrown their history away.
-      if (readingHistory()) return
+      // Guarded like the timer, and load-bearing now that `pagedBack` no longer
+      // gates the whole effect: this one goes STRAIGHT to the full read, so a
+      // reader who left the tab mid-scroll must not come back to a feed that has
+      // thrown their history away.
+      if (pagedBackRef.current) return
       void readNewestRef.current(true).catch(() => {})
     }
     document.addEventListener('visibilitychange', onVisible)
@@ -624,7 +633,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
       clearInterval(beat)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [active, initialLoaded, live, probeNewest, readingHistory])
+  }, [active, initialLoaded, live, probeNewest])
 
   // The full loaded list: older pages prepended to the held window. A small
   // cursor-dedupe at the seam guards a one-item paging/live overlap.

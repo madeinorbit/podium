@@ -711,10 +711,10 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
   })
 
-  /** Load one older page, leaving the pane as a reader who scrolled UP: away
-   *  from the live tail, with history above them worth protecting. */
-  async function pageHistoryIn(): Promise<void> {
-    act(() => root.render(<Probe active={true} />))
+  /** Load one older page: the pane now holds history a tail re-read would drop.
+   *  `active` so the reconcile and heartbeat are otherwise eligible to run. */
+  async function pageHistoryIn(active = true): Promise<void> {
+    act(() => root.render(<Probe active={active} />))
     await act(async () => {
       // hasMore: there IS history on disk to page back into.
       reads[0]?.resolve({
@@ -725,13 +725,8 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
       })
     })
     await flush()
-    // Scroll-up back-page: an older page lands ABOVE the held window. The scroll
-    // that triggers it is what unpins the view from the bottom (ChatView's
-    // onScroll owns this ref); the hook only reads it.
-    act(() => {
-      if (captured) captured.pinnedToBottom.current = false
-      captured?.loadOlder()
-    })
+    // Scroll-up back-page: an older page lands ABOVE the held window.
+    act(() => captured?.loadOlder())
     await act(async () => {
       reads[1]?.resolve({ items: [item('z', 'c0', 'older')], head: 'c0', hasMore: false })
     })
@@ -754,50 +749,49 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['z', 'a'])
   })
 
-  // POD-1132: the stand-down above must not LATCH. `older` is only ever cleared
-  // by a tail re-read, so keying it on "history is loaded" made the suppressing
-  // condition the only thing the suppressed read could clear — one scroll-up
-  // silenced the feed's self-healing for the rest of the mount.
-  it('lifts the stand-down once the reader is back on the live tail', async () => {
+  it('holds the heartbeat off a reader in history too — the probe escalates into that read', async () => {
+    vi.useFakeTimers()
     await pageHistoryIn()
-
-    // Scrolled back down to the bottom. The pages above are off-screen now, so
-    // there is nothing under the reader's eye for a tail re-read to disturb.
-    act(() => {
-      if (captured) captured.pinnedToBottom.current = true
+    expect(reads).toHaveLength(2)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS * 3)
     })
+    expect(reads).toHaveLength(2)
+  })
+
+  // POD-1132: the stand-down above is a PAUSE, not a latch. `older` is only ever
+  // cleared by a tail re-read, so while the pane sits there the suppressing
+  // condition is the only thing the suppressed read could clear. Its escape has
+  // always been the next activation — which POD-725 taught to skip the read,
+  // turning the pause into a silence for the rest of the mount.
+  it('recovers a paged-back pane on the next reveal when it has fallen behind', async () => {
+    await pageHistoryIn(false)
+    act(() => root.render(<Probe active={false} />))
+    await flush()
+
+    // Revealed onto a row that moved with nothing delivered to explain it.
     act(() => {
       root.render(
         <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:09:00.000Z' })} />,
       )
     })
-    await settleDebounce()
-    expect(reads).toHaveLength(3)
-    expect(reads[2]?.input.limit).toBe(200)
+    await flush()
+    expect(reads[2]?.input.limit).toBe(1)
+    await act(async () => {
+      reads[2]?.resolve({ items: [item('b', 'c2', 'missed')], tail: 'c2', hasMore: true })
+    })
+    await flush()
+    expect(reads[3]?.input.limit).toBe(200)
   })
 
-  it('keeps the heartbeat probing for a reader back on the tail, and holds it off one in history', async () => {
-    vi.useFakeTimers()
-    await pageHistoryIn()
+  it('leaves a paged-back pane alone on a reveal it has NOT fallen behind on', async () => {
+    await pageHistoryIn(false)
+    act(() => root.render(<Probe active={true} />))
+    await flush()
+    await settleDebounce()
+    // Still the initial read plus the one older page — the reader keeps both.
     expect(reads).toHaveLength(2)
-
-    // Still scrolled up: the probe would escalate into a read that drops the
-    // page under them, so it does not run at all.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS * 2)
-    })
-    expect(reads).toHaveLength(2)
-
-    // Back at the tail — the interval was never torn down, so the very next
-    // beat resumes without waiting for a re-render.
-    act(() => {
-      if (captured) captured.pinnedToBottom.current = true
-    })
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS)
-    })
-    expect(reads).toHaveLength(3)
-    expect(reads[2]?.input.limit).toBe(1)
+    expect(captured?.blocks.map((b) => b.item.id)).toEqual(['z', 'a'])
   })
 })
 
@@ -845,7 +839,11 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
 
     // Disk really is ahead → the probe escalates and the missed item lands.
     await act(async () => {
-      reads[1]?.resolve({ items: [item('b', 'c2', 'missed while hidden')], tail: 'c2', hasMore: true })
+      reads[1]?.resolve({
+        items: [item('b', 'c2', 'missed while hidden')],
+        tail: 'c2',
+        hasMore: true,
+      })
     })
     await flush()
     expect(reads[2]?.input.limit).toBe(200)
@@ -872,6 +870,32 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     expect(reads).toHaveLength(2)
     await settleDebounce()
     expect(reads).toHaveLength(2)
+  })
+
+  // A stamp claims "the window was current as of this row state". A probe that
+  // REJECTED proved nothing, so leaving the claim standing would re-create the
+  // original bug on the failure path: the next reveal compares equal and skips,
+  // while the heartbeat needs a live session and the 400ms reconcile needs the
+  // row to move again — neither of which a finished session offers.
+  it('withdraws the stamp when the probe fails, so the next reveal retries', async () => {
+    await loadedInBackground()
+    const moved = meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })
+    act(() => root.render(<Probe active={true} session={moved} />))
+    await flush()
+    expect(reads).toHaveLength(2)
+    await act(async () => {
+      reads[1]?.reject(new Error('offline'))
+    })
+    await flush()
+
+    // Hide and reveal again over the SAME (now motionless) row: nothing else can
+    // trigger a read, so a surviving stamp would leave the pane stale forever.
+    act(() => root.render(<Probe active={false} session={moved} />))
+    await flush()
+    act(() => root.render(<Probe active={true} session={moved} />))
+    await flush()
+    expect(reads).toHaveLength(3)
+    expect(reads[2]?.input.limit).toBe(1)
   })
 
   it('still skips outright when the row has not moved since the read', async () => {
