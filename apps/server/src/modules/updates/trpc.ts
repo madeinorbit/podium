@@ -227,9 +227,12 @@ function contextFor(
   return updateOperationContext({
     updates: state.modules.updates,
     operations: state.modules.operations,
-    // The dev authority is what the global panel has always converged; a
-    // machine pinned elsewhere keeps its own per-row action (POD-2100).
-    channel: 'dev',
+    // THE HOST'S OWN CHANNEL, not the literal `'dev'` this used to write
+    // (POD-2189): on a shipped installation every machine resolves to `stable`,
+    // so a hardcoded dev authority meant `planInputFrom` threw and the fleet got
+    // no operation at all. A machine pinned elsewhere still keeps its own
+    // per-row action (POD-2100).
+    channel: state.modules.updates.operationChannel(state.store.hostMachineId),
     appVersion: serverBuildVersion,
     hostMachineId: state.store.hostMachineId,
     ...extra,

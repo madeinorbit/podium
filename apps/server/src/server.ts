@@ -601,7 +601,11 @@ export async function startServer(
     updateOperationContext({
       updates: registry.modules.updates,
       operations: registry.modules.operations,
-      channel: 'dev',
+      // The host's own channel, resolved per boot (POD-2189) — see
+      // `UpdatesService.operationChannel`. This root is the ADOPTION path, so a
+      // literal here also decided which channel a resumed operation was read
+      // back against.
+      channel: registry.modules.updates.operationChannel(hostMachineId),
       appVersion: () => appVersion,
       hostMachineId,
       ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),

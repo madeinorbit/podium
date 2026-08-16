@@ -1053,3 +1053,67 @@ describe('withdrawAuthorization', () => {
     expect(() => svc.withdrawAuthorization('stable')).not.toThrow()
   })
 })
+
+/**
+ * WHICH CHANNEL AN OPERATION IS ABOUT (POD-2189).
+ *
+ * Both composition roots wrote `channel: 'dev'` as a literal. `make()` above
+ * states a `dev` fleet default because its cases are about the development
+ * wave; these deliberately do not, because the bug was exactly the difference
+ * between what a development coordinator sees and what a shipped one does.
+ */
+describe('UpdatesService.operationChannel', () => {
+  const shipped = (machines: unknown[], fleetChannel?: UpdateChannel) =>
+    new UpdatesService({
+      machines: () => machines as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      ...(fleetChannel ? { fleetChannel: () => fleetChannel } : {}),
+    })
+
+  /**
+   * THE DEFECT, stated as the fleet it broke. Nothing here is pinned and no
+   * fleet default is configured, which is every shipped installation — and
+   * `DEFAULT_FLEET_UPDATE_CHANNEL` is `stable`, so the hardcoded `'dev'` sent
+   * `planInputFrom` looking for a target that by construction was not there.
+   */
+  it('is the shipped fleet default, not dev, when nothing is pinned', () => {
+    const svc = shipped([m('host'), m('vps')])
+    expect(svc.operationChannel('host')).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
+    expect(svc.operationChannel('host')).not.toBe('dev')
+  })
+
+  it("follows the host's own pin", () => {
+    const svc = shipped([m('host', { channel: 'edge' }), m('vps', { channel: 'stable' })])
+    expect(svc.operationChannel('host')).toBe('edge')
+  })
+
+  /** A development coordinator still gets a dev operation — the previous
+   *  behaviour was not wrong, it was only ever right for one fleet. */
+  it('still answers dev where dev is what this installation follows', () => {
+    const svc = shipped([m('host')], 'dev')
+    expect(svc.operationChannel('host')).toBe('dev')
+  })
+
+  /**
+   * Before the host's own handshake there is no row to read, and the question
+   * "what does an unpinned machine follow?" has the same answer either way. It
+   * matters because one composition root is the ADOPTION path, which runs
+   * before the daemon gateway listens.
+   */
+  it('falls back to the fleet default when the host is not in the directory yet', () => {
+    const svc = shipped([], 'edge')
+    expect(svc.operationChannel('host')).toBe('edge')
+    expect(svc.operationChannel(undefined)).toBe('edge')
+  })
+
+  /** One answer, not two (POD-2100): this must agree with the authority that
+   *  will actually grant, which is `channelOf` on the same row. */
+  it('agrees with channelOf for the host row', () => {
+    const host = m('host', { channel: 'stable' })
+    const svc = shipped([host], 'dev')
+    expect(svc.operationChannel('host')).toBe(svc.channelOf(host as never))
+  })
+})

@@ -898,6 +898,39 @@ export class UpdatesService {
     return resolveMachineChannel(undefined, this.deps.fleetChannel?.())
   }
 
+  /**
+   * WHICH CHANNEL THE GLOBAL PANEL'S UPDATE IS ABOUT (POD-2189).
+   *
+   * Both composition roots used to write `channel: 'dev'` as a literal, with a
+   * comment calling it inherited behaviour — "the dev authority is what the
+   * global panel has always converged". That was true of a development
+   * coordinator and false of every shipped one: `DEFAULT_FLEET_UPDATE_CHANNEL`
+   * is `stable`, so on a real installation `planInputFrom` resolved no target
+   * and threw *no dev update target is published*. A stable-pinned fleet got no
+   * operation at all — no panel, no history, no progress — and converged only
+   * through the standing reconciler, silently. That was the shipping
+   * configuration, not scaffolding for one.
+   *
+   * The answer is the HOST's own channel, because the global panel updates THIS
+   * installation and the coordinator is the installation. It reuses
+   * {@link UpdatesService.channelOf}, which POD-2100 made the single answer to
+   * "which channel is this machine on", so this cannot disagree with the
+   * authority that will actually grant. A host that is not in the directory yet
+   * — first boot, before its own handshake — falls back to the fleet default,
+   * which is the same question asked of a machine with no pin.
+   *
+   * STILL ONE CHANNEL PER OPERATION, which is what §8's mixed-channel row asks
+   * for ("the plan is computed per channel authority"): machines pinned
+   * elsewhere are scoped out at plan time and keep their own per-row action and
+   * the standing reconciliation. What is fixed here is only *which* authority.
+   */
+  operationChannel(hostMachineId?: string): UpdateChannel {
+    const host = hostMachineId
+      ? this.deps.machines().find((candidate) => candidate.id === hostMachineId)
+      : undefined
+    return host ? this.channelOf(host) : this.fleetDefaultChannel()
+  }
+
   private rollout(channel: UpdateChannel): ChannelRolloutState {
     const current = this.rollouts.get(channel)
     if (current) return current
