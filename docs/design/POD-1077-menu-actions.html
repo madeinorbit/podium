@@ -104,7 +104,7 @@
 <body>
 <div class="wrap">
 
-  <span class="kicker">POD-1077 · proposal · reconstruction, not a capture</span>
+  <span class="kicker">POD-1077 · built · reconstruction, not a capture</span>
   <h1>Shell context menu actions</h1>
   <p class="lede">
     What belongs in the menu for a mission, a sub-task, a session, and a tab — and why
@@ -586,31 +586,59 @@
 
   <hr>
 
-  <h2>Order of work</h2>
+  <h2>What shipped</h2>
+  <p>
+    All of it, on <code>worktree-POD-1077-shell-menus</code>. The table is the built state,
+    not a plan.
+  </p>
   <div class="tw">
   <table>
-    <thead><tr><th>#</th><th>change</th><th>why now</th><th>size</th></tr></thead>
+    <thead><tr><th>#</th><th>change</th><th>where</th><th>state</th></tr></thead>
     <tbody>
-      <tr><td>1</td><td><b>“Close” → “Delete session…”</b> + always-confirm; palette keywords off it</td>
-          <td>Removes the one collision that destroys a record on a misread</td><td>S</td></tr>
-      <tr><td>2</td><td><b>Add “End session”</b> → <code>sessions.stop</code></td>
-          <td>Gives the destructive row a safe neighbour to be chosen instead of</td><td>M</td></tr>
-      <tr><td>3</td><td><b>Drop session Archive</b></td>
-          <td>Only safe once 2 lands — until then it's the sole non-terminal end</td><td>S</td></tr>
-      <tr><td>4</td><td><b>Rule above Delete</b> + ellipses + cascade counts + <code>useConfirm</code></td>
-          <td>Pure presentation, no behaviour change, protects the other terminal verb</td><td>S</td></tr>
-      <tr><td>5</td><td><b>Sub-task gating</b> (drop Archive + Pin, header PLACEMENT)</td>
-          <td>Independent of the session work</td><td>S</td></tr>
-      <tr><td>6</td><td><b>Pass <code>onRename</code></b> from the flight deck</td>
-          <td>Missing item, not a wrong one — smallest change here</td><td>S</td></tr>
-      <tr><td>7</td><td><b>“Reveal in flight deck”</b> on session tabs</td>
-          <td>The bridge that makes POD-710's boundary liveable</td><td>M</td></tr>
+      <tr><td>1</td><td><b>“Close” → “Delete session…”</b>, always confirms, offered in every status</td>
+          <td><code>SessionContextMenu.tsx</code>, <code>use-session-guard.ts</code></td><td class="y">done</td></tr>
+      <tr><td>2</td><td><b>“End session”</b> → <code>store.endSession</code> → <code>sessions.stop</code></td>
+          <td><code>client-core/engine/actions.ts</code>, <code>api.ts</code></td><td class="y">done</td></tr>
+      <tr><td>3</td><td><b>Session Archive dropped</b> from menu, palette and panel button; Unarchive kept</td>
+          <td><code>SessionContextMenu.tsx</code>, <code>CommandPalette.tsx</code>, <code>AgentPanel.tsx</code></td><td class="y">done</td></tr>
+      <tr><td>4</td><td><b>Delete in its own section</b> under a rule; ellipses; <code>describeCascade</code>; <code>useConfirm</code></td>
+          <td><code>issue-menu-config.ts</code>, <code>IssueContextMenu.tsx</code>, <code>issue-menu-commands.ts</code></td><td class="y">done</td></tr>
+      <tr><td>5</td><td><b><code>surface: 'deck'</code></b> — Archive and Pin gated off the spine, PLACEMENT heading</td>
+          <td><code>issue-context-menu.ts</code>, <code>FlightDeck.tsx</code></td><td class="y">done</td></tr>
+      <tr><td>6</td><td><b>Rename on a deck strip</b> — <code>onRename</code> wired, inline editor</td>
+          <td><code>FlightDeck.tsx</code></td><td class="y">done</td></tr>
+      <tr><td>7</td><td><b>“Reveal in flight deck”</b> + “Close tab”</td>
+          <td><code>Workspace.tsx</code>, <code>shell-state.ts</code>, <code>FlightDeck.tsx</code></td><td class="y">done</td></tr>
     </tbody>
   </table>
   </div>
+
+  <h3>Two things the build changed about the plan</h3>
+  <p>
+    <b>The sidebar's hover ✕ was worse than the menu row.</b> It is not in any mockup above
+    because the sheet was written about menus — but <code>sidebar-common.tsx</code> had a
+    hover-revealed ✕ titled “Close session” calling <code>guardedKill</code>: the most
+    destructive action in the shell on the least deliberate gesture, with a confirm that
+    fired only mid-turn. It now calls End. Delete stays in the menu, behind a dialog.
+  </p>
+  <p>
+    <b>Delete is no longer gated on a running process.</b> The old <code>canClose</code> rule
+    hid it on <code>exited</code> and <code>hibernated</code> sessions — exactly the rows an
+    operator wants to clear away — so removing a dead session's row meant resuming it first.
+  </p>
+
+  <h3>Verification</h3>
   <p class="note">
-    3 must not precede 2. Dropping Archive while “Close” is still the only other end would
-    leave the menu with exactly one way out, and it would be the tombstone.
+    Typecheck clean and 410 tests green across the four touched areas, plus new cases for the
+    deck gating, <code>describeCascade</code>, delete-in-every-status and the reveal event.
+    Six pre-existing failures survive and are none of this issue's:
+    <code>server.ts</code> implicit-any (×4), an <code>addedAt</code> fixture in
+    <code>IssuePanelView.inspector.test.tsx</code> (×2), the type-floor debt in
+    <code>AppErrorPage.tsx</code>/<code>ActivationShell.tsx</code>/<code>ExistingPodiumActivation.tsx</code>,
+    <code>DiffSheet.tsx</code>'s localStorage audit, and the mark-read throttle test POD-1064
+    already tracks as red on main.
+    <b>Not yet done in a browser</b> — <code>/verify</code> is user-invoked, so nothing here
+    has been driven against a running instance.
   </p>
 
 </div>
