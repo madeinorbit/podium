@@ -16,6 +16,20 @@ const UPDATE_PROGRESS_EVENT: &str = "podium://update-progress";
 const PROGRESS_INTERVAL_MS: u64 = 2_000;
 const PROGRESS_PERCENT_STEP: u8 = 5;
 
+/// Every code this shell can actually produce (§7).
+///
+/// `RestartFailed` used to be here and is not, because this side cannot observe
+/// a failed restart: both install paths end in `app.restart()`, which diverges —
+/// the process is replaced and nothing after it runs. So the variant had one
+/// construction site in the whole repo and it was inside this file's own test
+/// module, which made `every_error_code_has_a_stable_safe_shape` read as
+/// coverage of the taxonomy while proving the shape of a value the shipped
+/// binary never creates (POD-2188).
+///
+/// The user-facing sentence is not lost, and never lived here. `install_update`
+/// resolving at all IS the failed restart, and the page is the only thing left
+/// alive to say so — it synthesises `restart-failed` in `use-update-state.ts`,
+/// which is the producer §5 implies and the one the panel's handler reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UpdateErrorCode {
@@ -24,7 +38,6 @@ pub enum UpdateErrorCode {
     DownloadFailed,
     SignatureInvalid,
     InstallFailed,
-    RestartFailed,
     NoUpdateAvailable,
 }
 
@@ -74,13 +87,6 @@ impl UpdateError {
         Self::new(
             UpdateErrorCode::InstallFailed,
             "Podium could not install the desktop update.",
-        )
-    }
-
-    fn restart_failed() -> Self {
-        Self::new(
-            UpdateErrorCode::RestartFailed,
-            "The desktop update installed, but Podium could not restart.",
         )
     }
 
@@ -466,6 +472,10 @@ pub async fn install_update(
         emit_update_progress(&progress_app, progress);
     })
     .await?;
+    // Diverges: the process is replaced, this promise is dropped unresolved
+    // along with everything else, and there is no failure for this side to
+    // return. A settled `installUpdate` on the page therefore MEANS the restart
+    // did not happen, which is where `restart-failed` is produced (POD-2188).
     app.restart();
 }
 
@@ -657,7 +667,6 @@ mod tests {
             UpdateError::download_failed(),
             UpdateError::signature_invalid(),
             UpdateError::install_failed(),
-            UpdateError::restart_failed(),
             UpdateError::no_update_available(),
         ];
         let codes = [
@@ -666,7 +675,6 @@ mod tests {
             "download-failed",
             "signature-invalid",
             "install-failed",
-            "restart-failed",
             "no-update-available",
         ];
         for (error, code) in errors.into_iter().zip(codes) {
