@@ -34,3 +34,5 @@ A machine that answered `rejected` was then reconnected three times and no grant
 
 Reconnected one version behind, the straggler converged in one second with nobody looking,
 no second click, and no new operation on record.
+
+<!-- drill target F -->
