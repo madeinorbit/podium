@@ -74,7 +74,16 @@ function parseStored(payload: string): Operation | null {
   }
 }
 
-export const DEFAULT_HISTORY_LIMIT = 20
+/**
+ * How many past operations a history read returns by default.
+ *
+ * QUALIFIED ON PURPOSE (POD-2219). `packages/model` already exports
+ * `DEFAULT_HISTORY_LIMIT` — the draft document's revision cap — and the model
+ * owns its feature names exclusively, so a second unrelated constant under that
+ * name is a `feature-single-home` violation and two numbers free to drift while
+ * reading as one. This history is a different thing entirely; the name says so.
+ */
+export const DEFAULT_OPERATION_HISTORY_LIMIT = 20
 /** §9.6: twenty operations, server-side. */
 export const DEFAULT_RETENTION = 20
 
@@ -163,7 +172,7 @@ export class OperationStore {
   }
 
   /** Newest first — what Settings → Updates lists (§3.7). */
-  history(kind?: string, limit: number = DEFAULT_HISTORY_LIMIT): OperationRow[] {
+  history(kind?: string, limit: number = DEFAULT_OPERATION_HISTORY_LIMIT): OperationRow[] {
     const rows = (
       kind === undefined
         ? this.db.prepare('SELECT * FROM operations ORDER BY created_at DESC LIMIT ?').all(limit)

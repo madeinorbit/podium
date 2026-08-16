@@ -274,6 +274,42 @@ function terminalToShow(
  * a handoff between two lives of the same app, not a memory of what this
  * machine has ever seen. A window wide enough for an install and relaunch keeps
  * "a fresh tab an hour later has nothing to celebrate" true (§6.2).
+ *
+ * ─── THIS IS A DECLARED EXCEPTION TO ui-storage-ownership (POD-2219) ─────────
+ *
+ * The two accessors below are the ONLY raw storage access this epic added, and
+ * `lint:architecture` names this file for them. POD-329 reserves localStorage
+ * methods for `packages/client-core/src/ui-state.ts` and the replica adapter
+ * family, and it is right to: a feature reading a key ad hoc is how a
+ * persistence model stops being one. It is recorded HERE rather than in
+ * `scripts/boundary-allowlist.ts` because that file is asserted EMPTY by
+ * `scripts/architecture-manifest.test.ts`, and because a `ui-storage-ownership`
+ * entry could not excuse the manifest lane anyway — `partitionAllowlist` routes
+ * this rule's entries to the legacy family while `checkManifestFile` emits its
+ * violations into the manifest one. Both are noted in POD-2225.
+ *
+ * WHY IT IS NOT SIMPLY MOVED, stated so the next reader does not have to
+ * rediscover it. Every home ui-state offers is closed to this key by a guard
+ * that exists for a reason:
+ *
+ *  - A second raw accessor INSIDE `ui-state.ts` fails its own audit — that
+ *    module is allowed exactly one unnamespaced writer, the pre-auth theme.
+ *  - Joining the PRE-AUTH family fails the converse check, which pins that
+ *    family to the theme keys precisely because a read before a principal
+ *    exists is the one thing the fail-closed provider cannot police.
+ *  - A DEVICE-LOCAL UiState key is principal-bound (`principal-storage.ts`
+ *    prefixes the replica's keys), and a value that resolves late or not at all
+ *    degrades to `null` — which is silence, the exact failure this code exists
+ *    to prevent.
+ *
+ * The real resolution is POD-2225, and its first obligation is the measurement
+ * none of the above settles: whether the store is reliably present, with the
+ * right principal, wherever this panel mounts after a restart. Until that is
+ * ANSWERED rather than assumed, moving the key would trade a lint line for a
+ * broken acceptance line.
+ *
+ * THE COUNT IS ONE, and this note licenses no second. Another key that wants
+ * this treatment is POD-2225's problem, not this comment's precedent.
  */
 const WATCHED_KEY = 'podium.update.watched-operation'
 const WATCHED_HANDOFF_MS = 5 * 60_000
