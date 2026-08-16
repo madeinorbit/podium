@@ -376,6 +376,14 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
   return URGENCY_ORDER.indexOf(requested) > URGENCY_ORDER.indexOf(max) ? max : requested
 }
 
+/** What the sender is told when the daemon reports it never typed their turn
+ *  [POD-2132, POD-2202]. Written for the person holding the receipt, not for the
+ *  driver: neither reason is anybody's fault and neither is a retry instruction. */
+const ABANDONED_REASON_TEXT: Record<'never-live' | 'teardown', string> = {
+  'never-live': 'the target session never finished starting within the readiness deadline',
+  teardown: 'the target session was torn down before it could be typed into',
+}
+
 export class MessageDeliveryService {
   /** hop of the message that triggered the CURRENT turn per session — set at
    *  delivery, cleared when the session goes idle (turn ended). Messages the
@@ -1244,10 +1252,22 @@ export class MessageDeliveryService {
   }
 
   /**
-   * The terminal queue reached its ready deadline or teardown without typing
-   * these turns. The durable message remains queued and retryable even when the
-   * driver's in-memory copy was discarded. The repository dedupes repeated
-   * reports by turn/message id before a transition is emitted.
+   * THE DAEMON GAVE UP ON THESE TURNS, SO THE RECEIPT STOPS SAYING `queued`
+   * [POD-2132, POD-2202].
+   *
+   * The terminal queue reached its ready deadline with the session never live
+   * (`never-live`), or was torn down still holding them (`teardown`). Either way
+   * the bytes were never typed and nothing on this side will type them: the row
+   * goes TERMINAL (`dead_letter`), which is what takes it out of `countPending`,
+   * off the retry sweep, and out of a blocked sender's `waitFor`. The sender is
+   * told once, the way any dead-letter tells them — being told nothing is the
+   * defect this closes.
+   *
+   * REPORTS REPEAT. They are retryable, they survive restarts, and they carry turn
+   * ids a previous report already moved. Dedupe is the repository's guarded write,
+   * not a set kept here: `markDeliveryAbandoned` only fires on a row that is still
+   * `queued`, so a duplicated id — inside one report or across two — produces
+   * exactly one transition and exactly one sender notice.
    */
   onQueueDrainAbandoned(
     sessionId: SessionId,
@@ -1258,17 +1278,21 @@ export class MessageDeliveryService {
     for (const messageId of turnIds) {
       const message = this.deps.messages.getMessage(messageId)
       if (!message || message.status !== 'queued') continue
-      if (!this.deps.messages.markDeliveryDeferred(messageId, sessionId, at, reason)) continue
-      this.emitTransition(
-        {
-          ...message,
-          deliveredTo: message.deliveredTo ?? sessionId,
-          deliveryDeferredAt: at,
-          deliveryDeferredReason: reason,
-        },
-        'message.delivery_deferred',
-        { reason, retryable: true, deliveryConfirmed: false },
-      )
+      if (!this.deps.messages.markDeliveryAbandoned(messageId, sessionId, at, reason)) continue
+      const abandoned: MessageRow = {
+        ...message,
+        status: 'dead_letter',
+        deadLetteredAt: at,
+        deliveredTo: message.deliveredTo ?? sessionId,
+        deliveryDeferredAt: at,
+        deliveryDeferredReason: reason,
+      }
+      this.emitTransition(abandoned, 'message.dead_letter', {
+        reason,
+        retryable: false,
+        deliveryConfirmed: false,
+      })
+      this.notifyDeadLetter(message, ABANDONED_REASON_TEXT[reason])
     }
   }
 

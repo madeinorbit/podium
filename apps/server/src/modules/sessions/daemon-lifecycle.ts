@@ -63,6 +63,14 @@ export interface SessionDaemonLifecyclePorts {
   runtimeEvents?: {
     record(machineId: MachineId, msg: Extract<SessionsDaemonFrame, { type: 'runtimeEvent' }>): void
   }
+  /**
+   * The daemon reporting turns its queue never typed (POD-2132, POD-2202).
+   *
+   * Bound at the composition root to the message service, which moves each named
+   * durable row to its terminal not-delivered state. THE FRAME REPEATS — it is
+   * retryable and survives restarts — so whatever is bound here MUST DEDUPE BY
+   * TURN ID rather than assume one report per turn.
+   */
   queueDrainAbandoned?: {
     record(msg: Extract<SessionsDaemonFrame, { type: 'runtimeQueueDrainAbandoned' }>): void
   }

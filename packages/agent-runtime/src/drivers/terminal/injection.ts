@@ -199,13 +199,17 @@ export interface TerminalInjectionPorts {
    * came. A queue whose failure mode is invisible is the POD-549 loss wearing a
    * durable row's clothes, and this is the seam that ends the silence.
    *
-   * `never-live` fires with the turns still in this queue, so a later enqueue can
-   * restart the drain and take them first. `teardown` fires immediately before
-   * disposal discards this in-memory copy; the durable source remains eligible
-   * to retry after the session or daemon returns. BOTH reports are retryable,
-   * can be repeated across restarts, and may contain turn ids a consumer already
-   * handled. CONSUMERS MUST DEDUPE BY TURN ID before correcting receipts or
-   * emitting transitions.
+   * THE REPORT IS THE POINT OF NO RETURN FOR THESE TURNS. Both reasons discard
+   * this in-memory copy right after reporting — `never-live` no longer holds the
+   * turns back for a later enqueue to re-drain, because the consumer's durable row
+   * goes terminal on the report (POD-2132) and a queue that typed its retained copy
+   * afterwards would deliver bytes the ledger already recorded as undelivered, with
+   * no receipt anywhere. What is owed is stated once, here, and then owed by nobody.
+   *
+   * THE TRANSPORT, THOUGH, IS RETRYABLE. A report can be repeated across restarts
+   * and may carry turn ids a consumer already handled. CONSUMERS MUST DEDUPE BY
+   * TURN ID before correcting receipts or emitting transitions — retryable means
+   * "safe to hear twice", never "safe to deliver twice".
    */
   onDrainAbandoned?(turns: readonly QueuedTurn[], reason: QueueDrainAbandonedReason): void
 }
@@ -467,8 +471,10 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
         // completely silent — not a refusal, not an exit, just a timer that
         // stopped — and it is the exit a dropped `bind` produced (POD-2107).
         // Reported before `stop()`, with the queue intact, so a consumer reads
-        // exactly what is still undelivered.
+        // exactly what is still undelivered — then dropped, because the consumer
+        // records these turns as never delivered and no longer expects them.
         ports.onDrainAbandoned?.([...queue], 'never-live')
+        queue.length = 0
         stop()
         return
       }

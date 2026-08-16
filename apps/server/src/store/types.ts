@@ -559,13 +559,16 @@ export interface MessageRow {
    *  echo confirms `delivered`. Drives auto-requeue — an injected row with no echo
    *  within the window was a ghost push and is re-attempted [POD-834]. */
   injectedAt?: string | null
-  /** The latest deadline/teardown correction while the durable message remains
-   * retryably queued. Separate from status because the source intent can be
-   * injected again even when a driver's in-memory copy was discarded. */
+  /** When the daemon reported that its drain gave up on this turn [POD-2132,
+   * POD-2202]. The row is `dead_letter` by then — this stamp is the CAUSE beside
+   * the status, not a softer state next to it. (The column keeps its original
+   * `delivery_deferred_*` name from the migration that introduced it.) */
   deliveryDeferredAt?: string | null
-  /** Typed machine observation behind `deliveryDeferredAt`. */
+  /** Typed machine observation behind `deliveryDeferredAt`: the session never
+   * became ready inside the deadline, or it was torn down still holding the turn. */
   deliveryDeferredReason?: 'never-live' | 'teardown' | null
-  /** When status reached `dead_letter` — the target was gone. */
+  /** When status reached `dead_letter` — the target was gone, or the drain that
+   * owned the turn gave up on it (see `deliveryDeferredReason`). */
   deadLetteredAt?: string | null
   /** Ack message id (denormalized for the steward's suppression check). */
   ackedBy: string | null

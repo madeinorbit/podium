@@ -184,17 +184,21 @@ function renderLifecycle(m: MessageWire): string {
   // agent has it while naming nobody.
   const anonymous = !m.deliveredTo
   const gloss: Record<string, string> = {
-    queued:
-      m.deliveryDeferredReason === 'never-live'
-        ? 'not delivered within the readiness deadline — still queued for retry'
-        : 'captured + waiting for the target (not yet in its context)',
+    queued: 'captured + waiting for the target (not yet in its context)',
     delivered: anonymous
       ? 'recorded as consumed, but NO recipient session was named — nobody is known to have it'
       : 'appeared in the target’s transcript — the agent has it',
     read: anonymous
       ? 'opened from an inbox, but NO recipient session was named'
       : 'the recipient opened its inbox and read it',
-    dead_letter: 'target was gone — dead-lettered, not dropped',
+    // The drain reasons name what actually happened to the target [POD-2132,
+    // POD-2202]; without one, the plain "gone" story is the right one.
+    dead_letter:
+      m.deliveryDeferredReason === 'never-live'
+        ? 'the session never became ready within the deadline — never typed, not dropped'
+        : m.deliveryDeferredReason === 'teardown'
+          ? 'the session was torn down before it could be typed into — never typed, not dropped'
+          : 'target was gone — dead-lettered, not dropped',
     expired: 'sat undelivered past its TTL',
     cancelled: 'withdrawn',
   }
@@ -208,11 +212,7 @@ function renderLifecycle(m: MessageWire): string {
   ].filter(Boolean)
   return [
     `${m.id} ${m.from} -> ${m.to}`,
-    `  status: ${
-      m.status === 'queued' && m.deliveryDeferredReason === 'never-live'
-        ? 'not-delivered'
-        : m.status
-    } — ${gloss[m.status] ?? ''}`,
+    `  status: ${m.status} — ${gloss[m.status] ?? ''}`,
     `  captured=${m.createdAt}${stamps.length ? ` ${stamps.join(' ')}` : ''}`,
   ].join('\n')
 }

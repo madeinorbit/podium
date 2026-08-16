@@ -485,9 +485,7 @@ export class MessagesRepository {
   markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): boolean {
     const r = this.db
       .prepare(
-        `UPDATE messages
-         SET injected_at = ?, delivered_to = ?,
-             delivery_deferred_at = NULL, delivery_deferred_reason = NULL
+        `UPDATE messages SET injected_at = ?, delivered_to = ?
          WHERE id = ? AND status = 'queued'`,
       )
       .run(injectedAt, deliveredTo, id)
@@ -495,12 +493,22 @@ export class MessagesRepository {
   }
 
   /**
-   * Record that the driver could not deliver before its ready deadline or
-   * teardown while leaving the durable row queued and retryable. First report
-   * wins until another injection attempt clears it, deduping repeated daemon
-   * reports by turn/message id.
+   * queued → dead_letter, because the drain gave up: the session never went live
+   * before its ready deadline (`never-live`) or was torn down with the turn still
+   * undelivered (`teardown`) [POD-2132, POD-2202]. TERMINAL — this is the write
+   * that ends the stale `queued` receipt the sender was left holding, and after it
+   * the server never re-sends this row (`countPending` drops it, the sweep skips
+   * it, a blocked `waitFor` gets its answer).
+   *
+   * The `delivery_deferred_*` stamps record WHEN the driver reported giving up and
+   * WHICH report said so, next to the terminal status and `dead_lettered_at`.
+   *
+   * THE `status = 'queued'` GUARD IS THE DEDUPE. Abandonment reports are retryable
+   * and repeat across restarts, so the same turn id arrives more than once; the
+   * second one finds a row that is no longer queued and returns false, which is how
+   * the caller emits exactly one transition per turn.
    */
-  markDeliveryDeferred(
+  markDeliveryAbandoned(
     id: string,
     deliveredTo: SessionId,
     at: string,
@@ -509,11 +517,12 @@ export class MessagesRepository {
     const r = this.db
       .prepare(
         `UPDATE messages
-         SET delivery_deferred_at = ?, delivery_deferred_reason = ?,
+         SET status = 'dead_letter', dead_lettered_at = ?,
+             delivery_deferred_at = ?, delivery_deferred_reason = ?,
              delivered_to = COALESCE(delivered_to, ?)
-         WHERE id = ? AND status = 'queued' AND delivery_deferred_at IS NULL`,
+         WHERE id = ? AND status = 'queued'`,
       )
-      .run(at, reason, deliveredTo, id)
+      .run(at, at, reason, deliveredTo, id)
     return r.changes === 1
   }
 

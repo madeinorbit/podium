@@ -79,10 +79,15 @@ export function deliveryLine(m: LedgerMessage): string {
     const to = m.deliveredTo ? ` by ${m.deliveredTo}` : ''
     return `read${to}${m.ackedBy ? ` · acked by ${m.ackedBy}` : ''}`
   }
-  if (m.status === 'queued' && m.deliveryDeferredReason === 'never-live')
-    return 'not delivered within readiness deadline · still queued'
   if (m.status === 'queued') return m.expiresAt ? `queued · expires ${m.expiresAt}` : 'queued'
-  if (m.status === 'dead_letter') return 'dead-lettered · target gone'
+  // A dead letter says WHY when the daemon told us why [POD-2132, POD-2202]: the
+  // drain gave up, so this row is terminal rather than waiting on anything.
+  if (m.status === 'dead_letter') {
+    if (m.deliveryDeferredReason === 'never-live')
+      return 'not delivered · session never became ready'
+    if (m.deliveryDeferredReason === 'teardown') return 'not delivered · session torn down'
+    return 'dead-lettered · target gone'
+  }
   if (m.status === 'expired') return 'expired undelivered'
   return m.status
 }

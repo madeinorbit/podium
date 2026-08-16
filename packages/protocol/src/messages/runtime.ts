@@ -1071,9 +1071,13 @@ export const RuntimeSendResultMessage = z.object({
 export type RuntimeSendResultMessage = z.infer<typeof RuntimeSendResultMessage>
 
 /**
- * daemon → server: a terminal queue reached its ready deadline or was torn
- * down before delivery. No turn was started, so this is a retryable
- * delivery-attempt correction, not a turn event. Consumers dedupe by turn id.
+ * daemon → server: a terminal queue reached its ready deadline or was torn down
+ * before delivery. No turn was started, so this is a receipt correction, not a
+ * turn event — the daemon is saying these turns were never typed and will not be.
+ *
+ * THE FRAME is retryable and repeats across restarts; THE DELIVERY it reports on
+ * is not retried by anybody. Consumers dedupe by turn id, so hearing it twice
+ * corrects the same receipt once.
  */
 export const RuntimeQueueDrainAbandonedMessage = z.object({
   type: z.literal('runtimeQueueDrainAbandoned'),

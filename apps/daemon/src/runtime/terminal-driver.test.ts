@@ -872,6 +872,34 @@ describe('the queue drain', () => {
     expect(world.abandoned[0]?.turns.map((turn) => turn.id)).toEqual(['msg-first', 'msg-second'])
   })
 
+  it('never types an abandoned turn later, once it has been reported (POD-2132)', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+
+    expect(
+      (await session.send({ id: 'msg-lost', text: 'lost' }, { origin: 'mail', delivery: 'queue' }))
+        .outcome,
+    ).toBe('queued')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let i = 0; i < 400; i++) await Promise.resolve()
+    expect(world.abandoned.map((report) => report.reason)).toEqual(['never-live'])
+
+    // THE REPORT IS THE POINT OF NO RETURN. The consumer has written 'lost' off as
+    // never delivered, so the CLI finally coming up and a NEW turn arriving must
+    // not quietly drag the old one onto the screen behind that receipt.
+    world.bind(session.binding.sessionId)
+    expect(
+      (await session.send({ id: 'msg-next', text: 'next' }, { origin: 'mail', delivery: 'queue' }))
+        .outcome,
+    ).toBe('queued')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let i = 0; i < 400; i++) await Promise.resolve()
+
+    expect(world.written.map(pastedText).filter((text) => text !== undefined)).toEqual(['next'])
+    expect(world.abandoned).toHaveLength(1)
+  })
+
   it('reports every queued turn before clear tears the session down', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)

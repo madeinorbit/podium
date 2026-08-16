@@ -57,13 +57,25 @@ describe('status + delivery line', () => {
   })
   it('tells the delivery story', () => {
     expect(deliveryLine(base)).toBe('queued')
+    // An abandoned drain is TERMINAL, and the chip says which way it ended
+    // [POD-2132, POD-2202] — "still queued" described a wait nobody was serving.
     expect(
       deliveryLine({
         ...base,
+        status: 'dead_letter',
         deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
         deliveryDeferredReason: 'never-live',
       }),
-    ).toBe('not delivered within readiness deadline · still queued')
+    ).toBe('not delivered · session never became ready')
+    expect(
+      deliveryLine({
+        ...base,
+        status: 'dead_letter',
+        deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
+        deliveryDeferredReason: 'teardown',
+      }),
+    ).toBe('not delivered · session torn down')
+    expect(deliveryLine({ ...base, status: 'dead_letter' })).toBe('dead-lettered · target gone')
     expect(deliveryLine({ ...base, status: 'expired' })).toBe('expired undelivered')
     expect(
       deliveryLine({
