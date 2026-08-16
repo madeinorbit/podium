@@ -53,7 +53,7 @@ import { SETTINGS_TABS } from '@/features/settings/SettingsView'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph, BrailleSpinner } from '@/lib/motion'
-import { sessionMenuEligibility } from '@/lib/SessionContextMenu'
+import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {

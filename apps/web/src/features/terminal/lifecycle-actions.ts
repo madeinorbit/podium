@@ -23,7 +23,7 @@
  * the server) says no.
  */
 import type { SessionMeta } from '@podium/model/browser'
-import { sessionMenuEligibility } from '@/lib/SessionContextMenu'
+import { sessionMenuEligibility } from '@/lib/session-context-menu'
 
 /** What the action does, not what it is called — the label is presentation. */
 export type LifecycleActionId = 'resume' | 'restart' | 'remove' | 'hibernate'

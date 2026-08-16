@@ -4,7 +4,7 @@ import {
   handoffBlockerText,
   handoffRejectionText,
   sessionMenuEligibility,
-} from './SessionContextMenu'
+} from './session-context-menu'
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {

@@ -10,7 +10,6 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
-import { ActivationResumeBar } from '@/features/setup/ActivationShell'
 import {
   hasActivationState,
   isActivationEligible,
@@ -88,6 +87,13 @@ const ApprovalDialog = lazy(() =>
 )
 const AutoContinueDialog = lazy(() =>
   import('./AutoContinueDialog').then((module) => ({ default: module.AutoContinueDialog })),
+)
+// Renders only mid-activation; a static import would drag the whole activation
+// shell into the eager bundle for every ordinary launch.
+const ActivationResumeBar = lazy(() =>
+  import('@/features/setup/ActivationShell').then((module) => ({
+    default: module.ActivationResumeBar,
+  })),
 )
 
 function LoadingScreen(): JSX.Element {
@@ -595,10 +601,12 @@ function AppBody(): JSX.Element {
         >
           <TopBar />
           {activationResumeVisible && (
-            <ActivationResumeBar
-              routeLabel={activationRouteLabel(activationState.route)}
-              onResume={resumeActivation}
-            />
+            <Suspense fallback={null}>
+              <ActivationResumeBar
+                routeLabel={activationRouteLabel(activationState.route)}
+                onResume={resumeActivation}
+              />
+            </Suspense>
           )}
           <div
             className="desktop-shell-row"

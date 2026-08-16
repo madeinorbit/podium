@@ -30,42 +30,8 @@ import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
+import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
 import { ReclaimConfirmDialog } from './reclaim-lifecycle'
-
-/** Lifecycle knobs the host-pressure surfaces need (hibernation + worktree GC).
- *  Lazily fetched so chips/panels reflect live settings without a settings store.
- *  Returns null until the first fetch resolves. */
-export function useHostLifecycleSettings(): {
-  hibernation: PodiumSettings['hibernation']
-  worktreeGc: PodiumSettings['worktreeGc']
-} | null {
-  const trpc = useStoreSelector((s) => s.trpc)
-  const [settings, setSettings] = useState<{
-    hibernation: PodiumSettings['hibernation']
-    worktreeGc: PodiumSettings['worktreeGc']
-  } | null>(null)
-  useEffect(() => {
-    let alive = true
-    trpc.settings.get
-      .query()
-      .then((s) => {
-        if (alive) setSettings({ hibernation: s.hibernation, worktreeGc: s.worktreeGc })
-      })
-      .catch(() => {
-        // Best-effort: a failed settings fetch just omits the lifecycle notes.
-      })
-    return () => {
-      alive = false
-    }
-  }, [trpc])
-  return settings
-}
-
-/** @deprecated Prefer {@link useHostLifecycleSettings}; kept for call sites that
- *  only need the hibernation half. */
-export function useHibernationSetting(): PodiumSettings['hibernation'] | null {
-  return useHostLifecycleSettings()?.hibernation ?? null
-}
 
 /** Shape of trpc hosts.memoryBreakdown — the daemon's answer minus wire plumbing. */
 interface Breakdown {

@@ -13,22 +13,28 @@ import {
 } from '@podium/client-core/viewmodels'
 import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { HealthPopover } from './HealthPopover'
-import {
-  type HostInfoTab,
-  HostInfoView,
-  useHibernationSetting,
-  useHostLifecycleSettings,
-} from './HostMemoryView'
-import { LoadPanel } from './LoadPanel'
+import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
+import type { HostInfoTab } from './HostMemoryView'
 import { OutboxRecoveryIndicator } from './OutboxRecovery'
 import { QuotaIndicator } from './QuotaIndicator'
+
+// The chips themselves are permanent header chrome, but everything behind them
+// opens on demand: the info modal after a click, the load breakdown once the
+// popover opens (Base UI mounts popup content only then). Loading those on
+// interaction keeps ~40k of panel UI out of the eager bundle the budget prices.
+const HostInfoView = lazy(() =>
+  import('./HostMemoryView').then((module) => ({ default: module.HostInfoView })),
+)
+const LoadPanel = lazy(() =>
+  import('./LoadPanel').then((module) => ({ default: module.LoadPanel })),
+)
 
 // Memory pressure → colors, reproducing the legacy `.mem-*` contract: the bar
 // fill is always tinted by severity; the icon stays neutral while `ok` and only
@@ -178,11 +184,13 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
       <OutboxRecoveryIndicator compact={compact} />
       <QuotaIndicator compact={compact} />
       {info && (
-        <HostInfoView
-          initialTab={info.tab}
-          machineId={info.machineId}
-          onClose={() => setInfo(null)}
-        />
+        <Suspense fallback={null}>
+          <HostInfoView
+            initialTab={info.tab}
+            machineId={info.machineId}
+            onClose={() => setInfo(null)}
+          />
+        </Suspense>
       )}
     </div>
   )
@@ -386,20 +394,22 @@ export function HeaderHostIndicators(): JSX.Element {
             }
           >
             {(pinned) => (
-              <LoadPanel
-                machineId={host.machineId}
-                pinned={pinned}
-                updateNote={
-                  needsUpdate ? (
-                    <div className="hp-dim-line text-warning">
-                      Update available: {machine?.inventory?.podiumVersion} →{' '}
-                      {updateTargetVersion} — apply it from Settings → Machines
-                    </div>
-                  ) : undefined
-                }
-                onOpenConnection={() => setInfo({ tab: 'connection', machineId: host.machineId })}
-                onOpenReclaim={() => setInfo({ tab: 'reclaim', machineId: host.machineId })}
-              />
+              <Suspense fallback={null}>
+                <LoadPanel
+                  machineId={host.machineId}
+                  pinned={pinned}
+                  updateNote={
+                    needsUpdate ? (
+                      <div className="hp-dim-line text-warning">
+                        Update available: {machine?.inventory?.podiumVersion} →{' '}
+                        {updateTargetVersion} — apply it from Settings → Machines
+                      </div>
+                    ) : undefined
+                  }
+                  onOpenConnection={() => setInfo({ tab: 'connection', machineId: host.machineId })}
+                  onOpenReclaim={() => setInfo({ tab: 'reclaim', machineId: host.machineId })}
+                />
+              </Suspense>
             )}
           </HealthPopover>
         )
@@ -410,11 +420,13 @@ export function HeaderHostIndicators(): JSX.Element {
       <span className="header-strip-seam" aria-hidden="true" />
       <QuotaIndicator header />
       {info && (
-        <HostInfoView
-          initialTab={info.tab}
-          machineId={info.machineId}
-          onClose={() => setInfo(null)}
-        />
+        <Suspense fallback={null}>
+          <HostInfoView
+            initialTab={info.tab}
+            machineId={info.machineId}
+            onClose={() => setInfo(null)}
+          />
+        </Suspense>
       )}
     </div>
   )

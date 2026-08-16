@@ -23,6 +23,8 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from 'react'
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -36,11 +38,20 @@ import { Button } from '@/components/ui/button'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
 import { sessionDotClass } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
+import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
+
+// The right-click menu exists only after a right-click; loading it on demand
+// keeps the menu (and its handoff machinery) out of the eager bundle.
+const SessionContextMenu = lazy(() =>
+  import('@/lib/SessionContextMenu').then((module) => ({
+    default: module.SessionContextMenu,
+  })),
+)
+
 
 /** The one aside shell the sidebar renders into. The aside itself never scrolls —
  *  only the work list inside it — so the footer stays pinned. */
@@ -932,15 +943,17 @@ export function PanelRow({
           Elsewhere only when snoozed (an un-snooze affordance). */}
       {(attention || snoozed) && <SnoozeControl session={session} className="flex-none" />}
       {menuAnchor && (
-        <SessionContextMenu
-          session={session}
-          anchor={menuAnchor}
-          onClose={() => setMenuAnchor(null)}
-          onRename={() => {
-            setMenuAnchor(null)
-            setEditing(true)
-          }}
-        />
+        <Suspense fallback={null}>
+          <SessionContextMenu
+            session={session}
+            anchor={menuAnchor}
+            onClose={() => setMenuAnchor(null)}
+            onRename={() => {
+              setMenuAnchor(null)
+              setEditing(true)
+            }}
+          />
+        </Suspense>
       )}
     </div>
   )

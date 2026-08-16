@@ -43,18 +43,19 @@ import {
   type JSX,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  lazy,
+  Suspense,
   useEffect,
   useRef,
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
-import { ColdStartComposer } from '@/features/setup/ColdStartComposer'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
-import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
+import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
@@ -79,6 +80,15 @@ import {
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { type FileTab, useReplicaIssues, useStoreSelector } from './store'
 import { closeActiveWorkspaceTab } from './workspace-close'
+
+// The cold-start composer only renders in the empty pane (no issue selected),
+// and it fronts the whole first-run setup graph — loading it on demand keeps
+// that graph out of the eager bundle.
+const ColdStartComposer = lazy(() =>
+  import('@/features/setup/ColdStartComposer').then((module) => ({
+    default: module.ColdStartComposer,
+  })),
+)
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both
 // are first-class VIEWS (POD-710): the strip renders the current workspace's
@@ -338,7 +348,9 @@ export function Workspace(): JSX.Element {
     return (
       <section className="native-agents-pane relative">
         <div className="workspace-sheet relative flex min-h-0 flex-1">
-          <ColdStartComposer first={!hasAnyTask} />
+          <Suspense fallback={null}>
+            <ColdStartComposer first={!hasAnyTask} />
+          </Suspense>
         </div>
       </section>
     )

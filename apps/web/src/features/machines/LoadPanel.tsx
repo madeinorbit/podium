@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { HealthPopoverFooter } from './HealthPopover'
-import { useHostLifecycleSettings } from './HostMemoryView'
+import { useHostLifecycleSettings } from './host-lifecycle-settings'
 
 interface Breakdown {
   hostname: string

@@ -45,7 +45,7 @@ import {
   handoffBlockerText,
   handoffRejectionText,
   issueHandoffBlockerText,
-} from '@/lib/SessionContextMenu'
+} from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
