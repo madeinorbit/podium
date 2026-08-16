@@ -91,8 +91,16 @@ resolved into main is worse than no green at all.
   or a broad suite while a sibling is doing the same is *killed mid-command with no error*,
   which looks exactly like a wedge and loses everything uncommitted. So:
   `podium lock acquire updater-heavy-lane --ttl 20m --wait` before **any** `typecheck`,
-  broad `test`, or build — proceed only on the word `acquired`, and release the moment it
-  finishes. Focused vitest on your own files needs no lock. **Commit before you run a heavy
+  broad `test`, or build — and release the moment it finishes.
+  **Two words mean you hold it: `acquired` *and* `renewed`.** POD-2161 was told to gate on
+  `acquired` alone, saw `queued at position 1` then `agent relay timed out`, and correctly
+  refused to run — but the grant had landed *after* the relay gave up, and its retry then
+  printed `already held: renewed`. So: a relay timeout is not a refusal, it is an unknown;
+  re-run `acquire` and treat either word as ownership. `podium lock status <name>` tells you
+  the holder and is worth checking when in doubt (it can be slow under load, so give it a
+  timeout rather than assuming it hung).
+  **Do not run repo-wide `bun run typecheck` on this box at all** — see POD-2159; scope it
+  with `turbo run typecheck --filter=@podium/<pkg> --concurrency=1`, one package at a time. Focused vitest on your own files needs no lock. **Commit before you run a heavy
   lane**, so a kill costs you the run and not the work.
 - **Disk is tight (98% as of 2026-08-14, POD-2111).** Check `df -h` before any build or
   full-suite run; below ~3 GB free, stop and mail 2087 instead of risking a silently
