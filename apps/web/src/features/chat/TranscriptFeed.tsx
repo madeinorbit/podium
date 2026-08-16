@@ -280,16 +280,34 @@ export function TranscriptFeed({
       data-feed-scroller=""
       className={cn(
         'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
-        // ONE MECHANISM HOLDS THE SCROLL, NOT TWO (POD-993 round 3). Chromium
-        // anchors a scroller to whatever element it picks near the top and shifts
-        // `scrollTop` to keep it still. This feed already has its own, explicit
-        // versions of that — `prependAnchor` for paging older rows in, and the
-        // pinned-to-bottom re-snap for the tail — and the two disagree: the
-        // browser's anchor fires first, moves the view, and the manual write
-        // corrects it a frame later, which is exactly what a jump looks like.
-        // Ours are the ones that know which case they are in, so the browser's
-        // is turned off rather than argued with.
-        '[overflow-anchor:none]',
+        // NO `overflow-anchor: none` HERE, AND THAT IS THE WHOLE SAFARI BUG.
+        //
+        // Round 3 turned the browser's scroll anchoring off on this scroller, on
+        // the argument that the feed already has its own explicit versions of it
+        // — `prependAnchor` for paging older rows in, the pinned re-snap for the
+        // tail — and that two mechanisms writing `scrollTop` disagree. The
+        // reasoning was sound for Chromium and it was applied blind to
+        // everything else: WebKit had no scroll anchoring, so the declaration
+        // read as a no-op there.
+        //
+        // Safari 26 ships scroll anchoring, and `overflow-anchor: none` on this
+        // scroller makes WebKit under-compute the scrollable overflow region.
+        // Measured on the live feed: the reported maximum
+        // (`scrollHeight - clientHeight`) sat 444px above the maximum
+        // `scrollTop` would actually accept, and the last rows were laid out
+        // 430px BELOW the scrollport with no way to scroll to them. That is
+        // every symptom the operator reported, in one line — the feed "opened
+        // short", "jump to bottom" reached a maximum that was not the end, and
+        // scrolling past it was undone. Setting the property back to `auto` on
+        // the live page closed the gap to 0 and the overhang to −14px, which is
+        // just the feed's own bottom padding. No other property moved it:
+        // block layout, no padding, no sticky descendants, no transforms, no
+        // containment all measured identically to baseline.
+        //
+        // So the declaration goes. What it was defending against is now handled
+        // where it belongs: the prepend anchor is consume-or-clear, and the pin
+        // re-snaps from an observer that sees every child, including the ones
+        // that mount between row commits (POD-993 round 6).
         // §2.5 feed geometry: 12px/14px padding in the narrow column.
         //
         // THE MEASURE RETURNS, CENTRED (POD-993 round 2). POD-747 removed every
