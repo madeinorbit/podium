@@ -107,6 +107,23 @@ export class OperationStore {
       .run(...values(operation).slice(1), operation.id)
   }
 
+  /**
+   * Stamp an outcome onto the COLUMNS and leave the payload exactly as found.
+   *
+   * The one case that needs it: a row this binary cannot parse, which is what a
+   * successor server's operation looks like after a downgrade. Something has to
+   * release the exclusion group, and rewriting bytes we could not read would
+   * destroy the newer server's record of what actually happened. So the column
+   * says the operation stopped and the payload keeps the writer's last word;
+   * the columns are authoritative for scheduling, which is the same rule that
+   * governs every other read here.
+   */
+  markTerminal(id: string, state: string, at: number): void {
+    this.db
+      .prepare('UPDATE operations SET state = ?, updated_at = ?, finished_at = ? WHERE id = ?')
+      .run(state, at, at, id)
+  }
+
   get(id: string): OperationRow | undefined {
     const r = this.db.prepare('SELECT * FROM operations WHERE id = ?').get(id) as
       | Record<string, unknown>
@@ -127,6 +144,21 @@ export class OperationStore {
       .prepare('SELECT * FROM operations WHERE exclusion_group = ? ORDER BY created_at DESC')
       .all(group) as Record<string, unknown>[]
     return rows.map(toRow).find((row) => !isTerminalOperationState(row.state))
+  }
+
+  /**
+   * Every live operation, newest first — what boot adoption sweeps (§3.4).
+   *
+   * Deliberately NOT "one per registered group": a kind this binary no longer
+   * registers still has a row, and that row still holds its group. Finding it
+   * is what lets adoption resolve it instead of leaving the group wedged by an
+   * operation nothing will ever drive.
+   */
+  active(): OperationRow[] {
+    const rows = this.db
+      .prepare('SELECT * FROM operations ORDER BY created_at DESC')
+      .all() as Record<string, unknown>[]
+    return rows.map(toRow).filter((row) => !isTerminalOperationState(row.state))
   }
 
   /** Newest first — what Settings → Updates lists (§3.7). */

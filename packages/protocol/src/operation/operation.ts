@@ -123,6 +123,12 @@ export const OperationStep = z
     finishedAt: z.number().optional(),
     /** How many times `ensure()` has been run for this step, retries included. */
     attempts: z.number().optional(),
+    /**
+     * How many times this step went stale and came back. A stall that recovers
+     * is a fact about the update the user lived through, so it is recorded
+     * rather than erased when progress resumes (§3.3).
+     */
+    stalls: z.number().optional(),
     detail: z.string().optional(),
     error: OperationError.nullable().optional(),
   })
