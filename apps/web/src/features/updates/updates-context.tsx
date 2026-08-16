@@ -18,8 +18,8 @@ import { serverConfig } from '@/app/trpc'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
 import { UpdatePanel } from './UpdatePanel'
-import { type PanelActionKind, useUpdateState } from './use-update-state'
 import { UpdatesContext, type UpdatesContextValue } from './updates-panel-context'
+import { type PanelActionKind, useUpdateState } from './use-update-state'
 
 const UPDATE_CHECK_MS = 60_000
 
@@ -70,7 +70,7 @@ export function UpdatesProvider({ httpOrigin, children }: UpdatesProviderProps):
   }, [updateServiceWorker])
 
   const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin
-  const { view, pending, run, checkNow, dismissFailure } = useUpdateState({
+  const { view, pending, run, checkNow, acknowledge } = useUpdateState({
     httpOrigin: resolvedOrigin,
     needRefresh,
     reload,
@@ -103,9 +103,14 @@ export function UpdatesProvider({ httpOrigin, children }: UpdatesProviderProps):
   const doneKey = view.state === 'done' ? situation : null
   useEffect(() => {
     if (doneKey === null) return
-    const timer = window.setTimeout(() => setCollapsed(true), DONE_COLLAPSE_MS)
+    const timer = window.setTimeout(() => {
+      setCollapsed(true)
+      // "the indicator clears" (§6.2.4) — a finished update is not a standing
+      // fact about the toolbar.
+      acknowledge()
+    }, DONE_COLLAPSE_MS)
     return () => window.clearTimeout(timer)
-  }, [doneKey])
+  }, [acknowledge, doneKey])
 
   const open = view.state !== 'none' && !collapsed
 
@@ -114,8 +119,10 @@ export function UpdatesProvider({ httpOrigin, children }: UpdatesProviderProps):
     // The service worker's "a new build is ready" is a fact about THIS tab, and
     // the user has now been told. The operation keeps it alive if it matters.
     setNeedRefresh(false)
-    if (view.state === 'failed') dismissFailure()
-  }, [dismissFailure, setNeedRefresh, view.state])
+    // Hiding a terminal outcome is the user saying they have seen it, so it
+    // does not come back on the next poll (or the next reload).
+    if (view.state === 'failed' || view.state === 'done') acknowledge()
+  }, [acknowledge, setNeedRefresh, view.state])
 
   const toggle = useCallback(() => setCollapsed((current) => !current), [])
   const show = useCallback(() => setCollapsed(false), [])

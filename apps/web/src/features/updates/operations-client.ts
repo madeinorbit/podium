@@ -61,6 +61,27 @@ export async function readActiveOperation(trpc: Trpc): Promise<Operation | null>
   return parseOperation(raw)
 }
 
+/**
+ * THE MOST RECENT OPERATION, TERMINAL INCLUDED — and why the panel needs it.
+ *
+ * `operations.active` deliberately excludes terminal states (the store filters
+ * on `isTerminalOperationState`), because "active" is what single-flight and
+ * adoption are keyed on. But two of the panel's states are terminal: §6.2.4's
+ * "Podium is on 0.4.3 everywhere" and §6.2.5's failure, which the spec says is
+ * "never a dead end and never a toast that evaporates". Read only `active` and
+ * both would blink out of existence at the exact moment they became true — a
+ * failed update would leave the user with an empty corner, which is the old
+ * behaviour this whole issue exists to end.
+ *
+ * So the outcome comes from `history`, which serves the same stored bytes. The
+ * caller decides whether a given terminal operation is still worth showing
+ * (`use-update-state.ts`); this function only fetches it.
+ */
+export async function readLatestOperation(trpc: Trpc): Promise<Operation | null> {
+  const rows = await trpc.operations.history.query({ kind: 'update', limit: 1 })
+  return parseOperation(rows[0])
+}
+
 type LooseProcedure = { mutate: (input?: unknown) => Promise<unknown> }
 type LooseRouter = Record<string, LooseProcedure | undefined>
 

@@ -6,14 +6,16 @@
  * The states themselves are table-tested in `operation-view.test.ts` — this file
  * is deliberately about the wiring, not the copy.
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { type UpdateStateResult, useUpdateState } from './use-update-state'
 
 const mocks = vi.hoisted(() => ({
   makeTrpc: vi.fn(),
   active: vi.fn(),
+  history: vi.fn(),
   fleet: vi.fn(),
   converge: vi.fn(),
   start: vi.fn(),
@@ -71,6 +73,7 @@ function setupTransport(
     setup: { channel: { query: vi.fn(async () => 'stable') } },
     operations: {
       active: { query: mocks.active },
+      history: { query: mocks.history },
       cancel: { mutate: mocks.cancel },
     },
     updates: {
@@ -100,6 +103,10 @@ function setPageVersion(version: string): void {
 
 afterEach(() => {
   cleanup()
+  // The poll cache is process-wide by design, so one test's answer would
+  // otherwise be the next test's first render.
+  resetPolledQueryCache()
+  globalThis.sessionStorage?.clear()
   document.head.querySelector('meta[name="podium-version"]')?.remove()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -160,6 +167,76 @@ describe('useUpdateState — reading the operation', () => {
 
     render(<Probe onResult={(result) => results.push(result)} behind={0} />)
 
+    await waitFor(() => expect(results.length).toBeGreaterThan(0))
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('none'))
+  })
+})
+
+/**
+ * `operations.active` filters terminal states out by design, so the two
+ * outcomes the panel must show — "done" and "failed" — can only come from
+ * `history`. Without this the failure would blink out of existence at the
+ * moment it became true.
+ */
+describe('useUpdateState — the outcome, which `active` cannot carry', () => {
+  const finished = (state: string, finishedAt: number) => ({
+    id: 'op_done',
+    kind: 'update',
+    state,
+    details: { target: { version: '0.4.2' } },
+    finishedAt,
+    steps: [{ id: 'prepare', title: 'Preparing the update', state: 'done' }],
+  })
+
+  it('shows a failure from history, and keeps showing it across a reload', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...finished('failed', Date.now() - 5_000), error: { code: 'download-failed' } },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(results.at(-1)?.view.error?.message).toMatch(/couldn't be downloaded/i)
+  })
+
+  it('stops showing a failure the user acknowledged', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...finished('failed', Date.now() - 5_000), error: { code: 'download-failed' } },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+
+    act(() => results.at(-1)?.acknowledge())
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+  })
+
+  it('lets an old failure go: after the window it belongs to Settings, not the corner', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...finished('failed', Date.now() - 60 * 60_000), error: { code: 'download-failed' } },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.length).toBeGreaterThan(0))
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+  })
+
+  it('does not congratulate a tab that never watched the update run', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([finished('done', Date.now() - 5_000)])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
     await waitFor(() => expect(results.length).toBeGreaterThan(0))
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('none'))
   })

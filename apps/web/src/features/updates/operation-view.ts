@@ -709,7 +709,13 @@ function computeView(input: OperationViewInput): UpdatePanelView {
         state: 'waiting-you',
         title: version ? `Podium ${version} is ready here` : 'The update is ready here',
         subtitle: 'The shared steps are done. This page is the last one.',
-        liveness,
+        // NO LIVENESS LINE HERE, on purpose. Liveness reports on WORK; the
+        // shared work has finished and the operation is waiting on a person, so
+        // the same heartbeat that means "alive" while running would read as
+        // "no progress for 26 s" the moment it is the user who is not moving —
+        // an alarm about their own hesitation. What the panel says instead is
+        // what pressing the button will do.
+        ...(input.desktopProgress !== undefined ? { liveness } : {}),
         primary,
         indicator: 'attention',
         indicatorLabel:
@@ -725,7 +731,9 @@ function computeView(input: OperationViewInput): UpdatePanelView {
         (input.surface === 'web'
           ? 'Finish this in Podium Desktop on that machine.'
           : 'Waiting for another place to finish.'),
-      liveness,
+      // Same reason as above: the wait is on a PERSON somewhere else, and
+      // counting the seconds of their inattention is not liveness, it is
+      // nagging about something this surface cannot do anything about (P5).
       indicator: 'animating',
       indicatorLabel: 'Update waiting for another place',
     }

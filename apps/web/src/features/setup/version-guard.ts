@@ -2,7 +2,7 @@ import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import { classifySkew, parseServerVersion, WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
-import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/features/updates/open-panel'
+import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budget'
 
 /**
  * Wire-version handshake for the web client. A cached PWA shell can outlive a server redeploy

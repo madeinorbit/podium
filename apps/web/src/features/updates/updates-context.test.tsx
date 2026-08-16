@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   setNeedRefresh: vi.fn(),
   run: vi.fn(),
   checkNow: vi.fn(async () => {}),
-  dismissFailure: vi.fn(),
+  acknowledge: vi.fn(),
 }))
 
 vi.mock('@/app/pwa-register', () => ({ useRegisterSW: mocks.useRegisterSW }))
@@ -61,7 +61,7 @@ function mount(view: UpdatePanelView = OFFER) {
     pending: null,
     run: mocks.run,
     checkNow: mocks.checkNow,
-    dismissFailure: mocks.dismissFailure,
+    acknowledge: mocks.acknowledge,
   })
   return render(
     <UpdatesProvider httpOrigin="http://podium.test">
@@ -120,7 +120,7 @@ describe('UpdatesProvider', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
-    expect(mocks.dismissFailure).toHaveBeenCalledTimes(1)
+    expect(mocks.acknowledge).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('update-indicator').getAttribute('data-indicator')).toBe('attention')
   })
 
@@ -137,7 +137,7 @@ describe('UpdatesProvider', () => {
       pending: null,
       run: mocks.run,
       checkNow: mocks.checkNow,
-      dismissFailure: mocks.dismissFailure,
+      acknowledge: mocks.acknowledge,
     })
     rerender(
       <UpdatesProvider httpOrigin="http://podium.test">
@@ -147,7 +147,7 @@ describe('UpdatesProvider', () => {
     expect(screen.getByTestId('update-panel')).toBeTruthy()
   })
 
-  it('collapses a done panel on its own after a few seconds', () => {
+  it('collapses a done panel on its own after a few seconds, and clears the indicator', () => {
     vi.useFakeTimers()
     try {
       mount({ ...OFFER, state: 'done', title: 'Podium is on 0.4.3 everywhere' })
@@ -156,6 +156,8 @@ describe('UpdatesProvider', () => {
         vi.advanceTimersByTime(10_000)
       })
       expect(screen.queryByTestId('update-panel')).toBeNull()
+      // §6.2.4: a finished update is not a standing fact about the toolbar.
+      expect(mocks.acknowledge).toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }

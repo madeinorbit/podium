@@ -53,44 +53,7 @@ export function openUpdatePanel(): boolean {
 }
 
 /**
- * THE GUARD'S HARD RELOAD, EXPLAINED AFTERWARDS.
- *
- * `version-guard.ts` may hard-reload this tab twice before it gives up
- * (`MAX_RELOADS`). That budget is the corruption backstop and it stays — but
- * when it is spent, the user has just watched their app reload twice by itself
- * and been told nothing. The guard records it here; the panel says one sentence
- * about it after the reload (§6.2.3).
- *
- * sessionStorage, not a module variable, for the obvious reason: the fact has to
- * survive the very reload it describes.
+ * The guard's spent reload budget — the OTHER thing that reaches this panel
+ * from outside — lives in `@/lib/reload-budget`, not here: its writer is
+ * `features/setup` and a feature may not import another feature.
  */
-const RELOAD_BUDGET_KEY = 'podium.update.reload-budget-spent'
-
-export function noteReloadBudgetSpent(): void {
-  try {
-    globalThis.sessionStorage?.setItem(RELOAD_BUDGET_KEY, '1')
-  } catch {
-    // Private mode: the explanation is a nicety, never a dependency.
-  }
-}
-
-export function reloadBudgetSpent(): boolean {
-  try {
-    return globalThis.sessionStorage?.getItem(RELOAD_BUDGET_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-export function clearReloadBudgetNote(): void {
-  try {
-    globalThis.sessionStorage?.removeItem(RELOAD_BUDGET_KEY)
-  } catch {
-    // ignore — nothing to clear if storage is unavailable
-  }
-}
-
-/** The sentence the panel shows once the guard has spent its budget. */
-export const RELOAD_BUDGET_SENTENCE =
-  'Podium reloaded this page automatically to match the server and it did not help, ' +
-  'so the app you are looking at may be an older build than the server is serving.'

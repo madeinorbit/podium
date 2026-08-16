@@ -41,12 +41,13 @@ import {
   nativeDesktopBridge,
   onNativeDesktopUpdateProgress,
 } from '@/lib/nativeDesktop'
+import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from '@/lib/reload-budget'
 import { usePolledQuery } from '@/lib/use-polled-query'
-import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from './open-panel'
 import {
   type ActionError,
   cancelRefusalSentence,
   isOperationActive,
+  isOperationTerminal,
   operationView,
   type PrimaryActionKind,
   type UpdatePanelView,
@@ -57,6 +58,7 @@ import {
   errorCode,
   errorMessage,
   readActiveOperation,
+  readLatestOperation,
   retryUpdate,
   startUpdate,
 } from './operations-client'
@@ -123,8 +125,8 @@ export interface UpdateStateResult {
   /** Every action goes through here, and every rejection comes back as view state. */
   run: (kind: PanelActionKind) => Promise<void>
   checkNow: () => Promise<void>
-  /** The user acknowledged a failure: collapse the panel, keep the indicator. */
-  dismissFailure: () => void
+  /** The user has seen a terminal outcome: stop showing it (see `acknowledge`). */
+  acknowledge: () => void
 }
 
 interface LocalBuild {
@@ -207,6 +209,77 @@ async function readDesktopUpdate(
   }
 }
 
+/**
+ * ONE ARM'S FAILURE IS NOT THE READ'S FAILURE. Each fact the panel polls for is
+ * separately unavailable — an unreachable fleet must not cost the panel the
+ * operation it could read — and `Promise.all` would otherwise reject the batch
+ * on the first one that broke. Catches a synchronous throw too, because a
+ * transport that is not there yet throws rather than rejecting.
+ */
+async function safely<T>(read: () => Promise<T | null>): Promise<T | null> {
+  try {
+    return await read()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * THE OUTCOME THIS SURFACE STILL OWES THE USER.
+ *
+ * `operations.active` cannot answer it (terminal states are filtered out there),
+ * so the outcome arrives from `history`, and this decides whether it is still
+ * worth showing. Two different rules, because the two outcomes are not the same
+ * kind of news:
+ *
+ *  - DONE is news only to a tab that WATCHED it run. A fresh tab opened an hour
+ *    later has nothing to celebrate and nothing to do, and an "everything is
+ *    fine" dot living in its toolbar is exactly the noise §6.1 removed.
+ *  - FAILED is news to ANY tab, for a while. The page reloads during an update —
+ *    that is a planned step — and a failure that vanished across that reload
+ *    would be the dead end §6.2.5 forbids. It stays until acknowledged, or until
+ *    the window passes and Settings → Updates becomes the place to look.
+ */
+const FAILURE_VISIBLE_MS = 15 * 60_000
+
+function terminalToShow(
+  latest: Operation | null,
+  context: { watched: ReadonlySet<string>; acknowledged?: string; now: number },
+): Operation | null {
+  if (!latest || !isOperationTerminal(latest)) return null
+  if (latest.id === context.acknowledged) return null
+  if (latest.state === 'failed') {
+    const finishedAt = latest.finishedAt ?? latest.updatedAt
+    const recent = finishedAt === undefined || context.now - finishedAt <= FAILURE_VISIBLE_MS
+    return recent ? latest : null
+  }
+  if (latest.state === 'done') return context.watched.has(latest.id) ? latest : null
+  return null
+}
+
+/**
+ * The acknowledgement survives a reload, deliberately: a failure the user has
+ * already read and dismissed must not come back because they refreshed. Per
+ * tab, like every other piece of panel UI state.
+ */
+const ACK_KEY = 'podium.update.acknowledged-operation'
+
+function readAcknowledged(): string | undefined {
+  try {
+    return globalThis.sessionStorage?.getItem(ACK_KEY) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeAcknowledged(id: string): void {
+  try {
+    globalThis.sessionStorage?.setItem(ACK_KEY, id)
+  } catch {
+    // Private mode: the acknowledgement degrades to this tab's lifetime.
+  }
+}
+
 /** Any thrown thing becomes the panel's three-layer failure (retired POD-2091). */
 function toActionError(error: unknown): ActionError {
   if (isNativeDesktopUpdateError(error)) return { code: error.code, message: error.message }
@@ -223,14 +296,17 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [server, setServer] = useState<ServerVersion>({})
   const [localBuild, setLocalBuild] = useState<LocalBuild>({})
   const [fleetState, setFleetState] = useState<UpdateFleetState>(options.fleet ?? EMPTY_FLEET)
-  const [operation, setOperation] = useState<Operation | null>(null)
+  const [live, setOperation] = useState<Operation | null>(null)
+  const [latest, setLatest] = useState<Operation | null>(null)
+  /** Operations THIS tab watched run. A completion is only news to those. */
+  const watched = useRef<Set<string>>(new Set())
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
   const [desktopChannel, setDesktopChannel] = useState<NativeDesktopUpdateChannel>('stable')
   const [desktopProgress, setDesktopProgress] = useState<NativeDesktopUpdateProgress | undefined>()
   const [actionError, setActionError] = useState<ActionError | undefined>()
   const [note, setNote] = useState<string | undefined>()
   const [pending, setPending] = useState<PanelActionKind | null>(null)
-  const [acknowledgedFailureId, setAcknowledgedFailureId] = useState<string | undefined>()
+  const [acknowledged, setAcknowledged] = useState<string | undefined>(() => readAcknowledged())
   const [checkedAt, setCheckedAt] = useState<number | undefined>()
 
   const clock = options.now ?? Date.now
@@ -259,10 +335,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   // The shell's own installer, which used to report nothing at all (spec §5).
   useEffect(() => onNativeDesktopUpdateProgress(setDesktopProgress), [])
 
-  const active = isOperationActive(operation)
+  const active = isOperationActive(live)
 
   const query = usePolledQuery<{
     operation: Operation | null
+    latest: Operation | null
     fleet: UpdateFleetState | null
     serverRaw: unknown
     buildRaw: unknown
@@ -273,27 +350,31 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     // rather than rejecting the batch, so an unreachable fleet never costs the
     // panel the operation it could read.
     read: async () => {
-      const live = await readActiveOperation(trpc).catch(() => null)
-      const [fleet, serverRaw, buildRaw] = await Promise.all([
+      const live = await safely<Operation>(() => readActiveOperation(trpc))
+      const [latest, fleet, serverRaw, buildRaw] = await Promise.all([
+        // The OUTCOME, which `active` cannot carry: it filters terminal states
+        // out by design, so "done" and "failed" would blink out of existence at
+        // the moment they became true. Only asked when nothing is running.
+        live ? Promise.resolve(null) : safely<Operation>(() => readLatestOperation(trpc)),
         // The fleet snapshot only feeds the OFFER's place rows. While an
         // operation exists the operation's own steps say where it is, so this
-        // stops asking rather than becoming a second opinion (P2).
-        live
+        // stops asking rather than becoming a second opinion (P2). A caller
+        // that supplied its own fleet is not asked either.
+        live || options.fleet !== undefined
           ? Promise.resolve(null)
-          : trpc.updates.fleet.query().then(
-              (value) => value,
-              () => null,
-            ),
+          : safely<UpdateFleetState>(() => trpc.updates.fleet.query()),
         readJson(`${options.httpOrigin}/version`),
         readJson(`${options.httpOrigin}/${BUILD_STAMP_FILE}`),
       ])
-      return { operation: live, fleet, serverRaw, buildRaw }
+      return { operation: live, latest, fleet, serverRaw, buildRaw }
     },
     // Folded in the read's OWN turn: a reading routed through `data` and a
     // follow-up effect lands one flush late, and the panel is supposed to move
     // when the answer does.
-    onData: ({ operation: live, fleet, serverRaw, buildRaw }) => {
+    onData: ({ operation: live, latest, fleet, serverRaw, buildRaw }) => {
+      if (live) watched.current.add(live.id)
       setOperation(live)
+      setLatest(latest)
       if (serverRaw !== undefined) setServer(parseServerVersion(serverRaw))
       if (buildRaw !== undefined) setLocalBuild(localBuildFrom(buildRaw))
       if (fleet !== null) setFleetState(fleet)
@@ -311,6 +392,16 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     const timer = window.setInterval(() => setNow(clock()), CLOCK_MS)
     return () => window.clearInterval(timer)
   }, [active, pending, clock])
+
+  // What the panel is about right now: the running operation if there is one,
+  // otherwise the outcome of the last one while it is still the user's business.
+  const operation =
+    live ??
+    terminalToShow(latest, {
+      watched: watched.current,
+      ...(acknowledged ? { acknowledged } : {}),
+      now,
+    })
 
   // A NEW OPERATION CLEARS THE LAST ONE'S WRECKAGE. Retry creates a new
   // operation (§3.2), so a stale action-error hanging over it would report the
@@ -413,7 +504,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     ...(desktopProgress && pending === 'install-desktop' ? { desktopProgress } : {}),
     ...(actionError ? { actionError } : {}),
     ...((note ?? budgetNote) ? { note: note ?? budgetNote } : {}),
-    ...(acknowledgedFailureId ? { acknowledgedFailureId } : {}),
   })
 
   const run = useCallback(
@@ -481,10 +571,18 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     }
   }, [clock, queryChannel, refresh, trpc])
 
-  const dismissFailure = useCallback((): void => {
+  /**
+   * "I have seen this outcome." Clears a local action error and, for a terminal
+   * operation, stops it coming back — which is what makes Hide honest on a
+   * failure and what lets a finished update's indicator clear itself.
+   */
+  const acknowledge = useCallback((): void => {
     setActionError(undefined)
-    if (operationId) setAcknowledgedFailureId(operationId)
-  }, [operationId])
+    if (!live && operationId) {
+      setAcknowledged(operationId)
+      writeAcknowledged(operationId)
+    }
+  }, [live, operationId])
 
   return {
     view,
@@ -494,6 +592,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     pending,
     run,
     checkNow,
-    dismissFailure,
+    acknowledge,
   }
 }

@@ -2,7 +2,7 @@ import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logg
 import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { currentSkew, resetSkewNotice } from '@/app/skew-notice'
-import { reloadBudgetSpent } from '@/features/updates/open-panel'
+import { reloadBudgetSpent } from '@/lib/reload-budget'
 import { checkServerVersion, forceReload } from './version-guard'
 
 const ORIGIN = 'https://relay.test'
