@@ -6,7 +6,7 @@ import {
   type SessionRole,
   sessionSettled,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueStage, SessionMeta, SessionId } from '@podium/model'
+import type { AgentKind, IssueStage, SessionId, SessionMeta } from '@podium/model'
 import { ChevronDown } from 'lucide-react-native'
 import { Animated, StyleSheet, Text, View } from 'react-native'
 import Svg, { Line } from 'react-native-svg'
@@ -465,7 +465,12 @@ export function TaskStrip({
               style={[
                 styles.stripTitle,
                 selected ? styles.stripTitleSelected : null,
-                state.state === 'done' ? styles.stripTitleDone : null,
+                // Cancelled settles exactly the way done does — the work has
+                // stopped either way, and the WORD in the state column is what
+                // says which ending it was.
+                state.state === 'done' || state.state === 'cancelled'
+                  ? styles.stripTitleDone
+                  : null,
               ]}
             >
               {title}
@@ -538,7 +543,7 @@ function stripLabel({
 function stateStyle(state: DeckIssueState) {
   if (state.state === 'working') return { color: color.working }
   if (state.state === 'blocked') return { color: color.danger }
-  if (state.state === 'done') return { color: color.textMicro }
+  if (state.state === 'done' || state.state === 'cancelled') return { color: color.textMicro }
   return null
 }
 

@@ -3,6 +3,8 @@ import {
   asIssueId,
   asSessionId,
   type IssueId,
+  issueStatusOf,
+  issueStatusOutcome,
   type SessionId,
   type SessionMeta,
   spawnedByParentSessionId,
@@ -184,6 +186,29 @@ export function sessionNeedsHuman(session: SessionMeta): boolean {
  *  this over" must accept both — the board writes one, `issue close` the other. */
 export function issueClosed(issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>): boolean {
   return issue.stage === 'done' || Boolean(issue.closedReason)
+}
+
+/**
+ * CLOSED IS NOT ONE ANSWER — "we finished it" and "we are not doing it" are two
+ * (POD-1074).
+ *
+ * `issueClosed` is the right question for anything asking "is this over": an
+ * abandoned task takes the same silence a completed one does, so attention,
+ * seats and offers all stop either way. It is the WRONG question for anything
+ * that reports what happened, and the deck asked it in two such places — the
+ * gauge counted every ending into `done`, and the strip printed the word `Done`
+ * beside the very cancel glyph `issueStatusOf` was already rendering correctly.
+ *
+ * This is the other half of that split, and it is deliberately delegated rather
+ * than re-derived: `issueStatusOutcome` is the model's own Linear-shaped axis,
+ * so `cancelled`, `duplicate` and `superseded` (and the legacy `wontfix`
+ * spellings) all answer here without this file holding a second opinion about
+ * which words are endings.
+ */
+export function issueAbandoned(
+  issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>,
+): boolean {
+  return issueStatusOutcome(issueStatusOf(issue)) === 'cancelled'
 }
 
 /**
@@ -478,6 +503,42 @@ export function missionIndexStats(): { builds: number } {
   return { builds: missionIndexBuilds }
 }
 
+/**
+ * THE FORMAL SUBTREE — what the mission is actually MADE OF.
+ *
+ * `missionIssueIds` answers a wider question ("what belongs on this deck") and
+ * has to: a spin-off awaiting triage and a task an agent filed from here are
+ * both things the operator must be able to see in the context that produced
+ * them, and neither carries a `parentId`. That is provenance, and provenance
+ * earns a ROW.
+ *
+ * It does not earn a SEGMENT OF THE METER, which is a different claim: that the
+ * work is part OF this mission, so the mission is not finished until it is.
+ * Only decomposition says that, and decomposition is exactly the parent-child
+ * edge `--subissue` writes. The litmus the CLI already puts to every agent —
+ * "could the current issue close with it untouched?" — is the same line: yes
+ * makes it a spin-off, no makes it a sub-issue, and the meter should count the
+ * second and not the first.
+ *
+ * Grafts reaching the deck by `startedBySession` alone were counted as members
+ * anyway, which is how POD-993 came to read `1 DONE` at full track while its
+ * root sat in review with an agent working: the one unit it was measuring was a
+ * top-level task its session had filed and someone had since cancelled.
+ */
+function formalMemberIds(issues: readonly IssueNavigationModel[], rootId: string): Set<string> {
+  const { children } = missionIssueIndex(issues)
+  const ids = new Set<string>()
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const id = stack.pop() as string
+    if (ids.has(id)) continue
+    ids.add(id)
+    for (const child of children.get(id) ?? []) stack.push(child.id)
+  }
+  ids.delete(rootId)
+  return ids
+}
+
 export function missionIssueIds(
   issues: readonly IssueNavigationModel[],
   rootId: string,
@@ -578,6 +639,19 @@ function sessionsForIssue(
  * keeps them in their own section, and counting them as "to go" makes a
  * mission that is itself being worked read as nothing happening.
  *
+ * NOR IS ANYTHING THE MISSION MERELY DISCOVERED. Membership of the DECK is
+ * wider than membership of the METER — see {@link formalMemberIds} for why the
+ * denominator is the formal parent-child subtree and nothing else.
+ *
+ * NOR IS ABANDONED WORK, at either end of the fraction (POD-1074). A cancelled
+ * task is not a task the mission completed and not one it still owes; it is a
+ * task the mission is no longer doing, so it leaves the count entirely rather
+ * than filling the done band. That is Linear's rule and the reason its
+ * Completed and Canceled categories are kept apart at all. The fallback below
+ * then does the honest thing on its own: a root whose every member was
+ * cancelled has nothing left to be the container OF, so it becomes the unit
+ * again and the bar reports the root's own state instead of `100% done`.
+ *
  * Five segments: done / run / review / block / wait. The artifact's arithmetic (`done` by
  * stage, `run` by stage, `review` by stage, `block` by state, `wait` = the remainder) lets one
  * issue land in two buckets, which would push the bar past 100%. Classification
@@ -599,10 +673,16 @@ export function missionProgress(
   // discoveries read as "3 to go". A root that is itself archived is already
   // out of `scope`, so the fallback never resurrects it.
   const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
-  const members = scope.filter((issue) => issue.id !== rootId && issue.stage !== 'proposed')
+  const formal = formalMemberIds(issues, rootId)
+  const members = scope.filter(
+    (issue) => formal.has(issue.id) && issue.stage !== 'proposed' && !issueAbandoned(issue),
+  )
+  // The root can be abandoned too, and then there is nothing to measure at all
+  // rather than one cancelled unit sitting in a band of its own.
   const units = (
     members.length > 0 ? members : scope.filter((issue) => issue.id === rootId)
   ).filter((issue) => {
+    if (issueAbandoned(issue)) return false
     const own = sessions.filter((session) => session.issueId === issue.id)
     return !isVacatedOrigin(issue, own, byId)
   })
@@ -611,7 +691,7 @@ export function missionProgress(
   let review = 0
   let block = 0
   for (const issue of units) {
-    if (issue.stage === 'done' || issue.closedReason) done += 1
+    if (issueClosed(issue)) done += 1
     else if (issue.blocked) block += 1
     else if (issue.stage === 'review') review += 1
     else if (issue.stage === 'in_progress') run += 1
@@ -840,7 +920,11 @@ export function buildFlightDeckRows(
       ).length,
       collapsedSummary: {
         tasks: hidden.length,
-        done: hidden.filter((child) => child.stage === 'done' || child.closedReason).length,
+        // The fold's own two-colour meter, and the same rule the mission gauge
+        // follows: abandoned work is not work this branch completed, so it is
+        // not painted in the success tier. It stays in `tasks`, because the
+        // fold really is hiding that many rows.
+        done: hidden.filter((child) => issueClosed(child) && !issueAbandoned(child)).length,
         run: hidden.filter(
           (child) =>
             !child.closedReason && (child.stage === 'in_progress' || child.stage === 'review'),
@@ -919,7 +1003,10 @@ export function operationalState(
   if (active.some((session) => session.handoffTarget)) return { state: 'moved', label: 'Moving' }
   if (active.some((session) => motionPhase(session) === 'working'))
     return { state: 'working', label: 'Running' }
-  if (issue.stage === 'done' || issue.closedReason) return { state: 'done', label: 'Done' }
+  // `done` stays the STATE — an abandoned task is over, and everything keyed on
+  // that (the dim tier, the sort) is right about it. Only the WORD was wrong.
+  if (issueClosed(issue))
+    return { state: 'done', label: issueAbandoned(issue) ? 'Cancelled' : 'Done' }
   if (issue.stage === 'shipping') return { state: 'working', label: 'Shipping' }
   if (issue.blocked) return { state: 'waiting', label: blockedByLabel(issue, byId) }
   if (active.length === 0 && sessions.length > 0)
@@ -945,6 +1032,7 @@ export type DeckState =
   | 'working'
   | 'moved'
   | 'done'
+  | 'cancelled'
   | 'blocked'
   | 'waiting'
   | 'retired'
@@ -979,6 +1067,10 @@ const DECK_LABEL: Record<DeckState, string> = {
   working: 'Running',
   moved: 'Moving',
   done: 'Done',
+  // The strip already draws the cancel mark (`issueStatusOf` → `StatusGlyph`).
+  // Printing `Done` beside it made the row contradict itself in two glyphs'
+  // worth of space; this is the word that mark has always meant.
+  cancelled: 'Cancelled',
   blocked: 'Blocked',
   waiting: 'Waiting',
   retired: 'Retired',
@@ -1007,7 +1099,8 @@ export function deckIssueState(
   const at = (state: DeckState): DeckIssueState => ({ state, label: DECK_LABEL[state], attention })
   if (active.some((session) => session.handoffTarget)) return at('moved')
   if (active.some((session) => motionPhase(session) === 'working')) return at('working')
-  if (issue.stage === 'done' || issue.closedReason) return at('done')
+  if (issueAbandoned(issue)) return at('cancelled')
+  if (issueClosed(issue)) return at('done')
   if (issue.stage === 'shipping') return at('working')
   if (issue.blocked) return at('blocked')
   if (waitingRefs(issue, byId).length > 0) return at('waiting')
@@ -1326,8 +1419,11 @@ export function presenceNote(
   }
   const waiting = waitingNote(issue, byId)
   if (waiting) return { kind: 'waiting', text: waiting, attention: false }
-  if (issue.stage === 'done' || issue.closedReason) {
-    return { kind: 'done', text: 'Completed · session retired', attention: false }
+  if (issueClosed(issue)) {
+    const text = issueAbandoned(issue)
+      ? 'Cancelled · session retired'
+      : 'Completed · session retired'
+    return { kind: 'done', text, attention: false }
   }
   if (issue.stage === 'review') {
     return { kind: 'review', text: 'Review ready · session ended', attention: false }

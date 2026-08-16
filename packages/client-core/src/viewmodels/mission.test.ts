@@ -875,12 +875,31 @@ describe('missionProgress', () => {
       { total: 5, done: 1, run: 1, review: 1, block: 1, wait: 1 },
     ],
     [
-      'a child closed for another reason than stage=done',
+      'a child closed as done by reason rather than by stage',
+      [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', closedReason: 'done' })],
+      { total: 1, done: 1, run: 0, review: 0, block: 0, wait: 0 },
+    ],
+    [
+      // POD-1074's split, arriving in the meter: `duplicate` is a state in the
+      // CANCELLED category, so this mission has nothing left to measure but its
+      // own root — not one unit it can claim it finished.
+      'a lone cancelled child, which leaves the count rather than filling it',
       [
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', closedReason: 'duplicate' }),
       ],
-      { total: 1, done: 1, run: 0, review: 0, block: 0, wait: 0 },
+      { total: 1, done: 0, run: 0, review: 0, block: 0, wait: 1 },
+    ],
+    [
+      'cancelled work among live work, out of both halves of the fraction',
+      [
+        issue('root', { stage: 'in_progress' }),
+        issue('a', { parentId: 'root', stage: 'done' }),
+        issue('b', { parentId: 'root', closedReason: 'cancelled' }),
+        issue('c', { parentId: 'root', closedReason: 'wontfix' }),
+        issue('d', { parentId: 'root', stage: 'in_progress' }),
+      ],
+      { total: 2, done: 1, run: 1, review: 0, block: 0, wait: 0 },
     ],
     [
       'blocked in-progress work, counted once and as blocked',
@@ -926,6 +945,34 @@ describe('missionProgress', () => {
       done: 0,
       run: 0,
       review: 0,
+      block: 0,
+      wait: 0,
+    })
+  })
+
+  // POD-993 IN THE FLESH. Its deck filled to a single `1 DONE` band, at full
+  // track, while the root sat in review with an agent working — because the one
+  // thing it was measuring was a top-level task that session had FILED (no
+  // parentId, no discovered-from, mission membership by `startedBySession`
+  // alone) and someone had since cancelled. Two rules had to be wrong at once
+  // for that reading: a provenance graft counted as a unit, and a cancelled
+  // unit counted as done.
+  it('does not measure a mission by the work its agent merely filed', () => {
+    const issues = [
+      issue('root', { stage: 'review' }),
+      issue('filed', { closedReason: 'cancelled', startedBySession: 's-root' }),
+      issue('offered', { stage: 'proposed', startedBySession: 's-root' }),
+    ]
+    const sessions = [sess('s-root', { issueId: 'root', agentState: workingState })]
+    // Both grafts are on the deck — that is provenance, and it earns a row.
+    expect(missionIssueIds(issues, 'root', sessions)).toEqual(new Set(['root', 'filed', 'offered']))
+    // Neither is in the meter, so the root is the unit again and the bar
+    // reports the state the operator can actually see an agent working on.
+    expect(missionProgress(issues, sessions, 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 0,
+      review: 1,
       block: 0,
       wait: 0,
     })
@@ -1663,11 +1710,14 @@ describe('presenceNote', () => {
     ['blocked work', issue('a', { blocked: true }), [], 'blocked', 'Waiting on dependency'],
     ['finished work', issue('a', { stage: 'done' }), [], 'done', 'Completed · session retired'],
     [
-      'work closed for another reason',
+      // Still the `done` KIND — the work has stopped and the note's job is to
+      // say the session went home. Only the verb changes, because "completed"
+      // is the one thing this ending did not do.
+      'work cancelled rather than completed',
       issue('a', { closedReason: 'duplicate' }),
       [],
       'done',
-      'Completed · session retired',
+      'Cancelled · session retired',
     ],
     [
       'work in review',
@@ -2088,6 +2138,33 @@ describe('deckIssueState', () => {
   it('still reads as running when an agent picks a proposal up', () => {
     const live = sess('s', { issueId: 'a', agentState: workingState })
     expect(deckIssueState(issue('a', { stage: 'proposed' }), [live]).state).toBe('working')
+  })
+
+  // POD-1074 gave the strip its cancel glyph (`issueStatusOf` → `StatusGlyph`)
+  // and left the word beside it reading `Done`, so a cancelled row contradicted
+  // itself twice in 70px. Every spelling of the cancelled CATEGORY answers
+  // here, including the legacy `wontfix` rows that never migrate.
+  it.each([
+    ['cancelled'],
+    ['duplicate'],
+    ['superseded'],
+    ['wontfix'],
+    ["won't fix"],
+  ])('says Cancelled, not Done, for %s', (reason) => {
+    const state = deckIssueState(issue('a', { closedReason: reason }), [])
+    expect(state.state).toBe('cancelled')
+    expect(state.label).toBe('Cancelled')
+  })
+
+  it.each([['done'], [undefined]])('still says Done for a completed task (%s)', (reason) => {
+    const target = reason ? issue('a', { closedReason: reason }) : issue('a', { stage: 'done' })
+    expect(deckIssueState(target, []).label).toBe('Done')
+  })
+
+  // An UNRECOGNISED reason is still a close, and `done` is the honest
+  // stage-level answer — the same call `issueStatusOf` makes.
+  it('does not read an unknown close reason as cancelled', () => {
+    expect(deckIssueState(issue('a', { closedReason: 'shipped' }), []).state).toBe('done')
   })
 })
 
