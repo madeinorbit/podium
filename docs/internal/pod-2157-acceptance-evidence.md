@@ -120,6 +120,8 @@ command, which is all a unit is here.
 | 4 | Stable FEED delivery: fetch, verify against the production key, swap | **PASS**, live |
 | — | Found: a stable installation is never offered an update | **FAIL** → `POD-2212` |
 | — | Found: a downgrade bricks the install, unrecoverably | **FAIL** → `POD-2213` |
+| 5 | `verify-headless-update.sh` — valid swap, and tamper refused | **PASS**, both arms |
+| — | `bun run test:e2e` as prescribed | **BLOCKED** by `POD-2206`'s bundle ratchet |
 | — | Adoption across a process death, on the drive's own evidence | **PASS** (second sighting) |
 
 ### 1. The web step — PASS, and it is the first time any drive has reached it
@@ -330,6 +332,40 @@ PODIUM_TEST_WORKERS=1 NODE_OPTIONS=--conditions=@podium/source \
 ```
 
 <!-- E2E RESULT -->
+
+### 6. `bash scripts/verify-headless-update.sh` — PASS, both arms
+
+```
+CASE 1  valid signed tarball   [feed] artifact request (50101638 bytes)
+                               [podium update] updating 0.1.0 → 0.1.1
+                               [podium update] updated to 0.1.1; restart podium to apply
+CASE 2  tampered tarball       [feed] artifact request (50101639 bytes)   ← one byte more
+                               [podium update] signature verification FAILED — refusing to
+                               install. The tarball was not signed by the trusted Podium
+                               update key (tampered, corrupt, or wrong feed). No changes
+                               were made.
+RESULT  good copy 0.1.0 → 0.1.1      bad copy 0.1.0 → 0.1.0
+        HEADLESS UPDATE VERIFIED ✓
+```
+
+Two honesty notes, the first of which the script declares about itself:
+
+- the POSITIVE arm goes through `runUpdate`'s documented `pubkeyB64` test seam with
+  an ephemeral key, because the gitignored development signing key is absent here;
+  the TAMPER arm runs the **compiled** `podium` binary against its committed
+  production key. So "a compiled binary accepts a valid artifact" is the one thing
+  this script does not assert — but §4 above now covers exactly that, with
+  Podium's own production-signed 0.1.3 release.
+- the tamper arm's proof that the old install survives is stronger than the
+  version string it checks: the refusal happens before anything is written at all
+  (*"No changes were made"*), so there is no half-swapped state to be bootable or
+  not. That distinction matters given `POD-2213`, where a COMPLETED swap is what
+  leaves an install unbootable.
+
+The bundle under test was not rebuilt for this run: `dist-bun/headless` was the
+one the disposable instance's own dev publisher produced at boot, `dev+03a2892`,
+whose code is identical to this branch's tip (the branch adds only docs). The
+script reuses an existing bundle by design and says so.
 
 ### Adoption, seen again without being asked for
 
