@@ -82,7 +82,7 @@ Artifact digests are computed automatically from the prepared bytes for each pla
 
 Release notes come from the matching version section in root `CHANGELOG.md`; the `[Unreleased]` section is never shipped.
 
-If the version has no changelog section, or its section is empty, the manifest omits `notes`; the dialog correctly omits "What's new".
+If the version has no changelog section, or its section is empty, the manifest omits `notes`; the update panel correctly omits "What's new".
 
 ## Summary
 
