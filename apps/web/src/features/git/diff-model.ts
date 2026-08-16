@@ -67,6 +67,17 @@ const PREAMBLE = [
 
 /** `@@ -12,7 +12,9 @@ function foo() {` → both starts plus the context tail. */
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)$/
+/**
+ * `@@ @@ label` — a hunk that knows its CONTENT but not its OFFSET.
+ *
+ * Git always knows where a hunk sits. A transcript's file-edit does not: it
+ * recorded the text a tool matched and the text it wrote, never the line it
+ * landed on. Rather than count from a made-up line 1 and print numbers that are
+ * wrong, such a hunk declares itself numberless and the rows under it carry no
+ * gutter figures at all — the sheet renders the change, and says nothing it
+ * cannot stand behind.
+ */
+const HUNK_UNNUMBERED = /^@@ @@ ?(.*)$/
 
 export function parseDiff(text: string, cap: number = DIFF_ROW_CAP): ParsedDiff {
   const rows: DiffRow[] = []
@@ -74,8 +85,10 @@ export function parseDiff(text: string, cap: number = DIFF_ROW_CAP): ParsedDiff 
   let removed = 0
   let binary = false
   let truncated = 0
-  let oldNo = 0
-  let newNo = 0
+  // `undefined` once a numberless hunk header has been seen: the rows below it
+  // are real, their positions are not known, and neither is invented.
+  let oldNo: number | undefined = 0
+  let newNo: number | undefined = 0
 
   // The counters keep running past the cap so the header's totals describe the
   // whole diff, not the part that fit.
@@ -110,6 +123,14 @@ export function parseDiff(text: string, cap: number = DIFF_ROW_CAP): ParsedDiff 
       })
       continue
     }
+    const bare = HUNK_UNNUMBERED.exec(line)
+    if (bare) {
+      oldNo = undefined
+      newNo = undefined
+      const context = bare[1] ?? ''
+      push({ kind: 'hunk', text: '@@ @@', ...(context === '' ? {} : { context }) })
+      continue
+    }
     if (line.startsWith('\\')) {
       // `\ No newline at end of file` — about the line above, not a line itself.
       push({ kind: 'note', text: line.replace(/^\\ /, '') })
@@ -117,20 +138,25 @@ export function parseDiff(text: string, cap: number = DIFF_ROW_CAP): ParsedDiff 
     }
     if (line.startsWith('+')) {
       added += 1
-      push({ kind: 'add', text: line.slice(1), newNo })
-      newNo += 1
+      push({ kind: 'add', text: line.slice(1), ...(newNo === undefined ? {} : { newNo }) })
+      if (newNo !== undefined) newNo += 1
       continue
     }
     if (line.startsWith('-')) {
       removed += 1
-      push({ kind: 'del', text: line.slice(1), oldNo })
-      oldNo += 1
+      push({ kind: 'del', text: line.slice(1), ...(oldNo === undefined ? {} : { oldNo }) })
+      if (oldNo !== undefined) oldNo += 1
       continue
     }
     // Context lines carry a leading space; git omits it on a truly empty line.
-    push({ kind: 'ctx', text: line.startsWith(' ') ? line.slice(1) : line, oldNo, newNo })
-    oldNo += 1
-    newNo += 1
+    push({
+      kind: 'ctx',
+      text: line.startsWith(' ') ? line.slice(1) : line,
+      ...(oldNo === undefined ? {} : { oldNo }),
+      ...(newNo === undefined ? {} : { newNo }),
+    })
+    if (oldNo !== undefined) oldNo += 1
+    if (newNo !== undefined) newNo += 1
   }
 
   return { rows, added, removed, binary, truncated }

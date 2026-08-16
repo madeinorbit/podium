@@ -1,5 +1,5 @@
 import { Tooltip } from '@base-ui/react/tooltip'
-import { formatClock, parseToolEdit } from '@podium/client-core/viewmodels'
+import { formatClock, parseToolEdit, toolEditUnifiedDiff } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -31,6 +31,11 @@ const DiffSheet = lazy(() =>
 
 const LIVE_TICK_MS = 1000
 const IDLE_TICK_MS = 600_000
+
+/** How much of a recorded edit goes to the SHEET. The inline row capped at 160
+ *  lines because it was 280px wide; the sheet is a reading surface and matches
+ *  the cap its own parser already enforces. */
+const SHEET_LINE_CAP = 2500
 
 /** A settled span shorter than this is noise on the row — the count already says
  *  the run happened. (The span is a lower bound: see toolRunElapsedMs.) */
@@ -227,17 +232,24 @@ export function ToolBatchView({
    * view of "what this batch changed" rather than of the whole worktree — which
    * is what makes it belong to the row you clicked.
    *
-   * What it shows is the file's CURRENT state against HEAD, because that is the
-   * only diff that exists: a transcript records what a tool was asked to do, not
-   * a baseline to diff against, so a historical edit cannot be reconstructed
-   * from it. For the live session you are reading, those are the same thing.
+   * AND WHAT IT SHOWS IS THE RUN'S OWN DIFF, not a fresh `git diff` of the path.
+   * The transcript already recorded the change — the exact text each call
+   * matched and the text it wrote — so that is what goes into the sheet. Asking
+   * git instead answers a different question ("what does this file hold now"),
+   * and answers it with silence for any edit since committed or written over:
+   * the first cut of this did exactly that and showed "No textual change" on a
+   * row whose whole subject was a change. Only a path with no recorded edit
+   * (a Read, a harness that reports paths but not input) falls back to git,
+   * where the worktree is genuinely the only thing left to show.
    */
   const [diffPath, setDiffPath] = useState<string | null>(null)
-  const editedPaths = useMemo(() => {
+  const { editedPaths, diffSources } = useMemo(() => {
     const seen: string[] = []
-    const add = (raw: string | undefined): void => {
+    const patches = new Map<string, string[]>()
+    const add = (raw: string | undefined): string | undefined => {
       const path = raw?.replace(/^\.\//, '')
       if (path && !seen.includes(path)) seen.push(path)
+      return path
     }
     for (const b of row.blocks) {
       // Both sources: `toolPaths` is what the harness reported the call touched,
@@ -245,9 +257,18 @@ export function ToolBatchView({
       // input JSON. A call can have either, and an edit is exactly the case the
       // sheet exists for.
       for (const raw of b.item.toolPaths ?? []) add(raw)
-      add(parseToolEdit(b.item.toolInputJson)?.path)
+      const edit = parseToolEdit(b.item.toolInputJson)
+      const path = add(edit?.path)
+      if (!edit || !path) continue
+      const text = toolEditUnifiedDiff(edit, SHEET_LINE_CAP)
+      if (!text) continue
+      // Several calls can edit one file in a single run; they stack in the
+      // order the agent made them, which is the order they should be read in.
+      patches.set(path, [...(patches.get(path) ?? []), text])
     }
-    return seen
+    const sources: Record<string, string> = {}
+    for (const [path, parts] of patches) sources[path] = parts.join('\n')
+    return { editedPaths: seen, diffSources: sources }
   }, [row.blocks])
   const expanded = open || forceOpen
   const rowClass = cn(
@@ -372,6 +393,7 @@ export function ToolBatchView({
             cwd={cwd}
             entries={editedPaths.map((path) => ({ x: 'M', y: ' ', path, untracked: false }))}
             initialPath={diffPath}
+            sources={diffSources}
             onClose={() => setDiffPath(null)}
             onRefresh={() => {}}
             refreshing={false}

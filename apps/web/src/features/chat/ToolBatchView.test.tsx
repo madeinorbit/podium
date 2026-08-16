@@ -8,10 +8,16 @@ import { ToolBatchView, WorkLinePreviewList } from './ToolBatchView'
 // The diff sheet reads through the store, and this suite mounts a work line
 // rather than an app. What it asserts is that a file edit ROUTES to the sheet;
 // the sheet's own fetching has its own suite (features/git/DiffSheet.test.tsx).
+// `gitDiffFile` answers with nothing on purpose: a chat-opened diff must come
+// from the transcript, so any row on screen proves git was not the source.
+const git = vi.hoisted(() => ({ calls: [] as string[] }))
 vi.mock('@/app/store', () => ({
   useStoreSelector: (sel: (s: unknown) => unknown) =>
     sel({
-      gitDiffFile: async () => ({ ok: true, output: '' }),
+      gitDiffFile: async ({ path }: { path: string }) => {
+        git.calls.push(path)
+        return { ok: true, output: '' }
+      },
       readFileScoped: async () => ({ ok: true, content: '' }),
     }),
 }))
@@ -191,6 +197,16 @@ describe('ToolBatchView — the work line', () => {
       })
     }
     expect(host.querySelector('[data-testid="diff-sheet"]')).not.toBeNull()
+
+    // AND IT SHOWS THE RUN'S OWN DIFF. `git diff` would answer "what does this
+    // file hold NOW" — nothing, for an edit already committed — which is what
+    // the first cut of this did. The rows come from what the tool recorded.
+    const sheet = host.querySelector('[data-testid="diff-sheet"]')!
+    expect(sheet.textContent).toContain('const a = 1')
+    expect(sheet.textContent).toContain('const a = 2')
+    expect(git.calls).toEqual([])
+    // Nothing to re-probe: there is no working tree behind a recorded edit.
+    expect(sheet.parentElement?.querySelector('.animate-spin')).toBeNull()
   })
 
   it('unfolds and refolds the individual calls on the same click target', () => {

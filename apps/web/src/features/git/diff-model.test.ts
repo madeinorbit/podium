@@ -90,6 +90,33 @@ describe('parseDiff', () => {
   })
 })
 
+describe('a hunk that knows its content but not its offset', () => {
+  // A transcript's file-edit is a real diff with no line numbers in it: the
+  // chat opens the sheet on one, and inventing a gutter would be worse than
+  // leaving it empty.
+  const parsed = parseDiff(['@@ @@ a.ts', ' ctx', '-old', '+new'].join('\n'))
+
+  it('renders the change', () => {
+    expect(parsed.rows.map((r) => r.kind)).toEqual(['hunk', 'ctx', 'del', 'add'])
+    expect(parsed.added).toBe(1)
+    expect(parsed.removed).toBe(1)
+    expect(parsed.rows[0]?.context).toBe('a.ts')
+  })
+
+  it('gives no line numbers rather than wrong ones', () => {
+    for (const row of parsed.rows) {
+      expect(row.oldNo).toBeUndefined()
+      expect(row.newNo).toBeUndefined()
+    }
+  })
+
+  it('still numbers a NUMBERED hunk that follows it', () => {
+    const mixed = parseDiff(['@@ @@ a.ts', '+x', '@@ -12,2 +12,2 @@', ' y'].join('\n'))
+    expect(mixed.rows[1]?.newNo).toBeUndefined()
+    expect(mixed.rows[3]?.newNo).toBe(12)
+  })
+})
+
 describe('splitPath', () => {
   it('splits a path into its folder and its file name', () => {
     expect(splitPath('apps/web/src/a.ts')).toEqual({ dir: 'apps/web/src', name: 'a.ts' })

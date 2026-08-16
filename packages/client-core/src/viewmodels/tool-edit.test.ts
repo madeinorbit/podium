@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseToolEdit, toolEditLines, toolEditMagnitude } from './tool-edit'
+import {
+  parseToolEdit,
+  toolEditLines,
+  toolEditMagnitude,
+  toolEditUnifiedDiff,
+} from './tool-edit'
 
 const replaceJson = JSON.stringify({
   kind: 'file-edit',
@@ -93,5 +98,62 @@ describe('toolEditLines', () => {
     })
     expect(lines[0]?.kind).toBe('note')
     expect(lines[0]?.text).toMatch(/open the file/i)
+  })
+})
+
+describe('toolEditUnifiedDiff', () => {
+  it('renders the recorded change as a unified diff a viewer can parse', () => {
+    const edit = parseToolEdit(replaceJson)!
+    expect(toolEditUnifiedDiff(edit)).toBe([' const a = 1', '-const b = 2', '+const b = 3'].join('\n'))
+  })
+
+  it('omits line numbers it does not have rather than counting from a made-up 1', () => {
+    const edit = parseToolEdit(
+      JSON.stringify({
+        kind: 'file-edit',
+        mode: 'replace',
+        hunks: [
+          { path: 'a.ts', oldText: 'one', newText: 'ONE' },
+          { path: 'b.ts', oldText: 'two', newText: 'TWO' },
+        ],
+        added: 2,
+        removed: 2,
+      }),
+    )!
+    const out = toolEditUnifiedDiff(edit)
+    // Two places → each gets a header, and the header carries no offsets.
+    expect(out.split('\n').filter((l) => l.startsWith('@@'))).toEqual(['@@ @@ a.ts', '@@ @@ b.ts'])
+    expect(out).not.toMatch(/@@ -\d/)
+  })
+
+  it("keeps a patch's own hunk headers, which DO know where they are", () => {
+    const edit = parseToolEdit(
+      JSON.stringify({
+        kind: 'file-edit',
+        path: 'codex.ts',
+        mode: 'patch',
+        hunks: [],
+        patch:
+          '*** Begin Patch\n*** Update File: codex.ts\n@@ -12,3 +12,3 @@\n context\n-old\n+new\n*** End Patch',
+        added: 1,
+        removed: 1,
+      }),
+    )!
+    expect(toolEditUnifiedDiff(edit)).toContain('@@ -12,3 +12,3 @@')
+  })
+
+  it('says how much of a long edit the transcript did not keep', () => {
+    const edit = parseToolEdit(
+      JSON.stringify({
+        kind: 'file-edit',
+        path: 'big.ts',
+        mode: 'write',
+        hunks: [{ newText: Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n') }],
+        added: 40,
+        removed: 0,
+      }),
+    )!
+    // The cap counts the file label too, so ten kept rows are nine of content.
+    expect(toolEditUnifiedDiff(edit, 10)).toMatch(/\\ 31 more lines not recorded/)
   })
 })

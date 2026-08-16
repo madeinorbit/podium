@@ -8,15 +8,7 @@ import {
   type TranscriptAttribution,
 } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
-import {
-  Check,
-  Clock,
-  Copy,
-  FileText,
-  Image as ImageIcon,
-  MessageCircleQuestion,
-  Quote,
-} from 'lucide-react'
+import { Clock, FileText, Image as ImageIcon, MessageCircleQuestion } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
@@ -29,6 +21,7 @@ import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { AttributionMark } from './AttributionMark'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
+import { MetaGlyph } from './MetaGlyph'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
@@ -153,11 +146,7 @@ function MessageActions({
             title="Copy message"
             aria-label={copied ? 'Message copied' : 'Copy message'}
           >
-            {copied ? (
-              <Check size={13} strokeWidth={1.75} aria-hidden="true" />
-            ) : (
-              <Copy size={13} strokeWidth={1.75} aria-hidden="true" />
-            )}
+            <MetaGlyph name={copied ? 'check' : 'copy'} />
           </button>
           {onQuote && (
             <button
@@ -168,7 +157,7 @@ function MessageActions({
               title="Quote in composer"
               aria-label="Quote in composer"
             >
-              <Quote size={13} strokeWidth={1.75} aria-hidden="true" />
+              <MetaGlyph name="quote" />
             </button>
           )}
         </span>

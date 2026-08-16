@@ -9,13 +9,14 @@ import type {
 } from '@podium/client-core/viewmodels'
 import { attributionForRole, isInteractiveTool } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
-import { ArrowUp, Image as ImageIcon, X } from 'lucide-react'
+import { ArrowUp, Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { type IssueReferenceLookup, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { PendingItem, QueuedChatMessage } from './chat'
+import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
 import { TranscriptStandby } from './TranscriptStandby'
@@ -545,7 +546,7 @@ export function TranscriptFeed({
                 title="Retract pending message"
                 onClick={() => void onRetractQueued(message.id)}
               >
-                <X size={13} aria-hidden="true" />
+                <MetaGlyph name="close" />
               </button>
             </div>
           </div>

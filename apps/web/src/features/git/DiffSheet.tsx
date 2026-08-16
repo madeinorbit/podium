@@ -46,6 +46,7 @@ export function DiffSheet({
   onClose,
   onRefresh,
   refreshing,
+  sources,
 }: {
   cwd: string
   machineId?: MachineId
@@ -58,10 +59,19 @@ export function DiffSheet({
   /** Re-probe status; the sheet drops its diffs when the inventory changes. */
   onRefresh: () => void
   refreshing: boolean
+  /**
+   * Diffs the caller already holds, keyed by path — used instead of asking git.
+   * The chat opens this sheet on a file a RUN touched, and the change it wants
+   * shown is the one that run made, which the transcript recorded. Re-probing
+   * the worktree would show what the file holds now: the wrong answer the
+   * moment anything was committed or edited again. With sources given there is
+   * no working tree in play, so the re-probe control does not render.
+   */
+  sources?: Record<string, string> | undefined
 }): JSX.Element {
   const [selected, setSelected] = useState(initialPath)
   const [wrap, setWrap] = useState(readWrapPreference)
-  const diffs = useDiffs({ entries, cwd, machineId, selected })
+  const diffs = useDiffs({ entries, cwd, machineId, selected, sources })
 
   // The inventory can change under the sheet (refresh, or an agent committing
   // while you read): fall back to the first file rather than an empty pane.
@@ -170,16 +180,18 @@ export function DiffSheet({
           >
             <WrapText size={14} aria-hidden="true" />
           </button>
-          <button
-            data-pressable
-            type="button"
-            className="diff-sheet-tool"
-            title="Re-read the working tree"
-            disabled={refreshing}
-            onClick={onRefresh}
-          >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" />
-          </button>
+          {!sources && (
+            <button
+              data-pressable
+              type="button"
+              className="diff-sheet-tool"
+              title="Re-read the working tree"
+              disabled={refreshing}
+              onClick={onRefresh}
+            >
+              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" />
+            </button>
+          )}
         </span>
       }
       onClose={onClose}
@@ -429,11 +441,13 @@ function useDiffs({
   cwd,
   machineId,
   selected,
+  sources,
 }: {
   entries: StatusEntry[]
   cwd: string
   machineId?: MachineId
   selected: string
+  sources?: Record<string, string> | undefined
 }): Record<string, DiffState> {
   const { gitDiffFile, readFileScoped } = useStoreSelector(
     (s) => ({ gitDiffFile: s.gitDiffFile, readFileScoped: s.readFileScoped }),
@@ -466,7 +480,13 @@ function useDiffs({
       void (async () => {
         let next: DiffState
         try {
-          if (entry.untracked && entry.path.endsWith('/')) {
+          const given = sources?.[entry.path]
+          if (given !== undefined) {
+            // The caller already HAS the diff — a transcript's own record of what
+            // a tool changed. Asking git for it would answer a different
+            // question and, for anything already committed, answer "nothing".
+            next = { loading: false, parsed: parseDiff(given) }
+          } else if (entry.untracked && entry.path.endsWith('/')) {
             next = { loading: false, note: UNTRACKED_FOLDER }
           } else if (entry.untracked) {
             // A new file has no HEAD side, so it is READ rather than diffed. The
@@ -499,7 +519,7 @@ function useDiffs({
         setDiffs((d) => ({ ...d, [entry.path]: next }))
       })()
     },
-    [cwd, machineId, gitDiffFile, readFileScoped],
+    [cwd, machineId, gitDiffFile, readFileScoped, sources],
   )
 
   // The pump: re-entered on every arrival, so a finished fetch frees its slot

@@ -73,7 +73,55 @@ export function toolEditMagnitude(edit: ToolEditView): string {
   return edit.mode === 'write' ? 'new file' : 'edit'
 }
 
-export function toolEditLines(edit: ToolEditView): { lines: ToolEditLine[]; omitted: number } {
+/**
+ * The edit as a UNIFIED DIFF, for a viewer that renders one.
+ *
+ * The transcript is a real diff source and not a stand-in for one: `replace`
+ * records the exact `oldText` the tool matched and the `newText` it wrote, and
+ * `patch` carries the agent's own patch body. Rendering THAT is what shows the
+ * change the run actually made — a `git diff` of the same path answers a
+ * different question ("what does the worktree hold now"), which is why an edit
+ * that has since been committed or superseded reads as no change at all.
+ *
+ * WHAT IS HONESTLY MISSING IS LINE NUMBERS. A `replace` hunk knows its text but
+ * not its offset in the file, so the header goes out as a bare `@@ @@` and the
+ * rows carry no numbers rather than numbers counted from a fabricated line 1.
+ * A `patch` whose own `@@` headers survive keeps them, numbers and all.
+ */
+export function toolEditUnifiedDiff(edit: ToolEditView, cap?: number): string {
+  const { lines, omitted } = toolEditLines(edit, cap)
+  const out: string[] = []
+  for (const line of lines) {
+    switch (line.kind) {
+      case 'hunk':
+        // The sheet names the file in its own header and rail; a per-file label
+        // only earns a row when the edit spans more than one place.
+        if (lines.filter((l) => l.kind === 'hunk').length > 1) out.push(`@@ @@ ${line.text}`)
+        break
+      case 'meta':
+        out.push(line.text.startsWith('@@') ? line.text : `@@ @@ ${line.text}`)
+        break
+      case 'add':
+        out.push(`+${line.text}`)
+        break
+      case 'del':
+        out.push(`-${line.text}`)
+        break
+      case 'note':
+        out.push(`\\ ${line.text}`)
+        break
+      default:
+        out.push(` ${line.text}`)
+    }
+  }
+  if (omitted > 0) out.push(`\\ ${omitted} more lines not recorded in the transcript.`)
+  return out.join('\n')
+}
+
+export function toolEditLines(
+  edit: ToolEditView,
+  cap = LINE_CAP,
+): { lines: ToolEditLine[]; omitted: number } {
   const raw: ToolEditLine[] = []
   if (edit.patch) {
     raw.push(...patchLines(edit.patch))
@@ -91,14 +139,14 @@ export function toolEditLines(edit: ToolEditView): { lines: ToolEditLine[]; omit
     raw.push({ kind: 'note', text: 'Diff was too large to keep — open the file.' })
   }
 
-  if (raw.length <= LINE_CAP) {
+  if (raw.length <= cap) {
     if (edit.truncated && raw[raw.length - 1]?.kind !== 'note') {
       raw.push({ kind: 'note', text: 'Diff truncated.' })
     }
     return { lines: raw, omitted: 0 }
   }
-  const omitted = raw.length - LINE_CAP
-  return { lines: raw.slice(0, LINE_CAP), omitted }
+  const omitted = raw.length - cap
+  return { lines: raw.slice(0, cap), omitted }
 }
 
 function parseHunk(value: unknown): ToolEditHunk[] {

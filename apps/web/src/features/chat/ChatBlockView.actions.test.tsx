@@ -1,4 +1,6 @@
 import { asSessionId, type TranscriptItem } from '@podium/model'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -97,5 +99,46 @@ describe('per-message actions', () => {
   it('stays out of the flow — nothing to reveal on an empty row', () => {
     mount(prose('   '))
     expect(actions()).toBeNull()
+  })
+})
+
+/**
+ * THE RESTING CLOCK STAYS DIM (POD-993 round 4).
+ *
+ * Reported twice as "different contrast for the timestamp", and both times a
+ * reading of the CSS said it matched: the ink token and the 40% are right where
+ * the design puts them. What was wrong was WHICH ELEMENT carried the 40%. With
+ * the fade on `.msg-foot`, the exemption written for delivery captions
+ * (`:has(> [data-attribution])`) lifted it for the whole foot — and most agent
+ * answers on this shell carry an attribution mark, so the clock rested at full
+ * ink almost everywhere. Measured against the rendered design: rgb(111,117,128)
+ * where it should have been rgb(65,70,78).
+ *
+ * So this reads the stylesheet: the fade belongs to the clock, and the foot must
+ * not carry an opacity that something else can lift.
+ */
+describe('the message foot’s two registers, in the stylesheet', () => {
+  // Rules only: this file explains itself at length, and the prose names the
+  // very selectors these assertions are about.
+  const css = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  )
+  const block = (selector: string): string =>
+    css.slice(css.indexOf(`\n${selector} {`)).split('}')[0] ?? ''
+
+  it('fades the clock, not the whole foot', () => {
+    expect(block('.msg-foot')).not.toMatch(/opacity:/)
+    expect(block('.msg-foot .chat-clk')).toMatch(/opacity:\s*0\.4/)
+  })
+
+  it('needs no exemption to keep a caption or a mark at full ink', () => {
+    // Nothing is dimmed above them any more, so nothing has to be undone.
+    expect(css).not.toMatch(/\.msg-foot:has\(/)
+  })
+
+  it('brings the clock up under the pointer, on the design’s curve', () => {
+    expect(css).toMatch(/\.transcript-row:hover \.msg-foot \.chat-clk[\s\S]{0,80}opacity:\s*1/)
+    expect(block('.msg-foot .chat-clk')).toMatch(/280ms cubic-bezier\(0\.22, 1, 0\.36, 1\)/)
   })
 })
