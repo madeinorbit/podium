@@ -45,6 +45,9 @@ export interface UseChatSendOptions {
   sessionId: SessionId
   trpc: Store['trpc']
   resumeAndSend: Store['resumeAndSend']
+  /** "None of these" — the queued write behind it (POD-1110), taken from the
+   *  actions seam rather than composed here, so the dismissal is outboxed. */
+  dismissOffer: Store['dismissOffer']
   /** Pins the panel to chat when a send comes from this view — see `deliver`. */
   setPanelMode: Store['setPanelMode']
   getUserFocus: Store['getUserFocus']
@@ -88,7 +91,9 @@ export interface UseChatSendResult {
    *  the offer bar can un-hide itself. */
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
   /** Decline the offer outright: clears it for every surface and every viewer,
-   *  no turn sent. Throws on failure so the bar can un-hide itself. */
+   *  no turn sent. QUEUED (POD-1110), so it survives an offline gap and needs no
+   *  un-hide from the caller — the queued entry paints the offer away and drops
+   *  its paint if the write is ever refused. */
   dismissOffer: (offerAt: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
   /** Optimistic hide of the offer bar, keyed by the offer's createdAt. */
@@ -101,6 +106,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     sessionId,
     trpc,
     resumeAndSend,
+    dismissOffer: dismissOfferWrite,
     setPanelMode,
     getUserFocus,
     attachedSessionId,
@@ -408,23 +414,28 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   )
 
   /**
-   * "None of these" [spec:SP-c7f1]. The optimistic hide is the same one a click
-   * takes, so the bar leaves at the same speed either way; the write behind it
-   * is `sessions.dismissOffer`, which clears the offer for every viewer rather
-   * than hiding it in this tab. A failure restores the bar and rethrows, so the
-   * operator is never told an offer is gone while the server still holds it.
+   * "None of these" [spec:SP-c7f1], through the OUTBOX since POD-1110.
+   *
+   * The write is still `sessions.dismissOffer` — it clears the offer for every
+   * viewer rather than hiding it in this tab — but it is queued rather than
+   * fired direct, so a dismissal made on a dropped connection is sent when the
+   * connection returns instead of failing outright. It used to be the one row
+   * edit in the app that failed: the bar left on the click and popped back a
+   * moment later wearing "Could not dismiss this offer".
+   *
+   * NO OPTIMISTIC HIDE HERE ANY MORE, and none is needed: the queued entry IS
+   * the optimistic apply (#263) and paints the offer away on this session, so the
+   * bar leaves on the click, stays gone across a reload while the write waits,
+   * and comes BACK by itself if the server ever refuses it definitively. Setting
+   * `dismissedOfferAt` as well would defeat that last part — a local hide has no
+   * way to learn the write was refused. It stays for the ACTION path, where the
+   * hide really is local to the send.
    */
   const dismissOffer = useCallback(
     async (offerAt: string) => {
-      setDismissedOfferAt(offerAt)
-      try {
-        await trpc.sessions.dismissOffer.mutate({ sessionId, offerCreatedAt: offerAt })
-      } catch (cause) {
-        setDismissedOfferAt(null)
-        throw cause
-      }
+      await dismissOfferWrite(sessionId, offerAt)
     },
-    [trpc, sessionId],
+    [dismissOfferWrite, sessionId],
   )
 
   const retractQueuedMessage = useCallback(

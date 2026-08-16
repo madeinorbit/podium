@@ -303,6 +303,26 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
         (r) => (r as SessionMeta).unread === true,
       )
     }
+    case 'dismissOffer': {
+      const i = entry.input as OutboxKinds['dismissOffer']
+      // COVERING TRUTH IS "THAT offer is no longer standing", not "there is no
+      // offer". The server clears the offer it matched, and the same row is
+      // where a NEWER offer arrives — one posted while the dismissal was still
+      // queued. Judging coverage on `offer == null` would keep this overlay
+      // painting over that new offer until the entry retired some other way,
+      // which is the one thing the stamp guard exists to prevent on the server
+      // and must not be reintroduced on the client.
+      // `undefined`, not null, for the same reason `snoozeClear` patches
+      // `snoozedUntil: undefined`: the server's cleared row carries no offer
+      // key at all, so the paint is byte-identical to the truth it predicts.
+      return patchOverlay(
+        'sessions',
+        i.sessionId,
+        entry.mutationId,
+        { offer: undefined },
+        (r) => (r as SessionMeta).offer?.createdAt !== i.offerCreatedAt,
+      )
+    }
     case 'issueMarkRead': {
       const i = entry.input as OutboxKinds['issueMarkRead']
       const previousReadAt = baselineCell(entry, 'readAt')
@@ -628,6 +648,7 @@ export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> 
   'sessions.setWorkState': 'setWorkState',
   'sessions.markRead': 'sessionMarkRead',
   'sessions.markUnread': 'sessionMarkUnread',
+  'sessions.dismissOffer': 'dismissOffer',
   'snoozes.set': 'snoozeSet',
   'snoozes.clear': 'snoozeClear',
 }

@@ -399,13 +399,15 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  exit, next to pressing a button and letting the next turn clear it.
    *
    *  SHARED state, not a local hide: the offer is a fact about the session, so
-   *  the dismissal leaves every surface and every viewer. DIRECT, not outboxed
-   *  (`offline: 'direct-only'`) — a queued dismissal draining hours later would
-   *  aim at whatever offer is standing by then, and the `offerCreatedAt` guard
-   *  would turn that into a silent no-op rather than a correct write.
+   *  the dismissal leaves every surface and every viewer. OUTBOXED since
+   *  POD-1110 (`offline: 'eligible'`) — it survives an offline gap like every
+   *  other row edit, and the queued entry paints the offer away while it waits.
+   *  A replay is safe by construction: the write names ONE offer by its
+   *  `offerCreatedAt`, and the server refuses a dismissal whose stamp no longer
+   *  matches the standing offer.
    *
-   *  Rejects if the write fails, so the caller can put its control back rather
-   *  than telling the operator an offer is gone while the server still holds it. */
+   *  Callers need no optimistic hide and no rollback of their own: the entry is
+   *  the optimistic apply, and a definitive refusal drops the paint and toasts. */
   dismissOffer: (sessionId: SessionId, offerCreatedAt: string) => Promise<void>
   setWorkState: (sessionId: SessionId, workState: WorkState | null) => Promise<void>
   /** Snooze a session out of the attention surface. `until` = null → until next

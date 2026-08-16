@@ -143,30 +143,23 @@ describe('engine action ownership boundary', () => {
     )
   })
 
-  it('sends an offer dismissal straight at the server, never through the Outbox', async () => {
+  it('queues an offer dismissal through the Outbox, carrying the offer it names', async () => {
     const h = harness()
 
     await h.actions.dismissOffer(sessionId, '2026-08-06T12:00:00.000Z')
 
-    // `offline: 'direct-only'` by contract. A queued dismissal draining hours
-    // later would aim at whatever offer is standing by then, and the stamp guard
-    // would turn that into a silent no-op rather than a correct write.
-    expect(h.dismissOffer).toHaveBeenCalledWith({
-      sessionId,
-      offerCreatedAt: '2026-08-06T12:00:00.000Z',
-    })
-    expect(h.queued).toEqual([])
-  })
-
-  it('lets an offer dismissal failure reach the caller', async () => {
-    const h = harness()
-    h.dismissOffer.mockRejectedValueOnce(new Error('offline'))
-
-    // Swallowing it would leave the surface claiming the offer is gone while the
-    // server still holds it — the caller un-hides its control on this rejection.
-    await expect(h.actions.dismissOffer(sessionId, '2026-08-06T12:00:00.000Z')).rejects.toThrow(
-      'offline',
-    )
+    // `offline: 'eligible'` by contract since POD-1110: "none of these" survives
+    // an offline gap like every other row edit. The stamp rides the entry, so a
+    // late replay meets the server's guard and is refused rather than clearing
+    // whatever offer is standing by then.
+    expect(h.queued).toEqual([
+      {
+        kind: 'dismissOffer',
+        input: { sessionId, offerCreatedAt: '2026-08-06T12:00:00.000Z' },
+      },
+    ])
+    // No second write: the queued entry IS the dismissal, not a mirror of one.
+    expect(h.dismissOffer).not.toHaveBeenCalled()
   })
 
   it('navigation, pane, selection, focus, and transient view changes never touch the Outbox', () => {

@@ -8,7 +8,7 @@
  * for the migration — which ones deliberately do not.
  *
  * Recorded here because the issue brief says "offline queueing is issue-writes
- * only today", and that is not what the code does: the covered set spans eight
+ * only today", and that is not what the code does: the covered set spans nine
  * SESSION writes plus TWELVE issue writes and five replicated per-user writes.
  * Only live interaction (`sendText`, `ask`, and `uploadImage`) remains a
  * deliberate direct-only exclusion: replaying chat, a seance, or an image
@@ -61,6 +61,39 @@
  * OUT. Those exclusions are about REPLAY being wrong — a chat message sent
  * hours late is worse than a failure — and nothing about curating an issue row
  * argues for reopening them. The exclusion test below still pins all three.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SECOND DELIBERATE EXTENSION (POD-1110) — `sessions.dismissOffer`
+ * ---------------------------------------------------------------------------
+ *
+ * The session half was eight and is now NINE: "none of these" — the offer bar's
+ * dismiss — joined it. Same rule as POD-781, taken here rather than merely made.
+ *
+ * WHY. It is a CURATION write by the definition two paragraphs up: it edits a row
+ * the operator is looking at and its whole effect is that row looking different.
+ * It was also the one such click in the app that failed OUTRIGHT on a dropped
+ * connection. Both hosts hid the bar optimistically and rolled the hide back on
+ * rejection, so an offline dismiss made the offer pop back wearing "Could not
+ * dismiss this offer" — precisely the not-registered reading #263 exists to
+ * delete, and worse than the sidebar's old lag because the bar had already gone.
+ *
+ * WHY IT IS NOT THE `sendText` CLASS. That exclusion is about REPLAY being wrong.
+ * Here replay is right by construction, not by luck: `dismissOffer` carries the
+ * offer's `offerCreatedAt` and the server clears only a matching stamp, returning
+ * false otherwise (`session-meta-ops.ts`). A dismissal draining hours late, after
+ * a NEW offer was posted, is refused — a guard stronger than most of the covered
+ * set carries, where a late replay simply re-applies. The contract's old
+ * `direct-only` decision read that same guard as the ARGUMENT for exclusion ("the
+ * guard turns that into a silent no-op"); it is the argument for inclusion.
+ *
+ * THE OFFER'S ACTION BUTTONS STAY OUT, and that is the line. Pressing one sends
+ * `sessions.sendText` — the excluded live-interaction path — and nothing here
+ * moves it. Only the decline, which sends no turn at all, is in.
+ *
+ * The overlay is what the queue promises the operator: the entry paints
+ * the offer away while it waits, so the bar stays gone across a reload and on the
+ * panel's other surface, and it retires the moment truth shows a different (or
+ * no) standing offer.
  */
 
 import type { SessionId } from '@podium/model'
@@ -103,6 +136,7 @@ function recordingApi() {
       setWorkState: proc('sessions.setWorkState'),
       markRead: proc('sessions.markRead'),
       markUnread: proc('sessions.markUnread'),
+      dismissOffer: proc('sessions.dismissOffer'),
       sendText: proc('sessions.sendText'),
       // Present so that a MUTANT executor for these kinds RESOLVES and the
       // exclusion assertion fails sharply. Without them the executor throws a
@@ -190,6 +224,14 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
   },
   { kind: 'sessionMarkRead', input: { sessionId: 's1' }, path: 'sessions.markRead' },
   { kind: 'sessionMarkUnread', input: { sessionId: 's1' }, path: 'sessions.markUnread' },
+  // POD-1110 — the offer bar's "none of these"; see the header for why the
+  // session half grew. The ACTION buttons are `sessions.sendText` and stay in
+  // the exclusion test below.
+  {
+    kind: 'dismissOffer',
+    input: { sessionId: 's1', offerCreatedAt: '2026-08-16T09:00:00.000Z' },
+    path: 'sessions.dismissOffer',
+  },
   { kind: 'snoozeSet', input: { sessionId: 's1', until: null }, path: 'snoozes.set' },
   { kind: 'snoozeClear', input: { sessionId: 's1' }, path: 'snoozes.clear' },
   {
@@ -280,7 +322,7 @@ describe('oracle: the KERNEL queue delivers the same covered set', () => {
 })
 
 describe('oracle: the offline-queued write set', () => {
-  it(`${MUST_NOT_CHANGE}: eight session writes, twelve issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
+  it(`${MUST_NOT_CHANGE}: nine session writes, twelve issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
     const { outbox, calls } = makeOutbox()
 
     for (const covered of COVERED) {
@@ -291,7 +333,7 @@ describe('oracle: the offline-queued write set', () => {
     expect(calls.map((c) => c.path)).toEqual(COVERED.map((c) => c.path))
     expect(
       calls.filter((c) => c.path.startsWith('sessions.') || c.path.startsWith('snooze')),
-    ).toHaveLength(8)
+    ).toHaveLength(9)
     // Counted, not implied by the list above: POD-781 took the issue half from
     // three to twelve, and a future edit that drops one of the curation kinds
     // while leaving its row in COVERED would still pass the ordering assertion.
@@ -380,6 +422,34 @@ describe('oracle: the offline-queued write set', () => {
       {
         path: 'sessions.rename',
         input: { sessionId: 's1', name: 'queued offline', mutationId: entry.mutationId },
+      },
+    ])
+    outbox.dispose()
+  })
+
+  it(`${MUST_NOT_CHANGE}: a dismissal replays naming THE OFFER IT WAS MADE ABOUT — the stamp is what makes queueing it safe`, async () => {
+    const { outbox, calls } = makeOutbox()
+
+    // The whole inclusion argument (POD-1110) rests on this input reaching the
+    // server unchanged: `offerCreatedAt` is matched against the standing offer
+    // and a mismatch is refused. A future edit that dropped the stamp — or
+    // re-stamped it at drain time with "now" — would turn a late replay into a
+    // dismissal of whatever offer happens to be up, which is the failure the
+    // old `direct-only` class was chosen to avoid.
+    const entry = outbox.enqueue('dismissOffer', {
+      sessionId: asSessionId('s1'),
+      offerCreatedAt: '2026-08-16T09:00:00.000Z',
+    })
+    await outbox.drain()
+
+    expect(calls).toEqual([
+      {
+        path: 'sessions.dismissOffer',
+        input: {
+          sessionId: 's1',
+          offerCreatedAt: '2026-08-16T09:00:00.000Z',
+          mutationId: entry.mutationId,
+        },
       },
     ])
     outbox.dispose()

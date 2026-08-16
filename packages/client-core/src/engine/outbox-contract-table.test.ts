@@ -75,6 +75,7 @@ const lookup = (name: string): CommandContract | undefined => {
  * quietly unchecked.
  */
 const UNGUARDED = [
+  'dismissOffer',
   'pinSet',
   'rename',
   'tabSetOrder',

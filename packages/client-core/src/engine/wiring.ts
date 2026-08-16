@@ -51,6 +51,21 @@ export type OutboxKinds = {
   snoozeClear: { sessionId: SessionId }
   sessionMarkRead: { sessionId: SessionId }
   sessionMarkUnread: { sessionId: SessionId }
+  /**
+   * THE OFFER DISMISSAL (POD-1110) — "none of these", and only that.
+   *
+   * It carries the offer's `createdAt` because the command means "dismiss THIS
+   * offer" and the server matches the stamp, returning false on a mismatch. That
+   * is what makes a REPLAY safe here rather than merely tolerable: a dismissal
+   * draining after a newer offer was posted is refused by construction, not by
+   * luck, so the hazard the old `direct-only` class named cannot happen.
+   *
+   * The offer's ACTION buttons are NOT here. They send `sessions.sendText`,
+   * which the coverage oracle pins OUT for a different reason entirely — a chat
+   * turn replayed hours late is worse than a failure — and nothing about
+   * declining an offer argues for reopening that.
+   */
+  dismissOffer: { sessionId: SessionId; offerCreatedAt: string }
   issueMarkRead: { id: string }
   issueMarkUnread: { id: string }
   issueSetTucked: { id: string; tucked: boolean }
@@ -207,6 +222,7 @@ export const OUTBOX_COMMANDS: Record<
   snoozeClear: { name: 'snoozes.clear', version: 1, delivery, confirmation: 'none' },
   sessionMarkRead: { name: 'sessions.markRead', version: 1, delivery, confirmation: 'none' },
   sessionMarkUnread: { name: 'sessions.markUnread', version: 1, delivery, confirmation: 'none' },
+  dismissOffer: { name: 'sessions.dismissOffer', version: 1, delivery, confirmation: 'none' },
   issueMarkRead: { name: 'issues.markRead', version: 1, delivery, confirmation: 'none' },
   issueMarkUnread: { name: 'issues.markUnread', version: 1, delivery, confirmation: 'none' },
   issueSetTucked: { name: 'issues.setTucked', version: 1, delivery, confirmation: 'none' },
@@ -281,6 +297,11 @@ export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLe
   snoozeClear: 'recover',
   sessionMarkRead: 'recover',
   sessionMarkUnread: 'recover',
+  // `recover`, not `discard-automatic`: a dismissal is a decision the operator
+  // made with a click, unlike the read receipt the foreground reaction emits on
+  // its own. It carries no authored prose, so `shouldParkDeadLetter` still lets
+  // a definitive refusal revert-and-toast rather than parking it.
+  dismissOffer: 'recover',
   issueMarkRead: 'discard-automatic',
   issueMarkUnread: 'recover',
   issueSetTucked: 'recover',
@@ -416,6 +437,21 @@ export const OUTBOX_ROUTING: {
   sessionMarkUnread: (i) => ({
     partitionKey: `session:${i.sessionId}`,
     collapseKey: `session-read:${i.sessionId}`,
+  }),
+  // The offer cell, which holds AT MOST ONE offer per session — a new offer
+  // replaces the standing one rather than joining it (the annotation matrix's
+  // `offers` row: "single-row-per-session key"). So two queued dismissals for one
+  // session cannot both be live decisions: the second names the offer that
+  // replaced the first's target, and the first would meet the server's stamp
+  // guard as a no-op. Collapsing to the newest sends the operator's last word and
+  // drops a round trip that was going to be refused anyway.
+  //
+  // The key deliberately omits `offerCreatedAt`. Keyed by stamp nothing would
+  // ever collapse — every dismissal names a different offer — which is a
+  // collapse rule that does not collapse, i.e. a lie about the cell.
+  dismissOffer: (i) => ({
+    partitionKey: `session:${i.sessionId}`,
+    collapseKey: `session-offer:${i.sessionId}`,
   }),
 
   // Issue-targeted writes. `issues.markRead` is the command named in the
@@ -625,6 +661,7 @@ export function outboxExecutors(api: PodiumClientApi): {
     snoozeClear: (i) => api.snoozes.clear.mutate(i),
     sessionMarkRead: (i) => api.sessions.markRead.mutate(i),
     sessionMarkUnread: (i) => api.sessions.markUnread.mutate(i),
+    dismissOffer: (i) => api.sessions.dismissOffer.mutate(i),
     issueMarkRead: (i) => api.issues.markRead.mutate(i),
     issueMarkUnread: (i) => api.issues.markUnread.mutate(i),
     issueSetTucked: (i) => api.issues.setTucked.mutate(i),

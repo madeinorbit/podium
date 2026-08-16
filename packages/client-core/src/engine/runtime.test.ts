@@ -158,6 +158,7 @@ function makeApi(): any {
       setWorkState: { mutate: vi.fn(async () => ({})) },
       markRead: { mutate: vi.fn(async () => ({})) },
       markUnread: { mutate: async () => ({}) },
+      dismissOffer: { mutate: vi.fn(async () => ({})) },
     },
     issues: {
       markRead: { mutate: vi.fn(async () => ({})) },
@@ -723,6 +724,57 @@ describe('unified optimistic overlay (#263)', () => {
     engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'server-wins' }])
     await settle()
     expect(nameOf(engine, 's1')).toBe('server-wins')
+    engine.dispose()
+  })
+
+  // POD-1110 — the behaviour this issue exists for, end to end on the engine:
+  // dismissing an offer while the write cannot go out must leave the bar GONE.
+  it('an offer dismissal that cannot be sent keeps the offer hidden, and stays queued', async () => {
+    const offerOf = (e: ReturnType<typeof makeEngine>['engine'], id: string) =>
+      e.getSnapshot().sessions.find((s) => s.sessionId === id)?.offer
+    const offer = { message: 'Ready to merge', actions: [], createdAt: 'T1' }
+    const api = makeApi()
+    let attempts = 0
+    api.sessions.dismissOffer.mutate = vi.fn(async () => {
+      attempts++
+      if (attempts === 1) throw new Error('network down') // non-poison → the entry waits
+      return {}
+    })
+    const hub = new FakeHub() // health starts 'down'
+    const { engine } = makeEngine({ api, hub })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [{ ...session('s1', '/w'), offer }], [])
+    await settle()
+    expect(offerOf(engine, 's1')).toEqual(offer)
+
+    void engine.getSnapshot().dismissOffer(asSessionId('s1'), 'T1')
+    await settle()
+
+    // Gone on the click, and STILL gone after a heal snapshot that carries the
+    // offer — server truth has not moved, so the queued entry keeps painting.
+    // This is the whole bug: it used to un-hide and toast instead.
+    expect(offerOf(engine, 's1')).toBeUndefined()
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), offer }])
+    await settle()
+    expect(offerOf(engine, 's1')).toBeUndefined()
+    expect(engine.getSnapshot().outboxSize).toBe(1)
+
+    // The connection comes back: the queued dismissal drains, the server clears
+    // the offer, and the overlay retires against that covering truth.
+    hub.emit('connectionHealth', { status: 'ok', rttMs: 5, since: 1 })
+    await settle()
+    expect(attempts).toBe(2)
+    engine.replica.applySnapshot('sessions', [session('s1', '/w')])
+    await settle()
+    expect(offerOf(engine, 's1')).toBeUndefined()
+    expect(engine.getSnapshot().outboxSize).toBe(0)
+
+    // Exactly once: a NEW offer the agent posts later shows through.
+    const next = { message: 'Ready to land', actions: [], createdAt: 'T2' }
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), offer: next }])
+    await settle()
+    expect(offerOf(engine, 's1')).toEqual(next)
     engine.dispose()
   })
 

@@ -181,6 +181,7 @@ export function AgentPanel({
     startBtw,
     setSessionDraft,
     hibernateSession,
+    dismissOffer: dismissOfferWrite,
     openFile,
     uiState,
     selectedIssueId,
@@ -195,6 +196,7 @@ export function AgentPanel({
       startBtw: s.startBtw,
       setSessionDraft: s.setSessionDraft,
       hibernateSession: s.hibernateSession,
+      dismissOffer: s.dismissOffer,
       openFile: s.openFile,
       uiState: s.uiState,
       selectedIssueId: s.selectedIssueId,
@@ -334,16 +336,14 @@ export function AgentPanel({
       throw cause
     }
   }
-  /** "None of these" [spec:SP-c7f1] — the same optimistic hide as an answer,
-   *  over a write that clears the offer everywhere instead of sending a turn. */
+  /** "None of these" [spec:SP-c7f1] — a write that clears the offer everywhere
+   *  instead of sending a turn, and QUEUED since POD-1110 so it survives an
+   *  offline gap like every other row edit. Unlike the answer above it takes no
+   *  local hide: the queued entry paints the offer away on this session, which
+   *  hides both of the panel's bars, holds across a reload while the write
+   *  waits, and un-hides by itself if the server refuses it. */
   const dismissOffer = async (offerAt: string) => {
-    setDismissedOfferAt(offerAt)
-    try {
-      await trpc.sessions.dismissOffer.mutate({ sessionId, offerCreatedAt: offerAt })
-    } catch (cause) {
-      setDismissedOfferAt(null)
-      throw cause
-    }
+    await dismissOfferWrite(sessionId, offerAt)
   }
   // Dock <-> PTY resize sync [POD-201]: the 340ms slide used to fight the
   // mount's debounced ResizeObserver — the PTY re-gridded at an arbitrary

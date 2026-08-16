@@ -138,6 +138,10 @@ export function kindLabel(kind: string): string {
     snoozeClear: 'Clear session snooze',
     sessionMarkRead: 'Session read status',
     sessionMarkUnread: 'Session unread status',
+    // POD-1110. Named for the ACT, not the offer: the toast is what the operator
+    // sees when a refused dismissal puts the bar back, and "Offer dismissal
+    // didn't sync" says which click came undone without echoing the offer's text.
+    dismissOffer: 'Offer dismissal',
     issueMarkRead: 'Issue read status',
     issueMarkUnread: 'Issue unread status',
     issueSetTucked: 'Issue visibility',

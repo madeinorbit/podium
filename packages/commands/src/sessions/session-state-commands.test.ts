@@ -158,6 +158,10 @@ describe('offline classes match POD-379’s outbox oracle exactly', () => {
     'sessions.setWorkState',
     'sessions.markRead',
     'sessions.markUnread',
+    // POD-1110 grew the set by one, deliberately and in the oracle's own header:
+    // the offer bar's "none of these" is a curation write whose replay the
+    // `offerCreatedAt` stamp already guards.
+    'sessions.dismissOffer',
     'snoozes.set',
     'snoozes.clear',
     'pins.set',

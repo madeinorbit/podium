@@ -10,9 +10,10 @@
  * Correction to the issue brief worth recording: offline queueing is NOT
  * issue-writes-only today. `createEngineOutbox`
  * (packages/client-core/src/engine/wiring.ts) covers session rename,
- * setArchived, setWorkState, snoozeSet, snoozeClear, markRead, markUnread and
- * resumeAndSend alongside the three issue kinds; pins, tab order and sendText
- * stay DIRECT by explicit decision. The client half of that set is
+ * setArchived, setWorkState, snoozeSet, snoozeClear, markRead, markUnread,
+ * dismissOffer (POD-1110 — the offer bar's "none of these") and resumeAndSend
+ * alongside the three issue kinds; pins, tab order and sendText stay DIRECT by
+ * explicit decision. The client half of that set is
  * characterized in packages/client-core/src/engine/outbox-coverage.oracle.test.ts;
  * this file characterizes the server behaviour those replays depend on.
  */
@@ -151,6 +152,30 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     // The replay must not re-attach a session the user has since detached.
     expect(o.meta(sessionId).issueId).toBeUndefined()
     expect(o.store.sync.getAppliedMutation(asMutationId('m-issue'))).toBeDefined()
+  })
+
+  it(`${MUST_NOT_CHANGE}: sessions.dismissOffer dedupes its replay — TWO locks, and this is the one the queue owns`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    o.reg.modules.sessions.setOffer({ sessionId, message: 'Ready to merge', actions: [] })
+    const first = o.meta(sessionId).offer?.createdAt as string
+
+    await o.call.sessions.dismissOffer({ sessionId, offerCreatedAt: first, mutationId: 'm-offer' })
+    expect(o.meta(sessionId).offer).toBeUndefined()
+
+    // The agent posts a NEW offer, and the queue re-sends the dismissal (a
+    // reconnect after the receipt was lost). Deliberately keyed on the SECOND
+    // offer's stamp: the `offerCreatedAt` guard would refuse the ORIGINAL input
+    // on its own, so pinning that would not tell us whether the mutationId lock
+    // is there at all. Dedup is on the id ALONE, which is what makes a replay
+    // safe when the input the client re-sends has moved on.
+    o.reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
+    const second = o.meta(sessionId).offer?.createdAt as string
+    await o.call.sessions.dismissOffer({ sessionId, offerCreatedAt: second, mutationId: 'm-offer' })
+
+    // The offer the operator has never seen is still standing.
+    expect(o.meta(sessionId).offer?.message).toBe('Ready to land')
+    expect(o.store.sync.getAppliedMutation(asMutationId('m-offer'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: snoozes.set dedupes its replay`, async () => {

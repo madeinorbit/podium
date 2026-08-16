@@ -27,11 +27,16 @@
  * ## What is NOT re-decided here
  *
  * `offline` is read off POD-379's outbox oracle, which tags the covered set
- * must-not-change: the seven eligible writes are exactly what
- * `createEngineOutbox` enqueues today, and pins / tab order are its DELIBERATE
+ * must-not-change: the eligible writes are exactly what `createEngineOutbox`
+ * enqueues today, and pins / tab order are its DELIBERATE
  * exclusions ("low offline value"). The brief calls this whole family
  * "offline-eligible"; the oracle is more specific and the oracle wins, because
  * widening the set is a product behaviour change, not a migration.
+ *
+ * WIDENED ONCE SINCE, and as a product decision rather than as a migration:
+ * POD-1110 moved `sessions.dismissOffer` from `direct-only` to `eligible`,
+ * argued in that contract's own `decision` and taken in the oracle's header
+ * comment, which is where that file says such a decision must be taken.
  */
 
 import { IssueIdField, PinKind, SessionIdField, WorkState } from '@podium/model'
@@ -152,11 +157,11 @@ const dismissOffer: CommandDef = {
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
   visibility: PERSONAL,
   exposure: ['trpc'],
-  offline: 'direct-only',
+  offline: 'eligible',
   redaction: { fields: [] },
   conflict: 'exp-rev',
   decision:
-    'direct-only, matching POD-379’s outbox oracle: the covered set is exactly what createEngineOutbox enqueues today and this is not in it. It is also the right answer on its own terms — a queued dismissal draining hours later would clear whatever offer is standing then, and the offerCreatedAt guard turns that into a silent no-op rather than into a correct write.',
+    'eligible since POD-1110, and the reversal is on the merits rather than on the oracle’s inventory. It was direct-only because "the covered set is exactly what createEngineOutbox enqueues today and this is not in it", with a second argument that a queued dismissal draining hours later would clear whatever offer is standing then. The second argument reads the offerCreatedAt guard backwards: a dismissal names ONE offer, so a late replay against a newer offer is refused by the stamp rather than being applied to the wrong thing — that is a no-op BY CONSTRUCTION, and it is a stronger guarantee than most of the covered set carries. What remains is the curation argument POD-781 made for the issue writes: this edits a row the operator is looking at and its whole effect is that row looking different, so failing outright on a dropped connection reads as the click not registering. The offer’s ACTION buttons stay out: they are sessions.sendText, whose exclusion is about replaying a live turn and is untouched.',
 }
 
 const setWorkStateInput = z.object({

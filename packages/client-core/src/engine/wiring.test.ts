@@ -55,6 +55,10 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
   snoozeClear: { sessionId: asSessionId('s-1') } as OutboxKinds['snoozeClear'],
   sessionMarkRead: { sessionId: asSessionId('s-1') } as OutboxKinds['sessionMarkRead'],
   sessionMarkUnread: { sessionId: asSessionId('s-1') } as OutboxKinds['sessionMarkUnread'],
+  dismissOffer: {
+    sessionId: asSessionId('s-1'),
+    offerCreatedAt: '2026-08-16T09:00:00.000Z',
+  } as OutboxKinds['dismissOffer'],
   issueMarkRead: { id: 'POD-1' } as OutboxKinds['issueMarkRead'],
   issueMarkUnread: { id: 'POD-1' } as OutboxKinds['issueMarkUnread'],
   issueSetTucked: { id: 'POD-1', tucked: true } as OutboxKinds['issueSetTucked'],
@@ -257,6 +261,31 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     // which collapses with nothing.
     expect(route('issueRestore', { id }).collapseKey).not.toBe(
       route('issueArchive', { id }).collapseKey,
+    )
+  })
+
+  it('collapses two offer dismissals on one session, and keys them by the SESSION, not the stamp', () => {
+    // POD-1110. A session holds at most one offer — a new one REPLACES the
+    // standing one — so two queued dismissals cannot both be live decisions: the
+    // second names the offer that replaced the first's target, and the first
+    // would meet the server's stamp guard as a no-op. Keyed by stamp, nothing
+    // would ever collapse, which is a collapse rule that never collapses.
+    const sessionId = asSessionId('s-1')
+    expect(route('dismissOffer', { sessionId, offerCreatedAt: 'T1' }).collapseKey).toBe(
+      route('dismissOffer', { sessionId, offerCreatedAt: 'T2' }).collapseKey,
+    )
+    // Two sessions' offers are two cells.
+    expect(route('dismissOffer', { sessionId, offerCreatedAt: 'T1' }).collapseKey).not.toBe(
+      route('dismissOffer', { sessionId: asSessionId('s-2'), offerCreatedAt: 'T1' }).collapseKey,
+    )
+    // ...and the offer is not the read cursor, the name, or the snooze.
+    expect(route('dismissOffer', { sessionId, offerCreatedAt: 'T1' }).collapseKey).not.toBe(
+      route('sessionMarkRead', { sessionId }).collapseKey,
+    )
+    // It rides the session's partition, so it cannot overtake a rename or a
+    // resumeAndSend made on the same row.
+    expect(route('dismissOffer', { sessionId, offerCreatedAt: 'T1' }).partitionKey).toBe(
+      route('rename', { sessionId, name: 'a' }).partitionKey,
     )
   })
 

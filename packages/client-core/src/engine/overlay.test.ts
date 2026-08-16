@@ -87,6 +87,29 @@ describe('overlayForOutboxEntry projection', () => {
     expect(clear.coveredBy(sess({ snoozedUntil: 'x' }))).toBe(false)
   })
 
+  // POD-1110 — "none of these" queues like every other row edit, and this is the
+  // paint that keeps the bar gone while it waits (including across a reload).
+  it('dismissOffer clears the offer, and covering truth is ANY other standing offer', () => {
+    const offer = (createdAt: string) =>
+      ({ message: 'm', actions: [], createdAt }) as SessionMeta['offer']
+    const o = overlayForOutboxEntry(
+      entry('dismissOffer', { sessionId: 's1', offerCreatedAt: 'T1' }),
+    )
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(o.entity).toBe('sessions')
+    expect(o.id).toBe('s1')
+    expect(o.patch).toEqual({ offer: undefined })
+    // The offer this dismissal names is still standing: pre-mutation truth, so
+    // the bar stays hidden rather than flickering back mid-flight.
+    expect(o.coveredBy(sess({ offer: offer('T1') } as Partial<SessionMetaInput>))).toBe(false)
+    // The server cleared it.
+    expect(o.coveredBy(sess())).toBe(true)
+    // A NEWER offer arrived while this was in flight. It covers too — judging on
+    // "no offer at all" would keep painting over an offer the operator has never
+    // seen, which is the very thing the server's stamp guard refuses to do.
+    expect(o.coveredBy(sess({ offer: offer('T2') } as Partial<SessionMetaInput>))).toBe(true)
+  })
+
   it('mark read/unread target the owning readAt field; server clocks may differ', () => {
     const read = overlayForOutboxEntry(entry('sessionMarkRead', { sessionId: 's1' }, 1751500800000))
     if (read?.op !== 'patch') throw new Error('expected patch')
@@ -756,6 +779,7 @@ describe('the presence contracts and their optimistic reducers', () => {
       setWorkState: { sessionId: 's1', workState: 'done' },
       sessionMarkRead: { sessionId: 's1' },
       sessionMarkUnread: { sessionId: 's1' },
+      dismissOffer: { sessionId: 's1', offerCreatedAt: 'T1' },
       snoozeSet: { sessionId: 's1', until: null },
       snoozeClear: { sessionId: 's1' },
     }

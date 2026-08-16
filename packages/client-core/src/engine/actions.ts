@@ -776,14 +776,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         await rt.outbox.enqueue('pinSet', { kind: 'panel', id: sessionId, pinned: false })
       }
     },
-    // NOT `enqueueOverlayed`, unlike its neighbours here: the contract is
-    // `offline: 'direct-only'`, so this goes straight at the server and the
-    // cleared session broadcast is what takes the offer off the surfaces. The
-    // error is left to propagate — a caller that has hidden its offer bar
-    // optimistically needs to hear that the server still holds it.
-    dismissOffer: async (sessionId: SessionId, offerCreatedAt: string) => {
-      await api.sessions.dismissOffer.mutate({ sessionId, offerCreatedAt })
-    },
+    // `enqueueOverlayed`, like its neighbours, since POD-1110. It used to be a
+    // bare mutate under `offline: 'direct-only'`, which made "none of these" the
+    // one row edit in the app that failed outright on a dropped connection —
+    // the offer popped back wearing an error. The queued entry IS the optimistic
+    // apply now (#263): it paints the offer away on enqueue, so no caller needs a
+    // local hide or a rollback, and the entry replays under the server's
+    // `offerCreatedAt` guard, which refuses a dismissal aimed at an offer that
+    // has since been replaced.
+    dismissOffer: async (sessionId: SessionId, offerCreatedAt: string) =>
+      rt.enqueueOverlayed('dismissOffer', { sessionId, offerCreatedAt }),
     setWorkState: async (sessionId: SessionId, workState: WorkState | null) =>
       rt.enqueueOverlayed('setWorkState', { sessionId, workState }),
     setSnooze: async (sessionId, until) => rt.enqueueOverlayed('snoozeSet', { sessionId, until }),
