@@ -8,13 +8,22 @@
  * ./patch-web-html.ts.
  *
  * The mark comes from assets/icon.svg — the Podium P, the same one the macOS
- * app wears [POD-392]. It used to come from assets/icon.png, which was still
- * the Expo template's chevron, so the home screen advertised create-expo-app.
- * The PNG is now a build output of the SVG rather than a hand-placed asset, and
- * is still committed because Expo reads it for the native icon and the splash.
+ * app wears [POD-392], now in its 9a cut [POD-1108]. It used to come from
+ * assets/icon.png, which was still the Expo template's chevron, so the home
+ * screen advertised create-expo-app. The PNG is now a build output of the SVG
+ * rather than a hand-placed asset, and is still committed because Expo reads it
+ * for the native icon and the splash.
  *
- * Re-run with `bun scripts/generate-web-icons.ts` after changing assets/icon.svg.
- * The outputs are committed — CI and the normal build never need sharp.
+ * The Android adaptive layers were the last three files the chevron survived in
+ * [POD-1108]: they are named in app.json but nothing generated them, so
+ * `bun scripts/generate-web-icons.ts` reported success while an Android home
+ * screen still showed a blue arrow. They are rendered here now, from their own
+ * masters — see assets/android-icon-foreground.svg for why they are not just
+ * icon.svg resized.
+ *
+ * Re-run with `bun scripts/generate-web-icons.ts` after changing any
+ * assets/*.svg master. The outputs are committed — CI and the normal build
+ * never need sharp.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -22,6 +31,7 @@ import sharp from 'sharp'
 
 const ROOT = join(import.meta.dir, '..')
 const SRC = join(ROOT, 'assets', 'icon.svg')
+const MASKABLE_SRC = join(ROOT, 'assets', 'icon-maskable.svg')
 const OUT = join(ROOT, 'public', 'icons')
 
 /** Expo's own icon source (app.json `icon`). */
@@ -63,18 +73,41 @@ for (const [name, size] of SQUARES) {
 }
 
 /**
- * Maskable icon: Android crops to a circle inscribed in the middle 80%, so the
- * artwork is inset onto the Dark Ink ground rather than filling the frame.
+ * Maskable icon: Android crops to a circle inscribed in the middle 80%.
+ *
+ * This used to inset icon.svg to 62% over flat Dark Ink, which put a second
+ * visible tile inside the first — icon.svg owns a gradient ground, so the inset
+ * edge read as a border rather than as padding. assets/icon-maskable.svg is the
+ * mark redrawn for the crop instead of shrunk into it, so this one renders full
+ * bleed [POD-1108].
  */
 {
-  const inner = Math.round(512 * 0.62)
-  const art = await sharp(ICON_PNG).resize(inner, inner, { fit: 'cover' }).toBuffer()
-  const buf = await sharp({ create: { width: 512, height: 512, channels: 4, background: BG } })
-    .composite([{ input: art, gravity: 'center' }])
-    .png()
-    .toBuffer()
+  const buf = await sharp(MASKABLE_SRC, { density: 192 }).resize(512, 512).png().toBuffer()
   writeFileSync(join(OUT, 'icon-512-maskable.png'), buf)
   console.log('icon-512-maskable.png', `${Math.round(buf.length / 1024)}kb`)
+}
+
+/**
+ * Android adaptive icon layers — app.json `android.adaptiveIcon`.
+ *
+ * Three separate masters rather than three crops of one, because the layers are
+ * not the same picture: the launcher parallaxes foreground against background
+ * and tints monochrome to the wallpaper, so each has a constraint the others do
+ * not. All three land at 1024 (Expo's recommended source size, and what it
+ * downsamples the mipmap set from) — the monochrome layer used to be 432, the
+ * one size the Expo template happened to ship.
+ *
+ * Alpha is preserved on foreground and monochrome; flattening either onto a
+ * colour is what turns an adaptive icon back into a square sticker.
+ */
+for (const layer of ['foreground', 'background', 'monochrome']) {
+  const name = `android-icon-${layer}.png`
+  const buf = await sharp(join(ROOT, 'assets', `android-icon-${layer}.svg`), { density: 384 })
+    .resize(1024, 1024)
+    .png()
+    .toBuffer()
+  writeFileSync(join(ROOT, 'assets', name), buf)
+  console.log(`assets/${name}`, 1024, `${Math.round(buf.length / 1024)}kb`)
 }
 
 /**

@@ -1,16 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Podium">
   <!--
-    The Podium mark, the same geometry as apps/mobile/assets/icon.svg and
-    apps/desktop/src-tauri/icons/app-icon.svg [POD-392]. It replaces an older
-    angular lectern glyph that only this app still wore, so the browser tab, the
-    installed PWA and an iPhone home screen now show the same P as the macOS app
-    and the mobile shell [POD-421].
+    The Podium mark, "9a — flat fill" [POD-1108]. Same geometry as
+    apps/mobile/assets/icon.svg and apps/desktop/src-tauri/icons/app-icon.svg.
+    It replaces the earlier dark tile with the thin amber bar: the bar has
+    become an ocre PLANE the letter stands on, and the letter is lit by a stone
+    gradient instead of a flat near-white. Colours (dark cut): ocre #b87c14,
+    ground #232428 → #131417 → #08080a, letter #ffffff → #b4b5bf.
 
     FULL BLEED, for the same reason the mobile icon is: iOS masks its own
-    squircle over an apple-touch-icon, and a second set of rounded corners inside
-    that mask reads as an icon floating in a black frame. pwa-assets.config.ts
-    therefore overrides the preset's default padding — left alone, it inserts the
-    mark at 40% inside a WHITE square, which is what shipped before.
+    squircle over an apple-touch-icon, and a second set of rounded corners
+    inside that mask reads as an icon floating in a black frame.
+    pwa-assets.config.ts therefore overrides the preset's default padding —
+    left alone, it inserts the mark at 40% inside a WHITE square, which is what
+    shipped before [POD-421].
+
+    The ocre plane deliberately overruns the frame on all three sides (-40 to
+    1064). A plane that stopped short of the edge would read as a bar again,
+    and the overrun is what survives the platform masks: iOS's squircle,
+    Android's circle and the macOS corner all cut into the overrun rather than
+    into the plane's own edge.
 
     Everything under public/ is copied verbatim into the dist, so this file is
     also the `<link rel="icon" type="image/svg+xml">` the browser tab uses. The
@@ -18,16 +26,18 @@
     rasterised from it at build time by vite-plugin-pwa; none of it is committed.
   -->
   <defs>
-    <linearGradient id="surface" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#20202a"/>
-      <stop offset="1" stop-color="#0e0e12"/>
+    <linearGradient id="bg" x1="120" y1="40" x2="920" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#232428"/>
+      <stop offset=".6" stop-color="#131417"/>
+      <stop offset="1" stop-color="#08080a"/>
     </linearGradient>
+    <radialGradient id="s" cx="300" cy="220" r="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset=".55" stop-color="#eeeef1"/>
+      <stop offset="1" stop-color="#b4b5bf"/>
+    </radialGradient>
   </defs>
-  <rect width="1024" height="1024" fill="url(#surface)"/>
-  <g>
-    <g transform="matrix(2.25 0 0 2.25 -330 -365)" fill="#f3f3f8">
-      <path d="M366.5 237.84C382.17 237.71 397.83 237.84 413.5 237.78C425.68 237.74 439.18 238.04 448.67 246.85C460.33 257.68 459.8 274.99 458.13 289.5C455.82 309.57 451.8 329.66 448.22 349.54C444.43 370.55 440.9 393.5 423.35 407.89C414.65 415.02 403.67 419.09 392.5 419.97C382.97 420.71 372.86 419.07 363.5 420.64C355.77 457.07 348.03 493.51 340.3 529.94C325.83 529.94 311.37 529.94 296.9 529.94C320.1 432.57 343.3 335.21 366.5 237.84ZM394.5 273.09C386.93 309.23 379.35 345.36 371.78 381.5C374.8 382.45 377.72 382.46 380.97 382.5C384.65 382.54 388.56 382.49 392.13 381.56C405.6 378.03 406.84 360.73 409.13 349.53C411.59 337.55 413.67 325.5 416.04 313.5C417.79 304.62 423.82 285.42 418.98 277.55C414.65 270.5 401.34 272.07 394.5 273.09Z"/>
-    </g>
-    <rect x="290" y="858" width="444" height="28" rx="14" fill="#f59e0b"/>
-  </g>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <path d="M-40 912 L1064 712 L1064 1064 L-40 1064 Z" fill="#b87c14"/>
+  <path transform="translate(545 512) scale(4.3) translate(-378.35 -383.8)" fill="url(#s)" d="M366.5 237.84C382.17 237.71 397.83 237.84 413.5 237.78C425.68 237.74 439.18 238.04 448.67 246.85C460.33 257.68 459.8 274.99 458.13 289.5C455.82 309.57 451.8 329.66 448.22 349.54C444.43 370.55 440.9 393.5 423.35 407.89C414.65 415.02 403.67 419.09 392.5 419.97C382.97 420.71 372.86 419.07 363.5 420.64C355.77 457.07 348.03 493.51 340.3 529.94C325.83 529.94 311.37 529.94 296.9 529.94C320.1 432.57 343.3 335.21 366.5 237.84ZM394.5 273.09C386.93 309.23 379.35 345.36 371.78 381.5C374.8 382.45 377.72 382.46 380.97 382.5C384.65 382.54 388.56 382.49 392.13 381.56C405.6 378.03 406.84 360.73 409.13 349.53C411.59 337.55 413.67 325.5 416.04 313.5C417.79 304.62 423.82 285.42 418.98 277.55C414.65 270.5 401.34 272.07 394.5 273.09Z"/>
 </svg>

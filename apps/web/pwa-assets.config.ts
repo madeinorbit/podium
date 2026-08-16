@@ -16,9 +16,19 @@ import { defineConfig } from '@vite-pwa/assets-generator/config'
  *    squircle over the apple icon, so shipping corners of our own would put the
  *    icon in a visible frame.
  *  - maskable: Android crops to a circle inscribed in the middle 80%, and the
- *    yellow bar runs close enough to the bottom corners to clip. This one keeps
- *    a padding — over Race Navy rather than white, so the inset does not read as
- *    a border.
+ *    ocre plane runs close enough to the bottom corners to clip. This one keeps
+ *    a padding — over the mark's own ground rather than white, so the inset does
+ *    not read as a border.
+ *
+ * The maskable padding is a compromise, not the right answer. The 9a set draws a
+ * separate safe-zone cut for exactly this slot (apps/mobile/assets/icon-maskable.svg
+ * — the plane raised and the letter stepped down, rather than the whole tile
+ * shrunk), and mobile renders from it. This generator takes ONE source image for
+ * all three asset types (`images` is a single list, and the preset applies to
+ * every entry), so the web build cannot point the maskable slot at a different
+ * file without also duplicating the favicon and apple sets. Padding over the
+ * ground colour is the closest approximation available here; POD-1109 tracks
+ * moving the web maskable onto the real master.
  */
 export default defineConfig({
   headLinkOptions: { preset: '2023' },
@@ -31,12 +41,15 @@ export default defineConfig({
     maskable: {
       sizes: [512],
       padding: 0.15,
-      resizeOptions: { background: '#0a0f1c' },
+      // The 9a ground's mid stop. Race Navy #0a0f1c was the ground of an icon
+      // two cuts ago and outlived it here, so the inset already showed as a
+      // navy border around a near-black tile [POD-1108].
+      resizeOptions: { background: '#131417' },
     },
     apple: {
       sizes: [180],
       padding: 0,
-      resizeOptions: { background: '#0a0f1c' },
+      resizeOptions: { background: '#131417' },
     },
   },
   images: ['public/icon.svg'],

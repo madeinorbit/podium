@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="">
+  <!--
+    Android adaptive icon, BACKGROUND layer [POD-1108] — the 9a ground on its
+    own, full bleed.
+
+    It carries no artwork by design. The launcher parallaxes the two layers
+    against each other, so anything recognisable down here would slide out from
+    under the mark; and this layer is the only thing guaranteed to reach the
+    mask edge, so it has to be the ground and nothing else.
+
+    Same gradient as icon.svg, unshifted: the letter and plane in the foreground
+    layer are scaled about the centre, and rescaling the ground with them would
+    move the light source off the top-left corner it is lit from.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="120" y1="40" x2="920" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#232428"/>
+      <stop offset=".6" stop-color="#131417"/>
+      <stop offset="1" stop-color="#08080a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+</svg>

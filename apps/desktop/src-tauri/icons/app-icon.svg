@@ -1,14 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Podium">
+  <!--
+    The Podium mark, "9a — flat fill" [POD-1108] — same art as
+    apps/web/public/icon.svg and apps/mobile/assets/icon.svg, but sat on the
+    macOS icon grid rather than full bleed.
+
+    The web and mobile cuts are full bleed because iOS and Android mask their
+    own shape over the art. macOS does NOT: it renders the PNG as given, so the
+    corner, the inset and the contact shadow all have to be baked in here.
+    Apple's grid puts the content square at 80.47% of the canvas (824 of 1024),
+    which is what the 100px margin below is; the corner scales with it
+    (224 × 824/1024 ≈ 180). The square sits 10px above centre so the shadow has
+    somewhere to fall without the icon reading as bottom-heavy.
+
+    The previous cut used a 92% square with a 1px stroked border — that border
+    is gone. 9a's ground is a gradient that already separates the tile from a
+    light desktop, and at 16px the stroke was half the visual weight of the
+    letter.
+
+    Windows (.ico) and Linux (128x128.png) take the same file: the inset costs
+    them a little size but keeps one mark across all three shells.
+
+    Rasterise with `bun apps/desktop/scripts/generate-icons.ts`, which writes
+    every PNG in this directory plus icon.icns and icon.ico.
+  -->
   <defs>
-    <linearGradient id="surface" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#20202a"/>
-      <stop offset="1" stop-color="#0e0e12"/>
+    <linearGradient id="bg" x1="216" y1="130" x2="860" y2="902" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#232428"/>
+      <stop offset=".6" stop-color="#131417"/>
+      <stop offset="1" stop-color="#08080a"/>
     </linearGradient>
+    <radialGradient id="s" cx="341" cy="267" r="724" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset=".55" stop-color="#eeeef1"/>
+      <stop offset="1" stop-color="#b4b5bf"/>
+    </radialGradient>
+    <clipPath id="frame">
+      <rect x="100" y="90" width="824" height="824" rx="180"/>
+    </clipPath>
   </defs>
-  <rect x="40" y="40" width="944" height="944" rx="224" fill="url(#surface)"/>
-  <rect x="44" y="44" width="936" height="936" rx="220" fill="none" stroke="#343440" stroke-width="8"/>
-  <g transform="matrix(2.25 0 0 2.25 -330 -365)" fill="#f3f3f8">
-    <path d="M366.5 237.84C382.17 237.71 397.83 237.84 413.5 237.78C425.68 237.74 439.18 238.04 448.67 246.85C460.33 257.68 459.8 274.99 458.13 289.5C455.82 309.57 451.8 329.66 448.22 349.54C444.43 370.55 440.9 393.5 423.35 407.89C414.65 415.02 403.67 419.09 392.5 419.97C382.97 420.71 372.86 419.07 363.5 420.64C355.77 457.07 348.03 493.51 340.3 529.94C325.83 529.94 311.37 529.94 296.9 529.94C320.1 432.57 343.3 335.21 366.5 237.84ZM394.5 273.09C386.93 309.23 379.35 345.36 371.78 381.5C374.8 382.45 377.72 382.46 380.97 382.5C384.65 382.54 388.56 382.49 392.13 381.56C405.6 378.03 406.84 360.73 409.13 349.53C411.59 337.55 413.67 325.5 416.04 313.5C417.79 304.62 423.82 285.42 418.98 277.55C414.65 270.5 401.34 272.07 394.5 273.09Z"/>
+  <g clip-path="url(#frame)">
+    <rect x="100" y="90" width="824" height="824" fill="url(#bg)"/>
+    <path d="M68 824 L956 663 L956 946 L68 946 Z" fill="#b87c14"/>
+    <path transform="translate(538 502) scale(3.46) translate(-378.35 -383.8)" fill="url(#s)" d="M366.5 237.84C382.17 237.71 397.83 237.84 413.5 237.78C425.68 237.74 439.18 238.04 448.67 246.85C460.33 257.68 459.8 274.99 458.13 289.5C455.82 309.57 451.8 329.66 448.22 349.54C444.43 370.55 440.9 393.5 423.35 407.89C414.65 415.02 403.67 419.09 392.5 419.97C382.97 420.71 372.86 419.07 363.5 420.64C355.77 457.07 348.03 493.51 340.3 529.94C325.83 529.94 311.37 529.94 296.9 529.94C320.1 432.57 343.3 335.21 366.5 237.84ZM394.5 273.09C386.93 309.23 379.35 345.36 371.78 381.5C374.8 382.45 377.72 382.46 380.97 382.5C384.65 382.54 388.56 382.49 392.13 381.56C405.6 378.03 406.84 360.73 409.13 349.53C411.59 337.55 413.67 325.5 416.04 313.5C417.79 304.62 423.82 285.42 418.98 277.55C414.65 270.5 401.34 272.07 394.5 273.09Z"/>
   </g>
-  <rect x="290" y="858" width="444" height="28" rx="14" fill="#f59e0b"/>
 </svg>
