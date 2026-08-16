@@ -580,6 +580,21 @@ costs a wave of rejections while an unnecessary one costs a build. The machines 
 fleet read model asked the same target-only question and were moved with it. Written up in
 `docs/internal/pod-2198-pack-per-delivery-capability.md`.
 
+### 19.2e The foreground all-in-one is not the installed all-in-one
+
+§7.2 says the shell update "carries the server atomically", and for the *installed* shape that
+holds: with systemd persistence an all-in-one resolves to three units — server, janitor,
+daemon — each `Restart=always`, so the daemon's post-convergence exit restarts the daemon unit
+alone and the coordinating server is untouched. The shipped update unit confirms the intent by
+`try-restart`ing the **daemon** unit specifically.
+
+But the same code path runs server and daemon in **one process** when there is no persistence,
+or when the mode is named as a subcommand — which is what `podium all` does. There the
+daemon's exit *is* the server's exit, so a git-delivery update takes the coordinating server
+down and nothing brings it back; the panel gives no hint and the browser simply loses its
+server mid-operation. Found by driving it (POD-2157), traced to the composition root, tracked
+as POD-2210. This is the shape a developer runs, which is why nobody noticed.
+
 ### 19.3 Known-open at the time of writing
 
 A double grant when a wave widens past its canary; the eager web bundle over budget; the
