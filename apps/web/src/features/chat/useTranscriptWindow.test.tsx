@@ -411,6 +411,56 @@ describe('useTranscriptWindow back-paging (POD-341)', () => {
     ])
     expect(captured?.hasMoreOlder).toBe(false)
   })
+
+  // POD-1132: an older page is anchored to the head of the window that asked for
+  // it. If a tail re-read replaces that window while the page is in flight, the
+  // page ends where the OLD head was and the new window starts later — prepending
+  // joins them into a list with a silent span missing, which no guard downstream
+  // can see (they share no cursors, so every item looks legitimately fresh).
+  it('drops an older page whose window was replaced while it was in flight', async () => {
+    act(() => root.render(<Probe active={true} />))
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [item('h', 'c5', 'held head'), item('t', 'c6', 'held tail')],
+        head: 'c5',
+        tail: 'c6',
+        hasMore: true,
+      })
+    })
+    await flush()
+
+    // Page up (in flight), then a tail re-read lands FIRST and moves the head
+    // forward past the page's far end.
+    act(() => captured?.loadOlder())
+    expect(reads[1]?.input.anchor).toBe('c5')
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:09:00.000Z' })} />,
+      )
+    })
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 450))
+    })
+    await act(async () => {
+      reads[2]?.resolve({
+        items: [item('n', 'c9', 'new head')],
+        head: 'c9',
+        tail: 'c9',
+        hasMore: true,
+      })
+    })
+    await flush()
+
+    // The page finally answers, against a window that no longer exists.
+    await act(async () => {
+      reads[1]?.resolve({ items: [item('o', 'c1', 'stale page')], head: 'c1', hasMore: true })
+    })
+    await flush()
+    expect(captured?.blocks.map((b) => b.item.text)).toEqual(['new head'])
+    // The affordance survives, so scrolling up re-pages from the head that is
+    // actually there.
+    expect(captured?.hasMoreOlder).toBe(true)
+  })
 })
 
 // ---------------------------------------------------------------------------

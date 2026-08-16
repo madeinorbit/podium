@@ -236,6 +236,22 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
 
+  // WHICH WINDOW A PAGE WAS FETCHED FOR [POD-1132]. An older-page read is
+  // anchored to the head of the window that asked for it, and it can be in
+  // flight for seconds on a slow daemon — long enough for `readNewest` to
+  // replace that window underneath it. The page then prepends onto a window
+  // whose head has moved FORWARD, and nothing downstream can tell: the page and
+  // the new window share no cursors, so `freshOlderPage` calls all of it fresh
+  // and `dedupeByCursor` sees a clean list with a silent span missing in the
+  // middle — one that later paging extends away from rather than refills.
+  //
+  // Bumped inside the read's own continuation rather than mirrored at render
+  // time, because a page response can land in the microtask between a heal's
+  // setState and the commit that would have updated a render-time mirror. Same
+  // bail-on-stale shape as `sessionIdRef` above, one scope down: that one asks
+  // "is this still the same session", this one "is this still the same window".
+  const windowEpochRef = useRef(0)
+
   // The session row's activity fingerprint [POD-701], mirrored at render time so
   // `readNewest` can stamp "the window is current as of this" without taking it
   // as a dependency (which would re-bind the callback on every agent tick and
@@ -284,6 +300,10 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
         // This read IS the window being brought current, whatever the session row
         // says right now — so the liveness reconcile has nothing left to chase.
         reconciledSignalRef.current = activitySignalRef.current
+        // This snapshot REPLACES the window (and drops `older` below), so any
+        // older-page read still in flight was anchored to a head that is about
+        // to stop existing. Retire that epoch before the state lands.
+        windowEpochRef.current += 1
         // Keep the OLD array when the re-read changed nothing (POD-701): a refresh
         // that returns the same transcript must cost nothing, or the liveness
         // reconcile below would re-derive and re-render the whole feed on a timer.
@@ -755,6 +775,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     if (!anchor) return
     loadingOlderRef.current = true
     setLoadingOlder(true)
+    const epoch = windowEpochRef.current
     if (el) prependAnchor.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
     // Cursor-anchored back-page: read the window immediately BEFORE the oldest
     // loaded item (`headCursor`). No `fromEnd` index math — the cursor anchors the
@@ -762,6 +783,14 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     trpc.sessions.transcriptRead
       .query({ sessionId, anchor, direction: 'before', limit: PAGE_LIMIT })
       .then((r) => {
+        // The window this page was anchored to is gone — a tail re-read replaced
+        // it while the page was in flight, and its head has moved FORWARD of
+        // where this page ends. Prepending now would leave a silent span missing
+        // between the two, invisible to every guard below (the page and the new
+        // window share no cursors, so `freshOlderPage` calls all of it fresh).
+        // Drop it: `hasMoreOlder` and the affordance are untouched, so scrolling
+        // up again re-pages from the head that actually exists.
+        if (windowEpochRef.current !== epoch) return
         // Only items we do NOT already hold can be earlier than the window. A page
         // that is entirely held is the reader's rolled-away-anchor fallback (the
         // NEWEST window, not an older page) — prepending it would push newer items
@@ -816,6 +845,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
           if (!anchor) return
           loadingOlderRef.current = true
           setDeepeningSearch(true)
+          const epoch = windowEpochRef.current
           try {
             const r = await trpc.sessions.transcriptRead.query({
               sessionId,
@@ -824,6 +854,14 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
               limit: PAGE_LIMIT,
             })
             if (sessionIdRef.current !== sessionId) return // switched mid-page
+            // Same stale-window bail as `loadOlder`: a tail re-read replaced the
+            // window this page was anchored to, so prepending it would open a
+            // silent span. Stop deepening and re-arm — the window is shallow
+            // again, and the next search re-deepens against the head that exists.
+            if (windowEpochRef.current !== epoch) {
+              deepenedRef.current = false
+              return
+            }
             // Same rolled-away-anchor guard as `loadOlder`: a page we already hold
             // in full is the reader's newest-window fallback, not an older page.
             const fresh = freshOlderPage(r.items, loadedRef.current)
