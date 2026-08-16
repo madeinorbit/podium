@@ -53,6 +53,17 @@ export interface GrantApplyDeps {
   ): Promise<GrantArtifact>
   /** Binary swap only. Database state is intentionally not part of this phase. */
   swap(bytes: Uint8Array): void | Promise<void>
+  /**
+   * Why this daemon must not converge AT ALL, checked before any byte is
+   * fetched and any checkout is moved (POD-2210). Absent, or answering
+   * `undefined`, is the ordinary daemon that may.
+   *
+   * A first-person refusal, and it has to be: the server can only know what a
+   * daemon tells it, and this daemon's reason — its exit would stop the server
+   * sharing its process — is not a fact about the release, the platform or the
+   * delivery method, which is everything the caps negotiation can express.
+   */
+  refuse?(): string | undefined
   /** Persist before asking the process manager to restart us. */
   writePending(grant: PendingGrant): void
   restart(): void
@@ -112,6 +123,20 @@ export async function applyGrant(
   }
   if (plan.action === 'cannot') {
     report(deps, grant, 'rejected', current, `cannot converge: ${plan.reason}`)
+    return
+  }
+  /**
+   * AFTER `already-current`, BEFORE `downloading` (POD-2210).
+   *
+   * After, because a daemon that is already on the target has nothing to refuse
+   * and saying `current` keeps its fleet row true. Before, because the whole
+   * value of this refusal is that nothing was fetched, swapped or checked out —
+   * see {@link refuseConvergence} for why a half-applied convergence is worse
+   * here than a refused one.
+   */
+  const refusal = deps.refuse?.()
+  if (refusal) {
+    report(deps, grant, 'rejected', current, refusal)
     return
   }
   report(deps, grant, 'downloading', current)

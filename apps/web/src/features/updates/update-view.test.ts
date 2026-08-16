@@ -273,6 +273,38 @@ describe('describeUpdateFailure', () => {
     expect(JSON.stringify(v)).not.toContain('unsupported-delivery')
   })
 
+  /**
+   * POD-2210. The refusal a foreground `podium all` sends instead of dying. The
+   * daemon's exact sentence is pinned in apps/daemon's `convergence.test.ts`;
+   * what matters here is that this side recognizes the token and answers with
+   * the ONE action that actually works, rather than "try again".
+   */
+  it('tells a foreground Podium how to finish an update it cannot apply itself', () => {
+    const v = describeUpdateFailure(
+      'cannot converge: foreground-all-in-one — this daemon shares its process with the ' +
+        'Podium server and nothing would start that process again, so updating it here would ' +
+        'stop the server and it would not come back',
+    )
+
+    expect(v.state).toBe('failed')
+    expect(v.message).toMatch(/single foreground process/i)
+    expect(v.message).toMatch(/cannot update itself/i)
+    // "Nothing was changed" is the load-bearing half: the operator has to know
+    // whether their checkout moved before deciding what to do next.
+    expect(v.guidance).toMatch(/nothing was changed/i)
+    expect(v.guidance).toMatch(/start it again/i)
+    expect(v.guidance).toMatch(/podium setup/i)
+    // Never the generic delivery copy, which would send them to the release
+    // operator for a problem that lives in their own terminal.
+    expect(v.message).not.toMatch(/one or more machines/i)
+    expect(JSON.stringify(v)).not.toContain('foreground-all-in-one')
+  })
+
+  it('names the machine when the refusal came from one', () => {
+    const v = describeUpdateFailure('cannot converge: foreground-all-in-one — …', 'ludovico')
+    expect(v.message).toMatch(/^Podium on ludovico/)
+  })
+
   it('turns a dirty checkout into named, actionable copy', () => {
     const v = describeUpdateFailure('git delivery failed: dirty-working-tree', 'ludovico')
 

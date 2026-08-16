@@ -581,6 +581,15 @@ describe('the error taxonomy', () => {
     ['ECONNREFUSED 127.0.0.1:18787', 'download-failed'],
     ['The machine stopped reporting progress while updating.', 'machine-unreachable'],
     [undefined, 'machine-unreachable'],
+    // POD-2210: the daemon that declined ON PURPOSE, because finishing would
+    // have stopped the server sharing its process. Landing in the
+    // `machine-unreachable` default would tell the operator to go and check
+    // whether a machine that just answered them is running.
+    [
+      'cannot converge: foreground-all-in-one — this daemon shares its process with the ' +
+        'Podium server and nothing would start that process again',
+      'machine-cannot-restart',
+    ],
   ]
   for (const [detail, code] of rows) {
     it(`reads ${JSON.stringify(detail)} as ${code}`, () => {
@@ -598,6 +607,22 @@ describe('the error taxonomy', () => {
     expect(error.message).toContain('vmi')
     expect(error.places).toEqual(['m_a'])
     expect(error.detail).toBe('dirty-working-tree')
+  })
+
+  it('tells a foreground Podium what was NOT done, and the two ways out', () => {
+    const error = describeUpdateOperationFailure({
+      code: 'machine-cannot-restart',
+      places: ['m_a'],
+      names: ['ludovico'],
+      detail: 'cannot converge: foreground-all-in-one — …',
+    })
+    expect(error.message).toContain('ludovico')
+    expect(error.message).toMatch(/single foreground process/i)
+    expect(error.message).toMatch(/nothing was changed/i)
+    expect(error.message).toMatch(/start it again/i)
+    expect(error.message).toMatch(/podium setup/i)
+    // Never the sentence the default would have produced.
+    expect(error.message).not.toMatch(/stopped responding/i)
   })
 
   it('quotes the publisher‘s public reason for a preparation failure', () => {

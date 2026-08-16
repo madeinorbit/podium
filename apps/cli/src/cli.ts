@@ -814,6 +814,13 @@ export interface DaemonStartOptions {
   installGrokHooks?: boolean
   /** In-process daemon↔server channel [POD-196] — all-in-one mode only. */
   localLink?: LocalDaemonLink
+  /**
+   * All-in-one only: this daemon's exit would stop the server too, because they
+   * are one PID (POD-2210). The daemon refuses updates rather than converging
+   * into a stop nothing would undo — see `refuseConvergence` in apps/daemon.
+   * Only the launcher can answer this, which is why it is passed and not sniffed.
+   */
+  exitStopsServer?: boolean
 }
 
 /** Build the daemon auth/options for modes that actually run a daemon. */
@@ -840,6 +847,12 @@ export function daemonOptionsForPlan(
   return {
     serverUrl,
     ...localAuth,
+    // THE FACT ONLY THIS FUNCTION KNOWS (POD-2210). `all-in-one` here is by
+    // construction the IN-PROCESS one: the systemd and detached shapes are
+    // resolved to their own launch plans long before this, and each of their
+    // components starts as its own process with its own manager. So this is
+    // exactly the shape whose daemon must not exit to finish an update.
+    ...(plan.mode === 'all-in-one' ? { exitStopsServer: true } : {}),
     installCodexHooks: true,
     installGrokHooks: true,
     ...(plan.mode === 'daemon' && plan.pairCode ? { pairCode: plan.pairCode } : {}),

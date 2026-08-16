@@ -798,9 +798,39 @@ describe('daemonOptionsForPlan', () => {
       serverUrl: 'ws://localhost:18787',
       bootstrapToken: 'local-secret',
       machineId: 'host-machine-id',
+      exitStopsServer: true,
       installCodexHooks: true,
       installGrokHooks: true,
     })
+  })
+
+  it('tells the all-in-one daemon that its exit would stop the server too', () => {
+    // POD-2210. The launcher is the ONLY place that knows this daemon shares a
+    // PID with the server, and the daemon needs it to refuse an update whose
+    // last step is an exit nothing would undo. Pinned here rather than only in
+    // the daemon because the fact travels across an app boundary: a daemon that
+    // is never told simply converges and takes the server down with it.
+    expect(
+      daemonOptionsForPlan(
+        { mode: 'all-in-one', showSetupHint: false },
+        18787,
+        'local-secret',
+        asMachineId('host-machine-id'),
+      ).exitStopsServer,
+    ).toBe(true)
+  })
+
+  it('never claims a split-mode daemon would stop a server by exiting', () => {
+    // The daemon unit, the detached daemon and `podium daemon --server …` each
+    // own their process. Setting the flag there would refuse updates on exactly
+    // the machines the fleet exists to update.
+    expect(
+      daemonOptionsForPlan(
+        { mode: 'daemon', serverUrl: 'wss://relay.example', showSetupHint: false },
+        18787,
+        'local-secret',
+      ).exitStopsServer,
+    ).toBeUndefined()
   })
 
   it('keeps remote daemon auth based on serverUrl and pair code', () => {

@@ -466,6 +466,25 @@ function errorCopy(
         message: `${placeSubject(places, 'A machine')} stopped responding while updating.`,
         nextAction: "Check it's running; it will resume when it reconnects.",
       }
+    /**
+     * POD-2210: Podium started as a single foreground process (`podium all`, or
+     * a bare `podium` where nothing manages it) is server and daemon in one PID
+     * with nothing to restart it, so its daemon refuses the update instead of
+     * exiting into a server that never comes back.
+     *
+     * The one §7 failure whose next action is NOT "try again" — trying again
+     * would refuse identically, because the answer is in the operator's terminal
+     * and not in this panel. Saying "nothing was changed" is the first half of
+     * the sentence for a reason: it is the question a person asks before they
+     * decide whether it is safe to restart it.
+     */
+    case 'machine-cannot-restart':
+      return {
+        message: `${placeSubject(places, 'Podium')} is running as a single foreground process, so it cannot update itself. Nothing was changed.`,
+        nextAction:
+          'Stop it in its terminal and start it again to pick this up — or run `podium setup` ' +
+          'there to install it as a service, which can update itself without going down.',
+      }
     case 'download-failed':
       return {
         message: "The update couldn't be downloaded.",

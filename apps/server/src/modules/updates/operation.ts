@@ -105,6 +105,15 @@ export const UPDATE_ERROR_CODES = [
   'machine-dirty-checkout',
   'machine-unsupported',
   'machine-unreachable',
+  /**
+   * The machine took no update because finishing one would have stopped it for
+   * good (POD-2210): a Podium running as a single foreground process is server
+   * and daemon in one PID with nothing to restart it, so its daemon refuses
+   * rather than exiting. Named as its own code because the default —
+   * `machine-unreachable` — would have told the operator to check a machine that
+   * is running perfectly and answered them clearly.
+   */
+  'machine-cannot-restart',
   'download-failed',
   'server-did-not-reach-target',
   'web-build-failed',
@@ -116,6 +125,7 @@ export type UpdateFailure =
   | { code: 'machine-dirty-checkout'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-unsupported'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-unreachable'; places: string[]; names: string[]; detail?: string }
+  | { code: 'machine-cannot-restart'; places: string[]; names: string[]; detail?: string }
   | { code: 'download-failed'; places?: string[]; names?: string[]; detail?: string }
   | { code: 'server-did-not-reach-target'; observedVersion: string; targetVersion: string }
   | { code: 'web-build-failed'; detail?: string }
@@ -149,6 +159,16 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
       return {
         code: failure.code,
         message: `${subject(failure)} stopped responding while updating. Check it's running; it will resume when it reconnects.`,
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-cannot-restart':
+      return {
+        code: failure.code,
+        // Says what was NOT done first, because the operator's next question is
+        // whether their checkout moved, and then the two ways out — the one that
+        // takes five seconds, and the one that makes it not happen again.
+        message: `${subject(failure)} is running Podium as a single foreground process, so it cannot update itself. Nothing was changed. Stop it and start it again there to pick this up, or install it as a service with \`podium setup\`.`,
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
@@ -198,6 +218,7 @@ export type MachineFailureCode =
   | 'machine-dirty-checkout'
   | 'machine-unsupported'
   | 'machine-unreachable'
+  | 'machine-cannot-restart'
   | 'download-failed'
 
 export function classifyMachineFailure(detail: string | undefined): MachineFailureCode {
@@ -205,6 +226,12 @@ export function classifyMachineFailure(detail: string | undefined): MachineFailu
   if (/dirty[-_\s]working[-_\s]tree|local (?:files|edits)|uncommitted/i.test(normalized)) {
     return 'machine-dirty-checkout'
   }
+  // POD-2210. FIRST among the machine refusals, and before the fall-through
+  // below in particular: this daemon is running, answering, and declining on
+  // purpose, so the default's "stopped responding, check it's running" would
+  // send the operator to look at the healthiest thing in the picture. The token
+  // is the daemon's (`FOREGROUND_ALL_IN_ONE_REFUSAL` in apps/daemon).
+  if (/foreground[-_\s]all[-_\s]in[-_\s]one/i.test(normalized)) return 'machine-cannot-restart'
   if (/unsupported[-_\s]delivery|unsupported[-_\s]platform|no[-_\s]artifact/i.test(normalized)) {
     return 'machine-unsupported'
   }

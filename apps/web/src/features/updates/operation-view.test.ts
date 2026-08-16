@@ -384,6 +384,33 @@ describe('operationView — the seven states', () => {
     expect(result.indicator).toBe('attention')
   })
 
+  /**
+   * POD-2210. Before this, a foreground `podium all` simply died mid-update and
+   * the browser lost its server with nothing said anywhere. Now it refuses, and
+   * this is the panel that has to make the refusal worth reading.
+   */
+  it('tells a foreground Podium what happened and what to do about it', () => {
+    const result = view(
+      operationPayload({
+        state: 'failed',
+        error: {
+          code: 'machine-cannot-restart',
+          message: 'ludovico is running Podium as a single foreground process…',
+          places: ['ludovico'],
+          detail: 'cannot converge: foreground-all-in-one — …',
+        },
+      }),
+    )
+    expect(result.state).toBe('failed')
+    expect(result.error?.message).toMatch(/^ludovico is running as a single foreground process/)
+    expect(result.error?.message).toMatch(/nothing was changed/i)
+    expect(result.error?.nextAction).toMatch(/stop it in its terminal and start it again/i)
+    expect(result.error?.nextAction).toMatch(/podium setup/i)
+    // The raw token stays in the collapsed diagnostic, never in the sentence.
+    expect(result.error?.message).not.toContain('foreground-all-in-one')
+    expect(result.error?.detail).toContain('foreground-all-in-one')
+  })
+
   it('treats a canceled operation as nothing to say', () => {
     expect(view(operationPayload({ state: 'canceled' })).state).toBe('none')
   })

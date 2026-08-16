@@ -122,6 +122,56 @@ describe('applyGrant', () => {
     )
   })
 
+  /**
+   * THE FOREGROUND ALL-IN-ONE (POD-2210). A daemon whose exit is also the
+   * server's must not take delivery at all, and the operator must be told why
+   * rather than watching the browser lose its server mid-update.
+   */
+  describe('when converging would stop a server nothing would restart', () => {
+    const refusing = (over: Partial<Parameters<typeof applyGrant>[1]> = {}) =>
+      deps({ refuse: () => 'cannot converge: foreground-all-in-one — it would not come back', ...over })
+
+    it('touches nothing: no fetch, no swap, no marker, no exit', async () => {
+      // Order matters as much as the refusal. Git delivery detaches the very
+      // checkout the running server reads its assets, migrations and lifecycle
+      // workers from, so a convergence stopped anywhere later would leave a live
+      // old process on new source. Nothing changed is the only honest state.
+      const d = refusing()
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+      expect(d.fetchArtifact).not.toHaveBeenCalled()
+      expect(d.swap).not.toHaveBeenCalled()
+      expect(d.writePending).not.toHaveBeenCalled()
+      expect(d.restart).not.toHaveBeenCalled()
+    })
+
+    it('reports rejected carrying the reason, and never says downloading', async () => {
+      const d = refusing()
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+      const frames = (d.report as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0] as { state: string; detail?: string },
+      )
+      expect(frames.map((f) => f.state)).toEqual(['rejected'])
+      expect(frames[0]?.detail).toContain('foreground-all-in-one')
+    })
+
+    it('still says current when it is already on the target', async () => {
+      // A refusal is about converging. A daemon that has nothing to converge has
+      // nothing to refuse, and a fleet row that read `rejected` here would be a
+      // lie about a machine that is up to date.
+      const d = refusing({ currentVersion: () => '0.4.2' })
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+      expect(d.report).toHaveBeenCalledWith(expect.objectContaining({ state: 'current' }))
+    })
+
+    it('converges normally when nothing refuses', async () => {
+      // The arm that proves the guard is a guard and not a general stop.
+      const d = deps()
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+      expect(d.swap).toHaveBeenCalledOnce()
+      expect(d.restart).toHaveBeenCalledOnce()
+    })
+  })
+
   it('reports downloading before it reports restarting', async () => {
     const d = deps()
     await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)

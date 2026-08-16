@@ -278,6 +278,36 @@ export interface FailedUpdateView {
 export function describeUpdateFailure(detail?: string, machineName?: string): FailedUpdateView {
   const normalized = detail?.trim()
 
+  /**
+   * THE ONE FAILURE WHOSE NEXT ACTION IS NOT "TRY AGAIN" (POD-2210).
+   *
+   * Podium started as a single foreground process — `podium all`, or a bare
+   * `podium` on a box with no persistence — is server and daemon in one PID with
+   * nothing to restart it. Its daemon therefore refuses the update outright
+   * instead of exiting into a server that never comes back, and this is the
+   * sentence that refusal becomes. FIRST, because it is the most specific match:
+   * the generic delivery branches below would swallow it into "one or more
+   * machines cannot use this update", which is both untrue and unactionable.
+   *
+   * The guidance names both ways out, in the order a person would want them: the
+   * one that takes five seconds, and the one that makes the problem not happen
+   * again.
+   */
+  if (normalized && /foreground[-_\s]all[-_\s]in[-_\s]one/i.test(normalized)) {
+    const subject = machineName ? `Podium on ${machineName}` : 'Podium here'
+    return {
+      state: 'failed',
+      message: subject + ' is running as a single foreground process, so it cannot update itself.',
+      guidance:
+        'Nothing was changed. Stop it in the terminal it is running in and start it again to ' +
+        'pick up this update — or run `podium setup` there to install it as a service, which ' +
+        'can update itself without going down.',
+      diagnostic:
+        'The daemon shares its process with the server; updating it would have stopped the ' +
+        'server with nothing to restart it.',
+    }
+  }
+
   if (normalized && /dirty[-_\s]working[-_\s]tree/i.test(normalized)) {
     const subject = machineName ?? 'A machine'
     const location = machineName ?? 'that machine'

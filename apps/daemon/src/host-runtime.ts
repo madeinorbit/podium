@@ -34,7 +34,7 @@ import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
-import { MAX_CONVERGENCE_ATTEMPTS, resolveOnBoot } from './convergence'
+import { MAX_CONVERGENCE_ATTEMPTS, refuseConvergence, resolveOnBoot } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { selectDurableBackend } from './durable-backend'
@@ -361,6 +361,23 @@ export async function createDaemonHostRuntime(args: {
     clearPendingGrant(instance.runtimeDir)
   }
 
+  /**
+   * Read ONCE, at boot, because it is a fact about how this process was started
+   * and cannot change while it runs — and because the operator deserves to see
+   * it in the log of the terminal they are watching, not only in the browser.
+   */
+  const convergenceRefusal = refuseConvergence({
+    exitStopsServer: opts.exitStopsServer ?? false,
+    env: process.env,
+  })
+  if (convergenceRefusal) {
+    log.warn(
+      'this daemon shares its process with the podium server and nothing would restart it — ' +
+        'updates will be refused here; stop podium and start it again to pick one up, or run ' +
+        '`podium setup` to install it as a service that can update itself',
+    )
+  }
+
   // One runner per daemon: overlapping grants are serialized here rather than
   // racing to swap the same binary.
   const grantRunner = createGrantRunner({
@@ -385,6 +402,7 @@ export async function createDaemonHostRuntime(args: {
       if (!installDir) throw new Error('binary delivery requires an installed daemon')
       return swapHeadlessBundle(bytes, installDir)
     },
+    ...(convergenceRefusal ? { refuse: () => convergenceRefusal } : {}),
     writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
     restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
     report: (status) => send(status),
