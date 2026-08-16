@@ -58,7 +58,7 @@ import {
   toggleLabelAcross,
 } from './issue-context-menu'
 import { PriorityGlyph, StatusGlyph } from './issue-glyphs'
-import type { IssueCloseReason } from './issue-lifecycle'
+import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 import {
   createIssueMenuData,
   ISSUE_MENU_COLOR_NONE,
@@ -106,6 +106,10 @@ export function IssueContextMenu({
   onClose: () => void
   onOpen: (id: IssueId) => void
   onRename?: (id: IssueId) => void
+  /** Only for hosts that ALREADY own an `IssueCloseDialog` (the issue page, the
+   *  panel's compact controls) — they keep their own busy state and their own
+   *  close command. Everyone else gets the guard from the menu itself; it is a
+   *  property of closing, not of the surface the close was asked from. */
   onRequestClose?: (reason: IssueCloseReason) => void
   surface?: IssueMenuSurface
   /** Flight Deck proposals use the sidebar's one-click start action instead of
@@ -155,6 +159,10 @@ export function IssueContextMenu({
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
   const [sub, setSub] = useState<{ kind: IssueMenuSubmenu; top: number } | null>(null)
+  // The close guard the menu mounts for itself when the host has no dialog of
+  // its own. Non-null means the panel has handed over to the dialog.
+  const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
+  const [closing, setClosing] = useState(false)
 
   useEffect(() => {
     const el = ref.current
@@ -167,6 +175,10 @@ export function IssueContextMenu({
   }, [anchor])
 
   useEffect(() => {
+    // While the close dialog stands in for the panel these would fight it: a
+    // press inside the dialog lands outside `ref`, and Escape is the dialog's
+    // own dismissal. Unmounting the menu here would take the dialog with it.
+    if (pendingClose) return
     const onDown = (e: MouseEvent): void => {
       if (!ref.current?.contains(e.target as Node)) onClose()
     }
@@ -183,10 +195,40 @@ export function IssueContextMenu({
       window.removeEventListener('scroll', onClose, true)
       window.removeEventListener('resize', onClose)
     }
-  }, [onClose])
+  }, [onClose, pendingClose])
 
   const first = issues[0]
   if (!first) return null
+
+  // The guard, mounted in the panel's place: the menu is gone from the screen
+  // but still mounted, so the dialog it owns survives until the decision is
+  // made. Hosts that pass `onRequestClose` never reach here.
+  if (pendingClose) {
+    const dismiss = (): void => {
+      setPendingClose(null)
+      onClose()
+    }
+    return (
+      <IssueCloseDialog
+        issue={first}
+        reason={pendingClose}
+        busy={closing}
+        onOpenChange={(open) => !open && dismiss()}
+        onConfirm={(reason) => {
+          setClosing(true)
+          // Optimistic + outboxed (POD-781) like every other action here: the
+          // row reaches the Closed fold on the press, so the dialog can go.
+          closeIssue(first.id, reason)
+            .then(dismiss)
+            .catch((e: unknown) => {
+              setClosing(false)
+              toast.error(e instanceof Error ? e.message : String(e))
+            })
+        }}
+      />
+    )
+  }
+
   const eligibility = issueMenuEligibility(issues, surface)
   const ids = issues.map((issue) => issue.id)
   const handoff =
@@ -248,7 +290,9 @@ export function IssueContextMenu({
       onRequestClose(reason)
       return
     }
-    run(() => closeIssue(first.id, reason))
+    // No `run()`: closing is never immediate. The panel gives way to the guard
+    // above, which lists what is still unresolved before anything is sent.
+    setPendingClose(reason)
   }
   const defer = (until: string | null): void => run(() => deferIssue(first.id, until))
   const undefer = (): void => run(() => undeferIssue(first.id))
