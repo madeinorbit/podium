@@ -980,6 +980,39 @@ export class UpdatesService {
     return host ? this.channelOf(host) : this.fleetDefaultChannel()
   }
 
+  /**
+   * WHAT `/version` ADVERTISES — THE OFFER'S ONLY INPUT (POD-2212/POD-2222).
+   *
+   * The panel derives its whole offer from `server.target`: no target, no
+   * offer, no button. That target used to be assembled at the composition root
+   * as `devPublisher.publishTarget() ?? updates.target()` — and `target()`
+   * defaults to `dev`, so BOTH halves asked the development authority. On an
+   * installed host the publisher is disabled and the dev authority has nothing
+   * to say, so `/version` carried no target and a stable installation looked
+   * permanently up to date while a published release sat one fetch away.
+   *
+   * The live drive measured the disagreement inside one second: the operation
+   * resolved stable `0.1.3` while `/version` advertised `dev+03a2892`. This is
+   * that fix and only that fix — the READ asks {@link operationChannel}, the
+   * same question the ACTION already asks, so the offer and the update it
+   * starts can no longer name different versions.
+   *
+   * The published development bundle keeps its precedence on a dev-following
+   * host, where it is the freshest statement of that authority: it is HEAD,
+   * read this request, against a `dev` target that was set when HEAD last
+   * moved. It is offered as an argument rather than fetched here because
+   * publishing is the composition root's business and this service must stay
+   * free of it.
+   */
+  advertisedTarget(
+    hostMachineId?: string,
+    publishedDevTarget?: UpdateTarget,
+  ): UpdateTarget | undefined {
+    const channel = this.operationChannel(hostMachineId)
+    if (channel === 'dev') return publishedDevTarget ?? this.target('dev')
+    return this.target(channel)
+  }
+
   private rollout(channel: UpdateChannel): ChannelRolloutState {
     const current = this.rollouts.get(channel)
     if (current) return current

@@ -28,11 +28,15 @@ const FAILED: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
 /**
  * ASKED, NOT ASSUMED (POD-2100). This used to default an unpinned machine to
  * `dev` on its own, so a machine the grant path resolved to the fleet default
- * could still be counted into the dev-authority wave the dialog reports on.
+ * could still be counted into the authority wave the dialog reports on.
  * `channelOf` is now the single resolution site for everyone.
  */
-function isDevelopmentMachine(updates: UpdatesService, machine: WaveMachine): boolean {
-  return updates.channelOf(machine) === 'dev'
+function isOnChannel(
+  updates: UpdatesService,
+  machine: WaveMachine,
+  channel: UpdateChannel,
+): boolean {
+  return updates.channelOf(machine) === channel
 }
 
 /**
@@ -131,29 +135,32 @@ export interface UpdateFleetSnapshot {
 }
 
 /**
- * STILL DEV-SCOPED, AND NOW OUT OF STEP WITH THE OPERATION — say so out loud.
+ * SCOPED TO THE OPERATION'S AUTHORITY, WHICH IS THE HOST'S (POD-2222/POD-2212).
  *
- * POD-2189 fixed the OPERATION's channel: it follows the host rather than the
- * literal `'dev'` both composition roots used to write. This read model was NOT
- * changed with it, and that is a decision rather than an oversight — the
- * narrowing below is POD-2100's, with a stated reason, and widening it changes
- * what the dialog counts as behind rather than only which authority it asks.
+ * This was dev-scoped, and that was POD-2100's decision with a stated reason:
+ * edge and stable machines carry their own per-row targets, so comparing them
+ * against the DEV target would invent behind places the global action could not
+ * grant. The reason was right; its premise expired. POD-2189 made the global
+ * action's authority the HOST's own channel, and this read model was not moved
+ * with it — so on a stable installation the offer and the action stopped
+ * describing the same wave. `targetVersion` was null and `total`/`behind` were
+ * zero while a published stable release sat one fetch away, which is why a
+ * stable installation was never OFFERED an update at all.
  *
- * The consequence is real and worth naming where a reader will meet it: on a
- * fleet with no dev machines, `targetVersion` is null and `total`/`behind` are
- * zero while a perfectly good `stable` operation runs. The panel renders off the
- * operation and is fine; the Settings fleet counts are the surface that lies.
- * Filed separately rather than widened here.
+ * The widening is exactly one channel wide, and the invariant it preserves is
+ * the one POD-2100 was protecting: the set counted here is the set
+ * `updates.converge`/`updates.start` would grant, because both ask
+ * {@link UpdatesService.operationChannel}. Machines pinned elsewhere are still
+ * left out of these counts and still keep their own per-row target, action and
+ * standing reconciliation — they remain in `allMachines`, which is where
+ * Settings renders them.
  */
 function fleetSnapshot(
   updates: UpdatesService,
   reconciler?: { convergedBy(machine: WaveMachine): 'reconciler' | undefined },
+  hostMachineId?: string,
 ): UpdateFleetSnapshot {
-  const targetVersion = updates.targetVersion()
-  // The global dialog is the coordinating source server's dev-authority wave.
-  // Edge/stable machines have their own explicit per-row targets and actions;
-  // comparing them with the dev target invents behind places this mutation
-  // cannot and must not grant.
+  const channel = updates.operationChannel(hostMachineId)
   const allMachines = updates.fleet().map((machine) => {
     const convergedBy = reconciler?.convergedBy(machine)
     return {
@@ -162,8 +169,9 @@ function fleetSnapshot(
       ...(convergedBy ? { convergedBy } : {}),
     }
   })
-  const machines = allMachines.filter((machine) => isDevelopmentMachine(updates, machine))
-  const target = updates.target()
+  const machines = allMachines.filter((machine) => isOnChannel(updates, machine, channel))
+  const target = updates.target(channel)
+  const targetVersion = target?.version
   // PER MACHINE, not per target (POD-2195): a fleet that can take git delivery
   // is converging on a bare `dev+<sha>` identity right now, and zeroing its live
   // counts for the want of a tarball nobody is waiting for made Settings say
@@ -367,10 +375,12 @@ export async function startUpdateOperation(
 export function updateFleet(ctx: Context): UpdateFleetSnapshot {
   const state = familyState(ctx)
   const updates = state.modules.updates
-  const fleet = fleetSnapshot(updates, state.modules.updatesReconciler)
+  const fleet = fleetSnapshot(updates, state.modules.updatesReconciler, state.store.hostMachineId)
   const preparation = ctx.updatePreparation?.()
   const active = state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
-  const queued = updates.nextTarget('dev')
+  // The queued version belongs to the same authority as the counts above: a dev
+  // publication is not what a stable host is waiting its turn for (POD-2222).
+  const queued = updates.nextTarget(updates.operationChannel(state.store.hostMachineId))
   return {
     ...fleet,
     ...(preparation ? { preparation } : {}),
@@ -392,6 +402,7 @@ function legacyConvergeResult(
   updates: UpdatesService,
   operation: Operation | null,
   fallbackVersion: string,
+  hostMachineId?: string,
 ): {
   state: 'in-progress'
   version: string
@@ -403,7 +414,7 @@ function legacyConvergeResult(
 } {
   const steps = operation?.steps ?? []
   const done = steps.filter((step) => step.state === 'done' || step.state === 'skipped').length
-  const fleet = fleetSnapshot(updates)
+  const fleet = fleetSnapshot(updates, undefined, hostMachineId)
   return {
     state: 'in-progress',
     version:
@@ -536,7 +547,12 @@ export function updateProcedures() {
         engine.history(UPDATE_OPERATION_KIND, 1)[0]?.operation ??
         started.operation
       throwIfFailedOnStart(operation)
-      return legacyConvergeResult(state.modules.updates, operation, serverBuildVersion())
+      return legacyConvergeResult(
+        state.modules.updates,
+        operation,
+        serverBuildVersion(),
+        state.store.hostMachineId,
+      )
     }),
   }
 }

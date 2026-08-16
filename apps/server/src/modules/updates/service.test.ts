@@ -1188,3 +1188,95 @@ describe('UpdatesService.operationChannel', () => {
     expect(svc.operationChannel('host')).toBe(svc.channelOf(host as never))
   })
 })
+
+/**
+ * WHAT `/version` ADVERTISES, AND WHY IT IS NOT ALWAYS DEV (POD-2222/POD-2212).
+ *
+ * The panel's whole OFFER is derived from `server.target` — `use-update-state`
+ * reads `/version` and `describeUpdate` has nothing to show without it. That
+ * target used to be `devPublisher.publishTarget() ?? updates.target()`, and
+ * `target()` defaults to `dev`: both halves asked the development authority. On
+ * a stable installation the publisher is disabled and the dev authority has
+ * nothing, so `/version` carried no target at all and a machine that was
+ * genuinely behind a published stable release looked permanently up to date.
+ *
+ * The live drive measured the disagreement in one second: the operation
+ * resolved stable `0.1.3` while `/version` advertised `dev+03a2892`. So this is
+ * the same question `operationChannel` already answers — asked by the READ path
+ * as well, so the offer and the action cannot name different versions.
+ */
+describe('UpdatesService.advertisedTarget', () => {
+  const shipped = (machines: unknown[], fleetChannel?: UpdateChannel) =>
+    new UpdatesService({
+      machines: () => machines as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      ...(fleetChannel ? { fleetChannel: () => fleetChannel } : {}),
+    })
+
+  const t = (version: string) => ({ version, critical: false, artifacts: {} }) as never
+
+  /** THE DEFECT: a stable-pinned host, a published stable release, no offer. */
+  it("advertises the host's own stable authority to a stable-pinned host", () => {
+    const svc = shipped([m('host', { channel: 'stable' })])
+    svc.setTarget('stable', t('0.1.3'))
+
+    expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
+  })
+
+  /**
+   * The drive's exact configuration: a SOURCE host pinned to stable, whose dev
+   * publisher is alive and offering a `dev+` identity. The publisher must not
+   * speak for an authority the host does not follow — that is precisely the
+   * `dev+03a2892` the panel showed while the operation planned `0.1.3`.
+   */
+  it('does not let the development publisher speak for a stable-pinned host', () => {
+    const svc = shipped([m('host', { channel: 'stable' })])
+    svc.setTarget('stable', t('0.1.3'))
+
+    expect(svc.advertisedTarget('host', t('dev+03a2892'))?.version).toBe('0.1.3')
+  })
+
+  /** A development coordinator is unchanged: the publisher still wins, and the
+   *  service's own dev target is still the fallback when it has nothing. */
+  it('still prefers the published development bundle on a dev-pinned host', () => {
+    const svc = shipped([m('host', { channel: 'dev' })])
+    svc.setTarget('dev', t('dev+aaaaaaa'))
+
+    expect(svc.advertisedTarget('host', t('dev+bbbbbbb'))?.version).toBe('dev+bbbbbbb')
+    expect(svc.advertisedTarget('host')?.version).toBe('dev+aaaaaaa')
+  })
+
+  it('follows an edge-pinned host onto edge', () => {
+    const svc = shipped([m('host', { channel: 'edge' })])
+    svc.setTarget('edge', t('0.2.0'))
+    svc.setTarget('dev', t('dev+aaaaaaa'))
+
+    expect(svc.advertisedTarget('host')?.version).toBe('0.2.0')
+  })
+
+  /**
+   * A host that has not handshaked yet follows the fleet default — the same
+   * fallback `operationChannel` makes, because this must never answer a
+   * different authority than the action would grant.
+   */
+  it('agrees with operationChannel, including before the host is registered', () => {
+    const svc = shipped([], 'stable')
+    svc.setTarget('stable', t('0.1.3'))
+
+    expect(svc.operationChannel('host')).toBe('stable')
+    expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
+    expect(svc.advertisedTarget(undefined)?.version).toBe('0.1.3')
+  })
+
+  /** Nothing published on the host's authority is still nothing: an absent
+   *  target must not fall back to some other channel's version. */
+  it('advertises nothing rather than another channel when its own has none', () => {
+    const svc = shipped([m('host', { channel: 'stable' })])
+    svc.setTarget('dev', t('dev+aaaaaaa'))
+
+    expect(svc.advertisedTarget('host')).toBeUndefined()
+  })
+})

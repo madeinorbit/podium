@@ -657,9 +657,16 @@ export async function startServer(
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
+    // THE HOST'S OWN AUTHORITY, not the dev one (POD-2222). `publishTarget` is
+    // still awaited on every read whatever the channel: it is what REFRESHES
+    // the dev target for the machines that do follow dev, and skipping it on a
+    // stable-pinned source host would stop that refresh for them.
+    // `advertisedTarget` then decides which authority this host is entitled to
+    // advertise — see `UpdatesService.advertisedTarget`.
     updateTarget: async () => {
       void devPublisher.requestBuild(false).catch(() => {})
-      return (await devPublisher.publishTarget()) ?? registry.modules.updates.target()
+      const published = await devPublisher.publishTarget()
+      return registry.modules.updates.advertisedTarget(hostMachineId, published)
     },
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
   })

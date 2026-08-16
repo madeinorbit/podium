@@ -1,4 +1,4 @@
-import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, FIRST_ADMIN_USER_ID, type UpdateChannel } from '@podium/model'
 import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
@@ -296,6 +296,103 @@ describe('release target checks', () => {
     expect(results.map((record) => record.channel)).toEqual(['dev', 'stable'])
     expect(results.every((record) => record.outcome.status === 'unavailable')).toBe(true)
     fetchSpy.mockRestore()
+    registry.dispose()
+  })
+})
+
+/**
+ * THE FLEET READ MODEL FOLLOWS THE OPERATION'S AUTHORITY (POD-2222/POD-2212).
+ *
+ * POD-2100 narrowed this read model to the `dev` authority, with a stated
+ * reason: edge and stable machines carry their own per-row targets, and
+ * comparing them against the DEV target would invent behind places the global
+ * action could not grant. That reasoning was right and its premise expired —
+ * POD-2189 made the global action's authority the HOST's own channel, so on a
+ * stable installation the read model and the action stopped describing the same
+ * wave. The consequence the live drive found: a stable-pinned installation is
+ * never counted as behind, and so is never OFFERED the update it could take.
+ *
+ * The widening is therefore exactly one channel wide — the same
+ * `operationChannel` the mutation uses — which is what keeps "no invented
+ * grantable places" true: the set counted here IS the set that mutation grants.
+ */
+describe('the fleet counted is the fleet the global action would grant', () => {
+  const hostAt = (
+    registry: ReturnType<typeof harness>['registry'],
+    channel: UpdateChannel,
+    appVersion: string,
+  ) => {
+    const id = registry.sessionStore.hostMachineId
+    registry.modules.machines.setUpdateChannel(id, channel)
+    registry.modules.machines.setMachineBuild(id, { appVersion }, [], '2026-08-13T00:00:00.000Z')
+  }
+
+  /** THE DEFECT: a real stable release, a host behind it, and a read model that
+   *  reported an empty dev wave — `targetVersion` null, nothing behind. */
+  it('counts a stable-pinned host as behind its own stable target', async () => {
+    const { registry, caller } = harness()
+    hostAt(registry, 'stable', '0.1.2')
+    registry.modules.updates.setTarget('stable', target('0.1.3'))
+
+    const fleet = await caller.updates.fleet()
+
+    expect(fleet.targetVersion).toBe('0.1.3')
+    expect(fleet.total).toBe(1)
+    expect(fleet.behind).toBe(1)
+    expect(fleet.machines.map((machine) => machine.id)).toEqual([
+      registry.sessionStore.hostMachineId,
+    ])
+    registry.dispose()
+  })
+
+  /**
+   * THE NARROWING THAT MUST SURVIVE. A dev coordinator still counts only its
+   * dev wave: a stable machine sitting in the same directory is not the global
+   * action's business, keeps its own per-row action, and must not appear as a
+   * behind place this dialog cannot move.
+   */
+  it('still leaves an off-channel machine out of the wave the dialog counts', async () => {
+    const { registry, caller } = harness()
+    hostAt(registry, 'dev', 'dev+47a01e3')
+    registry.sessionStore.machines.upsertMachine({
+      id: 'stable-vps',
+      name: 'VPS',
+      hostname: 'vps',
+      tokenHash: 'vps-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
+    registry.modules.machines.setMachineBuild(
+      asMachineId('stable-vps'),
+      { appVersion: '0.1.2' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget('dev', target('dev+47a01e3'))
+    registry.modules.updates.setTarget('stable', target('0.1.3'))
+
+    const fleet = await caller.updates.fleet()
+
+    expect(fleet.targetVersion).toBe('dev+47a01e3')
+    expect(fleet.total).toBe(1)
+    expect(fleet.behind).toBe(0)
+    // Settings still gets every row, so the stable machine's own convergence
+    // remains visible where its own action lives.
+    expect(fleet.allMachines.map((machine) => machine.id)).toContain('stable-vps')
+    registry.dispose()
+  })
+
+  /** The invariant behind both cases, asserted directly rather than implied. */
+  it('scopes the wave to the same channel the operation would be computed on', async () => {
+    const { registry, caller } = harness()
+    hostAt(registry, 'stable', '0.1.2')
+    registry.modules.updates.setTarget('stable', target('0.1.3'))
+
+    const fleet = await caller.updates.fleet()
+    const channel = registry.modules.updates.operationChannel(registry.sessionStore.hostMachineId)
+
+    expect(channel).toBe('stable')
+    expect(fleet.targetVersion).toBe(registry.modules.updates.target(channel)?.version)
     registry.dispose()
   })
 })
