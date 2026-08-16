@@ -305,6 +305,14 @@ section{padding-top:62px}
 .unroll.open{grid-template-rows:1fr}
 .unroll > div{overflow:hidden; min-height:0}
 
+/* 3′ — the same read, with the height reserved up front. The row is at its
+   final size on the first frame (one scroll write, no chasing); the reveal is
+   a clip, which never touches layout. */
+@keyframes wipe-open{ from{clip-path:inset(0 0 100% 0)} to{clip-path:inset(0 0 0 0)} }
+@media (prefers-reduced-motion:no-preference){
+  .enter-wipe{animation:wipe-open calc(260ms * var(--t)) var(--curve) both}
+}
+
 /* Callouts */
 .note{
   margin-top:26px; padding:15px 17px; border-radius:8px;
@@ -555,7 +563,7 @@ section{padding-top:62px}
   <div class="rule"></div>
   <p class="lede">Each feed below opens with two messages that did <em>not</em> animate — that is the latch working, and it is the state a reader spends 99% of their time in. Press the button to land a new one. The same three materials: the block moves, the ink resolves, or the space opens.</p>
 
-  <div style="margin-top:16px"><button type="button" class="btn" data-fire-group="arrival">Land a message in all three</button></div>
+  <div style="margin-top:16px"><button type="button" class="btn" data-fire-group="arrival">Land a message in all four</button></div>
 
   <div class="grid">
 
@@ -622,13 +630,44 @@ section{padding-top:62px}
   </div>
 
   <div class="note">
-    <h4>The catch on 3</h4>
-    The unroll is the prettiest of the three and the only one that costs something real. <code>9785df5f0</code> deliberately removed <code>overflow-anchor: none</code> from the scroller, so the browser is now anchoring content while <code>use-transcript-scroll.ts</code> runs its own pin-and-settle loop — and an element whose height changes on every frame near the bottom is exactly the input both of those were written to survive. The demo above keeps up by pinning on rAF for the full 240ms, which is the honest price: a second scroll authority running during every message. Worth paying only if the growing-document reading is the one you want.
+    <h4>The catch on 3 — and it is not frame rate</h4>
+    <p>Animating one row's height at the end of a feed is cheap; that was never the objection. The cost is that <b>3 is the only option where the height of the document changes while the animation runs</b> — about fourteen times over 240ms — and in this scroller three different things react to that. <code>9785df5f0</code> deliberately removed <code>overflow-anchor: none</code>, so WebKit's native anchoring is now live and picks a node to hold still. The <code>ResizeObserver</code> in <code>use-transcript-scroll.ts</code> observes <em>every row</em> and writes <code>scrollTop = scrollHeight</code> on each callback. The <code>MutationObserver</code> does the same. During an unroll all three fire on every frame, each one certain it knows where the bottom is.</p>
+    <p style="margin-top:11px">The measurable cost is not the layout — it is that each of those callbacks also runs <code>syncStickyPromptPositions()</code>, which does a <code>querySelectorAll</code> plus a <code>getBoundingClientRect()</code> per operator prompt. That is a forced synchronous layout per frame, per prompt, for the length of every message that lands. On a long transcript that is the thing you would feel, and it is caused by the animation without being the animation's own work.</p>
+  </div>
+
+  <!-- 3′ ---------------------------------------------------------------- -->
+  <div class="reflex-block" style="border-style:solid; border-color:var(--seam)">
+    <div class="head-line">
+      <div class="eyebrow" style="color:var(--gold)">The way to have it</div>
+      <h4>3&prime; &mdash; The turn opens, with the space reserved first</h4>
+    </div>
+    <div class="reflex-grid">
+      <div>
+        <div class="stage">
+          <div class="stage-bar"><span class="dot"></span>Transcript</div>
+          <div class="stage-body" style="padding:6px 10px 8px">
+            <div class="feed" data-feed="wipe"><div class="anchor"></div></div>
+          </div>
+        </div>
+        <button type="button" class="btn" data-fire="arrival-wipe" style="margin-top:12px; width:100%">Land a message</button>
+      </div>
+      <div>
+        <p class="lede" style="font-size:13px">Invert it. The row takes its <b>full height on the first frame</b>, so the document grows once, one scroll write, nothing to chase — and the reveal is a <code>clip-path</code> running top to bottom, which is compositor work and never touches layout at all. Content stays still and the frame appears to grow, which is the whole read of option 3. Press it against 3 above; the only thing you give up is that the messages <em>above</em> jump up in one frame instead of sliding.</p>
+        <p class="lede" style="font-size:13px; margin-top:10px">Two rules make it well-behaved rather than merely cheap. <b>It only runs while the reader is at the end</b> — gate the class on the <code>pinnedToBottom</code> ref that already exists, so a reader who scrolled up gets no animation on a row they cannot see, and nothing offers the anchoring engine a moving target. And <b>it stays latched</b> by <code>useFeedArrivals</code> exactly as the other options do, so history, paging and backfill never animate.</p>
+        <dl class="spec" style="margin-top:14px">
+          <div style="display:contents"><dt>timing</dt><dd><b>260ms</b> &middot; cubic-bezier(.22,1,.36,1)</dd></div>
+          <div style="display:contents"><dt>animates</dt><dd>clip-path &mdash; no layout, no paint of anything else</dd></div>
+          <div style="display:contents"><dt>scroller</dt><dd><b>one write</b>, on the frame the row mounts</dd></div>
+          <div style="display:contents"><dt>observers</dt><dd>one RO callback total, not one per frame</dd></div>
+        </dl>
+      </div>
+    </div>
   </div>
 
   <div class="note note--pick">
     <h4>Take 1 and 2, because they are two different events <span class="tagline">recommended</span></h4>
-    This is the whole diagnosis turned into a fix. <b>Arriving</b> is movement: a completed turn — your own message, an answer, folded mail, a recap — has its full size the moment it exists, so it lands with the 6px lift and reads unmistakably as news. <b>Filling</b> is tone: a streaming agent turn has no size yet, so give it the seat immediately and let the ink resolve as the text accrues, paragraph by paragraph. One animation cannot do both jobs, which is why the one we have feels like it does neither.
+    <p>This is the whole diagnosis turned into a fix. <b>Arriving</b> is movement: a completed turn — your own message, an answer, folded mail, a recap — has its full size the moment it exists, so it lands with the 6px lift and reads unmistakably as news. <b>Filling</b> is tone: a streaming agent turn has no size yet, so give it the seat immediately and let the ink resolve as the text accrues, paragraph by paragraph. One animation cannot do both jobs, which is why the one we have feels like it does neither.</p>
+    <p style="margin-top:11px"><b>3&prime; substitutes cleanly for 1.</b> If the opening frame is the read you want, take the wipe instead of the lift for completed turns and keep 2 for streaming ones — its cost profile is the same as 1's and the pairing logic is unchanged. What does not substitute is <b>3</b> as written: not because of frame rate, but because it puts a second authority on <code>scrollTop</code> for the length of every message.</p>
   </div>
 </section>
 
@@ -864,7 +903,7 @@ section{padding-top:62px}
       return;
     }
 
-    row.classList.add(kind === 'land' ? 'enter-land' : 'enter-fill');
+    row.classList.add(kind === 'land' ? 'enter-land' : kind === 'wipe' ? 'enter-wipe' : 'enter-fill');
     f.el.appendChild(row);
     f.el.scrollTop = f.el.scrollHeight;      // one write: geometry is already final
   }
@@ -914,11 +953,12 @@ section{padding-top:62px}
     'count-reflex':   function(){ landCall('reflex') },
     'arrival-land':   function(){ landMessage('land') },
     'arrival-fill':   function(){ landMessage('fill') },
-    'arrival-unroll': function(){ landMessage('unroll') }
+    'arrival-unroll': function(){ landMessage('unroll') },
+    'arrival-wipe':   function(){ landMessage('wipe') }
   };
   var GROUPS = {
     count:   ['count-roll','count-tone','count-deck'],
-    arrival: ['arrival-land','arrival-fill','arrival-unroll']
+    arrival: ['arrival-land','arrival-fill','arrival-unroll','arrival-wipe']
   };
 
   document.addEventListener('click', function(e){
