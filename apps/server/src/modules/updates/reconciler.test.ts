@@ -1,14 +1,16 @@
 import { asMachineId } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+import { UPDATE_STEP_DEADLINES, UPDATE_STEP_MACHINES } from './operation'
 import {
   decideReconciliation,
   MAX_RECONCILE_ATTEMPTS,
+  RECONCILE_GRANT_DEADLINE_MS,
   type ReconcileFacts,
   type ReconcileRefusal,
   UpdateReconciler,
 } from './reconciler'
-import { UpdatesService } from './service'
+import { GRANT_TIMED_OUT_DETAIL, UpdatesService } from './service'
 import type { WaveMachine } from './wave'
 
 /**
@@ -47,24 +49,68 @@ const facts = (over: Partial<ReconcileFacts> = {}): ReconcileFacts => ({
   ...over,
 })
 
+const SPACING_MS = 5_000
+/** Short enough to keep the arithmetic in these tests obvious, and only ever
+ *  compared against {@link SPACING_MS} — the production number is derived and
+ *  asserted separately, below. */
+const GRANT_DEADLINE_MS = 60_000
+
 /**
- * A fake clock that RUNS NOTHING until asked. The reconciler's spacing is the
- * only timer it owns, so "what happens next" is always an explicit `flush()` in
- * the test rather than a race with the event loop.
+ * A fake clock that RUNS NOTHING until time is moved. "What happens next" is
+ * always an explicit `advance()` in the test rather than a race with the event
+ * loop.
+ *
+ * IT IS A CLOCK, not a queue of callbacks, which it did not have to be before
+ * POD-2185 gave the reconciler a second timer. Spacing (seconds) and the grant
+ * deadline (minutes) answer different questions — "consider the next machine"
+ * and "give up on this one" — and draining both together would make every
+ * existing spacing test also expire the grant it was about to check on. Holding
+ * a real `now` is also the only way to state the case a stale timer breaks: two
+ * grants to one machine, armed at different moments, where the FIRST deadline
+ * falls due while the second grant is healthy.
  */
 function fakeClock() {
-  const pending: Array<() => void> = []
+  let now = 0
+  let seq = 0
+  const pending: Array<{ fn: () => void; dueAt: number; seq: number }> = []
   return {
-    schedule: (fn: () => void) => {
-      pending.push(fn)
+    schedule: (fn: () => void, ms: number) => {
+      seq += 1
+      pending.push({ fn, dueAt: now + ms, seq })
     },
-    /** Run every timer armed so far, once. */
-    flush(): number {
-      const due = pending.splice(0, pending.length)
-      for (const fn of due) fn()
-      return due.length
+    /**
+     * Move time forward by `ms`, running everything that falls due on the way in
+     * due order — including timers armed by the callbacks themselves, which is
+     * how the reconciler's re-arming spacing loop behaves in production.
+     */
+    advance(ms: number = SPACING_MS): number {
+      const until = now + ms
+      let ran = 0
+      for (;;) {
+        let next = -1
+        for (let index = 0; index < pending.length; index += 1) {
+          const timer = pending[index]
+          const best = next === -1 ? undefined : pending[next]
+          if (!timer || timer.dueAt > until) continue
+          if (!best || timer.dueAt < best.dueAt || (timer.dueAt === best.dueAt && timer.seq < best.seq))
+            next = index
+        }
+        if (next === -1) break
+        const timer = pending.splice(next, 1)[0]
+        if (!timer) break
+        now = timer.dueAt
+        timer.fn()
+        ran += 1
+        // A runaway re-arm is a bug in the code under test, not a reason to hang
+        // the lane; fail loudly instead.
+        if (ran > 1_000) throw new Error('fake clock ran away: a timer keeps re-arming at zero')
+      }
+      now = until
+      return ran
     },
-    armed: () => pending.length,
+    /** Timers due within the next spacing window, unless asked for a wider one. */
+    armed: (withinMs: number = SPACING_MS): number =>
+      pending.filter((timer) => timer.dueAt <= now + withinMs).length,
   }
 }
 
@@ -86,7 +132,8 @@ function harness(machines: WaveMachine[], over: { operationActive?: boolean } = 
     updates,
     operationActive: () => operationActive,
     schedule: clock.schedule,
-    spacingMs: 5_000,
+    spacingMs: SPACING_MS,
+    grantDeadlineMs: GRANT_DEADLINE_MS,
   })
   return {
     updates,
@@ -234,7 +281,7 @@ describe('UpdateReconciler', () => {
       version: '0.4.1',
       grantId: 'g1',
     })
-    h.clock.flush()
+    h.clock.advance()
     expect(h.granted()).toEqual(['a'])
     expect(h.reconciler.pending()).toEqual(['b'])
 
@@ -246,7 +293,7 @@ describe('UpdateReconciler', () => {
       grantId: 'g1',
     })
     h.live[0] = machine({ id: 'a', version: TARGET_VERSION })
-    h.clock.flush()
+    h.clock.advance()
     expect(h.granted()).toEqual(['a', 'b'])
   })
 
@@ -270,11 +317,11 @@ describe('UpdateReconciler', () => {
       grantId: 'g1',
       detail: 'dirty working tree',
     })
-    h.clock.flush()
+    h.clock.advance()
 
     h.reconciler.onMachineConnected('laptop')
     h.reconciler.onMachineConnected('laptop')
-    h.clock.flush()
+    h.clock.advance()
 
     expect(h.granted()).toEqual(['laptop'])
   })
@@ -312,7 +359,7 @@ describe('UpdateReconciler', () => {
 
     for (let i = 0; i < MAX_RECONCILE_ATTEMPTS + 3; i += 1) {
       reconciler.onMachineConnected('flapper')
-      clock.flush()
+      clock.advance()
     }
 
     expect(granted).toEqual(Array<string>(MAX_RECONCILE_ATTEMPTS).fill('flapper'))
@@ -382,5 +429,166 @@ describe('UpdateReconciler', () => {
     h.updates.setTarget('dev', target({ version: '0.4.4' }))
 
     expect(h.reconciler.convergedBy(h.row('laptop'))).toBeUndefined()
+  })
+})
+
+/**
+ * THE LID THAT CLOSED AGAIN (POD-2185).
+ *
+ * The suite this joins had twelve cases and none of them left a grant
+ * outstanding — every one drives its machine to the target between grants, so
+ * the state the reconciler spends its whole life in when a laptop sleeps was
+ * unreachable from the tests that own this file. These four reach it.
+ *
+ * The scenario is one machine, once: it wakes at 09:02, takes a grant, and says
+ * nothing ever again. No `updateStatus` arrives, so the service keeps its row
+ * `downloading` (there is no ageing inside `fleet()` any more — POD-2101), and
+ * before this fix the only thing that could have ended it was an operation
+ * terminating, which is a thing that by definition was not happening.
+ */
+describe('UpdateReconciler: a grant that goes silent', () => {
+  /** Wake `id`, take the grant, and stop talking — the shared preamble. */
+  function granted(ids: string[] = ['laptop']) {
+    const h = harness(ids.map((id) => machine({ id })))
+    h.updates.setTarget('dev', target())
+    for (const id of ids) h.reconciler.onMachineConnected(id)
+    const first = ids[0] ?? ''
+    h.updates.onStatus(asMachineId(first), {
+      type: 'updateStatus',
+      state: 'downloading',
+      version: '0.4.1',
+      grantId: 'g1',
+    })
+    return h
+  }
+
+  /**
+   * The wedge itself, stated as the two things it costs: the queue behind the
+   * sleeper, and the channel's target refresh.
+   *
+   * `operationActive` is the second one's mechanism — the scheduled refresh
+   * asks it before re-resolving, so a machine stuck IN_FLIGHT forever is a
+   * channel that never checks for a new version again (§9.2's cadence). It is
+   * asserted here rather than in `service.test.ts` because the only thing that
+   * can leave a machine in that state indefinitely is this file.
+   */
+  it('gives up on it, so the queue behind it moves and the channel can refresh again', () => {
+    const h = granted(['laptop', 'vps'])
+
+    // BEFORE the deadline: this is the correct behaviour, not the bug. One at a
+    // time is the whole design, and `vps` waiting is `vps` being spaced.
+    expect(h.granted()).toEqual(['laptop'])
+    h.clock.advance()
+    expect(h.granted()).toEqual(['laptop'])
+    expect(h.reconciler.pending()).toEqual(['vps'])
+    expect(h.updates.operationActive('dev')).toBe(true)
+
+    h.clock.advance(GRANT_DEADLINE_MS)
+
+    expect(h.granted()).toEqual(['laptop', 'vps'])
+    expect(h.row('laptop').state).toBe('stuck')
+    expect(h.row('laptop').detail).toBe(GRANT_TIMED_OUT_DETAIL)
+    // `vps` is now the outstanding one, so the channel is legitimately busy;
+    // what matters is that `laptop` alone no longer makes it so, forever.
+    h.updates.onStatus(asMachineId('vps'), {
+      type: 'updateStatus',
+      state: 'current',
+      version: TARGET_VERSION,
+      grantId: 'g2',
+    })
+    h.live[1] = machine({ id: 'vps', version: TARGET_VERSION })
+    expect(h.updates.operationActive('dev')).toBe(false)
+  })
+
+  /**
+   * Expiry writes a TERMINAL state, and the decision table already knows what to
+   * do with one. Without this the fix would trade a wedge for a hot loop: the
+   * same laptop reconnecting every thirty seconds would be granted every time,
+   * because `authorizeMachine` clears a terminal state as the human retry path.
+   */
+  it('leaves the machine alone afterwards, rather than re-granting on every reconnect', () => {
+    const h = granted()
+    h.clock.advance(GRANT_DEADLINE_MS)
+    expect(h.row('laptop').state).toBe('stuck')
+
+    h.reconciler.onMachineConnected('laptop')
+    h.reconciler.onMachineConnected('laptop')
+    h.clock.advance(GRANT_DEADLINE_MS)
+
+    expect(h.granted()).toEqual(['laptop'])
+  })
+
+  /**
+   * A MACHINE THAT ANSWERED KEEPS ITS OWN ANSWER.
+   *
+   * The timer is armed when the grant goes out and is never disarmed, so it
+   * arrives after every outcome, not just after silence — and a machine that
+   * said `rejected: dirty working tree` an hour ago is still `rejected` when it
+   * lands. Overwriting that with a generic timeout would replace the sentence
+   * the operator needs with one that is not even true. This is why expiry goes
+   * through `abandonWait`, which acts only on a machine still IN FLIGHT, rather
+   * than writing `stuck` on its own authority.
+   */
+  it('does not overwrite the verdict of a machine that already answered', () => {
+    const h = granted()
+    h.updates.onStatus(asMachineId('laptop'), {
+      type: 'updateStatus',
+      state: 'rejected',
+      version: '0.4.1',
+      grantId: 'g1',
+      detail: 'dirty working tree',
+    })
+
+    h.clock.advance(GRANT_DEADLINE_MS)
+
+    expect(h.row('laptop').state).toBe('rejected')
+    expect(h.row('laptop').detail).toBe('dirty working tree')
+    expect(h.granted()).toEqual(['laptop'])
+  })
+
+  /**
+   * THE STALE TIMER. A machine that converges and then falls behind a NEW target
+   * gets a second grant, and the first grant's deadline is still pending. It
+   * must not abandon the second one — which is what an id comparison alone
+   * would do, and why the reconciler counts grants.
+   */
+  it('does not let an old grant deadline abandon the next grant to the same machine', () => {
+    const h = granted()
+    h.updates.onStatus(asMachineId('laptop'), {
+      type: 'updateStatus',
+      state: 'current',
+      version: TARGET_VERSION,
+      grantId: 'g1',
+    })
+    h.live[0] = machine({ id: 'laptop', version: TARGET_VERSION })
+    // Time passes between the two grants — which is what makes their deadlines
+    // distinguishable, and what makes this the case a bare id check gets wrong.
+    h.clock.advance()
+
+    h.updates.setTarget('dev', target({ version: '0.4.4' }))
+    h.reconciler.onMachineConnected('laptop')
+    expect(h.granted()).toEqual(['laptop', 'laptop'])
+    h.updates.onStatus(asMachineId('laptop'), {
+      type: 'updateStatus',
+      state: 'downloading',
+      version: TARGET_VERSION,
+      grantId: 'g2',
+    })
+
+    // Past the FIRST grant's deadline, short of the second's.
+    h.clock.advance(GRANT_DEADLINE_MS - SPACING_MS + 1_000)
+
+    expect(h.row('laptop').state).toBe('downloading')
+  })
+
+  /**
+   * The number, not the mechanism: this is the same quantity the operation's
+   * `machines` step is judged on, because it bounds the same act. Asserted so
+   * that moving one of them has to move the other deliberately.
+   */
+  it('waits exactly as long as the operation would for the same machine', () => {
+    expect(RECONCILE_GRANT_DEADLINE_MS).toBe(
+      UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs,
+    )
   })
 })

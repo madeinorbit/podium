@@ -1,7 +1,8 @@
 import { createLogger } from '@podium/logger'
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
-import type { MachineApplyOutcome, UpdatesService } from './service'
+import { UPDATE_BUDGETS } from './operation'
+import { GRANT_TIMED_OUT_DETAIL, type MachineApplyOutcome, type UpdatesService } from './service'
 import {
   IN_FLIGHT_STATES,
   machineCanTakeDelivery,
@@ -106,6 +107,31 @@ export const MAX_RECONCILE_ATTEMPTS = 2
 const DEFAULT_GRANT_SPACING_MS = 5_000
 
 /**
+ * HOW LONG THIS WAITS FOR A GRANT IT ISSUED, AND WHY IT HAS TO (POD-2185).
+ *
+ * Every other granter in this system is timed by the operation's `machines`
+ * step, whose budget the engine arms a real timer for. This one runs when no
+ * operation is active, which is exactly the case that step cannot cover — and
+ * until POD-2185 nothing covered it either. {@link UpdateReconciler.pump} used
+ * to say its outstanding grant was "bounded by construction: the service ages a
+ * grant into `stuck` after its own deadline", and POD-2101 deleted that
+ * deadline (see `WHERE THE GRANT DEADLINE WENT` in `service.ts`). The
+ * replacement it named — {@link UpdatesService.releaseInFlightGrants} — is
+ * reached from one place, the engine's terminal transition, and a reconciler
+ * grant is by construction outside it. So a laptop that opened its lid, took a
+ * grant, and shut it again mid-download held the queue for the life of the
+ * process, kept {@link UpdatesService.operationActive} true, and with it
+ * suppressed its channel's scheduled target refresh — on precisely the machines
+ * §3.6 exists to serve.
+ *
+ * DERIVED, not chosen, and from the same table the operation's step uses: this
+ * bounds the identical act — one daemon taking one grant — and differs only in
+ * who is watching, so two numbers here could only ever drift apart.
+ */
+export const RECONCILE_GRANT_DEADLINE_MS =
+  UPDATE_BUDGETS.gitConvergenceMs + UPDATE_BUDGETS.machineSilenceMarginMs
+
+/**
  * THE DECISION, as a pure function (the whole point of the split).
  *
  * "Should this machine be converged right now?" is a question with nine wrong
@@ -155,6 +181,9 @@ export interface UpdateReconcilerDeps {
   schedule?: (fn: () => void, ms: number) => void
   /** How long between two grants; also how often an outstanding one is re-read. */
   spacingMs?: number
+  /** How long an outstanding grant may stay silent before this gives up on it.
+   *  Defaults to {@link RECONCILE_GRANT_DEADLINE_MS}. */
+  grantDeadlineMs?: number
   maxAttempts?: number
 }
 
@@ -176,6 +205,14 @@ export class UpdateReconciler {
   private readonly queued = new Set<string>()
   /** The grant THIS issued that has not yet reached an outcome (concurrency 1). */
   private outstanding: string | undefined
+  /**
+   * Bumped on every grant, so a deadline timer can tell ITS grant from a later
+   * one to the same machine. Without it, a machine that converged and then came
+   * back for a second target would have the first grant's expired timer abandon
+   * the second one — the classic stale-timer bug, and the reason this is a
+   * token rather than an id comparison.
+   */
+  private grants = 0
   private pumping = false
   /** A spacing timer is already armed; see {@link UpdateReconciler.later}. */
   private waiting = false
@@ -277,9 +314,16 @@ export class UpdateReconciler {
    * The loop drains refusals synchronously — a refusal costs nothing and is not
    * worth a timer — and stops the moment it issues a grant. The next
    * consideration is scheduled `spacingMs` later, and if that grant is still in
-   * flight then, it waits again. Bounded by construction: the service ages a
-   * grant into `stuck` after its own deadline, so an outstanding one cannot
-   * hold the queue indefinitely.
+   * flight then, it waits again.
+   *
+   * WHAT BOUNDS THE WAIT is {@link UpdateReconciler.expireGrant}, armed by this
+   * reconciler for {@link RECONCILE_GRANT_DEADLINE_MS} at the moment the grant
+   * is issued. It used to be the service's own ten-minute ageing, which POD-2101
+   * deleted; this comment asserted that mechanism for one epic after it was
+   * gone, which is how POD-2185 was written down as a guarantee while being a
+   * permanent wedge. The deadline is a TIMER and not a check inside this loop,
+   * because a grant to the last machine in the queue leaves nothing to pump and
+   * a poll that only runs while somebody is waiting would never reach it.
    */
   private pump(): void {
     if (this.pumping) return
@@ -323,6 +367,42 @@ export class UpdateReconciler {
     if (machine && IN_FLIGHT_STATES.has(machine.state)) return true
     this.outstanding = undefined
     return false
+  }
+
+  /**
+   * GIVE UP ON THE GRANT THIS ISSUED (POD-2185).
+   *
+   * Called by a timer armed when the grant went out, so it fires whether or not
+   * anyone is reading the fleet, anyone is queued behind it, or this process is
+   * doing anything else at all — which is the whole point, since the machine
+   * this bounds is one that has stopped talking.
+   *
+   * {@link UpdatesService.abandonWait} is the same verb the operation's step
+   * deadline uses, and it does the two things that matter: the machine's row
+   * becomes `stuck` with a sentence naming what happened, and it stops being
+   * IN_FLIGHT — which is what un-suppresses {@link UpdatesService.operationActive}
+   * and with it the channel's scheduled target refresh. `stuck` is terminal, so
+   * the decision table then leaves the machine alone (`because: 'terminal'`)
+   * until a human applies it or a new target is published: a background process
+   * must not keep poking a standing fault.
+   *
+   * It does NOT read `fleet()`. `abandonWait` projects for itself and ignores a
+   * machine that is no longer in flight, so the ordinary case — the grant
+   * finished while this timer was pending — costs nothing and changes nothing,
+   * and this path never continues a wave from inside its own lookup (POD-2180).
+   */
+  private expireGrant(machineId: string, token: number): void {
+    if (this.outstanding !== machineId || this.grants !== token) return
+    this.outstanding = undefined
+    const abandoned = this.deps.updates.abandonWait([machineId], GRANT_TIMED_OUT_DETAIL)
+    if (abandoned.length > 0) {
+      log.info('reconciler gave up on a machine that took a grant and went silent', {
+        machineId,
+        afterMs: this.deps.grantDeadlineMs ?? RECONCILE_GRANT_DEADLINE_MS,
+      })
+    }
+    // Whoever was queued behind it has been waiting since the grant went out.
+    this.pump()
   }
 
   /**
@@ -380,6 +460,13 @@ export class UpdateReconciler {
       return 'refused'
     }
     this.outstanding = machineId
+    this.grants += 1
+    const token = this.grants
+    const schedule = this.deps.schedule ?? defaultSchedule
+    schedule(
+      () => this.expireGrant(machineId, token),
+      this.deps.grantDeadlineMs ?? RECONCILE_GRANT_DEADLINE_MS,
+    )
     this.converged.set(machineId, outcome.version)
     log.info('reconciler converged a reconnected machine', {
       machineId,
