@@ -111,6 +111,19 @@
     three of today's session verbs are the same act under different names.
   </p>
 
+  <div class="find ok">
+    <b>Reads against POD-1074's vocabulary.</b>
+    <p>
+      The issue menus below use POD-1074's names, not main's: its <b>Set&nbsp;status</b>
+      submenu replaces <code>Set stage</code> plus the two <code>Close (…)</code> rows, and
+      <b>wontfix is now Cancelled</b> with <b>Duplicate</b> as its own ending. That branch
+      (<code>issue/1074-cancelled-duplicate-states</code>) is in review and <b>not yet on
+      main</b>, so the line numbers cited throughout are main's while the labels are
+      POD-1074's. Nothing proposed here changes Set&nbsp;status itself — the two sets of
+      changes touch different rows of the same menu and can land in either order.
+    </p>
+  </div>
+
   <hr>
 
   <h2>What's actually wrong</h2>
@@ -195,12 +208,15 @@
   </div>
 
   <div class="find warn">
-    <b>8 · The same “Close (done)” confirms on one surface and fires instantly on two others.</b>
+    <b>8 · Closing confirms on one surface and fires instantly on two others.</b>
     <p>
-      With <code>onRequestClose</code> supplied (<code>IssueCompactControls</code>) the item
+      With <code>onRequestClose</code> supplied (<code>IssueCompactControls</code>) closing
       opens <code>IssueCloseDialog</code>; without it — the sidebar and the flight deck — it
       calls <code>closeIssue</code> straight through (<code>IssueContextMenu.tsx:231</code>).
       One verb, two levels of ceremony, decided by which surface you happened to right-click.
+      <b>POD-1074 does not fix this</b> — its <code>close()</code> keeps the same fork
+      (<code>IssueContextMenu.tsx:232</code> on that branch), so picking Done, Cancelled or
+      Duplicate from Set&nbsp;status inherits the split rather than resolving it.
     </p>
   </div>
 
@@ -408,22 +424,23 @@
         <div class="mi"><span class="gl">↗</span>Open</div>
         <div class="mi"><span class="gl">✎</span>Rename</div>
         <div class="mi"><span class="gl">✉</span>Mark as unread</div>
-        <div class="mi"><span class="gl">◧</span>Set stage<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">✓</span>Set status<span class="chev">›</span></div>
         <div class="mi"><span class="gl">≡</span>Set priority<span class="chev">›</span></div>
         <div class="mi"><span class="gl">◆</span>Assign agent<span class="chev">›</span></div>
         <div class="mi"><span class="gl">🏷</span>Labels<span class="chev">›</span></div>
         <div class="mi"><span class="gl">■</span>Set colour<span class="chev">›</span></div>
         <div class="mi"><span class="gl">⇄</span>Handoff<span class="chev">›</span></div>
         <div class="ms">LIFECYCLE</div>
-        <div class="mi"><span class="gl">✓</span>Close (done)</div>
-        <div class="mi"><span class="gl">✕</span>Close (wontfix)</div>
         <div class="mi"><span class="gl">⏰</span>Snooze / defer<span class="chev">›</span></div>
         <div class="ms">MANAGE</div>
         <div class="mi"><span class="gl">📌</span>Pin</div>
         <div class="mi"><span class="gl">🗄</span>Archive</div>
         <div class="mi red"><span class="gl">🗑</span>Delete</div>
       </div>
-      <p class="note">Delete sits one row under Pin, inside a block called MANAGE.</p>
+      <p class="note">
+        Delete sits one row under Pin, inside a block called MANAGE. LIFECYCLE is down to a
+        single row now that closing moved into Set status.
+      </p>
     </div>
     <div class="col">
       <span class="kicker">proposed</span>
@@ -432,15 +449,13 @@
         <div class="mi"><span class="gl">↗</span>Open</div>
         <div class="mi"><span class="gl">✎</span>Rename</div>
         <div class="mi"><span class="gl">✉</span>Mark as unread</div>
-        <div class="mi"><span class="gl">◧</span>Set stage<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">✓</span>Set status<span class="chev">›</span></div>
         <div class="mi"><span class="gl">≡</span>Set priority<span class="chev">›</span></div>
         <div class="mi"><span class="gl">◆</span>Assign agent<span class="chev">›</span></div>
         <div class="mi"><span class="gl">🏷</span>Labels<span class="chev">›</span></div>
         <div class="mi"><span class="gl">■</span>Set colour<span class="chev">›</span></div>
         <div class="mi"><span class="gl">⇄</span>Handoff<span class="chev">›</span></div>
         <div class="ms">LIFECYCLE</div>
-        <div class="mi" data-x="ren"><span class="gl">✓</span>Close (done)…</div>
-        <div class="mi" data-x="ren"><span class="gl">✕</span>Close (wontfix)…</div>
         <div class="mi"><span class="gl">⏰</span>Snooze / defer<span class="chev">›</span></div>
         <div class="ms">MANAGE</div>
         <div class="mi"><span class="gl">📌</span>Pin</div>
@@ -450,6 +465,12 @@
       </div>
     </div>
   </div>
+
+  <p class="note">
+    <b>Set status ▸</b> is POD-1074's list, unchanged by anything here — Backlog, Planning,
+    In&nbsp;Progress, Review, then a rule, then Done, Cancelled, Duplicate. This sheet does not
+    touch it; it is shown so the surrounding blocks read correctly.
+  </p>
 
   <p>
     <b>Put a rule above Delete</b> and let it stand alone below MANAGE. It's two lines of
@@ -464,10 +485,11 @@
     that will be stopped, because that second half is invisible today.
   </p>
   <p>
-    <b>One ceremony per verb.</b> Close (done) opens <code>IssueCloseDialog</code> from
+    <b>One ceremony per verb.</b> Closing opens <code>IssueCloseDialog</code> from
     <code>IssueCompactControls</code> and fires instantly from the sidebar and the deck
-    (finding 8). Pick one — I'd wire <code>onRequestClose</code> everywhere so closing always
-    offers the same dialog — and put the ellipsis on the rows that confirm.
+    (finding 8) — and POD-1074 carries that fork forward unchanged. Pick one: I'd wire
+    <code>onRequestClose</code> everywhere so a terminal status always offers the same dialog.
+    Best done <i>on</i> POD-1074's branch rather than here, since it owns that code now.
   </p>
 
   <hr>
@@ -486,15 +508,13 @@
         <div class="mh"><span>TASK</span><span class="ref">POD-1077.2</span></div>
         <div class="mi"><span class="gl">↗</span>Open</div>
         <div class="mi"><span class="gl">✉</span>Mark as unread</div>
-        <div class="mi"><span class="gl">◧</span>Set stage<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">✓</span>Set status<span class="chev">›</span></div>
         <div class="mi"><span class="gl">≡</span>Set priority<span class="chev">›</span></div>
         <div class="mi"><span class="gl">◆</span>Assign agent<span class="chev">›</span></div>
         <div class="mi"><span class="gl">🏷</span>Labels<span class="chev">›</span></div>
         <div class="mi"><span class="gl">⇄</span>Handoff<span class="chev">›</span></div>
         <div class="ms">LIFECYCLE</div>
         <div class="mi"><span class="gl">⇄</span>Move to top level (out of POD-1077)</div>
-        <div class="mi"><span class="gl">✓</span>Close (done)</div>
-        <div class="mi"><span class="gl">✕</span>Close (wontfix)</div>
         <div class="mi"><span class="gl">⏰</span>Snooze / defer<span class="chev">›</span></div>
         <div class="ms">MANAGE</div>
         <div class="mi"><span class="gl">📌</span>Pin</div>
@@ -513,7 +533,7 @@
         <div class="mi"><span class="gl">↗</span>Open</div>
         <div class="mi" data-x="add"><span class="gl">✎</span>Rename</div>
         <div class="mi"><span class="gl">✉</span>Mark as unread</div>
-        <div class="mi"><span class="gl">◧</span>Set stage<span class="chev">›</span></div>
+        <div class="mi"><span class="gl">✓</span>Set status<span class="chev">›</span></div>
         <div class="mi"><span class="gl">≡</span>Set priority<span class="chev">›</span></div>
         <div class="mi"><span class="gl">◆</span>Assign agent<span class="chev">›</span></div>
         <div class="mi"><span class="gl">🏷</span>Labels<span class="chev">›</span></div>
@@ -521,8 +541,6 @@
         <div class="ms" data-x="add">PLACEMENT</div>
         <div class="mi hl"><span class="gl">⇄</span>Move to top level (out of POD-1077)</div>
         <div class="ms">LIFECYCLE</div>
-        <div class="mi" data-x="ren"><span class="gl">✓</span>Close (done)…</div>
-        <div class="mi" data-x="ren"><span class="gl">✕</span>Close (wontfix)…</div>
         <div class="mi"><span class="gl">⏰</span>Snooze / defer<span class="chev">›</span></div>
         <div class="ms">MANAGE</div>
         <div class="mi" data-x="cut"><span class="gl">📌</span>Pin</div>
@@ -578,8 +596,9 @@
           <td>Independent of the session work</td><td>S</td></tr>
       <tr><td>6</td><td><b>Pass <code>onRename</code></b> from the flight deck</td>
           <td>Missing item, not a wrong one — smallest change here</td><td>S</td></tr>
-      <tr><td>7</td><td><b>One close ceremony</b> — wire <code>onRequestClose</code> everywhere</td>
-          <td>Removes the per-surface inconsistency in finding 8</td><td>M</td></tr>
+      <tr><td>7</td><td><b>One close ceremony</b> — wire <code>onRequestClose</code> everywhere<br>
+          <span style="color:var(--text-faint)">belongs on POD-1074's branch, not this one</span></td>
+          <td>Removes the per-surface inconsistency in finding 8, which POD-1074 inherits</td><td>M</td></tr>
       <tr><td>8</td><td><b>“Reveal in flight deck”</b> on session tabs</td>
           <td>The bridge that makes POD-710's boundary liveable</td><td>M</td></tr>
     </tbody>
