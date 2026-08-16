@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import {
+  DEFAULT_WAITING_GRACE_MS,
   type OperationClock,
   OperationEngine,
   type OperationTimerHandle,
@@ -17,6 +18,7 @@ import {
   createUpdateFleetBridge,
   DESKTOP_INSTALL_ASK,
   describeUpdateOperationFailure,
+  describeUpdateWaitingExpiry,
   LIFECYCLE_EXCLUSION_GROUP,
   planUpdateOperation,
   RELOAD_SURFACES_ASK,
@@ -24,6 +26,7 @@ import {
   resetUpdateOperationState,
   STEP_HEARTBEAT_INTERVAL_MS,
   UPDATE_BUDGETS,
+  UPDATE_NOT_INSTALLED_ERROR_CODE,
   UPDATE_OPERATION_KIND,
   UPDATE_STEP_DEADLINES,
   UPDATE_STEP_MACHINES,
@@ -699,6 +702,71 @@ describe('the update operation, driven', () => {
     const operation = h.read()
     expect(operation.state).toBe('waiting')
     expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
+  })
+
+  /**
+   * NOBODY CLICKED (POD-2186).
+   *
+   * The panel appeared, the person closed the window, and ten minutes later the
+   * grace fired. The framework's default is to complete — right when the steps
+   * did the work and only a surface-local courtesy went unanswered, and wrong
+   * here, where the plan has zero steps and the ask WAS the update. Completing
+   * put "0.4.4 · succeeded" in Settings history against a machine still running
+   * 0.4.3 and made §3.7's answer to *did last night's update finish?* a lie.
+   */
+  it('fails an ignored all-in-one operation rather than recording an update that never happened', async () => {
+    const h = harness({
+      machines: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
+      hostMachineId: 'macbook',
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.read().state).toBe('waiting')
+
+    h.clock.advance(DEFAULT_WAITING_GRACE_MS)
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('failed')
+    expect(operation.error?.code).toBe(UPDATE_NOT_INSTALLED_ERROR_CODE)
+    // §7: a sentence a person reads, naming where it was offered — and one the
+    // panel renders through its unknown-code fallback, so a bundle that predates
+    // the code still owes the operator the truth.
+    expect(operation.error?.message).toContain('macbook')
+    expect(operation.error?.message).toContain('nobody installed it')
+    // The ask stays listed. Failing is not pretending it was answered either.
+    expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
+  })
+
+  /**
+   * …and the other side of the same rule: a plan that DID something keeps the
+   * framework's answer. The wave updated the fleet; a browser tab that never
+   * reloaded is not a reason to call that a failure.
+   */
+  it('still completes a plan whose steps succeeded, whatever went unanswered', () => {
+    const asked = (steps: Operation['steps']): Operation =>
+      ({
+        steps,
+        awaiting: [{ id: DESKTOP_INSTALL_ASK, surface: 'desktop-all-in-one', required: true }],
+      }) as Operation
+
+    // The wave updated the fleet. A surface that never answered is not a reason
+    // to call that a failure.
+    expect(
+      describeUpdateWaitingExpiry({
+        operation: asked([{ id: UPDATE_STEP_MACHINES, state: 'succeeded' }]),
+      }),
+    ).toBeUndefined()
+    // A step that ran and did not succeed is not work achieved either — and the
+    // rule is "did anything succeed", not "is this the all-in-one plan", because
+    // the question the framework asks is whether completing would be honest.
+    expect(
+      describeUpdateWaitingExpiry({
+        operation: asked([{ id: UPDATE_STEP_MACHINES, state: 'pending' }]),
+      })?.code,
+    ).toBe(UPDATE_NOT_INSTALLED_ERROR_CODE)
   })
 
   it('completes rather than waiting on a voluntary reload ask', async () => {

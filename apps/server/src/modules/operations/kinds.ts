@@ -128,6 +128,25 @@ export interface OperationKindDefinition<Ctx = unknown, Reality = unknown> {
    * the defect the grace exists to close (POD-2149).
    */
   waitingGraceMs?: number
+  /**
+   * The grace ran out. Return an error to end the operation FAILED with it;
+   * return `undefined` (or omit this) to complete it `done`, which is the
+   * framework's default (POD-2186).
+   *
+   * The default is right whenever the steps did the work and only a
+   * surface-local courtesy went unanswered — which is what `expireWaiting`'s own
+   * justification says, *"the shared steps all succeeded"*. That sentence is
+   * true of a plan with steps and VACUOUS for a plan with none, and the update
+   * kind has exactly one such plan: all-in-one, whose entire content is a single
+   * required ask and zero steps. Nothing succeeded there, because nothing was
+   * attempted, and completing it wrote an update that never happened into
+   * Settings history.
+   *
+   * A HOOK RATHER THAN A CONSTANT, because the same kind has both plan shapes
+   * and only the kind can tell them apart. The framework keeps the question —
+   * "is completing honest here?" — and hands the kind the answer.
+   */
+  describeWaitingExpiry?(input: { operation: Operation }): OperationError | undefined
 }
 
 /** The erased form the engine holds: it passes a context through, it never reads one. */

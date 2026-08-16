@@ -1253,6 +1253,54 @@ describe('waiting expires after a grace (POD-2149)', () => {
     ])
   })
 
+  /**
+   * THE KIND GETS THE LAST WORD ON THE OUTCOME (POD-2186).
+   *
+   * `expireWaiting` justifies completing with "the shared steps all succeeded",
+   * which is a claim about the PLAN — true here, and vacuous for a plan with no
+   * steps at all. The framework keeps the grace unconditional (ending the wait
+   * is what POD-2149 was for) and hands the kind the question of whether
+   * completing is honest.
+   */
+  it('fails with the error the kind names, when the kind says completing would be a lie', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(
+      withRequiredAsk({
+        plan: () => ({
+          steps: [],
+          awaiting: [{ id: 'desktop-install', surface: 'desktop', required: true }],
+        }),
+        runners: {},
+        describeWaitingExpiry: () => ({ code: 'nobody-did-it', message: 'Nobody did it.' }),
+      }),
+    )
+    await run(engine, 'test')
+    expect(store.get('op_1')?.state).toBe('waiting')
+
+    clock.advance(DEFAULT_WAITING_GRACE_MS)
+    await engine.whenSettled('op_1')
+
+    const row = store.get('op_1')
+    expect(row?.state).toBe('failed')
+    expect(row?.operation?.error).toEqual({ code: 'nobody-did-it', message: 'Nobody did it.' })
+    // Still ended, and still let go of the group: a wedge is not fixed by a
+    // wrong outcome, and it is not re-opened by a right one either.
+    expect(row?.finishedAt).not.toBeNull()
+    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+  })
+
+  /** A kind that returns nothing keeps the framework's answer, which is what
+   *  every kind but the all-in-one update plan wants. */
+  it('still completes when the kind declines to name an error', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(withRequiredAsk({ describeWaitingExpiry: () => undefined }))
+    await run(engine, 'test')
+
+    clock.advance(DEFAULT_WAITING_GRACE_MS)
+    await engine.whenSettled('op_1')
+    expect(store.get('op_1')?.state).toBe('done')
+  })
+
   it('frees the exclusion group when the grace runs out', async () => {
     const { registry, engine, store, clock } = harness()
     registry.register(withRequiredAsk())

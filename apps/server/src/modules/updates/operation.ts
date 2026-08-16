@@ -1344,6 +1344,47 @@ export function updateOperationKind(): OperationKindDefinition<
     },
     deadlines: UPDATE_STEP_DEADLINES,
     describeStall: describeUpdateStall,
+    describeWaitingExpiry: describeUpdateWaitingExpiry,
+  }
+}
+
+/** §7's code for the all-in-one update nobody installed. */
+export const UPDATE_NOT_INSTALLED_ERROR_CODE = 'update-not-installed'
+
+/**
+ * THE GRACE RAN OUT — WAS ANYTHING ACHIEVED? (POD-2186.)
+ *
+ * `expireWaiting` completes an operation whose steps all succeeded, and it is
+ * right to: the update happened, and a browser tab that never reloaded is not a
+ * reason to call it a failure. The all-in-one plan is the case that sentence
+ * does not cover. Its entire content is one required `desktop-install` ask and
+ * ZERO steps (§4, §5) — the shell owns the bytes, so there is nothing for a
+ * runner to do — and completing it said "0.4.4 · succeeded" in Settings history
+ * about a machine still running 0.4.3, made the panel's `done` branch claim
+ * "Podium is on 0.4.4 everywhere", and made §3.7's answer to *did last night's
+ * update finish?* a lie. The only reason anyone noticed was the offer coming
+ * back on the next check.
+ *
+ * SO THE TEST IS "DID ANY STEP SUCCEED", not "is this the all-in-one plan".
+ * The question the framework is really asking is whether completing is honest,
+ * and a plan that finished no work has nothing to be honest about whatever the
+ * reason. A retry whose remainder is empty would land here too, and should.
+ */
+export function describeUpdateWaitingExpiry(input: {
+  operation: Operation
+}): OperationError | undefined {
+  const steps = input.operation.steps ?? []
+  if (steps.some((step) => step.state === 'succeeded')) return undefined
+  const ask = (input.operation.awaiting ?? []).find((candidate) => candidate.required === true)
+  const place = ask?.place
+  return {
+    code: UPDATE_NOT_INSTALLED_ERROR_CODE,
+    // §7: the sentence a person reads, written by the side that knows what
+    // happened. The panel's taxonomy falls through to this message for a code it
+    // does not carry, so an older bundle still owes the operator the truth.
+    message: place
+      ? `The update was offered in Podium Desktop on ${place}, and nobody installed it.`
+      : 'The update was offered in Podium Desktop, and nobody installed it.',
   }
 }
 

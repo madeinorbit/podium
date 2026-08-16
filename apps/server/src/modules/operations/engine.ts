@@ -795,7 +795,7 @@ export class OperationEngine {
       this.deps.clock.setTimeout(
         () => {
           void this.enqueue(operationId, async () => {
-            this.expireWaiting(operationId)
+            this.expireWaiting(operationId, def)
           }).catch((err) => this.containDriveFailure(operationId, err))
         },
         Math.max(0, grace),
@@ -809,11 +809,23 @@ export class OperationEngine {
    * same place. `awaiting` is left exactly as it stands: completing is not the
    * same as pretending the ask was answered, and a surface reading the finished
    * operation can still say which one went unanswered.
+   *
+   * UNLESS THE KIND SAYS OTHERWISE (POD-2186). The justification above is a
+   * claim about the plan — *the shared steps all succeeded* — and it is vacuous
+   * for a plan that has none. `describeWaitingExpiry` is where a kind that can
+   * produce such a plan says so, and what it returns is the error the operation
+   * fails with. The grace itself is unconditional either way: ending the wait is
+   * what POD-2149 was for, and a wedge is not fixed by a wrong outcome.
    */
-  private expireWaiting(operationId: string): void {
+  private expireWaiting(operationId: string, def?: AnyOperationKindDefinition): void {
     const operation = this.deps.store.get(operationId)?.operation
     if (operation?.state !== 'waiting') return
-    this.finish(this.persistable(operation), 'done', this.now())
+    const error = def?.describeWaitingExpiry?.({ operation })
+    if (error) {
+      this.finish(this.persistable(operation, def), 'failed', this.now(), error)
+      return
+    }
+    this.finish(this.persistable(operation, def), 'done', this.now())
   }
 
   private fail(operation: Operation, stepId: string, error: OperationError): void {
