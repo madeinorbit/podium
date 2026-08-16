@@ -14,7 +14,8 @@
  * no store, no React. `SessionLifecyclePanes` renders them and
  * `useLifecycleRunner` owns the one busy flag.
  *
- * WHY NOT A SLICE. `sessionMenuEligibility` (`@/lib/SessionContextMenu`) already
+ * WHY NOT A SLICE. `sessionMenuEligibility` (`@/lib/session-context-menu` — the
+ * React-free rules module, NOT the `SessionContextMenu` component next to it) already
  * publishes the eligibility rules and already has two consumers (the session
  * context menu and the command palette). This module does not restate them — it
  * IMPORTS them, which is how the panel stopped being a third, disagreeing copy:
