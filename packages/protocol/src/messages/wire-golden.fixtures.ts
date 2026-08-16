@@ -397,6 +397,26 @@ const INVENTORY_FULL = {
   tools: [{ name: 'gh', installed: true, version: '2.0.0', path: '/usr/bin/gh' }],
 }
 
+const INVENTORY_PROBE_TIMEOUT = {
+  os: 'linux',
+  arch: 'x64',
+  agents: [
+    {
+      kind: 'opencode',
+      installed: null,
+      probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+      login: { state: 'in' },
+    },
+  ],
+  tools: [
+    {
+      name: 'gh',
+      installed: null,
+      probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+    },
+  ],
+}
+
 const HOST_MEMORY_FULL = {
   totalBytes: 32_000_000_000,
   availableBytes: 8_000_000_000,
@@ -679,6 +699,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
     value: { name: 'gh', installed: true, version: '2.0.0', path: '/usr/bin/gh' },
   },
   { name: 'inventory.full', schema: Inventory, value: INVENTORY_FULL },
+  { name: 'inventory.probeTimeout', schema: Inventory, value: INVENTORY_PROBE_TIMEOUT },
   {
     name: 'inventory.minimal',
     schema: Inventory,

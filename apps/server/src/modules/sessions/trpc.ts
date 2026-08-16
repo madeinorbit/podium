@@ -66,12 +66,13 @@
 import {
   isExposedOn,
   SESSION_STATE_COMMAND_TABLES,
-  sessionStateCommand,
+  type SessionHandoffOutput,
   sessionCommandPlane,
   sessionCommandPlaneInputs,
+  sessionHandoffInput,
+  sessionStateCommand,
   sessionStateInputs,
 } from '@podium/commands'
-import { type SessionHandoffOutput, sessionHandoffInput } from '@podium/commands'
 
 import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
@@ -84,8 +85,9 @@ import {
   type SessionCommandKey,
   type SessionCommandResult,
 } from './command-plane'
-import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
+import { handoffRefusalOf } from './handoff/refusal'
 import { dispatchRename } from './rename-adapter'
+import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 
 // ---------------------------------------------------------------------------
 // Durable session-state class
@@ -346,10 +348,22 @@ type HandoffProcedure = TRPCMutationProcedure<{
 function handoffProcedure(): HandoffProcedure {
   return t.procedure
     .input(sessionHandoffInput)
-    .mutation(
-      ({ ctx, input }): Promise<SessionHandoffOutput> =>
-        familyState(ctx).modules.issueSessionLifecycle.handoffSession(input, { capability: ctx.capability, principal: ctx.principal }),
-    ) as HandoffProcedure
+    .mutation(async ({ ctx, input }): Promise<SessionHandoffOutput> => {
+      try {
+        return await familyState(ctx).modules.issueSessionLifecycle.handoffSession(input, {
+          capability: ctx.capability,
+          principal: ctx.principal,
+        })
+      } catch (error) {
+        const refusal = handoffRefusalOf(error)
+        if (!refusal) throw error
+        throw new TRPCError({
+          code: refusal === 'unauthorized' ? 'FORBIDDEN' : 'PRECONDITION_FAILED',
+          message: error instanceof Error ? error.message : 'handoff refused',
+          cause: error,
+        })
+      }
+    }) as HandoffProcedure
 }
 
 // ---------------------------------------------------------------------------

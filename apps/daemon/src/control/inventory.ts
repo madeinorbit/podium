@@ -31,6 +31,7 @@ const log = createLogger('daemon:inventory')
  * because the tests boot daemons against fixture homes.)
  */
 const inventoryCache = new Map<string, Promise<MachineHarnessInventory>>()
+const inventoryInFlight = new Map<string, Promise<MachineHarnessInventory>>()
 
 export const DEFAULT_INVENTORY_REFRESH_INTERVAL_MS = 60_000
 
@@ -66,6 +67,10 @@ export async function reportInventory(
   const key = `${ctx.machineId}\u0000${ctx.homeDir ?? ''}`
   let pending: Promise<MachineHarnessInventory> | undefined
   try {
+    // A refresh interval can fire while a loaded CLI is still consuming the
+    // entire probe budget. Do not start a second wave of the same subprocesses;
+    // the next interval/request will rebuild after this one settles.
+    if (opts.rebuild && inventoryInFlight.has(key)) return
     pending = opts.rebuild ? undefined : inventoryCache.get(key)
     if (!pending) {
       pending = buildMachineInventory({
@@ -73,6 +78,7 @@ export async function reportInventory(
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       })
       inventoryCache.set(key, pending)
+      inventoryInFlight.set(key, pending)
     }
     const { machineId, inventory } = await pending
     // A credential install can force a rebuild while the initial handshake
@@ -98,6 +104,8 @@ export async function reportInventory(
     // a fresh pending under this key; don't discard it.
     if (inventoryCache.get(key) === pending) inventoryCache.delete(key)
     log.warn('inventory report failed', { err })
+  } finally {
+    if (inventoryInFlight.get(key) === pending) inventoryInFlight.delete(key)
   }
 }
 

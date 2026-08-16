@@ -38,7 +38,12 @@ import { attachTestClient } from '../../test-support/client-transport'
  * as a later comparison baseline.
  */
 
-import { FIRST_ADMIN_USER_ID, type SessionId, type MachineId } from '@podium/model'
+import {
+  type AgentProbeError,
+  FIRST_ADMIN_USER_ID,
+  type MachineId,
+  type SessionId,
+} from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 
@@ -157,7 +162,12 @@ export interface OfflineMachine {
   id: MachineId
   name: string
   /** Harnesses the machine reported before it went away. */
-  agents?: { kind: string; installed: boolean; login: { state: 'in' | 'out' } }[]
+  agents?: {
+    kind: string
+    installed: boolean | null
+    probeError?: AgentProbeError
+    login: { state: 'in' | 'out' }
+  }[]
 }
 
 /**

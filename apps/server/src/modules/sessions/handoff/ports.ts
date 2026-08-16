@@ -29,7 +29,7 @@
  */
 
 import type {
-  AgentProbeError,
+  AgentInventory,
   HandoffManifestV1,
   IssueRehomeTarget,
   MachineId,
@@ -169,12 +169,7 @@ export interface HandoffMachine {
   name?: string
   online: boolean
   inventory?: {
-    agents: {
-      kind: string
-      installed: boolean | null
-      probeError?: AgentProbeError
-      login: { state: string }
-    }[]
+    agents: Pick<AgentInventory, 'kind' | 'installed' | 'probeError' | 'login'>[]
   }
 }
 

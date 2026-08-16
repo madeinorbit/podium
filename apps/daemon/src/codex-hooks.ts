@@ -4,7 +4,11 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { PODIUM_CODEX_HOOK_SOCKET_ENV, PODIUM_CODEX_HOOK_URL_ENV } from '@podium/harness'
+import {
+  AGENT_VERSION_PROBE_TIMEOUT_MS,
+  PODIUM_CODEX_HOOK_SOCKET_ENV,
+  PODIUM_CODEX_HOOK_URL_ENV,
+} from '@podium/harness'
 import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:codex-hooks')
@@ -74,7 +78,9 @@ export function supportsCodexHooks(version: CodexVersion): boolean {
 }
 
 export async function detectCodexVersion(): Promise<string> {
-  const { stdout, stderr } = await execFileAsync('codex', ['--version'], { timeout: 10_000 })
+  const { stdout, stderr } = await execFileAsync('codex', ['--version'], {
+    timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+  })
   return `${stdout}${stderr}`.trim()
 }
 

@@ -10,6 +10,8 @@ import {
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
 } from '../codex-auth-identity.js'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
+import { buildInventory, type ProbeExec } from './build-inventory.js'
 
 let home: string
 const prevCodexHome = process.env.CODEX_HOME
@@ -301,6 +303,32 @@ describe('buildInventory', () => {
       installed: true,
       version: '2026.07.22',
       path: 'agent',
+    })
+  })
+
+  it('keeps a successful version observation when the identity probe times out', async () => {
+    const exec: ProbeExec = async (argv) => {
+      const bin = (argv[0] as string).split('/').pop()
+      if (bin !== 'agent') throw new Error(`ENOENT: ${argv[0]}`)
+      if (argv[1] === '--version') return '2026.07.22'
+      throw Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' })
+    }
+    const inv = await buildInventory({ homeDir: home, exec })
+    expect(inv.agents.find((agent) => agent.kind === 'cursor')).toMatchObject({
+      installed: true,
+      version: '2026.07.22',
+      path: 'agent',
+    })
+  })
+
+  it('recognizes Node execFile killed errors as timed-out probes', async () => {
+    const killedExec: ProbeExec = async () => {
+      throw Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' })
+    }
+    const inv = await buildInventory({ homeDir: home, exec: killedExec })
+    expect(inv.agents.find((agent) => agent.kind === 'claude-code')).toMatchObject({
+      installed: null,
+      probeError: { reason: 'timed-out', timeoutMs: AGENT_VERSION_PROBE_TIMEOUT_MS },
     })
   })
 

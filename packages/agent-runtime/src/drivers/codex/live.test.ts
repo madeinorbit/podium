@@ -29,6 +29,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import type { SessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
@@ -158,7 +159,10 @@ describe('the pinned version, checked without spawning anything', () => {
   it('matches the codex on PATH, or explains why the live run is skipped', () => {
     let output = ''
     try {
-      output = execFileSync('codex', ['--version'], { encoding: 'utf8', timeout: 15_000 })
+      output = execFileSync('codex', ['--version'], {
+        encoding: 'utf8',
+        timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+      })
     } catch {
       // No codex here. The recorded fixtures are the evidence on this machine,
       // and `./protocol.test.ts` asserts them on every run.
@@ -274,8 +278,7 @@ describeLive('a real subscription-authed session, end to end', () => {
 
     const fenced = await until(
       () => collected,
-      (events) =>
-        events.filter((e) => e.t === 'turn' && e.ev.ev === 'completed').length >= 2,
+      (events) => events.filter((e) => e.t === 'turn' && e.ev.ev === 'completed').length >= 2,
     )
     expect(fenced).toBe(true)
     // The steered words landed IN the turn that was already running.

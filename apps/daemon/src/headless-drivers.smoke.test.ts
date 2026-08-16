@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import { asAccountId, type HarnessAgent } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -27,7 +28,10 @@ import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
  */
 const hasBin = (bin: string): boolean => {
   try {
-    execFileSync(bin, ['--version'], { timeout: 15_000, stdio: 'pipe' })
+    execFileSync(bin, ['--version'], {
+      timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+      stdio: 'pipe',
+    })
     return true
   } catch {
     return false

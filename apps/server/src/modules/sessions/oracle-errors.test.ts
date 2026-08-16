@@ -286,4 +286,48 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     })
     expect(o.meta(sessionId).handoffTarget).toBeUndefined()
   })
+
+  it(`${MUST_NOT_CHANGE}: a timed-out target inventory probe is a retryable 412, not a 500 or an absence claim`, async () => {
+    const target = asMachineId('loaded')
+    const o = makeOracle({
+      offlineMachines: [
+        {
+          id: target,
+          name: 'Loaded',
+          agents: [
+            {
+              kind: 'claude-code',
+              installed: null,
+              probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+              login: { state: 'in' },
+            },
+          ],
+        },
+      ],
+    })
+    o.reg.gateway.attachDaemon(target, () => {})
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+      type: 'inventoryReport',
+      machineId: o.store.hostMachineId,
+      inventory: {
+        os: 'linux',
+        arch: 'x64',
+        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+        tools: [],
+      },
+    })
+    o.store.repos.addRepo('/r', o.store.hostMachineId, 'git@github.com:example/r.git')
+    const { sessionId } = await o.call.sessions.resume({
+      agentKind: 'claude-code',
+      cwd: '/r/.worktrees/x',
+      resume: { kind: 'claude-session', value: 'n1' },
+      conversationId: 'n1',
+    })
+
+    await expect(o.call.sessions.handoff({ sessionId, machineId: target })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message:
+        "could not determine whether claude-code is installed on target machine 'Loaded' (probe timed out after 60s); retry",
+    })
+  })
 })

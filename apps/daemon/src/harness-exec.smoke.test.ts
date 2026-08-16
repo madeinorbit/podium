@@ -2,6 +2,7 @@ import { execFile, execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import { describe, expect, it } from 'vitest'
 import { buildHarnessExec } from './harness-exec.js'
 
@@ -16,7 +17,10 @@ import { buildHarnessExec } from './harness-exec.js'
  */
 const hasClaude = ((): boolean => {
   try {
-    execFileSync('claude', ['--version'], { timeout: 15_000, stdio: 'pipe' })
+    execFileSync('claude', ['--version'], {
+      timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+      stdio: 'pipe',
+    })
     return true
   } catch {
     return false

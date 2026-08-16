@@ -122,12 +122,19 @@ async function probeAgent(
         )
       ).trim()
       if (declaration.identityProbe) {
-        const output = await exec(
-          [candidate, ...declaration.identityProbe.args],
-          AGENT_VERSION_PROBE_TIMEOUT_MS,
-          environment.env,
-        )
-        if (!declaration.identityProbe.accepts(output)) continue
+        try {
+          const output = await exec(
+            [candidate, ...declaration.identityProbe.args],
+            AGENT_VERSION_PROBE_TIMEOUT_MS,
+            environment.env,
+          )
+          if (!declaration.identityProbe.accepts(output)) continue
+        } catch (error) {
+          // The version probe already established an executable. A timed-out
+          // secondary identity check must not rewrite that install fact as
+          // either an absent binary or an unknown version probe.
+          if (!probeTimedOut(error)) continue
+        }
       }
       const executable: ResolvedHarnessExecutable = Object.freeze({
         kind: manifest.kind,
