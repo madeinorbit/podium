@@ -80,13 +80,17 @@ echo "=== FEED up (pid $FEED) on :$PORT ==="
 curl -fsS "http://127.0.0.1:$PORT/update/linux-x86_64/x86_64/0.1.0" | head -c 400; echo
 
 # --- single-instance pre-flight guard ---------------------------------------
-# tauri_plugin_single_instance holds a lock; a STALE podium-desktop instance makes a
+# tauri_plugin_single_instance holds a lock; a STALE Podium instance makes a
 # fresh launch focus-the-existing-window-and-exit BEFORE setup() runs, so running-version
 # is never written and the upgrade is silently a no-op (false negative / false positive).
 # Kill any stale desktop instances so the lock is free. NEVER touch the live systemd
 # podium-server / :18787 — these patterns only match the desktop AppImage + its mounts.
 kill_stale_desktop() {
-  pkill -f 'podium-desktop' 2>/dev/null || true
+  # `bin/Podium`, not a bare `Podium`: the desktop executable is the bin target
+  # of that name (target/*/Podium, usr/bin/Podium inside the AppImage), and the
+  # narrower pattern cannot reach for the live podium-server. Case matters here
+  # — every path of the server's is lowercase.
+  pkill -f 'bin/Podium' 2>/dev/null || true
   pkill -f '/tmp/.mount_Podium' 2>/dev/null || true
   pkill -f 'appimage_extracted' 2>/dev/null || true
   sleep 2
@@ -109,7 +113,7 @@ echo "=== RUN v0.1.0 (state=$SMOKE_STATE [fresh/empty], APPIMAGE=$ABS_APP010, si
 PODIUM_UPDATE_AUTOCONFIRM=1 PODIUM_STATE_DIR="$SMOKE_STATE" APPIMAGE="$ABS_APP010" \
   timeout 90 xvfb-run -a "$APP010" >/tmp/update-run.log 2>&1 || true
 echo "=== RUN finished; updater-relevant log lines: ==="
-grep -iE "update|version|signature|install|restart|podium-desktop" /tmp/update-run.log | head -60 || true
+grep -iE "update|version|signature|install|restart|podium" /tmp/update-run.log | head -60 || true
 
 # --- assert each stage ------------------------------------------------------
 echo "=== STAGE ASSERTIONS ==="

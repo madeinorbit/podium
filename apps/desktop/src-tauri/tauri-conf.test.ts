@@ -98,6 +98,19 @@ describe('tauri desktop config', () => {
     expect(mainSource).not.toContain('.quit()')
   })
 
+  it('names the executable after the product, for the Dock (POD-1119)', () => {
+    // The menu bar can be titled from Rust (above); the Dock tile cannot. For an
+    // unbundled process macOS reads ProcessInfo.processName — argv[0]'s basename
+    // — so under `tauri dev` the app name IS this bin target's name, and a
+    // `podium-desktop` here surfaces as a "podium-desktop" tile. Packaged builds
+    // read CFBundleName from productName and are unaffected either way.
+    expect(cargoSource).toMatch(/\[\[bin\]\][\s\S]*?\nname = "Podium"\n/)
+    expect(cargoSource).not.toContain('name = "podium-desktop"\npath')
+    // rustc derives the crate name from the target name and warns about the
+    // capital; the allow is what keeps that from being a build-log surprise.
+    expect(mainSource).toContain('#![allow(non_snake_case)]')
+  })
+
   it('never closes the main window from Cmd+W', () => {
     expect(mainSource).toContain('MenuItemBuilder::with_id("close-tab", "Close Tab")')
     expect(mainSource).toContain('.accelerator("CmdOrCtrl+W")')

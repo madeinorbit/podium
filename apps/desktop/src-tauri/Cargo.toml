@@ -4,7 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "podium-desktop"
+# The executable FILENAME is the app name macOS shows for an unbundled process:
+# the Dock tile, ⌘-Tab, and Activity Monitor all read ProcessInfo.processName,
+# which is argv[0]'s basename. `tauri dev` runs this binary straight out of
+# target/ with no .app around it, so a `podium-desktop` here is a Dock tile
+# reading "podium-desktop". The packaged bundle was never affected — it reads
+# CFBundleName, which Tauri writes from `productName` — and tauri.conf.json's
+# `mainBinaryName` would not have helped, since that renames during `tauri
+# build` only. Naming the target after the product is the fix Tauri's own docs
+# point at, and it keeps the bundled executable's name matching productName.
+name = "Podium"
 path = "src/main.rs"
 
 [lib]

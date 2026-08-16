@@ -67,7 +67,7 @@ fn pending_crash_path() -> PathBuf {
 // Pure record assembly
 // ---------------------------------------------------------------------------
 
-/// `podium_desktop::updater` → `desktop:updater`; the crate root → `desktop:shell`.
+/// `Podium::updater` → `desktop:updater`; the crate root → `desktop:shell`.
 ///
 /// The namespace is the column every log query groups by, so it is derived from
 /// the module path rather than typed at each call site: a namespace somebody has
@@ -76,8 +76,13 @@ pub fn namespace_for_target(target: &str) -> String {
     let leaf = target.rsplit("::").next().unwrap_or(target);
     match leaf {
         // The binary crate root is where supervision lives; `main` names the
-        // function, `shell` names the thing a reader is looking for.
-        "" | "main" | "podium_desktop" | "podium-desktop" => "desktop:shell".to_string(),
+        // function, `shell` names the thing a reader is looking for. `Podium` is
+        // that crate root today (the bin target is named for the product so the
+        // Dock tile is, too); the older spellings stay because a log line read
+        // back from disk can predate the rename.
+        "" | "main" | "Podium" | "podium_desktop" | "podium-desktop" => {
+            "desktop:shell".to_string()
+        }
         other => format!("desktop:{other}"),
     }
 }
@@ -414,10 +419,11 @@ impl log::Log for NdjsonLogger {
             let _guard = self.write_lock.lock().unwrap_or_else(|e| e.into_inner());
             append_line(&self.path, &line);
         }
-        // The stderr mirror keeps the shape every existing `[podium-desktop] …`
-        // line had, so a developer running `tauri dev` and an operator reading
-        // `<role>.log` both see what they saw before this chunk.
-        eprintln!("[podium-desktop] {} {ns} {msg}", level.to_uppercase());
+        // `[podium]` is the prefix the rest of the codebase mirrors to stderr
+        // with; the old `[podium-desktop]` also duplicated what `{ns}` already
+        // says (`desktop:shell`, `desktop:updater`), so the runtime is still on
+        // the line — once, and under the product's name.
+        eprintln!("[podium] {} {ns} {msg}", level.to_uppercase());
     }
 
     fn flush(&self) {}
@@ -511,6 +517,10 @@ mod tests {
             namespace_for_target("podium_desktop::bootstrap"),
             "desktop:bootstrap"
         );
+        assert_eq!(namespace_for_target("Podium::updater"), "desktop:updater");
+        // The crate root the bin actually compiles under since it was renamed
+        // for the Dock, and the two spellings that precede it on disk.
+        assert_eq!(namespace_for_target("Podium"), "desktop:shell");
         assert_eq!(namespace_for_target("podium_desktop"), "desktop:shell");
         assert_eq!(namespace_for_target("main"), "desktop:shell");
     }

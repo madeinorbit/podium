@@ -1,4 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// The bin target is named `Podium` so the Dock tile under `tauri dev` reads the
+// product name (see Cargo.toml). rustc derives the crate name from the target
+// name and warns that it is not snake case — the warning is about a spelling we
+// chose deliberately, and the crate name is not something call sites ever write.
+#![allow(non_snake_case)]
 
 mod bootstrap;
 mod logging;
