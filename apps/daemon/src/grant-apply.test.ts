@@ -129,7 +129,10 @@ describe('applyGrant', () => {
    */
   describe('when converging would stop a server nothing would restart', () => {
     const refusing = (over: Partial<Parameters<typeof applyGrant>[1]> = {}) =>
-      deps({ refuse: () => 'cannot converge: foreground-all-in-one — it would not come back', ...over })
+      deps({
+        refuse: () => 'cannot converge: foreground-all-in-one — it would not come back',
+        ...over,
+      })
 
     it('touches nothing: no fetch, no swap, no marker, no exit', async () => {
       // Order matters as much as the refusal. Git delivery detaches the very

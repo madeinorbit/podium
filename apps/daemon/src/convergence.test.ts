@@ -116,9 +116,9 @@ describe('refuseConvergence', () => {
     // A test or embedder that passed its own restart has already said what
     // happens instead of an exit; overriding it would break every harness that
     // drives a co-hosted daemon.
-    expect(
-      disarmExitSeam({ provided: () => {}, shape: { exitStopsServer: true, env: {} } }),
-    ).toBe(false)
+    expect(disarmExitSeam({ provided: () => {}, shape: { exitStopsServer: true, env: {} } })).toBe(
+      false,
+    )
   })
 
   it('says why, in a sentence a person can act on, carrying the token the panel matches', () => {

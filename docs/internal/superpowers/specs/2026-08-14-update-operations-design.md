@@ -595,6 +595,22 @@ down and nothing brings it back; the panel gives no hint and the browser simply 
 server mid-operation. Found by driving it (POD-2157), traced to the composition root, tracked
 as POD-2210. This is the shape a developer runs, which is why nobody noticed.
 
+**Answered by POD-2210: that daemon refuses, and the refusal is a §7 failure of its own.** It
+declines before anything is fetched or moved — git delivery detaches the checkout the running
+server reads its assets, migrations and lifecycle workers from, so a convergence stopped
+anywhere later leaves a live old process on new source, and *nothing changed* is the only
+honest half-way state. Self-restarting instead was rejected on a fact rather than a taste: a
+source checkout moved to a new commit may not boot without an install or a build, which is
+exactly the gate the redeploy unit runs before it restarts anything and exactly what a
+foreground process has nowhere to run and nobody to catch it with. "Will something restart
+me?" is answered with `INVOCATION_ID` — the same signal §19.2's own `source-redeploy` uses to
+decide the server may restart *itself* — and `PODIUM_DESKTOP_SUPERVISED`. The new code is
+`machine-cannot-restart`, added because the classifier's default would have called this
+`machine-unreachable` and sent the operator to check a machine that had just answered them
+clearly. The nicer shape is still open: this deserves the §3.5 **ask** the desktop all-in-one
+gets ("finish this in your terminal") rather than a failure, which needs the host daemon's
+shape as a fact on the wire.
+
 ### 19.3 Known-open at the time of writing
 
 A double grant when a wave widens past its canary; the eager web bundle over budget; the

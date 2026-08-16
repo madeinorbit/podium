@@ -297,7 +297,7 @@ export function describeUpdateFailure(detail?: string, machineName?: string): Fa
     const subject = machineName ? `Podium on ${machineName}` : 'Podium here'
     return {
       state: 'failed',
-      message: subject + ' is running as a single foreground process, so it cannot update itself.',
+      message: `${subject} is running as a single foreground process, so it cannot update itself.`,
       guidance:
         'Nothing was changed. Stop it in the terminal it is running in and start it again to ' +
         'pick up this update — or run `podium setup` there to install it as a service, which ' +
