@@ -35,7 +35,7 @@ const fixture = vi.hoisted(() => ({
     markIssueUnread: vi.fn(),
     markSessionRead: vi.fn(),
     markSessionUnread: vi.fn(),
-    openIssueId: null,
+    openIssueId: null as string | null,
     setPane: vi.fn(),
     setView: vi.fn(),
     setSettingsTab: vi.fn(),
@@ -52,6 +52,13 @@ const fixture = vi.hoisted(() => ({
     spawnDraftAgent: vi.fn(),
     paletteOpen: true,
     setPaletteOpen: vi.fn(),
+    closeIssue: vi.fn(async () => {}),
+    deferIssue: vi.fn(async () => {}),
+    undeferIssue: vi.fn(async () => {}),
+    updateIssue: vi.fn(async () => {}),
+    deleteIssue: vi.fn(async () => {}),
+    restoreIssue: vi.fn(async () => {}),
+    setIssueLabels: vi.fn(async () => {}),
   },
 }))
 
@@ -99,9 +106,11 @@ const groups = (): string[] =>
 
 afterEach(() => {
   cleanup()
+  vi.clearAllMocks()
   fixture.sessions = []
   fixture.issues = []
   fixture.paneA = null
+  fixture.store.openIssueId = null
 })
 
 describe('CommandPalette', () => {
@@ -177,5 +186,34 @@ describe('CommandPalette', () => {
     render(<CommandPalette />)
     expect(screen.getByText('close')).toBeTruthy()
     expect(screen.getByText('run')).toBeTruthy()
+  })
+
+  /**
+   * POD-1114. Closing from the palette used to be the ONE route that skipped
+   * the guard: the same pick from the right-click menu or the issue page showed
+   * what was still unresolved first. The dialog has to survive the palette
+   * closing on execute, which is why it is a sibling of it and not inside it.
+   */
+  it('raises the close guard instead of closing the task outright', () => {
+    fixture.issues = [
+      makeIssue({ id: 'i1', title: 'Merge lock lease expiry', childCount: 3, childDoneCount: 1 }),
+    ]
+    fixture.store.openIssueId = 'i1'
+    render(<CommandPalette />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'set status done' } })
+
+    const row = screen
+      .getAllByRole('option')
+      .find((option) => option.textContent?.includes('Set status · Done'))
+    if (!row) throw new Error('expected a status close row on the task')
+    fireEvent.click(row)
+
+    // Nothing has closed yet — the dialog is standing where the close was.
+    expect(fixture.store.closeIssue).not.toHaveBeenCalled()
+    expect(screen.getByText('This issue still needs attention')).toBeTruthy()
+    expect(within(screen.getByTestId('issue-close-concerns')).getByText('2 open sub-tasks'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close anyway' }))
+    expect(fixture.store.closeIssue).toHaveBeenCalledWith('i1', 'done')
   })
 })

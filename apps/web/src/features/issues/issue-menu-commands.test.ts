@@ -107,6 +107,27 @@ describe('shared issue menu command execution', () => {
     expect(mutate).not.toHaveBeenCalled()
   })
 
+  // POD-1114: the palette closed instantly while the same pick from the context
+  // menu or the issue page raised `IssueCloseDialog` first. The runner cannot own
+  // that guard — it is a dialog listing what is unresolved, not a sentence — so a
+  // host that mounts one says so, and the runner must then close NOTHING itself.
+  it('hands a close to the host guard instead of closing, when the host has one', async () => {
+    const data = menuData()
+    const { deps, actions } = commandDeps()
+    const requestClose = vi.fn()
+    deps.requestClose = requestClose
+    const status = issueMenuEntries(data).find((entry) => entry.id === 'status')
+    if (!status || status.kind !== 'submenu') throw new Error('expected a status fixture')
+
+    await runIssueMenuCommand(data, status, 'cancelled', deps)
+    // Only the terminal half is diverted; a lane move is still applied directly.
+    await runIssueMenuCommand(data, status, 'review', deps)
+
+    expect(requestClose).toHaveBeenCalledWith('cancelled')
+    expect(actions.closeIssue).not.toHaveBeenCalled()
+    expect(actions.updateIssue).toHaveBeenCalledWith('i', { stage: 'review' })
+  })
+
   it('toggles the pin through the patch action — one command, one queue', async () => {
     const data = menuData()
     const { deps, actions } = commandDeps()

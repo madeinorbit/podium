@@ -2,6 +2,7 @@ import type { IssueUpdatePatch } from '@podium/commands'
 import {
   asMachineId,
   DEFER_NEXT_MESSAGE,
+  type IssueCloseReason,
   isIssueColorSlot,
   issueStatusIntent,
   type MachineId,
@@ -40,6 +41,20 @@ export interface IssueMenuCommandDeps {
   setView: (view: 'issues') => void
   handoff?: (machineId: MachineId) => void
   confirm?: (message: string) => boolean
+  /** Hand the close back to the host so it can raise `IssueCloseDialog` first
+   *  (POD-1114). Closing is the one command in this tree whose guard is not a
+   *  sentence — it lists what is still unresolved and is read, not acknowledged
+   *  — so the runner cannot own it the way it owns the archive/delete confirms.
+   *
+   *  Optional like `confirm` above, and for the same reason: the runner stays
+   *  usable by a host with no dialog mounted, which closes directly. A host that
+   *  CAN mount one passes this, and the palette does — that omission was the bug
+   *  (POD-1113 put the guard in `IssueContextMenu`, which the palette bypasses).
+   *
+   *  Note the arm this rides is single-issue by construction: the status
+   *  submenu's terminal options are disabled unless the selection is one open
+   *  task, so the host has exactly one issue to raise the dialog for. */
+  requestClose?: (reason: IssueCloseReason) => void
 }
 
 /** Execute one descriptor from the shared tree for the command-palette host. */
@@ -113,7 +128,13 @@ export function runIssueMenuCommand(
       if (!status) return
       const intent = issueStatusIntent(status)
       if (!intent) return
-      if (intent.kind === 'close') return deps.closeIssue(id, intent.reason)
+      if (intent.kind === 'close') {
+        if (deps.requestClose) {
+          deps.requestClose(intent.reason)
+          return
+        }
+        return deps.closeIssue(id, intent.reason)
+      }
       return Promise.all(
         data.issues.map((issue) => deps.updateIssue(issue.id, { stage: intent.stage })),
       )

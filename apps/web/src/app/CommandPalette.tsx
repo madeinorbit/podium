@@ -42,10 +42,12 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { openAddProject } from '@/app/desktop-menu'
 import { IssueReference } from '@/components/IssueReference'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
+import { IssueCloseDialog, type IssueCloseReason } from '@/features/issues/issue-lifecycle'
 import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
@@ -75,7 +77,13 @@ import {
   type RightPanelTab,
   rightPanelAllowed,
 } from './shell-state'
-import { type MainView, useReplicaIssues, useSlice, useStoreSelector } from './store'
+import {
+  type IssueViewModel,
+  type MainView,
+  useReplicaIssues,
+  useSlice,
+  useStoreSelector,
+} from './store'
 
 const SEARCH_DEBOUNCE_MS = 150
 const SEARCH_MIN_QUERY_LEN = 2
@@ -131,13 +139,40 @@ function useIssueSearch(query: string, enabled: boolean): { hits: IssueWire[]; p
  * `.cmdk-*` in styles.css for the surface.
  */
 export function CommandPalette(): JSX.Element {
-  const { paletteOpen, setPaletteOpen } = useStoreSelector(
-    (s) => ({ paletteOpen: s.paletteOpen, setPaletteOpen: s.setPaletteOpen }),
+  const { paletteOpen, setPaletteOpen, closeIssue } = useStoreSelector(
+    (s) => ({
+      paletteOpen: s.paletteOpen,
+      setPaletteOpen: s.setPaletteOpen,
+      closeIssue: s.closeIssue,
+    }),
     shallowEqual,
   )
   // These flows outlive the palette (which closes on execute), so they live
   // here as siblings rather than inside the palette dialog.
   const [newIssueOpen, setNewIssueOpen] = useState(false)
+  // The close guard is one of them (POD-1114). A palette row that closes a task
+  // must raise the SAME dialog the context menu and the issue page raise, and
+  // the palette has already unmounted by the time the command runs — so the
+  // dialog is a sibling of the palette rather than a child of it, holding the
+  // issue the request was made against.
+  //
+  // Target and reason are separate pieces of state, as they are on the compact
+  // controls: dismissing nulls the REASON, which is what closes the dialog, and
+  // the target stays so the alert can play its exit rather than being yanked out
+  // of the tree mid-fade.
+  const [closeTarget, setCloseTarget] = useState<IssueViewModel | null>(null)
+  const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
+  const [closing, setClosing] = useState(false)
+  const confirmClose = (reason: IssueCloseReason): void => {
+    if (!closeTarget) return
+    setClosing(true)
+    closeIssue(closeTarget.id, reason)
+      .then(() => setCloseReason(null))
+      .catch((error: unknown) =>
+        toast.error(error instanceof Error ? error.message : String(error)),
+      )
+      .finally(() => setClosing(false))
+  }
   return (
     <>
       {paletteOpen && (
@@ -145,9 +180,22 @@ export function CommandPalette(): JSX.Element {
           onClose={() => setPaletteOpen(false)}
           onNewIssue={() => setNewIssueOpen(true)}
           onAddRepo={openAddProject}
+          onRequestClose={(issue, reason) => {
+            setCloseTarget(issue)
+            setCloseReason(reason)
+          }}
         />
       )}
       {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
+      {closeTarget && (
+        <IssueCloseDialog
+          issue={closeTarget}
+          reason={closeReason}
+          busy={closing}
+          onOpenChange={(open) => !open && setCloseReason(null)}
+          onConfirm={confirmClose}
+        />
+      )}
     </>
   )
 }
@@ -167,10 +215,12 @@ function PaletteDialog({
   onClose,
   onNewIssue,
   onAddRepo,
+  onRequestClose,
 }: {
   onClose: () => void
   onNewIssue: () => void
   onAddRepo: () => void
+  onRequestClose: (issue: IssueViewModel, reason: IssueCloseReason) => void
 }): JSX.Element {
   const {
     trpc,
@@ -434,6 +484,10 @@ function PaletteDialog({
           restoreIssue,
           setOpenIssueId: (id) => setOpenIssueId(id as IssueId),
           setView: (view) => setView(view),
+          // Closing goes to the shared guard, not straight to the store action
+          // (POD-1114) — the palette must not be the one route that closes a
+          // task without showing what is still unresolved.
+          requestClose: (reason) => onRequestClose(issueMenuData.first, reason),
           handoff: (machineId) => {
             const sessionId = issueMenuData.handoff?.sessionId
             if (sessionId) void trpc.sessions.handoff.mutate({ sessionId, machineId })
