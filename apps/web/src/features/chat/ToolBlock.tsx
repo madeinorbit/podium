@@ -69,10 +69,15 @@ export function ToolBlock({
   // heredoc for a Bash call — so an unfolded run of twelve calls was twelve
   // lines that each ran off the end of the column. `toolSubject` is the sentence
   // the collapsed line and the retired preview panel were both built from:
-  // basenames, MCP labels, first line of a command, capped. A reader who wants
-  // the full path or the whole script unfolds THAT call, which is what the
-  // per-row disclosure is for.
-  const subject = toolSubject(item)
+  // basenames, MCP labels, the first line of a command.
+  //
+  // UNCAPPED, though. "Shorter" meant the short FORM — a basename instead of an
+  // eighty-character worktree path — not a clipped string: the collapsed line
+  // caps each subject at 30 characters because several share one line, and
+  // inheriting that here put "…" into the middle of filenames on rows with a
+  // whole line to spare. The column edge is CSS's job (`truncate` below), which
+  // clips only what genuinely does not fit and only ever at the end.
+  const subject = toolSubject(item, Number.POSITIVE_INFINITY)
   const isCommand = item.toolName === 'Bash'
   // The agent's own description of a command it ran — a detail, so it stays
   // behind this row's own disclosure, which is exactly where the operator asked

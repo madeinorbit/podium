@@ -291,18 +291,23 @@ const shorten = (s: string, max: number): string =>
  * Returns undefined when the call genuinely has no nameable subject, so the
  * caller can fall back to counting rather than print an empty clause.
  */
-export function toolSubject(item: TranscriptItem): string | undefined {
+export function toolSubject(item: TranscriptItem, max: number = SUBJECT_MAX): string | undefined {
+  // `max` exists because the same sentence serves two places with different
+  // room. The COLLAPSED line packs several subjects onto one line and has to
+  // cap each; an UNFOLDED row owns its line, and clipping "…" into the middle
+  // of a filename there hides the end of a name for space the row already has.
+  // That caller passes Infinity and lets CSS ellipsis handle the column edge.
   const name = item.toolName
   // A path-bearing call is named by its file, always — the basename, since the
   // full path is one disclosure away in the expanded row.
   const path = item.toolPaths?.[0]
   if (path && name !== 'Bash') {
     const base = path.split('/').pop()
-    if (base) return shorten(base, SUBJECT_MAX)
+    if (base) return shorten(base, max)
   }
   if (name && mcpParts(name)) {
     const label = mcpLabel(name)
-    if (label) return shorten(label, SUBJECT_MAX)
+    if (label) return shorten(label, max)
   }
   // Bash prefers the COMMAND (toolInput) over the agent's description
   // (toolTitle): the command is the object, it is verifiable, and its first
@@ -315,13 +320,13 @@ export function toolSubject(item: TranscriptItem): string | undefined {
     ''
   const first = raw.split('\n', 1)[0]?.trim() ?? ''
   if (!first) return undefined
-  if (name !== 'Bash') return shorten(first, SUBJECT_MAX)
+  if (name !== 'Bash') return shorten(first, max)
   // A command speaks for itself and reads as the code it is. The agent's
   // DESCRIPTION of a command does not, so it keeps the quotes it has always had
   // — otherwise "Ran render the mockups to PNG" reads as a shell invocation
   // that was never typed.
-  if (item.toolInput) return shorten(significantCommand(first), SUBJECT_MAX)
-  return `"${shorten(first, SUBJECT_MAX - 2)}"`
+  if (item.toolInput) return shorten(significantCommand(first), max)
+  return `"${shorten(first, max - 2)}"`
 }
 
 /** Leading `cd <somewhere> ;` / `&&` — preamble, not the command. */

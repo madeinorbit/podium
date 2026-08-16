@@ -298,7 +298,17 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const el = scrollerRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
-      if (pinnedToBottom.current) settleToBottom(el, pinnedToBottom)
+      // A SINGLE WRITE HERE, deliberately. These callbacks fire constantly while
+      // an answer streams, and routing them through the settle loop (round 7)
+      // kept a rAF loop permanently renewed, writing the bottom every frame. The
+      // loop only yields when `pinnedToBottom` goes false, and that is set from
+      // the SCROLL event — which WebKit defers during momentum scrolling. So a
+      // reader scrolling up was fought for as long as the stream kept the
+      // observers busy, and the operator reported the jump-back had got WORSE
+      // immediately after that change. Re-asserting belongs to a DELIBERATE
+      // request for the bottom (a jump, the initial load, a send), where the
+      // reader has just asked for it and nothing is competing.
+      if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
       syncStickyPromptPositions()
     })
     ro.observe(el)
@@ -359,7 +369,17 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
           if (node instanceof Element) ro.unobserve(node)
         }
       }
-      if (pinnedToBottom.current) settleToBottom(el, pinnedToBottom)
+      // A SINGLE WRITE HERE, deliberately. These callbacks fire constantly while
+      // an answer streams, and routing them through the settle loop (round 7)
+      // kept a rAF loop permanently renewed, writing the bottom every frame. The
+      // loop only yields when `pinnedToBottom` goes false, and that is set from
+      // the SCROLL event — which WebKit defers during momentum scrolling. So a
+      // reader scrolling up was fought for as long as the stream kept the
+      // observers busy, and the operator reported the jump-back had got WORSE
+      // immediately after that change. Re-asserting belongs to a DELIBERATE
+      // request for the bottom (a jump, the initial load, a send), where the
+      // reader has just asked for it and nothing is competing.
+      if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
       syncStickyPromptPositions()
     })
     mo.observe(el, { childList: true })
