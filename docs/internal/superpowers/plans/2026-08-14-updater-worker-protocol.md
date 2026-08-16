@@ -33,8 +33,17 @@ and say so in your issue state.
 
 A worktree with **no `node_modules`** is the same hazard in a different costume: bun resolves
 `@podium/*` up the tree into the MAIN checkout, so a green describes main's packages, not
-your branch. Install if you must — measure first (`du` overstates: bun hardlinks, so a
-sibling's 2.0G tree costs ~0.1G beyond the shared cache) and respect the disk margin below.
+your branch. Two workers solved this two ways, both fine:
+
+- **Symlink farm (free, preferred at low disk).** In-checkout `@podium/*` symlinks plus a
+  `.bin` symlink farm satisfies the workspace-link gate at zero bytes — POD-2155 did this
+  rather than install against 2.8 GB free.
+- **Install (cheap, but measure).** `du` overstates badly because bun hardlinks: a sibling's
+  2.0 GB tree cost ~0.1 GB beyond the shared cache (POD-2158). Measure before, respect the
+  margin below.
+
+Either way, say in your issue state which you did — a green from a worktree that silently
+resolved into main is worse than no green at all.
 
 ## Branch and merge
 
