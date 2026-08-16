@@ -1,5 +1,10 @@
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
+import {
+  hasUpdatePanel,
+  openUpdatePanel,
+  subscribeUpdatePanel,
+} from '@/features/updates/open-panel'
 import { currentSkew, type SkewNotice, subscribeSkew } from './skew-notice'
 
 /**
@@ -55,6 +60,11 @@ export function skewBannerHeightValue(height: number): string {
 export function WireSkewBanner(): JSX.Element | null {
   const [notice, setNotice] = useState<SkewNotice | null>(() => currentSkew())
   useEffect(() => subscribeSkew(setNotice), [])
+
+  // Label the button for what it will actually do. The panel mounts after this
+  // banner in the failure this exists for, so the answer can change under it.
+  const [panelAvailable, setPanelAvailable] = useState(() => hasUpdatePanel())
+  useEffect(() => subscribeUpdatePanel(() => setPanelAvailable(hasUpdatePanel())), [])
 
   /**
    * Publish the height while mounted; take it back when the banner goes.
@@ -118,11 +128,19 @@ export function WireSkewBanner(): JSX.Element | null {
         // button anywhere, even in a banner that styles itself.
         data-pressable
         onClick={() => {
-          // A plain reload, NOT the version guard's cache-evicting hard reload:
-          // that one is the guard's escalation and it has already run by the time
-          // a person is reading this. Here the user asked for a reload, so do the
-          // thing they asked for.
-          window.location.reload()
+          /**
+           * ONE REMEDY, IN ONE PLACE (POD-2102, spec §6.1). This button used to
+           * prescribe its own fix — a plain reload — while the update panel, a
+           * few hundred pixels away, was recommending a different one. The
+           * banner stays as the last-resort backstop it was built to be, but
+           * the remedy it points at is now the panel's, because the panel is
+           * the thing that knows what state the update is actually in.
+           *
+           * If nothing is listening (the shell never mounted, which is a real
+           * case for this banner), fall back to the reload it always did.
+           */
+          const opened = openUpdatePanel()
+          if (!opened) window.location.reload()
         }}
         style={{
           border: '1px solid currentColor',
@@ -134,7 +152,7 @@ export function WireSkewBanner(): JSX.Element | null {
           cursor: 'pointer',
         }}
       >
-        Reload
+        {panelAvailable ? 'Show update' : 'Reload'}
       </button>
     </div>
   )

@@ -1,30 +1,80 @@
+/**
+ * THE PANEL'S INPUTS (POD-2102, spec §6).
+ *
+ * What is left of this hook after the operation took over: it POLLS, it holds
+ * this surface's local facts, and it DISPATCHES actions. It no longer decides
+ * anything about the update — no client-side `done`/`total`, no optimistic
+ * in-progress state fabricated at button-press time, and no wait loop spinning
+ * inside a button for up to five silent minutes. Those three were the update's
+ * three competing stories (spec §1.2/§1.3); the operation is the one story now.
+ *
+ * WHAT REMAINS LOCAL, and why each one has to be:
+ *
+ *  - the OFFER facts. An offer is not an operation (§3.2): before anyone presses
+ *    anything there is nothing on the server to render, so the target from
+ *    `/version`, the fleet snapshot and the desktop feed still make the "what
+ *    would this update touch" copy. `describeUpdate` already does that well and
+ *    is kept whole.
+ *  - the LOCAL fact (P5/§3.5): is the build running THIS page behind the
+ *    operation's target? Nobody else can answer it, and it is the only reason
+ *    two tabs looking at one operation see different buttons.
+ *  - the RENDER CLOCK. "No progress for 40 s" has to keep counting while the
+ *    server says nothing at all — a liveness line that only moves when a poll
+ *    lands cannot report the case it exists for.
+ */
 import {
   classifySkew,
+  type Operation,
   parseBuildStamp,
   parseServerVersion,
   type ServerVersion,
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { useEffect, useMemo, useState } from 'react'
-import { usePolledQuery } from '@/lib/use-polled-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { makeTrpc } from '@/app/trpc'
 import { pageBuildVersion } from '@/lib/logging/build-version'
-import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import {
+  isNativeDesktopUpdateError,
+  type NativeDesktopUpdateChannel,
+  type NativeDesktopUpdateProgress,
+  nativeDesktopBridge,
+  onNativeDesktopUpdateProgress,
+} from '@/lib/nativeDesktop'
+import { usePolledQuery } from '@/lib/use-polled-query'
+import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from './open-panel'
+import {
+  type ActionError,
+  cancelRefusalSentence,
+  isOperationActive,
+  operationView,
+  type PrimaryActionKind,
+  type UpdatePanelView,
+  type UpdateSurface,
+} from './operation-view'
+import {
+  cancelOperation,
+  errorCode,
+  errorMessage,
+  readActiveOperation,
+  retryUpdate,
+  startUpdate,
+} from './operations-client'
 import { computeTouched } from './touched'
-import type { UpdateActions } from './UpdateDialog'
 import {
   type DesktopUpdateInfo,
   describeUpdate,
-  describeUpdateFailure,
   type UpdateInput,
   type UpdateView,
 } from './update-view'
 
 const BUILD_STAMP_FILE = 'podium-build.json'
-const FLEET_POLL_MS = 1_000
+/** An operation is moving: one second is worth a machine's time. */
+const ACTIVE_POLL_MS = 1_000
 /** Idle cadence: enough to recover a failed first read, quiet enough to ignore. */
-const FLEET_IDLE_POLL_MS = 30_000
+const IDLE_POLL_MS = 30_000
+/** The render clock, only while something is actually running. */
+const CLOCK_MS = 1_000
 
 export interface UpdateMachineState {
   id: string
@@ -51,33 +101,36 @@ export interface UpdateFleetState {
   allMachines?: readonly UpdateMachineState[]
 }
 
+export type PanelActionKind = PrimaryActionKind | 'cancel'
+
 export interface UseUpdateStateOptions {
   httpOrigin: string
   needRefresh: boolean
   reload?: () => void | Promise<void>
-  surface?: UpdateInput['surface']
+  surface?: UpdateSurface
   serverName?: string
   fleet?: UpdateFleetState
-  startUpdate?: UpdateActions['startUpdate']
+  /** Injected clock, so liveness is testable without waiting for real seconds. */
+  now?: () => number
+}
+
+export interface UpdateStateResult {
+  view: UpdatePanelView
+  operation: Operation | null
+  server: ServerVersion
+  fleet: UpdateFleetState
+  pending: PanelActionKind | null
+  /** Every action goes through here, and every rejection comes back as view state. */
+  run: (kind: PanelActionKind) => Promise<void>
+  checkNow: () => Promise<void>
+  /** The user acknowledged a failure: collapse the panel, keep the indicator. */
+  dismissFailure: () => void
 }
 
 interface LocalBuild {
   appDigest?: string
   wireSchemaDigest?: string
 }
-
-type UpdateActionState =
-  | { state: 'idle' }
-  | {
-      state: 'in-progress'
-      version: string
-      done: number
-      total: number
-      includesServer: boolean
-      includesWeb?: boolean
-      includesBundle?: boolean
-    }
-  | { state: 'failed'; detail: string; machineName?: string }
 
 const EMPTY_FLEET: UpdateFleetState = {
   total: 0,
@@ -95,10 +148,9 @@ function defaultServerName(httpOrigin: string): string | undefined {
   }
 }
 
-function surfaceFromDesktopBridge(): UpdateInput['surface'] {
+function surfaceFromDesktopBridge(): UpdateSurface {
   const bridge = nativeDesktopBridge()
   if (!bridge) return window.location.pathname.startsWith('/mobile') ? 'mobile' : 'web'
-  if (bridge.launchMode === 'all-in-one') return 'desktop-all-in-one'
   if (bridge.launchMode === 'client') return 'desktop-remote'
   return 'desktop-all-in-one'
 }
@@ -113,29 +165,6 @@ async function readJson(url: string): Promise<unknown> {
   }
 }
 
-async function waitForCompatibleWebBuild(
-  httpOrigin: string,
-  attempts = 120,
-  delayMs = 1_000,
-): Promise<void> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const [serverRaw, buildRaw] = await Promise.all([
-      readJson(`${httpOrigin}/version`),
-      readJson(`${httpOrigin}/${BUILD_STAMP_FILE}`),
-    ])
-    const serverVersion = parseServerVersion(serverRaw)
-    const build = localBuildFrom(buildRaw)
-    if (
-      serverVersion.wireSchemaDigest !== undefined &&
-      build.wireSchemaDigest === serverVersion.wireSchemaDigest
-    ) {
-      return
-    }
-    await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
-  }
-  throw new Error('Podium rebuilt the server, but the matching app did not become ready.')
-}
-
 function localBuildFrom(raw: unknown): LocalBuild {
   const stamp = parseBuildStamp(raw)
   return {
@@ -145,100 +174,69 @@ function localBuildFrom(raw: unknown): LocalBuild {
 }
 
 /**
- * Wait until EVERY website this server serves names `expectedDigest`.
- *
- * Both dists, because one `podium-web` run builds both and the operator pressed
- * one button (POD-1980). Returning as soon as the desktop half lands would
- * reload this page onto a dialog that still says an update is available — the
- * phone export takes the longer half of that run — which reads as a button that
- * did nothing.
- *
- * The phone's identity comes from `/version`: this page cannot fetch the phone's
- * stamp and tell "stale" from "never built" apart, and the server can.
- *
- * The budget is generous for the same reason. An `expo export` runs after the
- * vite build, and a wait that expires mid-rebuild reports a failure to an
- * operator whose update is in fact still working.
- */
-async function waitForWebIdentity(
-  httpOrigin: string,
-  expectedDigest: string,
-  attempts = 300,
-  delayMs = 1_000,
-): Promise<void> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const [buildRaw, serverRaw] = await Promise.all([
-      readJson(`${httpOrigin}/${BUILD_STAMP_FILE}`),
-      readJson(`${httpOrigin}/version`),
-    ])
-    const desktopReady = localBuildFrom(buildRaw).appDigest === expectedDigest
-    if (desktopReady && !phoneBehind(parseServerVersion(serverRaw), expectedDigest)) return
-    await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
-  }
-  throw new Error('Podium rebuilt the server, but the matching app did not become ready.')
-}
-
-/**
  * Is the server's phone website built from something other than `expectedDigest`?
  *
  * ABSENT IS NOT BEHIND. A server that serves no phone website has nothing to
  * rebuild, and reading its silence as "stale" would leave Update permanently
- * offering work it cannot do. A phone website that IS there and names no
- * checkout is behind: that is the unstamped export this whole check exists to
- * replace.
+ * offering work it cannot do.
  */
 function phoneBehind(server: ServerVersion, expectedDigest: string): boolean {
   const phone = server.mobileWeb
   return phone?.present === true && phone.digest !== expectedDigest
 }
 
-function updateErrorDetail(error: unknown): string {
-  if (error && typeof error === 'object') {
-    const value = error as { message?: unknown; data?: { message?: unknown } }
-    if (typeof value.data?.message === 'string') return value.data.message
-    if (typeof value.message === 'string' && value.message.length > 0) return value.message
-  }
-  return 'The server could not start this update.'
+/** The channel the SERVER decides (spec §5: resolved in exactly one place). */
+function desktopChannelOf(channel: unknown): NativeDesktopUpdateChannel {
+  const selected =
+    typeof channel === 'string' ? channel : (channel as { channel?: string } | undefined)?.channel
+  return selected === 'dev' || selected === 'edge' ? 'edge' : 'stable'
 }
 
 async function readDesktopUpdate(
   queryChannel: () => Promise<unknown>,
-): Promise<DesktopUpdateInfo | undefined> {
+): Promise<{ info?: DesktopUpdateInfo; channel: NativeDesktopUpdateChannel }> {
+  const channel = desktopChannelOf(await queryChannel().catch(() => 'stable'))
   const check = nativeDesktopBridge()?.checkUpdate
-  if (!check) return undefined
-  const selected = await queryChannel()
-    .then((c) => (typeof c === 'string' ? c : (c as { channel?: string }).channel))
-    .catch(() => 'stable' as const)
-  const channel = selected === 'dev' || selected === 'edge' ? 'edge' : 'stable'
+  if (!check) return { channel }
   const next = await check(channel)
-  return next ? { version: next.version, critical: next.critical, notes: next.notes } : undefined
+  return {
+    channel,
+    ...(next
+      ? { info: { version: next.version, critical: next.critical, notes: next.notes } }
+      : {}),
+  }
 }
 
-export interface UpdateStateResult {
-  view: UpdateView
-  actions: UpdateActions
-  server: ServerVersion
-  fleet: UpdateFleetState
-  checkNow: () => Promise<void>
-  dismissManualCheck: () => void
+/** Any thrown thing becomes the panel's three-layer failure (retired POD-2091). */
+function toActionError(error: unknown): ActionError {
+  if (isNativeDesktopUpdateError(error)) return { code: error.code, message: error.message }
+  const code = errorCode(error)
+  const message = errorMessage(error)
+  return {
+    ...(code ? { code } : {}),
+    ...(message ? { message } : {}),
+    ...(error instanceof Error && error.stack ? { detail: error.stack.split('\n')[0] } : {}),
+  }
 }
 
-/** Gather the four facts that make the update story: this build, the server
- * descriptor, fleet convergence, and the surface currently showing the dialog. */
 export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResult {
   const [server, setServer] = useState<ServerVersion>({})
   const [localBuild, setLocalBuild] = useState<LocalBuild>({})
   const [fleetState, setFleetState] = useState<UpdateFleetState>(options.fleet ?? EMPTY_FLEET)
-  const [updateAction, setUpdateAction] = useState<UpdateActionState>({ state: 'idle' })
+  const [operation, setOperation] = useState<Operation | null>(null)
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
-  type ManualCheck =
-    | { state: 'idle' }
-    | { state: 'checking' }
-    | { state: 'current' }
-    | { state: 'failed'; detail: string }
-  const [manualCheck, setManualCheck] = useState<ManualCheck>({ state: 'idle' })
+  const [desktopChannel, setDesktopChannel] = useState<NativeDesktopUpdateChannel>('stable')
+  const [desktopProgress, setDesktopProgress] = useState<NativeDesktopUpdateProgress | undefined>()
+  const [actionError, setActionError] = useState<ActionError | undefined>()
+  const [note, setNote] = useState<string | undefined>()
+  const [pending, setPending] = useState<PanelActionKind | null>(null)
+  const [acknowledgedFailureId, setAcknowledgedFailureId] = useState<string | undefined>()
+  const [checkedAt, setCheckedAt] = useState<number | undefined>()
+
+  const clock = options.now ?? Date.now
+  const [now, setNow] = useState<number>(() => clock())
   const trpc = useMemo(() => makeTrpc(options.httpOrigin), [options.httpOrigin])
-  const queryChannel = (): Promise<unknown> => trpc.setup.channel.query()
+  const queryChannel = useCallback((): Promise<unknown> => trpc.setup.channel.query(), [trpc])
 
   useEffect(() => {
     const claim = nativeDesktopBridge()?.claimUpdateOwnership
@@ -246,131 +244,89 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
 
     let cancelled = false
     void readDesktopUpdate(queryChannel)
-      .then((next) => {
-        if (!cancelled) setDesktopUpdate(next)
+      .then(({ info, channel }) => {
+        if (cancelled) return
+        setDesktopUpdate(info)
+        setDesktopChannel(channel)
       })
       .catch(() => {})
 
     return () => {
       cancelled = true
     }
-  }, [trpc])
+  }, [queryChannel])
 
-  useEffect(() => {
-    let cancelled = false
-    const load = async (): Promise<void> => {
-      const [serverRaw, localRaw] = await Promise.all([
+  // The shell's own installer, which used to report nothing at all (spec §5).
+  useEffect(() => onNativeDesktopUpdateProgress(setDesktopProgress), [])
+
+  const active = isOperationActive(operation)
+
+  const query = usePolledQuery<{
+    operation: Operation | null
+    fleet: UpdateFleetState | null
+    serverRaw: unknown
+    buildRaw: unknown
+  }>({
+    key: `updates.operation:${options.httpOrigin}`,
+    intervalMs: active ? ACTIVE_POLL_MS : IDLE_POLL_MS,
+    // HALF AN ANSWER IS STILL AN ANSWER: each arm resolves to its own "unknown"
+    // rather than rejecting the batch, so an unreachable fleet never costs the
+    // panel the operation it could read.
+    read: async () => {
+      const live = await readActiveOperation(trpc).catch(() => null)
+      const [fleet, serverRaw, buildRaw] = await Promise.all([
+        // The fleet snapshot only feeds the OFFER's place rows. While an
+        // operation exists the operation's own steps say where it is, so this
+        // stops asking rather than becoming a second opinion (P2).
+        live
+          ? Promise.resolve(null)
+          : trpc.updates.fleet.query().then(
+              (value) => value,
+              () => null,
+            ),
         readJson(`${options.httpOrigin}/version`),
         readJson(`${options.httpOrigin}/${BUILD_STAMP_FILE}`),
       ])
-      if (cancelled) return
-      setServer(parseServerVersion(serverRaw))
-      setLocalBuild(localBuildFrom(localRaw))
-    }
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, [options.httpOrigin])
-
-  // Fleet convergence is host telemetry, not a row: "which machines are on which
-  // build, right now" is measured across daemons at the moment of asking and is
-  // meaningless offline. So it still polls — but through the ONE polling utility
-  // (POD-1772), which owns the timer, the in-flight guard and the tab-visibility
-  // gate this effect used to spell for itself.
-  //
-  // TWO SPEEDS, ONE UTILITY. `active` is "an update is actually converging", and
-  // only then is a 1 s sweep worth a machine's time; otherwise the dialog wants
-  // ONE reading and no timer at all. That is an interval (0 = read once), not a
-  // second code path.
-  const active = updateAction.state === 'in-progress' || fleetState.converging > 0
-  const fleetQuery = usePolledQuery<{ fleet: UpdateFleetState | null; serverRaw: unknown }>({
-    key: `updates.fleet:${options.httpOrigin}`,
-    // Idle still refreshes, slowly. A single read at mount was the whole fleet
-    // story, so one failed call — the session not established yet, a transient
-    // disconnect — left the snapshot empty for the life of the page and the
-    // dialog could only ever name "this app".
-    intervalMs: active ? FLEET_POLL_MS : FLEET_IDLE_POLL_MS,
-    enabled: options.fleet === undefined,
-    // HALF AN ANSWER IS STILL AN ANSWER. An unreachable fleet must not cost the
-    // dialog the server version it could read, so the fleet arm resolves to null
-    // rather than rejecting the pair.
-    read: async () => {
-      const [fleet, serverRaw] = await Promise.all([
-        trpc.updates.fleet.query().then(
-          (value) => value,
-          () => null,
-        ),
-        readJson(options.httpOrigin + '/version'),
-      ])
-      return { fleet, serverRaw }
+      return { operation: live, fleet, serverRaw, buildRaw }
     },
-    // Folded in the read's OWN turn, exactly as the timer it replaced did — a
-    // reading routed through `data` and a follow-up effect lands one flush late,
-    // and the update button is supposed to appear when the answer does.
-    onData: ({ fleet: next, serverRaw }) => {
-      // HALF AN ANSWER FIRST. The server version is applied even when the fleet
-      // arm came back null, so an unreachable fleet does not also cost the
-      // dialog the version it could read.
-      const nextServer = parseServerVersion(serverRaw)
-      if (serverRaw !== undefined) setServer(nextServer)
-      if (next === null) return
-      setFleetState(next)
-      setUpdateAction((current) => {
-        if (current.state !== 'in-progress') return current
-        if (next.preparation?.failureDetail) {
-          return { state: 'failed', detail: next.preparation.failureDetail }
-        }
-        if (next.failed > 0) {
-          const failure = next.machines?.find(
-            (machine) => machine.state === 'rejected' || machine.state === 'stuck',
-          )
-          return {
-            state: 'failed',
-            ...(failure?.name ? { machineName: failure.name } : {}),
-            detail:
-              failure?.detail ??
-              (next.failed === 1 ? 'A machine' : String(next.failed) + ' machines') +
-                ' could not finish this update.',
-          }
-        }
-        const serverDone =
-          next.targetVersion !== null && nextServer.appVersion === next.targetVersion
-        const serverRemaining = current.includesServer && !serverDone ? 1 : 0
-        const webRemaining = current.includesWeb && next.preparation?.webReady !== true ? 1 : 0
-        const bundleRemaining =
-          current.includesBundle && next.preparation?.bundleReady !== true ? 1 : 0
-        const remaining = serverRemaining + webRemaining + bundleRemaining + next.behind
-        if (next.converging === 0 && remaining === 0) {
-          return { state: 'idle' }
-        }
-        const done = Math.max(0, Math.min(current.total, current.total - remaining))
-        return {
-          state: 'in-progress',
-          version: next.targetVersion ?? current.version,
-          done,
-          total: current.total,
-          includesServer: current.includesServer,
-          ...(current.includesWeb ? { includesWeb: true } : {}),
-          ...(current.includesBundle ? { includesBundle: true } : {}),
-        }
-      })
+    // Folded in the read's OWN turn: a reading routed through `data` and a
+    // follow-up effect lands one flush late, and the panel is supposed to move
+    // when the answer does.
+    onData: ({ operation: live, fleet, serverRaw, buildRaw }) => {
+      setOperation(live)
+      if (serverRaw !== undefined) setServer(parseServerVersion(serverRaw))
+      if (buildRaw !== undefined) setLocalBuild(localBuildFrom(buildRaw))
+      if (fleet !== null) setFleetState(fleet)
+      setNow(clock())
     },
   })
 
-  // A CHANGE IS ITS OWN TRIGGER. During a convergence the interval is the floor,
-  // not the cadence: every answer that moves the count is a reason to ask again
-  // at once, so the progress bar tracks the fleet instead of sampling it once a
-  // second. This is what the effect's `converging` dependency used to do.
-  const converging = fleetState.converging
-  const refreshFleet = fleetQuery.refresh
+  const refresh = query.refresh
+
+  // THE RENDER CLOCK. Only while something is moving: a panel showing an offer
+  // has nothing that ages, and a timer running against a still surface is the
+  // thing `usePolledQuery` exists to have removed.
   useEffect(() => {
-    if (active) refreshFleet()
-  }, [converging, active, refreshFleet])
+    if (!active && pending === null) return
+    const timer = window.setInterval(() => setNow(clock()), CLOCK_MS)
+    return () => window.clearInterval(timer)
+  }, [active, pending, clock])
+
+  // A NEW OPERATION CLEARS THE LAST ONE'S WRECKAGE. Retry creates a new
+  // operation (§3.2), so a stale action-error hanging over it would report the
+  // previous failure on top of the new attempt.
+  const operationId = operation?.id
+  const previousOperationId = useRef<string | undefined>(operationId)
+  useEffect(() => {
+    if (previousOperationId.current === operationId) return
+    previousOperationId.current = operationId
+    setActionError(undefined)
+    setNote(undefined)
+  }, [operationId])
 
   const fleet = options.fleet ?? fleetState
-  const localVersion = pageBuildVersion()
   const surface = options.surface ?? surfaceFromDesktopBridge()
+  const localVersion = pageBuildVersion()
   const target = server.target
   const desktopTargeted = surface !== 'web' && target?.artifacts.desktop !== undefined
   const serverBehind = Boolean(
@@ -378,30 +334,24 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       server.appVersion !== undefined &&
       server.appVersion !== target.version,
   )
-  const machinesBehind = fleet.behind
   const targetWebDigest = target?.artifacts.web?.digest
   const phoneStale = targetWebDigest !== undefined && phoneBehind(server, targetWebDigest)
+  const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
+
   const touched = target
     ? computeTouched({
         localDigests: { ...(localBuild.appDigest ? { app: localBuild.appDigest } : {}) },
         target,
-        fleetBehind: machinesBehind,
+        fleetBehind: fleet.behind,
         serverBehind,
         sourceAppFollowsServer:
           (surface === 'web' || surface === 'mobile') && target.version.startsWith('dev+'),
         phoneBehind: phoneStale,
       })
-    : { app: false, server: serverBehind, machines: machinesBehind > 0, phone: false }
+    : { app: false, server: serverBehind, machines: fleet.behind > 0, phone: false }
   if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
-  const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
-  const repairableMismatch =
-    skew !== 'ok' && target?.version.startsWith('dev+') === true && options.reload !== undefined
-  if (repairableMismatch) {
-    touched.app = true
-    touched.server = true
-  }
-  const input: UpdateInput = {
+  const offerInput: UpdateInput = {
     localVersion,
     server,
     surface,
@@ -409,161 +359,141 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     fleet,
     touched,
     skew,
-    desktopUpdate,
+    ...(desktopUpdate ? { desktopUpdate } : {}),
   }
-  const baseView = describeUpdate(input)
+  /**
+   * A manual check is the one time the panel says "nothing to do". It is asked
+   * for explicitly (the macOS menu, `__PODIUM_CHECK_UPDATES__`), so silence
+   * would read as a broken menu item — but it is never volunteered, which is
+   * why it is not part of `describeUpdate`.
+   */
+  const described = describeUpdate(offerInput)
+  const offer: UpdateView =
+    pending === 'check'
+      ? { state: 'checking' }
+      : checkedAt !== undefined && described.state === 'none'
+        ? { state: 'current', version: localVersion }
+        : described
 
-  useEffect(() => {
-    setUpdateAction({ state: 'idle' })
-  }, [target?.version])
+  /**
+   * THE ONE LOCAL FACT (§3.5). Deliberately about the build running THIS PAGE —
+   * `pageBuildVersion()` reads the page's own meta tag — and not about the
+   * served dist, which is the server's business and is already a step of the
+   * operation. A service worker holding a newer build is the same fact arriving
+   * by another route.
+   */
+  const operationTarget = ((operation?.details as { target?: { version?: unknown } } | undefined)
+    ?.target?.version ?? undefined) as string | undefined
+  const behind =
+    options.needRefresh ||
+    skew !== 'ok' ||
+    (operationTarget !== undefined && operationTarget !== localVersion)
 
-  const retryableUpdateFailure = updateAction.state === 'failed'
-  // One website, two dists: the desktop shell this page is, and the phone export
-  // the same `podium-web` run builds. Either being behind is work the Update
-  // button can do, and the server agrees — see `startUpdate` (POD-1980).
-  const webBehind = Boolean(
-    targetWebDigest && (localBuild.appDigest !== targetWebDigest || phoneStale),
+  const installUpdate = nativeDesktopBridge()?.installUpdate
+  const canInstallDesktop =
+    typeof installUpdate === 'function' && (desktopUpdate !== undefined || desktopTargeted)
+
+  /**
+   * The silent hard-reload budget, explained after the fact (spec §6.2.3). The
+   * guard keeps its two attempts — it is the corruption backstop — but a person
+   * whose page reloaded itself twice and still does not match the server is
+   * owed a sentence about it, and the panel is where that sentence belongs.
+   */
+  const budgetNote = useMemo(
+    () => (skew !== 'ok' && reloadBudgetSpent() ? RELOAD_BUDGET_SENTENCE : undefined),
+    [skew],
   )
-  const startUpdate = useMemo<UpdateActions['startUpdate']>(() => {
-    if (
-      !options.startUpdate &&
-      !retryableUpdateFailure &&
-      (!target || (!serverBehind && fleet.behind === 0 && !webBehind))
-    )
-      return undefined
-    const version = target?.version ?? localVersion
-    const includesServer = serverBehind
-    const includesWeb = webBehind
-    const total = Math.max(1, (includesServer ? 1 : 0) + (includesWeb ? 1 : 0) + fleet.behind)
-    const expectedWeb = target?.artifacts.web?.digest
-    return async () => {
-      setUpdateAction({
-        state: 'in-progress',
-        version,
-        done: 0,
-        total,
-        includesServer,
-        ...(includesWeb ? { includesWeb: true } : {}),
-      })
+
+  const view = operationView({
+    operation,
+    offer,
+    local: { behind, canReload: options.reload !== undefined, canInstallDesktop },
+    surface,
+    now,
+    ...(desktopProgress && pending === 'install-desktop' ? { desktopProgress } : {}),
+    ...(actionError ? { actionError } : {}),
+    ...((note ?? budgetNote) ? { note: note ?? budgetNote } : {}),
+    ...(acknowledgedFailureId ? { acknowledgedFailureId } : {}),
+  })
+
+  const run = useCallback(
+    async (kind: PanelActionKind): Promise<void> => {
+      setPending(kind)
+      setNote(undefined)
+      setActionError(undefined)
       try {
-        if (options.startUpdate) {
-          await options.startUpdate()
-          return
+        switch (kind) {
+          case 'start':
+            await startUpdate(trpc)
+            break
+          case 'retry':
+            await retryUpdate(trpc, operationId)
+            break
+          case 'cancel': {
+            if (!operationId) break
+            const outcome = await cancelOperation(trpc, operationId)
+            if (!outcome.canceled) {
+              setNote(cancelRefusalSentence(outcome.refused ?? 'irreversible', outcome.step))
+            }
+            break
+          }
+          case 'reload':
+            await options.reload?.()
+            break
+          case 'install-desktop':
+          case 'restart-app': {
+            const install = nativeDesktopBridge()?.installUpdate
+            if (install) await install(desktopChannel)
+            break
+          }
+          case 'check':
+            await trpc.updates.checkNow.mutate()
+            break
         }
-        const result = await trpc.updates.converge.mutate()
-        setFleetState(result.fleet)
-        setUpdateAction({
-          state: 'in-progress',
-          version: result.version,
-          done: result.done,
-          total: result.total,
-          includesServer,
-          ...(includesWeb ? { includesWeb: true } : {}),
-          ...(result.includesBundle ? { includesBundle: true } : {}),
-        })
-        if (includesWeb && expectedWeb) {
-          await waitForWebIdentity(options.httpOrigin, expectedWeb)
-          await options.reload?.()
-        }
+        refresh()
       } catch (error) {
-        setUpdateAction({ state: 'failed', detail: updateErrorDetail(error) })
+        // EVERY rejection lands here. This is the catch the old `runAction`
+        // never had: a refused `installUpdate` used to stop a spinner and say
+        // nothing at all.
+        setActionError(toActionError(error))
+      } finally {
+        setPending(null)
+        setDesktopProgress(undefined)
       }
-    }
-  }, [
-    fleet.behind,
-    localVersion,
-    options.httpOrigin,
-    options.reload,
-    options.startUpdate,
-    retryableUpdateFailure,
-    serverBehind,
-    target,
-    trpc,
-    webBehind,
-  ])
+    },
+    [desktopChannel, operationId, options.reload, refresh, trpc],
+  )
 
-  const repairCompatibility = useMemo<UpdateActions['repairCompatibility']>(() => {
-    if (!repairableMismatch || !options.reload) return undefined
-    const version = target?.version ?? server.appVersion ?? localVersion
-    return async () => {
-      setUpdateAction({ state: 'in-progress', version, done: 0, total: 1, includesServer: true })
-      try {
-        await trpc.updates.repairCompatibility.mutate()
-        await waitForCompatibleWebBuild(options.httpOrigin)
-        await options.reload?.()
-      } catch (error) {
-        setUpdateAction({ state: 'failed', detail: updateErrorDetail(error) })
-      }
-    }
-  }, [
-    localVersion,
-    options.httpOrigin,
-    options.reload,
-    repairableMismatch,
-    server.appVersion,
-    target?.version,
-    trpc,
-  ])
-
-  const actions = useMemo<UpdateActions>(() => {
-    const install = nativeDesktopBridge()?.installUpdate
-    const canInstallDesktop = desktopUpdate !== undefined || desktopTargeted
-    const installApp =
-      typeof install === 'function' && canInstallDesktop ? () => install() : undefined
-    return {
-      ...(options.reload && touched.app && !repairableMismatch ? { reload: options.reload } : {}),
-      ...(installApp ? { installApp } : {}),
-      ...(repairCompatibility ? { repairCompatibility } : {}),
-      ...(startUpdate ? { startUpdate } : {}),
-    }
-  }, [
-    desktopTargeted,
-    desktopUpdate,
-    options.reload,
-    repairCompatibility,
-    touched.app,
-    startUpdate,
-  ])
-
-  const checkNow = async (): Promise<void> => {
-    setManualCheck({ state: 'checking' })
+  const checkNow = useCallback(async (): Promise<void> => {
+    setPending('check')
+    setActionError(undefined)
     try {
-      const next = await readDesktopUpdate(queryChannel)
-      setDesktopUpdate(next)
-      refreshFleet()
-      const [serverRaw, localRaw] = await Promise.all([
-        readJson(`${options.httpOrigin}/version`),
-        readJson(`${options.httpOrigin}/${BUILD_STAMP_FILE}`),
-      ])
-      setServer(parseServerVersion(serverRaw))
-      setLocalBuild(localBuildFrom(localRaw))
-      setManualCheck({ state: 'current' })
+      await trpc.updates.checkNow.mutate().catch(() => {})
+      const { info, channel } = await readDesktopUpdate(queryChannel)
+      setDesktopUpdate(info)
+      setDesktopChannel(channel)
+      setCheckedAt(clock())
+      refresh()
     } catch (error) {
-      setManualCheck({ state: 'failed', detail: updateErrorDetail(error) })
+      setActionError(toActionError(error))
+    } finally {
+      setPending(null)
     }
+  }, [clock, queryChannel, refresh, trpc])
+
+  const dismissFailure = useCallback((): void => {
+    setActionError(undefined)
+    if (operationId) setAcknowledgedFailureId(operationId)
+  }, [operationId])
+
+  return {
+    view,
+    operation,
+    server,
+    fleet,
+    pending,
+    run,
+    checkNow,
+    dismissFailure,
   }
-
-  const dismissManualCheck = (): void => {
-    setManualCheck({ state: 'idle' })
-  }
-
-  const view: UpdateView =
-    updateAction.state === 'in-progress'
-      ? {
-          state: 'in-progress',
-          version: updateAction.version,
-          done: updateAction.done,
-          total: updateAction.total,
-        }
-      : updateAction.state === 'failed'
-        ? describeUpdateFailure(updateAction.detail, updateAction.machineName)
-        : manualCheck.state === 'checking'
-          ? { state: 'checking' }
-          : manualCheck.state === 'failed'
-            ? describeUpdateFailure(manualCheck.detail)
-            : manualCheck.state === 'current' && baseView.state === 'none'
-              ? { state: 'current', version: localVersion }
-              : baseView
-
-  return { view, actions, server, fleet, checkNow, dismissManualCheck }
 }

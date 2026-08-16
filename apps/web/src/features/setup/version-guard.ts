@@ -2,6 +2,7 @@ import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import { classifySkew, parseServerVersion, WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
+import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/features/updates/open-panel'
 
 /**
  * Wire-version handshake for the web client. A cached PWA shell can outlive a server redeploy
@@ -95,6 +96,9 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
 
   if (verdict === 'ok') {
     clearReloadCounter()
+    // The mismatch resolved, so the explanation about a spent budget would now
+    // be describing a problem that no longer exists.
+    clearReloadBudgetNote()
     return 'ok'
   }
 
@@ -130,12 +134,18 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
     // is going to run against a server it does not match. SAY SO — that silence
     // is the whole of POD-1610. The wording avoids "reload": two have already
     // happened and neither worked, which means the SERVED build is stale.
+    //
+    // The banner is the backstop; the EXPLANATION belongs in the update panel,
+    // which is the one place that knows what the update is doing (POD-2102,
+    // spec §6.2.3). Record the spent budget here — the panel reads it after the
+    // reload that this note is about.
+    noteReloadBudgetSpent()
     reportSkew({
       source: 'boot-digest',
       severe: false,
       message:
         'Podium’s server and this page are using different app builds. ' +
-        'Some information may be missing. Use “Repair and reload” in the update panel.',
+        'Some information may be missing. Open the update panel to finish updating.',
     })
     return 'blocked'
   }

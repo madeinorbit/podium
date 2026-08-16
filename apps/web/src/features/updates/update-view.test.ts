@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeUpdate } from './update-view'
+import { describeUpdate, describeUpdateFailure } from './update-view'
 
 const base = {
   localVersion: '0.4.1',
@@ -12,24 +12,6 @@ const base = {
 }
 
 describe('describeUpdate', () => {
-  it('shows a coordinator preparation failure before inferred progress', () => {
-    const view = describeUpdate({
-      ...base,
-      fleet: {
-        ...base.fleet,
-        preparation: {
-          webReady: false,
-          bundleReady: false,
-          failureDetail: 'The website could not be rebuilt. See the server log.',
-        },
-      },
-    } as never)
-    expect(view).toMatchObject({
-      state: 'failed',
-      diagnostic: 'The website could not be rebuilt. See the server log.',
-    })
-  })
-
   it('is none when everything is already on the target', () => {
     const v = describeUpdate({
       ...base,
@@ -253,26 +235,34 @@ describe('describeUpdate', () => {
     expect(kinds).toContain('this-app')
   })
 
-  it('reports progress while a wave is running', () => {
+  /**
+   * PROGRESS IS NOT DERIVED HERE ANY MORE (POD-2102). A running update is an
+   * operation, and the operation says what is happening; this function is the
+   * OFFER, so a converging fleet is simply not its question. The old
+   * `in-progress` row is gone with the state itself — the replacement lives in
+   * `operation-view.test.ts`.
+   */
+  it('still describes the offer while a wave happens to be converging', () => {
     const v = describeUpdate({
       ...base,
       fleet: { total: 3, behind: 1, converging: 2, failed: 0 },
     } as never)
-    expect(v).toMatchObject({ state: 'in-progress', done: 0, total: 3 })
+    expect(v.state).toBe('available')
   })
+})
 
+/**
+ * The failure COPY, tested directly.
+ *
+ * These cases used to arrive through `describeUpdate` from a fleet snapshot —
+ * one of the three competing progress/outcome models spec §1.2 catalogues. The
+ * routing is gone; the accumulated knowledge about what a raw delivery sentence
+ * means to a person is not, because a server older than §7's typed codes still
+ * reports free text and `presentOperationError` falls through to exactly this.
+ */
+describe('describeUpdateFailure', () => {
   it('translates an unsupported delivery failure into actionable language', () => {
-    const v = describeUpdate({
-      ...base,
-      fleet: {
-        total: 3,
-        behind: 0,
-        converging: 0,
-        failed: 1,
-        machines: [{ state: 'rejected', detail: 'cannot converge: unsupported-delivery' }],
-      },
-      touched: { app: false, server: false, machines: false },
-    } as never)
+    const v = describeUpdateFailure('cannot converge: unsupported-delivery')
     expect(v).toEqual({
       state: 'failed',
       message: 'One or more machines cannot use this update.',
@@ -284,44 +274,19 @@ describe('describeUpdate', () => {
   })
 
   it('turns a dirty checkout into named, actionable copy', () => {
-    const v = describeUpdate({
-      ...base,
-      fleet: {
-        total: 1,
-        behind: 0,
-        converging: 0,
-        failed: 1,
-        machines: [
-          { name: 'ludovico', state: 'stuck', detail: 'git delivery failed: dirty-working-tree' },
-        ],
-      },
-    } as never)
+    const v = describeUpdateFailure('git delivery failed: dirty-working-tree', 'ludovico')
 
     expect(v).toMatchObject({
       state: 'failed',
       message: 'ludovico has local files or edits that prevent a safe update.',
       diagnostic: 'Git delivery stopped because the checkout is not clean.',
     })
-    expect((v as { guidance: string }).guidance).toMatch(/commit, stash, move, or locally exclude/i)
+    expect(v.guidance).toMatch(/commit, stash, move, or locally exclude/i)
     expect(JSON.stringify(v)).not.toContain('dirty-working-tree')
   })
 
   it('translates connection failures without exposing raw transport copy', () => {
-    const v = describeUpdate({
-      ...base,
-      fleet: {
-        total: 1,
-        behind: 0,
-        converging: 0,
-        failed: 1,
-        machines: [
-          {
-            state: 'stuck',
-            detail: 'Unable to connect. Is the computer able to access the url?',
-          },
-        ],
-      },
-    } as never)
+    const v = describeUpdateFailure('Unable to connect. Is the computer able to access the url?')
 
     expect(v).toEqual({
       state: 'failed',
@@ -333,16 +298,7 @@ describe('describeUpdate', () => {
   })
 
   it('keeps an unknown failure as support detail', () => {
-    const v = describeUpdate({
-      ...base,
-      fleet: {
-        total: 1,
-        behind: 0,
-        converging: 0,
-        failed: 1,
-        machines: [{ state: 'stuck', detail: 'ludovico did not come back' }],
-      },
-    } as never)
+    const v = describeUpdateFailure('ludovico did not come back')
 
     expect(v).toMatchObject({
       state: 'failed',
@@ -352,25 +308,15 @@ describe('describeUpdate', () => {
   })
 
   it('tells the operator a silent machine was given up on, and that retry is the fix', () => {
-    const v = describeUpdate({
-      ...base,
-      fleet: {
-        total: 1,
-        behind: 0,
-        converging: 0,
-        failed: 1,
-        machines: [
-          { state: 'stuck', detail: 'The machine stopped reporting progress while updating.' },
-        ],
-      },
-    } as never)
+    const v = describeUpdateFailure('The machine stopped reporting progress while updating.')
 
-    expect(v).toMatchObject({ state: 'failed' })
-    const failure = v as { message: string; guidance: string }
-    expect(failure.message).toBe('A machine stopped responding while updating.')
-    expect(failure.guidance).toMatch(/apply the update again/i)
+    expect(v.state).toBe('failed')
+    expect(v.message).toBe('A machine stopped responding while updating.')
+    expect(v.guidance).toMatch(/apply the update again/i)
   })
+})
 
+describe('describeUpdate, continued', () => {
   /**
    * The live dev coordinator publishes `headless` artifacts only: nothing in its
    * target updates this app. Reproduced here because it is the shape that made

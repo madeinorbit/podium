@@ -22,6 +22,17 @@ export interface Place {
   effect: string
 }
 
+/**
+ * THE OFFER, and nothing else (POD-2102).
+ *
+ * `in-progress` and `failed` used to live here, computed from the fleet
+ * snapshot — one of the three competing progress models spec §1.2 catalogues.
+ * They are gone: once an update starts it IS an operation, and the operation
+ * says what is happening (`operation-view.ts`). What is left is the question
+ * only the client can answer before anything starts — "what would this update
+ * touch, and what will you notice where" — which this file has always answered
+ * well and keeps answering.
+ */
 export type UpdateView =
   | { state: 'none' }
   | { state: 'checking' }
@@ -33,13 +44,6 @@ export type UpdateView =
       notes?: { summary?: string; url?: string }
       restartNote: string
       reason?: string
-    }
-  | { state: 'in-progress'; version: string; done: number; total: number }
-  | {
-      state: 'failed'
-      message: string
-      guidance: string
-      diagnostic?: string
     }
 
 export interface DesktopUpdateInfo {
@@ -240,10 +244,30 @@ function skewReason(skew: SkewVerdict): string | undefined {
   }
 }
 
-type FailedUpdateView = Extract<UpdateView, { state: 'failed' }>
+/**
+ * What this file says when it recognized NOTHING. Exported because the caller
+ * has to be able to tell "translated" from "gave up": a §7 error carrying its
+ * own user-facing sentence should show that sentence rather than this one.
+ */
+export const UNTRANSLATED_FAILURE_MESSAGE = 'Podium could not finish the update.'
 
-/** Keep transport and delivery vocabulary out of the primary failure message.
- * A short, sanitized diagnostic remains available for support and operators. */
+export interface FailedUpdateView {
+  state: 'failed'
+  message: string
+  guidance: string
+  diagnostic?: string
+}
+
+/**
+ * Keep transport and delivery vocabulary out of the primary failure message.
+ * A short, sanitized diagnostic remains available for support and operators.
+ *
+ * Still here, and still worth its keep, even though failures now arrive as
+ * TYPED codes on the operation (§7): a server older than the taxonomy — or any
+ * kind that reports a bare sentence — still produces free text, and this is the
+ * accumulated knowledge of what that free text tends to mean. It is the default
+ * branch of `presentOperationError`, not a competing path.
+ */
 export function describeUpdateFailure(detail?: string, machineName?: string): FailedUpdateView {
   const normalized = detail?.trim()
 
@@ -312,7 +336,7 @@ export function describeUpdateFailure(detail?: string, machineName?: string): Fa
 
   return {
     state: 'failed',
-    message: 'Podium could not finish the update.',
+    message: UNTRANSLATED_FAILURE_MESSAGE,
     guidance: 'Try again. If it still fails, share the details below with the server operator.',
     ...(normalized ? { diagnostic: normalized } : {}),
   }
@@ -331,26 +355,6 @@ export function describeUpdate(input: UpdateInput): UpdateView {
       input.desktopUpdate?.version ??
       input.server.appVersion ??
       input.localVersion)
-
-  if (input.fleet.preparation?.failureDetail) {
-    return describeUpdateFailure(input.fleet.preparation.failureDetail)
-  }
-
-  if (input.fleet.failed > 0) {
-    const failure = input.fleet.machines?.find(
-      (machine) => machine.state === 'rejected' || machine.state === 'stuck',
-    )
-    return describeUpdateFailure(
-      failure?.detail ?? machineLabel(input.fleet.failed) + ' could not update.',
-      failure?.name,
-    )
-  }
-
-  if (input.fleet.converging > 0) {
-    const total = Math.max(input.fleet.total, input.fleet.converging + input.fleet.behind)
-    const done = Math.max(0, total - input.fleet.behind - input.fleet.converging)
-    return { state: 'in-progress', version, done, total }
-  }
 
   const required =
     input.skew !== 'ok' || target?.critical === true || input.desktopUpdate?.critical === true
