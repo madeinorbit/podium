@@ -310,7 +310,11 @@ section{padding-top:62px}
    a clip, which never touches layout. */
 @keyframes wipe-open{ from{clip-path:inset(0 0 100% 0)} to{clip-path:inset(0 0 0 0)} }
 @media (prefers-reduced-motion:no-preference){
-  .enter-wipe{animation:wipe-open calc(260ms * var(--t)) var(--curve) both}
+  /* NOT `both`. A persisted clip-path leaves a clip and a containing block on
+     the row for the rest of its life, which would trap the hover actions and
+     any popover anchored inside it. `backwards` covers the pre-start frame and
+     reverts cleanly the moment the animation ends. */
+  .enter-wipe{animation:wipe-open calc(260ms * var(--t)) var(--curve) backwards}
 }
 
 /* Callouts */
@@ -659,6 +663,7 @@ section{padding-top:62px}
           <div style="display:contents"><dt>animates</dt><dd>clip-path &mdash; no layout, no paint of anything else</dd></div>
           <div style="display:contents"><dt>scroller</dt><dd><b>one write</b>, on the frame the row mounts</dd></div>
           <div style="display:contents"><dt>observers</dt><dd>one RO callback total, not one per frame</dd></div>
+          <div style="display:contents"><dt>trap</dt><dd>fill-mode <b>backwards</b>, never <code>both</code> &mdash; a persisted clip would trap the row's hover actions</dd></div>
         </dl>
       </div>
     </div>
