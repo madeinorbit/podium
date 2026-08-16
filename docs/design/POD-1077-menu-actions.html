@@ -119,7 +119,7 @@
     <b>1 · “Close” means two different things, one menu apart.</b>
     <p>
       On the tab menu, <code>Close</code> closes a view and never touches the agent
-      (<code>Workspace.tsx:1009</code>). On the session menu, <code>Close</code> calls
+      (<code>Workspace.tsx:1036</code>). On the session menu, <code>Close</code> calls
       <code>guardedKill</code> → <code>killSession</code>, which writes a durable
       <b>tombstone and removes the row</b> (<code>session-kill.ts:1</code>) — terminal, no restore.
       Same word, same ✕ glyph, two controls a few pixels apart on the same session.
@@ -165,7 +165,7 @@
     <b>5 · A mission and a sub-task get literally the same menu.</b>
     <p>
       The flight deck imports <code>IssueContextMenu</code> with <code>surface="sidebar"</code>
-      (POD-771, “imported, never forked” — <code>FlightDeck.tsx:2825</code>). Only the colour row
+      (POD-771, “imported, never forked” — <code>FlightDeck.tsx:2830</code>). Only the colour row
       differs, gated top-level by [spec:SP-b4d1]. So a sub-task still offers Archive and Pin,
       which are both mission-scoped ideas.
     </p>
@@ -177,7 +177,7 @@
       The tree is sectioned <code>main</code> / <code>lifecycle</code> (“LIFECYCLE”) /
       <code>destructive</code> (“MANAGE”). That split is sound — but MANAGE then holds
       Pin, Archive, Duplicate of, Restore <i>and</i> <b>Delete</b> in one run
-      (<code>issue-menu-config.ts:350–399</code>), so the terminal action sits directly under
+      (<code>issue-menu-config.ts:352–399</code>), so the terminal action sits directly under
       a bookmark toggle with no rule above it, distinguished only by red ink. The section
       the code calls <code>destructive</code> is mostly not.
     </p>
@@ -186,9 +186,9 @@
   <div class="find warn">
     <b>7 · You cannot rename a task from the flight deck.</b>
     <p>
-      <code>FlightDeck.tsx:2824</code> mounts <code>IssueContextMenu</code> without an
+      <code>FlightDeck.tsx:2830</code> mounts <code>IssueContextMenu</code> without an
       <code>onRename</code> prop, and the entry is gated on <code>renameEnabled</code>
-      (<code>issue-menu-config.ts:160</code>) — so Rename is silently absent from every strip
+      (<code>issue-menu-config.ts:166</code>) — so Rename is silently absent from every strip
       and from the mission header, while the sidebar and the board both have it. The deck is
       the column the operator actually works in.
     </p>
@@ -199,7 +199,7 @@
     <p>
       With <code>onRequestClose</code> supplied (<code>IssueCompactControls</code>) the item
       opens <code>IssueCloseDialog</code>; without it — the sidebar and the flight deck — it
-      calls <code>closeIssue</code> straight through (<code>IssueContextMenu.tsx:230</code>).
+      calls <code>closeIssue</code> straight through (<code>IssueContextMenu.tsx:231</code>).
       One verb, two levels of ceremony, decided by which surface you happened to right-click.
     </p>
   </div>
@@ -330,7 +330,7 @@
   <p>
     POD-710 deliberately stripped session lifecycle off the tab: “a tab is a view, and a menu
     that can kill an agent from one is exactly the tab/session conflation this work undoes”
-    (<code>Workspace.tsx:1045</code>). That decision is right and I'd keep it — a killer one
+    (<code>Workspace.tsx:1072</code>). That decision is right and I'd keep it — a killer one
     slip below “Close All” is a bad trade. What's genuinely missing is not lifecycle; it's a
     way to <i>reach</i> the session from the tab you're already looking at.
   </p>
@@ -395,7 +395,7 @@
   <p class="note">
     Note on the affordance: the sidebar is <b>right-click only</b> — there is no ⋯ button on a
     mission row. The ⋯ exists on the deck strip and in <code>IssueCompactControls</code>. That
-    asymmetry is defensible (the deck's comment at <code>FlightDeck.tsx:1093</code> says the
+    asymmetry is defensible (the deck's comment at <code>FlightDeck.tsx:1101</code> says the
     sidebar teaches the gesture and the ⋯ is the deck's discovery affordance) — but it does
     mean a first-time operator has no visible way into the mission menu at all.
   </p>
@@ -459,7 +459,7 @@
   <p>
     <b>State the cascade in the Archive confirm.</b> It already warns when
     <code>childCount &gt; 0</code>, but with a bare count-free sentence — and it uses a raw
-    <code>window.confirm</code> (<code>IssueContextMenu.tsx:349</code>) while every other guard
+    <code>window.confirm</code> (<code>IssueContextMenu.tsx:351</code>) while every other guard
     in the app uses <code>useConfirm</code>. Name the numbers: sub-tasks <i>and</i> the agents
     that will be stopped, because that second half is invisible today.
   </p>
@@ -535,7 +535,7 @@
 
   <p>
     <b>Pass <code>onRename</code>.</b> The deck strip already has an inline editor pattern —
-    the session row uses one (<code>FlightDeck.tsx:960</code>). This is the one item the deck
+    the session row uses one (<code>FlightDeck.tsx:1132</code>). This is the one item the deck
     is missing outright rather than carrying wrongly.
   </p>
 
