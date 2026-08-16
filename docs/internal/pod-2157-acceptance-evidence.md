@@ -426,3 +426,37 @@ Same id, same `createdAt`, same step order. The successor picked up a `machines`
 step whose place had been mid-`downloading` when the process died, settled it as
 `current`, and carried the operation to `done`.
 
+
+## Not reached, and why
+
+- **The second source-checkout cycle.** The regimen asks for the git/web update
+  to be repeated once from the new version, to catch stale-target, pending-marker
+  and restart state that only appears on the second pass. The first cycle passed
+  in full. The repeat needs another turn of the shared build lane, which was
+  contended for the whole session, and `test:e2e` was ranked ahead of it.
+- **The installed BUNDLE drive joined up end to end** — pairing an installed
+  daemon so it pins the coordinating server's key, then a real grant, swap,
+  restart and reconnect over bundle delivery. §7 drives the security gate it
+  depends on, and §4 drives a real swap-and-reconnect over feed; what is missing
+  is the pairing that supplies the pin, joined to a bundle swap.
+- **The macOS signed desktop drive.** Explicitly not this issue's: it needs
+  production keys and a real Mac.
+- **`bun run test:e2e` as prescribed** — blocked before any test by `POD-2206`'s
+  bundle ratchet. See §5 for what ran instead.
+
+## Issues filed, each with a `discovered-from` edge on POD-2087
+
+- `POD-2212` — a stable installation is never OFFERED an update: `/version`, the
+  sole source of the panel's offer, still resolves its target from the dev
+  channel. The same literal-`dev` class POD-2189 fixed for the operation.
+- `POD-2213` — a downgrade bricks the install: converging to an older release
+  leaves a binary that will not start against its own migrated database, with no
+  recovery path from inside Podium.
+
+## What this cost the box
+
+- Disposable checkout, state root and installed instance: **all removed**.
+- Nothing was left running: no server, no daemon, no browser, no feed process.
+- The operator's default instance, state directory and checkout were never
+  touched, and the disposable checkout's `origin` was the local repository
+  throughout, so no `git fetch` ever reached the operator's remote.
