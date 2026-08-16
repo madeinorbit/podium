@@ -239,9 +239,9 @@ export class UpdateReconciler {
    * TAKES THE ROW, NOT AN ID, and that is not a convenience. The caller is the
    * fleet read model, which is iterating a projection it has already built; an
    * id would make this look up the fleet AGAIN, once per machine — and
-   * `UpdatesService.fleet()` is not a pure read (it ages grants and can tick a
-   * wave), so a payload of N machines would run that projection N+1 times and
-   * drive convergence from a GET.
+   * `UpdatesService.fleet()` is not a pure read (it continues an authorized wave
+   * once a reconnect proves the canary), so a payload of N machines would run
+   * that projection N+1 times and drive convergence from a GET.
    */
   convergedBy(machine: WaveMachine): 'reconciler' | undefined {
     const version = this.converged.get(machine.id)

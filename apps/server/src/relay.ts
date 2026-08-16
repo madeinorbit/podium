@@ -2194,10 +2194,14 @@ export class SessionRegistry {
         // THE CONSENT DIES WITH THE OPERATION THAT HELD IT (POD-2169, §3.2).
         //
         // FIRST of everything here, and that ordering is the fix rather than a
-        // tidiness: `releaseInFlightGrants` below reads `fleet()`, and `fleet()`
-        // continues an authorized wave from inside the read. Withdrawing second
-        // would let the cleanup itself grant the next machine — after a cancel,
-        // the very thing the cancel was for.
+        // tidiness. It was written because `releaseInFlightGrants` read
+        // `fleet()`, which continues an authorized wave from inside the read, so
+        // withdrawing second let the cleanup itself grant the next machine —
+        // after a cancel, the very thing the cancel was for. POD-2180 took that
+        // capability off the cleanup path (it reads the projection now), which
+        // makes this ordering belt AND braces rather than the only brace: the
+        // sweep below and `publishNextTargets` both run while this consent is
+        // either alive or dead, and dead is the answer for all of them.
         updatesService.withdrawAuthorization()
         // A version that arrived mid-update waits for the group to be free, and
         // this is the moment it becomes free — whatever the outcome was. It
