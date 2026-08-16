@@ -1,4 +1,4 @@
-import type { Operation, OperationStep } from '@podium/protocol'
+import type { Operation, OperationStep, StepPlace } from '@podium/protocol'
 import type { StepDeadlines, StepProgressPatch } from './kinds'
 import type { PersistedOperation } from './store'
 
@@ -97,6 +97,54 @@ export function withPersistenceFacts(
 }
 
 /**
+ * WHEN THIS STEP WAS LAST HEARD FROM, per place where it has any (POD-2167).
+ *
+ * A step's own `lastProgressAt` is stamped by ANY accepted report, and for a
+ * step acting on many places at once that is the wrong quantity entirely: three
+ * machines updating together means the healthy two keep re-arming the budget
+ * while the third is dead, so silence cannot begin until the whole wave has
+ * finished — which is exactly when nobody needs a timeout any more.
+ *
+ * So a step with places is as silent as its QUIETEST place. Which places count
+ * is not a question this file can answer, and deliberately does not ask: the
+ * kind states it by stamping the ones the step is waiting on and leaving the
+ * rest bare (see `StepPlace.lastProgressAt`). No places carrying a stamp means
+ * no per-place claim was made, and the step's own clock stands — which is both
+ * the honest reading and what every kind written before this did.
+ */
+function silentSince(step: OperationStep): number | undefined {
+  let oldest: number | undefined
+  for (const place of step.places ?? []) {
+    const at = place.lastProgressAt
+    if (typeof at !== 'number') continue
+    if (oldest === undefined || at < oldest) oldest = at
+  }
+  return oldest ?? step.lastProgressAt
+}
+
+/**
+ * Restart the clock on every place the step is waiting on, at `at`.
+ *
+ * The engine's own act of (re-)attempting a step is progress for everything
+ * that step is waiting on — the same reason `applyStepPatch` stamps the step.
+ * Without this a retry inherits the silence that caused it and is failed before
+ * it can run, and an operation adopted after a restart is judged on how long the
+ * DEAD process was quiet for.
+ *
+ * A place with no stamp stays bare: presence is the kind's claim to make, and
+ * this must never invent one for a place whose turn has not come.
+ */
+export function restartPlaceClocks(
+  places: readonly StepPlace[] | undefined,
+  at: number,
+): StepPlace[] | undefined {
+  if (!places) return undefined
+  return places.map((place) =>
+    typeof place.lastProgressAt === 'number' ? { ...place, lastProgressAt: at } : place,
+  )
+}
+
+/**
  * When this step next owes an answer, or `undefined` if its kind set it no
  * budget. Silence is measured from the last accepted progress; the total from
  * when the step began. The earlier of the two is what a timer is armed for.
@@ -109,7 +157,7 @@ export function deadlineDue(
   if (!budget) return undefined
   const dues: number[] = []
   if (budget.silenceMs !== undefined) {
-    dues.push((step.lastProgressAt ?? step.startedAt ?? now) + budget.silenceMs)
+    dues.push((silentSince(step) ?? step.startedAt ?? now) + budget.silenceMs)
   }
   if (budget.totalMs !== undefined) dues.push((step.startedAt ?? now) + budget.totalMs)
   return dues.length > 0 ? Math.min(...dues) : undefined
@@ -126,6 +174,15 @@ export interface DeadlineBreach {
   silentMs: number
   /** Milliseconds since the step began. */
   elapsedMs: number
+  /**
+   * The places whose own clocks have run out — WHO the silence is about
+   * (POD-2167). Empty when the step made no per-place claim, and empty on a
+   * `total` breach, which is about the step rather than about anyone in it.
+   *
+   * This is what lets a kind turn a generic `stalled` into "vmi3407763 stopped
+   * responding", which is the whole reason §7 gave an error `places` at all.
+   */
+  places: string[]
 }
 
 export function deadlineBreach(
@@ -133,15 +190,26 @@ export function deadlineBreach(
   budget: StepDeadlines | undefined,
   now: number,
 ): DeadlineBreach {
-  const silentMs = now - (step.lastProgressAt ?? step.startedAt ?? now)
+  const silentMs = now - (silentSince(step) ?? step.startedAt ?? now)
   const elapsedMs = now - (step.startedAt ?? now)
-  if (!budget) return { kind: 'none', silentMs, elapsedMs }
+  if (!budget) return { kind: 'none', silentMs, elapsedMs, places: [] }
   // Total is checked first: when both are over, the one with no retry wins.
   if (budget.totalMs !== undefined && elapsedMs >= budget.totalMs) {
-    return { kind: 'total', silentMs, elapsedMs }
+    return { kind: 'total', silentMs, elapsedMs, places: [] }
   }
   if (budget.silenceMs !== undefined && silentMs >= budget.silenceMs) {
-    return { kind: 'silence', silentMs, elapsedMs }
+    const overdue = budget.silenceMs
+    return {
+      kind: 'silence',
+      silentMs,
+      elapsedMs,
+      places: (step.places ?? [])
+        .filter(
+          (place) =>
+            typeof place.lastProgressAt === 'number' && now - place.lastProgressAt >= overdue,
+        )
+        .map((place) => place.id),
+    }
   }
-  return { kind: 'none', silentMs, elapsedMs }
+  return { kind: 'none', silentMs, elapsedMs, places: [] }
 }

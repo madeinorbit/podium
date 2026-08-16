@@ -219,6 +219,15 @@ export function classifyMachineFailure(detail: string | undefined): MachineFailu
   // machine stopped reporting progress while updating.") — is a machine that
   // stopped answering. That is the honest default: the alternative is a generic
   // "could not finish" that tells the operator nothing about where to look.
+  //
+  // THIS DEFAULT IS THE COMMON CASE AGAIN (POD-2167). When POD-2101 moved the
+  // grant deadline onto the step, the only remaining writer of that detail was
+  // `releaseInFlightGrants`, which runs after the operation is already terminal
+  // — so nothing reached here from a timeout at all, and the very failure §7
+  // built `places` for arrived as a nameless `stalled`. {@link describeUpdateStall}
+  // is the reader it was missing: a machine whose own clock ran out is
+  // classified from whatever it last said, which is usually nothing, which is
+  // `machine-unreachable`.
   return 'machine-unreachable'
 }
 
@@ -973,6 +982,43 @@ const machinesRunner: StepRunner<UpdateOperationContext> = {
 }
 
 /**
+ * THE PLACES THIS STEP IS ACTUALLY WAITING ON (POD-2167).
+ *
+ * The wave holds a grant open for these and for nothing else, so these are the
+ * places whose silence is the step's silence. Everything outside the set is
+ * quiet for a reason that is not trouble: `current` and `restarting` have
+ * arrived, `pending` has not been granted anything to be silent about, and
+ * `rejected`/`stuck` have already said their piece — `settleMachines` fails the
+ * step on those the moment it sees them, so a clock on them would only race it.
+ *
+ * `offline` IS in the set, and deliberately: a daemon that dropped mid-grant is
+ * the exact machine §7's `machine-unreachable` is for. A machine that was
+ * offline when the plan was made is not here at all — it is `deferred` (§3.6).
+ */
+const AWAITED_PLACE_STATES: ReadonlySet<string> = new Set(['granted', 'downloading', 'offline'])
+
+/**
+ * Give one projected place its clock, by comparing it with what was last
+ * recorded about the same machine (POD-2167).
+ *
+ * PROGRESS IS A CHANGE IN WHAT THE MACHINE IS DOING — its state, how far it has
+ * got, what it says about itself. It is deliberately not "a frame arrived": the
+ * daemon reports every two seconds whether or not anything moved, and treating
+ * arrival as progress is a smaller version of the same mistake as treating the
+ * whole wave's traffic as one step's heartbeat. A download frozen at 62% for ten
+ * minutes has stopped, and should be found to have stopped.
+ *
+ * `name` is excluded because a machine being renamed is not the update moving.
+ */
+function clockPlace(carried: StepPlace, projected: StepPlace, now: number): StepPlace {
+  const { lastProgressAt: _wasAt, ...was } = carried
+  const { lastProgressAt: _isAt, ...is } = projected
+  if (projected.state === undefined || !AWAITED_PLACE_STATES.has(projected.state)) return is
+  const moved = was.state !== is.state || was.percent !== is.percent || was.detail !== is.detail
+  return { ...is, lastProgressAt: moved ? now : (carried.lastProgressAt ?? now) }
+}
+
+/**
  * Project the live fleet into this step's places — the ONE computation of update
  * progress (P2). The old code had three: the client's flags at button-press
  * time, the fleet-derived view, and a server total that overwrote both.
@@ -984,8 +1030,11 @@ export function projectMachines(
 ): { places: StepPlace[]; progress: { done: number; total: number } } {
   const details = updateOperationDetails(operation)
   const targetVersion = details?.target.version
+  const now = (context.now ?? Date.now)()
   const fleet = new Map(context.updates.fleet().map((machine) => [machine.id, machine]))
-  const places = (step.places ?? []).map((carried) => {
+  const places = (step.places ?? []).map((carried) => clockPlace(carried, project(carried), now))
+
+  function project(carried: StepPlace): StepPlace {
     /**
      * THE PERCENTAGE IS NEVER CARRIED FORWARD (POD-2101). Every other field on
      * a place is a description of the machine that survives being re-stated;
@@ -1052,11 +1101,44 @@ export function projectMachines(
         ? { percent: machine.percent }
         : {}),
     }
-  })
+  }
+
   const done = places.filter(
     (place) => place.state === 'current' || place.state === 'restarting',
   ).length
   return { places, progress: { done, total: places.length } }
+}
+
+/**
+ * NAME THE MACHINE THE TIMEOUT IS ABOUT (POD-2167, §7).
+ *
+ * The engine's generic answer to a silence deadline is "This step ran out of
+ * time" — true, and useless to the person who now has to go and look at
+ * something. The breach carries the places whose own clocks expired, so the one
+ * failure a fleet update is most likely to produce can say WHICH machine went
+ * quiet and, when it managed to say why before it did, what it said.
+ *
+ * `undefined` for every other step: `prepare`, `server` and `web` act on this
+ * machine and have nobody to name, and the framework's sentence is already the
+ * best available. Also `undefined` when no place breached — a `total` overrun,
+ * or a step whose clock is its own — because inventing a culprit out of a
+ * step-wide timeout would be worse than the generic sentence, not better.
+ */
+export function describeUpdateStall(input: {
+  step: OperationStep
+  breach: { places: string[] }
+}): OperationError | undefined {
+  if (input.step.id !== UPDATE_STEP_MACHINES) return undefined
+  const silent = new Set(input.breach.places)
+  const places = (input.step.places ?? []).filter((place) => silent.has(place.id))
+  const first = places[0]
+  if (!first) return undefined
+  return describeUpdateOperationFailure({
+    code: classifyMachineFailure(first.detail),
+    places: places.map((place) => place.id),
+    names: places.map((place) => place.name ?? place.id),
+    ...(first.detail ? { detail: first.detail } : {}),
+  })
 }
 
 /**
@@ -1227,6 +1309,7 @@ export function updateOperationKind(): OperationKindDefinition<
       [UPDATE_STEP_WEB]: webRunner,
     },
     deadlines: UPDATE_STEP_DEADLINES,
+    describeStall: describeUpdateStall,
   }
 }
 
@@ -1253,6 +1336,7 @@ export function createUpdateFleetBridge(deps: {
       placeIds: readonly string[],
       patch: StepProgressPatch,
     ): Promise<void>
+    reensure(id: string, stepId: string, patch?: StepProgressPatch): Promise<void>
   }
   updates: UpdatesService
 }): { onFleetChanged: () => void } {
@@ -1289,11 +1373,43 @@ export function createUpdateFleetBridge(deps: {
       }
 
       const settled = settleMachines(row.operation, step, context)
-      const patch: StepProgressPatch = settled ?? {
-        state: 'running',
+      const projected = settled ?? {
+        state: 'running' as const,
         ...projectMachines(row.operation, step, context),
       }
-      void deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, patch)
+
+      /**
+       * A MACHINE THE WAVE WAS WAITING ON JUST CAME BACK (POD-2167).
+       *
+       * Reporting progress is not enough for this one event. `tick()` plans
+       * against machines that are online RIGHT NOW, so a machine that was
+       * offline when the step last ran was not offered a grant and will not be
+       * offered one by anything that merely watches. The step has to be entered
+       * again, and this edge — offline, then not — is the only fleet event that
+       * changes what it could do.
+       *
+       * It is what makes a coordinator restart taken mid-wave resume properly:
+       * `adoptOnBoot` runs before the gateway listens, so the resumed step sees
+       * every place offline, and this is each daemon's reconnect arriving to say
+       * the fleet is real after all. Keyed on the transition rather than on the
+       * state, so a machine that stays down costs one re-entry and not one per
+       * event — and a machine that flaps gets exactly the retry it deserves.
+       */
+      const wasOffline = new Set(
+        (step.places ?? []).filter((place) => place.state === 'offline').map((place) => place.id),
+      )
+      const returned =
+        settled === undefined &&
+        (projected.places ?? []).some(
+          (place) =>
+            wasOffline.has(place.id) && place.state !== undefined && place.state !== 'offline',
+        )
+      if (returned) {
+        void deps.engine.reensure(row.id, UPDATE_STEP_MACHINES, projected)
+        return
+      }
+
+      void deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, projected)
     },
   }
 }

@@ -83,6 +83,22 @@ export const StepPlace = z
     state: z.string().optional(),
     percent: z.number().optional(),
     detail: z.string().optional(),
+    /**
+     * When this place last moved — the per-place half of the liveness contract
+     * (POD-2167).
+     *
+     * PRESENCE IS THE CLAIM, and it is the kind's to make: a place carrying a
+     * stamp is one the step is ACTIVELY WAITING ON, and a step is exactly as
+     * silent as its quietest such place. A place whose turn has not come, or
+     * that has already arrived, carries none — so the framework can measure
+     * per-place silence without learning one word of the kind's vocabulary.
+     *
+     * Without it a step has a single clock, and one machine's heartbeat speaks
+     * for all of them: the wave's healthy members hold the budget open while a
+     * dead one is not noticed, and the timeout, when it finally comes, can name
+     * nobody.
+     */
+    lastProgressAt: z.number().optional(),
   })
   .passthrough()
 export type StepPlace = z.infer<typeof StepPlace>

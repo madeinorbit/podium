@@ -7,6 +7,7 @@ import type {
   OperationStepState,
   StepPlace,
 } from '@podium/protocol'
+import type { DeadlineBreach } from './transitions'
 
 /**
  * What a KIND is (POD-2097, spec §3.0).
@@ -102,6 +103,24 @@ export interface OperationKindDefinition<Ctx = unknown, Reality = unknown> {
   reconcile(operation: Operation, reality: Reality): Operation | Promise<Operation>
   runners: Record<string, StepRunner<Ctx>>
   deadlines?: Record<string, StepDeadlines>
+  /**
+   * NAME THE TIMEOUT, when the kind can say more than "it stopped" (POD-2167).
+   *
+   * The engine's own answer to a deadline is `stalled` with a duration, which is
+   * everything it honestly knows: it has no idea what a step was waiting for.
+   * The kind does — and for a step acting on places, the breach even says WHICH
+   * of them went quiet — so this is where "The update stopped making progress"
+   * becomes "vmi3407763 stopped responding while updating", carrying the
+   * `places` §7 defined for exactly this failure.
+   *
+   * Returning `undefined` (or not implementing it) keeps the generic sentence,
+   * which stays the right answer for a step with nothing to name.
+   */
+  describeStall?(input: {
+    operation: Operation
+    step: OperationStep
+    breach: DeadlineBreach
+  }): OperationError | undefined
   /**
    * How long this kind's operations stay `waiting` on a required surface-local
    * ask before completing anyway (§3.5). Absent means the framework default —

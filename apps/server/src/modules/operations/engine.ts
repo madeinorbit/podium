@@ -21,6 +21,7 @@ import {
   inFlightStep,
   isStepFinished,
   nextStep,
+  restartPlaceClocks,
   withPersistenceFacts,
 } from './transitions'
 
@@ -294,6 +295,42 @@ export class OperationEngine {
       )
       this.persist(next, at)
       this.armDeadline(operationId)
+    })
+  }
+
+  /**
+   * SOMETHING OUTSIDE THE OPERATION CHANGED WHAT THIS STEP COULD DO (POD-2167).
+   *
+   * `ensure()` is idempotent and reality-first, so running it again is always
+   * safe — but until now nothing could ask for it. A running step was driven
+   * once and then only ever WATCHED: reports could move it along and a deadline
+   * could give up on it, and there was no third thing.
+   *
+   * That hole is a real wedge on the path §3.4 calls normal. `adoptOnBoot` is
+   * awaited before the daemon gateway listens, so a successor resuming a machine
+   * wave runs `ensure()` against a fleet that is entirely offline, grants nobody,
+   * and answers `running`. The daemons reconnect seconds later — and every one of
+   * those events reached a bridge that could record progress and re-arm a
+   * deadline, but could not say "try again now". The wave sat at zero grants
+   * until its ten-minute silence budget stalled it, and the STALL RETRY issued
+   * the first grant. An update resumed but not restarted.
+   *
+   * The patch is applied first so the re-entered runner sees the news that
+   * prompted the call. Deliberately narrow: it refuses unless `stepId` is the
+   * step actually in flight and running, so it can neither jump the plan nor
+   * disturb a step that is stalled and already owed a retry.
+   */
+  async reensure(operationId: string, stepId: string, patch?: StepProgressPatch): Promise<void> {
+    await this.enqueue(operationId, async () => {
+      const operation = this.deps.store.get(operationId)?.operation
+      if (!operation || isTerminalOperationState(operation.state)) return
+      const step = inFlightStep(operation)
+      if (!step || step.id !== stepId || step.state !== 'running') return
+      if (patch) {
+        const at = this.now()
+        this.persist(this.applyPatch(operation, stepId, { ...patch, state: 'running' }, at), at)
+      }
+      await this.driveLocked(operationId)
     })
   }
 
@@ -681,6 +718,21 @@ export class OperationEngine {
       ...step,
       startedAt: step.startedAt ?? at,
       attempts: (step.attempts ?? 0) + 1,
+      /**
+       * A step ENTERED is a step whose places all start their clocks now
+       * (POD-2167) — most sharply for an operation adopted after a restart,
+       * whose places carry stamps from the process that died. Judging the
+       * successor on how long its predecessor was quiet for would fail the wave
+       * the instant it resumed.
+       *
+       * Only on entry, never on a re-entry of a step already running: that path
+       * exists so an outside event can push a stuck wave along, and refreshing
+       * every clock from it would hand back the wave-wide silence this all
+       * exists to remove.
+       */
+      ...(step.state !== 'running' && step.places
+        ? { places: restartPlaceClocks(step.places, at) ?? step.places }
+        : {}),
     }))
     this.persist(next, at)
     return next
@@ -945,13 +997,20 @@ export class OperationEngine {
 
     const stalls = step.stalls ?? 0
     if (breach.kind === 'total' || stalls >= 1) {
-      this.fail(operation, step.id, {
-        code: STALLED_ERROR_CODE,
-        message:
-          breach.kind === 'total'
-            ? `This step ran out of time after ${Math.round(breach.elapsedMs / 1000)}s.`
-            : `No progress for ${Math.round(breach.silentMs / 1000)}s. Podium retried once.`,
-      })
+      // The kind's chance to say WHO stopped, before the framework falls back to
+      // what it alone can know: how long, and nothing else (POD-2167).
+      const named = def.describeStall?.({ operation, step, breach })
+      this.fail(
+        operation,
+        step.id,
+        named ?? {
+          code: STALLED_ERROR_CODE,
+          message:
+            breach.kind === 'total'
+              ? `This step ran out of time after ${Math.round(breach.elapsedMs / 1000)}s.`
+              : `No progress for ${Math.round(breach.silentMs / 1000)}s. Podium retried once.`,
+        },
+      )
       return
     }
 
@@ -984,7 +1043,16 @@ export class OperationEngine {
       step.id,
       { state: 'running' },
       retryAt,
-      (s) => ({ ...s, attempts: (s.attempts ?? 0) + 1 }),
+      (s) => ({
+        ...s,
+        attempts: (s.attempts ?? 0) + 1,
+        // THE RETRY GETS ITS OWN WINDOW (POD-2167). Stamping only the step's
+        // clock was enough while that was the only clock; with per-place ones
+        // the retry would inherit the very silence that caused it, `invokeWithin`
+        // would compute a deadline already in the past, and the one automatic
+        // retry §3.3 promises would be cut off before it could run.
+        ...(s.places ? { places: restartPlaceClocks(s.places, retryAt) ?? s.places } : {}),
+      }),
     )
     this.persist(retrying, retryAt)
 
