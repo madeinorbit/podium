@@ -22,6 +22,7 @@ import type {
   ArtifactId,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
+  HarnessAgent,
   IssueId,
   LayoutSnapshot,
   MachineId,
@@ -293,6 +294,15 @@ export interface PodiumClientApi {
         /** Prompt-box backend (POD-782). Omitted leaves the thread's choice. */
         model?: string
         effort?: string
+        /** `HarnessAgent`, NOT `AgentKind` — a turn runs a HARNESS, so `'shell'`
+         *  is deliberately absent (see `AgentKind` vs `BuiltinHarnessKind` in
+         *  @podium/model: a shell is spawnable but is not a harness — no
+         *  transcript, no resume, no observer). `sessions.create` above rightly
+         *  takes the wider `AgentKind` because spawning a shell IS a real thing;
+         *  sending it a turn is not, and the server's contract rejects it. This
+         *  mirror said `AgentKind` and so promised a call the server would refuse
+         *  at runtime, which is what made `TRPCClient` fail to satisfy
+         *  `PodiumClientApi` and left apps/web red for the whole epic (POD-2109). */
         agentKind?: HarnessAgent
       },
       { threadId: ThreadId; podiumSessionId?: SessionId }
