@@ -122,6 +122,8 @@ command, which is all a unit is here.
 | — | Found: a downgrade bricks the install, unrecoverably | **FAIL** → `POD-2213` |
 | 5 | `verify-headless-update.sh` — valid swap, and tamper refused | **PASS**, both arms |
 | — | `bun run test:e2e` as prescribed | **BLOCKED** by `POD-2206`'s bundle ratchet |
+| 6 | Pinned-key trust domain: tamper, no pin, wrong pin, cross-domain | **PASS**, 7 arms |
+| — | Installed bundle drive through pairing, swap and reconnect | **NOT REACHED** |
 | — | Adoption across a process death, on the drive's own evidence | **PASS** (second sighting) |
 
 ### 1. The web step — PASS, and it is the first time any drive has reached it
@@ -366,6 +368,47 @@ The bundle under test was not rebuilt for this run: `dist-bun/headless` was the
 one the disposable instance's own dev publisher produced at boot, `dev+03a2892`,
 whose code is identical to this branch's tip (the branch adds only docs). The
 script reuses an existing bundle by design and says so.
+
+### 7. The pinned-key trust domain — PASS, seven arms
+
+The installed-bundle drive's SECURITY half, driven against the shipped
+`fetchArtifact` with real bytes over a real socket — no injected fakes for the
+thing under test, in the same spirit as POD-2194's `convergeViaGit` arms. Two
+Ed25519 identities were minted for it: a coordinating server's, and another
+server's standing in for a wrong pin.
+
+```
+1 valid bundle, correctly pinned                → ACCEPTED 27500 bytes
+2 tampered bytes                                → REFUSED  digest verification FAILED
+3 tampered bytes, digest updated to match       → REFUSED  signature verification FAILED
+4 NO pinned key                                 → REFUSED  bundle delivery requires the
+                                                           server update key pinned at pairing
+5 WRONG pinned key (another server)             → REFUSED  signature verification FAILED
+6 signed by the wrong key, correctly pinned     → REFUSED  signature verification FAILED
+7 server-signed artifact offered as FEED        → REFUSED  signature verification FAILED
+```
+
+Arms 3 and 7 are the ones worth having, because the others could all pass with a
+weaker implementation:
+
+- **3** updates the digest to match the tampered bytes, so the digest gate cannot
+  be what refuses it. The signature gate is therefore proven ARMED in its own
+  right, rather than shadowed by the cheaper check in front of it.
+- **7** offers the SAME bytes and the SAME valid server signature as `feed`
+  delivery. It is refused, because feed is judged against the baked production
+  key. The two trust domains are not interchangeable, which is the property that
+  stops a coordinator's own key from being usable to push a "release".
+
+Arm 4 is the fail-closed one the brief asks for: a missing pin is refused with a
+sentence naming the cause, not defaulted to some other key.
+
+**What this does NOT cover, stated plainly:** the full installed bundle drive —
+pairing a real installed daemon to a coordinating server so it pins that server's
+key, taking a real grant, swapping, restarting and reconnecting at the target
+through the UI — was not reached. This drive proves the gate those arms would
+exercise; it does not prove the pairing that supplies the pin, nor the swap and
+reconnect around it. §4 covers a real swap-and-reconnect, but over `feed` and its
+production key rather than `bundle` and a pinned one.
 
 ### Adoption, seen again without being asked for
 
