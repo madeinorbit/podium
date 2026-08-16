@@ -117,10 +117,10 @@
       The issue menus below use POD-1074's names, not main's: its <b>Set&nbsp;status</b>
       submenu replaces <code>Set stage</code> plus the two <code>Close (…)</code> rows, and
       <b>wontfix is now Cancelled</b> with <b>Duplicate</b> as its own ending. That branch
-      (<code>issue/1074-cancelled-duplicate-states</code>) is in review and <b>not yet on
-      main</b>, so the line numbers cited throughout are main's while the labels are
-      POD-1074's. Nothing proposed here changes Set&nbsp;status itself — the two sets of
-      changes touch different rows of the same menu and can land in either order.
+      (<code>issue/1074-cancelled-duplicate-states</code>, tip <code>43e020450</code>) is in
+      review and <b>not yet on main</b>, so the line numbers cited throughout are main's while
+      the labels are POD-1074's. Nothing proposed here changes Set&nbsp;status itself — the
+      two sets of changes touch different rows of the same menu and can land in either order.
     </p>
   </div>
 
@@ -216,7 +216,10 @@
       One verb, two levels of ceremony, decided by which surface you happened to right-click.
       <b>POD-1074 does not fix this</b> — its <code>close()</code> keeps the same fork
       (<code>IssueContextMenu.tsx:232</code> on that branch), so picking Done, Cancelled or
-      Duplicate from Set&nbsp;status inherits the split rather than resolving it.
+      Duplicate from Set&nbsp;status inherits the split rather than resolving it. Confirmed
+      with that issue's agent: the fork predates it, so they corrected their artifact and
+      filed it as a spin-off rather than widening scope. <b>It belongs to neither this sheet
+      nor POD-1074</b> — listed here only so the inconsistency is not lost.
     </p>
   </div>
 
@@ -467,9 +470,12 @@
   </div>
 
   <p class="note">
-    <b>Set status ▸</b> is POD-1074's list, unchanged by anything here — Backlog, Planning,
-    In&nbsp;Progress, Review, then a rule, then Done, Cancelled, Duplicate. This sheet does not
-    touch it; it is shown so the surrounding blocks read correctly.
+    <b>Set status ▸</b> is POD-1074's list, unchanged by anything here — three categories
+    separated by <b>two</b> rules, because Completed and Cancelled are separate outcomes the
+    way Linear keeps them: Backlog / Planning / In&nbsp;Progress / Review · <b>Done</b> ·
+    Cancelled / Duplicate. Entries carry an <code>outcome</code> and each surface draws a rule
+    wherever it changes (<code>issueStatusMenuEntries</code>). This sheet does not touch that
+    submenu; it is shown so the surrounding blocks read correctly.
   </p>
 
   <p>
@@ -487,9 +493,10 @@
   <p>
     <b>One ceremony per verb.</b> Closing opens <code>IssueCloseDialog</code> from
     <code>IssueCompactControls</code> and fires instantly from the sidebar and the deck
-    (finding 8) — and POD-1074 carries that fork forward unchanged. Pick one: I'd wire
+    (finding 8) — and POD-1074 carries that fork forward unchanged. The fix is to wire
     <code>onRequestClose</code> everywhere so a terminal status always offers the same dialog.
-    Best done <i>on</i> POD-1074's branch rather than here, since it owns that code now.
+    It is already filed as a spin-off off POD-1074, so it is <i>not</i> in this issue's work
+    order below — noted here to close the loop on the finding.
   </p>
 
   <hr>
@@ -596,10 +603,7 @@
           <td>Independent of the session work</td><td>S</td></tr>
       <tr><td>6</td><td><b>Pass <code>onRename</code></b> from the flight deck</td>
           <td>Missing item, not a wrong one — smallest change here</td><td>S</td></tr>
-      <tr><td>7</td><td><b>One close ceremony</b> — wire <code>onRequestClose</code> everywhere<br>
-          <span style="color:var(--text-faint)">belongs on POD-1074's branch, not this one</span></td>
-          <td>Removes the per-surface inconsistency in finding 8, which POD-1074 inherits</td><td>M</td></tr>
-      <tr><td>8</td><td><b>“Reveal in flight deck”</b> on session tabs</td>
+      <tr><td>7</td><td><b>“Reveal in flight deck”</b> on session tabs</td>
           <td>The bridge that makes POD-710's boundary liveable</td><td>M</td></tr>
     </tbody>
   </table>
