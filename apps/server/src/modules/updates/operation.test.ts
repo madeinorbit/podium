@@ -1277,6 +1277,71 @@ describe('the fleet bridge', () => {
   })
 
   /**
+   * …AND SOMETHING ACTUALLY ACTS ON IT (POD-2187).
+   *
+   * The case above asserts the place appears, which was the half that worked.
+   * The missing half is this one, and it is the whole point of admitting a
+   * machine at all: `machinesRunner.ensure` is the only thing in the system that
+   * hands out a grant, and nothing on the admission path used to re-enter it.
+   * The step then had a place it was counting and had asked nothing of.
+   *
+   * THREE MACHINES, not two, and that is the review's scenario rather than a
+   * bigger version of it: the canary must already be PROVED when the laptop
+   * wakes, or `planWave` is refusing to widen for its own good reason and the
+   * missing drive is invisible behind it. So `vmi` converges first, `vps` is
+   * still going — which is what keeps the step running — and the laptop arrives
+   * into a wave that has room for it.
+   *
+   * NO CLOCK IS MOVED HERE, deliberately. The old code did eventually grant the
+   * laptop — ten minutes later, when the step's silence budget stalled it and
+   * the stall retry called `ensure()`. That is the defect stated exactly: a
+   * "stalled" step shown to an operator for ten minutes for nothing, and the
+   * operation's ONE permitted stall spent, so the next genuine silence failed
+   * the update outright. Asserting the grant against an unmoved clock is what
+   * separates "granted at admission" from "granted by the stall".
+   */
+  it('grants the machine it just admitted, instead of waiting out the silence budget', async () => {
+    const fleet = [
+      machine({ id: 'vmi' }),
+      machine({ id: 'vps' }),
+      machine({ id: 'laptop', online: false }),
+    ]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi'])
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    fleet[0] = machine({ id: 'vmi', version: 'dev+abc1234' })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+    expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vps'])
+    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    const before = h.clock.clock.now()
+
+    fleet[2] = machine({ id: 'laptop' })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vps', 'laptop'])
+    expect(h.clock.clock.now()).toBe(before)
+    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    // The place the panel names is a place with a grant against it, not one
+    // still `pending` because its turn never came.
+    expect(step?.places?.find((place) => place.id === 'laptop')?.state).not.toBe('pending')
+    expect(step?.state).toBe('running')
+  })
+
+  /**
    * …and the other half of the same sentence: once the wave is over it stays
    * deferred, because the operation is no longer the thing that would carry it.
    * The standing reconciler is, and that is the honest outcome rather than a

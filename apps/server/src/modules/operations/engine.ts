@@ -269,6 +269,19 @@ export class OperationEngine {
    * The report is always `running`: admission ADDS work, so it can never be the
    * thing that finishes a step, and forcing it here means this can never take
    * the plan-advancing path that `recordProgress` owns.
+   *
+   * AND THEN IT DRIVES, exactly as {@link OperationEngine.settleAsk} does
+   * (POD-2187). Admitting work and not re-entering the runner was a step that
+   * had grown a place nothing would ever act on: the runner is the only thing
+   * that hands out work, a running step is otherwise only ever WATCHED, and the
+   * newly admitted place arrives `pending` — so it cannot even trigger the
+   * offline→online re-entry, which keys on a place that was `offline` in the
+   * previous projection and this one was in no projection at all. The step then
+   * sat until its whole silence budget ran out, showed the operator a stalled
+   * step for ten minutes for no reason, and spent the operation's ONE permitted
+   * stall, so the next genuine silence failed the update outright instead of
+   * retrying it. Adding work is precisely a change in what the step could do,
+   * which is the one thing `reensure` exists to say.
    */
   async admitDeferred(
     operationId: string,
@@ -294,7 +307,7 @@ export class OperationEngine {
         at,
       )
       this.persist(next, at)
-      this.armDeadline(operationId)
+      await this.driveLocked(operationId)
     })
   }
 
