@@ -71,8 +71,8 @@ describe('SessionStart: issue owner precedence', () => {
 })
 
 describe('resolved runtime driver projection', () => {
-  it('publishes the driver from the daemon bind, not the spawn request', () => {
-    const { reg } = makeRegistry()
+  it('publishes the actual driver, echoes degradation on reattach, and clears a stale request', () => {
+    const { reg, daemon } = makeRegistry()
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
@@ -90,13 +90,44 @@ describe('resolved runtime driver projection', () => {
       requestedDriverId: 'opencode-server',
     })
 
-    expect(
-      reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId),
-    ).toMatchObject({
+    const degraded = reg.modules.sessions
+      .listSessions()
+      .find((session) => session.sessionId === sessionId)
+    expect(degraded).toMatchObject({
       status: 'live',
       driverId: 'codex-app-server',
       requestedDriverId: 'opencode-server',
     })
+
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    daemon.length = 0
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+
+    const reattach = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
+        message.type === 'reattach' && message.sessionId === sessionId,
+    )
+    expect(reattach?.requestedDriverId).toBe('opencode-server')
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'codex app-server (codex-app-server)',
+      cwd: '/proj',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    })
+
+    const recovered = reg.modules.sessions
+      .listSessions()
+      .find((session) => session.sessionId === sessionId)
+    expect(recovered).toMatchObject({
+      status: 'live',
+      driverId: 'codex-app-server',
+    })
+    expect(recovered?.requestedDriverId).toBeUndefined()
   })
 })
 
