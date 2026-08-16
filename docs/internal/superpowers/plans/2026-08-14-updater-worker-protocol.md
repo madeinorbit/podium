@@ -123,7 +123,14 @@ resolved into main is worse than no green at all.
   forks here), each with its own Bun/Vite module graph — **pin it to 1**.
   **Never wrap `podium lock acquire` in `timeout`** — that kills your queue entry before the
   grant lands. Run it unbounded; a fresh "granted to you" notice in the issue mail inbox is
-  the reliable cross-check. Focused vitest on your own files needs no lock. **Commit before you run a heavy
+  the reliable cross-check.
+  **Do not hold the lane across a whole session.** POD-2166 could not run a single test all
+  session because a sibling held the lane continuously and renewed it past expiry with
+  another queued ahead. Take it *immediately before* one command, release *immediately
+  after*, and never renew to keep your turn — re-queue instead. **A single-file focused
+  vitest run needs no lock at all**; the lane is for typecheck, broad suites and builds.
+  If you have waited more than ~20 minutes, say so in your issue state so I can see the
+  starvation. Focused vitest on your own files needs no lock. **Commit before you run a heavy
   lane**, so a kill costs you the run and not the work.
 - **Disk is tight (98% as of 2026-08-14, POD-2111).** Check `df -h` before any build or
   full-suite run; below ~3 GB free, stop and mail 2087 instead of risking a silently
