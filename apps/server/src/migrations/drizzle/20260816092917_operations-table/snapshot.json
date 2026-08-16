@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "4ffd62a8-1437-458c-989d-904afb717bea",
+  "id": "7501fd2d-a831-41a9-81f7-0483cef54568",
   "prevIds": [
-    "c5e407d2-7734-4a2c-a537-1e31a9875658"
+    "0aad11c9-bbd4-4cd4-9d36-0518ef71da85"
   ],
   "ddl": [
     {
@@ -2859,6 +2859,16 @@
       "default": null,
       "generated": null,
       "name": "delivery_caps_json",
+      "entityType": "columns",
+      "table": "machines"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "supervised",
       "entityType": "columns",
       "table": "machines"
     },
