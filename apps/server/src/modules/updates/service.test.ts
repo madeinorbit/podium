@@ -922,3 +922,78 @@ describe('target refresh bookkeeping', () => {
     })
   })
 })
+
+/**
+ * THE CONSENT DIES WITH THE OPERATION THAT HELD IT (POD-2169, spec §3.2).
+ *
+ * `fleet()` is a read that ACTS: a machine whose directory version proves the
+ * target makes the canary healthy and continues an authorized wave from inside
+ * the projection. That is what stops a running update reaching "1 of N" and
+ * waiting for a second Apply. Nothing took the consent back when the operation
+ * ended, so the same mechanism went on granting afterwards.
+ */
+describe('withdrawAuthorization', () => {
+  const target = { version: '0.4.2', critical: false, artifacts: {} } as never
+
+  /**
+   * The failure exactly as reported. The user cancels; the coordinator marks the
+   * in-flight machines stuck. But a grant already sent is never recalled and the
+   * daemon's swap is crash-safe, so `a` finishes anyway and reconnects at the
+   * target — and the next read of the fleet, from anywhere, granted `b`.
+   */
+  it('stops the wave continuing after a machine finishes a cancelled grant', () => {
+    const machines = [m('a'), m('b')]
+    const { svc, send } = make(machines)
+    svc.setTarget('dev', target)
+    svc.authorize('dev')
+    expect(send).toHaveBeenCalledTimes(1)
+
+    // The operation terminates. This is what `onChanged` does, in its order.
+    svc.withdrawAuthorization()
+    svc.releaseInFlightGrants('The update was canceled while this machine was updating.')
+
+    // `a`'s daemon swapped anyway and came back on the new version.
+    machines[0] = m('a', { version: '0.4.2' })
+    const granted = send.mock.calls.length
+    svc.fleet()
+    svc.fleet()
+
+    expect(send).toHaveBeenCalledTimes(granted)
+  })
+
+  /** …and the cleanup itself must not be the thing that grants: it reads `fleet()`. */
+  it('is safe to call before releaseInFlightGrants, which is a fleet read', () => {
+    const machines = [m('a', { version: '0.4.2', state: 'downloading' }), m('b')]
+    const { svc, send } = make(machines)
+    svc.setTarget('dev', target)
+    svc.authorize('dev')
+    const granted = send.mock.calls.length
+
+    svc.withdrawAuthorization()
+    svc.releaseInFlightGrants()
+
+    expect(send).toHaveBeenCalledTimes(granted)
+  })
+
+  /**
+   * A deliberate Apply is new authority, so the machinery must come back — the
+   * withdrawal ends one operation's consent, it does not disable the channel.
+   */
+  it('is restored by the next deliberate authorization', () => {
+    const machines = [m('a'), m('b')]
+    const { svc, send } = make(machines)
+    svc.setTarget('dev', target)
+    svc.authorize('dev')
+    svc.withdrawAuthorization()
+
+    machines[0] = m('a', { version: '0.4.2' })
+    svc.authorize('dev')
+    expect(send.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('says nothing about a channel that has no rollout at all', () => {
+    const { svc } = make([m('a')])
+    expect(() => svc.withdrawAuthorization()).not.toThrow()
+    expect(() => svc.withdrawAuthorization('stable')).not.toThrow()
+  })
+})
