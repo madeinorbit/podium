@@ -76,6 +76,16 @@ export interface UpdateFleetMachine {
   online: boolean
   busy: boolean
   detail?: string
+  /**
+   * WHO MOVED THIS ROW (POD-2105, spec §3.6).
+   *
+   * Present only when the standing reconciliation drove this machine to the
+   * current target — a machine that was asleep during the update and converged
+   * on its own reconnect, with nobody watching and no operation to attribute it
+   * to. ADDITIVE and absent by default per the frozen-contract law (P8): no UI
+   * reads it yet, and Settings/history can label it later without a wire change.
+   */
+  convergedBy?: 'reconciler'
 }
 
 export interface UpdateFleetSnapshot {
@@ -120,15 +130,23 @@ export interface UpdateFleetSnapshot {
   nextTargetVersion?: string
 }
 
-function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
+function fleetSnapshot(
+  updates: UpdatesService,
+  reconciler?: { convergedBy(machineId: string): 'reconciler' | undefined },
+): UpdateFleetSnapshot {
   const targetVersion = updates.targetVersion()
   // The global dialog is the coordinating source server's dev-authority wave.
   // Edge/stable machines have their own explicit per-row targets and actions;
   // comparing them with the dev target invents behind places this mutation
   // cannot and must not grant.
-  const allMachines = updates
-    .fleet()
-    .map((machine) => ({ ...machine, id: asMachineId(machine.id) }))
+  const allMachines = updates.fleet().map((machine) => {
+    const convergedBy = reconciler?.convergedBy(machine.id)
+    return {
+      ...machine,
+      id: asMachineId(machine.id),
+      ...(convergedBy ? { convergedBy } : {}),
+    }
+  })
   const machines = allMachines.filter((machine) => isDevelopmentMachine(updates, machine))
   const target = updates.target()
   const grantable = target !== undefined && canGrantDevelopmentFleet(target)
@@ -296,7 +314,7 @@ export async function startUpdateOperation(
 export function updateFleet(ctx: Context): UpdateFleetSnapshot {
   const state = familyState(ctx)
   const updates = state.modules.updates
-  const fleet = fleetSnapshot(updates)
+  const fleet = fleetSnapshot(updates, state.modules.updatesReconciler)
   const preparation = ctx.updatePreparation?.()
   const active = state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
   const queued = updates.nextTarget('dev')

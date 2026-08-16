@@ -1061,11 +1061,13 @@ describe('the fleet bridge', () => {
   it('is silent when no update operation is running', () => {
     const h = harness()
     const recordProgress = vi.fn(() => Promise.resolve())
+    const admitDeferred = vi.fn(() => Promise.resolve())
     createUpdateFleetBridge({
-      engine: { active: () => undefined, recordProgress },
+      engine: { active: () => undefined, recordProgress, admitDeferred },
       updates: h.updates,
     }).onFleetChanged()
     expect(recordProgress).not.toHaveBeenCalled()
+    expect(admitDeferred).not.toHaveBeenCalled()
   })
 
   it('stamps the heartbeat on every accepted fleet event', async () => {
@@ -1092,6 +1094,90 @@ describe('the fleet bridge', () => {
     const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.lastProgressAt).toBeGreaterThan(before ?? 0)
     expect(step?.places?.[0]).toMatchObject({ id: 'vmi', state: 'downloading' })
+  })
+
+  /**
+   * §3.6, THE MID-OPERATION RECONNECT. A machine that was asleep at plan time is
+   * `deferred` — the operation's honest note that it is not waiting for it. If
+   * it wakes up while its own step is STILL RUNNING, that note stops being true,
+   * and it has to stop being true in one move: a place in neither list is
+   * invisible, and a place in both is counted twice by everyone reading the
+   * operation.
+   */
+  it('admits a deferred machine that reconnects while the wave is still running', async () => {
+    const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+
+    fleet[1] = machine({ id: 'laptop' })
+    createUpdateFleetBridge({ engine: h.engine, updates: h.updates }).onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.deferred).toEqual([])
+    const step = operation.steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    expect(step?.places?.map((place) => place.id)).toEqual(['vmi', 'laptop'])
+    expect(step?.progress).toEqual({ done: 0, total: 2 })
+  })
+
+  /**
+   * …and the other half of the same sentence: once the wave is over it stays
+   * deferred, because the operation is no longer the thing that would carry it.
+   * The standing reconciler is, and that is the honest outcome rather than a
+   * fallback.
+   */
+  it('leaves a machine deferred when it reconnects after the wave finished', async () => {
+    const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // `vmi` arrives, which is the whole of the planned wave.
+    fleet[0] = machine({ id: 'vmi', version: 'dev+abc1234' })
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('done')
+
+    fleet[1] = machine({ id: 'laptop' })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+  })
+
+  /** A daemon that became desktop-supervised while it slept is the SHELL's now,
+   *  whatever the plan said when it was still an ordinary fleet machine (§4, P5). */
+  it('does not admit a reconnected machine a desktop app has since claimed', async () => {
+    const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    fleet[1] = machine({ id: 'laptop', supervised: true })
+    createUpdateFleetBridge({ engine: h.engine, updates: h.updates }).onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    expect(step?.places?.map((place) => place.id)).toEqual(['vmi'])
   })
 })
 

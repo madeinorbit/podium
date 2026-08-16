@@ -1197,6 +1197,12 @@ export function createUpdateFleetBridge(deps: {
   engine: {
     active(group?: string): { id: string; kind: string; operation: Operation | null } | undefined
     recordProgress(id: string, stepId: string, patch: StepProgressPatch): Promise<void>
+    admitDeferred(
+      id: string,
+      stepId: string,
+      placeIds: readonly string[],
+      patch: StepProgressPatch,
+    ): Promise<void>
   }
   updates: UpdatesService
 }): { onFleetChanged: () => void } {
@@ -1213,6 +1219,25 @@ export function createUpdateFleetBridge(deps: {
         channel: details.channel,
         appVersion: () => details.fromVersion ?? '',
       }
+
+      // §3.6: a deferred machine that woke up while its own step is still
+      // running belongs to THIS update, not to the reconciler that would
+      // otherwise pick it up afterwards. Admitted BEFORE the projection below,
+      // so its first appearance in the payload is already inside the step's
+      // places and its own progress — never as a place the panel has to
+      // discover in a later frame.
+      const admitted = admissibleDeferredPlaces(row.operation, details, deps.updates)
+      if (admitted.length > 0) {
+        const places = [...(step.places ?? []), ...admitted]
+        void deps.engine.admitDeferred(
+          row.id,
+          UPDATE_STEP_MACHINES,
+          admitted.map((place) => place.id),
+          { places, progress: { done: places.filter(isArrived).length, total: places.length } },
+        )
+        return
+      }
+
       const settled = settleMachines(row.operation, step, context)
       const patch: StepProgressPatch = settled ?? {
         state: 'running',
@@ -1221,6 +1246,50 @@ export function createUpdateFleetBridge(deps: {
       void deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, patch)
     },
   }
+}
+
+const isArrived = (place: StepPlace): boolean =>
+  place.state === 'current' || place.state === 'restarting'
+
+/**
+ * WHICH DEFERRED PLACES MAY JOIN THE WAVE NOW (§3.6).
+ *
+ * A place is deferred because it was asleep (or could not take the artifact) at
+ * plan time. The question here is the same one the plan asked, asked again
+ * against the live fleet: is it online, is it still behind, is it ours to
+ * update, and can it take what is being handed out? Anything else stays
+ * deferred and converges through the standing reconciler after the operation
+ * ends — which is the honest outcome, not a fallback.
+ *
+ * `supervised` is re-checked rather than assumed from the plan: a daemon that
+ * became desktop-supervised between the plan and the reconnect is the shell's
+ * now, and no wave may touch it (§4, P5).
+ */
+export function admissibleDeferredPlaces(
+  operation: Operation,
+  details: UpdateOperationDetails,
+  updates: UpdatesService,
+): StepPlace[] {
+  const deferred = operation.deferred ?? []
+  if (deferred.length === 0) return []
+  const published = updates.target(details.channel) ?? details.target
+  const deliveries = offeredDeliveries(published)
+  const fleet = new Map(updates.fleet().map((machine) => [machine.id, machine]))
+  const admitted: StepPlace[] = []
+  for (const place of deferred) {
+    const machine = fleet.get(place.id)
+    if (!machine || !machine.online) continue
+    if (machine.version === details.target.version) continue
+    if (updates.channelOf(machine) !== details.channel) continue
+    if (deliveries.length > 0 && !machineCanTakeDelivery(machine, deliveries)) continue
+    if (machine.supervised === true) continue
+    admitted.push({
+      id: machine.id,
+      ...(machine.name ? { name: machine.name } : {}),
+      state: 'pending',
+    })
+  }
+  return admitted
 }
 
 /**

@@ -146,6 +146,7 @@ import {
   LIFECYCLE_EXCLUSION_GROUP,
   updateOperationKind,
 } from './modules/updates/operation'
+import { UpdateReconciler } from './modules/updates/reconciler'
 import { resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
@@ -220,6 +221,13 @@ export interface RegistryModules {
    * that a feature registering a new kind does it in a diff a reviewer sees.
    */
   operations: OperationsModule
+  /**
+   * Background convergence for machines that were asleep when an update ran
+   * (POD-2105, spec §3.6). OPTIONAL because it is pure choreography: a registry
+   * assembled without it (every fixture that builds a module set by hand) is a
+   * server that simply does not converge stragglers, not a broken one.
+   */
+  updatesReconciler?: UpdateReconciler
   rpc: DaemonRpcService
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
@@ -2168,13 +2176,24 @@ export class SessionRegistry {
      * — is what turns "an update" from four independently polled facts into one
      * object with an id, a plan and an outcome (spec §3.0/§3.1).
      */
+    // Declared before the engine it reads and after the service it drives, which
+    // is the only order the cycle allows: the engine's `onChanged` has to be
+    // able to reach the reconciler, and the reconciler has to be able to ask the
+    // engine whether an operation is active. Both reads are lazy, so neither
+    // half captures the other's construction moment.
+    let updatesReconciler: UpdateReconciler | undefined
     const operationsModule = createOperations({
       store: this.store.operations,
       onChanged: (row) => {
+        if (!isTerminalOperationState(row.state)) {
+          // An operation is live, so whatever background convergence did before
+          // it started is that operation's story to tell now (§3.6).
+          updatesReconciler?.onOperationStarted()
+          return
+        }
         // A version that arrived mid-update waits for the group to be free, and
         // this is the moment it becomes free — whatever the outcome was. It
         // re-creates the OFFER, never an operation (§3.2).
-        if (!isTerminalOperationState(row.state)) return
         updatesService.publishNextTargets()
         // POD-2101: the deadline that used to end a silent grant aged inside a
         // `fleet()` read. The operation owns that authority now, so the moment
@@ -2188,6 +2207,12 @@ export class SessionRegistry {
               : undefined,
           )
         }
+        // …and the same moment is when background convergence may resume. It
+        // sweeps whoever is still behind, which is also how a FAILED operation
+        // cleans up after itself without a human pressing Try again (§3.6).
+        // AFTER the release above, so the sweep sees machines whose grants have
+        // just stopped being believed rather than refusing them as in-flight.
+        updatesReconciler?.onOperationSettled()
       },
     })
     operationsModule.kinds.register(updateOperationKind())
@@ -2202,7 +2227,25 @@ export class SessionRegistry {
       engine: operationsModule.engine,
       updates: updatesService,
     })
-    this.bus.on('machine.connected', () => updateFleetBridge.onFleetChanged())
+    /**
+     * THE STANDING RECONCILIATION (§3.6, POD-2105). Offline machines are
+     * `deferred` at plan time so an update can finish without them; this is what
+     * converges them afterwards, on their own reconnect, with no operation and
+     * no second click.
+     */
+    updatesReconciler = new UpdateReconciler({
+      updates: updatesService,
+      operationActive: () =>
+        operationsModule.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+    })
+    const reconciler = updatesReconciler
+    this.bus.on('machine.connected', ({ machineId }) => {
+      updateFleetBridge.onFleetChanged()
+      // The daemon's hello — and therefore the version it just booted with — is
+      // already recorded by the time this fires: `recordHelloBuild` precedes
+      // `attachDaemon` in the handshake, and `attachDaemon` is what emits this.
+      reconciler.onMachineConnected(machineId)
+    })
     this.bus.on('machine.disconnected', () => updateFleetBridge.onFleetChanged())
 
     this.modules = {
@@ -2212,6 +2255,7 @@ export class SessionRegistry {
       machines,
       updates: updatesService,
       operations: operationsModule,
+      updatesReconciler: reconciler,
       rpc,
       serverTransfer,
       loginPropagation,

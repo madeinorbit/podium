@@ -250,6 +250,49 @@ export class OperationEngine {
   }
 
   /**
+   * A DEFERRED PLACE BECAME REACHABLE while the step that would have carried it
+   * is still running (spec §3.6, POD-2105).
+   *
+   * `deferred` is the operation's honest note about places it is NOT waiting for
+   * — "2 machines will follow when they reconnect". One of them arriving before
+   * the step finished is the one case where that note stops being true, and it
+   * has to stop being true ATOMICALLY: a place that is in neither list is
+   * invisible, and a place that is in both is counted twice by anyone reading
+   * the operation. So the removal and the step patch are one chained unit here
+   * rather than two calls a reader has to know are related.
+   *
+   * Generic on purpose. The engine does not learn what a machine is; it learns
+   * that a deferred place can join a running step, which is a fact about the
+   * shape of an operation and will read the same for a server move.
+   *
+   * The report is always `running`: admission ADDS work, so it can never be the
+   * thing that finishes a step, and forcing it here means this can never take
+   * the plan-advancing path that `recordProgress` owns.
+   */
+  async admitDeferred(
+    operationId: string,
+    stepId: string,
+    placeIds: readonly string[],
+    patch: StepProgressPatch,
+  ): Promise<void> {
+    await this.enqueue(operationId, async () => {
+      const operation = this.deps.store.get(operationId)?.operation
+      if (!operation || isTerminalOperationState(operation.state)) return
+      const step = (operation.steps ?? []).find((s) => s.id === stepId)
+      if (!step || isStepFinished(step.state)) return
+      const admitting = new Set(placeIds)
+      const before = operation.deferred ?? []
+      const deferred = before.filter((place) => !admitting.has(place.id))
+      if (deferred.length === before.length) return
+
+      const at = this.now()
+      const next = this.applyPatch({ ...operation, deferred }, stepId, { ...patch, state: 'running' }, at)
+      this.persist(next, at)
+      this.armDeadline(operationId)
+    })
+  }
+
+  /**
    * §3.2: cancel is allowed only while the step in flight declares itself
    * reversible. Everything else gets a typed refusal rather than an exception,
    * because "this can't be canceled now, it will finish or fail" is a sentence
