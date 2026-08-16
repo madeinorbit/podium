@@ -4,6 +4,7 @@ import { asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { REVEAL_IN_DECK_EVENT } from './shell-state'
 
 vi.mock('@/features/terminal/AgentPanel', () => ({
   AgentPanel: ({ sessionId }: { sessionId: SessionId }): JSX.Element => (
@@ -305,10 +306,44 @@ describe('Workspace tab closing', () => {
     const labels = [...menu.querySelectorAll('[role="menuitem"]')].map((el) =>
       el.textContent?.trim(),
     )
-    expect(labels).toEqual(['Close', 'Close Others', 'Close All', 'Keep Open'])
+    // "Close tab" names its noun (POD-1077) because the session menu spells its
+    // terminal action "Delete session…" — two menus a few pixels apart must not
+    // both offer a bare "Close" meaning a view-close and a tombstone.
+    // "Reveal in flight deck" is NAVIGATION, not lifecycle: it moves you to the
+    // row that owns those verbs instead of copying them onto a tab.
+    expect(labels).toEqual([
+      'Close tab',
+      'Close Others',
+      'Close All',
+      'Keep Open',
+      'Reveal in flight deck',
+    ])
+    // The POD-710 invariant this test exists for, asserted directly rather than
+    // implied by the list above.
+    for (const forbidden of [/hibernate/i, /archive/i, /delete/i, /end session/i, /handoff/i]) {
+      expect(labels.some((text) => text !== undefined && forbidden.test(text))).toBe(false)
+    }
 
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Keep Open' }))
     expect(actions.promoteWorkspaceTab).toHaveBeenCalledWith('s2')
+  })
+
+  // A file tab has no session behind it and so gets no reveal (POD-1077). Not
+  // covered here: this suite's fixture carries no file tabs, and the gate is a
+  // typed optional prop set only for `tab.kind === 'session'`.
+
+  it('reveals the session behind a tab in the flight deck (POD-1077)', () => {
+    render(<Workspace />)
+    const revealed = vi.fn()
+    window.addEventListener(REVEAL_IN_DECK_EVENT, revealed)
+
+    fireEvent.contextMenu(label('s2'))
+    const menu = screen.getByRole('menu', { name: 'Tab actions' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Reveal in flight deck' }))
+
+    expect(revealed).toHaveBeenCalledTimes(1)
+    expect((revealed.mock.calls[0]?.[0] as CustomEvent<string>).detail).toBe('s2')
+    window.removeEventListener(REVEAL_IN_DECK_EVENT, revealed)
   })
 
   it('offers the split items only under the tab-splitting flag', () => {

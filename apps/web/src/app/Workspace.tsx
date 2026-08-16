@@ -32,6 +32,7 @@ import {
 import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
 import {
   Columns2,
+  Crosshair,
   FileText,
   PanelRightClose,
   Plus,
@@ -78,6 +79,7 @@ import {
   stripDropId,
 } from './panel-deck'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
+import { REVEAL_IN_DECK_EVENT } from './shell-state'
 import { type FileTab, useReplicaIssues, useStoreSelector } from './store'
 import { closeActiveWorkspaceTab } from './workspace-close'
 
@@ -1068,6 +1070,7 @@ function SortableTab({
           anchor={menuAnchor}
           preview={preview}
           splitting={splitting}
+          {...(tab.kind === 'session' ? { sessionId: tab.session.sessionId } : {})}
           onClose={() => setMenuAnchor(null)}
           onCloseTab={onClose}
           onCloseOthers={onCloseOthers}
@@ -1085,11 +1088,21 @@ function SortableTab({
  * (kill / archive / snooze / hibernate / handoff) moved to the flight deck, where
  * sessions actually live; a menu on the tab that could kill an agent is exactly
  * the tab/session conflation this work undoes.
+ *
+ * POD-1077 KEPT THAT BOUNDARY AND PAID ITS COST. The rule was right and the cost
+ * was real: an operator looking straight at an agent had no route from the tab to
+ * the row that governs it, so the menu read as a dead end. The answer is
+ * "Reveal in flight deck" — one item that MOVES you to where the verbs are,
+ * rather than copying the verbs onto a surface that must not have them. It is
+ * also why the first item now says "Close tab" and not "Close": the session menu
+ * spells its terminal action "Delete session…", and the two menus must not both
+ * offer a bare "Close" meaning very different things.
  */
 function TabContextMenu({
   anchor,
   preview,
   splitting,
+  sessionId,
   onClose,
   onCloseTab,
   onCloseOthers,
@@ -1100,6 +1113,8 @@ function TabContextMenu({
   anchor: ContextMenuAnchor
   preview: boolean
   splitting: boolean
+  /** Set when this tab is a SESSION view — file tabs have no row to reveal. */
+  sessionId?: SessionId
   onClose: () => void
   onCloseTab: () => void
   onCloseOthers: () => void
@@ -1162,7 +1177,7 @@ function TabContextMenu({
         className={MENU_ITEM}
         onClick={() => run(onCloseTab)}
       >
-        <X size={14} aria-hidden="true" /> Close
+        <X size={14} aria-hidden="true" /> Close tab
       </button>
       <button
         data-pressable
@@ -1215,6 +1230,28 @@ function TabContextMenu({
             onClick={() => run(() => onSplit('column'))}
           >
             <SquareSplitVertical size={14} aria-hidden="true" /> Split Down
+          </button>
+        </>
+      )}
+      {/* The one item on this menu that is ABOUT the session rather than the
+          view — and it is navigation, not lifecycle, which is exactly why it is
+          allowed here. Under its own rule, last, so the view actions above it
+          stay one uninterrupted group. */}
+      {sessionId && (
+        <>
+          <hr className={MENU_RULE} />
+          <button
+            data-pressable
+            type="button"
+            role="menuitem"
+            className={MENU_ITEM}
+            onClick={() =>
+              run(() =>
+                window.dispatchEvent(new CustomEvent(REVEAL_IN_DECK_EVENT, { detail: sessionId })),
+              )
+            }
+          >
+            <Crosshair size={14} aria-hidden="true" /> Reveal in flight deck
           </button>
         </>
       )}

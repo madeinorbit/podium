@@ -11,6 +11,7 @@ import { makeIssue } from '@/lib/test-issue'
 import {
   contextMenuTargets,
   deferDateFromNow,
+  describeCascade,
   issueHandoffAvailability,
   issueHasCloseReason,
   issueMenuEligibility,
@@ -102,6 +103,40 @@ describe('issueMenuEligibility', () => {
     expect(
       issueMenuEligibility([makeIssue(), makeIssue({ parentId: 'iss_epic' })]).canSetStage,
     ).toBe(true)
+  })
+
+  // POD-1077: the flight deck is its own surface. Archive and Pin both act on
+  // columns the deck is not, so a sub-task strip must not offer them.
+  describe('the deck surface', () => {
+    it('drops Archive and Pin, which act on the sidebar rather than the spine', () => {
+      const deck = issueMenuEligibility([makeIssue()], 'deck')
+      expect(deck.canArchive).toBe(false)
+      expect(deck.canPin).toBe(false)
+    })
+
+    it('keeps Unarchive, so an archived strip is never a dead end', () => {
+      const deck = issueMenuEligibility([makeIssue({ archived: true })], 'deck')
+      expect(deck.canUnarchive).toBe(true)
+      expect(deck.canArchive).toBe(false)
+    })
+
+    it('leaves every other entry alone', () => {
+      const deck = issueMenuEligibility([makeIssue()], 'deck')
+      expect(deck.canRename).toBe(true)
+      expect(deck.canSetStage).toBe(true)
+      expect(deck.canClose).toBe(true)
+      expect(deck.canDelete).toBe(true)
+      // Board-only triage stays board-only — the deck is not the board either.
+      expect(deck.canDuplicate).toBe(false)
+    })
+
+    it('still offers Archive and Pin on the sidebar and the board', () => {
+      for (const surface of ['sidebar', 'board'] as const) {
+        const e = issueMenuEligibility([makeIssue()], surface)
+        expect(e.canArchive).toBe(true)
+        expect(e.canPin).toBe(true)
+      }
+    })
   })
 
   it('offers mark-unread on a read issue and mark-read on an unread one (#138)', () => {
@@ -418,5 +453,25 @@ describe('issueHandoffAvailability (POD-850)', () => {
       handoffMachines,
     )
     expect('availability' in result && result.availability.blocker).toBe('no-worktree')
+  })
+})
+
+// POD-1077. The archive confirm used to name sub-tasks and say nothing about
+// the agent processes it stops, which is the half that made archiving read as
+// filing rather than as a teardown.
+describe('describeCascade', () => {
+  it('names the agents, not just the tasks', () => {
+    expect(describeCascade(4, 5)).toBe('This affects 4 tasks and 5 agents.')
+  })
+
+  it('singularises both halves independently', () => {
+    expect(describeCascade(1, 1)).toBe('This affects 1 task and 1 agent.')
+    expect(describeCascade(1, 2)).toBe('This affects 1 task and 2 agents.')
+    expect(describeCascade(2, 1)).toBe('This affects 2 tasks and 1 agent.')
+  })
+
+  // "and 0 agents" is noise on a task nothing is running under.
+  it('omits the agent clause when there are none', () => {
+    expect(describeCascade(3, 0)).toBe('This affects 3 tasks.')
   })
 })

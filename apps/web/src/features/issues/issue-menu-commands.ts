@@ -8,7 +8,7 @@ import {
   snoozeUntil1h,
 } from '@podium/model/browser'
 import type { Trpc } from '@/app/trpc'
-import { deferDateFromNow, toggleLabelAcross } from './issue-context-menu'
+import { deferDateFromNow, describeCascade, toggleLabelAcross } from './issue-context-menu'
 import type { IssueMenuConfig, IssueMenuData } from './issue-menu-config'
 import { ISSUE_MENU_COLOR_NONE, statusValue } from './issue-menu-config'
 
@@ -70,14 +70,22 @@ export function runIssueMenuCommand(
         // THE TOGGLE, not the dismiss (POD-781). `issues.archive` is one-way, so
         // the menu's archive/unarchive pair has always gone through the patch —
         // two commands for one word, and both are outboxed now.
-        if (!data.first.archived && data.first.childCount > 0) {
-          const confirm = deps.confirm ?? ((text: string) => window.confirm(text))
-          if (
-            !confirm(
-              'Archive this issue and every sub-task beneath it? They will leave active views.',
-            )
-          ) {
-            return
+        //
+        // Same question, same words as the context menu (POD-1077): the palette
+        // and the menu run the SAME action, so a confirm that named sub-tasks
+        // here and agents there would make the consequence look route-dependent.
+        // Both sentences come from `describeCascade`.
+        if (!data.first.archived) {
+          const sessionCount = new Set(data.first.memberSessionIds ?? []).size
+          if (data.first.childCount > 0 || sessionCount > 0) {
+            const confirm = deps.confirm ?? ((text: string) => window.confirm(text))
+            if (
+              !confirm(
+                `Archive this task? ${describeCascade(1 + data.first.childCount, sessionCount)} They leave active views, and any running agents are stopped.`,
+              )
+            ) {
+              return
+            }
           }
         }
         return deps.updateIssue(id, { archived: !data.first.archived })
@@ -87,7 +95,7 @@ export function runIssueMenuCommand(
       case 'delete': {
         const count = data.issues.length
         const sessions = new Set(data.issues.flatMap((issue) => issue.memberSessionIds ?? []))
-        const message = `Delete ${count} task${count > 1 ? 's' : ''} and ${sessions.size} session${sessions.size === 1 ? '' : 's'}? Tasks and sessions can be restored; running processes will be stopped.`
+        const message = `Delete ${count === 1 ? 'this task' : `${count} tasks`}? ${describeCascade(count, sessions.size)} Tasks and sessions can be restored; running agents will be stopped.`
         const confirm = deps.confirm ?? ((text: string) => window.confirm(text))
         if (!confirm(message)) return
         return Promise.all(data.issues.map((issue) => deps.deleteIssue(issue.id)))

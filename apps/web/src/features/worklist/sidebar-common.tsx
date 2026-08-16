@@ -612,7 +612,7 @@ export function PanelRow({
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
-  const { guardedKill } = useSessionGuard()
+  const { guardedEnd } = useSessionGuard()
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
@@ -915,11 +915,19 @@ export function PanelRow({
           Continue
         </Button>
       )}
-      {/* Hover overlay: close, floated over the row's right edge (before the
-          dot) so revealing it never reflows the row. Sub-agent roster rows omit
-          it (POD-293): a task's workers aren't dismissed one-off from the list —
-          killing stays on the row's right-click menu. Panel-pinning is retired
-          (POD-169) — issue-pinning is the only pin concept. */}
+      {/* Hover overlay: END, floated over the row's right edge (before the dot)
+          so revealing it never reflows the row. Sub-agent roster rows omit it
+          (POD-293): a task's workers aren't dismissed one-off from the list —
+          teardown stays on the row's right-click menu. Panel-pinning is retired
+          (POD-169) — issue-pinning is the only pin concept.
+
+          THIS IS THE REVERSIBLE ONE (POD-1077). It used to be `guardedKill`
+          under the label "Close session", which tombstoned the row and its
+          transcript from a single hover click — the most destructive action in
+          the shell reachable by the least deliberate gesture. A hover ✕ is
+          exactly where the recoverable verb belongs: the process stops, the
+          worktree frees, the branch and transcript stay, and Resume rebuilds it.
+          Deleting is still offered, in the menu, behind a confirm. */}
       {!roster && (
         <div
           data-hover-reveal
@@ -932,8 +940,8 @@ export function PanelRow({
             variant="ghost"
             size="icon-sm"
             className="size-6 flex-none text-muted-foreground/70 hover:text-destructive"
-            title="Close session"
-            onClick={() => void guardedKill(session.sessionId)}
+            title="End session — stops the agent, keeps its transcript"
+            onClick={() => void guardedEnd(session.sessionId)}
           >
             <X size={12} aria-hidden="true" />
           </Button>

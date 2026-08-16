@@ -136,6 +136,14 @@ export interface PodiumClientApi {
     kill: ApiMutation<{ sessionId: SessionId }>
     continue: ApiMutation<{ sessionId: SessionId }>
     hibernate: ApiMutation<{ sessionId: SessionId }>
+    /** Clean end [spec:SP-9904] — stop the process, free the issue worktree,
+     *  keep branch + transcript + row. REFUSES rather than throws (POD-379), so
+     *  `ok: false` carries a reason an unsaved tree can be forced past. Present
+     *  on the command plane since POD-382; POD-1077 gave it a client caller. */
+    stop: ApiMutation<
+      { sessionId: SessionId; force?: boolean },
+      { ok: boolean; reason?: string; worktreeFreed?: boolean; deferredKill?: boolean }
+    >
     resurrect: ApiMutation<{ sessionId: SessionId }, { ok: boolean; reason?: string }>
   }
   snoozes: {

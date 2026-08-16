@@ -9,6 +9,7 @@ import {
 } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
 
@@ -84,15 +85,19 @@ function open(issue: IssueWire & { memberSessionIds?: string[] }): void {
     ...issue,
     memberSessionIds: issue.memberSessionIds?.map(asSessionId),
   }
+  // POD-1077: the menu's cascade confirms are the app-wide dialog, so it reads
+  // the ConfirmProvider context AppShell supplies in the real tree.
   render(
-    <IssueContextMenu
-      issues={[viewIssue]}
-      allIssues={[viewIssue]}
-      anchor={{ x: 10, y: 10 }}
-      onClose={vi.fn()}
-      onOpen={vi.fn()}
-      onRename={vi.fn()}
-    />,
+    <ConfirmProvider>
+      <IssueContextMenu
+        issues={[viewIssue]}
+        allIssues={[viewIssue]}
+        anchor={{ x: 10, y: 10 }}
+        onClose={vi.fn()}
+        onOpen={vi.fn()}
+        onRename={vi.fn()}
+      />
+    </ConfirmProvider>,
   )
 }
 

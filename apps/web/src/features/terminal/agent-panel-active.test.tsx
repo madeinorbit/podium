@@ -53,7 +53,7 @@ vi.mock('@podium/terminal-client', async (orig) => {
 // The kill/archive guard reaches for a ConfirmProvider context that this focused
 // render doesn't mount — stub the hook (it's only invoked on a click anyway).
 vi.mock('@/lib/hooks/use-session-guard', () => ({
-  useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
+  useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
 // The presence seam [POD-1535]: the header's watcher strip reads the hub off

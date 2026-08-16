@@ -40,6 +40,22 @@ export function rightPanelAllowed(
  *  or {@link CLOSE_RIGHT_PANEL} to shut the dock. */
 export const OPEN_RIGHT_PANEL_EVENT = 'podium:open-right-panel'
 
+/**
+ * Window event asking the FLIGHT DECK to reveal one session's row (POD-1077).
+ * detail = the SessionId.
+ *
+ * The bridge across POD-710's boundary. A tab is a view, so its menu carries no
+ * session lifecycle — but that left the operator staring at an agent with no way
+ * to reach the row that governs it. Reveal is the honest way across: it moves
+ * you to where the verbs live instead of copying them onto the tab.
+ *
+ * An EVENT rather than a store action because revealing needs the deck's own
+ * fold state to unfold the ancestors, and that state is deliberately local to
+ * the column (persisted UI, not replicated). A caller cannot do the work; it can
+ * only ask.
+ */
+export const REVEAL_IN_DECK_EVENT = 'podium:reveal-in-deck'
+
 /** `detail` value that closes the dock rather than opening a panel (POD-745).
  *  A distinct token, not `null`/`''`: those are also what a MALFORMED detail
  *  decodes to, and "unreadable request" must stay a no-op rather than silently

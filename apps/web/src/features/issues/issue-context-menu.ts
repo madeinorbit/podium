@@ -82,13 +82,35 @@ export function resolveIssueHandoffSession<M extends HandoffMachine>(
   return targets.length > 0 ? { session: result.session, targets } : null
 }
 
+/**
+ * "This affects 3 tasks and 5 agents." — the sentence both cascade confirms
+ * open with (POD-1077), on the menu and in the command palette alike.
+ *
+ * Counting AGENTS, not "sessions": the row being archived or deleted is a task,
+ * and what the operator is deciding about is the work running under it. Shared
+ * so the dialogs cannot drift into different ways of stating the same
+ * arithmetic — which is exactly how the archive confirm ended up naming
+ * sub-tasks while silently omitting the agent processes it stops.
+ */
+export function describeCascade(taskCount: number, sessionCount: number): string {
+  const tasks = `${taskCount} task${taskCount === 1 ? '' : 's'}`
+  if (sessionCount === 0) return `This affects ${tasks}.`
+  return `This affects ${tasks} and ${sessionCount} agent${sessionCount === 1 ? '' : 's'}.`
+}
+
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */
 export function issueHasCloseReason(issue: IssueViewModel): boolean {
   return issue.closedReason != null
 }
 
-/** Where the shared issue context menu is hosted — some items are per-surface. */
-export type IssueMenuSurface = 'board' | 'sidebar'
+/**
+ * Where the shared issue context menu is hosted — some items are per-surface.
+ *
+ * `deck` is the flight deck's spine (POD-1077). It used to pass `sidebar`,
+ * which meant a SUB-TASK strip offered the identical menu to a MISSION row —
+ * including two entries that mean nothing there. See `canArchive` / `canPin`.
+ */
+export type IssueMenuSurface = 'board' | 'sidebar' | 'deck'
 
 /**
  * Which menu items apply to the current right-click target set. Single-target
@@ -152,12 +174,23 @@ export function issueMenuEligibility(
     // once it already points at one. Board-only: the sidebar menu dropped it
     // in the POD-100 interaction cleanup (decided 2026-07-21).
     canDuplicate: surface === 'board' && single && !hasDeleted && first?.duplicateOf == null,
-    canPin: single && !hasDeleted,
+    // NOT ON THE DECK (POD-1077). Pinning orders the sidebar's mission list;
+    // the deck orders by the spine, so pinning a strip there changes nothing
+    // the operator can observe from the column they are looking at.
+    canPin: surface !== 'deck' && single && !hasDeleted,
     canDelete: activeAny,
     canRestore: any && issues.every((i) => !!i.deletedAt),
     // Archive removes an issue from the board/sidebar without deleting it; the
     // pair is single-target and mutually exclusive on the issue's `archived`.
-    canArchive: single && !hasDeleted && first?.archived === false,
+    //
+    // NOT ON THE DECK EITHER (POD-1077), and for a sharper reason than Pin's:
+    // archiving one sub-task punches a hole in the spine that the deck cannot
+    // show and cannot restore from — it has no archived filter, so the row
+    // simply vanishes mid-tree with no way back from that column. Closing it is
+    // the honest gesture; filing the work away belongs to the mission that owns
+    // the whole subtree, whose archive cascades (#133). Unarchive stays: a
+    // strip that somehow IS archived must not be a dead end.
+    canArchive: surface !== 'deck' && single && !hasDeleted && first?.archived === false,
     canUnarchive: single && !hasDeleted && first?.archived === true,
     // Email-style read toggle (#138): single-target, mutually exclusive on the
     // derived `unread`. A currently-read row offers "mark unread"; an unread one

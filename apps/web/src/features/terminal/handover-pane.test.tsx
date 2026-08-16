@@ -45,7 +45,7 @@ vi.mock('@podium/terminal-client', async (orig) => {
 })
 
 vi.mock('@/lib/hooks/use-session-guard', () => ({
-  useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
+  useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),

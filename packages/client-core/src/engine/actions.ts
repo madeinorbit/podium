@@ -124,6 +124,7 @@ export const COMMAND_ACTIONS = [
   'killSession',
   'continueSession',
   'hibernateSession',
+  'endSession',
   'resurrectSession',
   'resumeAndSend',
   'renameSession',
@@ -746,6 +747,28 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     closeAutoContinuePrompt: () => rt.apply({ autoContinuePromptSessionId: null }),
     hibernateSession: async (sessionId) => {
       await api.sessions.hibernate.mutate({ sessionId }).catch(() => {})
+    },
+    // Clean end [spec:SP-9904]. The server RETURNS its refusals rather than
+    // throwing (POD-379 pins that for the tRPC arm), so a dirty working tree
+    // arrives as `ok: false` with a reason.
+    //
+    // A RETURNED REFUSAL IS NOT TOASTED. It is an answer the caller asked for
+    // and can act on — `guardedEnd` turns "the tree is dirty" into an offer to
+    // force — so notifying here would put an error banner on screen underneath
+    // the dialog resolving it, and would report a failure the operator is about
+    // to convert into a success. Only a THROW is unexpected, and only a throw
+    // notifies. Unlike `resurrectSession`, whose refusal has no second move.
+    endSession: async (sessionId, force) => {
+      try {
+        return await api.sessions.stop.mutate({
+          sessionId,
+          ...(force === true ? { force: true } : {}),
+        })
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'unknown error'
+        rt.notices.error(`Couldn't end the session — ${reason}`)
+        return { ok: false, reason }
+      }
     },
     resurrectSession: async (sessionId) => {
       try {

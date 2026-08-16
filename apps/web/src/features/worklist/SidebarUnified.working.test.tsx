@@ -177,7 +177,7 @@ vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => nul
 // PanelRow (the lifted working session) pulls in the session guard, which needs a
 // ConfirmProvider — stub it so the row renders without the provider tree.
 vi.mock('@/lib/hooks/use-session-guard', () => ({
-  useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
+  useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
 afterEach(cleanup)

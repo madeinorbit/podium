@@ -70,7 +70,25 @@ export type IssueMenuSubmenu =
  *  names, and the wire patch carries `null`. */
 export const ISSUE_MENU_COLOR_NONE = 'none'
 
-export type IssueMenuSection = 'main' | 'lifecycle' | 'destructive'
+/**
+ * Menu sections, in render order. `placement` and `danger` are POD-1077's.
+ *
+ * `placement` exists because moving a sub-task out of its mission is the most
+ * characteristic decision a sub-task has — the spin-off gesture — and it used to
+ * sit unlabelled at the top of `lifecycle`, reading as one more state change.
+ *
+ * `danger` exists because `destructive` was a lie: it renders as "MANAGE" and
+ * holds Pin next to Delete, so the one irreversible row in the menu was
+ * separated from a bookmark toggle by nothing but red text. Delete now sits
+ * alone under a rule. The section that is genuinely destructive is the one
+ * named for it.
+ */
+export type IssueMenuSection =
+  | 'main'
+  | 'placement'
+  | 'lifecycle'
+  | 'destructive'
+  | 'danger'
 
 export interface IssueMenuOption {
   id: string
@@ -319,7 +337,7 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
     label: (data) =>
       `Move to top level (out of ${menuPlacement(data)?.originRef ?? 'this mission'})`,
     icon: 'arrow-right-left',
-    section: 'lifecycle',
+    section: 'placement',
     when: (data) => menuPlacement(data)?.placement === 'mission',
   },
   {
@@ -327,7 +345,7 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
     id: 'placeInMission',
     label: (data) => `Move into ${menuPlacement(data)?.originRef ?? 'the task that found it'}`,
     icon: 'arrow-right-left',
-    section: 'lifecycle',
+    section: 'placement',
     when: (data) => menuPlacement(data)?.placement === 'own',
   },
   {
@@ -363,7 +381,9 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
   {
     kind: 'action',
     id: 'archive',
-    label: (data) => (data.first.archived ? 'Unarchive' : 'Archive'),
+    // Archiving asks first when it would cascade, so it earns the ellipsis;
+    // unarchiving is immediate and must not claim one (POD-1077).
+    label: (data) => (data.first.archived ? 'Unarchive' : 'Archive…'),
     icon: 'archive',
     section: 'destructive',
     when: (data) => data.eligibility.canArchive || data.eligibility.canUnarchive,
@@ -396,9 +416,16 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
   {
     kind: 'action',
     id: 'delete',
-    label: 'Delete',
+    // The ellipsis is the promise that a confirm follows (POD-1077) — the same
+    // convention Archive… wears, and the reason both are safe to sit one row
+    // from something reversible.
+    label: 'Delete…',
     icon: 'trash',
-    section: 'destructive',
+    // ALONE, UNDER A RULE. Its own section, so the renderer draws a separator
+    // above it whatever survived the `when` gates in MANAGE: with Delete inside
+    // that block, a selection that hid Pin, Archive and Duplicate left the
+    // menu's one irreversible action flush against Snooze.
+    section: 'danger',
     when: has('canDelete'),
   },
 ]

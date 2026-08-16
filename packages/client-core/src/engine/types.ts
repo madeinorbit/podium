@@ -74,6 +74,16 @@ export interface SessionResurrectionResult {
   reason?: string
 }
 
+/** Result of a clean end [spec:SP-9904]. `ok: false` is a REFUSAL the caller
+ *  should show, not a transport failure — most often an unsaved working tree,
+ *  which `endSession(id, true)` overrides. */
+export interface SessionEndResult {
+  ok: boolean
+  reason?: string
+  /** True when the issue worktree was released (the branch is always kept). */
+  worktreeFreed?: boolean
+}
+
 export function defaultFormatError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message
   if (typeof error === 'string' && error.trim()) return error
@@ -389,6 +399,15 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   navigateToSession: (sessionIdOrRef: string) => void
   renameSession: (sessionId: SessionId, name: string) => Promise<void>
   hibernateSession: (sessionId: SessionId) => Promise<void>
+  /** Clean end [spec:SP-9904]: stop the process and free the issue worktree,
+   *  KEEPING the branch, the transcript and the session row, so Resume can
+   *  rebuild the checkout from the branch. The middle of the lifecycle between
+   *  hibernate (which keeps the worktree) and kill (which tombstones the row) —
+   *  and until POD-1077 the only surface that could reach it was the CLI.
+   *
+   *  Refuses rather than throws on a dirty/conflicted tree; the refusal is
+   *  returned so the caller can offer `force`. */
+  endSession: (sessionId: SessionId, force?: boolean) => Promise<SessionEndResult>
   resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>
   /** Send a chat message to a parked (hibernated/exited) session, waking it
    *  first and delivering the text once it's ready. Falls back to a plain send

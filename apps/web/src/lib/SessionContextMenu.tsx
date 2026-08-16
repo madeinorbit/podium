@@ -3,15 +3,14 @@ import { reposToViews } from '@podium/client-core/viewmodels'
 import {
   handoffAvailability,
   isSnoozed,
+  type MachineId,
   type SessionMeta,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
-  type MachineId,
 } from '@podium/model/browser'
 import {
   AlarmClock,
   AlarmClockOff,
-  Archive,
   ArchiveRestore,
   ArrowRightLeft,
   ChevronRight,
@@ -21,7 +20,8 @@ import {
   Moon,
   Pencil,
   Play,
-  X,
+  Square,
+  Trash2,
 } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -38,6 +38,7 @@ import {
   MENU_ITEM_DESTRUCTIVE,
   MENU_ITEM_DISABLED,
   MENU_PANEL,
+  MENU_RULE,
   MENU_SECTION,
   MENU_SUBTEXT,
 } from './menu-surface'
@@ -52,11 +53,13 @@ import {
 
 /**
  * Right-click context menu for a session — the same actions the panel/agent
- * toolbars expose (rename, pin, snooze, hibernate, resume, BTW, archive, close),
+ * toolbars expose (rename, pin, snooze, hibernate, resume, BTW, end, delete),
  * gathered in one place so they're reachable without hunting hover targets. Used
  * by the sidebar panel rows and the FLIGHT DECK, which is where sessions live;
  * POD-710 took it off the tab, because a tab is a view and a menu that can kill
- * an agent from one is exactly the tab/session conflation that work undoes.
+ * an agent from one is exactly the tab/session conflation that work undoes. The
+ * tab's own menu instead offers "Reveal in flight deck" (POD-1077), so the
+ * boundary costs reach rather than access.
  * Cursor-anchored portal
  * (matches SnoozeControl's pattern), clamped into the viewport, dismissed on
  * outside-click / Escape / scroll.
@@ -100,7 +103,7 @@ export function SessionContextMenu({
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const { guardedKill, guardedArchive } = useSessionGuard()
+  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard()
   const handoffEnabled = useFeature('session-handoff')
   const now = useNow(60_000)
   // The attached issue is part of the handoff gate: a session whose cwd drifted
@@ -144,7 +147,7 @@ export function SessionContextMenu({
 
   const id = session.sessionId
   const snoozed = isSnoozed(session, now)
-  const { canHibernate, canResume, canClose, canMarkRead, canMarkUnread } =
+  const { canHibernate, canResume, canEnd, canDelete, canMarkRead, canMarkUnread } =
     sessionMenuEligibility(session)
 
   const run = (fn: () => void | Promise<void>): void => {
@@ -331,29 +334,49 @@ export function SessionContextMenu({
       >
         <MessageSquareText size={14} aria-hidden="true" /> Ask superagent (BTW)
       </button>
-      <button
-        data-pressable
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => run(() => guardedArchive(id, !session.archived))}
-      >
-        {session.archived ? (
-          <ArchiveRestore size={14} aria-hidden="true" />
-        ) : (
-          <Archive size={14} aria-hidden="true" />
-        )}
-        {session.archived ? 'Unarchive' : 'Archive'}
-      </button>
-      {canClose && (
+      {/* ARCHIVE IS GONE FROM THIS MENU (POD-1077), and only its escape hatch
+          remains. Archiving a session was never filing — POD-108 made it park
+          the process — so it was a third spelling of "stop the agent" sitting
+          between Hibernate and Close, and the one that said least about what it
+          did. The gesture itself is not lost: archiving the ISSUE cascades to
+          every member session (#133), and the SP-6144 sweep archives stopped,
+          read sessions on its own. What a menu must never do is strand a state,
+          so an already-archived session still offers the way back. */}
+      {session.archived && (
+        <button
+          data-pressable
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          onClick={() => run(() => guardedArchive(id, false))}
+        >
+          <ArchiveRestore size={14} aria-hidden="true" /> Unarchive
+        </button>
+      )}
+      {/* The two ways out, under a rule and named by what survives. Everything
+          above this line is reversible; nothing below it is fully. */}
+      {(canEnd || canDelete) && <hr className={MENU_RULE} />}
+      {canEnd && (
+        <button
+          data-pressable
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          onClick={() => run(() => guardedEnd(id))}
+        >
+          <Square size={14} aria-hidden="true" /> End session
+          <span className={MENU_HINT}>frees worktree</span>
+        </button>
+      )}
+      {canDelete && (
         <button
           data-pressable
           type="button"
           role="menuitem"
           className={MENU_ITEM_DESTRUCTIVE}
-          onClick={() => run(() => guardedKill(id))}
+          onClick={() => run(() => guardedDelete(id))}
         >
-          <X size={14} aria-hidden="true" /> Close
+          <Trash2 size={14} aria-hidden="true" /> Delete session…
         </button>
       )}
       {handoffEnabled && handoffTop !== null && (

@@ -22,25 +22,38 @@ export interface ContextMenuAnchor {
 /**
  * Which lifecycle actions apply to a session right now. Pure so the eligibility
  * rules (which gate the menu items) can be unit-tested without rendering.
+ *
+ * THE VERBS ARE NAMED BY WHAT SURVIVES (POD-1077). Three of them park or kill a
+ * process and they used to be spelled Hibernate / Archive / Close, which said
+ * nothing about which one you could come back from:
  *  - hibernate: only a live, recoverable agent that isn't mid-turn (parking a
  *    working agent would lose its in-flight turn — the server enforces this too).
+ *    Keeps the worktree.
+ *  - end: a running session, cleanly stopped [spec:SP-9904] — frees the worktree,
+ *    keeps branch + transcript + row. Deliberately NOT gated on `resumable`: the
+ *    row survives either way, and the server refuses what it cannot do.
  *  - resume: a parked session (hibernated, or exited-but-recoverable).
- *  - close: a session with a process to kill.
+ *  - delete: tombstones the row. Offered whatever the status, because a stopped
+ *    session is exactly the one you want to be able to clear away — the old
+ *    `canClose` gate hid the action on the sessions it suited best.
  */
 export function sessionMenuEligibility(session: SessionMeta): {
   canHibernate: boolean
   canResume: boolean
-  canClose: boolean
+  canEnd: boolean
+  canDelete: boolean
   canMarkRead: boolean
   canMarkUnread: boolean
 } {
   const phase = session.agentState?.phase
   const working = phase === 'working' || phase === 'compacting'
   const status = session.status
+  const running = status === 'live' || status === 'starting' || status === 'reconnecting'
   return {
     canHibernate: status === 'live' && session.resumable === true && !working,
     canResume: status === 'hibernated' || (status === 'exited' && session.resumable === true),
-    canClose: status === 'live' || status === 'starting' || status === 'reconnecting',
+    canEnd: running,
+    canDelete: true,
     // Email-style read toggle (#138): a currently-read session offers "mark unread";
     // an unread one offers "mark read". (`unread` is always a boolean on the wire.)
     canMarkRead: session.unread === true,

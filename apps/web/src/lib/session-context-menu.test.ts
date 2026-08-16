@@ -57,11 +57,22 @@ describe('sessionMenuEligibility', () => {
     expect(sessionMenuEligibility(meta({ status: 'live' })).canResume).toBe(false)
   })
 
-  it('allows close only when there is a running process', () => {
-    expect(sessionMenuEligibility(meta({ status: 'live' })).canClose).toBe(true)
-    expect(sessionMenuEligibility(meta({ status: 'starting' })).canClose).toBe(true)
-    expect(sessionMenuEligibility(meta({ status: 'exited' })).canClose).toBe(false)
-    expect(sessionMenuEligibility(meta({ status: 'hibernated' })).canClose).toBe(false)
+  it('allows end only when there is a running process', () => {
+    expect(sessionMenuEligibility(meta({ status: 'live' })).canEnd).toBe(true)
+    expect(sessionMenuEligibility(meta({ status: 'starting' })).canEnd).toBe(true)
+    expect(sessionMenuEligibility(meta({ status: 'reconnecting' })).canEnd).toBe(true)
+    expect(sessionMenuEligibility(meta({ status: 'exited' })).canEnd).toBe(false)
+    expect(sessionMenuEligibility(meta({ status: 'hibernated' })).canEnd).toBe(false)
+  })
+
+  // Delete is NOT gated on a running process (POD-1077). The old `canClose`
+  // rule hid the row on exited and hibernated sessions — precisely the ones an
+  // operator wants to clear away — so the only way to remove a dead session's
+  // row was to resume it first.
+  it('offers delete in every status, running or not', () => {
+    for (const status of ['live', 'starting', 'reconnecting', 'exited', 'hibernated'] as const) {
+      expect(sessionMenuEligibility(meta({ status })).canDelete).toBe(true)
+    }
   })
 
   it('offers mark-unread on a read session and mark-read on an unread one (#138)', () => {

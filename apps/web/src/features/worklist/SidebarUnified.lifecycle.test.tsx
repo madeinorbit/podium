@@ -161,7 +161,7 @@ vi.mock('@/features/machines/HostIndicators', () => ({
   HostIndicators: () => null,
 }))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
-  useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
+  useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
 afterEach(() => {

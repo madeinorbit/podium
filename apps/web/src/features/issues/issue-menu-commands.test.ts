@@ -118,7 +118,7 @@ describe('shared issue menu command execution', () => {
     expect(actions.updateIssue).toHaveBeenCalledWith('i', { pinned: true })
   })
 
-  it('asks before archiving an issue that has children', async () => {
+  it('asks before archiving an issue that has children, counting the issue itself', async () => {
     const issue = makeIssue({ childCount: 2 })
     const data = createIssueMenuData({
       issues: [issue],
@@ -135,9 +135,55 @@ describe('shared issue menu command execution', () => {
     await runIssueMenuCommand(data, archive, undefined, deps)
 
     expect(confirm).toHaveBeenCalledWith(
-      'Archive this issue and every sub-task beneath it? They will leave active views.',
+      'Archive this task? This affects 3 tasks. They leave active views, and any running agents are stopped.',
     )
     expect(actions.updateIssue).not.toHaveBeenCalled()
+  })
+
+  // POD-1077: archiving an issue cascades to its member sessions and PARKS each
+  // one, so the confirm has to say that. The old sentence named sub-tasks only,
+  // which is why archiving read as filing rather than as a teardown.
+  it('names the agents it will stop, and asks even with no sub-tasks', async () => {
+    const issue = makeIssue({ childCount: 0, memberSessionIds: ['s1', 's2'] })
+    const data = createIssueMenuData({
+      issues: [issue],
+      allIssues: [issue],
+      eligibility: issueMenuEligibility([issue]),
+    })
+    if (!data) throw new Error('fixture did not produce menu data')
+    const { deps, actions } = commandDeps()
+    const confirm = vi.fn(() => false)
+    deps.confirm = confirm
+    const archive = issueMenuEntries(data).find((entry) => entry.id === 'archive')
+    if (!archive || archive.kind !== 'action') throw new Error('expected an archive fixture')
+
+    await runIssueMenuCommand(data, archive, undefined, deps)
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Archive this task? This affects 1 task and 2 agents. They leave active views, and any running agents are stopped.',
+    )
+    expect(actions.updateIssue).not.toHaveBeenCalled()
+  })
+
+  // Nothing to cascade to — the confirm would be ceremony over tidying one row.
+  it('archives a childless, agentless task without asking', async () => {
+    const issue = makeIssue({ childCount: 0 })
+    const data = createIssueMenuData({
+      issues: [issue],
+      allIssues: [issue],
+      eligibility: issueMenuEligibility([issue]),
+    })
+    if (!data) throw new Error('fixture did not produce menu data')
+    const { deps, actions } = commandDeps()
+    const confirm = vi.fn(() => false)
+    deps.confirm = confirm
+    const archive = issueMenuEntries(data).find((entry) => entry.id === 'archive')
+    if (!archive || archive.kind !== 'action') throw new Error('expected an archive fixture')
+
+    await runIssueMenuCommand(data, archive, undefined, deps)
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(actions.updateIssue).toHaveBeenCalledWith(issue.id, { archived: true })
   })
 
   it('routes open and property actions through the same data entry IDs', async () => {

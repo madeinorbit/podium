@@ -16,7 +16,6 @@ import { resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
   AlarmClockOff,
-  Archive,
   ArchiveRestore,
   BarChart3,
   Bot,
@@ -35,10 +34,11 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
+  Square,
   SquareKanban,
   SquarePlus,
+  Trash2,
   Workflow,
-  X,
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -243,7 +243,7 @@ function PaletteDialog({
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const { guardedKill, guardedArchive } = useSessionGuard()
+  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard()
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
@@ -445,7 +445,7 @@ function PaletteDialog({
     // ── Actions on the focused agent — the context menu's own gates ───────
     if (focused) {
       const id = focused.sessionId
-      const { canHibernate, canResume, canClose, canMarkRead, canMarkUnread } =
+      const { canHibernate, canResume, canEnd, canDelete, canMarkRead, canMarkUnread } =
         sessionMenuEligibility(focused)
       const snoozed = isSnoozed(focused, Date.now())
       const sess = (cmd: Omit<PaletteCommand, 'group'>): void => {
@@ -515,19 +515,34 @@ function PaletteDialog({
         icon: MessageSquareText,
         run: () => startBtw(id),
       })
-      sess({
-        id: 'session:archive',
-        label: focused.archived ? 'Unarchive' : 'Archive',
-        icon: focused.archived ? ArchiveRestore : Archive,
-        run: () => guardedArchive(id, !focused.archived),
-      })
-      if (canClose)
+      // Only the way BACK from archived (POD-1077) — archiving a session parks
+      // its process rather than filing it, so the menus stopped offering it and
+      // the palette must not remain the back door to a verb they retired.
+      if (focused.archived)
         sess({
-          id: 'session:close',
-          label: 'Close',
-          keywords: ['kill', 'stop', 'end session'],
-          icon: X,
-          run: () => guardedKill(id),
+          id: 'session:archive',
+          label: 'Unarchive',
+          icon: ArchiveRestore,
+          run: () => guardedArchive(id, false),
+        })
+      // `stop` and `end session` used to be KEYWORDS ON THE KILL, so typing the
+      // name of the safe verb offered the terminal one. They belong to the verb
+      // that bears them; delete keeps only words that mean deletion.
+      if (canEnd)
+        sess({
+          id: 'session:end',
+          label: 'End session',
+          keywords: ['stop', 'end', 'close', 'finish'],
+          icon: Square,
+          run: () => guardedEnd(id),
+        })
+      if (canDelete)
+        sess({
+          id: 'session:delete',
+          label: 'Delete session',
+          keywords: ['kill', 'remove', 'destroy'],
+          icon: Trash2,
+          run: () => guardedDelete(id),
         })
       sess({
         id: 'session:copy-id',

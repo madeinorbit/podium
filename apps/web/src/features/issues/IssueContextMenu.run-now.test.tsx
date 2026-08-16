@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
 
@@ -25,16 +26,20 @@ vi.mock('@/app/store', () => {
   }
 })
 
+// The menu's Archive and Delete confirms are the app-wide dialog (POD-1077), so
+// it now reads the ConfirmProvider context the real tree supplies from AppShell.
 function open(issue: ReturnType<typeof makeIssue>): void {
   render(
-    <IssueContextMenu
-      issues={[issue]}
-      allIssues={[issue]}
-      anchor={{ x: 10, y: 10 }}
-      onClose={vi.fn()}
-      onOpen={vi.fn()}
-      onRename={vi.fn()}
-    />,
+    <ConfirmProvider>
+      <IssueContextMenu
+        issues={[issue]}
+        allIssues={[issue]}
+        anchor={{ x: 10, y: 10 }}
+        onClose={vi.fn()}
+        onOpen={vi.fn()}
+        onRename={vi.fn()}
+      />
+    </ConfirmProvider>,
   )
 }
 

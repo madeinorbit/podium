@@ -87,7 +87,7 @@ import { useClickIntent } from './click-intent'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useSessionHovered } from './session-hover'
-import { OPEN_RIGHT_PANEL_EVENT } from './shell-state'
+import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT } from './shell-state'
 import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
 
 const MODES: Array<{ id: FlightDeckMode; label: string }> = [
@@ -1259,6 +1259,9 @@ const TaskRow = memo(
     onSelectSession,
     onSelectNative,
     onMenu,
+    onRenameIssue,
+    renaming,
+    onRenameDone,
   }: {
     row: FlightDeckRow
     byId: ReadonlyMap<string, IssueNavigationModel>
@@ -1290,6 +1293,16 @@ const TaskRow = memo(
     onSelectNative: (session: SessionMeta) => void
     /** Open the shared task menu at the cursor — right-click, or the ⋯ reveal. */
     onMenu: (event: ReactMouseEvent) => void
+    /** Rename this task's title (POD-1077). Already trimmed and known-changed —
+     *  the commit policy lives in the deck, next to the state that opens the
+     *  editor, so the row has no rename decision of its own to get wrong. */
+    onRenameIssue: (title: string) => void
+    /** True while the deck's menu has this row's editor open. Rename state is
+     *  the DECK's (one id), not the row's: the menu that starts a rename is
+     *  mounted once for the whole column and cannot reach into a row's hook. */
+    renaming: boolean
+    /** Commit or cancel — either way the deck clears `renamingIssueId`. */
+    onRenameDone: () => void
   }): JSX.Element {
     const intent = useClickIntent()
     const payload = hasPayload(row)
@@ -1409,58 +1422,78 @@ const TaskRow = memo(
           ) : (
             <span className="size-5 flex-none" />
           )}
-          <button
-            data-pressable
-            type="button"
-            className={cn(
-              // gap-1.5, not gap-2: five gaps at 8px is 40px of the row spent on
-              // air, and the title is the thing that pays for it.
-              'flex min-w-0 flex-1 items-center gap-1.5 text-left',
-              proposed ? 'py-0.5' : 'py-1',
-            )}
-            onClick={() =>
-              intent.press(
-                () => onSelectIssue(false),
-                () => onSelectIssue(true),
-              )
-            }
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return
-              event.preventDefault()
-              intent.commit(() => onSelectIssue(true))
-            }}
-          >
-            <StatusGlyph status={issueStatusOf(row.issue)} size={13} />
-            {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
+          {/* RENAMING IN PLACE (POD-1077). The deck could not rename a task at
+            all — it mounted the shared menu without `onRename`, which gates the
+            entry — so the column the operator works in was the one column that
+            could not fix a title. Same hook and same editor the sidebar row and
+            the session row above already use. */}
+          {renaming ? (
+            <span className={cn('flex min-w-0 flex-1 items-center', proposed ? 'py-0.5' : 'py-1')}>
+              <SessionNameEditor
+                value={row.issue.title}
+                onCommit={(next) => {
+                  onRenameIssue(next)
+                  onRenameDone()
+                }}
+                onCancel={onRenameDone}
+              />
+            </span>
+          ) : (
+            <button
+              data-pressable
+              type="button"
+              className={cn(
+                // gap-1.5, not gap-2: five gaps at 8px is 40px of the row spent on
+                // air, and the title is the thing that pays for it.
+                'flex min-w-0 flex-1 items-center gap-1.5 text-left',
+                proposed ? 'py-0.5' : 'py-1',
+              )}
+              onClick={() =>
+                intent.press(
+                  () => onSelectIssue(false),
+                  () => onSelectIssue(true),
+                )
+              }
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                intent.commit(() => onSelectIssue(true))
+              }}
+            >
+              {/* POD-1074's status glyph, kept: the strip states one status, not
+                a stage. Only the wrapper around this button is POD-1077's. */}
+              <StatusGlyph status={issueStatusOf(row.issue)} size={13} />
+              {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
               it is the only thing here that shrinks. Ref THEN title, in one
               truncating label — the ref is how the operator addresses the task
               everywhere else in Podium, and a right-aligned ref made the column
               read right-to-left. */}
-            <span
-              className={cn(
-                'shell-type-secondary min-w-0 flex-1 truncate text-text-strong',
-                selected || unread ? 'font-semibold' : 'font-medium',
-              )}
-            >
-              <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
-                {issueDisplayRef(row.issue)}
+              <span
+                className={cn(
+                  'shell-type-secondary min-w-0 flex-1 truncate text-text-strong',
+                  selected || unread ? 'font-semibold' : 'font-medium',
+                )}
+              >
+                <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
+                  {issueDisplayRef(row.issue)}
+                </span>
+                {row.issue.title}
               </span>
-              {row.issue.title}
-            </span>
-            {unread ? (
-              <>
-                <UnreadDot />
-                <span className="sr-only">unread</span>
-              </>
-            ) : null}
-            {note && <IssueNoteChip note={note} />}
-            {seat && <SeatChip note={seat} />}
-            {folded && <CollapsedPayload summary={row.collapsedSummary} />}
-            {folded && row.collapsedSummary.crew.length > 0 && (
-              <CrewCensus crew={row.collapsedSummary.crew} />
-            )}
-            <StateLabel value={state} label={liveWord} />
-          </button>
+              {unread ? (
+                <>
+                  <UnreadDot />
+                  <span className="sr-only">unread</span>
+                </>
+              ) : null}
+              {note && <IssueNoteChip note={note} />}
+              {seat && <SeatChip note={seat} />}
+              {folded && <CollapsedPayload summary={row.collapsedSummary} />}
+              {folded && row.collapsedSummary.crew.length > 0 && (
+                <CrewCensus crew={row.collapsedSummary.crew} />
+              )}
+              <StateLabel value={state} label={liveWord} />
+            </button>
+          )}
           {/* The same pairing the agent rows use: right-click is the fast path,
             and the ⋯ is how an operator who has never right-clicked a strip
             finds out these actions exist. It floats over the row's right edge
@@ -1975,6 +2008,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     markIssueRead,
     markSessionRead,
     setIssueTucked,
+    updateIssue,
     trpc,
     coarseNow,
   } = useStoreSelector(
@@ -2000,6 +2034,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       markIssueRead: store.markIssueRead,
       markSessionRead: store.markSessionRead,
       setIssueTucked: store.setIssueTucked,
+      updateIssue: store.updateIssue,
       trpc: store.trpc,
       // The shared coarse clock, not one interval per row: the "N ago" stamp on
       // a stopped session must not disagree with the ordering derived from the
@@ -2314,6 +2349,50 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     [folds, setFold],
   )
 
+  /**
+   * REVEAL A SESSION'S ROW (POD-1077) — what the tab menu asks for when the
+   * operator wants the verbs a tab deliberately does not carry.
+   *
+   * Three steps, and skipping any one leaves the reveal a lie:
+   *  1. RE-ROOT if the session belongs to another mission, or the deck would
+   *     scroll a spine that does not contain it.
+   *  2. UNFOLD every ancestor. A row inside a closed fold is not in the DOM at
+   *     all, so scrolling to it would silently find nothing — the failure mode
+   *     that makes a "reveal" feel broken rather than absent.
+   *  3. SCROLL, after paint. The unfold above is a state write, and the row it
+   *     creates does not exist until React has rendered it.
+   */
+  useEffect(() => {
+    const onReveal = (event: Event): void => {
+      const sessionId = (event as CustomEvent<string>).detail
+      if (!sessionId) return
+      const target = sessions.find((session) => session.sessionId === sessionId)
+      if (!target) return
+      if (target.issueId) {
+        const owner = issues.find((issue) => issue.id === target.issueId)
+        if (owner) setSelectedIssueId(missionRootFor(issues, owner.id)?.id ?? owner.id)
+        setFocusedIssueId(target.issueId)
+        // Every row whose subtree contains the owner is an ancestor of it, plus
+        // the owner itself — one pass over the rows rather than walking parents,
+        // because `descendantIds` is already the closure the deck computed.
+        const open = new Map(folds)
+        for (const row of rows) {
+          if (row.issue.id === target.issueId || row.descendantIds.includes(target.issueId)) {
+            open.set(row.issue.id, 'open')
+          }
+        }
+        setFolds(open)
+      }
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-flight-session="${sessionId}"]`)
+          ?.scrollIntoView({ block: 'nearest' })
+      })
+    }
+    window.addEventListener(REVEAL_IN_DECK_EVENT, onReveal)
+    return () => window.removeEventListener(REVEAL_IN_DECK_EVENT, onReveal)
+  }, [sessions, issues, rows, folds, setFolds, setSelectedIssueId, setFocusedIssueId])
+
   const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
     setFocusedIssueId(row.issue.id)
     // A deliberate task pick asks to SEE its inspector, not merely retarget an
@@ -2384,6 +2463,28 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     setIssueMenu({ id: issueId, anchor: { x: event.clientX, y: event.clientY } })
   }, [])
   const menuIssue = issueMenu ? issues.find((issue) => issue.id === issueMenu.id) : undefined
+  /**
+   * WHICH STRIP IS RENAMING (POD-1077) — deck state, for the same reason the
+   * menu is: the menu is mounted once for the column, so the row it names has to
+   * be addressed by id rather than by reaching into that row's own hook.
+   */
+  const [renamingIssueId, setRenamingIssueId] = useState<string | null>(null)
+  /**
+   * The shared commit policy (POD-407), applied here so no strip carries a
+   * second copy: trim, then no-op on empty or unchanged. The no-op is the part
+   * that matters — the editor commits on BLUR, so clicking away from an editor
+   * opened by accident must not spend a write, a revision bump and a feed entry
+   * on a title that did not change.
+   */
+  const renameIssue = useCallback(
+    (issueId: string, next: string): void => {
+      const trimmed = next.trim()
+      const current = issues.find((issue) => issue.id === issueId)?.title
+      if (!trimmed || trimmed === current) return
+      void updateIssue(issueId, { title: trimmed })
+    },
+    [issues, updateIssue],
+  )
 
   const tuckResolvedRoot = (): void => {
     if (!root) return
@@ -2721,6 +2822,9 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   selectSession(row.issue.id, session, { permanent: false, native: true })
                 }
                 onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                renaming={renamingIssueId === row.issue.id}
+                onRenameIssue={(title) => renameIssue(row.issue.id, title)}
+                onRenameDone={() => setRenamingIssueId(null)}
               />
             ))}
             {visibleRows.length === 0 &&
@@ -2838,13 +2942,20 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
         <IssueContextMenu
           issues={[menuIssue]}
           allIssues={issues}
-          // `sidebar`, not `board`: this is a working column, and the surface
-          // gate exists to keep the board-only triage items ("Duplicate of…")
-          // where POD-100 put them.
-          surface="sidebar"
+          // `deck`, not `sidebar` (POD-1077). It was `sidebar` because that kept
+          // the board-only triage items ("Duplicate of…") where POD-100 put them
+          // — still true — but it also meant a SUB-TASK strip rendered the
+          // identical menu to a MISSION row, offering Pin (which orders a column
+          // this is not) and Archive (which hides a row this column cannot get
+          // back). The deck is its own surface because it has its own answers.
+          surface="deck"
           primaryStart={menuIssue.stage === 'proposed'}
           anchor={issueMenu.anchor}
           onClose={() => setIssueMenu(null)}
+          onRename={(id) => {
+            setIssueMenu(null)
+            setRenamingIssueId(id)
+          }}
           onOpen={(id) => {
             setIssueMenu(null)
             const row = rows.find((candidate) => candidate.issue.id === id)

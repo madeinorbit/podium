@@ -135,7 +135,7 @@ vi.mock('@/app/store', () => {
 
 vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => null }))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
-  useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
+  useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
 /** Issue ids in the order the column draws them (`data-issue-row` on each row). */

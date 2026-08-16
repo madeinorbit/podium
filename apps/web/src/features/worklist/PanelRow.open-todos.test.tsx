@@ -21,7 +21,7 @@ vi.mock('@/app/store', () => ({
     } as never),
 }))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
-  useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
+  useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
 function session(idle: { kind: string; summary?: string }): SessionMeta {

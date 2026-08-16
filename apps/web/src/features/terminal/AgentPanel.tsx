@@ -19,7 +19,6 @@ import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { keySequence, type SpecialKey } from '@podium/terminal-client'
 import { ArrowSwipeKey, useTerminalSession, useVoiceInput } from '@podium/terminal-client-react'
 import {
-  Archive,
   ArrowDownToLine,
   Ellipsis,
   Folder,
@@ -28,6 +27,7 @@ import {
   Mic,
   Moon,
   Sparkles,
+  Square,
   SquareTerminal,
   Terminal as TerminalIcon,
 } from 'lucide-react'
@@ -57,6 +57,7 @@ import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { isKnownRefPrefix } from '@/lib/markdown'
+import { sessionMenuEligibility } from '@/lib/SessionContextMenu'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { useNow } from '@/lib/useNow'
@@ -215,7 +216,7 @@ export function AgentPanel({
   // the getter fresh without remounting the terminal when the replica updates.
   const issuesRef = useRef(issues)
   issuesRef.current = issues
-  const { guardedArchive } = useSessionGuard(sessionId)
+  const { guardedEnd } = useSessionGuard(sessionId)
   // An optimistically-spawned session doesn't exist server-side yet (#119): the
   // terminal's one-shot `hub.attach` would be dropped and never retried, leaving
   // the pane black. Hold the mount until the real session reconciles in — the
@@ -292,6 +293,9 @@ export function AgentPanel({
   // read by the session context menu and the command palette) rather than from a
   // fourth local spelling of it.
   const hibernate = hibernateAction(session)
+  // Same shared rule, same reason as `hibernate` above — the header must not be
+  // a fifth local spelling of "can this session be ended".
+  const canEnd = session ? sessionMenuEligibility(session).canEnd : false
   // Device fact, not arbitration: the header drops the snooze control on a narrow
   // screen. (The arbitration hook reads the same query for the mode default; that
   // one is a MODE input, this one is a layout one, so they stay separate.)
@@ -851,22 +855,13 @@ export function AgentPanel({
               {!isMobile && showSnooze && session && (
                 <SnoozeControl session={session} iconSize={15} dimmed={false} />
               )}
-              {/* Archive stays available in every read-only state — both hibernated
-                (process paused to free memory) and exited (process gone, transcript
-                read-only). You can read the transcript and file it under Done without
-                waking/resuming first. Only hidden when there's no session at all. */}
-              {session && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
-                  title="Archive session — files it under Done"
-                  onClick={() => void guardedArchive(sessionId, true)}
-                >
-                  <Archive size={13} aria-hidden="true" />
-                </Button>
-              )}
+              {/* THE ARCHIVE BUTTON IS GONE (POD-1077). Its tooltip promised
+                "files it under Done" while `parkArchivedSession` sent a kill to
+                the daemon — the most misleading label in the shell, on a bare
+                one-click icon with no confirm, sitting in the header of the very
+                session it would stop. Teardown now lives in the ⋯ menu below,
+                spelled by what survives; filing a finished mission away is the
+                ISSUE's archive, which cascades to its sessions (#133). */}
               {session && (
                 // modal={false}: a modal menu loses the focus fight with the
                 // terminal underneath (xterm re-grabs focus, the menu closes on
@@ -931,18 +926,30 @@ export function AgentPanel({
                         <DropdownMenuShortcut>/btw</DropdownMenuShortcut>
                       </DropdownMenuItem>
                     )}
+                    {(hibernate || canEnd) && <DropdownMenuSeparator />}
                     {hibernate && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          data-testid="lifecycle-hibernate"
-                          disabled={hibernate.disabledReason !== null}
-                          {...(hibernate.disabledReason ? { title: hibernate.disabledReason } : {})}
-                          onClick={() => void hibernateSession(sessionId)}
-                        >
-                          <Moon size={13} aria-hidden="true" /> {hibernate.label}
-                        </DropdownMenuItem>
-                      </>
+                      <DropdownMenuItem
+                        data-testid="lifecycle-hibernate"
+                        disabled={hibernate.disabledReason !== null}
+                        {...(hibernate.disabledReason ? { title: hibernate.disabledReason } : {})}
+                        onClick={() => void hibernateSession(sessionId)}
+                      >
+                        <Moon size={13} aria-hidden="true" /> {hibernate.label}
+                      </DropdownMenuItem>
+                    )}
+                    {/* The teardown verb the header lost with the archive button
+                        — and the honest version of it: the process stops and the
+                        worktree frees, the branch and transcript stay, Resume
+                        rebuilds. Deleting is deliberately NOT offered here: this
+                        header belongs to the session you are reading, and a
+                        row-removing action belongs where rows live. */}
+                    {canEnd && (
+                      <DropdownMenuItem
+                        data-testid="lifecycle-end"
+                        onClick={() => void guardedEnd(sessionId)}
+                      >
+                        <Square size={13} aria-hidden="true" /> End session
+                      </DropdownMenuItem>
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>

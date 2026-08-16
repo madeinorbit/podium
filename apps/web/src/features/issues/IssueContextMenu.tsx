@@ -46,10 +46,12 @@ import {
   handoffRejectionText,
   issueHandoffBlockerText,
 } from '@/lib/session-context-menu'
+import { useConfirm } from '@/lib/hooks/use-confirm'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
   deferDateFromNow,
+  describeCascade,
   type IssueMenuSurface,
   issueHandoffAvailability,
   issueMenuEligibility,
@@ -74,10 +76,16 @@ import { isIssueStartable } from './issue-startable'
 /** Regions get named in mono micro-caps, the way the colour picker names its
  *  own (POD-380) — the menu's separators used to be anonymous rules. `main`
  *  has no label: the panel header already sits above it. */
+// A null label draws a bare rule instead of a heading. `danger` takes one
+// deliberately: Delete is a single row, and a "DANGER" banner over one item
+// shouts where the rule already separates (POD-1077). `placement` is headed
+// because it is a category, not a leftover.
 const SECTION_LABEL: Record<IssueMenuSection, string | null> = {
   main: null,
+  placement: 'PLACEMENT',
   lifecycle: 'LIFECYCLE',
   destructive: 'MANAGE',
+  danger: null,
 }
 
 /** A cursor-anchored menu whose tree is projected from issue-menu-config.ts. */
@@ -139,6 +147,11 @@ export function IssueContextMenu({
     shallowEqual,
   )
   const handoffEnabled = useFeature('session-handoff')
+  // The app-wide dialog, replacing two raw `window.confirm` calls (POD-1077).
+  // A native confirm cannot be styled, cannot be dismissed the way every other
+  // surface is, and — the reason it actually mattered here — blocks the whole
+  // renderer, so the menu it was launched from stayed painted underneath it.
+  const confirm = useConfirm()
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
   const [sub, setSub] = useState<{ kind: IssueMenuSubmenu; top: number } | null>(null)
@@ -249,11 +262,56 @@ export function IssueContextMenu({
     const n = ids.length
     const sessionIds = new Set(issues.flatMap((issue) => issue.memberSessionIds ?? []))
     const sessionCount = sessionIds.size
-    const message = `Delete ${n} task${n > 1 ? 's' : ''} and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? Tasks and sessions can be restored; running processes will be stopped.`
-    if (!window.confirm(message)) return
-    // Optimistic + outboxed (POD-781): every selected row and its nested sessions
-    // leave the sidebar on the press, not after the cascade round-trips.
-    run(() => Promise.all(ids.map((id) => deleteIssue(id))))
+    onClose()
+    void (async () => {
+      const ok = await confirm({
+        title: `Delete ${n === 1 ? 'this task' : `${n} tasks`}?`,
+        description: `${describeCascade(n, sessionCount)} Tasks and sessions can be restored; running agents will be stopped.`,
+        confirmLabel: 'Delete',
+      })
+      if (!ok) return
+      // Optimistic + outboxed (POD-781): every selected row and its nested
+      // sessions leave the sidebar on the press, not after the cascade
+      // round-trips.
+      await Promise.all(ids.map((id) => deleteIssue(id)))
+    })()
+  }
+  /**
+   * Archive, and SAY WHAT IT TAKES WITH IT (POD-1077).
+   *
+   * The old confirm fired only when `childCount > 0` and named no numbers, and
+   * it never mentioned sessions at all — yet archiving an issue cascades to
+   * every member session (#133), and each of those is PARKED: the server sends
+   * a kill to the daemon (`parkArchivedSession`, POD-108). So the sentence the
+   * operator most needed — "this stops N running agents" — was the one the
+   * dialog omitted, which is why archiving read as filing.
+   *
+   * It therefore asks whenever there is anything to cascade to, sub-tasks or
+   * sessions, and stays silent for a lone childless issue with no agents, where
+   * archiving really is just tidying a row away. Unarchiving never asks: it does
+   * not resurrect anything (`session-teardown.ts`), so there is nothing to warn
+   * about.
+   */
+  const archive = (): void => {
+    if (first.archived) {
+      run(() => updateIssue(first.id, { archived: false }))
+      return
+    }
+    const sessionCount = new Set(first.memberSessionIds ?? []).size
+    if (first.childCount === 0 && sessionCount === 0) {
+      run(() => updateIssue(first.id, { archived: true }))
+      return
+    }
+    onClose()
+    void (async () => {
+      const ok = await confirm({
+        title: 'Archive this task?',
+        description: `${describeCascade(1 + first.childCount, sessionCount)} They leave active views, and any running agents are stopped. Unarchiving brings the task back but does not restart them.`,
+        confirmLabel: 'Archive',
+      })
+      if (!ok) return
+      await updateIssue(first.id, { archived: true })
+    })()
   }
   // Optimistic + outboxed (POD-781): the row comes back on the press, and a
   // delete still sitting in the queue collapses against this restore instead of
@@ -343,13 +401,7 @@ export function IssueContextMenu({
       case 'archive':
         // The archive/unarchive TOGGLE — `issues.update`, not the one-way
         // `issues.archive` the sidebar's dismiss calls. Outboxed (POD-781).
-        if (!first.archived && first.childCount > 0) {
-          const ok = window.confirm(
-            'Archive this issue and every sub-task beneath it? They will leave active views.',
-          )
-          if (!ok) return
-        }
-        run(() => updateIssue(first.id, { archived: !first.archived }))
+        archive()
         return
       case 'restore':
         restore()

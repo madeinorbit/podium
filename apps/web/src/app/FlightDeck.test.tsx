@@ -2,6 +2,7 @@
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import {
   deckTaskUnread,
   defaultFolded,
@@ -140,9 +141,13 @@ const session = (id: string, over: Record<string, unknown> = {}): SessionMeta =>
 
 const deck = (): void => {
   render(
-    <OperatorFocusProvider missionId="root">
-      <FlightDeck onCollapse={vi.fn()} />
-    </OperatorFocusProvider>,
+    // ConfirmProvider because the task menu's Archive/Delete now use the
+    // app-wide dialog (POD-1077), exactly as AppShell supplies it in the app.
+    <ConfirmProvider>
+      <OperatorFocusProvider missionId="root">
+        <FlightDeck onCollapse={vi.fn()} />
+      </OperatorFocusProvider>
+    </ConfirmProvider>,
   )
 }
 
@@ -304,7 +309,11 @@ describe('flight deck fold state (POD-710 §4.2)', () => {
 describe('flight deck unread (POD-912)', () => {
   it('a collapsed one-agent strip rolls up that session’s unread', () => {
     const row = {
-      issue: { id: 't1', readAt: '2026-01-01T00:10:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      issue: {
+        id: 't1',
+        readAt: '2026-01-01T00:10:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
       workingAgentCount: 0,
       descendantIds: [],
       collapsedSummary: {
@@ -332,7 +341,11 @@ describe('flight deck unread (POD-912)', () => {
   it('a collapsed parent stays unread when a child session is new', () => {
     const child = { id: 't4', updatedAt: '2026-01-01T00:00:00.000Z' }
     const row = {
-      issue: { id: 't3', readAt: '2026-01-01T00:10:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      issue: {
+        id: 't3',
+        readAt: '2026-01-01T00:10:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
       workingAgentCount: 0,
       descendantIds: ['t4'],
       collapsedSummary: {
