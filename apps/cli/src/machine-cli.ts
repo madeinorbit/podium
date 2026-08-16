@@ -20,7 +20,13 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
-import { type AgentInventory, type MachineWire, machineByRef, type MachineId } from '@podium/model'
+import {
+  type AgentInventory,
+  type MachineWire,
+  machineByRef,
+  type MachineId,
+  probeTimeoutDescription,
+} from '@podium/model'
 import { resolveAgentRelay } from '@podium/runtime/config'
 
 type Proc = { query(input?: unknown): Promise<unknown> }
@@ -115,6 +121,8 @@ export function lastSeenDescription(lastSeenAt: string, nowMs: number): string {
 }
 
 function harnessDescription(agent: AgentInventory): string {
+  if (agent.installed === null)
+    return `${agent.kind}: could not determine installation (probe ${probeTimeoutDescription(agent.probeError)}); retry`
   if (!agent.installed) return `${agent.kind}: not installed`
   const version = agent.version ? ` ${agent.version}` : ''
   switch (agent.login.state) {

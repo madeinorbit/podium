@@ -32,6 +32,12 @@ const ludovico: MachineWire = {
       },
       { kind: 'codex', installed: true, version: '1.4.0', login: { state: 'out' } },
       { kind: 'grok', installed: false, login: { state: 'unknown' } },
+      {
+        kind: 'opencode',
+        installed: null,
+        probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+        login: { state: 'in' },
+      },
     ],
     tools: [],
   },
@@ -75,6 +81,9 @@ describe('renderMachines', () => {
     expect(out).toContain('claude-code 2.0.1: ready (a@example.com)')
     expect(out).toContain('codex 1.4.0: installed, NOT logged in')
     expect(out).toContain('grok: not installed')
+    expect(out).toContain(
+      'opencode: could not determine installation (probe timed out after 60s); retry',
+    )
     expect(out).toContain('repos: /home/mgw/src/podium, /home/mgw/src/other')
   })
 

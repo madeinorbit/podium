@@ -36,6 +36,18 @@ const LOGGED_OUT_INV: Inventory = {
   agents: [{ kind: 'claude-code', installed: true, login: { state: 'out' } }],
 }
 
+const TIMED_OUT_INV: Inventory = {
+  ...INV,
+  agents: [
+    {
+      kind: 'claude-code',
+      installed: null,
+      probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+      login: { state: 'in' },
+    },
+  ],
+}
+
 let seq = 0
 /** A ctx that only wires what reportInventory touches, with a fresh homeDir per
  *  test so the module-global cache never bleeds across cases. */
@@ -65,6 +77,20 @@ describe('daemon inventory reporting (#222)', () => {
     await reportInventory(ctx)
     expect(buildInventory).toHaveBeenCalledTimes(1)
     expect(sent).toHaveLength(2)
+  })
+
+  it('does not cache a timeout, so a quieter reconnect can succeed', async () => {
+    const { ctx, sent } = makeCtx()
+    buildInventory.mockResolvedValueOnce(TIMED_OUT_INV).mockResolvedValueOnce(INV)
+
+    await reportInventory(ctx)
+    await reportInventory(ctx)
+
+    expect(buildInventory).toHaveBeenCalledTimes(2)
+    expect(sent).toEqual([
+      { type: 'inventoryReport', machineId: 'm-test', inventory: TIMED_OUT_INV },
+      { type: 'inventoryReport', machineId: 'm-test', inventory: INV },
+    ])
   })
 
   it('inventoryRequest forces a rebuild', async () => {

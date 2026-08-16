@@ -29,6 +29,7 @@
  */
 
 import type {
+  AgentProbeError,
   HandoffManifestV1,
   IssueRehomeTarget,
   MachineId,
@@ -167,7 +168,14 @@ export interface HandoffMachine {
   id: MachineId
   name?: string
   online: boolean
-  inventory?: { agents: { kind: string; installed: boolean; login: { state: string } }[] }
+  inventory?: {
+    agents: {
+      kind: string
+      installed: boolean | null
+      probeError?: AgentProbeError
+      login: { state: string }
+    }[]
+  }
 }
 
 /** The slice of an issue the handoff decision reads and re-homes. Every field is

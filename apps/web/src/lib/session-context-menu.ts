@@ -1,9 +1,11 @@
 import { panelLabel } from '@podium/client-core/viewmodels'
-import type {
-  AgentKind,
-  HandoffBlocker,
-  HandoffRejection,
-  SessionMeta,
+import {
+  agentProbeTimeoutDescription,
+  type AgentKind,
+  type HandoffBlocker,
+  type HandoffRejection,
+  type MachineWire,
+  type SessionMeta,
 } from '@podium/model/browser'
 
 /**
@@ -88,9 +90,12 @@ export function issueHandoffBlockerText(blocker: 'no-agent-session' | 'multiple-
     ? 'No agent session to hand off'
     : 'Multiple sessions — use a session’s menu'
 }
-
 /** Why one machine can't take this session — shown beside its (disabled) row. */
-export function handoffRejectionText(rejection: HandoffRejection, agentKind: AgentKind): string {
+export function handoffRejectionText(
+  rejection: HandoffRejection,
+  agentKind: AgentKind,
+  machine?: Pick<MachineWire, 'inventory'>,
+): string {
   switch (rejection) {
     // Distinct from 'offline' on purpose (readiness §3.1.4 M5): handing off to a
     // machine you may not use is DENIED, not merely unavailable, and a user who
@@ -99,6 +104,10 @@ export function handoffRejectionText(rejection: HandoffRejection, agentKind: Age
       return 'no access'
     case 'offline':
       return 'offline'
+    case 'inventory-unavailable':
+      return 'inventory pending'
+    case 'harness-probe-timed-out':
+      return `probe ${machine ? agentProbeTimeoutDescription(machine, agentKind) : 'timed out'}; retry`
     case 'harness-missing':
       return `no ${panelLabel(agentKind)}`
     case 'repo-missing':

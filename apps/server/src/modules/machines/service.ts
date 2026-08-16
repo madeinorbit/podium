@@ -4,6 +4,7 @@ import {
   type AgentKind,
   type AccountId,
   agentCapabilityRejection,
+  agentProbeTimeoutDescription,
   asAccountId,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
@@ -17,8 +18,15 @@ import {
   type UpdateChannel,
   type UserId,
 } from '@podium/model'
-import type { DaemonHandshake, LiveServerMessage, MachineVerb, PeerBuild, ServerMessage } from '@podium/protocol'
+import type {
+  DaemonHandshake,
+  LiveServerMessage,
+  MachineVerb,
+  PeerBuild,
+  ServerMessage,
+} from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import { type EnrollmentLedger, newLedgerTxnId } from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'
@@ -481,7 +489,8 @@ export class MachinesService {
   /** Throw a human-readable reason when a machine cannot run an agent. */
   requireAgent(machineId: MachineId, agentKind: AgentKind, use?: MachineUseResolver): void {
     const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
-    if (!machine) throw new Error(`unknown machine '${machineId}'`)
+    if (!machine)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${machineId}'` })
     const rejection = agentCapabilityRejection(machine, agentKind)
     // Exhaustive rather than a chain of ifs: a rejection reason nobody handled
     // used to fall through and THROW NOTHING, i.e. a new refusal would fail OPEN
@@ -491,11 +500,30 @@ export class MachinesService {
       case undefined:
         return
       case 'unauthorized':
-        throw new Error(`you do not have access to run agents on machine '${machine.name}'`)
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: `you do not have access to run agents on machine '${machine.name}'`,
+        })
       case 'offline':
-        throw new Error(`machine '${machine.name}' is offline`)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `machine '${machine.name}' is offline`,
+        })
+      case 'inventory-unavailable':
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `could not determine whether ${agentKind} is installed on machine '${machine.name}' (inventory not reported yet); retry shortly`,
+        })
+      case 'harness-probe-timed-out':
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `could not determine whether ${agentKind} is installed on machine '${machine.name}' (probe ${agentProbeTimeoutDescription(machine, agentKind)}); retry`,
+        })
       case 'harness-missing':
-        throw new Error(`${agentKind} is not installed on machine '${machine.name}'`)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `${agentKind} is not installed on machine '${machine.name}'`,
+        })
       default: {
         const exhaustive: never = rejection
         throw new Error(`machine '${machine.name}' cannot run ${agentKind}: ${String(exhaustive)}`)

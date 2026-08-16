@@ -107,13 +107,30 @@ import { AgentKind, HarnessAgent } from './agent'
 /** External provider account identifier; it is not a Podium entity id. */
 const ProviderAccountIdField = z.string().optional()
 
+/** The probe answered no installation question before its shared budget expired. */
+export const AgentProbeError = z.object({
+  reason: z.literal('timed-out'),
+  timeoutMs: z.number().int().positive(),
+})
+export type AgentProbeError = z.infer<typeof AgentProbeError>
+
+/** Human-facing duration for an inconclusive inventory verdict. */
+export function probeTimeoutDescription(error?: AgentProbeError): string {
+  if (!error) return 'timed out'
+  const seconds = Math.ceil(error.timeoutMs / 1000)
+  return `timed out after ${seconds}s`
+}
+
 /** `USE` — one agent CLI's install + login status on the daemon's machine.
  *  Use-gated: `login.account` names a person, and the install set describes what
  *  the owner's hardware can run. */
 export const AgentInventory = z.object({
   kind: HarnessAgent,
-  installed: z.boolean(),
-  /** Parsed from `<cli> --version`; absent when not installed / parse failed. */
+  /** `null` means the bounded version probe timed out, so presence is unknown. */
+  installed: z.boolean().nullable(),
+  /** Why presence is unknown. Absent when the probe reached a definitive answer. */
+  probeError: AgentProbeError.optional(),
+  /** Parsed from `<cli> --version`; absent unless definitely installed. */
   version: z.string().optional(),
   /** Resolved binary path when installed (may be a bare PATH name). */
   path: z.string().optional(),
@@ -139,8 +156,11 @@ export type AgentInventory = z.infer<typeof AgentInventory>
  *  PATH. */
 export const ToolInventory = z.object({
   name: z.string(),
-  installed: z.boolean(),
-  /** Parsed from `<name> --version`; absent when not installed / parse failed. */
+  /** `null` means the bounded version probe timed out, so presence is unknown. */
+  installed: z.boolean().nullable(),
+  /** Why presence is unknown. Absent when the probe reached a definitive answer. */
+  probeError: AgentProbeError.optional(),
+  /** Parsed from `<name> --version`; absent unless definitely installed. */
   version: z.string().optional(),
   /** Resolved binary path when installed (may be a bare PATH name). */
   path: z.string().optional(),

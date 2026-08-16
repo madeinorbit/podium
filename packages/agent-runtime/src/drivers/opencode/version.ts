@@ -143,13 +143,14 @@ export function gateOpencodeVersion(output: string): OpencodeVersionDiagnostic |
  * codex's ~250MB binary at 26s. Any budget in the low tens of seconds is a race
  * with the thing it is measuring.
  *
- * IT LIVES HERE, BESIDE THE GATE, SO IT CANNOT DRIFT. Three places probe this
- * binary — the daemon, the opt-in §6 lane, and the acceptance e2e — and they
- * had picked their own numbers. That is not a tidiness point: the daemon's
- * too-short budget silently downgraded an explicit server-driver override to a
- * PTY session, and the two TEST budgets did something worse, because a gating
- * probe that times out makes the lane decide it cannot run and SKIP ITSELF. A
- * green suite that quietly stopped testing the thing is the one failure mode an
- * acceptance lane must not have.
+ * THE CANONICAL VALUE LIVES IN @podium/harness, beside inventory's version
+ * observation; this driver re-exports it so existing admission and acceptance
+ * consumers keep one API. Three places used to probe this binary with different
+ * numbers. That is not a tidiness point: the daemon's too-short budget silently
+ * downgraded an explicit server-driver override to a PTY session, and the two
+ * TEST budgets did something worse, because a gating probe that times out makes
+ * the lane decide it cannot run and SKIP ITSELF. A green suite that quietly
+ * stopped testing the thing is the one failure mode an acceptance lane must not
+ * have.
  */
-export const OPENCODE_VERSION_PROBE_TIMEOUT_MS = 60_000
+export { AGENT_VERSION_PROBE_TIMEOUT_MS as OPENCODE_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'

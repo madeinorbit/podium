@@ -6,6 +6,7 @@ import {
   type AgentKind,
   agentCapabilityRejection,
   agentLoginCondition,
+  agentProbeTimeoutDescription,
   asMachineId,
   type IssueId,
   type MachineId,
@@ -221,7 +222,14 @@ export function NewPanelMenu({
           {TAB_AGENTS.map(({ kind, label, Icon }) => {
             const machine = machines[0]
             const rejection = machine ? agentCapabilityRejection(machine, kind) : undefined
-            const reason = machine ? capabilityReason(machine.name, label, rejection) : undefined
+            const reason = machine
+              ? capabilityReason(
+                  machine.name,
+                  label,
+                  rejection,
+                  agentProbeTimeoutDescription(machine, kind),
+                )
+              : undefined
             const hint = machine ? capabilityHint(rejection) : undefined
             const warning = machine
               ? loginWarning(machine.name, label, agentLoginCondition(machine, kind))
@@ -421,7 +429,12 @@ function MachineSubmenu({
       <DropdownMenuSubContent className="min-w-[168px]">
         {TAB_AGENTS.map(({ kind, label, Icon }) => {
           const rejection = agentCapabilityRejection(machine, kind)
-          const reason = capabilityReason(machine.name, label, rejection)
+          const reason = capabilityReason(
+            machine.name,
+            label,
+            rejection,
+            agentProbeTimeoutDescription(machine, kind),
+          )
           const hint = capabilityHint(rejection)
           const warning = loginWarning(machine.name, label, agentLoginCondition(machine, kind))
           return (

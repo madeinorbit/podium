@@ -17,10 +17,10 @@ const log = createLogger('daemon:inventory')
  * inventoryRequest frame and periodically while connected. Never throws and
  * never rides the handshake path: a hung CLI probe cannot stall reconnect.
  *
- * The build spawns up to five real CLIs for `--version`, so it runs ONCE and is
- * cached; reconnects re-send the cached value. Explicit and periodic refreshes
- * REBUILD so installs, upgrades, and login changes on a live machine converge
- * without a daemon restart.
+ * The build spawns up to five real CLIs for `--version`, so a definitive result
+ * is cached and reconnects re-send it. An inconclusive timeout is sent but NOT
+ * cached: the next reconnect/report probes again, while explicit and periodic
+ * refreshes also rebuild so live changes converge without a daemon restart.
  *
  * The cache is keyed by `(machineId, homeDir)` and holds `MachineHarnessInventory`
  * — a value that names the machine it describes. Not an instance-global "current
@@ -80,6 +80,13 @@ export async function reportInventory(
     // pre-copy auth files and may finish last; never let that superseded result
     // overwrite the newer logged-in inventory on the server.
     if (inventoryCache.get(key) !== pending) return
+    // Mirror the driver admission verdict: an unprobeable binary is a gap, not a
+    // stable fact. Publish it honestly, then evict it so the next report retries
+    // without requiring a daemon restart or waiting for the periodic refresh.
+    const unprobeable =
+      inventory.agents.some((agent) => agent.installed === null) ||
+      inventory.tools.some((tool) => tool.installed === null)
+    if (unprobeable) inventoryCache.delete(key)
     // machineId comes off the probed value, not from ctx a second time: the fact
     // and the machine it is about travel together by construction.
     // The brand is asserted, not validated: this id is the daemon's OWN, read

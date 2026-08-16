@@ -23,7 +23,12 @@ describe('inventory messages (#222)', () => {
         path: 'opencode',
         login: { state: 'unknown' },
       },
-      { kind: 'cursor', installed: false, login: { state: 'unknown' } },
+      {
+        kind: 'cursor',
+        installed: null,
+        probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+        login: { state: 'unknown' },
+      },
     ],
     // gh presence for #214's credential-propagation form.
     tools: [{ name: 'gh', installed: true, version: 'gh version 2.40.0', path: '/usr/bin/gh' }],

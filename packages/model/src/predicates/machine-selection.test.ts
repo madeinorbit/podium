@@ -27,9 +27,12 @@ const repos = [
     ],
   },
 ]
-const agent = (state: 'in' | 'out' | 'unknown', installed = true) => ({
+const agent = (state: 'in' | 'out' | 'unknown', installed: boolean | null = true) => ({
   kind: 'codex',
   installed,
+  ...(installed === null
+    ? { probeError: { reason: 'timed-out' as const, timeoutMs: 60_000 } }
+    : {}),
   login: { state },
 })
 const issue = { branch: 'issue/1-x', worktreePath: '/a/.worktrees/x' }
@@ -45,7 +48,15 @@ describe('agent machine capability', () => {
 
   it('separates capability rejection from a logged-out session condition', () => {
     expect(agentCapabilityRejection({ id: 'a', online: false }, 'codex')).toBe('offline')
-    expect(agentCapabilityRejection({ id: 'a', online: true }, 'codex')).toBe('harness-missing')
+    expect(agentCapabilityRejection({ id: 'a', online: true }, 'codex')).toBe(
+      'inventory-unavailable',
+    )
+    expect(
+      agentCapabilityRejection(
+        { id: 'a', online: true, inventory: { agents: [agent('in', null)] } },
+        'codex',
+      ),
+    ).toBe('harness-probe-timed-out')
     const loggedOut = { id: 'a', online: true, inventory: { agents: [agent('out')] } }
     expect(agentCapabilityRejection(loggedOut, 'codex')).toBeUndefined()
     expect(agentCapabilityRejectionForSelection(loggedOut, 'codex')).toBe('logged-out')
@@ -69,8 +80,12 @@ describe('agent machine capability', () => {
     // no decision, denied while otherwise perfectly runnable. If the projection
     // flattened denied into offline, the first two assertions would still pass and
     // only this one would fail.
-    expect(agentCapabilityRejection({ id: 'a', online: true, ...runnable }, 'codex')).toBeUndefined()
-    expect(agentCapabilityRejection({ id: 'a', online: false, ...runnable }, 'codex')).toBe('offline')
+    expect(
+      agentCapabilityRejection({ id: 'a', online: true, ...runnable }, 'codex'),
+    ).toBeUndefined()
+    expect(agentCapabilityRejection({ id: 'a', online: false, ...runnable }, 'codex')).toBe(
+      'offline',
+    )
     expect(
       agentCapabilityRejection({ id: 'a', online: true, use: 'denied', ...runnable }, 'codex'),
     ).toBe('unauthorized')
@@ -90,7 +105,9 @@ describe('agent machine capability', () => {
     expect(agentCapabilityRejection({ ...denied, online: false }, 'codex')).toBe('unauthorized')
     expect(agentCapabilityRejection({ id: 'a', online: false }, 'codex')).toBe('offline')
     expect(agentCapabilityRejection({ ...denied, online: true }, 'codex')).toBe('unauthorized')
-    expect(agentCapabilityRejection({ id: 'a', online: true }, 'codex')).toBe('harness-missing')
+    expect(agentCapabilityRejection({ id: 'a', online: true }, 'codex')).toBe(
+      'inventory-unavailable',
+    )
     expect(
       agentCapabilityRejection(
         { ...denied, online: true, inventory: { agents: [agent('out')] } },
@@ -167,19 +184,25 @@ describe('handoffTargets', () => {
     ]
     expect(handoffTargets(session, repos, machines).map((m) => m.id)).toEqual(['target'])
     expect(
-      handoffTargets(session, repos, [{ ...machines[1]!, inventory: { agents: [agent('out')] } }]).map((m) => m.id),
+      handoffTargets(session, repos, [
+        { ...machines[1]!, inventory: { agents: [agent('out')] } },
+      ]).map((m) => m.id),
     ).toEqual(['target'])
   })
 
   it('rejects main checkouts, unsupported harnesses, and missing inventory', () => {
     const target = { id: 'target', online: true }
     expect(
-      handoffTargets({ cwd: '/a', machineId: asMachineId('source'), agentKind: 'codex' }, repos, [target]),
-    ).toEqual([])
-    expect(
-      handoffTargets({ cwd: '/a/.worktrees/x', machineId: asMachineId('source'), agentKind: 'shell' }, repos, [
+      handoffTargets({ cwd: '/a', machineId: asMachineId('source'), agentKind: 'codex' }, repos, [
         target,
       ]),
+    ).toEqual([])
+    expect(
+      handoffTargets(
+        { cwd: '/a/.worktrees/x', machineId: asMachineId('source'), agentKind: 'shell' },
+        repos,
+        [target],
+      ),
     ).toEqual([])
   })
 
@@ -192,7 +215,11 @@ describe('handoffTargets', () => {
 })
 
 describe('handoffSource ([spec:SP-3f7a])', () => {
-  const at = (cwd: string, machineId = asMachineId('source')) => ({ cwd, machineId, agentKind: 'codex' })
+  const at = (cwd: string, machineId = asMachineId('source')) => ({
+    cwd,
+    machineId,
+    agentKind: 'codex',
+  })
 
   it('resolves the worktree CONTAINING the cwd, carrying the subpath', () => {
     expect(handoffSource(at('/a/.worktrees/x/apps/web'), repos)).toMatchObject({
@@ -307,8 +334,11 @@ describe('handoffAvailability (POD-821)', () => {
     expect(
       rejected([{ id: 'target', online: true, inventory: { agents: [agent('in', false)] } }]),
     ).toEqual(['harness-missing'])
-    // No inventory at all reads as "the harness isn't there", not as eligible.
-    expect(rejected([{ id: 'target', online: true }])).toEqual(['harness-missing'])
+    expect(
+      rejected([{ id: 'target', online: true, inventory: { agents: [agent('in', null)] } }]),
+    ).toEqual(['harness-probe-timed-out'])
+    // No inventory at all is pending rather than evidence that the harness is absent.
+    expect(rejected([{ id: 'target', online: true }])).toEqual(['inventory-unavailable'])
     // Offline wins over a stale inventory: being offline is the actionable fact.
     expect(
       rejected([{ id: 'target', online: false, inventory: { agents: [agent('out')] } }]),
@@ -327,7 +357,10 @@ describe('handoffAvailability (POD-821)', () => {
       { id: 'other', online: true, inventory: { agents: [agent('in')] } },
     ]
     const withOther = [
-      { ...repos[0]!, machines: [...repos[0]!.machines, { machineId: asMachineId('other'), path: '/c' }] },
+      {
+        ...repos[0]!,
+        machines: [...repos[0]!.machines, { machineId: asMachineId('other'), path: '/c' }],
+      },
     ]
     expect(handoffAvailability(session, withOther, machines).candidates).toEqual([
       { machine: machines[1], rejection: 'unauthorized' },
@@ -365,7 +398,11 @@ describe('handoffAvailability (POD-821)', () => {
     // so the moved session's cwd is a worktree absent from the client's repo list.
     // Its cwd is then merely CONTAINED by the target's main checkout, and the issue
     // still anchors on the SOURCE machine's worktree — the gate finds no source.
-    const macSession = { cwd: '/b/.worktrees/x', machineId: asMachineId('target'), agentKind: 'codex' }
+    const macSession = {
+      cwd: '/b/.worktrees/x',
+      machineId: asMachineId('target'),
+      agentKind: 'codex',
+    }
     const staleIssue = { branch: 'issue/1-x', worktreePath: '/a/.worktrees/x' }
     const machines = [{ id: 'source', online: true, inventory: { agents: [agent('in')] } }]
     expect(handoffAvailability(macSession, repos, machines, staleIssue)).toEqual({

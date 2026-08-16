@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { CommandEnvironment } from '@podium/runtime/command-environment'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildInventory, type LoginProbeExec, type ProbeExec } from './build-inventory.js'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
 import {
   fingerprintForLoginIdentity,
   readFreshnessFromAuthContents,
@@ -303,12 +304,50 @@ describe('buildInventory', () => {
     })
   })
 
-  it('treats a rejecting exec (timeout) as absent, never throwing', async () => {
-    const timeoutExec: ProbeExec = async () => {
+  it('reports a timed-out probe as unknown, never absent or thrown', async () => {
+    const timeoutExec: ProbeExec = async (_argv, timeoutMs) => {
+      expect(timeoutMs).toBe(AGENT_VERSION_PROBE_TIMEOUT_MS)
       throw new Error('spawn ETIMEDOUT')
     }
     const inv = await buildInventory({ homeDir: home, exec: timeoutExec })
-    expect(inv.agents.every((a) => !a.installed)).toBe(true)
+    expect(
+      inv.agents.every(
+        (agent) =>
+          agent.installed === null &&
+          agent.probeError?.reason === 'timed-out' &&
+          agent.probeError.timeoutMs === AGENT_VERSION_PROBE_TIMEOUT_MS,
+      ),
+    ).toBe(true)
+    expect(inv.tools).toEqual([
+      {
+        name: 'gh',
+        installed: null,
+        probeError: { reason: 'timed-out', timeoutMs: AGENT_VERSION_PROBE_TIMEOUT_MS },
+      },
+    ])
+  })
+
+  it('believes a later successful probe without a process restart', async () => {
+    let loaded = true
+    const exec: ProbeExec = async (argv) => {
+      const bin = (argv[0] as string).split('/').pop()
+      if (loaded) throw new Error('spawn ETIMEDOUT')
+      if (bin === 'claude') return '2.1.9 (Claude Code)'
+      throw new Error(`ENOENT: ${argv[0]}`)
+    }
+
+    const unknown = await buildInventory({ homeDir: home, exec })
+    expect(unknown.agents.find((agent) => agent.kind === 'claude-code')).toMatchObject({
+      installed: null,
+      probeError: { reason: 'timed-out', timeoutMs: AGENT_VERSION_PROBE_TIMEOUT_MS },
+    })
+
+    loaded = false
+    const recovered = await buildInventory({ homeDir: home, exec })
+    expect(recovered.agents.find((agent) => agent.kind === 'claude-code')).toMatchObject({
+      installed: true,
+      version: '2.1.9 (Claude Code)',
+    })
   })
 
   it('computes login regardless of installed state', async () => {
