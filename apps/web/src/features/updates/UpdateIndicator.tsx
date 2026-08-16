@@ -13,7 +13,7 @@
  * reload, a bundle swap, and the server restarting mid-update.
  */
 import type { JSX } from 'react'
-import type { IndicatorState } from './operation-view'
+import type { IndicatorState } from './indicator-state'
 
 export interface UpdateIndicatorProps {
   state: IndicatorState

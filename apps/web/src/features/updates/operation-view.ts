@@ -36,6 +36,7 @@
  *    no `error` still renders.
  */
 import type { AwaitingAsk, Operation, OperationError, OperationStep } from '@podium/protocol'
+import type { IndicatorState } from './indicator-state'
 import {
   describeUpdateFailure,
   type Place,
@@ -106,8 +107,14 @@ export interface ErrorPresentation {
   detail?: string
 }
 
-/** What the collapsed toolbar affordance shows (§6.1). */
-export type IndicatorState = 'none' | 'idle-dot' | 'animating' | 'attention'
+/**
+ * What the collapsed toolbar affordance shows (§6.1). DECLARED IN ITS OWN LEAF
+ * MODULE (`./indicator-state`) and re-exported here, because the status strip
+ * needs this type on the eager path and must not reach into this file to get it
+ * (POD-2190) — see that module for why a type-only import was not protection
+ * enough.
+ */
+export type { IndicatorState } from './indicator-state'
 
 export interface UpdatePanelView {
   state: PanelState

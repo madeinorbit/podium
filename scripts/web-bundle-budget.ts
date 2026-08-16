@@ -45,6 +45,34 @@ interface SourcesReport {
   readonly sources: readonly string[]
 }
 
+/**
+ * THE UPDATE SURFACE'S DEFERRED HALF (POD-2190).
+ *
+ * These modules are the update engine: the poller, the view model it feeds, the
+ * protocol client it parses with, and the panel that renders the result. Not one
+ * of them can do anything useful until a poll has returned, and a poll cannot
+ * return before the app has painted — so their place is a chunk fetched just
+ * after first paint, never the eager graph.
+ *
+ * They were eager once, because the app shell mounted a provider that imported
+ * them, and that is exactly how the two eager budgets below went red. A byte
+ * ceiling alone would not have stopped it coming back: the overage was 572 bytes
+ * of gzip, so the next person to nudge the eager graph would have re-fired a
+ * number that names no cause and suggests no fix. This names both.
+ *
+ * If this fires, the question is not "what got bigger" — it is "what did the app
+ * shell import, directly or through one of these, that dragged the whole surface
+ * forward again".
+ */
+const UPDATE_ENGINE_MODULES = [
+  'operation-view.ts',
+  'update-view.ts',
+  'use-update-state.ts',
+  'operations-client.ts',
+  'UpdatePanel.tsx',
+  'UpdatesEngine.tsx',
+] as const
+
 const args = process.argv.slice(2)
 const checkBudget = args.includes('--check')
 const dist = resolve(args.find((arg) => !arg.startsWith('--')) ?? 'apps/web/dist')
@@ -134,6 +162,9 @@ const report = {
       'packages/model/src/annotations/matrix.ts',
     ),
     commandSources: matchingSources(eagerChunks, 'packages/commands/src/'),
+    updateEngineSources: UPDATE_ENGINE_MODULES.flatMap((module) =>
+      matchingSources(eagerChunks, `src/features/updates/${module}`),
+    ),
   },
   settings: {
     file: basename(settings.file),
@@ -190,6 +221,11 @@ if (checkBudget) {
     errors.push('ownership matrix is present in a browser chunk')
   if (report.eager.commandSources.length > 0)
     errors.push(`command sources are eager: ${report.eager.commandSources.join(', ')}`)
+
+  if (report.eager.updateEngineSources.length > 0)
+    errors.push(
+      `update engine is eager, so the panel is back on the first paint: ${report.eager.updateEngineSources.join(', ')}`,
+    )
 
   const allowedSettingsCommandSources = new Set([
     'packages/commands/src/settings/write-plan.ts',

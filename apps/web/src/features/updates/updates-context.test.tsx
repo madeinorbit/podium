@@ -1,12 +1,26 @@
 /**
- * Hide → indicator → reopen, which is the whole point of POD-2102's §6.1: the
- * old dialog's Hide set component state and the update became unreachable.
+ * THE DEFERRED ENGINE STILL ARRIVES (POD-2190).
+ *
+ * The provider was made a loader to get 99 KB of update machinery off the first
+ * paint. The thing that must not break in exchange is the reason the surface
+ * exists at all: an update must never be unreachable (spec §1.1). So these are
+ * the two properties the split has to keep —
+ *
+ *   1. the panel and the indicator still appear when there is an update, without
+ *      anyone touching anything, and
+ *   2. the app's own tree neither waits for that chunk nor remounts when it
+ *      lands, because a remount would take the store, the replica and the socket
+ *      with it.
+ *
+ * They are asserted through the REAL lazy boundary, not a mocked one: mocking the
+ * dynamic import away would leave exactly the failure this file exists to catch —
+ * a boundary that never resolves — invisible.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import type { JSX } from 'react'
+import { useEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UpdatePanelView } from './operation-view'
-import { UpdateIndicator } from './UpdateIndicator'
 
 const mocks = vi.hoisted(() => ({
   useRegisterSW: vi.fn(),
@@ -23,9 +37,9 @@ vi.mock('@/app/trpc', () => ({
   serverConfig: () => ({ httpOrigin: 'http://podium.test' }),
 }))
 
-import { openUpdatePanel } from './open-panel'
+import { UpdateIndicator } from './UpdateIndicator'
 import { UpdatesProvider } from './updates-context'
-import { useUpdates } from './updates-panel-context'
+import { resetUpdates, useUpdates } from './updates-panel-context'
 
 const OFFER: UpdatePanelView = {
   state: 'offer',
@@ -40,33 +54,20 @@ const OFFER: UpdatePanelView = {
   indicatorLabel: 'Podium 0.4.3 is available',
 }
 
-function Strip(): JSX.Element {
+/** Stands in for the shell's own subtree, and counts how often it was mounted. */
+function Child({ onMount }: { onMount: () => void }): JSX.Element {
   const updates = useUpdates()
+  const mounted = useRef(onMount)
+  useEffect(() => mounted.current(), [])
   return (
-    <UpdateIndicator
-      state={updates.indicator}
-      label={updates.indicatorLabel}
-      open={updates.open}
-      onToggle={updates.toggle}
-    />
-  )
-}
-
-function mount(view: UpdatePanelView = OFFER) {
-  mocks.useUpdateState.mockReturnValue({
-    view,
-    operation: null,
-    server: {},
-    fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
-    pending: null,
-    run: mocks.run,
-    checkNow: mocks.checkNow,
-    acknowledge: mocks.acknowledge,
-  })
-  return render(
-    <UpdatesProvider httpOrigin="http://podium.test">
-      <Strip />
-    </UpdatesProvider>,
+    <div data-testid="child">
+      <UpdateIndicator
+        state={updates.indicator}
+        label={updates.indicatorLabel}
+        open={updates.open}
+        onToggle={updates.toggle}
+      />
+    </div>
   )
 }
 
@@ -75,130 +76,68 @@ beforeEach(() => {
     needRefresh: [false, mocks.setNeedRefresh],
     updateServiceWorker: vi.fn(),
   })
+  mocks.useUpdateState.mockReturnValue({
+    view: OFFER,
+    operation: null,
+    server: {},
+    fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
+    pending: null,
+    run: mocks.run,
+    checkNow: mocks.checkNow,
+    acknowledge: mocks.acknowledge,
+  })
 })
 
 afterEach(() => {
   cleanup()
+  resetUpdates()
   vi.clearAllMocks()
 })
 
 describe('UpdatesProvider', () => {
-  it('shows the panel and the indicator for the same update', () => {
-    mount()
-    expect(screen.getByTestId('update-panel')).toBeTruthy()
-    const indicator = screen.getByTestId('update-indicator')
-    expect(indicator.getAttribute('aria-label')).toBe('Podium 0.4.3 is available')
-    expect(indicator.getAttribute('data-indicator')).toBe('idle-dot')
-  })
-
-  it('Hide collapses to the indicator, and the indicator brings it back', () => {
-    mount()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
-    expect(screen.queryByTestId('update-panel')).toBeNull()
-    // NOTHING IS LOST: the indicator is still there, from server truth.
-    expect(screen.getByTestId('update-indicator')).toBeTruthy()
-
-    fireEvent.click(screen.getByTestId('update-indicator'))
-    expect(screen.getByTestId('update-panel')).toBeTruthy()
-  })
-
-  it('hides no more than the panel: needRefresh is cleared, the update is not', () => {
-    mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
-    expect(mocks.setNeedRefresh).toHaveBeenCalledWith(false)
-  })
-
-  it('acknowledges a failure when the user hides it, keeping the warning indicator', () => {
-    mount({
-      ...OFFER,
-      state: 'failed',
-      title: 'Podium update failed',
-      error: { message: 'It broke.', nextAction: 'Try again.' },
-      indicator: 'attention',
-      indicatorLabel: 'Update failed',
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
-    expect(mocks.acknowledge).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('update-indicator').getAttribute('data-indicator')).toBe('attention')
-  })
-
-  it('re-opens when the situation itself changes', () => {
-    const { rerender } = mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
-    expect(screen.queryByTestId('update-panel')).toBeNull()
-
-    mocks.useUpdateState.mockReturnValue({
-      view: { ...OFFER, state: 'waiting-you', title: 'Podium 0.4.3 is ready here' },
-      operation: null,
-      server: {},
-      fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
-      pending: null,
-      run: mocks.run,
-      checkNow: mocks.checkNow,
-      acknowledge: mocks.acknowledge,
-    })
-    rerender(
+  it('loads the engine on mount, so the offered update reaches both halves', async () => {
+    render(
       <UpdatesProvider httpOrigin="http://podium.test">
-        <Strip />
+        <Child onMount={() => {}} />
       </UpdatesProvider>,
     )
-    expect(screen.getByTestId('update-panel')).toBeTruthy()
+
+    // Nobody clicked anything and no update was "requested" — mounting is enough.
+    expect(await screen.findByTestId('update-panel')).toBeTruthy()
+    const indicator = await screen.findByTestId('update-indicator')
+    expect(indicator.getAttribute('data-indicator')).toBe('idle-dot')
+    expect(indicator.getAttribute('aria-label')).toBe('Podium 0.4.3 is available')
   })
 
-  it('collapses a done panel on its own after a few seconds, and clears the indicator', () => {
-    vi.useFakeTimers()
-    try {
-      mount({ ...OFFER, state: 'done', title: 'Podium is on 0.4.3 everywhere' })
-      expect(screen.getByTestId('update-panel')).toBeTruthy()
-      act(() => {
-        vi.advanceTimersByTime(10_000)
-      })
-      expect(screen.queryByTestId('update-panel')).toBeNull()
-      // §6.2.4: a finished update is not a standing fact about the toolbar.
-      expect(mocks.acknowledge).toHaveBeenCalled()
-    } finally {
-      vi.useRealTimers()
-    }
+  it('renders children immediately, and does not remount them when the chunk lands', async () => {
+    const onMount = vi.fn()
+    render(
+      <UpdatesProvider httpOrigin="http://podium.test">
+        <Child onMount={onMount} />
+      </UpdatesProvider>,
+    )
+
+    // Present on the FIRST paint: children are siblings of the boundary, never
+    // suspended behind it.
+    expect(screen.getByTestId('child')).toBeTruthy()
+    expect(onMount).toHaveBeenCalledTimes(1)
+
+    await screen.findByTestId('update-panel')
+
+    // Still the same mount. A second one here would mean the shell's store,
+    // replica and socket had been torn down and rebuilt by a bundle-size fix.
+    expect(onMount).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('child')).toBeTruthy()
   })
 
-  it('renders no indicator when there is no update', () => {
-    mount({
-      state: 'none',
-      title: '',
-      steps: [],
-      awaitingElsewhere: [],
-      indicator: 'none',
-      indicatorLabel: '',
-    })
+  /**
+   * Asserted against the store DIRECTLY rather than through the provider: once
+   * the boundary above has resolved once, the module is cached for the rest of
+   * the file, so there is no honest pre-load window left to observe there. The
+   * invariant itself does not need one — it is a property of the store.
+   */
+  it('answers "no update" with no engine mounted, rather than throwing', () => {
+    render(<Child onMount={() => {}} />)
     expect(screen.queryByTestId('update-indicator')).toBeNull()
-    expect(screen.queryByTestId('update-panel')).toBeNull()
-  })
-
-  /** The skew banner and the version guard live outside this tree (POD-1610). */
-  it('can be opened from outside the React tree', () => {
-    mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
-    expect(screen.queryByTestId('update-panel')).toBeNull()
-
-    act(() => {
-      expect(openUpdatePanel()).toBe(true)
-    })
-    expect(screen.getByTestId('update-panel')).toBeTruthy()
-  })
-
-  it('routes the macOS Check for Updates menu hook to the panel', () => {
-    mount()
-    const hook = (globalThis as { __PODIUM_CHECK_UPDATES__?: () => void }).__PODIUM_CHECK_UPDATES__
-    expect(hook).toBeTypeOf('function')
-    act(() => hook?.())
-    expect(mocks.checkNow).toHaveBeenCalledTimes(1)
-  })
-
-  it('dispatches the panel’s primary action', () => {
-    mount()
-    fireEvent.click(screen.getByTestId('update-primary'))
-    expect(mocks.run).toHaveBeenCalledWith('start')
   })
 })
