@@ -19,6 +19,22 @@ Every sub-issue of the updater epic follows this protocol. It is part of your br
   discover adjacent work, file it (`podium issue create` + `dep-add … 2087 --type
   discovered-from --outside-scope`), do not do it.
 
+## A gate nobody can hear is a gate that cannot say no
+
+This epic kept rediscovering one thing, so it belongs at the top. The Settings crash that
+blocked browser verification for a day (POD-2206) was caught **twice, by two different gates,
+and neither was heard**: `lint:architecture` named the exact file, in a lane that was red for
+four unrelated reasons, and the bundle budget went red inside a set that was already red.
+Four more instruments were found asserting nothing at all — a desktop drill whose two arms
+both passed vacuously, a test whose machine had the same word for its name and its id, a
+vitest reporter whose silence was read as proof, and a server lane that *refused to start*
+while everyone read the red as failure.
+
+So: when a lane is red for reasons that are not yours, you are not merely inconvenienced —
+**you are the reason the next real signal will be missed.** Say so in your report, and if you
+can cheaply make the gate speak in the language of the harm (a crash, not a byte count), do
+that instead of adding one more number nobody reads.
+
 ## Before anything: check what your worktree is cut from
 
 `issue start` does **not** inherit the epic's branch — if the issue was created without
