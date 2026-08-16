@@ -1070,7 +1070,9 @@ export class SocketHub {
    * Observe a session's live structured-transcript deltas, resuming from `since`
    * (the cursor of the newest item the caller already holds — typically the
    * `tail` of an initial tRPC read). The first observer triggers a server-side
-   * subscription; the last one leaving unsubscribes.
+   * subscription; a later one that brings its own `since` re-asserts it from
+   * that cursor so the frames it missed while reading are replayed; the last
+   * one leaving unsubscribes.
    *
    * The hub is a thin forwarder: each `transcriptDelta` frame calls the callback
    * with ONLY that frame's delta items (not an accumulated list) — the caller
@@ -1100,6 +1102,29 @@ export class SocketHub {
       if (this.connectedFlag) {
         this.sendRaw({ type: 'transcriptSubscribe', sessionId, ...(since ? { since } : {}) })
       }
+    } else if (since !== undefined && this.connectedFlag) {
+      // A LATER observer joining an entry that already exists [POD-1132]. This
+      // is the ORDINARY case, not an edge one: the agent panel subscribes at
+      // mount to build its file-link index, and the chat subscribes only once
+      // its transcript read has resolved — hundreds of milliseconds later, and
+      // seconds on a cold panel.
+      //
+      // Its `since` is the tail of a read that has ALREADY happened, and
+      // everything the agent appended between that read and this call went to
+      // the observers registered AT THE TIME — never to this one. Dropping the
+      // cursor (which is what joining silently used to do) left that gap in the
+      // joiner's window permanently: the live stream is forward-only, so no
+      // later frame carries it, and a tail probe cannot see a hole that is not
+      // at the tail. Re-asserting the subscription from the cursor is how the
+      // protocol closes it — the server replays from there.
+      //
+      // Safe to repeat: the server keys subscribers by connection id, and every
+      // observer merges by cursor, so a replayed item replaces itself. The
+      // replay is bounded by the server's per-session buffer, the same bound the
+      // first-subscriber and reconnect paths already ride on. `entry.since` is
+      // deliberately NOT moved backwards — it governs the reconnect resume,
+      // which wants the newest cursor anyone has seen.
+      this.sendRaw({ type: 'transcriptSubscribe', sessionId, since })
     }
     entry.observers.add(cb)
     return () => {

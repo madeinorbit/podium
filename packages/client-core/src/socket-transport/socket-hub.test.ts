@@ -1215,6 +1215,67 @@ describe('transcript delta forwarding', () => {
     vi.useRealTimers()
   })
 
+  // POD-1132: the agent panel subscribes at mount for its file-link index; the
+  // chat subscribes only once its transcript read resolves, hundreds of ms
+  // later. Everything appended in between went to the observers registered at
+  // the time — the joiner's `since` is the only thing that can recover it, and
+  // dropping it left a permanent hole the forward-only stream never refills.
+  it('re-asserts the subscription from a LATER observer since, so its read gap is replayed', () => {
+    const { hub, sock } = setup()
+    hub.connect()
+    sock.open()
+    hub.subscribeTranscript(asSessionId('s1'), undefined, () => {})
+    hub.subscribeTranscript(asSessionId('s1'), 'c7', () => {})
+    expect(sock.parsed().filter((m) => m.type === 'transcriptSubscribe')).toEqual([
+      { type: 'transcriptSubscribe', sessionId: 's1' },
+      { type: 'transcriptSubscribe', sessionId: 's1', since: 'c7' },
+    ])
+  })
+
+  it('a later observer with no cursor of its own asks for nothing', () => {
+    const { hub, sock } = setup()
+    hub.connect()
+    sock.open()
+    hub.subscribeTranscript(asSessionId('s1'), 'c0', () => {})
+    hub.subscribeTranscript(asSessionId('s1'), undefined, () => {})
+    expect(sock.parsed().filter((m) => m.type === 'transcriptSubscribe')).toHaveLength(1)
+  })
+
+  it('a joiner does not drag the reconnect resume backwards', () => {
+    vi.useFakeTimers()
+    const sockets: FakeSocket[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s
+      },
+    })
+    hub.connect()
+    sockets[0]?.open()
+    hub.subscribeTranscript(asSessionId('s1'), undefined, () => {})
+    sockets[0]?.recv({
+      type: 'transcriptDelta',
+      sessionId: asSessionId('s1'),
+      items: [item('a', 'c9')],
+      tail: 'c9',
+    })
+    // Joins with an OLDER cursor: it wants its own gap replayed, but the
+    // connection as a whole has seen further and must resume from there.
+    hub.subscribeTranscript(asSessionId('s1'), 'c3', () => {})
+    sockets[0]?.close()
+    vi.advanceTimersByTime(30_000)
+    sockets[1]?.open()
+    expect(sockets[1]?.parsed()).toContainEqual({
+      type: 'transcriptSubscribe',
+      sessionId: 's1',
+      since: 'c9',
+    })
+    vi.useRealTimers()
+  })
+
   it('ignores deltas for an unsubscribed session and unsubscribes on last observer leaving', () => {
     const { hub, sock } = setup()
     hub.connect()

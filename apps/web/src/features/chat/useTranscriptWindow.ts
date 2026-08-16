@@ -489,14 +489,35 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     if (becameActive && !wokeToLive && windowHealthy.current) {
       if (isSwitchTraced(sessionId))
         markSwitch(sessionId, 'chat:cache-hit', { items: windowLenRef.current })
-      // A healthy window IS current — the subscription kept it so while the pane
-      // was in the background. Stamping here is what stops the liveness
-      // reconcile from turning this deliberate skip into a delayed read.
-      reconciledSignalRef.current = activitySignalRef.current
+      // WHAT A HEALTHY WINDOW ACTUALLY PROVES [POD-1132]. `windowHealthy` says
+      // the last read succeeded and nothing has torn the subscription down since
+      // — NOT that a single delta ever arrived on it. The stream is
+      // `stream.live`, which the wire classifies as lossy on purpose ("Loss on
+      // disconnect is fine … Never healed"), so "the subscription is intact" and
+      // "the window is current" are different claims, and this path used to make
+      // the second one on the evidence of the first. A pane that quietly stopped
+      // receiving frames while it was hidden then REVEALED stale, and the stamp
+      // below suppressed the one reconcile that would have caught it.
+      //
+      // The session row settles it for free. `reconciledSignalRef` is the row
+      // fingerprint as of the last moment the window was known current; if the
+      // row has not moved since, nothing has happened for the feed to have
+      // missed and the skip is sound.
+      const signal = activitySignalRef.current
+      if (reconciledSignalRef.current === signal) return
+      // The row HAS moved and no delta accounted for it, so the window is
+      // behind. Keep POD-725's win anyway — do NOT fall through to the
+      // 200-item read — and settle it with the one-item tail probe, which
+      // escalates to a full reconcile only when disk is genuinely ahead.
+      // Stamped first so the 400ms liveness reconcile does not ALSO chase this
+      // same signal with the very read the probe exists to avoid; a probe that
+      // finds a difference re-stamps correctly through `readNewest`.
+      reconciledSignalRef.current = signal
+      void probeNewest().catch(() => {}) // transient failure — the heartbeat retries
       return
     }
     if (wokeToLive || becameActive) void readNewest(true).catch(() => {}) // keep the held window
-  }, [session?.status, active, initialLoaded, readNewest, sessionId])
+  }, [session?.status, active, initialLoaded, readNewest, probeNewest, sessionId])
 
   // -------------------------------------------------------------------------
   // THE FEED MUST NOT GO QUIET [POD-701]
@@ -523,22 +544,45 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // the ACTIVE pane pays anything; a backgrounded chat keeps its subscription
   // and re-reads on activation as before.
   //
-  // ONE THING IT MUST NOT DO: run while the reader has paged HISTORY in.
-  // `readNewest` drops `older` — correct on a switch or a file roll, ruinous on
-  // a timer, because it would throw away the pages someone just scrolled up to
-  // read and take their scroll position with it. Someone reading history is by
-  // definition not watching the tail, so the reconcile simply waits; the next
-  // activation re-reads as it always did.
+  // ONE THING IT MUST NOT DO: run while the reader IS READING HISTORY.
+  // `readNewest` drops `older` — correct on a switch or a file roll, ruinous
+  // under someone's scroll, because it would throw away the pages they just
+  // paged in and take their position with it.
+  //
+  // WHERE THE READER IS LOOKING, NOT WHAT HAPPENS TO BE LOADED [POD-1132]. That
+  // stand-down used to key on `pagedBack` alone, and `older` is only ever
+  // cleared BY a tail re-read — so the one condition that suppressed the
+  // re-read was also the only thing the re-read could clear. Scrolling up once
+  // therefore latched BOTH self-healing paths off for the rest of the mount,
+  // and the pane ran on the lossy delta stream alone with no recovery. The
+  // escape hatch the original reasoning named — "the next activation re-reads
+  // as it always did" — stopped existing when POD-725 taught activation to skip
+  // the read.
+  //
+  // A reader pinned to the live tail has nothing above them to protect: the
+  // pages being dropped are off-screen, and the bottom pin survives the
+  // shrink (ChatView's ResizeObserver re-pins). So the stand-down lasts exactly
+  // as long as they are away from the tail. Read at CALL time, never mirrored at
+  // render time: `pinnedToBottom` is a scroll-driven ref that moves without a
+  // render, so a render-time copy would be stale precisely when it matters.
   const readNewestRef = useRef(readNewest)
   readNewestRef.current = readNewest
   const live = session?.status === 'live' || session?.status === 'starting'
   const pagedBack = older.length > 0
+  const pagedBackRef = useRef(false)
+  pagedBackRef.current = pagedBack
+  const readingHistory = useCallback(
+    () => pagedBackRef.current && !pinnedToBottom.current,
+    // Both are refs owned by this hook — stable for the life of the mount.
+    [],
+  )
   // One string, so the effect re-runs on any of the four moving parts without
   // four dependencies that each re-run it on the others' changes.
   const activitySignal = `${session?.lastActiveAt ?? ''}|${session?.agentState?.phase ?? ''}|${session?.agentState?.since ?? ''}|${session?.busy ?? ''}`
   activitySignalRef.current = activitySignal
   useEffect(() => {
-    if (!active || !initialLoaded || pagedBack) return
+    if (!active || !initialLoaded) return
+    if (readingHistory()) return
     // The signal as of the last moment the window was KNOWN current — stamped by
     // every completed read and by the warm-activation cache hit. Comparing
     // against it rather than against the previous render is what keeps POD-725's
@@ -548,26 +592,39 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     // Trailing debounce: a working agent moves these fields several times a
     // second, and the point is to be current, not to re-read once per tick.
     const t = setTimeout(() => {
+      // Re-asked here, not just above: the reader can scroll into history during
+      // the 400ms, and this is the callback that would drop it under them.
+      if (readingHistory()) return
       if (reconciledSignalRef.current === activitySignal) return
       void readNewestRef.current().catch(() => {})
     }, 400)
     return () => clearTimeout(t)
-  }, [active, initialLoaded, pagedBack, activitySignal])
+  }, [active, initialLoaded, activitySignal, readingHistory])
   useEffect(() => {
-    if (!active || !initialLoaded || !live || pagedBack) return
+    if (!active || !initialLoaded || !live) return
     if (typeof document === 'undefined') return
-    const beat = setInterval(() => void probeNewest().catch(() => {}), LIVE_HEARTBEAT_MS)
+    // The stand-down is checked per TICK rather than taken as a dependency, so
+    // paging a page in and out does not tear the interval down and rebuild it.
+    const beat = setInterval(() => {
+      if (readingHistory()) return
+      void probeNewest().catch(() => {})
+    }, LIVE_HEARTBEAT_MS)
     // A tab that was hidden may have had its timers throttled to nothing and
     // its socket dropped; coming back is the moment to be sure.
     const onVisible = (): void => {
-      if (document.visibilityState === 'visible') void readNewestRef.current(true).catch(() => {})
+      if (document.visibilityState !== 'visible') return
+      // Same protection as the timer: this one goes STRAIGHT to the full read,
+      // so a reader who left the tab mid-scroll must not come back to a feed
+      // that has thrown their history away.
+      if (readingHistory()) return
+      void readNewestRef.current(true).catch(() => {})
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       clearInterval(beat)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [active, initialLoaded, live, pagedBack, probeNewest])
+  }, [active, initialLoaded, live, probeNewest, readingHistory])
 
   // The full loaded list: older pages prepended to the held window. A small
   // cursor-dedupe at the seam guards a one-item paging/live overlap.

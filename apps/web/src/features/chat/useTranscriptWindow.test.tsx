@@ -711,7 +711,9 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
   })
 
-  it('stands down once the reader has paged HISTORY in — a tail re-read would drop it', async () => {
+  /** Load one older page, leaving the pane as a reader who scrolled UP: away
+   *  from the live tail, with history above them worth protecting. */
+  async function pageHistoryIn(): Promise<void> {
     act(() => root.render(<Probe active={true} />))
     await act(async () => {
       // hasMore: there IS history on disk to page back into.
@@ -723,13 +725,22 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
       })
     })
     await flush()
-    // Scroll-up back-page: an older page lands ABOVE the held window.
-    act(() => captured?.loadOlder())
+    // Scroll-up back-page: an older page lands ABOVE the held window. The scroll
+    // that triggers it is what unpins the view from the bottom (ChatView's
+    // onScroll owns this ref); the hook only reads it.
+    act(() => {
+      if (captured) captured.pinnedToBottom.current = false
+      captured?.loadOlder()
+    })
     await act(async () => {
       reads[1]?.resolve({ items: [item('z', 'c0', 'older')], head: 'c0', hasMore: false })
     })
     await flush()
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['z', 'a'])
+  }
+
+  it('stands down once the reader has paged HISTORY in — a tail re-read would drop it', async () => {
+    await pageHistoryIn()
 
     // The agent keeps working. The reconcile must NOT fire: `readNewest` clears
     // `older`, which would delete the history under the reader's scroll.
@@ -741,5 +752,154 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
     await settleDebounce()
     expect(reads).toHaveLength(2)
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['z', 'a'])
+  })
+
+  // POD-1132: the stand-down above must not LATCH. `older` is only ever cleared
+  // by a tail re-read, so keying it on "history is loaded" made the suppressing
+  // condition the only thing the suppressed read could clear — one scroll-up
+  // silenced the feed's self-healing for the rest of the mount.
+  it('lifts the stand-down once the reader is back on the live tail', async () => {
+    await pageHistoryIn()
+
+    // Scrolled back down to the bottom. The pages above are off-screen now, so
+    // there is nothing under the reader's eye for a tail re-read to disturb.
+    act(() => {
+      if (captured) captured.pinnedToBottom.current = true
+    })
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:09:00.000Z' })} />,
+      )
+    })
+    await settleDebounce()
+    expect(reads).toHaveLength(3)
+    expect(reads[2]?.input.limit).toBe(200)
+  })
+
+  it('keeps the heartbeat probing for a reader back on the tail, and holds it off one in history', async () => {
+    vi.useFakeTimers()
+    await pageHistoryIn()
+    expect(reads).toHaveLength(2)
+
+    // Still scrolled up: the probe would escalate into a read that drops the
+    // page under them, so it does not run at all.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS * 2)
+    })
+    expect(reads).toHaveLength(2)
+
+    // Back at the tail — the interval was never torn down, so the very next
+    // beat resumes without waiting for a re-render.
+    act(() => {
+      if (captured) captured.pinnedToBottom.current = true
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS)
+    })
+    expect(reads).toHaveLength(3)
+    expect(reads[2]?.input.limit).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-1132: a warm reveal reuses its window on the strength of an INTACT
+// subscription, but `stream.live` is lossy by design — intact is not current.
+// The session row is the free evidence that tells the two apart.
+// ---------------------------------------------------------------------------
+describe('useTranscriptWindow warm reveal over a subscription that fell behind', () => {
+  /** Past the 400ms liveness debounce, so a read it wanted has had its chance. */
+  async function settleDebounce(): Promise<void> {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 450))
+    })
+  }
+
+  async function loadedInBackground(): Promise<void> {
+    act(() => root.render(<Probe active={false} />))
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [item('a', 'c1', 'first')],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+  }
+
+  it('probes the tail when the row moved while hidden and no delta explained it', async () => {
+    await loadedInBackground()
+
+    // Revealed onto a row that has advanced since the read, with nothing
+    // delivered on the subscription to account for it.
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })} />,
+      )
+    })
+    await flush()
+
+    // The one-item probe, not the 200-item read POD-725 exists to avoid.
+    expect(reads).toHaveLength(2)
+    expect(reads[1]?.input.limit).toBe(1)
+
+    // Disk really is ahead → the probe escalates and the missed item lands.
+    await act(async () => {
+      reads[1]?.resolve({ items: [item('b', 'c2', 'missed while hidden')], tail: 'c2', hasMore: true })
+    })
+    await flush()
+    expect(reads[2]?.input.limit).toBe(200)
+    await act(async () => {
+      reads[2]?.resolve({
+        items: [item('a', 'c1', 'first'), item('b', 'c2', 'missed while hidden')],
+        head: 'c1',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+    expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
+  })
+
+  it('does not chase the same signal twice — the probe stands in for the 400ms reconcile', async () => {
+    await loadedInBackground()
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })} />,
+      )
+    })
+    await flush()
+    expect(reads).toHaveLength(2)
+    await settleDebounce()
+    expect(reads).toHaveLength(2)
+  })
+
+  it('still skips outright when the row has not moved since the read', async () => {
+    await loadedInBackground()
+    act(() => root.render(<Probe active={true} />))
+    await flush()
+    await settleDebounce()
+    expect(reads).toHaveLength(1)
+  })
+
+  it('a delta delivered while hidden accounts for the row, so the reveal skips', async () => {
+    await loadedInBackground()
+    act(() => {
+      root.render(
+        <Probe active={false} session={meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })} />,
+      )
+    })
+    act(() => {
+      fakeHub.subscribes[0]?.cb([item('b', 'c2', 'arrived live')], { reset: false })
+    })
+    await flush()
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })} />,
+      )
+    })
+    await flush()
+    await settleDebounce()
+    expect(reads).toHaveLength(1)
   })
 })
