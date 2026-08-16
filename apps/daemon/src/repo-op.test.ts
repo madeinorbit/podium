@@ -5,6 +5,49 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { assertSafeRef, repoOpCommand } from './repo-op'
 
+describe('logIssueCommits bounds [POD-1085]', () => {
+  it('stays unbounded when no bound is given (shared-checkout attribution)', () => {
+    expect(repoOpCommand('logIssueCommits', { grep: 'Podium-Issue: POD-98' })).toEqual({
+      bin: 'git',
+      argv: [
+        'log',
+        '--reverse',
+        '--format=%H',
+        '-E',
+        '--grep',
+        'Podium-Issue: POD-98',
+        '-n',
+        '50',
+        '--',
+      ],
+    })
+  })
+
+  it('bounds by --since and ref when the merge fallback asks', () => {
+    // The MISS is the expensive case — `--grep` walks until it finds `-n`
+    // matches or exhausts history — and the merge fallback's whole job is
+    // asking about issues that may carry no landing at all.
+    const cmd = repoOpCommand('logIssueCommits', {
+      grep: 'Podium-Issue: POD-900',
+      since: '2026-08-13T00:00:00.000Z',
+      ref: 'main',
+    }) as { argv: string[] }
+    expect(cmd.argv).toContain('--since')
+    expect(cmd.argv[cmd.argv.indexOf('--since') + 1]).toBe('2026-08-13T00:00:00.000Z')
+    // Ref before the `--` terminator, so it reads as a revision and never a path.
+    expect(cmd.argv.at(-2)).toBe('main')
+    expect(cmd.argv.at(-1)).toBe('--')
+  })
+
+  it('refuses a leading-dash ref rather than letting it parse as an option', () => {
+    const bad = repoOpCommand('logIssueCommits', {
+      grep: 'Podium-Issue: POD-1',
+      ref: '--output=/tmp/x',
+    }) as { error?: string }
+    expect(bad.error).toMatch(/unsafe ref/)
+  })
+})
+
 describe('repoOpCommand', () => {
   it('builds read ops', () => {
     expect(repoOpCommand('status')).toEqual({

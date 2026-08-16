@@ -49,13 +49,33 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       // restart-proof attribution source on shared checkouts [POD-98]. The
       // pattern is one argv token (execFile, no shell), ERE via -E; the
       // leading-dash guard keeps it from parsing as an option.
-      const { grep } = args
+      //
+      // Optional `since` + `ref` bound the search [POD-1085]. `--grep` walks
+      // until it finds `-n` matches or exhausts history, so an issue with NO
+      // landing is the expensive case: unbounded it costs 0.12s on a 5k-commit
+      // repo, and that is exactly the case the merge fallback asks about.
+      // `--since` is the free bound — an issue's landing cannot predate the
+      // issue — and needs no merge-base call to compute, which would have cost
+      // more than it saved.
+      const { grep, since, ref } = args
       if (!grep) return { error: 'missing args' }
-      const bad = assertSafeRef(grep, 'grep')
+      const bad = assertSafeRef(grep, 'grep') ?? (ref ? assertSafeRef(ref, 'ref') : null)
       if (bad) return { error: bad }
       return {
         bin: 'git',
-        argv: ['log', '--reverse', '--format=%H', '-E', '--grep', grep, '-n', '50'],
+        argv: [
+          'log',
+          '--reverse',
+          '--format=%H',
+          '-E',
+          '--grep',
+          grep,
+          '-n',
+          '50',
+          ...(since ? ['--since', since] : []),
+          ...(ref ? [ref] : []),
+          '--',
+        ],
       }
     }
     case 'logPanel':

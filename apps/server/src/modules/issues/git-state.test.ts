@@ -193,6 +193,126 @@ describe('probeGitState', () => {
     expect(calls.some((c) => c.op === 'isMergedInto')).toBe(true)
   })
 
+  // POD-1085. The regression these cover: `merge-base --is-ancestor` asks whether
+  // a SHA is reachable, so rebasing the landing branch after a landing rewrites
+  // the commits and un-merges work that unquestionably shipped.
+  test('POD-1085: a landing stamp settles the merge axis with NO git call', async () => {
+    const calls: Array<{ op: string }> = []
+    const state = await probeGitState(
+      io(
+        {
+          statusProbe: { ok: true, output: '## issue/1073-shortcuts' },
+          logHead: { ok: true, output: 'newtip\t2026-08-14T23:07:00Z' },
+          'revListCount:main..HEAD': { ok: true, output: '1' },
+          // Ancestry would say NO — the rebase rewrote the landed commit. The
+          // stamp must win, and must not even ask.
+          isMergedInto: { ok: false, output: '' },
+        },
+        calls,
+      ),
+      {
+        cwd: '/wt',
+        shared: false,
+        parentBranch: 'main',
+        landingBranch: 'main',
+        branch: 'issue/1073-shortcuts',
+        landedAt: '2026-08-14T23:07:43.000Z',
+      },
+      now,
+    )
+    expect(state.merged).toBe(true)
+    // The perf half of the claim: the settled case got CHEAPER, not dearer.
+    expect(calls.some((c) => c.op === 'isMergedInto')).toBe(false)
+    expect(calls.some((c) => c.op === 'branchReflog')).toBe(false)
+  })
+
+  test('POD-1085: marker fallback finds a hand-merge whose commits were rewritten', async () => {
+    const calls: Array<{ op: string; args?: Record<string, string> }> = []
+    const state = await probeGitState(
+      io(
+        {
+          statusProbe: { ok: true, output: '## issue/900-hand' },
+          logHead: { ok: true, output: 'tip\t2026-08-14T10:00:00Z' },
+          'revListCount:main..HEAD': { ok: true, output: '2' },
+          isMergedInto: { ok: false, output: '' },
+          logIssueCommits: { ok: true, output: '144bd6aa8' },
+        },
+        calls,
+      ),
+      {
+        cwd: '/wt',
+        shared: false,
+        parentBranch: 'main',
+        landingBranch: 'main',
+        branch: 'issue/900-hand',
+        refsPattern: 'Podium-Issue: POD-900',
+        createdAt: '2026-08-13T00:00:00.000Z',
+        finished: true,
+      },
+      now,
+    )
+    expect(state.merged).toBe(true)
+    // Bounded, or the miss case walks all of history on every landing-branch move.
+    const grep = calls.find((c) => c.op === 'logIssueCommits')
+    expect(grep?.args?.since).toBe('2026-08-13T00:00:00.000Z')
+    expect(grep?.args?.ref).toBe('main')
+  })
+
+  test('POD-1085: an in-progress branch never pays for the marker fallback', async () => {
+    const calls: Array<{ op: string }> = []
+    const state = await probeGitState(
+      io(
+        {
+          statusProbe: { ok: true, output: '## issue/901-wip' },
+          logHead: { ok: true, output: 'tip\t2026-08-14T10:00:00Z' },
+          'revListCount:main..HEAD': { ok: true, output: '4' },
+          isMergedInto: { ok: false, output: '' },
+          logIssueCommits: { ok: true, output: 'should-not-be-consulted' },
+        },
+        calls,
+      ),
+      {
+        cwd: '/wt',
+        shared: false,
+        parentBranch: 'main',
+        landingBranch: 'main',
+        branch: 'issue/901-wip',
+        refsPattern: 'Podium-Issue: POD-901',
+        createdAt: '2026-08-13T00:00:00.000Z',
+        finished: false,
+      },
+      now,
+    )
+    expect(state.merged).toBeUndefined()
+    // The gate that keeps a main-move from fanning the fallback across every
+    // open issue — an unmerged branch fails ancestry by design, forever.
+    expect(calls.some((c) => c.op === 'logIssueCommits')).toBe(false)
+  })
+
+  test('POD-1085: a finished branch with no landing marker stays unmerged', async () => {
+    const state = await probeGitState(
+      io({
+        statusProbe: { ok: true, output: '## issue/902-open' },
+        logHead: { ok: true, output: 'tip\t2026-08-14T10:00:00Z' },
+        'revListCount:main..HEAD': { ok: true, output: '2' },
+        isMergedInto: { ok: false, output: '' },
+        logIssueCommits: { ok: true, output: '' },
+      }),
+      {
+        cwd: '/wt',
+        shared: false,
+        parentBranch: 'main',
+        landingBranch: 'main',
+        branch: 'issue/902-open',
+        refsPattern: 'Podium-Issue: POD-902',
+        createdAt: '2026-08-13T00:00:00.000Z',
+        finished: true,
+      },
+      now,
+    )
+    expect(state.merged).toBeUndefined()
+  })
+
   test('shared checkout ignores HEAD-delta commits but carries touched-file attribution', async () => {
     const calls: Array<{ op: string; args?: Record<string, string> }> = []
     const state = await probeGitState(

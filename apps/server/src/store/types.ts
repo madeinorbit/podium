@@ -388,6 +388,15 @@ export interface IssueRow {
   closedReason: string | null
   /** When the closed-predicate last flipped true; null while open. [spec:SP-6144] */
   closedAt: string | null
+  /** ISO time Podium's own `merge --ff-only` landed this branch [POD-1085].
+   *  An OBSERVED EVENT, not a verdict re-derived from history: a later rebase of
+   *  the landing branch destroys ancestry, and destroys it for every branch that
+   *  landed before it. This survives. Optional so pre-existing row literals stay
+   *  valid; null/absent = never landed BY US, which is not the same as never
+   *  landed — hand-merges still fall through to the ancestry check. */
+  landedAt?: string | null
+  /** Branch tip `landedAt` merged — audit/repair evidence, not the live check. */
+  landedSha?: string | null
   supersededBy: IssueId | null
   duplicateOf: IssueId | null
   /** Manual order (POD-168): fractional sort key, ascending = top of the row's

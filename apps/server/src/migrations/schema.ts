@@ -1124,6 +1124,15 @@ export const issues = sqliteTable(
     // When the closed-predicate last flipped true; null while open. The stable
     // completion-decay anchor (updatedAt churns on any touch). [spec:SP-6144]
     closedAt: text('closed_at'),
+    // Landing stamp [POD-1085]. Written the moment Podium's own `merge --ff-only`
+    // succeeds, so "this landed" is an OBSERVED EVENT rather than a verdict
+    // re-derived from history on every probe. Ancestry (`merge-base --is-ancestor`)
+    // cannot survive a later rebase of the LANDING BRANCH itself: that rewrites
+    // already-landed commits under new shas, and every branch that landed before
+    // it silently reads as unmerged again. `landedSha` is the branch tip we
+    // merged — evidence for repair and audit, not the live check.
+    landedAt: text('landed_at'),
+    landedSha: text('landed_sha'),
     supersededBy: brandedRef(
       text('superseded_by').$type<IssueId>(),
       (): AnySQLiteColumn<{ data: IssueId }> => issues.id,

@@ -68,6 +68,12 @@ type ParentBranchGroup = {
   ids: string[]
 }
 
+/** How many issues the parent-branch watch re-probes at once [POD-1085]. Each
+ *  probe spawns ~6 git processes, so this is the real fan-out multiplier; 8
+ *  keeps a landing on a busy main from spiking every core at once without
+ *  meaningfully delaying the sweep (batches are sequential, the tick is 30s). */
+const GIT_PROBE_FANOUT = 8
+
 /** Default branch work lands on when an issue's cut parent is not itself the
  *  shared integration branch. Mirrors create-time fallback in crud.ts. */
 function landingBaseFromSettings(defaultParentBranch: string | undefined): string {
@@ -540,8 +546,23 @@ export class IssueGitWorkflowModule {
         issue: this.store.toWire(row),
       }
     }
+    // The tip we are about to land, read BEFORE the merge — afterwards the
+    // branch ref is unchanged, but reading first keeps the stamp honest if a
+    // concurrent push moves it mid-merge. Best-effort: a missing sha must not
+    // fail a merge that otherwise succeeded, so `landedAt` (the fact) is
+    // independent of `landedSha` (the evidence).
+    const tip = await this.store.d
+      .repoOp('revParseVerify', row.repoPath, { ref: row.branch }, row.machineId ?? undefined)
+      .catch(() => ({ ok: false, output: '' }))
     const r = await this.store.d.repoOp('mergeFfOnly', row.repoPath, { branch: row.branch })
     if (r.ok) {
+      // Landing stamp [POD-1085]. Record that WE landed this, before anything
+      // else can rewrite history under it. `merge-base --is-ancestor` answers
+      // "is this sha reachable from main", which a later rebase of main makes
+      // false for work that unquestionably landed; this row does not lie later.
+      row.landedAt = new Date().toISOString()
+      if (tip.ok && tip.output.trim() !== '') row.landedSha = tip.output.trim()
+      this.store.persistRow(row)
       const issue = this.crud().close(id, 'done')
       // This branch just landed [POD-384]: settle its merge axis now, so the
       // operator who pressed merge sees the "ready to merge" chip go rather than
@@ -1306,7 +1327,17 @@ export class IssueGitWorkflowModule {
         const seen = this.parentTips.get(key)
         this.parentTips.set(key, tip)
         if (seen === undefined || seen === tip) return
-        await Promise.all(group.ids.map((id) => this.refreshGitState(id).catch(() => {})))
+        // Bounded fan-out [POD-1085]. One landing on a busy main re-probes every
+        // issue watching it, and each probe is ~6 git processes: at 50 issues an
+        // unbounded Promise.all launches ~300 at once and saturates the box for
+        // about a second. The work is identical either way — this only stops it
+        // arriving as one spike, so an operator's merge never competes with the
+        // watch for CPU. Sequential batches, not a queue: the group is small and
+        // the next tick is 30s away.
+        for (let i = 0; i < group.ids.length; i += GIT_PROBE_FANOUT) {
+          const batch = group.ids.slice(i, i + GIT_PROBE_FANOUT)
+          await Promise.all(batch.map((id) => this.refreshGitState(id).catch(() => {})))
+        }
       }),
     )
   }
@@ -1343,6 +1374,10 @@ export class IssueGitWorkflowModule {
           // marker ([POD-98] tag / Podium-Issue trailer) count even when the
           // in-memory ledger is empty or the commits predate capture.
           refsPattern: issueRefsPattern(this.issueRef(row)),
+          // Landing stamp + the two bounds the marker fallback needs [POD-1085].
+          landedAt: row.landedAt ?? null,
+          createdAt: row.createdAt,
+          finished: this.store.isClosed(row) || row.stage === 'review',
         },
         this.store.now(),
       )

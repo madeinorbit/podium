@@ -2315,8 +2315,48 @@ describe('IssueService.action', () => {
       return { ok: true, output: op === 'status' ? '## main...origin/main' : '' }
     })
     await svc.action(id, 'merge')
-    expect(calls).toEqual(['rebase', 'status', 'mergeFfOnly'])
+    // revParseVerify reads the tip we are about to land, for the POD-1085 stamp.
+    expect(calls).toEqual(['rebase', 'status', 'revParseVerify', 'mergeFfOnly'])
     expect(deps.repoOp).toHaveBeenCalledWith('mergeFfOnly', '/r', { branch: 'issue/1-x' })
+  })
+
+  // POD-1085, asserted through the wire rather than the row: what the sidebar
+  // reads is the contract, and the regression was that it went BACK to unmerged
+  // once the landing branch was rebased under an already-landed commit.
+  const mergeProbeOutput = (op: string): string =>
+    op === 'status'
+      ? '## main...origin/main'
+      : op === 'revParseVerify'
+        ? 'abc123def\n'
+        : op === 'statusProbe'
+          ? '## issue/1-x'
+          : op === 'logHead'
+            ? 'tip\t2026-08-16T00:00:00Z'
+            : ''
+
+  it('POD-1085: after our own merge the axis stays settled though ancestry says no', async () => {
+    const { svc, deps, id } = await started()
+    // isMergedInto fails exactly as it does once main has been rebased under a
+    // landed commit — the sha it is looking for no longer exists.
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => ({
+      ok: op !== 'isMergedInto',
+      output: mergeProbeOutput(op),
+    }))
+    await svc.action(id, 'merge')
+    await svc.refreshGitState(id)
+    expect(svc.get(id)?.gitState?.merged).toBe(true)
+  })
+
+  it('POD-1085: a REFUSED merge stamps nothing and stays unmerged', async () => {
+    const { svc, deps, id } = await started()
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => ({
+      ok: op !== 'mergeFfOnly' && op !== 'isMergedInto',
+      output: mergeProbeOutput(op),
+    }))
+    await svc.action(id, 'merge')
+    await svc.refreshGitState(id)
+    // The stamp must record a landing that HAPPENED, never one that was refused.
+    expect(svc.get(id)?.gitState?.merged).toBeUndefined()
   })
 
   it('merge auto-closes the issue on success', async () => {

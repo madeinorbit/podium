@@ -299,6 +299,11 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
         'created_by_on_behalf_of',
         'actor',
         'on_behalf_of',
+        // POD-1085's landing stamp — same story as the session pair above: added
+        // by a later migration in the same chain, so it is an ADDITION to record
+        // here, not a column this migration lost.
+        'landed_at',
+        'landed_sha',
       ]),
     )
     expect(sorted(columns(db, 'issue_messages'))).toEqual(

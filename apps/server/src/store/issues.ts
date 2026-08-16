@@ -155,12 +155,12 @@ export class IssuesRepository {
             linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
-            defer_until, closed_reason, closed_at, superseded_by, duplicate_of, sort_key, color, estimate_min,
+            defer_until, closed_reason, closed_at, landed_at, landed_sha, superseded_by, duplicate_of, sort_key, color, estimate_min,
             needs_human, human_question, human_question_options,
             human_question_asked_by, human_question_asked_at, panel,
             created_at, updated_at, archived, origin, audience, draft, deleted_at, revision,
             coordinator_session_id, started_by_session)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, brief = excluded.brief, stage = excluded.stage,
@@ -178,6 +178,7 @@ export class IssuesRepository {
            acceptance = excluded.acceptance, notes = excluded.notes, due_at = excluded.due_at,
            defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
            closed_at = excluded.closed_at,
+           landed_at = excluded.landed_at, landed_sha = excluded.landed_sha,
            superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
            sort_key = excluded.sort_key, color = excluded.color,
            estimate_min = excluded.estimate_min,
@@ -234,6 +235,8 @@ export class IssuesRepository {
         row.deferUntil,
         row.closedReason,
         row.closedAt ?? null,
+        row.landedAt ?? null,
+        row.landedSha ?? null,
         row.supersededBy,
         row.duplicateOf,
         row.sortKey ?? null,
@@ -347,6 +350,8 @@ export class IssuesRepository {
       deferUntil: (r.defer_until as string | null) ?? null,
       closedReason: (r.closed_reason as string | null) ?? null,
       closedAt: (r.closed_at as string | null) ?? null,
+      landedAt: (r.landed_at as string | null) ?? null,
+      landedSha: (r.landed_sha as string | null) ?? null,
       supersededBy: (r.superseded_by as IssueId | null) ?? null,
       duplicateOf: (r.duplicate_of as IssueId | null) ?? null,
       sortKey: (r.sort_key as string | null) ?? null,

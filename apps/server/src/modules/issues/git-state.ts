@@ -57,6 +57,19 @@ export interface GitProbeTarget
    *  Podium-Issue trailer) — the restart-proof attribution source on shared
    *  checkouts: history remembers what the in-memory ledger forgets. */
   refsPattern?: string
+  /** Set when Podium's own ff-merge landed this branch [POD-1085]. Authoritative
+   *  and FREE: it settles the merge axis without asking git anything, and it is
+   *  right in the one case ancestry is wrong — after the landing branch is itself
+   *  rebased, which rewrites already-landed commits under new shas and makes
+   *  every branch that landed before it read as unmerged again. */
+  landedAt?: string | null
+  /** Issue creation time — the `--since` floor for the marker fallback. A landing
+   *  cannot predate its own issue, and this bound costs no extra git call. */
+  createdAt?: string
+  /** Issue is closed or in review: the ONLY state where the marker fallback runs.
+   *  An in-progress branch fails ancestry every probe by design; paying a
+   *  fallback for it on every landing-branch move is the whole cost risk. */
+  finished?: boolean
 }
 
 /** Build the message-marker pattern for `logIssueCommits` from an issue's
@@ -146,30 +159,54 @@ export async function probeGitState(
   // containment answer rather than never reporting merged.
   let merged = false
   if (!target.shared && target.branch !== null) {
-    const mergeParents = [
-      ...new Set(
-        [target.parentBranch, target.landingBranch]
-          .map((b) => b?.trim() ?? '')
-          .filter((b) => b !== ''),
-      ),
-    ]
-    let contained = false
-    for (const parent of mergeParents) {
-      const res = await op('isMergedInto', {
-        branch: target.branch,
-        parentBranch: parent,
-      })
-      if (res.ok) {
-        contained = true
-        break
+    if (target.landedAt) {
+      // We landed it ourselves and wrote it down [POD-1085]. Nothing git can say
+      // improves on that, and after a rebase of the landing branch ancestry
+      // actively DISAGREES with it. So don't ask — which also skips BOTH git
+      // calls the ancestry path costs, making the settled case the cheap one.
+      merged = true
+    } else {
+      const mergeParents = [
+        ...new Set(
+          [target.parentBranch, target.landingBranch]
+            .map((b) => b?.trim() ?? '')
+            .filter((b) => b !== ''),
+        ),
+      ]
+      let contained = false
+      for (const parent of mergeParents) {
+        const res = await op('isMergedInto', {
+          branch: target.branch,
+          parentBranch: parent,
+        })
+        if (res.ok) {
+          contained = true
+          break
+        }
       }
-    }
-    if (contained) {
-      const reflog = await op('branchReflog', { branch: target.branch })
-      const shas = reflog.output.split('\n').filter(Boolean)
-      const creationSha = shas[shas.length - 1]
-      const tipSha = head.ok ? head.output.split('\t')[0]?.trim() : undefined
-      merged = !reflog.ok || !creationSha || !tipSha || tipSha !== creationSha
+      if (contained) {
+        const reflog = await op('branchReflog', { branch: target.branch })
+        const shas = reflog.output.split('\n').filter(Boolean)
+        const creationSha = shas[shas.length - 1]
+        const tipSha = head.ok ? head.output.split('\t')[0]?.trim() : undefined
+        merged = !reflog.ok || !creationSha || !tipSha || tipSha !== creationSha
+      } else if (target.finished && target.refsPattern && target.landingBranch) {
+        // Ancestry says no — but ancestry cannot see a landing whose commits were
+        // rewritten under it: a hand-merge outside Podium, followed by a rebase of
+        // the landing branch. The commit marker survives that, because it rides in
+        // the message rather than in the sha.
+        //
+        // Gated hard on `finished`: an in-progress branch is legitimately not an
+        // ancestor, and would otherwise pay this on EVERY landing-branch move —
+        // that fan-out is the real cost, not the single call. `--since` the
+        // issue's own creation keeps the miss (the expensive case) at ~0.01s.
+        const found = await op('logIssueCommits', {
+          grep: target.refsPattern,
+          ref: target.landingBranch,
+          ...(target.createdAt ? { since: target.createdAt } : {}),
+        })
+        merged = found.ok && found.output.split('\n').filter(Boolean).length > 0
+      }
     }
   }
 

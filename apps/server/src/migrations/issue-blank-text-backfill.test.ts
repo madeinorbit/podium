@@ -59,7 +59,22 @@ describe('issue blank-text backfill migration [POD-820]', () => {
   it('sweeps exactly the columns the write path normalizes', () => {
     const sql = DRIZZLE_MIGRATIONS[cutIndex]?.sql ?? ''
     const snakeCase = (name: string) => name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)
-    for (const column of BLANK_TO_NULL_COLUMNS) {
+    // Scope to the columns that EXISTED at the cut. A nullable text column added
+    // after POD-820 (landed_at/landed_sha, POD-1085) cannot be swept by a
+    // migration that ran before it existed, and needs no sweeping: it is born
+    // with the normalizing write path already in force, so it has no legacy ''
+    // rows. Reading the shape from the database rather than hardcoding a skip
+    // list keeps the real protection — a column that DID exist then and is
+    // normalized now must have been swept — intact for every future column.
+    const db = openDatabase(':memory:')
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cutIndex))
+    const atCut = new Set(
+      (db.prepare('PRAGMA table_info(issues)').all() as Array<{ name: string }>).map((c) => c.name),
+    )
+    const inScope = BLANK_TO_NULL_COLUMNS.filter((column) => atCut.has(snakeCase(column)))
+    // Guard the guard: if this ever empties, the assertion below passes vacuously.
+    expect(inScope.length).toBeGreaterThan(10)
+    for (const column of inScope) {
       expect({
         column,
         swept: sql.includes(`UPDATE issues SET ${snakeCase(column)} = NULL`),
