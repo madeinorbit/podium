@@ -47,6 +47,14 @@ function handleFor(ctx: DaemonContext, sessionId: SessionId): AgentSessionHandle
   )
 }
 
+/** The driver that actually owns this live session, from its runtime binding. */
+export function runtimeDriverIdFor(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+): AgentSessionHandle['binding']['driver'] | undefined {
+  return handleFor(ctx, sessionId)?.binding.driver
+}
+
 /**
  * IS THIS SESSION BEHIND THE CONTRACT AT ALL? (POD-2023)
  *

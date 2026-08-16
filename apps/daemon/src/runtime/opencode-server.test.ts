@@ -17,7 +17,7 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runtimeContractEnabledFor, runtimeDriverFor } from './flag'
-import { sessionIsBehindContract } from './handlers'
+import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
 import {
   createOpencodeJournal,
   opencodeScopeLabel,
@@ -473,6 +473,16 @@ describe('the contract bind fact', () => {
     expect(sessionIsBehindContract(ctxWith({}), SESSION)).toBe(false)
   })
 
+  it('reports the driver from the registry handle that owns the session', () => {
+    const ctx = {
+      opencodeRuntime: {
+        handleFor: () => ({ binding: { driver: 'opencode-server' } }),
+      },
+    } as unknown as Parameters<typeof runtimeDriverIdFor>[0]
+
+    expect(runtimeDriverIdFor(ctx, SESSION)).toBe('opencode-server')
+  })
+
   it('is what EVERY bind site actually calls — the adoption pin', () => {
     /**
      * THE TRIO ABOVE PINS THE PREDICATE; THIS PINS ITS ADOPTION (POD-2023 review
@@ -484,15 +494,17 @@ describe('the contract bind fact', () => {
      * tests above and ships the same defect.
      *
      * So this reads the source and asserts the CALL SITES. Every `type: 'bind'`
-     * in the daemon either routes through the predicate or — for the opencode
+     * in the daemon either routes through the predicate or — for a server
      * driver's own bind — hardcodes `true`, which is equivalent by construction
-     * because the handle is registered before that line runs. A fifth bind site
+     * because the handle is registered before that line runs. An eighth bind site
      * appearing without one of those two shapes fails here.
      */
     const daemonSrc = join(import.meta.dirname, '..')
     const files = [
       join(daemonSrc, 'control', 'session.ts'),
       join(daemonSrc, 'runtime', 'opencode-driver.ts'),
+      join(daemonSrc, 'runtime', 'codex-driver.ts'),
+      join(daemonSrc, 'runtime', 'grok-driver.ts'),
     ]
     let bindSites = 0
     for (const file of files) {
@@ -514,6 +526,10 @@ describe('the contract bind fact', () => {
           body.includes('sessionIsBehindContract(') || body.includes('runtimeContract: true'),
           `bind site at ${file}:${index + 1} states no contract fact — a server-family session there would report false`,
         ).toBe(true)
+        expect(
+          body.includes('driverId'),
+          `bind site at ${file}:${index + 1} does not report its resolved driver`,
+        ).toBe(true)
         // …and NEVER by asking one registry directly, which is the regression.
         expect(
           body.includes('ctx.runtime?.has('),
@@ -522,17 +538,13 @@ describe('the contract bind fact', () => {
       }
     }
     /**
-     * FIVE today: launchSpawn, two handleReattach arms, the opencode driver's
-     * launch, and the opencode ADOPT path that rebinds a surviving server after
-     * a daemon restart.
+     * SEVEN today: launchSpawn, two handleReattach arms, three server-driver
+     * launches, and the ADOPT path that rebinds a surviving server after restart.
      *
      * The count is asserted so a new bind site cannot be added without coming
-     * here and deciding what it reports — and it has already earned that: the
-     * adopt path was the fifth, and this assertion is what stopped it shipping
-     * without the fact. A rebound session that reported `false` would be routed
-     * by W4's senders to a PTY it does not have.
+     * here and deciding what it reports.
      */
-    expect(bindSites).toBe(5)
+    expect(bindSites).toBe(7)
   })
 })
 

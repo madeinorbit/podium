@@ -180,6 +180,7 @@ export class SessionReadToolkit {
       sessionId: target.sessionId,
       agentKind: target.agentKind,
       harness: target.agentKind,
+      driverId: target.driverId ?? null,
       status: target.status,
       phase,
       machine: target.machineName || target.machineId || null,

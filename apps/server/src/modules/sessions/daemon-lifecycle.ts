@@ -196,7 +196,6 @@ export class SessionDaemonLifecycle {
         return session.terminal.lastUserInputAtMs > Date.parse(offerCreatedAt)
     }
   }
-
   handle(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
     const machineId = principal.machine
     switch (msg.type) {
@@ -223,6 +222,9 @@ export class SessionDaemonLifecycle {
           // Absent from an older daemon means the legacy path, which is both the
           // truth and the safe default.
           s.runtimeContract = msg.runtimeContract ?? false
+          // The resolved driver comes from the daemon's live handle binding, not
+          // from the requested override. Older daemons and legacy sessions omit it.
+          s.driverId = msg.driverId
           this.persist(s)
           this.autoContinue.onSessionLive(s.sessionId)
         }

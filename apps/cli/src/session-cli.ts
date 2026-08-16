@@ -112,7 +112,7 @@ function renderSubagents(s: StatusWire): string | null {
 export function renderStatus(s: StatusWire): string {
   return [
     `${s.sessionId} ${s.status}/${s.phase}`,
-    `runtime: harness=${s.harness ?? s.agentKind} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} context=${contextLabel(s.contextUsagePercent)}`,
+    `runtime: driver=${s.driverId ?? 'unknown'} harness=${s.harness ?? s.agentKind} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} context=${contextLabel(s.contextUsagePercent)}`,
     `placement: machine=${s.machine ?? 'unknown'} account=${s.account ?? 'default'}`,
     `state: nativeSubagentCount=${s.nativeSubagentCount} draft=${s.draft ? 'yes' : 'no'}`,
     renderSubagents(s),

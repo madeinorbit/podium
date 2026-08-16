@@ -165,6 +165,7 @@ export function createDaemonGrokRuntime(deps: {
         agentKind: 'grok',
         geometry: { cols: 120, rows: 40 },
         runtimeContract: true,
+        driverId: handle.binding.driver,
       })
       deps.send({
         type: 'agentState',

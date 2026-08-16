@@ -632,6 +632,8 @@ describe('DaemonMessage (daemon -> server)', () => {
       cwd: '/w',
       agentKind: 'claude-code',
       geometry,
+      runtimeContract: true,
+      driverId: 'claude-pty',
     },
     {
       type: 'bind',

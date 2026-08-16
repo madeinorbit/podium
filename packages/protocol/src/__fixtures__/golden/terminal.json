@@ -328,12 +328,13 @@
           "rows": 1
         },
         "draftSyncEngine": true,
-        "runtimeContract": true
+        "runtimeContract": true,
+        "driverId": "driverId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"draftSyncEngine\":true,\"runtimeContract\":true}"
+      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"draftSyncEngine\":true,\"runtimeContract\":true,\"driverId\":\"driverId\"}"
     },
     {
       "schema": "ControllerChangedMessage",

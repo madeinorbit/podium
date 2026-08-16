@@ -32,7 +32,7 @@ import type { Tier } from '../output-scheduler'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { runtimeContractEnabledFor, runtimeDriverByEnv, runtimeDriverFor } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
-import { sessionIsBehindContract } from '../runtime/handlers'
+import { runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
 import { opencodeVersionProbe } from '../runtime/opencode-server'
 import {
   availableDriverIds,
@@ -392,6 +392,7 @@ export async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promis
       ...(newSessionId ? { newSessionId } : {}),
     })
     bindRuntimeContract(ctx, msg, false)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
     // session. attach() is a no-op for harnesses without a driver.
     if (msg.draftSync) {
@@ -421,6 +422,7 @@ export async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promis
       // one would report `false` for a server-family session and route its
       // sends down the legacy PTY path, for a session that has no PTY.
       ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+      ...(driverId ? { driverId } : {}),
     })
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)
@@ -683,6 +685,7 @@ async function adoptServerDriverSession(
       // senders branch on it, and a rebound session that reported `false` would
       // be routed to a PTY it does not have.
       runtimeContract: true,
+      driverId: handle.binding.driver,
     })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
     log.info('adopted a surviving server-family session', {
@@ -1056,6 +1059,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       })
     }
     bindRuntimeContract(ctx, msg, true)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     const cmd =
       ctx.backend === 'tmux'
         ? `tmux -L ${msg.durableLabel} attach`
@@ -1079,6 +1083,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       // one would report `false` for a server-family session and route its
       // sends down the legacy PTY path, for a session that has no PTY.
       ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+      ...(driverId ? { driverId } : {}),
     })
     existing.redraw()
     // Re-push agent state for the same reason we re-seed the transcript below: a
@@ -1194,6 +1199,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       seedOnFrame: false,
     })
     bindRuntimeContract(ctx, msg, true)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     if (msg.draftSync) {
       ctx.composerEngine.attach(msg.sessionId, msg.agentKind, geometry.cols, geometry.rows)
     }
@@ -1211,6 +1217,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       // one would report `false` for a server-family session and route its
       // sends down the legacy PTY path, for a session that has no PTY.
       ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+      ...(driverId ? { driverId } : {}),
     })
     // attachAbducoAgent nudges the PTY before the bridge is wired, so that
     // initial repaint can be lost. Nudge once more after bind to make a fresh

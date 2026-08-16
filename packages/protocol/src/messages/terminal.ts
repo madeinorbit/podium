@@ -572,6 +572,12 @@ export const BindMessage = z.object({
    * on an intent. Additive; older daemons omit it (legacy path only).
    */
   runtimeContract: z.boolean().optional(),
+  /**
+   * The runtime driver this daemon actually bound, reported from the live
+   * handle's binding rather than inferred from the spawn request. Absent means
+   * either an older daemon or a legacy session with no runtime handle.
+   */
+  driverId: z.string().min(1).optional(),
 })
 export const AgentFrameMessage = z.object({
   type: z.literal('agentFrame'),

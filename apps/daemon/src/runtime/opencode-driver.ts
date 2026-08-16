@@ -295,6 +295,7 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
          * proof: the handle above was constructed and registered.
          */
         runtimeContract: true,
+        driverId: handle.binding.driver,
       })
       // …and the first state, so the badge is right before the first event
       // rather than after it.

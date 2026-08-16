@@ -70,6 +70,34 @@ describe('SessionStart: issue owner precedence', () => {
   })
 })
 
+describe('resolved runtime driver projection', () => {
+  it('publishes the driver from the daemon bind, not the spawn request', () => {
+    const { reg } = makeRegistry()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/proj',
+    })
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'codex app-server (codex-app-server)',
+      cwd: '/proj',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    })
+
+    expect(
+      reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId),
+    ).toMatchObject({
+      status: 'live',
+      driverId: 'codex-app-server',
+    })
+  })
+})
+
 describe('SessionStart: live session-id collision guard', () => {
   // Property is survival of the first live session, not merely that an error is thrown.
   it('refusing a live sessionId leaves the first session live and bound (not only throws)', () => {
