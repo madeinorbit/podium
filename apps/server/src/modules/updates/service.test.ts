@@ -321,6 +321,13 @@ describe('UpdatesService', () => {
     })
   })
 
+  /**
+   * WHERE THE DEADLINE WENT (POD-2101). This service used to age a silent grant
+   * into `stuck` from inside `fleet()` — which meant an update nobody was
+   * reading was an update nothing was timing. The operation's `machines` step
+   * owns that authority now, on a timer; what stays here is ENDING a grant when
+   * something with authority says so.
+   */
   describe('bounded convergence', () => {
     const target = { version: '0.4.2', critical: false, artifacts: {} } as never
     const makeClock = (machines: unknown[]) => {
@@ -333,42 +340,21 @@ describe('UpdatesService', () => {
         now: () => clock,
         nextGrantId: () => `g${++n}`,
         concurrency: 3,
-        grantDeadlineMs: 60_000,
         fleetChannel: () => 'dev',
       })
       return { svc, send, tick: (ms: number) => (clock += ms) }
     }
 
-    it('ages a silent machine into a visible failure instead of converging forever', () => {
+    it('does not age a grant from a fleet read, however long it is left silent', () => {
       const { svc, tick } = makeClock([m('a')])
       svc.setTarget(target)
       svc.authorize()
       expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
 
-      tick(60_000)
-      expect(svc.fleet()[0]).toMatchObject({
-        state: 'stuck',
-        detail: 'The machine stopped reporting progress while updating.',
-      })
-    })
-
-    it('measures silence, not duration: progress reports keep a slow update alive', () => {
-      const { svc, tick } = makeClock([m('a')])
-      svc.setTarget(target)
-      svc.authorize()
-
-      for (let i = 0; i < 4; i++) {
-        tick(50_000)
-        svc.onStatus(asMachineId('a'), {
-          type: 'updateStatus',
-          state: 'downloading',
-          version: '0.4.1',
-        })
-        expect(svc.fleet()[0]).toMatchObject({ state: 'downloading' })
-      }
-
-      tick(60_000)
-      expect(svc.fleet()[0]).toMatchObject({ state: 'stuck' })
+      // An hour of wall clock and a dozen readers: reading is not the passage
+      // of time, and this service no longer pretends otherwise.
+      tick(60 * 60_000)
+      for (let i = 0; i < 12; i++) expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
     })
 
     it('records an abandoned wait so giving up is visible, not silent', () => {
@@ -378,6 +364,138 @@ describe('UpdatesService', () => {
 
       expect(svc.abandonWait(['a', 'b'], 'the server stopped waiting')).toEqual(['a'])
       expect(svc.fleet()[0]).toMatchObject({ state: 'stuck', detail: 'the server stopped waiting' })
+    })
+
+    it('releases every grant still in flight when the operation that owned them ends', () => {
+      // Otherwise deleting the ageing would strand the row forever: excluded
+      // from every future wave, and `operationActive` true for good.
+      const { svc } = makeClock([m('a'), m('b')])
+      svc.setTarget(target)
+      // One canary first, so exactly one machine is mid-grant here.
+      svc.authorize()
+      expect(svc.operationActive('dev')).toBe(true)
+
+      expect(svc.releaseInFlightGrants()).toEqual(['a'])
+      expect(svc.fleet()[0]).toMatchObject({
+        state: 'stuck',
+        detail: 'The machine stopped reporting progress while updating.',
+      })
+      expect(svc.operationActive('dev')).toBe(false)
+    })
+
+    it('re-issues the grant for a machine the planner would otherwise skip', () => {
+      // The one automatic retry. `tick()` cannot do this: the planner excludes
+      // a machine it believes is mid-grant, so the retry would grant nobody.
+      const { svc, send } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+      })
+      send.mockClear()
+      expect(svc.tick('dev')).toEqual([])
+
+      expect(svc.reissueGrants('dev')).toEqual(['a'])
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant', grantId: 'g2' })
+    })
+
+    it('does not re-grant a machine that is offline or already at the target', () => {
+      const { svc, send } = make([m('a', { online: false }), m('b', { version: '0.4.2' })])
+      svc.setTarget(target)
+      svc.authorize()
+      send.mockClear()
+
+      expect(svc.reissueGrants('dev')).toEqual([])
+      expect(send).not.toHaveBeenCalled()
+    })
+  })
+
+  /** The frame that makes "downloading" mean something (POD-2101, spec §3.3). */
+  describe('progress heartbeats', () => {
+    const target = { version: '0.4.2', critical: false, artifacts: {} } as never
+
+    it('carries a percentage from the daemon onto the fleet projection', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+        percent: 62,
+        phaseDetail: 'downloading',
+      })
+
+      expect(svc.fleet()[0]).toMatchObject({
+        state: 'downloading',
+        percent: 62,
+        phaseDetail: 'downloading',
+      })
+    })
+
+    it('accepts a repeat of the same state as a new report', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      for (const percent of [10, 35, 90]) {
+        svc.onStatus(asMachineId('a'), {
+          type: 'updateStatus',
+          grantId: 'g1',
+          state: 'downloading',
+          version: '0.4.1',
+          percent,
+        })
+      }
+
+      expect(svc.fleet()[0]).toMatchObject({ state: 'downloading', percent: 90 })
+    })
+
+    it('drops the percentage when the phase moves on', () => {
+      // A stale 62% sitting under `restarting` is worse than no number at all.
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+        percent: 62,
+      })
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'restarting',
+        version: '0.4.1',
+      })
+
+      expect(svc.fleet()[0]).not.toHaveProperty('percent')
+    })
+
+    it('converges a daemon that reports no percentage at all', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+      })
+      expect(svc.fleet()[0]).not.toHaveProperty('percent')
+
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'current',
+        version: '0.4.2',
+      })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
     })
   })
 

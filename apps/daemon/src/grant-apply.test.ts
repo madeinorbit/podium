@@ -81,8 +81,14 @@ describe('applyGrant', () => {
       caps: ['update.delivery.feed', 'update.delivery.bundle'],
     })
     await applyGrant({ type: 'updateGrant', grantId: 'g-installed', target: developmentTarget }, d)
-    // The third argument is the supersede signal, absent for a direct apply.
-    expect(d.fetchArtifact).toHaveBeenCalledWith(developmentBundleAsset, 'bundle', undefined)
+    // The third argument is the supersede signal, absent for a direct apply;
+    // the fourth is where delivery reports its progress (POD-2101).
+    expect(d.fetchArtifact).toHaveBeenCalledWith(
+      developmentBundleAsset,
+      'bundle',
+      undefined,
+      expect.any(Function),
+    )
     expect(d.swap).toHaveBeenCalledOnce()
     expect(d.restart).toHaveBeenCalledOnce()
   })
@@ -123,6 +129,101 @@ describe('applyGrant', () => {
       (c: unknown[]) => (c[0] as { state: string }).state,
     )
     expect(states).toEqual(['downloading', 'restarting'])
+  })
+
+  /**
+   * THE HEARTBEAT (POD-2101). What the daemon owes the coordinator between
+   * "started" and "finished", so that nine minutes of downloading is
+   * distinguishable from nine minutes of nothing.
+   */
+  describe('progress heartbeats', () => {
+    const frames = (d: ReturnType<typeof deps>): Array<Record<string, unknown>> =>
+      (d.report as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0] as Record<string, unknown>,
+      )
+
+    it('turns each delivery report into a frame under the same grant id', async () => {
+      const d = deps({
+        fetchArtifact: vi.fn(
+          async (
+            _asset: unknown,
+            _delivery: unknown,
+            _signal?: AbortSignal,
+            onProgress?: (p: { phase: string; percent?: number }) => void,
+          ) => {
+            onProgress?.({ phase: 'downloading', percent: 20 })
+            onProgress?.({ phase: 'downloading', percent: 65 })
+            return { bytes: new Uint8Array([1]) }
+          },
+        ),
+      })
+      await applyGrant({ type: 'updateGrant', grantId: 'g-beat', target }, d)
+
+      expect(frames(d)).toEqual([
+        { type: 'updateStatus', grantId: 'g-beat', state: 'downloading', version: '0.4.1' },
+        {
+          type: 'updateStatus',
+          grantId: 'g-beat',
+          state: 'downloading',
+          version: '0.4.1',
+          percent: 20,
+          phaseDetail: 'downloading',
+        },
+        {
+          type: 'updateStatus',
+          grantId: 'g-beat',
+          state: 'downloading',
+          version: '0.4.1',
+          percent: 65,
+          phaseDetail: 'downloading',
+        },
+        { type: 'updateStatus', grantId: 'g-beat', state: 'restarting', version: '0.4.1' },
+      ])
+    })
+
+    it('names the phase without a percent when the delivery cannot measure one', async () => {
+      const d = deps({
+        fetchArtifact: vi.fn(
+          async (
+            _asset: unknown,
+            _delivery: unknown,
+            _signal?: AbortSignal,
+            onProgress?: (p: { phase: string; percent?: number }) => void,
+          ) => {
+            onProgress?.({ phase: 'git-fetch' })
+            return { git: true as const }
+          },
+        ),
+      })
+      await applyGrant({ type: 'updateGrant', grantId: 'g-git', target }, d)
+
+      const beat = frames(d)[1]
+      expect(beat).toMatchObject({ state: 'downloading', phaseDetail: 'git-fetch' })
+      expect(beat).not.toHaveProperty('percent')
+    })
+
+    it('goes quiet once a newer grant has superseded this one', async () => {
+      // A report from a superseded convergence would refresh the liveness of an
+      // update nobody is waiting for any more.
+      const abort = new AbortController()
+      const d = deps({
+        fetchArtifact: vi.fn(
+          async (
+            _asset: unknown,
+            _delivery: unknown,
+            _signal?: AbortSignal,
+            onProgress?: (p: { phase: string; percent?: number }) => void,
+          ) => {
+            abort.abort()
+            onProgress?.({ phase: 'downloading', percent: 40 })
+            return { bytes: new Uint8Array([1]) }
+          },
+        ),
+      })
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d, abort.signal)
+
+      expect(frames(d).some((f) => f.percent !== undefined)).toBe(false)
+    })
   })
 })
 

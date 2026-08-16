@@ -966,7 +966,16 @@ export function projectMachines(
   const details = updateOperationDetails(operation)
   const targetVersion = details?.target.version
   const fleet = new Map(context.updates.fleet().map((machine) => [machine.id, machine]))
-  const places = (step.places ?? []).map((place) => {
+  const places = (step.places ?? []).map((carried) => {
+    /**
+     * THE PERCENTAGE IS NEVER CARRIED FORWARD (POD-2101). Every other field on
+     * a place is a description of the machine that survives being re-stated;
+     * `percent` describes a phase, and a phase ends. Spreading the previous
+     * place would leave "62%" sitting under `restarting` — a number about work
+     * that has already finished, on the one contract whose whole subject is
+     * whether work is moving.
+     */
+    const { percent: _endedWithItsPhase, ...place } = carried
     const machine = fleet.get(place.id)
     if (!machine) return { ...place, state: 'offline' }
     if (targetVersion !== undefined && machine.version === targetVersion) {

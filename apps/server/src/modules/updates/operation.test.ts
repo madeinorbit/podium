@@ -21,7 +21,10 @@ import {
   RELOAD_SURFACES_ASK,
   reconcileUpdateOperation,
   resetUpdateOperationState,
+  STEP_HEARTBEAT_INTERVAL_MS,
+  UPDATE_BUDGETS,
   UPDATE_OPERATION_KIND,
+  UPDATE_STEP_DEADLINES,
   UPDATE_STEP_MACHINES,
   UPDATE_STEP_PREPARE,
   UPDATE_STEP_SERVER,
@@ -467,6 +470,8 @@ interface HarnessOptions {
   requestCoordinatorRestart?: () => void
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
   hostMachineId?: string
+  /** POD-2101: how often a watched step says it is still there. */
+  heartbeatIntervalMs?: number
 }
 
 /**
@@ -512,6 +517,12 @@ function harness(options: HarnessOptions = {}) {
     schedule: (fn) => {
       scheduled.push(fn)
     },
+    // The watchers' own clock is the fake one, so a heartbeat is earned by the
+    // clock being advanced and never by a test sleeping (POD-2101).
+    now: () => clock.clock.now(),
+    ...(options.heartbeatIntervalMs !== undefined
+      ? { heartbeatIntervalMs: options.heartbeatIntervalMs }
+      : {}),
   })
 
   const registry = new OperationKindRegistry()
@@ -1115,5 +1126,225 @@ describe('the exclusion group', () => {
   it('is the one a server move will join, not one per kind', () => {
     expect(updateOperationKind().exclusionGroup).toBe(LIFECYCLE_EXCLUSION_GROUP)
     expect(LIFECYCLE_EXCLUSION_GROUP).toBe('lifecycle')
+  })
+})
+
+// ──────────────────── §3.3 liveness (POD-2101) ────────────────────
+
+/**
+ * ONE TABLE, AND IT HAS TO NEST. Every number below belongs to a different
+ * process — a daemon's download timeout, its git budget, this server's step
+ * deadlines — and the only thing that keeps them coherent is that somebody
+ * asserts the order they have to be in.
+ */
+describe('the budgets nest', () => {
+  const machines = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]
+  const prepare = UPDATE_STEP_DEADLINES[UPDATE_STEP_PREPARE]
+  const web = UPDATE_STEP_DEADLINES[UPDATE_STEP_WEB]
+  const server = UPDATE_STEP_DEADLINES[UPDATE_STEP_SERVER]
+
+  it('lets a daemon fail on its OWN deadline before the coordinator gives up on it', () => {
+    // Otherwise the machine's real reason — a dead remote, a refused checkout —
+    // is replaced by the coordinator's guess that it went quiet.
+    expect(UPDATE_BUDGETS.downloadTimeoutMs).toBeLessThan(machines?.silenceMs ?? 0)
+    expect(UPDATE_BUDGETS.gitConvergenceMs).toBeLessThan(machines?.silenceMs ?? 0)
+  })
+
+  it('measures the wave against the LONGEST legitimate silence, not the cadence', () => {
+    // A daemon that predates `percent` reports `downloading` once and works in
+    // silence for its whole budget. Judging the step on the heartbeat cadence
+    // would stall and re-grant that machine mid-transfer, every time.
+    expect(machines?.silenceMs).toBe(
+      UPDATE_BUDGETS.gitConvergenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
+    )
+    expect(UPDATE_BUDGETS.downloadHeartbeatMs).toBeLessThan(machines?.silenceMs ?? 0)
+  })
+
+  it('keeps every silence budget inside its own step total', () => {
+    for (const budget of [machines, prepare, web, server]) {
+      if (budget?.silenceMs === undefined || budget.totalMs === undefined) continue
+      expect(budget.silenceMs).toBeLessThan(budget.totalMs)
+    }
+  })
+
+  it('beats faster than the panel calls a step stale', () => {
+    // The panel's threshold is sixty seconds (POD-2102); four beats inside it
+    // means one lost tick never reads as trouble.
+    expect(STEP_HEARTBEAT_INTERVAL_MS).toBeLessThanOrEqual(60_000 / 4)
+    for (const budget of [prepare, web]) {
+      expect(STEP_HEARTBEAT_INTERVAL_MS).toBeLessThan(budget?.silenceMs ?? Infinity)
+    }
+  })
+})
+
+describe('a step that hands work off still says it is there', () => {
+  it('prepare: heartbeats with elapsed time while the pack runs', async () => {
+    // A pack is quiet for minutes; the panel calls sixty seconds of quiet
+    // trouble. Both were true before this, which is why it said "stuck".
+    const h = harness({ requestDestBundle: () => new Promise(() => {}) })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const before = h.read().steps?.find((s) => s.id === UPDATE_STEP_PREPARE)?.lastProgressAt ?? 0
+
+    h.clock.advance(STEP_HEARTBEAT_INTERVAL_MS)
+    await h.drain()
+    await h.engine.whenSettled('op_1')
+
+    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_PREPARE)
+    expect(step?.state).toBe('running')
+    expect(step?.lastProgressAt).toBeGreaterThan(before)
+    expect(step?.detail).toContain('15s')
+  })
+
+  it('prepare: says nothing more once the pack has answered', async () => {
+    let settle = (): void => {}
+    const h = harness({
+      requestDestBundle: () => new Promise<void>((resolve) => (settle = resolve)),
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    settle()
+    await Promise.resolve()
+    await h.engine.whenSettled('op_1')
+    const settledAt = h.read().steps?.find((s) => s.id === UPDATE_STEP_PREPARE)?.lastProgressAt ?? 0
+
+    h.clock.advance(STEP_HEARTBEAT_INTERVAL_MS * 4)
+    await h.drain()
+    await h.engine.whenSettled('op_1')
+
+    // The outcome came from the pack settling, not from a watcher still ticking.
+    expect(h.read().steps?.find((s) => s.id === UPDATE_STEP_PREPARE)?.lastProgressAt).toBe(
+      settledAt,
+    )
+  })
+
+  it('web: heartbeats with elapsed time while the rebuild runs', async () => {
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => 'older99',
+      requestWebRebuild: () => {},
+      preparation: () => ({ webReady: false, bundleReady: false }),
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(stepState(h.read(), UPDATE_STEP_WEB)).toBe('running')
+
+    h.clock.advance(STEP_HEARTBEAT_INTERVAL_MS)
+    await h.drain()
+    await h.engine.whenSettled('op_1')
+
+    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_WEB)
+    expect(step?.state).toBe('running')
+    expect(step?.detail).toContain('Rebuilding the app')
+    expect(step?.detail).toContain('15s')
+  })
+})
+
+/**
+ * THE DRILL THE OLD DESIGN COULD NOT PASS. Nothing here reads `fleet()`, no
+ * panel is open, no poller exists: the only thing that happens is that time
+ * passes. The grant deadline used to age inside a `fleet()` read, so this whole
+ * sequence would have produced exactly nothing.
+ */
+describe('a silent grant, with nobody watching', () => {
+  const silentWave = () =>
+    harness({
+      machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+  const silenceMs = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs ?? 0
+
+  it('stalls visibly, re-issues the grant once, then fails', async () => {
+    const h = silentWave()
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.sent).toHaveLength(1)
+
+    h.clock.advance(silenceMs)
+    await h.engine.whenSettled('op_1')
+
+    // ONE retry, and a retry here MEANS re-issuing the grant: the wave planner
+    // skips a machine it believes is mid-grant, so a plain tick would have
+    // granted nobody and changed nothing.
+    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    expect(step?.stalls).toBe(1)
+    expect(step?.state).toBe('running')
+    expect(h.sent).toHaveLength(2)
+    expect(h.sent[1]?.machineId).toBe('vmi')
+
+    h.clock.advance(silenceMs)
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('failed')
+    expect(operation.error?.code).toBe('stalled')
+    // And the coordinator stops believing in the grant it was waiting on, so
+    // the machine is not excluded from every future wave (POD-2101).
+    expect(h.updates.releaseInFlightGrants()).toEqual(['vmi'])
+  })
+
+  it('a heartbeat re-arms the deadline, so a slow download is not a stalled one', async () => {
+    const h = silentWave()
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates })
+
+    for (const percent of [20, 55, 91]) {
+      h.clock.advance(silenceMs - 60_000)
+      h.updates.onStatus(asMachineId('vmi'), {
+        type: 'updateStatus',
+        grantId: 'grant_1',
+        state: 'downloading',
+        version: '0.4.1',
+        percent,
+      })
+      bridge.onFleetChanged()
+      await h.engine.whenSettled('op_1')
+
+      const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+      expect(step?.state).toBe('running')
+      expect(step?.stalls ?? 0).toBe(0)
+      // "vmi3407763 downloading 62%" (§6.2) — the number the panel renders.
+      expect(step?.places?.[0]).toMatchObject({ id: 'vmi', state: 'downloading', percent })
+    }
+    // Three quarters of an hour of a healthy download, never once stalled.
+    expect(h.read().state).toBe('running')
+  })
+
+  it('drops the percentage from a place that is no longer moving', async () => {
+    const h = silentWave()
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates })
+
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      state: 'downloading',
+      version: '0.4.1',
+      percent: 62,
+    })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      state: 'restarting',
+      version: '0.4.1',
+    })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    const place = h
+      .read()
+      .steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+      ?.places?.[0]
+    expect(place).toMatchObject({ state: 'restarting' })
+    expect(place).not.toHaveProperty('percent')
   })
 })
