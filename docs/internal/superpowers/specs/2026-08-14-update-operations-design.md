@@ -560,6 +560,17 @@ would invent "behind" places that the global action must never grant. It changes
 dialog *counts*, not merely which authority it asks. Recorded in POD-2191 and in a comment
 where a reader meets it.
 
+### 19.2d §9.2 is not delivered as written
+
+The source drive (POD-2194) proved the central claim — an operation adopted across a real
+coordinator restart, same id, same step positions, exactly one operation on record — and in
+doing so found that **git delivery still requires a pack**. A bare `dev+<sha>` identity always
+plans a prepare step, and the machines step refuses to grant until a packed descriptor exists,
+so git is an alternative offered *alongside* the bundle rather than instead of it: a machine
+advertising only git delivery waits for a package it can never use. §9.2 says that machine
+"needs no build and no download". Tracked as POD-2195; the likely honest shape is that the
+pack is planned *per delivery capability of the selected machines*, not always or never.
+
 ### 19.3 Known-open at the time of writing
 
 A double grant when a wave widens past its canary; the eager web bundle over budget; the
