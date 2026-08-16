@@ -273,6 +273,16 @@ export function TranscriptFeed({
     <div
       className={cn(
         'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
+        // ONE MECHANISM HOLDS THE SCROLL, NOT TWO (POD-993 round 3). Chromium
+        // anchors a scroller to whatever element it picks near the top and shifts
+        // `scrollTop` to keep it still. This feed already has its own, explicit
+        // versions of that — `prependAnchor` for paging older rows in, and the
+        // pinned-to-bottom re-snap for the tail — and the two disagree: the
+        // browser's anchor fires first, moves the view, and the manual write
+        // corrects it a frame later, which is exactly what a jump looks like.
+        // Ours are the ones that know which case they are in, so the browser's
+        // is turned off rather than argued with.
+        '[overflow-anchor:none]',
         // §2.5 feed geometry: 12px/14px padding in the narrow column.
         //
         // THE MEASURE RETURNS, CENTRED (POD-993 round 2). POD-747 removed every

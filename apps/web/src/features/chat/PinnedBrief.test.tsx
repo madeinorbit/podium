@@ -39,7 +39,24 @@ function render(
 const shelf = (): HTMLElement | null => host.querySelector('.brief-shelf')
 const toggle = (): HTMLElement | null => host.querySelector('[data-testid="prompt-expand-toggle"]')
 
+/** jsdom lays nothing out, so the shelf's own overflow measurement always reads
+ *  zero and its control would never appear. `clipped` decides whether the brief
+ *  is actually cut, so the suite stands in for the one measurement it depends
+ *  on — see `useLayoutEffect` in PinnedBrief. */
+let clipped = true
+const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'scrollHeight',
+)
+
 beforeEach(() => {
+  clipped = true
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains('brief-shelf-text') && clipped ? 999 : 0
+    },
+  })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -50,6 +67,9 @@ afterEach(() => {
     root.unmount()
   })
   host.remove()
+  if (scrollHeightDescriptor)
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeightDescriptor)
+  else Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight')
 })
 
 describe('the pinned brief', () => {
@@ -96,6 +116,27 @@ describe('the pinned brief', () => {
     // gesture belonged to the moment, not to the message.
     render(brief('7', '<p>the first brief</p>'))
     expect(shelf()?.dataset.open).toBeUndefined()
+  })
+
+  // THREE LINES, THEN THE CONTROL (round 3). It clamped at two and offered "Show
+  // full" on every brief, including the ones with nothing hidden — chrome for a
+  // problem the reader did not have, plus a faded last line under nothing.
+  it('offers no control, and no fade, for a brief that fits', () => {
+    clipped = false
+    render(brief('7', '<p>two words</p>'))
+    expect(host.querySelector('[data-testid="pinned-brief"]')).not.toBeNull()
+    expect(toggle()).toBeNull()
+    expect(shelf()?.dataset.clipped).toBeUndefined()
+  })
+
+  it('marks a brief that IS cut, so only that one fades', () => {
+    render(brief('7', '<p>a brief that runs well past three lines</p>'))
+    expect(shelf()?.dataset.clipped).toBe('true')
+    act(() => {
+      toggle()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    // Open, nothing is cut any more, so the fade goes with the clamp.
+    expect(shelf()?.dataset.clipped).toBeUndefined()
   })
 
   it('omits the clock rather than inventing one', () => {

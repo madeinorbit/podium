@@ -163,9 +163,9 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       // A key for React and for the shelf's own open/closed state. The index is
       // fine for THAT — it only has to change when the brief does, and it is
       // combined with the identity check above, which is what makes it safe.
-      key: active.dataset.block ?? '',
-      html: active.querySelector<HTMLElement>('.transcript-you-body')?.innerHTML ?? '',
-      time: active.querySelector<HTMLElement>('.chat-clk')?.textContent ?? '',
+      key: next.dataset.block ?? '',
+      html: next.querySelector<HTMLElement>('.transcript-you-body')?.innerHTML ?? '',
+      time: next.querySelector<HTMLElement>('.chat-clk')?.textContent ?? '',
     })
   }, [scrollerRef, stickyEnabled])
 
@@ -237,8 +237,26 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       syncStickyPromptPositions()
     })
     ro.observe(el)
+    // ...AND EVERY ROW IN IT (POD-993 round 3). Observing only the scroller
+    // catches a resized WINDOW and nothing else: the scroller is `flex-1`, so
+    // its own box does not change when the content inside it grows. That is the
+    // whole of the "it jumps away from the bottom while the agent is typing"
+    // report — a streaming answer grows an EXISTING row, `blockCount` never
+    // changes, the effect above never fires, and the only thing holding the view
+    // down was the browser's native scroll anchoring, which lets go the moment
+    // the growth is below the anchor it chose.
+    //
+    // Observing the rows themselves catches all of it: streamed tokens, a code
+    // block laying out late, an image loading, a work line unfolding. Cheap
+    // because ResizeObserver reports in one batched callback however many
+    // elements moved, and the callback does nothing at all unless pinned.
+    const rows = el.children
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      if (row instanceof Element) ro.observe(row)
+    }
     return () => ro.disconnect()
-  }, [syncStickyPromptPositions])
+  }, [syncStickyPromptPositions, rowsToRender])
 
   // Snap to bottom on pane switch-in: the keep-mounted panel deck hides inactive
   // panels with `display:none`, so scroll events stop firing. When this pane

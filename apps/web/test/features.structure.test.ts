@@ -32,6 +32,7 @@ const EXCEPTIONS: Record<string, Record<string, string>> = {
     // imported, so a seam that closed has to be struck off here or it reads as
     // still permitted. Deleting the row is the ratchet closing a notch.
   },
+  chat: { git: 'a file tool-use opens its changes in the git DiffSheet (POD-993)' },
   terminal: { chat: 'agent pane embeds the chat surface' },
   issues: { chat: 'issue and session rows embed the chat OfferBar' },
   superagent: { chat: 'superagent thread is a chat surface' },

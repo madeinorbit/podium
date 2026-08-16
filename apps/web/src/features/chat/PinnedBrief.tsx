@@ -7,7 +7,7 @@
  * styles.css for the full argument and the geometry.
  */
 import type { JSX, MouseEvent as ReactMouseEvent, RefObject, WheelEvent } from 'react'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { PinnedBrief as PinnedBriefState } from './use-transcript-scroll'
 
 export function PinnedBrief({
@@ -33,6 +33,29 @@ export function PinnedBrief({
   const key = brief?.key ?? null
   if (pin.key !== key) setPin({ key, open: false })
   const open = pin.key === key && pin.open
+
+  /**
+   * IS IT ACTUALLY CUT? The shelf clamps at three lines, and most briefs are
+   * shorter than that — so offering "Show full" on every one of them, and fading
+   * a last line that has nothing under it, is chrome for a problem the reader
+   * does not have. Measured rather than guessed, because the answer depends on
+   * the pane width: the same sentence is two lines wide and five lines narrow.
+   */
+  const textRef = useRef<HTMLDivElement | null>(null)
+  const [clipped, setClipped] = useState(false)
+  useLayoutEffect(() => {
+    const el = textRef.current
+    if (!el) return
+    const measure = (): void => setClipped(el.scrollHeight > el.clientHeight + 2)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    // Re-measure as the pane is dragged: a control that should exist at one
+    // width and not another has to appear and disappear with it.
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   if (!brief) return null
 
   /**
@@ -66,6 +89,7 @@ export function PinnedBrief({
       <div
         className="brief-shelf"
         data-open={open ? 'true' : undefined}
+        data-clipped={clipped && !open ? 'true' : undefined}
         onWheel={onWheel}
         onClick={onBodyClick}
       >
@@ -75,24 +99,27 @@ export function PinnedBrief({
           // in it. Without the class those get the browser's defaults — a 1em
           // paragraph margin alone would push the first line most of the way out
           // of a two-line clamp.
+          ref={textRef}
           className="chat-md brief-shelf-text"
           // biome-ignore lint/security/noDangerouslySetInnerHtml: lifted verbatim from the row's own body, which renderMarkdown already sanitized
           dangerouslySetInnerHTML={{ __html: brief.html }}
         />
         <div className="brief-shelf-side">
           {brief.time !== '' && <span className="brief-shelf-time">{brief.time}</span>}
-          <button
-            data-pressable
-            type="button"
-            className="brief-shelf-toggle"
-            data-testid="prompt-expand-toggle"
-            aria-expanded={open}
-            onClick={() => {
-              setPin({ key: brief.key, open: !open })
-            }}
-          >
-            {open ? 'Show less' : 'Show full'}
-          </button>
+          {(clipped || open) && (
+            <button
+              data-pressable
+              type="button"
+              className="brief-shelf-toggle"
+              data-testid="prompt-expand-toggle"
+              aria-expanded={open}
+              onClick={() => {
+                setPin({ key: brief.key, open: !open })
+              }}
+            >
+              {open ? 'Show less' : 'Show full'}
+            </button>
+          )}
         </div>
       </div>
     </div>

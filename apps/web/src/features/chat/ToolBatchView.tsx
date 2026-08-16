@@ -1,9 +1,9 @@
 import { Tooltip } from '@base-ui/react/tooltip'
-import { formatClock } from '@podium/client-core/viewmodels'
+import { formatClock, parseToolEdit } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { BrailleSpinner } from '@/lib/motion/BrailleSpinner'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
@@ -21,6 +21,14 @@ import { ToolBlock, toolCallLabel } from './ToolBlock'
 
 /** While a run is live the timer ticks; a settled row's span never changes, so
  *  it only needs an interval slow enough to cost nothing. */
+/** The diff viewer is a whole second reading surface — a rail, a parser, a
+ *  fetcher — and it is needed only once someone clicks a file. Loading it with
+ *  the chat would put all of that in the bundle every session pays for on open,
+ *  to serve a click most readers never make. */
+const DiffSheet = lazy(() =>
+  import('@/features/git/DiffSheet').then((m) => ({ default: m.DiffSheet })),
+)
+
 const LIVE_TICK_MS = 1000
 const IDLE_TICK_MS = 600_000
 
@@ -207,6 +215,40 @@ export function ToolBatchView({
   openFile: (sessionId: SessionId, path: string) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  /**
+   * THE RUN'S OWN FILES, IN THE BIG DIFF SHEET (POD-993 round 3).
+   *
+   * A file edit used to unfold into a cramped inline diff inside a work line
+   * inside a transcript row — a reading surface three boxes deep and one column
+   * wide. The git pane already had the right object for this: a full sheet with
+   * a real gutter and room for the hunks. This routes the chat at it.
+   *
+   * The sheet's rail is SCOPED to the files this run touched, so it opens as a
+   * view of "what this batch changed" rather than of the whole worktree — which
+   * is what makes it belong to the row you clicked.
+   *
+   * What it shows is the file's CURRENT state against HEAD, because that is the
+   * only diff that exists: a transcript records what a tool was asked to do, not
+   * a baseline to diff against, so a historical edit cannot be reconstructed
+   * from it. For the live session you are reading, those are the same thing.
+   */
+  const [diffPath, setDiffPath] = useState<string | null>(null)
+  const editedPaths = useMemo(() => {
+    const seen: string[] = []
+    const add = (raw: string | undefined): void => {
+      const path = raw?.replace(/^\.\//, '')
+      if (path && !seen.includes(path)) seen.push(path)
+    }
+    for (const b of row.blocks) {
+      // Both sources: `toolPaths` is what the harness reported the call touched,
+      // and the parsed edit carries the path for harnesses that report only the
+      // input JSON. A call can have either, and an edit is exactly the case the
+      // sheet exists for.
+      for (const raw of b.item.toolPaths ?? []) add(raw)
+      add(parseToolEdit(b.item.toolInputJson)?.path)
+    }
+    return seen
+  }, [row.blocks])
   const expanded = open || forceOpen
   const rowClass = cn(
     'transcript-row',
@@ -314,12 +356,28 @@ export function ToolBatchView({
                   sessionId={sessionId}
                   cwd={cwd}
                   openFile={openFile}
+                  onOpenDiff={editedPaths.length > 0 ? setDiffPath : undefined}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+      {diffPath !== null && editedPaths.length > 0 && (
+        // No fallback UI: the sheet is a modal over the feed, and a skeleton
+        // flashing behind it would be a second thing appearing. The chunk is
+        // small and local, so the click either opens it or opens it a frame late.
+        <Suspense fallback={null}>
+          <DiffSheet
+            cwd={cwd}
+            entries={editedPaths.map((path) => ({ x: 'M', y: ' ', path, untracked: false }))}
+            initialPath={diffPath}
+            onClose={() => setDiffPath(null)}
+            onRefresh={() => {}}
+            refreshing={false}
+          />
+        </Suspense>
+      )}
     </div>
   )
 }

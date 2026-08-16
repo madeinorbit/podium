@@ -29,9 +29,8 @@ import { useNow } from '@/lib/useNow'
  *             you" means here, so the row earns the attention keyline and does
  *             NOT recede — it is the one state the reader must act on. It
  *             arrives with a single one-shot morph and then holds.
- *   idle      recedes: dim, quoted in minutes, and dimmer again past ten of
- *             them. Nothing is happening and nothing is being asked, so the row
- *             should cost the eye as little as it costs the session.
+ *   (absent)  nothing is happening and nothing is being asked, so there is no
+ *             row at all — see `transcriptTailState` for why the idle line went.
  *
  * The figures coarsen with the state. Only a live timer earns per-second
  * precision; an idle clock counting "17m 39s → 17m 40s" is motion that says
@@ -48,15 +47,7 @@ const WAITING_LABEL: Record<string, string> = {
   'waiting on decision': 'Waiting on your decision',
 }
 
-type TailMode =
-  | 'working'
-  | 'sending'
-  | 'wait'
-  | 'waiting'
-  | 'error'
-  | 'interrupted'
-  | 'note'
-  | 'idle'
+type TailMode = 'working' | 'sending' | 'wait' | 'waiting' | 'error' | 'interrupted' | 'note'
 
 export interface TranscriptTailState {
   mode: TailMode
@@ -201,8 +192,15 @@ export function transcriptTailState(
     return { mode: 'interrupted', label: 'Interrupted by you', since: fallbackSince }
   }
   if (activity) return { mode: 'note', label: activity.label, since: fallbackSince }
-  if (!fallbackSince) return null
-  return { mode: 'idle', label: 'Idle', since: fallbackSince }
+  // NOTHING IS THE RIGHT ENDING (POD-993 round 3). There was an `idle` row here —
+  // a dot, the word "Idle" and a clock counting since the last activity — and it
+  // was the most common state of the tail, because most transcripts most of the
+  // time are not doing anything. It read as a status that needed reading and was
+  // never news: a conversation that has stopped is evident from the conversation
+  // having stopped. Stillness is the signal (DESIGN.md §5), and the loudest way
+  // to say "still" is to say nothing. The tail now appears only while there is
+  // something true to report.
+  return null
 }
 
 /** Seconds in the first minute, then whole minutes: past 60s the seconds digit
@@ -212,9 +210,6 @@ function coarseElapsed(ms: number): string {
   const m = Math.floor(ms / 60_000)
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
-
-/** Past this an idle session is background, not news — the row dims again. */
-const STALE_IDLE_MS = 10 * 60_000
 
 export function TranscriptTail({
   activity,
@@ -264,7 +259,6 @@ export function TranscriptTail({
       key={kind}
       className="feed-tail"
       data-tail={kind}
-      data-stale={kind === 'idle' && elapsed >= STALE_IDLE_MS ? 'true' : undefined}
       data-testid="feed-tail"
       // A live region for the states that CHANGE — a phase transition is worth
       // announcing. Idle is not a change, and would announce on every tick.

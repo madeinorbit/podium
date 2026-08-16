@@ -31,11 +31,16 @@ export function ToolBlock({
   sessionId,
   cwd,
   openFile,
+  onOpenDiff,
 }: {
   block: ChatBlock
   sessionId: SessionId
   cwd: string
   openFile: (sessionId: SessionId, path: string) => void
+  /** Open this call's file in the run's diff sheet. Absent → the row falls back
+   *  to unfolding its diff in place, which is what happens anywhere the sheet
+   *  cannot be mounted. */
+  onOpenDiff?: ((path: string) => void) | undefined
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const { item } = block
@@ -51,14 +56,22 @@ export function ToolBlock({
   const command = item.toolName === 'Bash' ? item.toolInput : undefined
   const subject = command ?? item.toolTitle ?? item.toolInput
   const aside = command && item.toolTitle ? item.toolTitle : undefined
+  // A CALL THAT CHANGED A FILE OPENS THE FILE. For everything else the row's own
+  // click is still the only way to see what it returned, so the two behaviours
+  // live on the same control rather than adding a second one beside it.
+  const diffPath = onOpenDiff && edit ? (edit.path ?? item.toolPaths?.[0]) : undefined
+  const activate = (): void => {
+    if (diffPath && onOpenDiff) onOpenDiff(diffPath.replace(/^\.\//, ''))
+    else setOpen((v) => !v)
+  }
   return (
     <div className="tool-block min-w-0" data-verdict={verdict}>
       <button
         data-pressable
         type="button"
         className="tool-row cursor-pointer py-0.5 text-left hover:text-foreground"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
+        onClick={activate}
+        {...(diffPath ? { title: `Open ${diffPath}` } : { 'aria-expanded': open })}
       >
         <span
           className={cn(
@@ -73,52 +86,26 @@ export function ToolBlock({
         {/* A floor, not a cap: short names share one column so the targets line
             up to a single left edge; a long one (NotebookEdit) still shows in
             full rather than truncating to nothing. */}
-        <span className="min-w-[46px] flex-none font-semibold text-[10.5px]">{label}</span>
+        <span className="tool-name">{label}</span>
         {subject && (
           <span className={cn('min-w-0 truncate', command ? 'tool-cmd' : 'tool-subject')}>
             {subject}
           </span>
         )}
-        {item.toolPaths && item.toolPaths.length > 0 && (
-          <span className="ml-auto flex flex-none gap-2">
-            {item.toolPaths.slice(0, 2).map((p) => (
-              // Nested interactive content inside the toggle button is invalid;
-              // spans with onClick keep the row a single button while file names
-              // stay individually clickable.
-              // biome-ignore lint/a11y/useKeyWithClickEvents: the enclosing button carries keyboard access to the row; file opening is also reachable from the expanded result
-              // biome-ignore lint/a11y/noStaticElementInteractions: see above
-              <span
-                key={p}
-                className="cursor-pointer border-b border-border text-[10px] hover:text-foreground"
-                title={`Open ${p}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  openFile(sessionId, resolveAgainstCwd(cwd, p))
-                }}
-              >
-                {p.split('/').pop()}
-              </span>
-            ))}
-          </span>
-        )}
       </button>
-      {/* The agent's own words about a command it ran — kept, but demoted below
-          the command itself. */}
-      {aside && !open && <div className="tool-aside">{aside}</div>}
-      {verdict === 'err' && !open && <div className="tool-fail-line">{failLine(result)}</div>}
-      {/* What the call returned, one line, without a further click. Suppressed
-          for failures (the fail line above already carries the first line) and
-          once the full result is open. */}
-      {verdict !== 'err' && !open && (editPreview || preview) && (
-        <div className="tool-out">
-          <span className="tool-out-line">{editPreview ?? preview?.line}</span>
-          {preview && preview.more > 0 && (
-            <span className="tool-out-more">
-              +{preview.more} {preview.more === 1 ? 'line' : 'lines'}
-            </span>
-          )}
-        </div>
-      )}
+      {/* NOTHING ON THE FIRST LAYER (POD-993 round 3). An unfolded run used to
+          carry, under every row, the agent's aside and a preview line of what
+          the call returned — so opening a run of twelve calls produced
+          twenty-four lines of half-detail nobody asked for, and the list stopped
+          being scannable, which is the only thing a list of calls is for. The
+          run now reads as the design draws it: one line per call, verdict, name,
+          target. What a call SAID is one click away, on that call.
+
+          The exception is a FAILURE, which is not detail — it is the verdict,
+          and a reader who has to click to discover that something broke has been
+          told the wrong thing by the row above it. */}
+      {aside && open && <div className="tool-aside">{aside}</div>}
+      {verdict === 'err' && <div className="tool-fail-line">{failLine(result)}</div>}
       {open && edit && <ToolEditDiff edit={edit} />}
       {open && !edit && <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>}
       {open && edit && verdict === 'err' && result && (

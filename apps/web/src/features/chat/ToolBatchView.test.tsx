@@ -5,6 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults, type ToolBatchRow } from './chat'
 import { ToolBatchView, WorkLinePreviewList } from './ToolBatchView'
 
+// The diff sheet reads through the store, and this suite mounts a work line
+// rather than an app. What it asserts is that a file edit ROUTES to the sheet;
+// the sheet's own fetching has its own suite (features/git/DiffSheet.test.tsx).
+vi.mock('@/app/store', () => ({
+  useStoreSelector: (sel: (s: unknown) => unknown) =>
+    sel({
+      gitDiffFile: async () => ({ ok: true, output: '' }),
+      readFileScoped: async () => ({ ok: true, content: '' }),
+    }),
+}))
+
 // The work line (POD-364): a run of tool calls is one progress object. Live it
 // names the call in flight and counts up; settled it summarizes. What must never
 // regress: a failure stays visible on the COLLAPSED row, and the count is always
@@ -136,7 +147,7 @@ describe('ToolBatchView — the work line', () => {
     expect(line.querySelector('.work-line-glyph')?.className).toContain('work-line-glyph--err')
   })
 
-  it('unfolds a file-edit into its diff, not the tool result text', () => {
+  it('unfolds a file-edit into its diff, not the tool result text', async () => {
     const json = JSON.stringify({
       kind: 'file-edit',
       path: 'ChatView.tsx',
@@ -161,17 +172,25 @@ describe('ToolBatchView — the work line', () => {
     act(() => {
       line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
     })
-    expect(line.querySelector('.tool-out-line')?.textContent).toBe('+1 −1')
+    // NOTHING ON THE FIRST LAYER (POD-993 round 3). The unfolded run names the
+    // calls and stops: no magnitude, no preview of what each one returned.
+    expect(line.querySelector('.tool-out-line')).toBeNull()
+    expect(line.querySelector('.tool-row')?.textContent).toContain('Edit')
+    expect(line.querySelector('.tool-subject')?.textContent).toBe('ChatView.tsx')
+    // A file edit opens the run's diff SHEET rather than an inline diff cramped
+    // into a work line inside a transcript row.
     act(() => {
       line.querySelector<HTMLButtonElement>('.tool-row')!.click()
     })
-    const diff = line.querySelector('[data-testid="tool-edit-diff"]')
-    expect(diff).not.toBeNull()
-    expect(diff?.textContent).toContain('const a = 1')
-    expect(diff?.textContent).toContain('const a = 2')
-    expect(diff?.querySelector('.tool-edit-line--del')).not.toBeNull()
-    expect(diff?.querySelector('.tool-edit-line--add')).not.toBeNull()
-    expect(line.querySelector('.tool-result-full')).toBeNull()
+    expect(line.querySelector('[data-testid="tool-edit-diff"]')).toBeNull()
+    // The sheet is lazy — it is a whole reading surface, and the chat should not
+    // carry it in the bundle for a click most readers never make.
+    for (let i = 0; i < 20 && host.querySelector('[data-testid="diff-sheet"]') === null; i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10))
+      })
+    }
+    expect(host.querySelector('[data-testid="diff-sheet"]')).not.toBeNull()
   })
 
   it('unfolds and refolds the individual calls on the same click target', () => {
@@ -190,7 +209,15 @@ describe('ToolBatchView — the work line', () => {
     expect(line.getAttribute('data-open')).toBe('true')
     expect(line.querySelectorAll('.work-line-list .tool-row')).toHaveLength(2)
     expect(line.querySelector('.tool-subject')?.textContent).toBe('a.ts')
-    expect(line.querySelector('.tool-out-line')?.textContent).toBe('ok')
+    // The call's own output is one more click away, on the call.
+    expect(line.querySelector('.tool-out-line')).toBeNull()
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.tool-row')!.click()
+    })
+    expect(line.querySelector('.tool-result-full')?.textContent).toBe('ok')
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.tool-row')!.click()
+    })
     act(() => {
       line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
     })

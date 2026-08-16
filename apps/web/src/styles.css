@@ -2884,30 +2884,41 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 11px 14px 12px;
   border: 1px solid var(--chat-bubble-rim);
   border-radius: 13px;
-  /* Translucent over a blur, so the transcript running underneath is legible AS
-     underneath — the one moment in this window something is allowed to occlude
-     something else, and it says so rather than pretending to be opaque. */
-  background: var(--chat-shelf);
-  -webkit-backdrop-filter: blur(14px) saturate(1.15);
-  backdrop-filter: blur(14px) saturate(1.15);
+  /* OPAQUE (POD-993 round 3). It was translucent over a blur, on the argument
+     that a thing occluding the feed should say so. In use that argument loses:
+     the shelf carries WORDS, the reader is reading them, and text over a moving
+     blur of other text is harder to read than text on a surface — the honesty
+     was paid for by the one thing the shelf exists to do. It is the sheet's own
+     ground now, lifted by the one drop shadow this system reserves for what will
+     disappear. */
+  background: var(--card);
   box-shadow: 0 14px 30px -18px var(--chat-shadow);
   pointer-events: auto;
 }
-/* Two lines, and the third fades out under the mask rather than under a painted
-   gradient: the shelf is translucent, so a gradient to a solid would have to
-   guess the colour of whatever is scrolling behind it and would be wrong twice a
-   second. Masking the TEXT is right against any backdrop. */
+/* THREE LINES, THEN THE CONTROL (POD-993 round 3). It clamped to two and faded
+   the third, which meant almost every brief arrived cut — two lines is under a
+   sentence at this measure, so the toggle was doing work on messages that had
+   almost nothing hidden. Three lines holds an ordinary brief whole, and the
+   control appears for the ones that genuinely run past it (see `overflows` in
+   PinnedBrief: it is measured, not assumed).
+
+   Still a mask rather than a painted gradient: masking the TEXT needs no
+   knowledge of what is behind it, and survives the shelf's ground changing. */
 .brief-shelf-text.chat-md {
   flex: 1;
   min-width: 0;
-  max-height: 46px;
+  max-height: 69px;
   overflow: hidden;
   font-size: 14.5px;
   line-height: 23px;
   color: var(--foreground);
   text-wrap: pretty;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 23px, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0, #000 23px, transparent 100%);
+}
+/* The fade is only for a brief that is ACTUALLY cut — a two-line message inside
+   a three-line clamp must not have its last line dimmed for nothing. */
+.brief-shelf[data-clipped="true"] .brief-shelf-text {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 46px, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 46px, transparent 100%);
 }
 .brief-shelf[data-open="true"] .brief-shelf-text {
   max-height: 320px;
@@ -3107,26 +3118,38 @@ html[data-density="balanced"] .header-quota-pools {
 
 /* Muted one-line tool rows: mono machine voice, verdict glyph, right-aligned
    magnitude. Boxless — activity recedes, verdicts remain legible. */
+/* ONE LINE PER CALL (POD-993 round 3). The unfolded run is a LIST: a verdict, a
+   tool, a target, on a 1.75 leading so twelve of them read as a column rather
+   than a wall. The tool name holds its own 42px column so the targets share one
+   left edge, and the target takes what is left and ellipses. */
 .tool-row {
   display: flex;
   align-items: baseline;
-  gap: 9px;
+  gap: 8px;
   min-width: 0;
   width: 100%;
   font-family: var(--font-mono, ui-monospace, monospace);
   /* DESIGN.md's mono size — the bottom of the feed's type band (POD-376). */
   font-size: 10.5px;
-  color: var(--muted-foreground);
+  line-height: 1.75;
+  color: var(--text-dim, var(--muted-foreground));
 }
 .tool-glyph {
   flex: none;
-  width: 12px;
+  width: 7px;
   text-align: center;
   font-size: var(--shell-type-micro);
-  color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+  color: var(--text-faint);
+}
+/* The tool's name is the one thing in the row at full ink: it is what a reader
+   scans down the column for. */
+.tool-name {
+  flex: none;
+  min-width: 42px;
+  color: var(--text-strong, var(--foreground));
 }
 .tool-glyph--ok {
-  color: var(--info);
+  color: var(--text-faint);
 }
 .tool-glyph--err {
   color: var(--destructive);
@@ -3295,15 +3318,23 @@ html[data-density="balanced"] .header-quota-pools {
 .minimap {
   position: relative;
   display: flex;
+  justify-content: center;
   flex: 1 1 auto;
   min-height: 0;
 }
+/* A 7px RAIL, NOT A 22px PANEL (POD-993 round 3). The map filled the whole
+   gutter, which made it a second column of colour beside the reading one; the
+   design draws it as a thin track centred in the gutter, with the bands stepping
+   in from its right edge and the viewport box sitting just OUTSIDE it. At that
+   width the map is a margin annotation — glanceable, never a thing you read. */
 .minimap-track {
   position: relative;
-  flex: 1 1 auto;
-  overflow: hidden;
+  /* Fixed width, full height: a row flex-child stretches vertically by default,
+     which is what makes the track span the column. */
+  flex: 0 0 7px;
+  overflow: visible;
   border-radius: 3px;
-  background: var(--hairline-soft);
+  background: color-mix(in oklab, var(--foreground) 5%, transparent);
   cursor: pointer;
   touch-action: none;
 }
@@ -3311,6 +3342,7 @@ html[data-density="balanced"] .header-quota-pools {
   position: absolute;
   inset-inline: 0;
   min-height: 2px;
+  border-radius: 1px;
   pointer-events: none;
 }
 /* The four bands, in priority of attention — encoded in WIDTH as well as hue,
@@ -3351,8 +3383,8 @@ html[data-density="balanced"] .header-quota-pools {
      you      the issue's own hue, lifted a little toward strong ink so an
               uncoloured issue's slate still clears the field under it. Where an
               exchange BEGINS. Full width, and the only hue on the column.
-     agent    narration. Faint, stepped in 5px.
-     work     machine activity. Faintest, stepped in 11px.
+     agent    narration. Faint, stepped in 2px.
+     work     machine activity. Faintest, stepped in 4px.
 
    Weighting it the other way — which is what "you > answer > agent > work" in
    ramp order produced — filled two thirds of the column with a light grey field
@@ -3370,11 +3402,11 @@ html[data-density="balanced"] .header-quota-pools {
   background: color-mix(in oklab, var(--text-strong, var(--foreground)) 78%, transparent);
 }
 .minimap-tick--agent {
-  inset-inline: 0 5px;
+  inset-inline: 0 2px;
   background: color-mix(in oklab, var(--text-faint) 82%, transparent);
 }
 .minimap-tick--work {
-  inset-inline: 0 11px;
+  inset-inline: 0 4px;
   background: color-mix(in oklab, var(--text-faint) 42%, transparent);
 }
 /* A ring, not a brightness filter: brightening works on navy and does nothing to
@@ -3387,15 +3419,15 @@ html[data-density="balanced"] .header-quota-pools {
    is this" and "is it a match" stay two separate questions with two answers. */
 .minimap-mark {
   position: absolute;
-  right: 0;
-  width: 3px;
+  right: -2px;
+  width: 2px;
   min-height: 3px;
   border-radius: 1px;
   pointer-events: none;
   background: color-mix(in oklab, var(--issue, var(--info)) 62%, transparent);
 }
 .minimap-mark--active {
-  width: 5px;
+  width: 3px;
   background: color-mix(in oklab, var(--issue, var(--info)) 78%, var(--foreground));
   box-shadow: 0 0 6px color-mix(in oklab, var(--issue, var(--info)) 38%, transparent);
 }
@@ -3404,11 +3436,10 @@ html[data-density="balanced"] .header-quota-pools {
    here" and "this is your prompt" would be the same colour on the same column. */
 .minimap-view {
   position: absolute;
-  inset-inline: 0;
+  inset-inline: -2px;
   pointer-events: none;
-  border: 1px solid color-mix(in oklab, var(--text-strong, var(--foreground)) 55%, transparent);
-  border-radius: 2px;
-  background: color-mix(in oklab, var(--text-strong, var(--foreground)) 9%, transparent);
+  border: 1px solid color-mix(in oklab, var(--text-strong, var(--foreground)) 30%, transparent);
+  border-radius: 3px;
 }
 
 /* The legend, delivered on hover and tied to the band under the pointer. */
@@ -3917,7 +3948,13 @@ html[data-density="balanced"] .header-quota-pools {
   color: color-mix(in oklab, var(--foreground) 88%, transparent);
 }
 .tool-subject {
-  color: color-mix(in oklab, var(--foreground) 76%, transparent);
+  color: var(--text-dim, var(--muted-foreground));
+}
+/* A row that opens a diff says so under the pointer — the only affordance on a
+   line this quiet, and it costs nothing until the pointer is on it. */
+.tool-row:hover .tool-subject,
+.tool-row:hover .tool-name {
+  color: var(--text-strong, var(--foreground));
 }
 
 /* The agent's description of a command, demoted beneath the command itself. */
@@ -5115,16 +5152,6 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .feed-tail[data-tail="error"] .feed-tail-label {
   font-weight: 600;
-}
-/* Idle recedes, and recedes again once it has been quiet for ten minutes:
-   nothing is happening and nothing is being asked, so the row should cost the
-   eye about what it costs the session. The alpha rides on `color`, so the dot,
-   the rule and the text dim as one. */
-.feed-tail[data-tail="idle"] {
-  color: color-mix(in oklab, var(--text-dim, var(--muted-foreground)) 62%, transparent);
-}
-.feed-tail[data-tail="idle"][data-stale="true"] {
-  color: color-mix(in oklab, var(--text-dim, var(--muted-foreground)) 38%, transparent);
 }
 .chat-compact .feed-tail {
   padding: 9px 0 4px;

@@ -186,26 +186,22 @@ describe('TranscriptTail', () => {
     expect(host.textContent).toContain('rate limit')
   })
 
-  it('recedes when idle, and further once the session has been quiet', () => {
+  // NOTHING IS THE RIGHT ENDING (POD-993 round 3). There was an `idle` row here
+  // — a dot, the word "Idle", and a clock counting since the last activity — and
+  // it was the tail's MOST COMMON state, because most transcripts most of the
+  // time are not doing anything. It read as a status worth reading and never
+  // was: a conversation that has stopped is evident from having stopped.
+  it('ends with nothing at all when nothing is happening', () => {
     mount(null, ago(17 * 60_000 + 39_000))
-    expect(tail()?.dataset.tail).toBe('idle')
-    // Minutes, not "17m 39s": past the first minute the seconds digit is noise,
-    // and dropping it is what lets the row stop redrawing.
-    expect(figure()).toBe('17m')
-    expect(tail()?.dataset.stale).toBe('true')
-
+    expect(tail()).toBeNull()
     mount(null, ago(40_000))
-    expect(figure()).toBe('40s')
-    expect(tail()?.dataset.stale).toBeUndefined()
+    expect(tail()).toBeNull()
   })
 
-  it('keeps the idle clock out of the live region', () => {
-    // Nothing is changing, so nothing should be announced — an idle row that
-    // re-announced on every tick would talk over everything else on the page.
-    mount(null, ago(60_000))
-    expect(tail()?.getAttribute('aria-live')).toBeNull()
+  it('still speaks for the states that ARE news', () => {
     mount({ label: 'Working…', tone: 'working' }, ago(1000))
     expect(tail()?.getAttribute('aria-live')).toBe('polite')
+    expect(tail()?.dataset.tail).toBe('working')
   })
 })
 

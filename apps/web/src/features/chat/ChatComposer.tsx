@@ -383,15 +383,20 @@ export function ChatComposer({
               // The dock is the feed's own gutter, minus ten: 22px each side, so
               // the well's edge sits just inside the column of words it answers
               // and the whole bottom of the sheet reads as one object.
-              'chat-composer-dock px-[22px] pt-2 pb-[calc(18px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
-              // Flat Field (POD-159): every chat composer mirrors the native
-              // Claude Code / superagent prompt box — mono, CLI `>` prefix, block
-              // caret, flat background.
               // No top rule and no surface of its own any more (POD-725): the
               // sheet runs to the bottom edge and the field's own well is the
               // only boundary the design draws. A border here would have cut the
               // document off from the thing it is a reply to.
-              'font-mono',
+              //
+              // AND NO `font-mono` (POD-993 round 3). POD-159 put the whole dock
+              // in the machine voice because the box was imitating a CLI prompt.
+              // It is not one now: what you type here is prose, it lands in the
+              // feed as prose, and the design sets it in the same 14/24 Geist the
+              // transcript is written in. Typing a sentence in a monospace box and
+              // watching it arrive in a proportional one is the seam this removes.
+              // The micro labels that ARE machine voice — the queue notice, the
+              // focus chord — ask for mono themselves.
+              'chat-composer-dock px-[22px] pt-2 pb-[calc(18px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
             ),
       )}
       ref={setRootEl}
@@ -527,7 +532,14 @@ export function ChatComposer({
               rows={1}
               placeholder={placeholder}
               className={cn(
-                'shell-type-primary min-h-0 resize-none rounded-none border-0 bg-transparent text-foreground caret-foreground outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
+                // `shell-type-primary` is the SHELL's reading size (13/18) and it
+                // belongs to the narrow dock, which is shell chrome. The wide
+                // composer sets its own 14/24 below — the transcript's size —
+                // and cannot do that with this class also in play: both are
+                // single-class selectors, so the winner is whichever Tailwind
+                // emits last rather than whichever we meant.
+                'min-h-0 resize-none rounded-none border-0 bg-transparent text-foreground caret-foreground outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
+                compact && 'shell-type-primary',
                 compact
                   ? // `.prompt-input` owns the height transition, the padding and
                     // the cap (in px, from usePromptAutoGrow) — so no `max-h-*`

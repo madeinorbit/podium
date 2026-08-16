@@ -154,9 +154,9 @@ function MessageActions({
             aria-label={copied ? 'Message copied' : 'Copy message'}
           >
             {copied ? (
-              <Check size={13} aria-hidden="true" />
+              <Check size={13} strokeWidth={1.75} aria-hidden="true" />
             ) : (
-              <Copy size={13} aria-hidden="true" />
+              <Copy size={13} strokeWidth={1.75} aria-hidden="true" />
             )}
           </button>
           {onQuote && (
@@ -168,7 +168,7 @@ function MessageActions({
               title="Quote in composer"
               aria-label="Quote in composer"
             >
-              <Quote size={13} aria-hidden="true" />
+              <Quote size={13} strokeWidth={1.75} aria-hidden="true" />
             </button>
           )}
         </span>
