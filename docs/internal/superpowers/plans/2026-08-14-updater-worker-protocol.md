@@ -30,6 +30,15 @@ both passed vacuously, a test whose machine had the same word for its name and i
 vitest reporter whose silence was read as proof, and a server lane that *refused to start*
 while everyone read the red as failure.
 
+The seventh was the worst, because it would have been *created by following advice*: a
+reviewer suggested allowlisting a boundary violation, and POD-2224 measured that the
+allowlist **cannot excuse that rule at all** — it is emitted into the manifest family but is
+missing from `MANIFEST_RULES`, so entries route to the legacy half only. The lint stayed at
+exit 1 naming the file while the other lane reported the entry satisfied, and it escapes the
+drift safeguard that would have called the entry stale. Anyone following the advice literally
+would have shipped a record that excuses nothing, in the lane whose unreadability had already
+cost this epic a day (POD-2225).
+
 So: when a lane is red for reasons that are not yours, you are not merely inconvenienced —
 **you are the reason the next real signal will be missed.** Say so in your report, and if you
 can cheaply make the gate speak in the language of the harm (a crash, not a byte count), do
