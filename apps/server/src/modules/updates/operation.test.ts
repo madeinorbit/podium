@@ -1098,6 +1098,198 @@ describe('the step runners', () => {
   })
 
   /**
+   * TRY AGAIN HAS TO BE ABLE TO CLEAR A REFUSAL (POD-2201, spec §6.2 "the
+   * failure is never a dead end", §7's retry semantics).
+   *
+   * The panel's answer to the failure above is **Try again**, which is a NEW
+   * operation — and a new operation is a new human decision. It was not one:
+   * the step settled on the machine's last word before it authorized anything,
+   * so `updates.start` and `updates.retry` alike failed in ten milliseconds
+   * having issued zero grants and asked the machine nothing (the POD-2200 live
+   * drills measured both with the grant counter). The operator was left holding
+   * a button that could not work, and the only escape found on that drive was
+   * publishing a different commit.
+   *
+   * THE GRANT COUNTER IS THE ASSERTION, not the step state: "it asked the
+   * machine again" is the claim, and a step that merely stays `running` while
+   * granting nobody would satisfy a weaker one.
+   */
+  it('machines: a new operation asks a machine that refused an earlier one again', async () => {
+    const h = harness({
+      machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.sent).toHaveLength(1)
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      state: 'rejected',
+      version: '0.4.1',
+      detail: 'cannot converge: dirty-working-tree',
+    })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+    expect(h.read().state).toBe('failed')
+
+    // Try again: the remainder, as its own operation (§3.2).
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_2')
+
+    const retry = h.read('op_2')
+    expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vmi'])
+    expect(retry.state).toBe('running')
+    expect(stepState(retry, UPDATE_STEP_MACHINES)).toBe('running')
+  })
+
+  /**
+   * …AND THE MACHINE THAT IS STILL REFUSING IS ASKED EXACTLY ONCE.
+   *
+   * One grant per human decision: the retry that gets refused fails like any
+   * other operation, rather than the refusal being cleared by the very thing
+   * that was told about it.
+   */
+  it('machines: refusing the retry fails it, after exactly one new grant', async () => {
+    const h = harness({
+      machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    const refuse = (grantId: string): void => {
+      h.updates.onStatus(asMachineId('vmi'), {
+        type: 'updateStatus',
+        grantId,
+        state: 'rejected',
+        version: '0.4.1',
+        detail: 'cannot converge: dirty-working-tree',
+      })
+      bridge.onFleetChanged()
+    }
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    refuse('grant_1')
+    await h.engine.whenSettled('op_1')
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_2')
+    refuse('grant_2')
+    await h.engine.whenSettled('op_2')
+
+    const retry = h.read('op_2')
+    expect(retry.state).toBe('failed')
+    expect(retry.error?.code).toBe('machine-dirty-checkout')
+    expect(h.sent).toHaveLength(2)
+  })
+
+  /**
+   * THE LOOP GUARD, ARMED (POD-2105).
+   *
+   * The reason the fix above is per-place and not "forget every verdict on
+   * every pass": the step is re-entered while it is still running, and a runner
+   * that cleared indiscriminately would erase a refusal THIS operation was just
+   * given and hand the machine another grant with no human involved — the hot
+   * loop POD-2105's terminal guard exists to prevent, moved into the one path
+   * that is allowed to grant.
+   *
+   * The re-entry here is a real one and not a contrivance: a deferred machine
+   * reconnecting admits itself into the running step (§3.6), and the bridge
+   * RETURNS on that path — the admission drives the runner, so it is the
+   * runner's own settle that has to hold. `vmi`'s refusal is recorded without a
+   * fleet event, which is what leaves the verdict standing when `laptop` walks
+   * in with it.
+   *
+   * Proven able to fire: with the verdict cleared unconditionally instead of
+   * per-place, the refusal is erased, the operation carries on as though it had
+   * never been given one, and the wave grants the next machine.
+   */
+  it('machines: keeps the refusal THIS operation was given, across a re-entry', async () => {
+    const fleet = [machine({ id: 'vmi', name: 'vmi3407763' }), machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi'])
+
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      state: 'rejected',
+      version: '0.4.1',
+      detail: 'cannot converge: dirty-working-tree',
+    })
+    fleet[1] = machine({ id: 'laptop' })
+    createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    }).onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi'])
+    expect(operation.state).toBe('failed')
+    expect(operation.error?.code).toBe('machine-dirty-checkout')
+  })
+
+  /**
+   * THE SEVERE ONE: A CANCEL LEFT THE OPERATOR UNABLE TO START ANOTHER UPDATE.
+   *
+   * A cancel does not recall a grant already sent, so the machines that held one
+   * are marked `stuck` — a terminal verdict, and by the same defect the verdict
+   * decided the next operation before anyone asked the machine anything. Cancel
+   * is a thing an operator is invited to do; it must not be a one-way door.
+   *
+   * The two service calls after the cancel are the composition root's terminal
+   * transition (`relay.ts`), which the kind under test does not own and this
+   * harness does not wire — spelled out here rather than mocked so the state the
+   * next operation meets is the state a real cancel leaves behind.
+   */
+  it('machines: an operation started after a cancel asks the stuck machine again', async () => {
+    const h = harness({
+      machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.sent).toHaveLength(1)
+
+    expect(h.engine.cancel('op_1').canceled).toBe(true)
+    await h.engine.whenSettled('op_1')
+    h.updates.withdrawAuthorization()
+    expect(
+      h.updates.releaseInFlightGrants('The update was canceled while this machine was updating.'),
+    ).toEqual(['vmi'])
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_2')
+
+    expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vmi'])
+    expect(stepState(h.read('op_2'), UPDATE_STEP_MACHINES)).toBe('running')
+  })
+
+  /**
    * POD-2195, THE OTHER HALF. Even with the pack out of the plan, the runner
    * refused to tick until a packed descriptor was published — so the machine
    * that needed no package sat behind "Waiting for the update package." for the

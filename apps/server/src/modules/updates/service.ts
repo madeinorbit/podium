@@ -489,23 +489,53 @@ export class UpdatesService {
    * headless artifact can tick.
    */
   markAuthorized(channel: UpdateChannel = 'dev'): void {
-    const rollout = this.rollout(channel)
-    rollout.authorized = true
-
+    this.rollout(channel).authorized = true
     // A deliberate Apply/Try again is new authority. Terminal states are
     // intentionally sticky during automatic planning, but keeping them here
     // made the global retry a no-op after a failed canary.
-    const terminalMachineIds = [...this.machineStates.entries()]
-      .filter(([, state]) => state.channel === channel && TERMINAL_STATES.has(state.state))
+    this.clearMachineVerdicts(channel)
+  }
+
+  /**
+   * FORGET WHAT A MACHINE SAID TO SOMEBODY ELSE'S DECISION (POD-2201).
+   *
+   * `rejected` and `stuck` are deliberately sticky: they are the machine's own
+   * word, and everything that plans automatically — the wave planner, the
+   * standing reconciliation — is required to leave them standing, or a refusal
+   * becomes a grant re-issued on every reconnect forever.
+   *
+   * What clears them is a HUMAN deciding to try again, and there are two routes
+   * to that decision: {@link authorizeMachine} for one row, and an operation's
+   * `machines` step for the fleet. Both now clear through here, so the two agree
+   * about what a retry means rather than one route inheriting a verdict the
+   * other would have cleared.
+   *
+   * `machineIds` scopes it to the machines the decision was actually about; with
+   * no list, every terminal machine on the channel. The rollout is un-halted and
+   * its canary un-proved, because forgetting a verdict re-opens the wave that
+   * verdict stopped, and a wave that re-opens starts by proving a canary again.
+   *
+   * Returns whose verdict was forgotten — a caller that changes nothing should
+   * be able to see that it changed nothing.
+   */
+  clearMachineVerdicts(channel: UpdateChannel, machineIds?: readonly string[]): string[] {
+    const cleared = [...this.machineStates.entries()]
+      .filter(
+        ([machineId, state]) =>
+          state.channel === channel &&
+          TERMINAL_STATES.has(state.state) &&
+          (machineIds === undefined || machineIds.includes(machineId)),
+      )
       .map(([machineId]) => machineId)
-    if (terminalMachineIds.length > 0) {
-      rollout.halted = false
-      rollout.canaryHealthy = false
-      for (const machineId of terminalMachineIds) {
-        this.machineStates.delete(machineId)
-        this.pendingGrants.delete(machineId)
-      }
+    if (cleared.length === 0) return []
+    const rollout = this.rollout(channel)
+    rollout.halted = false
+    rollout.canaryHealthy = false
+    for (const machineId of cleared) {
+      this.machineStates.delete(machineId)
+      this.pendingGrants.delete(machineId)
     }
+    return cleared
   }
 
   /** Record the operator decision for one authority and start its controlled wave. */
@@ -583,12 +613,11 @@ export class UpdatesService {
     if (!machine.online) return { result: 'offline' }
 
     // Retry path: forget the previous verdict for this machine so the planner
-    // can consider it again, and un-halt the channel this row belongs to.
-    if (TERMINAL_STATES.has(machine.state)) {
-      this.machineStates.delete(machineId)
-      this.pendingGrants.delete(machineId)
-      this.rollout(channel).halted = false
-    }
+    // can consider it again, and un-halt the channel this row belongs to. THIS
+    // ROW ONLY — a human applying one machine has decided about one machine,
+    // and {@link clearMachineVerdicts} is where the fleet-wide route says the
+    // same thing about its own set.
+    this.clearMachineVerdicts(channel, [machineId])
 
     const planned: WaveMachine = { ...machine, state: 'current' }
     const selected = planWave({

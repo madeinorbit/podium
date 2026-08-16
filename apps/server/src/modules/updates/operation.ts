@@ -346,12 +346,32 @@ function machineNeedsPack(machine: WaveMachine, target: DeliverableTarget): bool
   return !machineCanTakeTargetNow(machine, target)
 }
 
+/**
+ * A PLANNED PLACE HAS NOT BEEN ASKED ANYTHING YET (POD-2201).
+ *
+ * `pending` is §3.1's word for a place whose turn has not come, and it is what
+ * every planned place is by construction: the plan is a statement of what this
+ * operation INTENDS, made before it has said one word to any machine.
+ *
+ * It used to copy the machine's live convergence state instead, which quietly
+ * made a new operation inherit the last one's outcome: a machine whose last word
+ * was `rejected` — or that a cancel left `stuck` — was planned as a place that
+ * had already failed, and {@link settleMachines} duly failed the step on it
+ * before anything authorized a grant. `Try again` could therefore never clear a
+ * refusal, which is a dead end §6.2 says the panel must not have.
+ *
+ * The same reasoning is already written down twice: {@link admissibleDeferredPlaces}
+ * admits a machine as `pending`, and {@link projectMachines} refuses to call a
+ * behind machine `current` however the wave labels it. The detail goes with the
+ * state for the same reason — a sentence about a refusal is the refusal, in
+ * prose. The first projection re-states both from the live fleet within the
+ * step's first pass.
+ */
 function placeOf(machine: WaveMachine): StepPlace {
   return {
     id: machine.id,
     ...(machine.name ? { name: machine.name } : {}),
-    state: machine.state,
-    ...(machine.detail ? { detail: machine.detail } : {}),
+    state: 'pending',
   }
 }
 
@@ -1002,6 +1022,39 @@ const machinesRunner: StepRunner<UpdateOperationContext> = {
   ensure: async ({ operation, step, context }) => {
     const details = updateOperationDetails(operation)
     if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
+
+    /**
+     * A VERDICT THIS OPERATION DID NOT ASK FOR IS NOT THIS OPERATION'S VERDICT
+     * (POD-2201, spec §6.2, §7).
+     *
+     * The step used to settle before it authorized anything, so a machine whose
+     * last word — to a PREVIOUS operation, or to a cancel that left it `stuck` —
+     * was terminal decided this one in under ten milliseconds, with zero grants
+     * issued and nothing asked of the machine. The panel then offered Try again,
+     * which is another operation, which failed the same way: a button that
+     * looked like a way out and could not be one. Starting an update is a new
+     * human decision, and §6.2's promise is that a failure is never a dead end.
+     *
+     * WHY THIS IS NOT "MOVE `markAuthorized` UP". Forgetting a verdict on every
+     * pass would forget the one the wave is being failed on and re-grant on the
+     * next re-entry, forever — the hot loop POD-2105's terminal guard and its
+     * per-machine attempt cap exist to prevent. So it is asked per PLACE, and
+     * only of a place this operation has not yet put anything to: a place still
+     * `pending` has been granted nothing by this step, so any verdict against it
+     * was given to somebody else's decision. The moment a place is granted, its
+     * carried state stops being `pending` and its verdict settles the step in
+     * the usual way — one grant per human decision, on this route and on
+     * `authorizeMachine`'s alike.
+     *
+     * It runs before the delivery gate below rather than after, because it is a
+     * statement about authority and not about readiness: a step that is still
+     * waiting for its package must not be sitting on a stale refusal either.
+     */
+    const untouched = (step.places ?? [])
+      .filter((place) => place.state === undefined || place.state === 'pending')
+      .map((place) => place.id)
+    if (untouched.length > 0) context.updates.clearMachineVerdicts(details.channel, untouched)
+
     const settled = settleMachines(operation, step, context)
     if (settled) return settled
 
