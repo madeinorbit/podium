@@ -22,6 +22,7 @@ import {
   missionDepartures,
   missionIssueIds,
   missionProgress,
+  missionRootFor,
   motionPhase,
   nativeSubagentRows,
   type PresenceNote,
