@@ -1,4 +1,6 @@
 import { asSessionId, type TranscriptItem } from '@podium/model'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -319,5 +321,41 @@ describe('ToolBatchView — the settle', () => {
       vi.advanceTimersByTime(1000)
     })
     expect(line().hasAttribute('data-settle')).toBe(false)
+  })
+})
+
+/**
+ * THE PREVIEW STAYS INSIDE THE FEED (POD-993 round 4).
+ *
+ * Reported as a z-index fault — the panel covering the prompt box — and the
+ * z-index is right: a portalled overlay does belong above the page. What was
+ * wrong was the box it was allowed to grow into. Its collision boundary
+ * defaulted to the VIEWPORT, which continues down past the transcript through
+ * the tail and the composer, so the positioner told a tall panel it had room it
+ * did not have. Measured at 1200x640 before the fix: a seven-call panel spilled
+ * 108px past the scroller and over the composer. After: 149.8px of available
+ * height instead of 289.75px, and the panel caps itself there.
+ *
+ * jsdom cannot run the positioning, so what is pinned here is the half that
+ * lives in the stylesheet — the cap that turns "no room" into a scroll inside
+ * the panel rather than an overflow onto whatever is underneath. The other half
+ * is the boundary lookup, pinned by TranscriptFeed.motion.test.tsx.
+ */
+describe('ToolBatchView — the preview never outgrows its room', () => {
+  const css = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  )
+  const block = css.slice(css.indexOf('\n.work-line-preview {')).split('}')[0] ?? ''
+
+  it('caps to the height the positioner measured', () => {
+    expect(block).toMatch(/max-height:\s*var\(--available-height/)
+  })
+
+  it('scrolls the overflow instead of spilling it onto the page', () => {
+    expect(block).toMatch(/overflow-y:\s*auto/)
+    // A panel that scrolls inside a scrolling feed must not hand its momentum
+    // back to the feed at the edge.
+    expect(block).toMatch(/overscroll-behavior:\s*contain/)
   })
 })

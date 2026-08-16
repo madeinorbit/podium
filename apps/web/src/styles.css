@@ -4252,6 +4252,16 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .work-line-preview {
   max-width: min(64ch, 72vw);
+  /* AND NEVER TALLER THAN THE ROOM IT WAS GIVEN. The positioner publishes what
+     it found — `--available-height` — and honouring it is what turns "no room"
+     into a scroll inside the panel instead of an overflow onto whatever is
+     underneath. The boundary that number is measured against is the feed (see
+     WorkLinePreview); this is the half that makes a run of forty calls in a
+     short pane behave, where flipping alone cannot help because neither side
+     fits. */
+  max-height: var(--available-height, none);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 5px 9px 6px;
   border: 1px solid var(--border);
   border-radius: 7px;

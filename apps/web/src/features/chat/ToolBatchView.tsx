@@ -2,7 +2,7 @@ import { Tooltip } from '@base-ui/react/tooltip'
 import { formatClock, parseToolEdit, toolEditUnifiedDiff } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
+import type { JSX, ReactNode, RefObject } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { BrailleSpinner } from '@/lib/motion/BrailleSpinner'
 import { useNow } from '@/lib/useNow'
@@ -92,7 +92,26 @@ function useSettleFlash(live: boolean): boolean {
  * The keyboard route is the same route: the tooltip opens on the row button's
  * focus as well as on hover, and Escape dismisses it.
  */
-function WorkLinePreview({ blocks }: { blocks: ChatBlock[] }): JSX.Element {
+function WorkLinePreview({
+  blocks,
+  anchorRef,
+}: {
+  blocks: ChatBlock[]
+  anchorRef: RefObject<HTMLElement | null>
+}): JSX.Element {
+  // THE PANEL STAYS INSIDE THE FEED. Its collision boundary defaulted to the
+  // viewport, and the viewport does not end where the transcript does — below
+  // the feed sit the tail and the composer. So a tall panel hanging off a row
+  // low in a SHORT pane was told it had room it did not have, and rendered
+  // straight over the prompt box: measured at 1200×640, a seven-call panel
+  // spilled 108px past the scroller. It read as a z-index fault, and the
+  // z-index is right — a portalled overlay does belong above the page. What was
+  // wrong was the box it was allowed to grow into.
+  //
+  // Reading the ref during render is safe here because this subtree only
+  // renders once the tooltip opens, which is long after the row it hangs off
+  // has mounted; on the first frame it degrades to the old viewport boundary.
+  const boundary = anchorRef.current?.closest<HTMLElement>('[data-feed-scroller]') ?? undefined
   return (
     <Tooltip.Portal>
       <Tooltip.Positioner
@@ -101,6 +120,7 @@ function WorkLinePreview({ blocks }: { blocks: ChatBlock[] }): JSX.Element {
         align="start"
         sideOffset={5}
         collisionPadding={12}
+        {...(boundary ? { collisionBoundary: boundary } : {})}
       >
         <Tooltip.Popup className="work-line-preview">
           <WorkLinePreviewList blocks={blocks} />
@@ -329,6 +349,9 @@ export function ToolBatchView({
     </>
   )
   const toggle = (): void => setOpen((v) => !v)
+  // The row is the preview's anchor AND the way it finds the feed it must stay
+  // inside — see WorkLinePreview.
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
   return (
     <div className={rowClass} data-block={index}>
       {/* No rail — tool activity stays quiet, aligned with prose via the spacer. */}
@@ -359,6 +382,7 @@ export function ToolBatchView({
                   them over the top of them is noise. Disable the tooltip root,
                   not its button, so the same row still refolds on click. */}
               <Tooltip.Trigger
+                ref={triggerRef}
                 data-pressable
                 type="button"
                 className="work-line-row"
@@ -368,7 +392,7 @@ export function ToolBatchView({
               >
                 {face}
               </Tooltip.Trigger>
-              <WorkLinePreview blocks={row.blocks} />
+              <WorkLinePreview blocks={row.blocks} anchorRef={triggerRef} />
             </Tooltip.Root>
           ) : (
             <button

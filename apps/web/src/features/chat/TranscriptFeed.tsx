@@ -272,6 +272,12 @@ export function TranscriptFeed({
   const questionOwnsAttention = livePendingAskIndex >= 0 && activity?.tone === 'attention'
   return (
     <div
+      // Named so a portalled overlay hanging off a row can find the box it must
+      // stay inside. A tooltip's default collision boundary is the VIEWPORT, and
+      // the viewport does not stop at the feed — it continues down through the
+      // composer, which is how the work-line preview came to cover the prompt
+      // box. See WorkLinePreview in ToolBatchView.tsx.
+      data-feed-scroller=""
       className={cn(
         'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
         // ONE MECHANISM HOLDS THE SCROLL, NOT TWO (POD-993 round 3). Chromium

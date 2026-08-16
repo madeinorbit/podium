@@ -193,6 +193,21 @@ describe('TranscriptFeed — boundary states', () => {
       expect(turn.getAttribute('aria-hidden')).toBe('true')
   })
 
+  /**
+   * THE FEED IS A NAMED BOX (POD-993 round 4). A work-line preview is portalled,
+   * so its collision boundary defaults to the VIEWPORT — which does not stop
+   * where the transcript does, and a tall panel low in a short pane rendered
+   * straight over the composer. WorkLinePreview finds this box by attribute and
+   * hands it to the positioner; without the attribute the lookup silently
+   * returns nothing and the overlap comes back, with no test failing.
+   */
+  it('names its scroller so a portalled overlay knows what to stay inside', () => {
+    render([say('a', 'one')])
+    const scroller = host.querySelector('[data-feed-scroller]')
+    expect(scroller).not.toBeNull()
+    expect(scroller?.querySelector('.transcript-row')).not.toBeNull()
+  })
+
   it('names scroll-back paging and keeps the loading affordance in place', () => {
     render([say('a', 'one')], null, { moreAbove: true })
     expect(host.querySelector('.transcript-pager')?.textContent).toContain('Earlier transcript')
