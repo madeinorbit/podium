@@ -801,6 +801,7 @@
         "src/modules/operations/kinds.ts",
         "src/modules/operations/store.ts",
         "src/modules/operations/transitions.ts",
+        "src/modules/operations/trpc.test.ts",
         "src/modules/operations/trpc.ts",
         "src/modules/perf/commands.ts",
         "src/modules/perf/harness-live.test.ts",
