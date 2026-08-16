@@ -37,7 +37,11 @@ your branch. Two workers solved this two ways, both fine:
 
 - **Symlink farm (free, preferred at low disk).** In-checkout `@podium/*` symlinks plus a
   `.bin` symlink farm satisfies the workspace-link gate at zero bytes — POD-2155 did this
-  rather than install against 2.8 GB free.
+  rather than install against 2.8 GB free. **Do not mirror main blindly:** main still carries
+  leftover directories for packages that no longer exist in git (`agent-bridge`, `core`,
+  `domain`), and linking those re-creates the exact resolve-into-main hazard the farm exists
+  to prevent. Drop them, then prove resolution (`Bun.resolveSync`, or a deliberate type error
+  that must come back naming *your* worktree's file).
 - **Install (cheap, but measure).** `du` overstates badly because bun hardlinks: a sibling's
   2.0 GB tree cost ~0.1 GB beyond the shared cache (POD-2158). Measure before, respect the
   margin below.
@@ -68,8 +72,16 @@ resolved into main is worse than no green at all.
 
 ## Testing
 
-- Repo gates, run **sequentially**, before merging: `bun run typecheck`, then
-  `bun run test:related -- <your changed files>`, then `bun run test` if your plan says so.
+- **`test:related` DOES NOT COVER `apps/web`.** It runs only the `node` and
+  `normalized-wire` projects, and `apps/web` has its own vitest config — so a web test file
+  is never selected and the gate reports success having run nothing about your change
+  (POD-2163 caught this: `use-update-state.test.tsx` was invisible to the prescribed gate).
+  If your change touches `apps/web`, **run its suites directly** and say which ones. Any
+  brief of mine that says "gate on test:related" for web work is wrong; correct it and tell
+  me.
+- Repo gates, run **sequentially**, before merging: per-package typecheck (never repo-wide,
+  see above), then `bun run test:related -- <your changed files>` for non-web code, plus the
+  direct suites for anything web.
 - No fixed sleeps in tests — inject clocks. A `setTimeout` before an assertion is a bug in
   this repo's unit lane.
 - **Gate on the comparison when a shared lane is red.** Known: `apps/web` typecheck is red
