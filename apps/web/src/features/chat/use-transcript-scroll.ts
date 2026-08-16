@@ -80,6 +80,10 @@ export interface UseTranscriptScrollResult {
  */
 const SETTLE_FRAMES = 10
 
+/** Frames still owed to a scroller, so overlapping callers extend one loop
+ *  rather than each starting their own. */
+const settling = new WeakMap<HTMLElement, number>()
+
 /**
  * Hold the view at the bottom while the layout under it is still moving.
  *
@@ -88,13 +92,35 @@ const SETTLE_FRAMES = 10
  * below the fold changes size afterwards. This re-asserts across the settle
  * window and abandons immediately if the pin is dropped, so it can never fight
  * a user who has taken the scroll back.
+ *
+ * WHY EVERY BOTTOM-WRITE GOES THROUGH IT NOW, INCLUDING THE OBSERVERS. A single
+ * synchronous write assumes the engine has already recomputed the scrollable
+ * overflow region by the time it lands: `scrollTop` is CLAMPED to the current
+ * maximum, so a write of the new height against a stale maximum silently lands
+ * short, and the view sits above an end it believes it has reached. Chromium
+ * recomputes on the `scrollHeight` read, which is why the same code is correct
+ * there and short in WebKit — the operator sees this in Safari only.
+ *
+ * Re-asserting on the following frames is the engine-agnostic form of the same
+ * intent: read the height again once layout has settled, and write again if the
+ * two still disagree. It costs a handful of clamped no-op writes on the engines
+ * that were already right.
  */
 function settleToBottom(el: HTMLElement, pinned: RefObject<boolean>): void {
-  let frame = 0
+  const running = (settling.get(el) ?? 0) > 0
+  settling.set(el, SETTLE_FRAMES)
+  // A loop already in flight has just had its budget renewed; starting a second
+  // would double the writes per frame for the same effect.
+  if (running) return
   const step = (): void => {
-    if (!pinned.current) return
+    if (!pinned.current) {
+      settling.set(el, 0)
+      return
+    }
     el.scrollTop = el.scrollHeight
-    if (++frame < SETTLE_FRAMES) requestAnimationFrame(step)
+    const left = (settling.get(el) ?? 0) - 1
+    settling.set(el, left)
+    if (left > 0) requestAnimationFrame(step)
   }
   step()
 }
@@ -214,7 +240,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   useEffect(() => {
     const el = scrollerRef.current
     if (el && pinnedToBottom.current) {
-      el.scrollTop = el.scrollHeight
+      settleToBottom(el, pinnedToBottom)
       syncStickyPromptPositions()
     }
   }, [blockCount, syncStickyPromptPositions])
@@ -272,7 +298,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const el = scrollerRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
-      if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+      if (pinnedToBottom.current) settleToBottom(el, pinnedToBottom)
       syncStickyPromptPositions()
     })
     ro.observe(el)
@@ -333,7 +359,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
           if (node instanceof Element) ro.unobserve(node)
         }
       }
-      if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+      if (pinnedToBottom.current) settleToBottom(el, pinnedToBottom)
       syncStickyPromptPositions()
     })
     mo.observe(el, { childList: true })
@@ -352,7 +378,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     if (!active) return
     const el = scrollerRef.current
     if (el && pinnedToBottom.current) {
-      el.scrollTop = el.scrollHeight
+      settleToBottom(el, pinnedToBottom)
       syncStickyPromptPositions()
     }
   }, [active, syncStickyPromptPositions])

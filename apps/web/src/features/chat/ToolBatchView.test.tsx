@@ -1,11 +1,9 @@
 import { asSessionId, type TranscriptItem } from '@podium/model'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults, type ToolBatchRow } from './chat'
-import { ToolBatchView, WorkLinePreviewList } from './ToolBatchView'
+import { ToolBatchView } from './ToolBatchView'
 
 // The diff sheet reads through the store, and this suite mounts a work line
 // rather than an app. What it asserts is that a file edit ROUTES to the sheet;
@@ -256,50 +254,27 @@ describe('ToolBatchView — the work line', () => {
   })
 })
 
-// POD-423: what the fold still cost a reader — seeing WHICH calls it holds, and
-// noticing WHEN a live run finished.
-describe('ToolBatchView — the folded run’s preview', () => {
-  it('drops the native title on a previewable row so two tooltips cannot race', () => {
+// POD-993 round 7: the hover preview is retired. Unfolding answers "which
+// calls" and is the gesture a reader reaches for anyway; what survives is the
+// panel's SHORT TEXT, now on the unfolded rows (see ToolBlock).
+describe('ToolBatchView — the folded run has no hover panel', () => {
+  it('keeps the native title on every folded run, previewable or not', () => {
+    // A multi-call run used to DROP its title so the native tooltip could not
+    // race the panel's. With no panel, every run carries it again.
     mount(batchOf([call({ id: 'a' }), call({ id: 'b' })]))
-    expect(host.querySelector('.work-line-row')?.hasAttribute('title')).toBe(false)
-  })
-
-  it('keeps the native title on a lone call — there is no "which" to answer', () => {
+    expect(host.querySelector('.work-line-row')?.getAttribute('title')).toBe('Read 2 files')
     mount(batchOf([call({ id: 'a' })]))
     expect(host.querySelector('.work-line-row')?.getAttribute('title')).toBe('Read a file')
   })
 
-  it('lists the calls the fold would reveal, naming each subject', () => {
-    const row = batchOf([
-      call({ id: 'a', toolPaths: ['/r/apps/web/src/ChatView.tsx'], toolTitle: 'ChatView' }),
-      call({ id: 'b', toolName: 'Bash', toolInput: 'bun test', toolTitle: 'Run the tests' }),
-    ])
-    act(() => root.render(<WorkLinePreviewList blocks={row.blocks} />))
-    const items = [...host.querySelectorAll('.work-line-preview-item')]
-    expect(items).toHaveLength(2)
-    expect(items[0]?.textContent).toContain('ChatView')
-    // Bash names the COMMAND, not the agent's description of it — same rule the
-    // unfolded row follows, because the preview must match what unfolding shows.
-    expect(items[1]?.textContent).toContain('bun test')
-    expect(items[1]?.textContent).not.toContain('Run the tests')
-  })
-
-  it('defers to the fold past a glanceable number of calls', () => {
-    const row = batchOf(Array.from({ length: 12 }, (_, i) => call({ id: `c${i}` })))
-    act(() => root.render(<WorkLinePreviewList blocks={row.blocks} />))
-    expect(host.querySelectorAll('.work-line-preview-item')).toHaveLength(8)
-    expect(host.querySelector('.work-line-preview-more')?.textContent).toContain('+4 more')
-  })
-
-  it('marks a failed call in the preview — the fold never hides a failure', () => {
-    const row = batchOf([
-      call({ id: 'a', toolUseId: 'u1' }),
-      call({ id: 'a-res', toolUseId: 'u1', toolResult: 'ok' }),
-      call({ id: 'b', toolName: 'Bash', toolUseId: 'u2' }),
-      call({ id: 'b-res', toolUseId: 'u2', toolResult: 'Error: exit code 1' }),
-    ])
-    act(() => root.render(<WorkLinePreviewList blocks={row.blocks} />))
-    expect(host.querySelectorAll('.work-line-preview-glyph--err')).toHaveLength(1)
+  it('mounts no panel on hover or focus', () => {
+    mount(batchOf([call({ id: 'a' }), call({ id: 'b' })]))
+    const rowEl = host.querySelector('.work-line-row') as HTMLElement
+    act(() => {
+      rowEl.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+      rowEl.focus()
+    })
+    expect(document.querySelector('.work-line-preview')).toBeNull()
   })
 })
 
@@ -438,38 +413,3 @@ describe('ToolBatchView — the diff rail lists edits, not everything touched', 
   })
 })
 
-/**
- * THE PREVIEW STAYS INSIDE THE FEED (POD-993 round 4).
- *
- * Reported as a z-index fault — the panel covering the prompt box — and the
- * z-index is right: a portalled overlay does belong above the page. What was
- * wrong was the box it was allowed to grow into. Its collision boundary
- * defaulted to the VIEWPORT, which continues down past the transcript through
- * the tail and the composer, so the positioner told a tall panel it had room it
- * did not have. Measured at 1200x640 before the fix: a seven-call panel spilled
- * 108px past the scroller and over the composer. After: 149.8px of available
- * height instead of 289.75px, and the panel caps itself there.
- *
- * jsdom cannot run the positioning, so what is pinned here is the half that
- * lives in the stylesheet — the cap that turns "no room" into a scroll inside
- * the panel rather than an overflow onto whatever is underneath. The other half
- * is the boundary lookup, pinned by TranscriptFeed.motion.test.tsx.
- */
-describe('ToolBatchView — the preview never outgrows its room', () => {
-  const css = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8').replace(
-    /\/\*[\s\S]*?\*\//g,
-    '',
-  )
-  const block = css.slice(css.indexOf('\n.work-line-preview {')).split('}')[0] ?? ''
-
-  it('caps to the height the positioner measured', () => {
-    expect(block).toMatch(/max-height:\s*var\(--available-height/)
-  })
-
-  it('scrolls the overflow instead of spilling it onto the page', () => {
-    expect(block).toMatch(/overflow-y:\s*auto/)
-    // A panel that scrolls inside a scrolling feed must not hand its momentum
-    // back to the feed at the edge.
-    expect(block).toMatch(/overscroll-behavior:\s*contain/)
-  })
-})

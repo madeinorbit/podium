@@ -137,20 +137,35 @@ export function PinnedBrief({
         />
         <div className="brief-shelf-side">
           {brief.time !== '' && <span className="brief-shelf-time">{brief.time}</span>}
-          {(clipped || open) && (
-            <button
-              data-pressable
-              type="button"
-              className="brief-shelf-toggle"
-              data-testid="prompt-expand-toggle"
-              aria-expanded={open}
-              onClick={() => {
-                setPin({ key: brief.key, open: !open })
-              }}
-            >
-              {open ? 'Show less' : 'Show full'}
-            </button>
-          )}
+          {/* ALWAYS IN THE LAYOUT, EVEN WHEN THERE IS NOTHING TO OFFER.
+              Rendering it conditionally made the shelf flicker without end, and
+              the loop is entirely of its own making: the toggle sits beside the
+              text, so ADDING it narrows the text column, and a brief near the
+              three-line boundary then wraps to a fourth line — which is what
+              "clipped" means, so the toggle stays. Take it away and the column
+              widens, the same brief fits in three lines, so it is not clipped,
+              so the toggle goes — and the measurement that decides this is a
+              ResizeObserver on the text, which the width change wakes. Two
+              stable states, each of which destroys the conditions for itself.
+              Reserving the space breaks the cycle at the only place it can be
+              broken: the measured width no longer depends on the answer. */}
+          <button
+            data-pressable
+            type="button"
+            className="brief-shelf-toggle"
+            data-testid="prompt-expand-toggle"
+            aria-expanded={open}
+            // `visibility`, never `hidden`/`display:none` — those free the box
+            // again and hand the loop straight back.
+            data-idle={clipped || open ? undefined : 'true'}
+            aria-hidden={clipped || open ? undefined : true}
+            tabIndex={clipped || open ? undefined : -1}
+            onClick={() => {
+              setPin({ key: brief.key, open: !open })
+            }}
+          >
+            {open ? 'Show less' : 'Show full'}
+          </button>
         </div>
       </div>
     </div>

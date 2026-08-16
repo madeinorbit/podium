@@ -4,7 +4,14 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { resolveAgainstCwd } from '@/lib/file-path'
 import { cn } from '@/lib/utils'
-import { type ChatBlock, failLine, mcpLabel, resultPreview, toolVerdict } from './chat'
+import {
+  type ChatBlock,
+  failLine,
+  mcpLabel,
+  resultPreview,
+  toolSubject,
+  toolVerdict,
+} from './chat'
 import { ToolEditDiff } from './ToolEditDiff'
 
 /** How a call NAMES ITSELF in a list: the tool that ran, in the operator's
@@ -57,11 +64,20 @@ export function ToolBlock({
   const editPreview = edit ? toolEditMagnitude(edit) : undefined
   // Orphan results render as a bare result row; calls render name + input.
   const label = toolCallLabel(item)
-  // Bash shows the COMMAND, with the agent's description beneath it — the
-  // command is the thing that ran, and it is what a reader is checking for.
-  const command = item.toolName === 'Bash' ? item.toolInput : undefined
-  const subject = command ?? item.toolTitle ?? item.toolInput
-  const aside = command && item.toolTitle ? item.toolTitle : undefined
+  // THE SHORT FORM, WHICH IS THE HOVER PANEL'S (POD-993 round 7). This row used
+  // to print the raw `toolInput` — an eighty-character worktree path, or a whole
+  // heredoc for a Bash call — so an unfolded run of twelve calls was twelve
+  // lines that each ran off the end of the column. `toolSubject` is the sentence
+  // the collapsed line and the retired preview panel were both built from:
+  // basenames, MCP labels, first line of a command, capped. A reader who wants
+  // the full path or the whole script unfolds THAT call, which is what the
+  // per-row disclosure is for.
+  const subject = toolSubject(item)
+  const isCommand = item.toolName === 'Bash'
+  // The agent's own description of a command it ran — a detail, so it stays
+  // behind this row's own disclosure, which is exactly where the operator asked
+  // for details to live.
+  const aside = isCommand && item.toolTitle ? item.toolTitle : undefined
   // A CALL THAT CHANGED A FILE OPENS THE FILE. For everything else the row's own
   // click is still the only way to see what it returned, so the two behaviours
   // live on the same control rather than adding a second one beside it.
@@ -98,7 +114,7 @@ export function ToolBlock({
             full rather than truncating to nothing. */}
         <span className="tool-name">{label}</span>
         {subject && (
-          <span className={cn('min-w-0 truncate', command ? 'tool-cmd' : 'tool-subject')}>
+          <span className={cn('min-w-0 truncate', isCommand ? 'tool-cmd' : 'tool-subject')}>
             {subject}
           </span>
         )}

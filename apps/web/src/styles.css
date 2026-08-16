@@ -2973,6 +2973,14 @@ html[data-density="balanced"] .header-quota-pools {
 .brief-shelf-toggle:hover {
   color: var(--text-strong);
 }
+/* A brief with nothing hidden still RESERVES the control's box — see the note in
+   PinnedBrief. Taking it out of the flow narrows and widens the text beside it,
+   and a brief sitting on the three-line boundary then oscillates between cut and
+   not-cut forever. Invisible and unreachable, but still occupying its space. */
+.brief-shelf-toggle[data-idle="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
 @keyframes brief-shelf-in {
   from {
     opacity: 0;
@@ -4254,88 +4262,10 @@ html[data-density="balanced"] .header-quota-pools {
   }
 }
 
-/* THE PREVIEW — the calls a folded run holds, on hover or on focus, without
-   unfolding it. Portalled (see WorkLinePreview), so unlike the per-message
-   actions it copies it can be taller than the row it hangs off without
-   contributing a pixel to the feed's scrollable overflow.
-
-   A transient overlay, so this is the one place the Carved Rule yields to a
-   real shadow — the same popover surface the minimap's flyout and the find bar
-   already use. */
-.work-line-preview-pos {
-  z-index: 50;
-}
-.work-line-preview {
-  max-width: min(64ch, 72vw);
-  /* AND NEVER TALLER THAN THE ROOM IT WAS GIVEN. The positioner publishes what
-     it found — `--available-height` — and honouring it is what turns "no room"
-     into a scroll inside the panel instead of an overflow onto whatever is
-     underneath. The boundary that number is measured against is the feed (see
-     WorkLinePreview); this is the half that makes a run of forty calls in a
-     short pane behave, where flipping alone cannot help because neither side
-     fits. */
-  max-height: var(--available-height, none);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 5px 9px 6px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--popover, var(--card));
-  box-shadow: 0 10px 26px var(--carve-popover-far, rgb(0 0 0 / 0.45));
-}
-/* Mono and one line per call, matching the rows the fold would reveal — a
-   reader who then clicks must find the same list, in the same order. */
-.work-line-preview-item {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-  min-width: 0;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  line-height: 1.7;
-  white-space: nowrap;
-}
-.work-line-preview-glyph {
-  flex: none;
-  width: 7px;
-  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
-}
-.work-line-preview-glyph--err {
-  color: var(--destructive);
-}
-/* A floor, not a cap — the same column the unfolded row keeps, so subjects line
-   up to a single left edge while a long name (NotebookEdit) still shows in
-   full rather than truncating to nothing. */
-.work-line-preview-label {
-  flex: none;
-  min-width: 42px;
-  color: var(--text-strong, var(--foreground));
-}
-.work-line-preview-subject {
-  overflow: hidden;
-  color: var(--muted-foreground);
-  text-overflow: ellipsis;
-}
-.work-line-preview-more {
-  padding-top: 3px;
-  font-size: var(--shell-type-micro);
-  color: var(--text-dim, var(--muted-foreground));
-}
-@media (prefers-reduced-motion: no-preference) {
-  .work-line-preview {
-    animation: work-line-preview-in 120ms ease-out;
-  }
-}
-@keyframes work-line-preview-in {
-  from {
-    opacity: 0;
-    transform: translateY(-2px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
+/* The folded run's hover preview is gone (POD-993 round 7) — unfolding answers
+   "which calls" and needs no positioner, no collision boundary and no height
+   cap against a feed it floats over. Its short-form text moved to the unfolded
+   rows; see `.tool-subject` and ToolBlock. */
 
 @media (prefers-reduced-motion: reduce) {
   .work-line-deck i,

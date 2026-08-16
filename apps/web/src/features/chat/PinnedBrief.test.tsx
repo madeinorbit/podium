@@ -37,7 +37,16 @@ function render(
 }
 
 const shelf = (): HTMLElement | null => host.querySelector('.brief-shelf')
-const toggle = (): HTMLElement | null => host.querySelector('[data-testid="prompt-expand-toggle"]')
+const toggleEl = (): HTMLElement | null =>
+  host.querySelector('[data-testid="prompt-expand-toggle"]')
+/** THE CONTROL RESERVES ITS BOX EVEN WHEN IT HAS NOTHING TO OFFER (round 7).
+ *  Rendering it conditionally narrowed and widened the text beside it, so a
+ *  brief on the three-line boundary flickered between cut and not-cut forever.
+ *  "Not offered" is now `data-idle`, not absent — the space is always held. */
+const toggle = (): HTMLElement | null => {
+  const el = toggleEl()
+  return el && el.dataset.idle !== 'true' ? el : null
+}
 
 /** jsdom lays nothing out, so the shelf's own overflow measurement always reads
  *  zero and its control would never appear. `clipped` decides whether the brief

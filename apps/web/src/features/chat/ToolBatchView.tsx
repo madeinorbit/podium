@@ -1,8 +1,7 @@
-import { Tooltip } from '@base-ui/react/tooltip'
 import { formatClock, parseToolEdit, toolEditUnifiedDiff } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
-import type { JSX, ReactNode, RefObject } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { BrailleSpinner } from '@/lib/motion/BrailleSpinner'
 import { useNow } from '@/lib/useNow'
@@ -41,14 +40,6 @@ const SHEET_LINE_CAP = 2500
  *  the run happened. (The span is a lower bound: see toolRunElapsedMs.) */
 const MIN_SETTLED_SPAN_MS = 1500
 
-/** Long enough that sweeping the pointer down a feed of work lines never fires
- *  one, short enough that pausing on a row answers immediately. */
-const PREVIEW_DELAY_MS = 400
-
-/** A preview is a glance, not the unfolded run — past this the panel would be a
- *  second transcript, so it names the overflow and defers to the fold. */
-const MAX_PREVIEW_CALLS = 8
-
 /** How long the settle morph runs. Matches the `work-line-settle` keyframe. */
 const SETTLE_MS = 300
 
@@ -73,110 +64,6 @@ function useSettleFlash(live: boolean): boolean {
 }
 
 /**
- * WHICH FOUR (POD-423). The collapsed line names its subjects — "Read
- * ChatView.tsx, TranscriptFeed.tsx +4" — but seeing which four meant clicking,
- * which unfolds the row and moves everything underneath it. This answers the
- * question without changing anything: the same lines the fold would reveal,
- * minus their results.
- *
- * It rides a base-ui tooltip rather than an absolutely positioned panel of its
- * own, which is where it parts company with the per-message actions it
- * otherwise copies (POD-411). Those fit INSIDE their row's box; this panel is
- * taller than the row it hangs off, and an absolutely positioned box still
- * contributes to its scroll container's scrollable overflow — so a panel under
- * the last work line would grow the feed's scroll height and resize the
- * scrollbar the moment the pointer landed. Portalled out of the scroller it has
- * no layout cost at all, and collision handling flips it above the row near the
- * bottom of the window instead of clipping it.
- *
- * The keyboard route is the same route: the tooltip opens on the row button's
- * focus as well as on hover, and Escape dismisses it.
- */
-function WorkLinePreview({
-  blocks,
-  anchorRef,
-}: {
-  blocks: ChatBlock[]
-  anchorRef: RefObject<HTMLElement | null>
-}): JSX.Element {
-  // THE PANEL STAYS INSIDE THE FEED. Its collision boundary defaulted to the
-  // viewport, and the viewport does not end where the transcript does — below
-  // the feed sit the tail and the composer. So a tall panel hanging off a row
-  // low in a SHORT pane was told it had room it did not have, and rendered
-  // straight over the prompt box: measured at 1200×640, a seven-call panel
-  // spilled 108px past the scroller. It read as a z-index fault, and the
-  // z-index is right — a portalled overlay does belong above the page. What was
-  // wrong was the box it was allowed to grow into.
-  //
-  // Reading the ref during render is safe here because this subtree only
-  // renders once the tooltip opens, which is long after the row it hangs off
-  // has mounted; on the first frame it degrades to the old viewport boundary.
-  const boundary = anchorRef.current?.closest<HTMLElement>('[data-feed-scroller]') ?? undefined
-  return (
-    <Tooltip.Portal>
-      <Tooltip.Positioner
-        className="work-line-preview-pos"
-        side="bottom"
-        align="start"
-        sideOffset={5}
-        collisionPadding={12}
-        {...(boundary ? { collisionBoundary: boundary } : {})}
-      >
-        <Tooltip.Popup className="work-line-preview">
-          <WorkLinePreviewList blocks={blocks} />
-        </Tooltip.Popup>
-      </Tooltip.Positioner>
-    </Tooltip.Portal>
-  )
-}
-
-/**
- * The panel's contents, kept out of the tooltip parts so what it SAYS can be
- * read without a pointer — see ToolBatchView.test.tsx.
- *
- * It names each call with `toolSubject`, the same function the collapsed
- * summary is built from, so the panel is that line's own sentence unpacked:
- * "Read ChatView.tsx, TranscriptFeed.tsx +4" opens into ChatView.tsx,
- * TranscriptFeed.tsx and the four the summary elided, named identically. The
- * unfolded row is where full paths and results live — a reader asking WHICH
- * wants the basenames they already half-recognise, not eighty characters of
- * worktree prefix.
- */
-export function WorkLinePreviewList({ blocks }: { blocks: ChatBlock[] }): JSX.Element {
-  const shown = blocks.slice(0, MAX_PREVIEW_CALLS)
-  const hidden = blocks.length - shown.length
-  return (
-    <>
-      {shown.map((b) => {
-        const label = toolCallLabel(b.item)
-        const subject = toolSubject(b.item)
-        const verdict = toolVerdict(b.result ?? b.item.toolResult)
-        return (
-          <div className="work-line-preview-item" key={b.item.id}>
-            <span
-              className={cn(
-                'work-line-preview-glyph',
-                verdict === 'err' && 'work-line-preview-glyph--err',
-              )}
-              aria-hidden="true"
-            >
-              {verdict === 'err' ? '✕' : verdict === 'ok' ? '✓' : '·'}
-            </span>
-            {/* An MCP subject already carries its server ("Gmail · send"), so
-                printing the label in front of it would stutter. */}
-            {!subject?.startsWith(label) && (
-              <span className="work-line-preview-label">{label}</span>
-            )}
-            {subject && <span className="work-line-preview-subject">{subject}</span>}
-          </div>
-        )
-      })}
-      {hidden > 0 && <div className="work-line-preview-more">+{hidden} more — click to unfold</div>}
-    </>
-  )
-}
-
-/**
  * The work line (POD-364): a run of consecutive tool calls rendered as ONE
  * progress object rather than N log entries.
  *
@@ -194,11 +81,14 @@ export function WorkLinePreviewList({ blocks }: { blocks: ChatBlock[] }): JSX.El
  * collapsed line. One [data-block] row → one minimap tick, so a forty-call turn
  * reads as one beat of activity. Search auto-expands it via `forceOpen`.
  *
- * POD-423 adds the two things the fold still cost a reader. Hovering or focusing
- * a folded run previews the calls it holds without unfolding it, so finding out
- * WHICH four files were read no longer moves the page (see WorkLinePreview);
- * and when a live run resolves, the row plays one settle rather than swapping
- * silently from spinner to verdict (see useSettleFlash).
+ * POD-423 gave the fold two softeners: a hover panel previewing the calls a
+ * folded run holds, and a settle when a live run resolves rather than a silent
+ * swap from spinner to verdict. The settle stays (see useSettleFlash). The
+ * panel is gone — POD-993 round 7, at the operator's call: unfolding answers
+ * "which four" perfectly well and is the gesture a reader reaches for anyway,
+ * while the panel had to be positioned, collision-bounded and height-capped
+ * against a feed it floated over. Its short-form text moved to the unfolded
+ * rows, which is where it was wanted (see ToolBlock).
  */
 export function ToolBatchView({
   row,
@@ -346,9 +236,6 @@ export function ToolBatchView({
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = row.blocks[count - 1]!.item
   const settling = useSettleFlash(computing)
-  // A lone call is already named in full on the row — there is no "which four"
-  // to answer, so it carries the plain native title instead of a panel.
-  const previewable = count > 1
   const face: ReactNode = (
     <>
       <span
@@ -371,9 +258,6 @@ export function ToolBatchView({
     </>
   )
   const toggle = (): void => setOpen((v) => !v)
-  // The row is the preview's anchor AND the way it finds the feed it must stay
-  // inside — see WorkLinePreview.
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
   return (
     <div className={rowClass} data-block={index}>
       {/* No rail — tool activity stays quiet, aligned with prose via the spacer. */}
@@ -397,37 +281,25 @@ export function ToolBatchView({
             <i />
             <i />
           </div>
-          {previewable ? (
-            <Tooltip.Root disabled={expanded}>
-              {/* `disabled` here means "do not open", not the HTML attribute:
-                  unfolded, the calls are already on screen and a panel repeating
-                  them over the top of them is noise. Disable the tooltip root,
-                  not its button, so the same row still refolds on click. */}
-              <Tooltip.Trigger
-                ref={triggerRef}
-                data-pressable
-                type="button"
-                className="work-line-row"
-                delay={PREVIEW_DELAY_MS}
-                onClick={toggle}
-                aria-expanded={expanded}
-              >
-                {face}
-              </Tooltip.Trigger>
-              <WorkLinePreview blocks={row.blocks} anchorRef={triggerRef} />
-            </Tooltip.Root>
-          ) : (
-            <button
-              data-pressable
-              type="button"
-              className="work-line-row"
-              onClick={toggle}
-              aria-expanded={expanded}
-              title={row.title}
-            >
-              {face}
-            </button>
-          )}
+          {/* NO HOVER PANEL (POD-993 round 7). A folded run used to preview its
+              calls in a tooltip, so that finding out WHICH four files were read
+              did not cost a click that moves the page. Retired at the operator's
+              call: unfolding is cheap, it is the gesture a reader reaches for
+              anyway, and the panel had to be positioned, collision-bounded and
+              height-capped against a feed it was drawn over — three problems the
+              disclosure it duplicated does not have. What survives is its TEXT:
+              the unfolded rows now carry `toolSubject`, the short form the panel
+              was built from. See ToolBlock. */}
+          <button
+            data-pressable
+            type="button"
+            className="work-line-row"
+            onClick={toggle}
+            aria-expanded={expanded}
+            title={row.title}
+          >
+            {face}
+          </button>
           {expanded && (
             <div className="work-line-list">
               {row.blocks.map((b) => (
