@@ -1268,7 +1268,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         const enqueue = (): TurnReceipt =>
           session.injection.enqueue(input.text, {
             origin: options.origin,
-            id: randomUUID(),
+            id: input.id ?? randomUUID(),
             // CARRIED, not defaulted. A queued turn that forgot who asked for it
             // can only ever be drained as somebody else.
             ...(options.principal ? { principal: options.principal } : {}),

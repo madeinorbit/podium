@@ -582,6 +582,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     onDurableSessionCensus: (principal, labels) =>
       bag.machineReconciler.onDurableSessionCensus(principal, labels),
     runtimeEvents: bag.runtimeGateway,
+    queueDrainAbandoned: {
+      record: (msg) =>
+        bag.deps.queueDrainAbandoned?.({
+          sessionId: msg.sessionId,
+          turnIds: msg.turnIds,
+          reason: msg.reason,
+        }),
+    },
     /**
      * THE PROTOCOL ASK INGRESS (POD-2023).
      *
@@ -755,7 +763,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       //
       // What DOES change: both arms stop calling the legacy verbs directly, so
       // the nudge gets a receipt and the C5 guard has nothing to except here.
-      if (target.mode === 'send') bag.receiptSender.send('now', { sessionId: target.sessionId, text })
+      if (target.mode === 'send')
+        bag.receiptSender.send('now', { sessionId: target.sessionId, text })
       else void bag.receiptSender.send('queue', { sessionId: target.sessionId, text })
     },
   )

@@ -87,6 +87,7 @@ export const HOST_EDGE_FRAMES = [
   // identity these frames carry explicitly.
   'runtimeSendRequest',
   'runtimeSendResult',
+  'runtimeQueueDrainAbandoned',
   'runtimeInterruptRequest',
   'runtimeAnswerRequest',
   'runtimeAnswerResult',

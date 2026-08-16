@@ -323,6 +323,8 @@ describe('MessagesRepository (store CRUD)', () => {
       deliveredTo: null,
       readAt: null,
       injectedAt: null,
+      deliveryDeferredAt: null,
+      deliveryDeferredReason: null,
       deadLetteredAt: null,
       ackedBy: null,
       hop: 0,
@@ -338,6 +340,20 @@ describe('MessagesRepository (store CRUD)', () => {
     expect(store.messages.listMessagesFor({ kind: 'issue', id: 'iss_a' })).toEqual([m])
     expect(store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
     expect(store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
+
+    expect(
+      store.messages.markDeliveryDeferred('msg_1', asSessionId('s1'), 't-deferred', 'never-live'),
+    ).toBe(true)
+    expect(
+      store.messages.markDeliveryDeferred('msg_1', asSessionId('s1'), 'later', 'never-live'),
+    ).toBe(false)
+    expect(store.messages.getMessage('msg_1')).toMatchObject({
+      status: 'queued',
+      deliveryDeferredAt: 't-deferred',
+      deliveryDeferredReason: 'never-live',
+    })
+    expect(store.messages.markInjected('msg_1', asSessionId('s1'), 't-injected')).toBe(true)
+    expect(store.messages.getMessage('msg_1')!.deliveryDeferredAt).toBeNull()
 
     expect(store.messages.markDelivered('msg_1', 's1', 't1')).toBe(true)
     // duplicate delivery attempt is a no-op
@@ -3530,6 +3546,25 @@ describe('best-effort acks/notifications [POD-853]', () => {
     // Injected, but not yet confirmed — a plain message is not delivered on push.
     expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
     expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
+  })
+
+  it('corrects a queued receipt at the ready deadline without consuming the turn', () => {
+    const { svc, store } = harness([session({ sessionId: asSessionId('s1') })])
+    const sent = svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id) },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'wait for startup',
+        urgency: 'next-turn',
+      },
+    )
+
+    svc.onQueueDrainAbandoned(asSessionId('s1'), [sent.message.id], 'never-live')
+    expect(store.messages.getMessage(sent.message.id)).toMatchObject({
+      status: 'queued',
+      deliveryDeferredAt: '2026-07-13T00:00:00.000Z',
+      deliveryDeferredReason: 'never-live',
+    })
   })
 })
 

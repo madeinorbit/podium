@@ -127,6 +127,8 @@ interface MessageWire {
   deliveredTo?: string | null
   readAt?: string | null
   deadLetteredAt?: string | null
+  deliveryDeferredAt?: string | null
+  deliveryDeferredReason?: string | null
   expiresAt?: string | null
   // A reply was requested [POD-835] — the reader owes a response.
   expectsResponse?: boolean
@@ -182,7 +184,10 @@ function renderLifecycle(m: MessageWire): string {
   // agent has it while naming nobody.
   const anonymous = !m.deliveredTo
   const gloss: Record<string, string> = {
-    queued: 'captured + waiting for the target (not yet in its context)',
+    queued:
+      m.deliveryDeferredReason === 'never-live'
+        ? 'not delivered within the readiness deadline — still queued for retry'
+        : 'captured + waiting for the target (not yet in its context)',
     delivered: anonymous
       ? 'recorded as consumed, but NO recipient session was named — nobody is known to have it'
       : 'appeared in the target’s transcript — the agent has it',
@@ -197,11 +202,17 @@ function renderLifecycle(m: MessageWire): string {
     m.deliveredAt ? `delivered=${m.deliveredAt}` : null,
     m.readAt ? `read=${m.readAt}` : null,
     m.deadLetteredAt ? `dead-lettered=${m.deadLetteredAt}` : null,
+    m.deliveryDeferredAt ? `deferred=${m.deliveryDeferredAt}` : null,
+    m.deliveryDeferredReason ? `deferred-reason=${m.deliveryDeferredReason}` : null,
     m.deliveredTo ? `to-session=${m.deliveredTo}` : null,
   ].filter(Boolean)
   return [
     `${m.id} ${m.from} -> ${m.to}`,
-    `  status: ${m.status} — ${gloss[m.status] ?? ''}`,
+    `  status: ${
+      m.status === 'queued' && m.deliveryDeferredReason === 'never-live'
+        ? 'not-delivered'
+        : m.status
+    } — ${gloss[m.status] ?? ''}`,
     `  captured=${m.createdAt}${stamps.length ? ` ${stamps.join(' ')}` : ''}`,
   ].join('\n')
 }

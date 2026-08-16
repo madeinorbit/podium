@@ -902,6 +902,8 @@ export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 export const RuntimeSendRequestMessage = z.object({
   type: z.literal('runtimeSendRequest'),
   requestId: z.string(),
+  /** Stable delivery identity, distinct from the one-shot RPC correlation id. */
+  turnId: z.string(),
   sessionId: z.string().min(1).pipe(SessionIdField),
   text: z.string(),
   origin: ObservationInputOrigin,
@@ -1068,6 +1070,19 @@ export const RuntimeSendResultMessage = z.object({
 })
 export type RuntimeSendResultMessage = z.infer<typeof RuntimeSendResultMessage>
 
+/**
+ * daemon → server: a terminal queue reached its ready deadline without the
+ * session ever becoming live. No turn was started and the queue is intact, so
+ * this is a retryable delivery-attempt correction, not a turn event or loss.
+ */
+export const RuntimeQueueDrainAbandonedMessage = z.object({
+  type: z.literal('runtimeQueueDrainAbandoned'),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  turnIds: z.array(z.string().min(1)).min(1),
+  reason: z.literal('never-live'),
+})
+export type RuntimeQueueDrainAbandonedMessage = z.infer<typeof RuntimeQueueDrainAbandonedMessage>
+
 export const RuntimeLifecycleResultMessage = z.object({
   type: z.literal('runtimeLifecycleResult'),
   requestId: z.string(),
@@ -1116,6 +1131,7 @@ export type RuntimeEventMessage = z.infer<typeof RuntimeEventMessage>
 /** daemon → server: receipts, results, and the causal event stream. */
 export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
   RuntimeSendResultMessage,
+  RuntimeQueueDrainAbandonedMessage,
   RuntimeLifecycleResultMessage,
   RuntimeAnswerResultMessage,
   RuntimeInteractionAskedMessage,
@@ -1146,6 +1162,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeLifecycleRequest',
   'runtimeSnapshotRequest',
   'runtimeSendResult',
+  'runtimeQueueDrainAbandoned',
   'runtimeLifecycleResult',
   'runtimeAnswerResult',
   'runtimeInteractionAsked',

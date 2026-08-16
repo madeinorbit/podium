@@ -46,6 +46,7 @@ import {
   RuntimeEventMessage,
   RuntimeInteractionAskedMessage,
   RuntimeLifecycleResultMessage,
+  RuntimeQueueDrainAbandonedMessage,
   RuntimeSendResultMessage,
   RuntimeSnapshotResultMessage,
 } from './runtime'
@@ -230,6 +231,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   // `runtimeEvent` is the uncorrelated causal stream a flagged session's driver
   // produces.
   RuntimeSendResultMessage,
+  RuntimeQueueDrainAbandonedMessage,
   RuntimeLifecycleResultMessage,
   RuntimeAnswerResultMessage,
   // POD-2023 (W5) gives both of these a producer, which is what W1's rule asked

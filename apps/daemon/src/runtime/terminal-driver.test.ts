@@ -836,10 +836,20 @@ describe('the queue drain', () => {
     const session = await driver.create(SPEC)
 
     expect(
-      (await session.send({ text: 'first' }, { origin: 'mail', delivery: 'queue' })).outcome,
+      (
+        await session.send(
+          { id: 'msg-first', text: 'first' },
+          { origin: 'mail', delivery: 'queue' },
+        )
+      ).outcome,
     ).toBe('queued')
     expect(
-      (await session.send({ text: 'second' }, { origin: 'mail', delivery: 'queue' })).outcome,
+      (
+        await session.send(
+          { id: 'msg-second', text: 'second' },
+          { origin: 'mail', delivery: 'queue' },
+        )
+      ).outcome,
     ).toBe('queued')
 
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -855,6 +865,7 @@ describe('the queue drain', () => {
     // EVERY undelivered turn, in order — the report is what is still owed, not a
     // count of what was lost.
     expect(world.abandoned[0]?.turns.map((turn) => turn.text)).toEqual(['first', 'second'])
+    expect(world.abandoned[0]?.turns.map((turn) => turn.id)).toEqual(['msg-first', 'msg-second'])
   })
 
   it('does not report an abandonment when the queue drained (POD-2107)', async () => {
@@ -869,7 +880,9 @@ describe('the queue drain', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (let i = 0; i < 400; i++) await Promise.resolve()
 
-    expect(world.written.map(pastedText).filter((text) => text !== undefined)).toEqual(['delivered'])
+    expect(world.written.map(pastedText).filter((text) => text !== undefined)).toEqual([
+      'delivered',
+    ])
     expect(world.abandoned).toEqual([])
   })
 
@@ -960,9 +973,9 @@ describe('the queue drain', () => {
     expect((await first.send({ text: 'one' }, { origin: 'mail', delivery: 'queue' })).outcome).toBe(
       'queued',
     )
-    expect((await second.send({ text: 'two' }, { origin: 'mail', delivery: 'queue' })).outcome).toBe(
-      'queued',
-    )
+    expect(
+      (await second.send({ text: 'two' }, { origin: 'mail', delivery: 'queue' })).outcome,
+    ).toBe('queued')
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (let i = 0; i < 800; i++) await Promise.resolve()
     const delivered = world.written.map(pastedText).filter((text) => text !== undefined)

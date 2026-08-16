@@ -99,6 +99,7 @@ export interface RuntimeDaemonRpcPort {
   runtimeSend(
     input: {
       sessionId: SessionId
+      turnId?: string
       text: string
       origin: ObservationInputOrigin
       delivery: TurnDelivery
@@ -159,6 +160,7 @@ export class SessionRuntimeGateway {
    */
   async send(input: {
     sessionId: SessionId
+    turnId?: string
     text: string
     origin: ObservationInputOrigin
     delivery: TurnDelivery

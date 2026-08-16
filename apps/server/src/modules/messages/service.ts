@@ -1243,6 +1243,34 @@ export class MessageDeliveryService {
     this.markInjected(message, sessionId)
   }
 
+  /**
+   * The terminal queue reached its ready deadline without typing these turns.
+   * The message remains queued because the driver kept the turn and may drain
+   * it later; this writes the sender-visible correction separately from status.
+   */
+  onQueueDrainAbandoned(
+    sessionId: SessionId,
+    turnIds: readonly string[],
+    reason: 'never-live',
+  ): void {
+    const at = this.deps.now()
+    for (const messageId of turnIds) {
+      const message = this.deps.messages.getMessage(messageId)
+      if (!message || message.status !== 'queued') continue
+      if (!this.deps.messages.markDeliveryDeferred(messageId, sessionId, at, reason)) continue
+      this.emitTransition(
+        {
+          ...message,
+          deliveredTo: message.deliveredTo ?? sessionId,
+          deliveryDeferredAt: at,
+          deliveryDeferredReason: reason,
+        },
+        'message.delivery_deferred',
+        { reason, retryable: true, deliveryConfirmed: false },
+      )
+    }
+  }
+
   /** Brake 2 + the spawn seam: unresumable wake → spawn a fresh agent on the
    *  target issue (deferred wiring) within the per-issue daily budget; no seam
    *  or budget exhausted → ledger + needs-attention, row stays queued. */

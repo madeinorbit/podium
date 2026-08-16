@@ -926,9 +926,14 @@ export class SessionRegistry {
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
-    const queuedApplyHooks: {
-      applied?: (messageId: string, sessionId: SessionId) => void
-      injected?: (messageId: string, sessionId: SessionId) => void
+      const queuedApplyHooks: {
+        applied?: (messageId: string, sessionId: SessionId) => void
+        injected?: (messageId: string, sessionId: SessionId) => void
+        abandoned?: (input: {
+        sessionId: SessionId
+        turnIds: readonly string[]
+          reason: 'never-live'
+        }) => void
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
@@ -950,6 +955,7 @@ export class SessionRegistry {
         queuedMessageApply.applied(messageId, sessionId),
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
+      queueDrainAbandoned: (input) => queuedApplyHooks.abandoned?.(input),
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
@@ -1395,6 +1401,8 @@ export class SessionRegistry {
       messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.injected = (messageId, sessionId) =>
       messagesSvc.onQueuedInputInjected(messageId, sessionId)
+    queuedApplyHooks.abandoned = ({ sessionId, turnIds, reason }) =>
+      messagesSvc.onQueueDrainAbandoned(sessionId, turnIds, reason)
     this.bus.on('message.deadLettered', ({ messageId, reason }) =>
       messagesSvc.notifyQueuedInputRejected(messageId, reason),
     )

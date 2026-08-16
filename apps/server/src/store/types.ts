@@ -559,6 +559,12 @@ export interface MessageRow {
    *  echo confirms `delivered`. Drives auto-requeue — an injected row with no echo
    *  within the window was a ghost push and is re-attempted [POD-834]. */
   injectedAt?: string | null
+  /** The latest ready-deadline correction while the message remains retryably
+   * queued. Separate from status because the underlying turn was not lost and
+   * may still drain later. */
+  deliveryDeferredAt?: string | null
+  /** Typed machine observation behind `deliveryDeferredAt`. */
+  deliveryDeferredReason?: 'never-live' | null
   /** When status reached `dead_letter` — the target was gone. */
   deadLetteredAt?: string | null
   /** Ack message id (denormalized for the steward's suppression check). */

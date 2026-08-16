@@ -342,6 +342,9 @@ export const DAEMON_PLANE_CLASS = {
   // protocol, and the causal envelope makes a gap re-readable from `snapshot()`
   // rather than permanently invisible.
   runtimeSendResult: 'control.command',
+  // A dropped report would leave durable sender state claiming only `queued`,
+  // so this correction is entity truth rather than a lossy live-stream hint.
+  runtimeQueueDrainAbandoned: 'control.entity',
   runtimeLifecycleResult: 'control.command',
   runtimeAnswerResult: 'control.command',
   /**

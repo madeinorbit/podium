@@ -159,6 +159,8 @@ export interface MessageWire {
   // "what happened to my message" answer that `podium mail status` renders.
   readAt: string | null
   deadLetteredAt: string | null
+  deliveryDeferredAt: string | null
+  deliveryDeferredReason: string | null
   /** A reply was requested [POD-835 §04b]: the recipient owes a response and the
    *  settle-nag will fire if none comes. Lets a reader see it must reply. */
   expectsResponse: boolean

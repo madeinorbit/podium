@@ -187,6 +187,21 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toMatch(/no recipient session/i)
   })
 
+  it('mail status corrects a queue that missed its readiness deadline', async () => {
+    const c = client({
+      status: {
+        ...WIRE,
+        status: 'queued',
+        deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
+        deliveryDeferredReason: 'never-live',
+      },
+    })
+    const out = await runMailCli(['status', 'msg_1'], c)
+    expect(out).toContain('status: not-delivered')
+    expect(out).toContain('still queued for retry')
+    expect(out).toContain('deferred-reason=never-live')
+  })
+
   it('[POD-1420] mail status still confirms delivery when a session IS named', async () => {
     const c = client({
       status: { ...WIRE, status: 'delivered', deliveredAt: 't1', deliveredTo: 's-abc' },

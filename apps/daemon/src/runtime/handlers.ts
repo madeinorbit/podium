@@ -89,7 +89,7 @@ export const runtimeHandlers: Pick<
       return
     }
     void handle
-      .send({ text: msg.text }, { origin: msg.origin, delivery: msg.delivery })
+      .send({ id: msg.turnId, text: msg.text }, { origin: msg.origin, delivery: msg.delivery })
       .then((receipt) => {
         ctx.send({
           type: 'runtimeSendResult',

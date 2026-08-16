@@ -89,6 +89,9 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     deliveredTo: (r.delivered_to as SessionId | null) ?? null,
     readAt: (r.read_at as string | null) ?? null,
     injectedAt: (r.injected_at as string | null) ?? null,
+    deliveryDeferredAt: (r.delivery_deferred_at as string | null) ?? null,
+    deliveryDeferredReason:
+      (r.delivery_deferred_reason as MessageRow['deliveryDeferredReason']) ?? null,
     deadLetteredAt: (r.dead_lettered_at as string | null) ?? null,
     ackedBy: (r.acked_by as string | null) ?? null,
     hop: (r.hop as number | null) ?? 0,
@@ -482,10 +485,34 @@ export class MessagesRepository {
   markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): boolean {
     const r = this.db
       .prepare(
-        `UPDATE messages SET injected_at = ?, delivered_to = ?
+        `UPDATE messages
+         SET injected_at = ?, delivered_to = ?,
+             delivery_deferred_at = NULL, delivery_deferred_reason = NULL
          WHERE id = ? AND status = 'queued'`,
       )
       .run(injectedAt, deliveredTo, id)
+    return r.changes === 1
+  }
+
+  /**
+   * Record that the driver could not deliver before its ready deadline while
+   * leaving the row queued and retryable. First report wins until another
+   * injection attempt clears it, making repeated daemon reports idempotent.
+   */
+  markDeliveryDeferred(
+    id: string,
+    deliveredTo: SessionId,
+    at: string,
+    reason: 'never-live',
+  ): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages
+         SET delivery_deferred_at = ?, delivery_deferred_reason = ?,
+             delivered_to = COALESCE(delivered_to, ?)
+         WHERE id = ? AND status = 'queued' AND delivery_deferred_at IS NULL`,
+      )
+      .run(at, reason, deliveredTo, id)
     return r.changes === 1
   }
 

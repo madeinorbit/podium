@@ -1856,6 +1856,8 @@ export const messages = sqliteTable(
     fromName: text('from_name'),
     readAt: text('read_at'),
     injectedAt: text('injected_at'),
+    deliveryDeferredAt: text('delivery_deferred_at'),
+    deliveryDeferredReason: text('delivery_deferred_reason'),
     deadLetteredAt: text('dead_lettered_at'),
     // A response is OPT-IN [POD-835 §04b]: only a `--expect-response` send (or a
     // `question`) sets this. It is the sole trigger for the stop-hook reminder and

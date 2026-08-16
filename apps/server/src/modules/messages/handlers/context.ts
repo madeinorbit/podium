@@ -400,6 +400,8 @@ export class MailAccess {
       hop: m.hop,
       readAt: m.readAt ?? null,
       deadLetteredAt: m.deadLetteredAt ?? null,
+      deliveryDeferredAt: m.deliveryDeferredAt ?? null,
+      deliveryDeferredReason: m.deliveryDeferredReason ?? null,
       expectsResponse: m.expectsResponse ?? false,
     }
   }

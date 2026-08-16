@@ -19,6 +19,12 @@ export type TurnDelivery = 'when-ready' | 'queue' | 'interrupt' | 'steer'
 export type InputOrigin = ObservationInputOrigin
 
 export interface TurnInput {
+  /**
+   * Stable identity supplied by the caller when a later delivery outcome has
+   * to reconcile durable state outside the driver. Drivers must carry it
+   * through any local queue unchanged; absent callers get a driver-local id.
+   */
+  id?: string
   text: string
   /** Refs minted by `stageAttachment` — already landed on the session's machine
    *  in the form the harness accepts. */

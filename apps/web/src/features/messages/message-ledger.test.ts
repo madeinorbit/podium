@@ -57,6 +57,13 @@ describe('status + delivery line', () => {
   })
   it('tells the delivery story', () => {
     expect(deliveryLine(base)).toBe('queued')
+    expect(
+      deliveryLine({
+        ...base,
+        deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
+        deliveryDeferredReason: 'never-live',
+      }),
+    ).toBe('not delivered within readiness deadline · still queued')
     expect(deliveryLine({ ...base, status: 'expired' })).toBe('expired undelivered')
     expect(
       deliveryLine({

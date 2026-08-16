@@ -680,6 +680,7 @@ export class DaemonRpcService {
   runtimeSend(
     input: {
       sessionId: SessionId
+      turnId?: string
       text: string
       origin: ObservationInputOrigin
       delivery: TurnDelivery
@@ -698,6 +699,7 @@ export class DaemonRpcService {
       (requestId) => ({
         type: 'runtimeSendRequest',
         requestId,
+        turnId: input.turnId ?? requestId,
         sessionId: input.sessionId,
         text: input.text,
         origin: input.origin,

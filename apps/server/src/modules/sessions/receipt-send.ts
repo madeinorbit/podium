@@ -103,6 +103,7 @@ export interface ReceiptSendLegacyPort {
 export interface ReceiptSendContractPort {
   send(input: {
     sessionId: SessionId
+    turnId?: string
     text: string
     origin: ObservationInputOrigin
     delivery: Exclude<TurnDelivery, 'queue' | 'steer'>
@@ -224,6 +225,7 @@ export class ReceiptSender {
     const delivery = via === 'interrupt' ? ('interrupt' as const) : ('when-ready' as const)
     const settled = this.ports.contract.send({
       sessionId: input.sessionId,
+      ...(input.sourceMessageId ? { turnId: input.sourceMessageId } : {}),
       text: input.text,
       origin: input.inputOrigin ?? 'controller',
       delivery,

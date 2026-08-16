@@ -70,6 +70,7 @@ export const DAEMON_FRAME_PORTS = {
   // session's driver produces. Session-owned like every other per-session
   // observation, and attributed to the machine that sent it.
   runtimeEvent: ['sessions'],
+  runtimeQueueDrainAbandoned: ['sessions'],
   /**
    * THE PROTOCOL ASK (POD-2023). Session-owned like every other per-session
    * observation: it names a session, it is attributed to the machine that sent

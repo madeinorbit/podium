@@ -28,6 +28,8 @@ export interface LedgerMessage {
   // Message-lifecycle timestamps (#834 [POD-834 §04d]).
   readAt?: string | null
   deadLetteredAt?: string | null
+  deliveryDeferredAt?: string | null
+  deliveryDeferredReason?: string | null
 }
 
 export interface ClampSummary {
@@ -77,6 +79,8 @@ export function deliveryLine(m: LedgerMessage): string {
     const to = m.deliveredTo ? ` by ${m.deliveredTo}` : ''
     return `read${to}${m.ackedBy ? ` · acked by ${m.ackedBy}` : ''}`
   }
+  if (m.status === 'queued' && m.deliveryDeferredReason === 'never-live')
+    return 'not delivered within readiness deadline · still queued'
   if (m.status === 'queued') return m.expiresAt ? `queued · expires ${m.expiresAt}` : 'queued'
   if (m.status === 'dead_letter') return 'dead-lettered · target gone'
   if (m.status === 'expired') return 'expired undelivered'

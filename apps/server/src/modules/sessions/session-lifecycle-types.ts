@@ -86,6 +86,12 @@ export interface SessionLifecycleDeps {
   /** Record that the queued input's bytes reached the CLI, which is short of
    *  delivery: the agent takes it at its own turn boundary (POD-1242). */
   noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): void
+  /** Persist the sender-facing correction when a driver queue never became live. */
+  queueDrainAbandoned?(input: {
+    sessionId: SessionId
+    turnIds: readonly string[]
+    reason: 'never-live'
+  }): void
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
    * `MutationLedger`. Threaded through rather than constructed here — the service
@@ -123,7 +129,11 @@ export interface SessionLifecycleDeps {
   machines: MachinesService
   rpc: DaemonRpcService
   /** Start-path notification; the propagation service decides whether login is needed. */
-  onSpawnTargetLogin?(input: { machineId: MachineId; agentKind: AgentKind; ownerUserId: UserId }): void
+  onSpawnTargetLogin?(input: {
+    machineId: MachineId
+    agentKind: AgentKind
+    ownerUserId: UserId
+  }): void
   memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex

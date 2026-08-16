@@ -94,5 +94,12 @@ export function daemonRuntimeHost(
       return handle
     },
     clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    onDrainAbandoned: ({ sessionId, turns, reason }) =>
+      send({
+        type: 'runtimeQueueDrainAbandoned',
+        sessionId,
+        turnIds: turns.map((turn) => turn.id),
+        reason,
+      }),
   }
 }

@@ -63,6 +63,9 @@ export interface SessionDaemonLifecyclePorts {
   runtimeEvents?: {
     record(machineId: MachineId, msg: Extract<SessionsDaemonFrame, { type: 'runtimeEvent' }>): void
   }
+  queueDrainAbandoned?: {
+    record(msg: Extract<SessionsDaemonFrame, { type: 'runtimeQueueDrainAbandoned' }>): void
+  }
   /**
    * THE PROTOCOL ASK INGRESS (POD-2023).
    *
@@ -700,6 +703,11 @@ export class SessionDaemonLifecycle {
          */
         const owner = this.sessions.get(msg.sessionId)
         if (owner?.machineId === machineId) this.ports.runtimeInteractions?.ask(msg)
+        break
+      }
+      case 'runtimeQueueDrainAbandoned': {
+        const owner = this.sessions.get(msg.sessionId)
+        if (owner?.machineId === machineId) this.ports.queueDrainAbandoned?.record(msg)
         break
       }
       case 'runtimeEvent': {
