@@ -478,8 +478,28 @@ step whose place had been mid-`downloading` when the process died, settled it as
 
 ## What this cost the box
 
-- Disposable checkout, state root and installed instance: **all removed**.
-- Nothing was left running: no server, no daemon, no browser, no feed process.
+Measured with `df --output=avail -BM /`, so the numbers name what they count:
+free space on `/`, at the moments given.
+
+```
+11895 MB  free, immediately before teardown began
+12497 MB  free, after the disposable checkout + state root were removed
+12856 MB  free, after this branch's build outputs were removed
+```
+
+**961 MB returned by teardown**, and the box is left at ~12.6 GB free — more
+than it had when the drives were running.
+
+- Disposable checkout, state root and installed instance: **all removed**
+  (`/home/mgw/src/other/podium-pod2157*` no longer exists).
+- Build outputs this branch produced, all removed: `dist-bun` (135 MB),
+  `apps/web/dist` (38 MB), `apps/web/.sourcemaps` (13 MB), and seven
+  `packages/*/dist`.
+- Nothing was left running: no server, no daemon, no browser, no feed process,
+  no supervisor loop.
+- `node_modules` in this worktree is kept. It was hardlink-copied from a sibling
+  and cost no measurable disk when created (`df` did not move), so removing it
+  would return nothing real; the 2.8 GB `du` reports is shared inodes.
 - The operator's default instance, state directory and checkout were never
   touched, and the disposable checkout's `origin` was the local repository
   throughout, so no `git fetch` ever reached the operator's remote.
