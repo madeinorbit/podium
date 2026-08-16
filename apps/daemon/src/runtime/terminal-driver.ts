@@ -270,6 +270,8 @@ interface DriverSession {
   bindingVersion: number
   observerGeneration: number
   turnEpoch: number
+  /** Highest epoch whose terminal observation has already been folded. */
+  fencedTurnEpoch: number
   /** The newest cursor an observation gave us; null until one arrives. */
   providerCursor: ProviderCursor | null
   /** Driver-local event counter — the `seq` inside a driver-local cursor, and
@@ -465,7 +467,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
    * process, exactly like the process-tree knowledge it stands for. See `emit`
    * for why an adopt must not rewind either number.
    */
-  const streamPositions = new Map<string, { seq: number; turnEpoch: number }>()
+  const streamPositions = new Map<
+    string,
+    { seq: number; turnEpoch: number; fencedTurnEpoch: number }
+  >()
   const profiles = new Map<SessionId, TerminalHarnessProfile>()
   const registrations = new Map<SessionId, TerminalSessionRegistration>()
   const handles = new Map<SessionId, AgentSessionHandle>()
@@ -572,6 +577,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     streamPositions.set(session.label, {
       seq: session.seq,
       turnEpoch: session.turnEpoch,
+      fencedTurnEpoch: session.fencedTurnEpoch,
     })
     const event = stampRuntimeEvent(body, at, provenance, {
       cursor: cursorFor(session, session.seq, cursor),
@@ -894,9 +900,16 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     session.observerGeneration = observation.observerGeneration
     session.bindingVersion = Math.max(session.bindingVersion, observation.bindingVersion)
     session.providerCursor = observation.providerCursor
+    const alreadyFenced =
+      observation.transitionKind === 'turn_terminal' &&
+      observation.turnEpoch <= session.fencedTurnEpoch
     // MONOTONIC. Fences are absorbing: an epoch that closed does not reopen, and
     // an epoch that went backwards would make a replayed stream read as new work.
     session.turnEpoch = Math.max(session.turnEpoch, observation.turnEpoch)
+    if (alreadyFenced) return
+    if (observation.transitionKind === 'turn_terminal') {
+      session.fencedTurnEpoch = Math.max(session.fencedTurnEpoch, observation.turnEpoch)
+    }
 
     const at = observation.providerAt ?? observation.receivedAt
     const turn = turnEventForObservation(observation)
@@ -1075,6 +1088,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       bindingVersion: registration.bindingVersion ?? 1,
       observerGeneration: registration.observerGeneration ?? 1,
       turnEpoch: carried?.turnEpoch ?? 0,
+      fencedTurnEpoch: carried?.fencedTurnEpoch ?? 0,
       providerCursor: null,
       seq: carried?.seq ?? 0,
       log: [],

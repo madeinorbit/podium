@@ -31,6 +31,7 @@
  */
 
 import type { CodexTransport } from '../client.js'
+import type { CodexTurn } from '../protocol.js'
 
 /**
  * The server→client half of the pipe.
@@ -162,6 +163,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
    */
   let pendingTurn: string | undefined
   let openTurn: string | undefined
+  let lastCompletedTurn: CodexTurn | undefined
   let turnSeq = 0
   let itemSeq = 0
   /** SERVER→CLIENT REQUEST IDS START AT ZERO, as the real server's do. A driver
@@ -229,9 +231,15 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       return String(id)
     },
     completeTurn(status = 'completed') {
-      if (!openTurn && !pendingTurn) return
+      const turnId = openTurn ?? pendingTurn
+      if (!turnId) {
+        if (lastCompletedTurn) {
+          notify('turn/completed', { threadId: server.threadId, turn: lastCompletedTurn })
+        }
+        return
+      }
       const turn = {
-        id: openTurn ?? pendingTurn,
+        id: turnId,
         items: [],
         status,
         error: status === 'failed' ? { message: 'provider exploded' } : null,
@@ -241,6 +249,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       }
       openTurn = undefined
       pendingTurn = undefined
+      lastCompletedTurn = turn
       notify('thread/status/changed', {
         threadId: server.threadId,
         status: { type: 'idle' },

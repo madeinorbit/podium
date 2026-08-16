@@ -285,6 +285,8 @@ interface DriverSession {
   /** A turn we have accepted but whose `turn/started` has not landed yet. This
    *  is the measured window between the ack and the open turn. */
   pendingTurnId: CodexTurnId | undefined
+  /** Provider turn ids whose terminal notification has already been folded. */
+  fencedTurnIds: Set<CodexTurnId>
   asks: Map<string, OpenAsk>
   /** Asks this driver saw CLOSE, so a second answer is `already-answered`
    *  rather than `unknown-interaction`. */
@@ -700,6 +702,8 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
    * means in code rather than in a comment.
    */
   function closeTurn(session: DriverSession, turn: CodexTurn): void {
+    if (session.fencedTurnIds.has(turn.id)) return
+    session.fencedTurnIds.add(turn.id)
     const at = iso(turn.completedAt ? turn.completedAt * 1000 : undefined)
     session.openTurnId = undefined
     session.pendingTurnId = undefined
@@ -1710,6 +1714,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       seq: Math.max(carried?.seq ?? 0, journalled?.seq ?? 0),
       openTurnId: undefined,
       pendingTurnId: undefined,
+      fencedTurnIds: new Set(),
       asks: new Map(),
       answered: new Set(),
       queue: [],

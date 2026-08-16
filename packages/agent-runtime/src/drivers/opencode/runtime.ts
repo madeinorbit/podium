@@ -161,6 +161,8 @@ export interface OpencodeJournalEntry {
    *  replays and so `seq` stays monotonic across a rebind. */
   seq: number
   turnEpoch: number
+  /** Highest turn epoch whose authoritative `session.idle` has been folded. */
+  fencedTurnEpoch?: number
   bindingVersion: number
 }
 
@@ -200,6 +202,8 @@ interface DriverSession {
   binding: SessionBinding
   observerGeneration: number
   turnEpoch: number
+  /** Highest turn epoch whose authoritative `session.idle` has been folded. */
+  fencedTurnEpoch: number
   seq: number
   /** opencode's own view: is a turn running right now? Fed by session.status /
    *  session.idle, never guessed. */
@@ -284,7 +288,10 @@ export interface OpencodeRuntime {
 export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntime {
   const sessions = new Map<SessionId, DriverSession>()
   const handles = new Map<SessionId, AgentSessionHandle>()
-  const streamPositions = new Map<string, { seq: number; turnEpoch: number }>()
+  const streamPositions = new Map<
+    string,
+    { seq: number; turnEpoch: number; fencedTurnEpoch: number }
+  >()
   const capabilities = opencodeServerCapabilities()
 
   const iso = (ms?: number): string => new Date(ms ?? host.now()).toISOString()
@@ -302,6 +309,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     streamPositions.set(session.binding.process.key, {
       seq: session.seq,
       turnEpoch: session.turnEpoch,
+      fencedTurnEpoch: session.fencedTurnEpoch,
     })
     const event = stampRuntimeEvent(body, at, provenance, {
       cursor: cursorFor(session, session.seq),
@@ -343,6 +351,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       seq: session.seq,
       turnEpoch: session.turnEpoch,
       bindingVersion: session.binding.bindingVersion,
+      fencedTurnEpoch: session.fencedTurnEpoch,
     })
   }
 
@@ -408,11 +417,16 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       case 'session.status': {
         const wasBusy = session.busy
         session.busy = event.properties.status.type !== 'idle'
+        const opened = !wasBusy && session.busy
+        if (opened) {
+          session.turnEpoch = Math.max(session.turnEpoch, session.fencedTurnEpoch) + 1
+          persist(session)
+        }
         const change = statusToStateEvent(event.properties.status, at)
         if (change) emit(session, { t: 'state', change }, at)
         // Opening a turn is what `busy` means, and the epoch is what every
         // subsequent event is fenced against.
-        if (!wasBusy && session.busy) {
+        if (opened) {
           emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin: 'human' } }, at)
         }
         break
@@ -654,13 +668,14 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
    * The turn fence.
    *
    * ABSORBING, AND ONLY THE PROVIDER OPENS IT. `session.idle` is opencode saying
-   * the turn ended; the epoch advances here and nowhere else. `interrupt()` does
+   * the turn ended; the fence advances here and nowhere else. `interrupt()` does
    * not call this — it asks opencode to stop and waits for the same event every
    * other completion arrives on, which is what "fences only on provider
    * confirmation" means in code rather than in a comment.
    */
   function closeTurn(session: DriverSession, at: string): void {
-    if (!session.busy && session.turnEpoch === 0) return
+    if (session.turnEpoch <= session.fencedTurnEpoch) return
+    session.fencedTurnEpoch = session.turnEpoch
     const verdict = session.interruptPending
       ? 'interrupted'
       : session.interactions.size > 0
@@ -813,6 +828,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     streamPositions.set(session.binding.process.key, {
       seq: session.seq,
       turnEpoch: session.turnEpoch,
+      fencedTurnEpoch: session.fencedTurnEpoch,
     })
     persist(session)
     /**
@@ -1447,6 +1463,10 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       turnEpoch: Math.max(carried?.turnEpoch ?? 0, journalled?.turnEpoch ?? 0),
       seq: Math.max(carried?.seq ?? 0, journalled?.seq ?? 0),
       busy: false,
+      fencedTurnEpoch: Math.max(
+        carried?.fencedTurnEpoch ?? 0,
+        journalled?.fencedTurnEpoch ?? 0,
+      ),
       interruptPending: false,
       interactions: new Map(),
       answered: new Set(),

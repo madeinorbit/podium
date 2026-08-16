@@ -525,19 +525,10 @@ export function describeDriverConformance(target: ConformanceTarget): void {
          * finding 1). What this branch proves is that the words REACHED THE
          * AGENT after the fence, which is the part a caller's work depends on.
          *
-         * WHAT IT DOES NOT PROVE, corrected after the claim was checked (review
-         * round 2, finding 3). An earlier version of this note argued the epoch
-         * was redundant because "words that arrive after a fence cannot join the
-         * fenced turn — fences are absorbing, which this corpus pins separately".
-         * The corpus does NOT pin that: `absorbing` appears twice in this file
-         * and both are comments. The reference fake implements absorption, so
-         * the premise holds there and is unverified everywhere else — and
-         * measuring it found the gap is real. Driving the opencode target's
-         * provider to signal idle TWICE for one turn emits TWO `turn completed`
-         * events for the same epoch (the epoch itself does not move, 1→1→1).
-         * Absorption of the terminal EVENT is therefore a fake-only property
-         * today; it is filed rather than asserted here, because pinning it would
-         * turn a landed driver red inside a corpus round rather than in its own.
+         * The separate turn-fence property now proves the premise this note once
+         * assumed: a second provider terminal signal emits no second terminal
+         * event and does not move the epoch. Its later provider ask is the
+         * ordering witness, so that absence is not inferred from a fixed wait.
          */
       })
 
@@ -773,6 +764,45 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         control.completeTurn(session.binding.sessionId)
         const events = await drainUntil(session.events(before.cursor), (e) => e.t === 'turn')
         expect(events.filter((e) => e.t === 'turn').length).toBeGreaterThan(0)
+      })
+    })
+
+    describe('turn fences', () => {
+      it('absorbs a second terminal signal for an already-fenced epoch', async () => {
+        const { handle, control } = setup()
+        const session = await handle
+        const receipt = await session.send(
+          { text: 'finish once' },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        expect(receipt.outcome).toBe('accepted')
+        if (receipt.outcome !== 'accepted') return
+        const open = await session.snapshot()
+        control.completeTurn(session.binding.sessionId)
+        const terminal = await drainUntil(
+          session.events(open.cursor),
+          (event) =>
+            event.t === 'turn' &&
+            event.ev.ev !== 'started' &&
+            event.ev.turnEpoch === receipt.turnEpoch,
+        )
+        expect(terminal.filter((event) => event.t === 'turn')).toHaveLength(1)
+        const fenced = await session.snapshot()
+
+        control.completeTurn(session.binding.sessionId)
+        const witness = control.askInteraction(session.binding.sessionId, 'permission')
+        // The later provider ask is the ordering witness: every terminal signal
+        // that preceded it has reached the fold, without betting on a timeout.
+        const events = await drainUntil(
+          session.events(fenced.cursor),
+          (event) =>
+            event.t === 'interaction' &&
+            event.ev.ev === 'asked' &&
+            event.ev.interaction.id === witness,
+        )
+
+        expect(events.filter((event) => event.t === 'turn')).toHaveLength(0)
+        expect((await session.snapshot()).turnEpoch).toBe(fenced.turnEpoch)
       })
     })
 
