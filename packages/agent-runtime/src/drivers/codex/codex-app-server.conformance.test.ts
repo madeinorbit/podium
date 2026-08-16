@@ -150,6 +150,10 @@ function makeWorld(): { target: ConformanceTarget } {
       serverFor(sessionId).completeTurn('completed')
     },
 
+    failTurn(sessionId) {
+      serverFor(sessionId).completeTurn('failed')
+    },
+
     processEvent(sessionId, ev) {
       if (ev.ev !== 'exited') return
       // THE PIPE CLOSING IS THE EXIT, for this transport. There is no port to

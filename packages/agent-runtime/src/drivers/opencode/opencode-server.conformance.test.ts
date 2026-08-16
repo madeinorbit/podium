@@ -243,6 +243,13 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       serverFor(sessionId).goIdle(opencodeIdFor(sessionId))
     },
 
+    failTurn(sessionId) {
+      serverFor(sessionId).emit('session.error', {
+        sessionID: opencodeIdFor(sessionId),
+        error: { name: 'ProviderError', message: 'fixture provider failure' },
+      })
+    },
+
     processEvent(sessionId, ev) {
       if (ev.ev !== 'exited') return
       const server = serverFor(sessionId)

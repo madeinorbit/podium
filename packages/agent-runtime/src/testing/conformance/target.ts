@@ -41,7 +41,10 @@ export interface ConformanceControl {
    *  it is supposed to be proving. */
   askInteraction(sessionId: SessionId, spec: InteractionKind | InteractionAskSpec): string
   reaskInteraction(sessionId: SessionId, id: string): string
-  completeTurn(sessionId: SessionId): void
+  completeTurn(sessionId: SessionId): void | Promise<void>
+  /** Deliver a provider-confirmed failed terminal for the open turn. Omitted
+   *  only when the harness has no observable failed-turn signal to induce. */
+  failTurn?(sessionId: SessionId, reason: 'provider-error'): void | Promise<void>
   processEvent(sessionId: SessionId, ev: ProcessEvent): void
   failNextVerification(sessionId: SessionId): void
   /**

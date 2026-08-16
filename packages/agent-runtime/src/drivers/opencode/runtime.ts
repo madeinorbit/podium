@@ -443,26 +443,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         break
       }
       case 'session.error': {
-        const detail = describeError(event.properties.error)
-        emit(
-          session,
-          {
-            t: 'turn',
-            ev: {
-              ev: 'failed',
-              turnEpoch: session.turnEpoch,
-              reason: detail.reason,
-              disposition: detail.disposition,
-              ...(detail.text ? { detail: detail.text } : {}),
-            },
-          },
-          at,
-        )
-        emit(
-          session,
-          { t: 'state', change: { kind: 'turn_failed', errorClass: detail.reason, retryable: detail.disposition === 'retryable', at } },
-          at,
-        )
+        closeTurn(session, at, describeError(event.properties.error))
         break
       }
       case 'permission.asked': {
@@ -667,25 +648,63 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   /**
    * The turn fence.
    *
-   * ABSORBING, AND ONLY THE PROVIDER OPENS IT. `session.idle` is opencode saying
-   * the turn ended; the fence advances here and nowhere else. `interrupt()` does
-   * not call this — it asks opencode to stop and waits for the same event every
-   * other completion arrives on, which is what "fences only on provider
-   * confirmation" means in code rather than in a comment.
+   * ABSORBING, AND ONLY THE PROVIDER CLOSES IT. `session.idle` and
+   * `session.error` are opencode's terminal signals; both claim the same epoch
+   * fence before emitting anything. `interrupt()` only asks opencode to stop
+   * and waits for one of those provider confirmations.
    */
-  function closeTurn(session: DriverSession, at: string): void {
+  function closeTurn(
+    session: DriverSession,
+    at: string,
+    failure?: ReturnType<typeof describeError>,
+  ): void {
     if (session.turnEpoch <= session.fencedTurnEpoch) return
     session.fencedTurnEpoch = session.turnEpoch
-    const verdict = session.interruptPending
-      ? 'interrupted'
-      : session.interactions.size > 0
-        ? 'question'
-        : 'done'
+    const interrupted = session.interruptPending
     session.busy = false
     session.interruptPending = false
-    emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: session.turnEpoch, verdict } }, at)
-    emit(session, { t: 'state', change: idleToStateEvent(verdict, at) }, at)
-    session.state = { phase: 'idle', since: at, nativeSubagentCount: 0 }
+    persist(session)
+
+    if (failure) {
+      emit(
+        session,
+        {
+          t: 'turn',
+          ev: {
+            ev: 'failed',
+            turnEpoch: session.turnEpoch,
+            reason: failure.reason,
+            disposition: failure.disposition,
+            ...(failure.text ? { detail: failure.text } : {}),
+          },
+        },
+        at,
+      )
+      emit(
+        session,
+        {
+          t: 'state',
+          change: {
+            kind: 'turn_failed',
+            errorClass: failure.reason,
+            retryable: failure.disposition === 'retryable',
+            at,
+          },
+        },
+        at,
+      )
+      session.state = { phase: 'errored', since: at, nativeSubagentCount: 0 }
+    } else {
+      const verdict = interrupted
+        ? 'interrupted'
+        : session.interactions.size > 0
+          ? 'question'
+          : 'done'
+      emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: session.turnEpoch, verdict } }, at)
+      emit(session, { t: 'state', change: idleToStateEvent(verdict, at) }, at)
+      session.state = { phase: 'idle', since: at, nativeSubagentCount: 0 }
+    }
+
     for (const wake of [...session.idleWaiters]) wake()
     session.idleWaiters.clear()
     void drainQueue(session)

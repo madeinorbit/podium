@@ -2,6 +2,7 @@ import type { SessionId } from '@podium/model'
 import { PERMITTED_FAILURES } from '../../permitted-failures.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance } from '../../testing/index.js'
+import { createGrokAcpClient } from './client.js'
 import {
   createGrokAcpRuntime,
   type GrokAcpEndpoint,
@@ -14,6 +15,7 @@ import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/f
 
 function makeWorld(): { target: ConformanceTarget } {
   let runtime: GrokAcpRuntime | undefined
+  let replayPromptSettlement: (() => void) | undefined
   let seq = 0
   const servers = new Map<SessionId, FakeGrokAcpServer>()
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
@@ -29,10 +31,41 @@ function makeWorld(): { target: ConformanceTarget } {
     journal,
     now: () => Date.UTC(2026, 7, 16) + ++seq * 1000,
     mintSessionId: () => `gk-session-${++seq}` as SessionId,
+    makeClient(config) {
+      const client = createGrokAcpClient(config)
+      return new Proxy(client, {
+        get(target, property, receiver) {
+          if (property !== 'call') return Reflect.get(target, property, receiver)
+          return (method: string, params?: unknown): Promise<unknown> => {
+            const promise = client.call(method, params)
+            if (method !== 'session/prompt') return promise
+            // A native Promise settles once, while the driver fence must also
+            // absorb a provider adapter that delivers the same settlement
+            // twice. This replayable thenable exposes that exact boundary.
+            return {
+              then(
+                onfulfilled: (value: unknown) => unknown,
+                onrejected: (reason: unknown) => unknown,
+              ): Promise<unknown> {
+                return promise.then((value) => {
+                  replayPromptSettlement = () => {
+                    void onfulfilled(value)
+                  }
+                  return onfulfilled(value)
+                }, onrejected)
+              },
+            } as Promise<unknown>
+          }
+        },
+      })
+    },
     async launch(input) {
       const nativeId =
         entries.get(input.sessionId)?.grokSessionId ?? `grok-native-${input.sessionId}`
-      const server = startFakeGrokAcpServer(nativeId)
+      replayPromptSettlement = undefined
+      const server = startFakeGrokAcpServer(nativeId, {
+        onReplayedPromptResult: () => replayPromptSettlement?.(),
+      })
       servers.get(input.sessionId)?.crash()
       servers.set(input.sessionId, server)
       const endpoint: GrokAcpEndpoint = {
@@ -70,8 +103,16 @@ function makeWorld(): { target: ConformanceTarget } {
     reaskInteraction(sessionId) {
       return serverFor(sessionId).askPermission()
     },
-    completeTurn(sessionId) {
+    async completeTurn(sessionId) {
       serverFor(sessionId).completeTurn()
+      // The response settles a Promise; yielding here makes this control a
+      // causal barrier before the corpus sends its later ordering witness.
+      await Promise.resolve()
+    },
+
+    async failTurn(sessionId) {
+      serverFor(sessionId).completeTurn('refusal')
+      await Promise.resolve()
     },
     processEvent(sessionId, ev) {
       if (ev.ev === 'exited') serverFor(sessionId).crash()
@@ -106,6 +147,7 @@ function makeWorld(): { target: ConformanceTarget } {
         for (const server of servers.values()) server.crash()
         servers.clear()
         entries.clear()
+        replayPromptSettlement = undefined
         seq = 0
       },
       spec: () => ({

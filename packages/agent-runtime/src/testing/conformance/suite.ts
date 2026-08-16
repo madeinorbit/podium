@@ -483,7 +483,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           // deliver anything — while a queue that was calling itself a steer
           // drains exactly here. See the assertion's own note for what this
           // does and does not catch.
-          control.completeTurn(sessionId)
+          await control.completeTurn(sessionId)
           assertSteerJoinedOpenTurn({
             receipt,
             openEpoch,
@@ -507,7 +507,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           control.textDeliveries(sessionId),
           'a receipt said `queue` while the words had already gone to the agent — that is a send wearing a queue label',
         ).toBe(before)
-        control.completeTurn(sessionId)
+        await control.completeTurn(sessionId)
         const delivered = await waitUntil(() => control.textDeliveries(sessionId) > before)
         expect(delivered, 'a queued turn was never delivered after the turn fenced').toBe(true)
         /**
@@ -761,7 +761,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // in between — liveness heartbeats, transcript items — is allowed; what
         // is pinned is that a TURN event arrives only now, and the assertion
         // above already proved none arrived before.
-        control.completeTurn(session.binding.sessionId)
+        await control.completeTurn(session.binding.sessionId)
         const events = await drainUntil(session.events(before.cursor), (e) => e.t === 'turn')
         expect(events.filter((e) => e.t === 'turn').length).toBeGreaterThan(0)
       })
@@ -778,7 +778,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(receipt.outcome).toBe('accepted')
         if (receipt.outcome !== 'accepted') return
         const open = await session.snapshot()
-        control.completeTurn(session.binding.sessionId)
+        await control.completeTurn(session.binding.sessionId)
         const terminal = await drainUntil(
           session.events(open.cursor),
           (event) =>
@@ -789,10 +789,48 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(terminal.filter((event) => event.t === 'turn')).toHaveLength(1)
         const fenced = await session.snapshot()
 
-        control.completeTurn(session.binding.sessionId)
+        await control.completeTurn(session.binding.sessionId)
         const witness = control.askInteraction(session.binding.sessionId, 'permission')
         // The later provider ask is the ordering witness: every terminal signal
         // that preceded it has reached the fold, without betting on a timeout.
+        const events = await drainUntil(
+          session.events(fenced.cursor),
+          (event) =>
+            event.t === 'interaction' &&
+            event.ev.ev === 'asked' &&
+            event.ev.interaction.id === witness,
+        )
+
+        expect(events.filter((event) => event.t === 'turn')).toHaveLength(0)
+        expect((await session.snapshot()).turnEpoch).toBe(fenced.turnEpoch)
+      })
+
+      it('absorbs repeated failure terminals and a later idle for the same epoch', async () => {
+        const { handle, control } = setup()
+        const failTurn = control.failTurn
+        if (!failTurn) return
+        const session = await handle
+        const receipt = await session.send(
+          { text: 'fail once' },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        expect(receipt.outcome).toBe('accepted')
+        if (receipt.outcome !== 'accepted') return
+        const open = await session.snapshot()
+        await failTurn(session.binding.sessionId, 'provider-error')
+        const terminal = await drainUntil(
+          session.events(open.cursor),
+          (event) =>
+            event.t === 'turn' &&
+            event.ev.ev === 'failed' &&
+            event.ev.turnEpoch === receipt.turnEpoch,
+        )
+        expect(terminal.filter((event) => event.t === 'turn')).toHaveLength(1)
+        const fenced = await session.snapshot()
+
+        await failTurn(session.binding.sessionId, 'provider-error')
+        await control.completeTurn(session.binding.sessionId)
+        const witness = control.askInteraction(session.binding.sessionId, 'permission')
         const events = await drainUntil(
           session.events(fenced.cursor),
           (event) =>
@@ -815,7 +853,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const { handle, control, driver } = setup()
         const session = await handle
         await session.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
-        control.completeTurn(session.binding.sessionId)
+        await control.completeTurn(session.binding.sessionId)
         const before = await session.snapshot()
 
         control.restartSupervisor()
@@ -837,7 +875,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const { handle, control, driver } = setup()
         const session = await handle
         await session.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
-        control.completeTurn(session.binding.sessionId)
+        await control.completeTurn(session.binding.sessionId)
         const checkpoint = await session.snapshot()
 
         control.restartSupervisor()
@@ -859,7 +897,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const { handle, control, driver } = setup()
         const session = await handle
         await session.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
-        control.completeTurn(session.binding.sessionId)
+        await control.completeTurn(session.binding.sessionId)
         const checkpoint = await session.snapshot()
 
         control.restartSupervisor()

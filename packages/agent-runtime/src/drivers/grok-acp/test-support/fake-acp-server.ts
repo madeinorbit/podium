@@ -5,6 +5,12 @@ interface Handler {
   closed(): void
 }
 
+export interface FakeGrokAcpServerOptions {
+  /** Test-only bridge from a replayed wire result to the runtime settlement
+   *  callback whose absorbing epoch guard the conformance corpus exercises. */
+  onReplayedPromptResult?(): void
+}
+
 export interface FakeGrokAcpServer {
   transport: GrokAcpTransport
   alive: boolean
@@ -17,11 +23,17 @@ export interface FakeGrokAcpServer {
   crash(): void
 }
 
-export function startFakeGrokAcpServer(sessionId = 'grok-native-1'): FakeGrokAcpServer {
+export function startFakeGrokAcpServer(
+  sessionId = 'grok-native-1',
+  options: FakeGrokAcpServerOptions = {},
+): FakeGrokAcpServer {
   let handler: Handler | undefined
   const buffered: string[] = []
   let nextServerId = 100
   let pendingPrompt: string | number | undefined
+  let lastPromptResult:
+    | { id: string | number; result: { stopReason: 'end_turn' | 'cancelled' | 'refusal' } }
+    | undefined
   let failNext = false
   let eventSeq = 0
 
@@ -151,16 +163,20 @@ export function startFakeGrokAcpServer(sessionId = 'grok-native-1'): FakeGrokAcp
       return String(id)
     },
     completeTurn(stopReason = 'end_turn') {
-      if (pendingPrompt === undefined) return
-      const id = pendingPrompt
+      const replayed = pendingPrompt === undefined
+      const id = pendingPrompt ?? lastPromptResult?.id
+      if (id === undefined) return
       pendingPrompt = undefined
-      if (stopReason === 'end_turn') {
+      if (!replayed && stopReason === 'end_turn') {
         notifyUpdate({
           sessionUpdate: 'agent_message_chunk',
           content: { type: 'text', text: 'done' },
         })
       }
-      response(id, { stopReason })
+      const result = replayed ? lastPromptResult?.result ?? { stopReason } : { stopReason }
+      lastPromptResult = { id, result }
+      response(id, result)
+      if (replayed) options.onReplayedPromptResult?.()
     },
     failNextPrompt() {
       failNext = true
