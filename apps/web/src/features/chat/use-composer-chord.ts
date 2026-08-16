@@ -1,10 +1,14 @@
 /**
  * THE FOCUS CHORD (POD-993) — ⌘/ (Ctrl+/ off Mac) puts the caret in the prompt.
  *
- * The composer advertises this in its top-right corner while it is unfocused and
- * empty, and a hint that names a chord the app does not implement is worse than
- * no hint, so the chord lives here rather than in the shell's menu wiring: the
- * thing that shows it and the thing that answers it are the same module.
+ * The composer advertises a chord in its top-right corner while it is unfocused
+ * and empty, and a hint that names a chord the app does not implement is worse
+ * than no hint, so the chord lives here rather than in the shell's menu wiring:
+ * the thing that shows it and the thing that answers it are the same module.
+ *
+ * WHICH CHORD IT NAMES IS NOT THE SAME EVERYWHERE — see {@link chordLabel}. The
+ * macOS shell already focuses the prompt with ⌘L from its View menu, so that is
+ * what the hint says there; ⌘/ is what it says where ⌘L belongs to the browser.
  *
  * WHY A REGISTRY. A split workspace mounts more than one composer, and each of
  * them would otherwise bind its own window listener and fight over the same
@@ -14,14 +18,15 @@
  * and otherwise the most recently mounted one, which is the pane you last opened.
  */
 import { useEffect } from 'react'
+import { isMacNativeShell } from '@/lib/nativeDesktop'
 
 type Entry = { root: HTMLElement | null; focus: () => void }
 
 const entries: Entry[] = []
 let bound = false
 
-/** `⌘/` on Apple hardware, `Ctrl+/` everywhere else — matched on the event, and
- *  rendered by {@link chordLabel} so the two can never drift apart. */
+/** `⌘/` on Apple hardware, `Ctrl+/` everywhere else — the chord this module
+ *  answers itself, in every shell and every browser tab. */
 function isChord(e: KeyboardEvent): boolean {
   if (e.key !== '/') return false
   return isApple() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
@@ -32,7 +37,24 @@ function isApple(): boolean {
   return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
 }
 
+/**
+ * What the composer's corner advertises — the chord the reader in FRONT of it
+ * would actually press, which is not the same chord everywhere.
+ *
+ * On the macOS shell it is ⌘L: `View > Focus Session Prompt` owns that
+ * accelerator (apps/desktop/src-tauri/src/main.rs), the focused session panel
+ * answers it, and it is the only one of the two that also appears in a menu.
+ * The hint said ⌘/ there, which named the lesser of two working chords and made
+ * the app look like it had two answers for one job.
+ *
+ * A browser tab never gets ⌘L — the address bar takes it before the page does,
+ * and it is not ours to advertise — so there the hint names the chord this
+ * module implements. Ditto the Linux and Windows shells, which build no menu at
+ * all. ⌘/ keeps working everywhere regardless; the label just stops leading
+ * with it where something better exists.
+ */
 export function chordLabel(): string {
+  if (isMacNativeShell()) return '⌘L'
   return isApple() ? '⌘/' : 'Ctrl /'
 }
 

@@ -177,7 +177,9 @@ export function ChatComposer({
   const lastInterruptEscapeAt = useRef<number | null>(null)
   // THE FOCUS CHORD (POD-993). ⌘/ puts the caret here from anywhere in the pane,
   // and the box says so in its corner while it is unfocused and empty — the one
-  // thing about a prompt box a reader cannot discover by looking at it.
+  // thing about a prompt box a reader cannot discover by looking at it. What the
+  // corner names is `chordLabel()`, which is ⌘L on the macOS shell: the View menu
+  // owns that accelerator and the focused panel already answers it.
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
   const [focused, setFocused] = useState(false)
   const focusField = useCallback(() => {
@@ -492,7 +494,7 @@ export function ChatComposer({
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
         {/* Shown only while the box is unfocused AND empty, so it can never land
             on the operator's own words — a placeholder line never reaches it.
-            It names what it does, not just the keys: a bare "⌘/" in the corner of
+            It names what it does, not just the keys: a bare chord in the corner of
             a text field is a puzzle, and the two extra words cost nothing at the
             moment the field is empty. */}
         {!compact && (
