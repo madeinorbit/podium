@@ -14,4 +14,13 @@ delivery capability. Filled in as each phase runs.
 
 ## Results
 
-Filled in below as the phases run.
+### Premise: an all-git fleet plans no pack — CONFIRMED
+
+`updates.start` against a fleet whose one machine advertised `update.delivery.git` alone,
+with the checkout moved from `b647162` to `68fc342`, planned `[machines, server]`. No
+`prepare` step, no pack, no web build.
+
+### 1. All-git fleet, end to end — PASS
+
+The operation reached `done` in 2.8 s. The machine converged by git delivery, the process
+restarted onto the moved checkout, and the successor adopted the same operation id.
