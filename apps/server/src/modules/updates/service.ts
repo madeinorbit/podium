@@ -511,14 +511,29 @@ export class UpdatesService {
    * other would have cleared.
    *
    * `machineIds` scopes it to the machines the decision was actually about; with
-   * no list, every terminal machine on the channel. The rollout is un-halted and
-   * its canary un-proved, because forgetting a verdict re-opens the wave that
-   * verdict stopped, and a wave that re-opens starts by proving a canary again.
+   * no list, every terminal machine on the channel. The rollout is un-halted,
+   * because forgetting a verdict re-opens the wave that verdict stopped.
+   *
+   * WHETHER IT ALSO UN-PROVES THE CANARY IS THE CALLER'S TO SAY (POD-2220), and
+   * the two routes answer differently on purpose. A wave that RE-OPENS starts by
+   * proving a canary again — §6.2's soak is what makes an automatic fleet-wide
+   * update safe, so a fleet-wide retry re-earns it rather than inheriting it.
+   * But the proof is about the BUNDLE, not about the machine that carried it: a
+   * human applying ONE row has decided about one row and has un-proved nothing,
+   * and clearing the flag there charges every other machine on the channel a
+   * soak it has already paid — the wave collapses to one machine at a time, and
+   * grants nobody anything while that one row is in flight. So the single-row
+   * route passes {@link keepCanaryProof}. It is never a way to SET the flag,
+   * only to leave a proof that already stands where it is.
    *
    * Returns whose verdict was forgotten — a caller that changes nothing should
    * be able to see that it changed nothing.
    */
-  clearMachineVerdicts(channel: UpdateChannel, machineIds?: readonly string[]): string[] {
+  clearMachineVerdicts(
+    channel: UpdateChannel,
+    machineIds?: readonly string[],
+    options: { keepCanaryProof?: boolean } = {},
+  ): string[] {
     const cleared = [...this.machineStates.entries()]
       .filter(
         ([machineId, state]) =>
@@ -530,7 +545,7 @@ export class UpdatesService {
     if (cleared.length === 0) return []
     const rollout = this.rollout(channel)
     rollout.halted = false
-    rollout.canaryHealthy = false
+    if (!options.keepCanaryProof) rollout.canaryHealthy = false
     for (const machineId of cleared) {
       this.machineStates.delete(machineId)
       this.pendingGrants.delete(machineId)
@@ -617,7 +632,12 @@ export class UpdatesService {
     // ROW ONLY — a human applying one machine has decided about one machine,
     // and {@link clearMachineVerdicts} is where the fleet-wide route says the
     // same thing about its own set.
-    this.clearMachineVerdicts(channel, [machineId])
+    //
+    // `keepCanaryProof`, because one row is the whole decision (POD-2220). A
+    // canary some OTHER machine proved for this target is still proved after
+    // this click; un-proving it here would drop a running wave back to serial
+    // and stall it outright until this machine answers.
+    this.clearMachineVerdicts(channel, [machineId], { keepCanaryProof: true })
 
     const planned: WaveMachine = { ...machine, state: 'current' }
     const selected = planWave({

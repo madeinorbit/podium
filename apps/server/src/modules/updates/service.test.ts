@@ -375,6 +375,77 @@ describe('UpdatesService', () => {
       })
       expect(send).toHaveBeenCalledTimes(1)
     })
+
+    /**
+     * A WAVE ALREADY WIDE STAYS WIDE WHEN A HUMAN APPLIES ONE ROW (POD-2220).
+     *
+     * The canary proof is a statement about the BUNDLE, not about the machine
+     * that carried it: §6.2's soak is what makes a fleet-wide automatic update
+     * safe, and it is earned once, by some machine holding the target through a
+     * healthy handshake. A human clicking Apply on one refused row has decided
+     * about that row. It has not made the bundle unproven, and treating it as if
+     * it had costs every OTHER machine on the channel a soak it already paid
+     * for — the wave drops back to one machine at a time, and grants nothing at
+     * all while the applied row is still in flight.
+     *
+     * The scenario is the operator's ordinary one: canary proves, wave widens,
+     * one machine refuses on something local (a dirty checkout), the operator
+     * fixes it and clicks Apply on that row.
+     */
+    it('keeps widening after a human applies one refused machine', () => {
+      const { svc } = make([m('a'), m('b'), m('c'), m('d'), m('e'), m('f')])
+      svc.setTarget(target)
+
+      expect(svc.tick()).toEqual(['a'])
+      // The canary holds the target: the bundle is proven for this channel.
+      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      expect(svc.tick()).toEqual(['b', 'c', 'd'])
+      svc.onStatus(asMachineId('b'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      svc.onStatus(asMachineId('c'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      svc.onStatus(asMachineId('d'), {
+        type: 'updateStatus',
+        state: 'rejected',
+        version: '0.4.1',
+        detail: 'machine-dirty-checkout',
+      })
+
+      expect(svc.authorizeMachine(asMachineId('d'))).toEqual({
+        result: 'granted',
+        version: '0.4.2',
+      })
+
+      // `d` is the only machine in flight, and NOTHING has converged since the
+      // Apply — so this is the whole window the regression lives in. The two
+      // machines that have never been granted are still owed the rest of the
+      // concurrency budget.
+      expect(svc.tick()).toEqual(['e', 'f'])
+    })
+
+    /**
+     * The other half of POD-2220, so the fix cannot be read as "the canary is
+     * never re-proved". A FLEET-wide retry is a new decision about the whole
+     * channel, and §6.2 says a wave that re-opens starts by proving one machine
+     * before it moves the rest.
+     */
+    it('still re-proves a canary when the retry is fleet-wide', () => {
+      const { svc } = make([m('a'), m('b'), m('c'), m('d'), m('e'), m('f')])
+      svc.setTarget(target)
+
+      expect(svc.tick()).toEqual(['a'])
+      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      expect(svc.tick()).toEqual(['b', 'c', 'd'])
+      svc.onStatus(asMachineId('b'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      svc.onStatus(asMachineId('c'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      svc.onStatus(asMachineId('d'), {
+        type: 'updateStatus',
+        state: 'rejected',
+        version: '0.4.1',
+      })
+
+      // Same fleet, same moment — but the human pressed the channel's Apply, not
+      // one row's. Exactly one machine is granted.
+      expect(svc.authorize()).toEqual(['d'])
+    })
   })
 
   /**
