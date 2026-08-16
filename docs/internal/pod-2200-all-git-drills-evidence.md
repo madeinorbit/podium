@@ -25,6 +25,9 @@ Nothing touched the operator's default instance, state directory or checkout.
   `bun.lock` blob is identical. No install, no measurable disk cost.
 - Everything was removed afterwards; the disk it returned is recorded at the end.
 
+The commits preceding this one on this branch are not padding: each is a real update target
+this drive published and moved a checkout onto, which is why the SHAs below name them.
+
 ## No compiler ran
 
 `BUN_BIN` — the documented env seam read by `devBuildCommand`; no source was modified —
