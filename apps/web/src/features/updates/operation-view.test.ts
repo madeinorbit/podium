@@ -315,7 +315,7 @@ describe('operationView — the seven states', () => {
           surface: 'desktop-all-in-one',
           title: 'Install the update in Podium Desktop',
           detail: 'Finish this in Podium Desktop on ludovico.',
-          place: 'm_host',
+          place: 'ludovico',
           required: true,
         },
       ],
@@ -324,11 +324,13 @@ describe('operationView — the seven states', () => {
     expect(result.state).toBe('waiting-elsewhere')
     expect(result.primary).toBeUndefined()
     expect(result.title).toBe('Podium 0.4.3 is finishing elsewhere')
-    // `toContain`, not `toBe`: `askLine` also appends the ask's `place`, which
-    // the server sets to the machine ID while the detail names the machine, so
-    // the sentence carries a raw id. Filed separately rather than widened into
-    // this fix — see the discovered issue on the epic.
-    expect(result.subtitle).toContain('Finish this in Podium Desktop on ludovico.')
+    // `toBe`, and the exactness is the assertion (POD-2182). `askLine` appends
+    // "on <place>" unless the chosen line already says it, so a place that
+    // names the machine the same way the detail does adds nothing — while the
+    // machine ID this fixture used to carry slipped past the guard and left the
+    // reader "…on ludovico. on m_host". The server now sends the name; the
+    // server-side half of this is asserted in `router.updates.test.ts`.
+    expect(result.subtitle).toBe('Finish this in Podium Desktop on ludovico.')
     expect(result.indicatorLabel).toBe('Update waiting for another place')
   })
 

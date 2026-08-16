@@ -230,6 +230,51 @@ describe('planUpdateOperation', () => {
   })
 
   /**
+   * POD-2182. The test above cannot see this defect: its machine's name and id
+   * are the same word, so `place: host.id` and `place: host.name` are the same
+   * string and the assertion passes either way. Here they differ, which is the
+   * ordinary case — an id is `m_01j…` and a name is what its owner typed.
+   *
+   * `place` is read by exactly one thing, the panel's `askLine`, which appends
+   * "on <place>" unless the chosen sentence already contains it. So the two
+   * fields have to agree as STRINGS, not merely refer to the same machine:
+   * disagreeing left a person reading "Finish this in Podium Desktop on
+   * ludovico. on m_01jhost". Nothing resolves an ask by its place — the engine
+   * matches on `id` — so there is no identity to preserve here.
+   */
+  it('names the host in the ask the way the detail does, never by machine id', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        hostMachineId: 'm_01jhost',
+        fleet: [machine({ id: 'm_01jhost', supervised: true, name: 'ludovico' })],
+      }),
+    )
+    const ask = plan.awaiting?.[0]
+    expect(ask?.place).toBe('ludovico')
+    expect(ask?.detail).toBe('Finish this in Podium Desktop on ludovico.')
+    expect(ask?.detail).toContain(ask?.place)
+  })
+
+  /**
+   * The fallback stays coherent for the same reason: an unnamed machine has
+   * only its id to be called, and both fields must then use it — otherwise the
+   * guard misses again in the other direction.
+   */
+  it('falls back to the id in both fields when the host has no name', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        hostMachineId: 'm_01jhost',
+        // `name: undefined` deliberately: the helper defaults `name` to the id,
+        // which would make this assertion pass without the fallback existing.
+        fleet: [machine({ id: 'm_01jhost', supervised: true, name: undefined })],
+      }),
+    )
+    const ask = plan.awaiting?.[0]
+    expect(ask?.place).toBe('m_01jhost')
+    expect(ask?.detail).toBe('Finish this in Podium Desktop on m_01jhost.')
+  })
+
+  /**
    * The mirror image, and the distinction the whole `required` flag exists for:
    * an idle tab that has not reloaded is a straggler who self-serves on their
    * next load, so it must NOT hold the operation open (§3.5).

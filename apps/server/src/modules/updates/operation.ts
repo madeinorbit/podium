@@ -352,12 +352,23 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
    * about who is looking at it.
    */
   if (host?.supervised === true) {
+    /**
+     * `place` IS THE WORD A PERSON READS, not the machine's identity (POD-2182).
+     * Nothing matches an ask by its place — the engine resolves asks by `id`
+     * and the surfaces filter on `surface` — so the field's only job is the
+     * sentence the panel builds from it, which appends "on <place>" unless the
+     * chosen line already says it. Passing `host.id` here made that guard miss
+     * against a `detail` that names the machine, so the panel read "Finish this
+     * in Podium Desktop on ludovico. on m_01j…". The same expression as the
+     * detail keeps the two in step whether or not the machine has a name.
+     */
+    const hostPlace = host.name ?? host.id
     const ask: AwaitingAsk = {
       id: DESKTOP_INSTALL_ASK,
       surface: 'desktop-all-in-one',
       title: 'Install the update in Podium Desktop',
-      detail: `Finish this in Podium Desktop on ${host.name ?? host.id}.`,
-      place: host.id,
+      detail: `Finish this in Podium Desktop on ${hostPlace}.`,
+      place: hostPlace,
       // REQUIRED: this is the ask that gates correctness. Nothing else moves
       // until the shell installs and the successor server adopts (§5).
       required: true,
