@@ -211,21 +211,23 @@ export class UpdateReconciler {
    * Version-checked, not just remembered: a mark for a version that is no longer
    * this machine's target describes a past convergence and must not be shown
    * against the present one.
+   *
+   * TAKES THE ROW, NOT AN ID, and that is not a convenience. The caller is the
+   * fleet read model, which is iterating a projection it has already built; an
+   * id would make this look up the fleet AGAIN, once per machine — and
+   * `UpdatesService.fleet()` is not a pure read (it ages grants and can tick a
+   * wave), so a payload of N machines would run that projection N+1 times and
+   * drive convergence from a GET.
    */
-  convergedBy(machineId: string): 'reconciler' | undefined {
-    const version = this.converged.get(machineId)
+  convergedBy(machine: WaveMachine): 'reconciler' | undefined {
+    const version = this.converged.get(machine.id)
     if (version === undefined) return undefined
-    return this.targetVersionFor(machineId) === version ? 'reconciler' : undefined
+    return this.targetFor(machine)?.version === version ? 'reconciler' : undefined
   }
 
   /** What is waiting to be considered. Tests only — the queue is otherwise private. */
   pending(): string[] {
     return [...this.queue]
-  }
-
-  private targetVersionFor(machineId: string): string | undefined {
-    const machine = this.deps.updates.fleet().find((candidate) => candidate.id === machineId)
-    return machine ? this.targetFor(machine)?.version : undefined
   }
 
   private targetFor(machine: WaveMachine): UpdateTarget | undefined {

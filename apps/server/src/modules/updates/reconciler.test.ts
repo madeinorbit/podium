@@ -99,6 +99,12 @@ function harness(machines: WaveMachine[], over: { operationActive?: boolean } = 
     },
     /** Which machine ids have been handed a grant so far. */
     granted: (): string[] => send.mock.calls.map((call) => String(call[0])),
+    /** The live projection row for one machine — what the fleet payload holds. */
+    row: (id: string): WaveMachine => {
+      const found = updates.fleet().find((candidate) => candidate.id === id)
+      if (!found) throw new Error(`no machine ${id} in the fleet`)
+      return found
+    },
   }
 }
 
@@ -336,10 +342,10 @@ describe('UpdateReconciler', () => {
     h.updates.setTarget('dev', target())
 
     h.reconciler.onMachineConnected('laptop')
-    expect(h.reconciler.convergedBy('laptop')).toBe('reconciler')
+    expect(h.reconciler.convergedBy(h.row('laptop'))).toBe('reconciler')
 
     h.reconciler.onOperationStarted()
-    expect(h.reconciler.convergedBy('laptop')).toBeUndefined()
+    expect(h.reconciler.convergedBy(h.row('laptop'))).toBeUndefined()
   })
 
   it('does not label a machine whose target has since moved on', () => {
@@ -349,6 +355,6 @@ describe('UpdateReconciler', () => {
 
     h.updates.setTarget('dev', target({ version: '0.4.4' }))
 
-    expect(h.reconciler.convergedBy('laptop')).toBeUndefined()
+    expect(h.reconciler.convergedBy(h.row('laptop'))).toBeUndefined()
   })
 })

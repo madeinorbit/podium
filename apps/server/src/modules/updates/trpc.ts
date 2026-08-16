@@ -132,7 +132,7 @@ export interface UpdateFleetSnapshot {
 
 function fleetSnapshot(
   updates: UpdatesService,
-  reconciler?: { convergedBy(machineId: string): 'reconciler' | undefined },
+  reconciler?: { convergedBy(machine: WaveMachine): 'reconciler' | undefined },
 ): UpdateFleetSnapshot {
   const targetVersion = updates.targetVersion()
   // The global dialog is the coordinating source server's dev-authority wave.
@@ -140,7 +140,7 @@ function fleetSnapshot(
   // comparing them with the dev target invents behind places this mutation
   // cannot and must not grant.
   const allMachines = updates.fleet().map((machine) => {
-    const convergedBy = reconciler?.convergedBy(machine.id)
+    const convergedBy = reconciler?.convergedBy(machine)
     return {
       ...machine,
       id: asMachineId(machine.id),
