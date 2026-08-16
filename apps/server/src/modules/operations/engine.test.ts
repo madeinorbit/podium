@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import {
+  ADOPTION_FAILED_ERROR_CODE,
+  DEFAULT_WAITING_GRACE_MS,
+  DRIVE_FAILED_ERROR_CODE,
   type OperationClock,
   OperationEngine,
   type OperationTimerHandle,
@@ -846,6 +849,528 @@ describe('the registry', () => {
     registry.register(testKind({ kind: 'reindex', exclusionGroup: 'maintenance' }))
     expect(registry.kinds()).toEqual(['test', 'server-move', 'reindex'])
     expect(registry.groups()).toEqual(['lifecycle', 'maintenance'])
+  })
+})
+
+/**
+ * WHAT A RESTART DOES TO A STALLED STEP (POD-2145).
+ *
+ * `driveLocked` leaves a stalled step alone because it is waiting on its own
+ * retry — true inside one process, false across a restart, where that retry
+ * belonged to the dead one. The `update` kind restarts this server mid-step by
+ * design, so the window between "persisted stalled" and "retry issued" is a
+ * normal event here, not an exotic one.
+ */
+describe('a step left stalled by a dead process (POD-2145)', () => {
+  const stalledMidFlight = (over: Partial<PersistedOperation> = {}): PersistedOperation => ({
+    id: 'op_1',
+    kind: 'test',
+    exclusionGroup: 'lifecycle',
+    state: 'running',
+    createdAt: 10,
+    updatedAt: 10,
+    steps: [
+      { id: 'first', state: 'stalled', startedAt: 10, lastProgressAt: 10, stalls: 1, attempts: 2 },
+      { id: 'second', state: 'pending' },
+    ],
+    ...over,
+  })
+
+  /** A successor whose clock the test can drive. */
+  const boot = (store: OperationStore, registry: OperationKindRegistry) => {
+    const clock = fakeClock()
+    return { clock, engine: new OperationEngine({ store, registry, clock: clock.clock }) }
+  }
+
+  it('is resumed by adoption, rather than holding its group forever', async () => {
+    const { store, registry } = harness()
+    store.insert(stalledMidFlight())
+    const first = vi.fn(done)
+    registry.register(testKind({ runners: { first: runner(first), second: runner(done) } }))
+
+    await boot(store, registry).engine.adoptOnBoot(() => ({}))
+
+    // ensure() is idempotent by contract, so re-running it is the safe answer —
+    // and the only one, since nothing else will ever touch this step again.
+    expect(first).toHaveBeenCalledOnce()
+    expect(store.get('op_1')?.state).toBe('done')
+    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+  })
+
+  it('keeps the stall the dead process recorded, and counts the new attempt', async () => {
+    const { store, registry } = harness()
+    store.insert(stalledMidFlight())
+    registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
+
+    await boot(store, registry).engine.adoptOnBoot(() => ({}))
+
+    const resumed = step(store.get('op_1')?.operation, 'first')
+    expect(resumed?.state).toBe('running')
+    // "It hung and then recovered" is a fact about the update the user lived
+    // through: the restart does not buy the step a fresh stall budget.
+    expect(resumed?.stalls).toBe(1)
+    expect(resumed?.attempts).toBe(3)
+  })
+
+  it('arms the deadline the dead process never left behind', async () => {
+    const { store, registry } = harness()
+    store.insert(stalledMidFlight())
+    registry.register(
+      testKind({
+        runners: { first: runner(blocks), second: runner(done) },
+        deadlines: { first: { silenceMs: 1000 } },
+      }),
+    )
+
+    const { engine, clock } = boot(store, registry)
+    await engine.adoptOnBoot(() => ({}))
+    expect(clock.armed()).toBe(1)
+
+    // It has already used its one stall, so the next silence is fatal. The
+    // wedge is closed in both directions: the step resumes, and it is still
+    // answerable to a budget.
+    clock.advance(1000)
+    await engine.whenSettled('op_1')
+    expect(store.get('op_1')?.state).toBe('failed')
+    expect(store.get('op_1')?.operation?.error?.code).toBe(STALLED_ERROR_CODE)
+  })
+
+  it('is failed, not parked, when this binary has no runner for it', async () => {
+    const { store, registry } = harness()
+    store.insert(stalledMidFlight())
+    registry.register(testKind({ runners: { second: runner(done) } }))
+
+    await boot(store, registry).engine.adoptOnBoot(() => ({}))
+    expect(store.get('op_1')?.operation?.error?.code).toBe('no-runner')
+    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+  })
+
+  it('does not resume a step the kind reconciled to finished', async () => {
+    const { store, registry } = harness()
+    store.insert(stalledMidFlight())
+    const first = vi.fn(done)
+    registry.register(
+      testKind({
+        // Reality wins over the dead process's memory of a stall (P3).
+        reconcile: (operation) => ({
+          ...operation,
+          steps: (operation.steps ?? []).map((s) =>
+            s.id === 'first' ? { ...s, state: 'done' as const } : s,
+          ),
+        }),
+        runners: { first: runner(first), second: runner(done) },
+      }),
+    )
+
+    await boot(store, registry).engine.adoptOnBoot(() => ({}))
+    expect(first).not.toHaveBeenCalled()
+    expect(store.get('op_1')?.state).toBe('done')
+  })
+
+  it('fails a stalled step whose runner went away, rather than leaving it stalled', async () => {
+    // `onDeadline` and `driveLocked` must agree about what an unrunnable step
+    // means: one failed it and the other returned, leaving the step stalled
+    // with no timer — the same wedge by a second route.
+    const { registry, engine, store, clock } = harness()
+    const def = testKind({
+      plan: () => ({ steps: [{ id: 'first' }] }),
+      runners: { first: runner(blocks) },
+      deadlines: { first: { silenceMs: 1000 } },
+    })
+    registry.register(def)
+    await run(engine, 'test')
+
+    delete (def.runners as Record<string, unknown>).first
+    clock.advance(1000)
+    await engine.whenSettled('op_1')
+
+    expect(store.get('op_1')?.state).toBe('failed')
+    expect(store.get('op_1')?.operation?.error?.code).toBe('no-runner')
+  })
+})
+
+/**
+ * ADOPTION MUST NOT BE ABLE TO STOP THE SERVER BOOTING (POD-2147).
+ *
+ * `startServer` awaits `adoptOnBoot` before it binds. A kind whose `reconcile`
+ * or reality lookup throws would therefore reject startup — on the server whose
+ * job is to apply the update that fixes it.
+ */
+describe('adoption contains what the kind throws (POD-2147)', () => {
+  const midFlight = (over: Partial<PersistedOperation> = {}): PersistedOperation => ({
+    id: 'op_1',
+    kind: 'test',
+    exclusionGroup: 'lifecycle',
+    state: 'running',
+    createdAt: 10,
+    updatedAt: 10,
+    steps: [{ id: 'first', state: 'running', startedAt: 10, lastProgressAt: 10 }],
+    ...over,
+  })
+
+  const boot = (store: OperationStore, registry: OperationKindRegistry) =>
+    new OperationEngine({ store, registry, clock: fakeClock().clock })
+
+  it('resolves, and abandons the operation, when the reality lookup throws', async () => {
+    const { store, registry } = harness()
+    store.insert(midFlight())
+    registry.register(testKind({ plan: () => ({ steps: [{ id: 'first' }] }) }))
+
+    const adopted = await boot(store, registry).adoptOnBoot(() => {
+      throw new Error('reality lookup exploded')
+    })
+
+    expect(adopted[0]?.state).toBe('failed')
+    const row = store.get('op_1')
+    expect(row?.state).toBe('failed')
+    expect(row?.operation?.error?.code).toBe(ADOPTION_FAILED_ERROR_CODE)
+    // The whole point: the group is released rather than wedged behind an
+    // operation this binary has just proved it cannot drive.
+    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+  })
+
+  it('resolves, and abandons the operation, when reconcile throws', async () => {
+    const { store, registry } = harness()
+    store.insert(midFlight())
+    registry.register(
+      testKind({
+        plan: () => ({ steps: [{ id: 'first' }] }),
+        reconcile: () => {
+          throw new Error('cannot read version of undefined')
+        },
+      }),
+    )
+
+    await boot(store, registry).adoptOnBoot(() => ({}))
+    expect(store.get('op_1')?.operation?.error?.code).toBe(ADOPTION_FAILED_ERROR_CODE)
+  })
+
+  it('adopts the operations behind the one that threw', async () => {
+    const { store, registry } = harness()
+    store.insert(midFlight({ id: 'op_a', createdAt: 10, updatedAt: 10 }))
+    store.insert(
+      midFlight({
+        id: 'op_b',
+        kind: 'reindex',
+        exclusionGroup: 'maintenance',
+        createdAt: 20,
+        updatedAt: 20,
+      }),
+    )
+    registry.register(
+      testKind({ plan: () => ({ steps: [{ id: 'first' }] }), runners: { first: runner(done) } }),
+    )
+    registry.register(
+      testKind({
+        kind: 'reindex',
+        exclusionGroup: 'maintenance',
+        plan: () => ({ steps: [{ id: 'first' }] }),
+        reconcile: () => {
+          throw new Error('reindex reconcile exploded')
+        },
+      }),
+    )
+
+    // `active()` is newest first, so the thrower is reached before op_a.
+    await boot(store, registry).adoptOnBoot(() => ({}))
+    expect(store.get('op_b')?.state).toBe('failed')
+    expect(store.get('op_a')?.state).toBe('done')
+  })
+
+  it('resolves even when the store cannot list its live rows', async () => {
+    const { store, registry } = harness()
+    registry.register(testKind())
+    vi.spyOn(store, 'active').mockImplementation(() => {
+      throw new Error('database is locked')
+    })
+
+    // The sweep is inside the guarantee too: `startServer` awaits this before
+    // it binds, so the one thing that must not happen is a rejection.
+    await expect(boot(store, registry).adoptOnBoot(() => ({}))).resolves.toEqual([])
+  })
+
+  it('does not throw when retention sweeps the adopted row away', async () => {
+    const { store, registry } = harness()
+    // Twenty newer finished operations, so this one falls outside its kind's
+    // retention the moment its own completion sweeps.
+    for (let i = 0; i < 20; i++) {
+      store.insert({
+        ...midFlight({ id: `op_old_${i}`, state: 'done' }),
+        createdAt: 100 + i,
+        updatedAt: 100 + i,
+        finishedAt: 100 + i,
+      })
+    }
+    store.insert(midFlight())
+    registry.register(
+      testKind({ plan: () => ({ steps: [{ id: 'first' }] }), runners: { first: runner(done) } }),
+    )
+
+    const adopted = await boot(store, registry).adoptOnBoot(() => ({}))
+    expect(adopted.map((o) => o.id)).toContain('op_1')
+    expect(store.get('op_1')).toBeUndefined()
+  })
+})
+
+/**
+ * STOP MEANS STOP (POD-2148). The shutdown fix that landed cleared the deadline
+ * map, which is not the only timer the engine arms, and one of the two close
+ * paths never called it at all.
+ */
+describe('stopping the engine is a fence, not a timer sweep (POD-2148)', () => {
+  const hangs = () => new Promise<StepOutcome>(() => {})
+
+  it('clears the budget timer racing a runner that has not returned', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(
+      testKind({
+        plan: () => ({ steps: [{ id: 'first' }] }),
+        runners: { first: runner(hangs) },
+        deadlines: { first: { silenceMs: 1000 } },
+      }),
+    )
+    await startOnly(engine)
+    // `invokeWithin`'s timer is armed on the clock but was never in the
+    // per-operation map that `stop()` clears.
+    expect(clock.armed()).toBe(1)
+
+    engine.stop()
+    expect(clock.armed()).toBe(0)
+
+    // Nothing left to resolve OVERDUE into `onDeadline` and on into a store
+    // the shutdown path has already closed.
+    clock.advance(10_000)
+    await drainMicrotasks()
+    expect(store.get('op_1')?.state).toBe('running')
+    expect(step(store.get('op_1')?.operation, 'first')?.stalls).toBeUndefined()
+  })
+
+  it('writes nothing once stopped, even when the runner finally answers', async () => {
+    const { registry, engine, store, clock } = harness()
+    let release: (o: StepOutcome) => void = () => {}
+    registry.register(
+      testKind({
+        plan: () => ({ steps: [{ id: 'first' }, { id: 'second' }] }),
+        runners: {
+          first: runner(
+            () =>
+              new Promise<StepOutcome>((r) => {
+                release = r
+              }),
+          ),
+          second: runner(done),
+        },
+      }),
+    )
+    await engine.start('test')
+    const before = store.get('op_1')?.updatedAt
+
+    engine.stop()
+    clock.advance(500)
+    release({ state: 'done' })
+    await drainMicrotasks()
+
+    // A write here lands in a database the shutdown path has already closed.
+    const row = store.get('op_1')
+    expect(row?.state).toBe('running')
+    expect(row?.updatedAt).toBe(before)
+  })
+
+  it('accepts no new work once stopped', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
+    await run(engine, 'test')
+    const before = store.get('op_1')?.updatedAt
+
+    engine.stop()
+    clock.advance(500)
+    await engine.recordProgress('op_1', 'first', { progress: { done: 1, total: 3 } })
+    expect(store.get('op_1')?.updatedAt).toBe(before)
+  })
+})
+
+/**
+ * WAITING IS A STATE, NOT A PARKING SPACE (POD-2149, spec §3.2 and §3.5).
+ *
+ * The spec's diagram names `expired` as an exit from `waiting` and §3.5 says an
+ * operation there "completes after a short grace". Neither existed: a required
+ * ask nothing could answer held the exclusion group for as long as the machine
+ * stayed asleep.
+ */
+describe('waiting expires after a grace (POD-2149)', () => {
+  const withRequiredAsk = (over: Partial<OperationKindDefinition> = {}) =>
+    testKind({
+      plan: () => ({
+        steps: [{ id: 'first' }],
+        awaiting: [{ id: 'desktop-install', surface: 'desktop', required: true }],
+      }),
+      runners: { first: runner(done) },
+      ...over,
+    })
+
+  it('completes once the grace passes with the ask still outstanding', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(withRequiredAsk())
+    await run(engine, 'test')
+    expect(store.get('op_1')?.state).toBe('waiting')
+
+    clock.advance(DEFAULT_WAITING_GRACE_MS)
+    await engine.whenSettled('op_1')
+    expect(store.get('op_1')?.state).toBe('done')
+    expect(store.get('op_1')?.finishedAt).not.toBeNull()
+  })
+
+  it('holds the operation open for the whole grace', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(withRequiredAsk())
+    await run(engine, 'test')
+
+    clock.advance(DEFAULT_WAITING_GRACE_MS - 1)
+    await engine.whenSettled('op_1')
+    expect(store.get('op_1')?.state).toBe('waiting')
+  })
+
+  it('honours the grace the kind names', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(withRequiredAsk({ waitingGraceMs: 5000 }))
+    await run(engine, 'test')
+
+    clock.advance(5000)
+    await engine.whenSettled('op_1')
+    expect(store.get('op_1')?.state).toBe('done')
+  })
+
+  it('leaves the unanswered ask in the record', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(withRequiredAsk())
+    await run(engine, 'test')
+    clock.advance(DEFAULT_WAITING_GRACE_MS)
+    await engine.whenSettled('op_1')
+
+    // Completing is not the same as pretending it was answered.
+    expect(store.get('op_1')?.operation?.awaiting).toEqual([
+      { id: 'desktop-install', surface: 'desktop', required: true },
+    ])
+  })
+
+  it('frees the exclusion group when the grace runs out', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(withRequiredAsk())
+    await run(engine, 'test')
+    expect(store.activeByGroup('lifecycle')).toBeDefined()
+
+    clock.advance(DEFAULT_WAITING_GRACE_MS)
+    await engine.whenSettled('op_1')
+    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+  })
+
+  it('still settles the moment the ask is answered', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(withRequiredAsk())
+    await run(engine, 'test')
+    await engine.settleAsk('op_1', 'desktop-install')
+    expect(store.get('op_1')?.state).toBe('done')
+    // …and the grace timer went with it.
+    expect(clock.armed()).toBe(0)
+  })
+
+  it('re-arms the grace when a successor adopts a waiting operation', async () => {
+    const { store, registry } = harness()
+    store.insert({
+      id: 'op_1',
+      kind: 'test',
+      exclusionGroup: 'lifecycle',
+      state: 'waiting',
+      createdAt: 10,
+      updatedAt: 10,
+      steps: [{ id: 'first', state: 'done', startedAt: 10, finishedAt: 20 }],
+      awaiting: [{ id: 'desktop-install', surface: 'desktop', required: true }],
+    })
+    registry.register(withRequiredAsk())
+
+    const clock = fakeClock()
+    const engine = new OperationEngine({ store, registry, clock: clock.clock })
+    await engine.adoptOnBoot(() => ({}))
+    expect(store.get('op_1')?.state).toBe('waiting')
+
+    clock.advance(DEFAULT_WAITING_GRACE_MS)
+    await engine.whenSettled('op_1')
+    expect(store.get('op_1')?.state).toBe('done')
+  })
+})
+
+/**
+ * NOBODY IS AWAITING THE DRIVE (POD-2151). `start()` deliberately does not — a
+ * click must not be held hostage to a runner — and the deadline timer never
+ * did. So containment has to live at those two sites, or a throw disappears
+ * into the chain's blanket catch and leaves the operation `running` forever.
+ */
+describe('a background drive that throws is contained (POD-2151)', () => {
+  it('fails the operation the drive could not advance, and frees the group', async () => {
+    const { registry, engine, store } = harness()
+    registry.register(testKind())
+    vi.spyOn(store, 'update').mockImplementationOnce(() => {
+      throw new Error('database is locked')
+    })
+
+    // The caller is told the operation started, and it did.
+    expect(await engine.start('test')).toMatchObject({ started: true })
+    await drainMicrotasks()
+
+    const row = store.get('op_1')
+    expect(row?.state).toBe('failed')
+    expect(row?.operation?.error?.code).toBe(DRIVE_FAILED_ERROR_CODE)
+    expect(row?.operation?.error?.detail).toContain('database is locked')
+    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+  })
+
+  it('fails the operation when a deadline wakes into a broken store', async () => {
+    const { registry, engine, store, clock } = harness()
+    registry.register(
+      testKind({
+        plan: () => ({ steps: [{ id: 'first' }] }),
+        runners: { first: runner(blocks) },
+        deadlines: { first: { silenceMs: 1000 } },
+      }),
+    )
+    await run(engine, 'test')
+
+    vi.spyOn(store, 'get').mockImplementationOnce(() => {
+      throw new Error('database is locked')
+    })
+    clock.advance(1000)
+    await drainMicrotasks()
+
+    expect(store.get('op_1')?.state).toBe('failed')
+    expect(store.get('op_1')?.operation?.error?.code).toBe(DRIVE_FAILED_ERROR_CODE)
+  })
+
+  it('raises nothing further when the store itself is the broken thing', async () => {
+    const { registry, engine, store } = harness()
+    registry.register(testKind())
+    vi.spyOn(store, 'update').mockImplementation(() => {
+      throw new Error('database is closed')
+    })
+
+    const unhandled: unknown[] = []
+    const capture = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', capture)
+    try {
+      expect(await engine.start('test')).toMatchObject({ started: true })
+      await drainMicrotasks()
+      // One turn of the event loop — Node decides a rejection is unhandled at
+      // the end of a microtask checkpoint, so this is a checkpoint rather than
+      // a sleep: nothing here waits for a duration.
+      await new Promise((resolve) => setImmediate(resolve))
+    } finally {
+      process.off('unhandledRejection', capture)
+    }
+
+    // The recovery path writes through the same store that just failed, so it
+    // cannot record anything — and must not turn a contained failure into an
+    // uncontained one on the way out.
+    expect(unhandled).toEqual([])
+    expect(store.get('op_1')?.state).toBe('running')
   })
 })
 

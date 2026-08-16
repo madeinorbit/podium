@@ -102,6 +102,13 @@ export interface OperationKindDefinition<Ctx = unknown, Reality = unknown> {
   reconcile(operation: Operation, reality: Reality): Operation | Promise<Operation>
   runners: Record<string, StepRunner<Ctx>>
   deadlines?: Record<string, StepDeadlines>
+  /**
+   * How long this kind's operations stay `waiting` on a required surface-local
+   * ask before completing anyway (§3.5). Absent means the framework default —
+   * there is deliberately no way to say "forever", because an unbounded wait is
+   * the defect the grace exists to close (POD-2149).
+   */
+  waitingGraceMs?: number
 }
 
 /** The erased form the engine holds: it passes a context through, it never reads one. */

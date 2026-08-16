@@ -87,6 +87,28 @@ export type CancelResult =
 export const STALLED_ERROR_CODE = 'stalled'
 /** An operation whose kind this binary does not register — see {@link OperationEngine.adoptOnBoot}. */
 export const UNKNOWN_KIND_ERROR_CODE = 'unknown-operation-kind'
+/** Adoption asked the kind to re-derive an operation and the kind threw (POD-2147). */
+export const ADOPTION_FAILED_ERROR_CODE = 'operation-adoption-failed'
+/** The engine's own loop threw while advancing an operation nobody is awaiting (POD-2151). */
+export const DRIVE_FAILED_ERROR_CODE = 'operation-drive-failed'
+
+/**
+ * How long a `waiting` operation is held open for asks only a surface can
+ * satisfy, before it completes anyway (§3.5, POD-2149).
+ *
+ * The spec asks for "a short grace" and its state diagram names `expired` as an
+ * exit; what it does NOT say is a number, because the right one is a property of
+ * the ask. Ten minutes is the framework's answer for a kind that names none:
+ * comfortably longer than a desktop app takes to download, install and come
+ * back, and far shorter than the failure this bounds — a laptop whose lid stays
+ * shut holding the `lifecycle` group, and with it every future update, until
+ * someone finds the machine.
+ *
+ * Expiry completes the operation rather than failing it: the shared steps all
+ * succeeded, and the ask that went unanswered stays listed in `awaiting` as the
+ * honest record of what did not happen.
+ */
+export const DEFAULT_WAITING_GRACE_MS = 10 * 60_000
 
 /** `ensure()` outstayed its step's budget — see `invokeWithin`. */
 const OVERDUE = Symbol('operation-step-overdue')
@@ -103,6 +125,14 @@ export class OperationEngine {
    * handles), and the successor process assembles its own in `adoptOnBoot`.
    */
   private readonly contexts = new Map<string, unknown>()
+  /**
+   * The timers `invokeWithin` arms. They belong to a CALL rather than to an
+   * operation, so the per-operation map cannot hold them and `stop()` could not
+   * see them (POD-2148).
+   */
+  private readonly budgetTimers = new Set<OperationTimerHandle>()
+  /** Set by `stop()`. The store is about to close, so nothing may write again. */
+  private stopped = false
 
   constructor(deps: OperationEngineDeps) {
     this.deps = deps
@@ -164,7 +194,10 @@ export class OperationEngine {
     // first runner, which is how today's updater ends up holding a spinner for
     // five silent minutes; a runner that wedges must cost the operation its
     // deadline, never the click its answer.
-    void this.drive(operation.id)
+    //
+    // NOT AWAITING IT MEANS NOBODY IS WATCHING IT, so the throw has to be
+    // caught here — see `containDriveFailure` (POD-2151).
+    void this.drive(operation.id).catch((err) => this.containDriveFailure(operation.id, err))
     return { started: true, operation }
   }
 
@@ -252,31 +285,96 @@ export class OperationEngine {
    * wedge its exclusion group forever behind something nothing will ever
    * advance, and a downgrade that quietly disables updating is worse than one
    * that says so.
+   *
+   * NOTHING A KIND DOES HERE MAY REACH THE CALLER (POD-2147). `startServer`
+   * awaits this before it binds, so an exception escaping the loop would abort
+   * startup — on the server that has to apply the update that fixes it — and
+   * strand every operation behind the one that threw. A kind that cannot
+   * re-derive its operation gets exactly the policy an unknown kind already
+   * gets: the operation is failed, the group is freed, boot carries on.
    */
   async adoptOnBoot(
     realityFor: (row: OperationRow) => unknown | Promise<unknown>,
     contextFor: (row: OperationRow) => unknown = () => undefined,
   ): Promise<Operation[]> {
     const adopted: Operation[] = []
-    for (const row of this.deps.store.active()) {
-      const def = this.deps.registry.get(row.kind)
-      if (!def || !row.operation) {
-        adopted.push(this.abandon(row))
-        continue
-      }
-
-      const context = contextFor(row)
-      this.contexts.set(row.id, context)
-      const reality = await realityFor(row)
-      const reconciled = await (
-        def.reconcile as (op: Operation, r: unknown) => Operation | Promise<Operation>
-      )(row.operation, reality)
-
-      this.persist(this.persistable(reconciled, def), this.now())
-      await this.drive(row.id)
-      adopted.push(this.require(row.id))
+    let live: OperationRow[]
+    try {
+      live = this.deps.store.active()
+    } catch {
+      // Even the SWEEP is inside the guarantee. If the store cannot list its
+      // live rows there is nothing to adopt and nothing that could be recorded
+      // — and the one thing that must not happen is the caller, which is
+      // `startServer` before it binds, learning about it by rejecting.
+      return adopted
+    }
+    for (const row of live) {
+      const outcome = await this.adoptRow(row, realityFor, contextFor).catch((err) =>
+        this.abandonSafely(row, {
+          code: ADOPTION_FAILED_ERROR_CODE,
+          message: `This server could not resume a '${row.kind}' operation.`,
+          detail: err instanceof Error ? err.message : String(err),
+        }),
+      )
+      if (outcome) adopted.push(outcome)
     }
     return adopted
+  }
+
+  /** One row's adoption. Every throw it can produce is caught by its caller. */
+  private async adoptRow(
+    row: OperationRow,
+    realityFor: (row: OperationRow) => unknown | Promise<unknown>,
+    contextFor: (row: OperationRow) => unknown,
+  ): Promise<Operation> {
+    const def = this.deps.registry.get(row.kind)
+    if (!def || !row.operation) return this.abandon(row)
+
+    this.contexts.set(row.id, contextFor(row))
+    const reality = await realityFor(row)
+    const reconciled = await (
+      def.reconcile as (op: Operation, r: unknown) => Operation | Promise<Operation>
+    )(row.operation, reality)
+
+    const adoptedOperation = this.persist(
+      this.persistable(this.resumeStalled(reconciled), def),
+      this.now(),
+    )
+    await this.drive(row.id)
+    // THE ROW MAY LEGITIMATELY BE GONE. Driving it to an outcome sweeps its
+    // kind's retention, and an operation older than the newest twenty finished
+    // ones is deleted by its own completion — so requiring it here turned a
+    // successful adoption into a thrown boot (POD-2147).
+    return this.deps.store.get(row.id)?.operation ?? adoptedOperation
+  }
+
+  /**
+   * Bring a step the dead process left `stalled` back to `running` (POD-2145).
+   *
+   * `driveLocked` leaves a stalled step alone because it is "waiting on its own
+   * retry or its deadline, not on us". That is true inside one process and
+   * false across a restart: the retry belonged to the process that died, and
+   * adoption arms no timer. The step is then waiting on a retry that will never
+   * be issued and a deadline that was never armed — and `activeByGroup` keeps
+   * answering with it, so the exclusion group is held for as long as the row
+   * exists. For the `update` kind that means Podium can no longer update
+   * itself, on the machine whose updater is the broken thing, repairable only
+   * by hand-editing the database. The window is not exotic: the plan contains a
+   * step that restarts this server, between the `stalled` write and the retry.
+   *
+   * THE STALL ITSELF IS KEPT. A restart does not buy a fresh budget — the step
+   * has used its one stall and the next silence still fails it (§3.3).
+   *
+   * Applied AFTER `reconcile`, so a kind that consulted reality and concluded
+   * the step is finished wins over this.
+   */
+  private resumeStalled(operation: Operation): Operation {
+    const steps = operation.steps ?? []
+    if (!steps.some((s) => s.state === 'stalled')) return operation
+    return {
+      ...operation,
+      steps: steps.map((s) => (s.state === 'stalled' ? { ...s, state: 'running' as const } : s)),
+    }
   }
 
   /**
@@ -325,15 +423,33 @@ export class OperationEngine {
     }
   }
 
-  /** Drops every armed deadline. For shutdown, and for a test that is done. */
+  /**
+   * SHUT THE ENGINE DOWN. For shutdown, and for a test that is done.
+   *
+   * This is a fence, not a timer sweep, and both halves of that were live
+   * defects (POD-2148). Clearing the deadline map misses `invokeWithin`'s
+   * budget timer, which is armed per CALL rather than per operation; and a
+   * drive that nobody awaits can be sitting on a pending `ensure()` that
+   * resolves after `store.close()`. Either one wakes into a closed database,
+   * and the resulting throw is swallowed by the chain, so nobody ever learns.
+   *
+   * So after this: every timer is dropped, `enqueue` refuses new work, and
+   * every loop that is mid-await returns instead of persisting. Operations are
+   * durable, so nothing is lost — the successor adopts them and re-derives from
+   * reality, which is the stronger answer anyway.
+   */
   stop(): void {
+    this.stopped = true
     for (const handle of this.timers.values()) this.deps.clock.clearTimeout(handle)
     this.timers.clear()
+    for (const handle of this.budgetTimers) this.deps.clock.clearTimeout(handle)
+    this.budgetTimers.clear()
   }
 
   // ───────────────────────────── driving ──────────────────────────────
 
   private enqueue(operationId: string, work: () => Promise<void>): Promise<void> {
+    if (this.stopped) return Promise.resolve()
     const previous = this.chains.get(operationId) ?? Promise.resolve()
     const next = previous.then(work, work)
     this.chains.set(
@@ -356,6 +472,7 @@ export class OperationEngine {
    */
   private async driveLocked(operationId: string): Promise<void> {
     for (;;) {
+      if (this.stopped) return
       const operation = this.deps.store.get(operationId)?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
 
@@ -381,6 +498,8 @@ export class OperationEngine {
 
       const started = this.beginStep(operation, step.id)
       const outcome = await this.invokeWithin(runner, started, step.id, def.deadlines?.[step.id])
+      // The runner may have answered on the far side of a shutdown (POD-2148).
+      if (this.stopped) return
       if (outcome === OVERDUE) {
         await this.onDeadline(operationId)
         return
@@ -440,16 +559,21 @@ export class OperationEngine {
       let settled = false
       const timer = this.deps.clock.setTimeout(
         () => {
+          this.budgetTimers.delete(timer)
           if (settled) return
           settled = true
           resolve(OVERDUE)
         },
         Math.max(0, due - this.now()),
       )
+      // Registered so `stop()` can drop it (POD-2148): this timer is keyed to a
+      // call, not to an operation, so `this.timers` could never hold it.
+      this.budgetTimers.add(timer)
       void ensure.then((outcome) => {
         if (settled) return
         settled = true
         this.deps.clock.clearTimeout(timer)
+        this.budgetTimers.delete(timer)
         resolve(outcome)
       })
     })
@@ -503,11 +627,53 @@ export class OperationEngine {
     const blocking = (operation.awaiting ?? []).filter((ask) => ask.required === true)
     const at = this.now()
     if (blocking.length > 0) {
-      this.disarm(operation.id)
       this.persist(this.persistable(operation, def), at, 'waiting')
+      this.armWaitingGrace(operation.id, def)
       return
     }
     this.finish(this.persistable(operation, def), 'done', at)
+  }
+
+  /**
+   * §3.5's "completes after a short grace", which had never been built
+   * (POD-2149). The only exits from `waiting` were `settleAsk` and `cancel`,
+   * and the panel that would offer the second does not ship yet — so an ask
+   * nobody could answer, a laptop whose lid stays shut, held the exclusion
+   * group and every future operation in it for as long as the machine slept.
+   * The framework exists to end silent unbounded waits; this was one, wearing a
+   * different state name.
+   *
+   * The grace takes over the operation's single timer rather than needing a
+   * second one, which is sound because a `waiting` operation has no step in
+   * flight to be judged: every step is finished, or `settle` was not reached.
+   */
+  private armWaitingGrace(operationId: string, def: AnyOperationKindDefinition): void {
+    this.disarm(operationId)
+    const grace = def.waitingGraceMs ?? DEFAULT_WAITING_GRACE_MS
+    this.timers.set(
+      operationId,
+      this.deps.clock.setTimeout(
+        () => {
+          void this.enqueue(operationId, async () => {
+            this.expireWaiting(operationId)
+          }).catch((err) => this.containDriveFailure(operationId, err))
+        },
+        Math.max(0, grace),
+      ),
+    )
+  }
+
+  /**
+   * The grace ran out. The shared steps all succeeded, so the operation is
+   * `done` — the spec's diagram points "asks satisfied" and "expired" at the
+   * same place. `awaiting` is left exactly as it stands: completing is not the
+   * same as pretending the ask was answered, and a surface reading the finished
+   * operation can still say which one went unanswered.
+   */
+  private expireWaiting(operationId: string): void {
+    const operation = this.deps.store.get(operationId)?.operation
+    if (operation?.state !== 'waiting') return
+    this.finish(this.persistable(operation), 'done', this.now())
   }
 
   private fail(operation: Operation, stepId: string, error: OperationError): void {
@@ -540,19 +706,70 @@ export class OperationEngine {
   /**
    * The row this binary cannot drive (see `adoptOnBoot`): the outcome goes onto
    * the columns and the payload is left exactly as its writer left it.
+   *
+   * `error` names WHY when the caller knows something more specific than "this
+   * kind is not registered" — an adoption that threw, a drive that could not
+   * continue. The policy is identical in every case, which is the point: it was
+   * already the right one and was simply unreachable from a throw.
    */
-  private abandon(row: OperationRow): Operation {
+  private abandon(row: OperationRow, error?: OperationError): Operation {
     const at = this.now()
+    const outcome = error ?? {
+      code: UNKNOWN_KIND_ERROR_CODE,
+      message: `This server cannot continue a '${row.kind}' operation.`,
+    }
     if (row.operation) {
-      return this.finish(this.persistable(row.operation), 'failed', at, {
-        code: UNKNOWN_KIND_ERROR_CODE,
-        message: `This server cannot continue a '${row.kind}' operation.`,
-      })
+      return this.finish(this.persistable(row.operation), 'failed', at, outcome)
     }
     this.deps.store.markTerminal(row.id, 'failed', at)
     this.disarm(row.id)
     this.announce(row.id)
     return { id: row.id, kind: row.kind, state: 'failed', exclusionGroup: row.exclusionGroup }
+  }
+
+  /**
+   * Record an outcome, and never throw doing it: the reason we are here may be
+   * that the store is the broken thing, and a second throw out of the recovery
+   * path is exactly how a contained failure becomes an uncontained one.
+   */
+  private abandonSafely(row: OperationRow, error: OperationError): Operation | undefined {
+    try {
+      return this.abandon(row, error)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * A drive nobody is awaiting threw (POD-2151).
+   *
+   * `start()` does not await the drive — a click must not be held hostage to a
+   * runner — and a deadline fires into the queue with nobody watching either.
+   * Without this, the chain's blanket `.catch` swallows the throw and leaves
+   * the operation `running` with no timer, no error and no announcement: the
+   * caller was told it started, and it never advances again. Its exclusion
+   * group goes with it.
+   *
+   * `invoke()` already turns a throwing `ensure()` into a failed step, so what
+   * reaches here is the engine's own loop failing — a store write that did not
+   * land, an invariant that did not hold. Failing the operation with that on
+   * the record is both the honest answer and the one that frees the group.
+   */
+  private containDriveFailure(operationId: string, err: unknown): void {
+    // Mid-shutdown, a write is the hazard rather than the repair.
+    if (this.stopped) return
+    try {
+      const row = this.deps.store.get(operationId)
+      if (!row || isTerminalOperationState(row.state)) return
+      this.abandonSafely(row, {
+        code: DRIVE_FAILED_ERROR_CODE,
+        message: 'Podium could not continue this operation.',
+        detail: err instanceof Error ? err.message : String(err),
+      })
+    } catch {
+      // The store itself is gone. Nothing can be recorded, and a throw from
+      // here would be the unhandled rejection this exists to prevent.
+    }
   }
 
   private persist(
@@ -592,7 +809,10 @@ export class OperationEngine {
       operationId,
       this.deps.clock.setTimeout(
         () => {
-          void this.enqueue(operationId, () => this.onDeadline(operationId))
+          // A deadline is the other drive site nobody awaits (POD-2151).
+          void this.enqueue(operationId, () => this.onDeadline(operationId)).catch((err) =>
+            this.containDriveFailure(operationId, err),
+          )
         },
         Math.max(0, due - this.now()),
       ),
@@ -678,7 +898,16 @@ export class OperationEngine {
     )
 
     const runner = def.runners[step.id]
-    if (!runner) return
+    if (!runner) {
+      // The answer `driveLocked` gives in the identical situation (POD-2145).
+      // Returning here left the step stalled with no timer and no retry — the
+      // same wedge as the adoption case, reached by a second route.
+      this.fail(this.require(operationId), step.id, {
+        code: 'no-runner',
+        message: `The '${operation.kind}' operation has no runner for step '${step.id}'.`,
+      })
+      return
+    }
     const retryAt = this.now()
     const retrying = this.applyPatch(
       this.require(operationId),
@@ -692,6 +921,7 @@ export class OperationEngine {
     // Bounded exactly as the first attempt was: a retry that hangs is the same
     // hang, and this one has already used the step's one stall.
     const outcome = await this.invokeWithin(runner, retrying, step.id, budget)
+    if (this.stopped) return
     if (outcome === OVERDUE) {
       await this.onDeadline(operationId)
       return

@@ -617,6 +617,15 @@ export async function startServer(
       servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
       servedMobileWeb: () => servedWebIdentity(phoneWebDir()),
     })
+  //
+  // AND IT CANNOT STOP THIS BOOT (POD-2147). Every fact the reality lookup
+  // gathers below can throw — a machine row with a shape this binary does not
+  // expect, a version string it cannot parse, a store read that fails — and
+  // this is awaited before `serveNative`. `adoptOnBoot` contains all of it and
+  // resolves regardless, abandoning the operations it cannot resume, so the
+  // bare await here is safe by the engine's own contract rather than by a catch
+  // at this call site. The server that cannot boot is the one that has to apply
+  // the update that fixes it.
   await registry.modules.operations.engine.adoptOnBoot(
     () => ({
       appVersion,
@@ -919,6 +928,12 @@ export async function startServer(
       settled = true
       messaging.stop()
       registry.dispose()
+      // THE SECOND CLOSE PATH (POD-2148). Boot adoption has already run by
+      // here, so this server may hold armed deadlines and drives in flight over
+      // the store about to close — and a port-in-use start, the routine outcome
+      // with a stale backend on :18787, takes exactly this path. Same call and
+      // same order as the shutdown persist list below.
+      registry.modules.operations.engine.stop()
       store.close()
       reject(
         isAddressInUseError(err)
