@@ -2,7 +2,8 @@
 
 - **Date:** 2026-08-14 (facts verified against `cf9ec8c2b`)
 - **Issue:** POD-2087 (Updater architecture redesign)
-- **Status:** Approved 2026-08-14; the recommended answers in §9 are adopted as decisions
+- **Status:** Approved 2026-08-14; implemented 2026-08-16 (see §19 for what was built and
+  where the implementation knowingly departs from this document)
 - **Relation to prior art:** Builds on `2026-08-04-coherent-update-story-design.md` (POD-1670).
   That design's *plumbing* — authority vs delivery, signed artifacts, converge-to-target,
   crash-safe daemon swap, the wire window — is sound and is kept. This spec replaces its
@@ -503,3 +504,42 @@ Verification rides the existing regimen (`docs/agents/updater-acceptance.md`), e
 operation adoption across a coordinator restart (kill mid-wave, verify resume), the
 frozen-contract conformance test for the active operation, single-flight under two concurrent
 starts, and a stalled-download drill (throttled feed) proving the timer fires without a poll.
+
+## 19. As built
+
+Recorded 2026-08-16, while the work was still landing, so this document does not quietly
+drift from the system. Every item below is on the epic's integration branch.
+
+### 19.1 What landed
+
+The generic operations framework (frozen contract, persistence with single-flight by
+exclusion group, timer-driven deadlines, adoption on boot); the update kind itself (planned
+steps, runners, adoption across the coordinator restart, `nextTarget` queueing, typed
+errors, retry); the panel and its toolbar indicator; the Settings operator view with
+operation history; percent heartbeats and per-place silence; deferred places with standing
+reconciliation; both desktop halves; and the daemon/channel hardening.
+
+### 19.2 Where the implementation departs from this spec, deliberately
+
+- **§3.3 said a runner may report progress.** It cannot: `recordProgress` queues behind the
+  very `ensure()` that reports it, so an inline runner turns the silence budget into a hard
+  ceiling and can leave two installs running at once. **Runners hand work off and return
+  `running`**; progress arrives from the daemon status frames and connection edges. The rule
+  is documented on the context type where it would be violated.
+- **The silence clock is per *place*, not per step.** A single per-step `lastProgressAt` is
+  stamped by any machine's event, so one machine's chatter hides another's silence and a
+  timeout names nobody. A `StepPlace` may carry its own stamp; the engine measures from the
+  oldest without learning a single update-specific word.
+- **No 90-second download deadline.** It would stall and re-grant forever every daemon that
+  predates percent reporting — daemons this same design requires to keep converging. Ninety
+  seconds is a heartbeat cadence, not a failure threshold.
+- **`start()` does not await the drive.** Awaiting it tied the response time of a click to
+  the first runner, which is the five-silent-minutes symptom §1 exists to kill.
+- **Terminal outcomes withdraw authorization first**, before releasing in-flight grants,
+  because that release is itself a fleet read and could otherwise issue the next grant.
+
+### 19.3 Known-open at the time of writing
+
+A double grant when a wave widens past its canary; the eager web bundle over budget; the
+end-to-end and real-app acceptance still unrun for want of a machine with memory and disk.
+Each has an issue.
