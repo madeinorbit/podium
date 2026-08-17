@@ -306,7 +306,7 @@ describe('buildInventory', () => {
     })
   })
 
-  it('keeps a successful version observation when the identity probe times out', async () => {
+  it('keeps an unverified identity timeout unknown', async () => {
     const exec: ProbeExec = async (argv) => {
       const bin = (argv[0] as string).split('/').pop()
       if (bin !== 'agent') throw new Error(`ENOENT: ${argv[0]}`)
@@ -315,9 +315,8 @@ describe('buildInventory', () => {
     }
     const inv = await buildInventory({ homeDir: home, exec })
     expect(inv.agents.find((agent) => agent.kind === 'cursor')).toMatchObject({
-      installed: true,
-      version: '2026.07.22',
-      path: 'agent',
+      installed: null,
+      probeError: { reason: 'timed-out', timeoutMs: AGENT_VERSION_PROBE_TIMEOUT_MS },
     })
   })
 

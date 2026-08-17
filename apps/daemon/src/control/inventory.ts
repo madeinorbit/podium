@@ -32,6 +32,7 @@ const log = createLogger('daemon:inventory')
  */
 const inventoryCache = new Map<string, Promise<MachineHarnessInventory>>()
 const inventoryInFlight = new Map<string, Promise<MachineHarnessInventory>>()
+const inventoryRebuildQueued = new Map<string, Promise<void>>()
 
 export const DEFAULT_INVENTORY_REFRESH_INTERVAL_MS = 60_000
 
@@ -67,10 +68,31 @@ export async function reportInventory(
   const key = `${ctx.machineId}\u0000${ctx.homeDir ?? ''}`
   let pending: Promise<MachineHarnessInventory> | undefined
   try {
-    // A refresh interval can fire while a loaded CLI is still consuming the
-    // entire probe budget. Do not start a second wave of the same subprocesses;
-    // the next interval/request will rebuild after this one settles.
-    if (opts.rebuild && inventoryInFlight.has(key)) return
+    // A refresh interval, credential install, or server request can arrive while
+    // a loaded CLI is still consuming the entire probe budget. Coalesce those
+    // forced rebuilds into one follow-up wave: dropping the request would leave a
+    // newly installed credential invisible until the next periodic refresh.
+    const active = inventoryInFlight.get(key)
+    if (opts.rebuild && active) {
+      let queued = inventoryRebuildQueued.get(key)
+      if (!queued) {
+        queued = (async () => {
+          try {
+            await active
+          } catch {
+            // The active reporter owns logging/eviction. A failed probe still
+            // must yield to the queued forced rebuild.
+          }
+          // The reporter awaiting the same build registered first; let its
+          // finally block clear inventoryInFlight before starting the next wave.
+          await Promise.resolve()
+          inventoryRebuildQueued.delete(key)
+          await reportInventory(ctx, { rebuild: true })
+        })()
+        inventoryRebuildQueued.set(key, queued)
+      }
+      return await queued
+    }
     pending = opts.rebuild ? undefined : inventoryCache.get(key)
     if (!pending) {
       pending = buildMachineInventory({
@@ -81,6 +103,10 @@ export async function reportInventory(
       inventoryInFlight.set(key, pending)
     }
     const { machineId, inventory } = await pending
+    // A forced rebuild queued while this probe was running means its facts are
+    // already superseded (notably, they may predate a credential install).
+    // Publish only the coalesced follow-up result.
+    if (inventoryRebuildQueued.has(key)) return
     // A credential install can force a rebuild while the initial handshake
     // probe is still shelling out to the agent CLIs. The old probe observed the
     // pre-copy auth files and may finish last; never let that superseded result

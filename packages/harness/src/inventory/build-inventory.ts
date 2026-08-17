@@ -130,10 +130,10 @@ async function probeAgent(
           )
           if (!declaration.identityProbe.accepts(output)) continue
         } catch (error) {
-          // The version probe already established an executable. A timed-out
-          // secondary identity check must not rewrite that install fact as
-          // either an absent binary or an unknown version probe.
-          if (!probeTimedOut(error)) continue
+          // A generic candidate such as `agent` can belong to another harness,
+          // so a timed-out identity probe proves neither presence nor absence.
+          timedOut ||= probeTimedOut(error)
+          continue
         }
       }
       const executable: ResolvedHarnessExecutable = Object.freeze({

@@ -30,6 +30,10 @@ const INV: Inventory = {
   agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
   tools: [{ name: 'gh', installed: false }],
 }
+const LOGGED_OUT_INV: Inventory = {
+  ...INV,
+  agents: [{ kind: 'claude-code', installed: true, login: { state: 'out' } }],
+}
 
 const TIMED_OUT_INV: Inventory = {
   ...INV,
@@ -112,24 +116,61 @@ describe('daemon inventory reporting (#222)', () => {
     }
   })
 
-  it('does not stack a forced rebuild on an in-flight probe wave', async () => {
+  it('does not publish a pre-credential probe after its forced rebuild', async () => {
     const { ctx, sent } = makeCtx()
-    let resolveProbe!: (inventory: Inventory) => void
-    buildInventory.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveProbe = resolve
-      }),
-    )
+    let resolveStale!: (inventory: Inventory) => void
+    let resolveFresh!: (inventory: Inventory) => void
+    buildInventory
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStale = resolve
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFresh = resolve
+        }),
+      )
+
+    const stale = reportInventory(ctx)
+    const fresh = reportInventory(ctx, { rebuild: true })
+    expect(buildInventory).toHaveBeenCalledTimes(1)
+    resolveStale(LOGGED_OUT_INV)
+    await vi.waitFor(() => expect(buildInventory).toHaveBeenCalledTimes(2))
+    resolveFresh(INV)
+    await Promise.all([stale, fresh])
+
+    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: INV }])
+  })
+
+  it('coalesces forced rebuilds behind an in-flight probe wave', async () => {
+    const { ctx, sent } = makeCtx()
+    let resolveStale!: (inventory: Inventory) => void
+    let resolveFresh!: (inventory: Inventory) => void
+    buildInventory
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStale = resolve
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFresh = resolve
+        }),
+      )
 
     const initial = reportInventory(ctx)
-    await reportInventory(ctx, { rebuild: true })
+    const firstForced = reportInventory(ctx, { rebuild: true })
+    const secondForced = reportInventory(ctx, { rebuild: true })
     expect(buildInventory).toHaveBeenCalledTimes(1)
-    resolveProbe(INV)
-    await initial
-    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: INV }])
 
-    await reportInventory(ctx, { rebuild: true })
+    resolveStale(LOGGED_OUT_INV)
+    await vi.waitFor(() => expect(buildInventory).toHaveBeenCalledTimes(2))
+    resolveFresh(INV)
+    await Promise.all([initial, firstForced, secondForced])
+
     expect(buildInventory).toHaveBeenCalledTimes(2)
+    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: INV }])
   })
 
   it('a failed build is never cached, never throws, and the next call retries', async () => {
