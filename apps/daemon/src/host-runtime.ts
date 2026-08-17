@@ -573,6 +573,7 @@ export async function createDaemonHostRuntime(args: {
     // is the gap `opencode-attach.ts` declares.)
     frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),
     releaseStream: (streamId) => ctx.outputScheduler.remove(asSessionId(streamId)),
+    ...(homeDir ? { homeDir } : {}),
   })
   ctx.clientTerminals = clientTerminals
 
@@ -614,6 +615,9 @@ export async function createDaemonHostRuntime(args: {
        * with the per-machine wording.
        */
       clientTerminals,
+      // The instance agent home: a server-driver child's HOME must be the
+      // instance's, exactly as the PTY path's children get it (POD-2247).
+      ...(homeDir ? { homeDir } : {}),
     }),
   })
   ctx.opencodeRuntime = opencodeRuntime
@@ -633,6 +637,8 @@ export async function createDaemonHostRuntime(args: {
           [],
           { selfPid: process.pid },
         ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+      // Same instance-home rule as the opencode host above (POD-2247).
+      ...(homeDir ? { homeDir } : {}),
     }),
   })
   ctx.codexRuntime = codexRuntime
@@ -646,6 +652,8 @@ export async function createDaemonHostRuntime(args: {
           [],
           { selfPid: process.pid },
         ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+      // Same instance-home rule as the opencode host above (POD-2247).
+      ...(homeDir ? { homeDir } : {}),
     }),
   })
   ctx.grokRuntime = grokRuntime

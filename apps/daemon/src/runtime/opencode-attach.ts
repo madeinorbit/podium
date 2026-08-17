@@ -107,6 +107,7 @@ import {
   killAbducoSession,
   spawnAbducoAgent,
 } from '@podium/pty'
+import { spawnEnv } from '../control/session-env'
 import { STRIPPED_PROVIDER_KEYS } from './opencode-server'
 
 const log = createLogger('daemon:opencode-attach')
@@ -209,6 +210,13 @@ export interface OpencodeClientTerminalPorts {
    *  daemon accumulates one pending entry per attachment for its whole life, and
    *  every close/adopt cycle mints a fresh id. */
   releaseStream?(streamId: string): void
+  /**
+   * The instance agent home (`ctx.homeDir`), overriding the client's `HOME`
+   * exactly as the serve half does (POD-2247). Same binary, same config reads:
+   * a client left on the daemon's `HOME` renders against the operator's real
+   * opencode state while the server it attaches to runs against the instance's.
+   */
+  homeDir?: string
   /** Injection seams. The defaults are the real abduco. */
   spawn?(opts: AbducoSpawnOptions): Promise<AgentSession>
   reclaim?(label: string): Promise<void>
@@ -329,14 +337,21 @@ export function createOpencodeClientTerminals(
        * treatment, for no stated reason.
        */
       stripEnv: STRIPPED_PROVIDER_KEYS,
-      env: {
-        // THE SECRET RIDES THE ENV, NEVER ARGV — the same rule, for the same
-        // reason, as the server it is connecting to (see `opencode-server.ts`
-        // §6 rule 2): `/proc/<pid>/cmdline` is world-readable and this credential
-        // fronts an agent with a shell. `opencode attach` reads both of these.
-        OPENCODE_SERVER_USERNAME: target.username,
-        OPENCODE_SERVER_PASSWORD: target.secret,
-      },
+      // The overlay abduco layers over the daemon env — composed through the
+      // same `spawnEnv` the PTY path uses, so an instance home overrides HOME
+      // (and prepends its bin roots to PATH) here exactly as it does for the
+      // serve half (POD-2247).
+      env: spawnEnv({
+        podiumEnv: {
+          // THE SECRET RIDES THE ENV, NEVER ARGV — the same rule, for the same
+          // reason, as the server it is connecting to (see `opencode-server.ts`
+          // §6 rule 2): `/proc/<pid>/cmdline` is world-readable and this credential
+          // fronts an agent with a shell. `opencode attach` reads both of these.
+          OPENCODE_SERVER_USERNAME: target.username,
+          OPENCODE_SERVER_PASSWORD: target.secret,
+          ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
+        },
+      }),
     })
     record.session = session
     session.onFrame((frame) => ports.frames(record.streamId, frame.data))

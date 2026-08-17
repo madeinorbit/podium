@@ -24,6 +24,7 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
+import { serverChildEnv } from '../control/session-env'
 
 const log = createLogger('daemon:grok-acp-server')
 const PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
@@ -110,6 +111,9 @@ export function resetGrokAcpVersionProbe(): void {
 }
 
 function defaultVersionProbe(): { output: string; ok: boolean } {
+  // Deliberately the daemon's own env, NOT the instance composition: the probe
+  // asks "what can this MACHINE run" and reads no per-user state — see
+  // `serverChildEnv` for the env-class record (POD-2247).
   const result = spawnSync('grok', ['--version'], {
     encoding: 'utf8',
     timeout: PROBE_TIMEOUT_MS,
@@ -122,6 +126,14 @@ function defaultVersionProbe(): { output: string; ok: boolean } {
 
 export interface GrokAcpHostDeps {
   memoryBytes(input: { sessionId: SessionId; label: string; pid?: number }): number | undefined
+  /**
+   * The instance agent home (`ctx.homeDir`), overriding the child's `HOME` the
+   * same way the PTY path does (POD-2247). Absent = default instance, daemon
+   * env unchanged. Without it a named instance's `grok agent stdio` reads and
+   * writes the operator's REAL `~/.grok` credentials and session stores — the
+   * live find that filed this issue.
+   */
+  homeDir?: string
   now?: () => number
 }
 
@@ -213,7 +225,10 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
       // field exists, so GROK_SANDBOX/config remains authoritative.
       const argv = ['grok', 'agent', 'stdio']
       const [command, ...args] = scoped ? ['systemd-run', ...systemdScopeArgv(unit, argv)] : argv
-      const env: NodeJS.ProcessEnv = { ...process.env, ...input.env }
+      const env: NodeJS.ProcessEnv = serverChildEnv({
+        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+        ...(input.env ? { sessionEnv: input.env } : {}),
+      })
       // An inherited API key can silently replace the user's subscription.
       delete env.XAI_API_KEY
 

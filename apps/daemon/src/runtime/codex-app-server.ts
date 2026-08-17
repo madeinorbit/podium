@@ -62,6 +62,7 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
+import { serverChildEnv } from '../control/session-env'
 
 const log = createLogger('daemon:codex-app-server')
 
@@ -238,6 +239,9 @@ function defaultVersionProbe(): { output: string; ok: boolean } {
 }
 
 function spawnSyncVersion(): { stdout: string; stderr: string; ok: boolean } {
+  // Deliberately the daemon's own env, NOT the instance composition: the probe
+  // asks "what can this MACHINE run" and reads no per-user state — see
+  // `serverChildEnv` for the env-class record (POD-2247).
   // Imported lazily so a daemon that never spawns a codex session never pays for
   // the module.
   const { spawnSync } = require('node:child_process') as typeof import('node:child_process')
@@ -329,6 +333,13 @@ export interface CodexHostDeps {
     threadId: string
     mode: 'takeover' | 'peek'
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
+  /**
+   * The instance agent home (`ctx.homeDir`), overriding the child's `HOME` the
+   * same way the PTY path does (POD-2247). Absent = default instance, daemon
+   * env unchanged. Without it a named instance's `codex app-server` reads and
+   * writes the operator's REAL `~/.codex` auth and session state.
+   */
+  homeDir?: string
   journal?: CodexJournal
   now?(): number
 }
@@ -517,7 +528,11 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       const argv = ['codex', 'app-server', ...config.args]
       const [command, ...args] = scoped ? ['systemd-run', ...systemdScopeArgv(unit, argv)] : argv
 
-      const env: NodeJS.ProcessEnv = { ...process.env, ...input.env, ...config.env }
+      const env: NodeJS.ProcessEnv = serverChildEnv({
+        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+        ...(input.env ? { sessionEnv: input.env } : {}),
+        harnessEnv: config.env,
+      })
       for (const key of STRIPPED_CODEX_CREDENTIALS) delete env[key]
 
       const child = spawn(command ?? 'codex', args, {

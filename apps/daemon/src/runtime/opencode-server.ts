@@ -65,6 +65,7 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
+import { serverChildEnv } from '../control/session-env'
 import type { OpencodeClientTerminals } from './opencode-attach'
 
 const log = createLogger('daemon:opencode-server')
@@ -321,6 +322,9 @@ function defaultVersionProbe(): { output: string; ok: boolean } {
 }
 
 function spawnSyncVersion(): { stdout: string; stderr: string; ok: boolean } {
+  // Deliberately the daemon's own env, NOT the instance composition: the probe
+  // asks "what can this MACHINE run" and reads no per-user state — see
+  // `serverChildEnv` for the env-class record (POD-2247).
   // Imported lazily so a daemon that never spawns an opencode session never
   // pays for the module.
   const { spawnSync } = require('node:child_process') as typeof import('node:child_process')
@@ -356,6 +360,13 @@ export interface OpencodeHostDeps {
    * declares is still the one this family produces wherever it CAN produce one.
    */
   clientTerminals?: OpencodeClientTerminals
+  /**
+   * The instance agent home (`ctx.homeDir`), overriding the child's `HOME` the
+   * same way the PTY path does (POD-2247). Absent = default instance, daemon
+   * env unchanged. Without it a named instance's `opencode serve` reads and
+   * writes the operator's REAL `~/.local/share/opencode` state.
+   */
+  homeDir?: string
   journal?: OpencodeJournal
   now?(): number
 }
@@ -494,7 +505,10 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         ? ['systemd-run', ...systemdScopeArgv(unit, serveArgv)]
         : serveArgv
 
-      const env: NodeJS.ProcessEnv = { ...process.env, ...input.env }
+      const env: NodeJS.ProcessEnv = serverChildEnv({
+        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+        ...(input.env ? { sessionEnv: input.env } : {}),
+      })
       for (const key of STRIPPED_PROVIDER_KEYS) delete env[key]
       env.OPENCODE_SERVER_USERNAME = USERNAME
       // RULE 2: the secret is HERE. It appears in `serveArgv` nowhere, and this

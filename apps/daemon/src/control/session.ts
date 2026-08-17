@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { delimiter, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   bindHarnessLaunch,
   agentStateProviderFor,
@@ -47,6 +47,7 @@ import {
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
+import { spawnEnv } from './session-env'
 import { sourceForRead } from './transcripts'
 
 const log = createLogger('daemon:session')
@@ -115,38 +116,6 @@ export function sessionRelayEnv(
     PODIUM_SESSION_RELAY: endpoint,
     ...(agentKind === 'shell' ? {} : { PODIUM_AGENT_RELAY: endpoint }),
   }
-}
-
-/** Merge the server-resolved session env (managed credentials, #216) under
- *  Podium's own per-session bindings. Podium's win a collision on purpose: an
- *  injected credential must never be able to shadow the agent-relay wiring.
- *  The result is an OVERLAY — the PTY layer layers it over the full process.env. */
-export function spawnEnv(
-  opts: {
-    sessionEnv?: Record<string, string>
-    harnessEnv?: Record<string, string>
-    podiumEnv: Record<string, string>
-  },
-  processEnv: NodeJS.ProcessEnv = process.env,
-): Record<string, string> {
-  const podiumCliPath = processEnv.PODIUM_CLI_PATH?.trim()
-  const merged: Record<string, string> = {
-    ...(opts.sessionEnv ?? {}),
-    ...(opts.harnessEnv ?? {}),
-    ...opts.podiumEnv,
-    // The desktop owns this binding. Managed credentials and harness adapters cannot
-    // redirect agents to a stale or unrelated Podium CLI. [spec:SP-d6e8]
-    ...(podiumCliPath ? { PODIUM_CLI_PATH: podiumCliPath } : {}),
-  }
-  if (podiumCliPath) {
-    // The runtime has already recovered the machine's command environment. Keep the
-    // desktop-owned CLI as a distinct overlay above it, never as an input to it. [spec:SP-d6e8]
-    const inherited = merged.PATH ?? processEnv.PATH ?? ''
-    merged.PATH = [dirname(podiumCliPath), ...inherited.split(delimiter)]
-      .filter((entry, index, entries) => entry && entries.indexOf(entry) === index)
-      .join(delimiter)
-  }
-  return merged
 }
 
 export function materializeLaunchFiles(files: LaunchFile[] | undefined): void {
