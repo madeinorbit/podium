@@ -8759,41 +8759,81 @@ a.ref-link--session::before {
   }
 }
 
-/* ── THE RUNNING BAND'S CELLS (POD-1146) ─────────────────────────────────────
+/* ── THE RUNNING BAND'S CELLS (POD-1146, made fluid in POD-1177) ─────────────
    The band used to carry `.row-progress-sweep` — a full-height sheen travelling
    over the whole segment, which is right on the sidebar's 3px rule and wrong
    here, because THIS band has words in it and the sweep washed straight across
    them twice a second.
    So the motion moves under the type: cells of the band's own blue, six on and
-   three off, stepping the length of the segment in eight discrete frames. It is
-   the braille spinner's grammar rendered as a meter — it ADVANCES rather than
-   glides — and at 42% it reads as texture beneath the count rather than as a
+   three off, and at 42% it reads as texture beneath the count rather than as a
    highlight over it.
    Gated by its caller on `working` (an agent computing right now), never on the
-   stage: see the note in MissionGauge.tsx. */
+   stage: see the note in MissionGauge.tsx.
+
+   IT GLIDES NOW. POD-1146 stepped the light along in `steps(8, end)` — the
+   braille spinner's grammar rendered as a meter, advancing rather than gliding.
+   The grammar was the right idea at the wrong scale. The spinner steps a GLYPH,
+   where each frame is a whole new character and there is nothing to be smooth
+   between; this steps a POSITION across a band, where eight frames per 1.3s
+   means 88% of rendered frames repaint nothing at all and the light then leaps
+   a sixth of the band in one go. What the operator reads is not "advancing", it
+   is dropped frames — the one thing motion must never counterfeit, because a
+   stuttering instrument is how this app says the machine is struggling.
+
+   Three things changed, and none of them is the material:
+
+   1. LINEAR, NOT STEPPED. The light moves every frame it is on screen.
+   2. TRANSFORM, NOT `background-position`. Sliding a background is a paint on
+      every frame; sliding a layer is a compositor transform on none. The gauge
+      sits in a column that re-renders on every wire frame, so the motion has to
+      survive being animated on a busy main thread — which is the second half of
+      the stutter, and the half that would have survived a linear timing alone.
+   3. A REPEATING TRAIN, NOT ONE TRAVERSAL. The old glow crossed the band once
+      per cycle, so its SPEED was the band's width over 1.3s — a mission whose
+      run band grew got a faster march for no reason the operator could name,
+      and every cycle ended with the light jumping from off the right edge back
+      to off the left. The train repeats every 180px and translates exactly one
+      period, so the loop is seamless (the first frame and the last are the same
+      pixels) and the speed is a constant ~129px/s at every band width.
+
+   The cells themselves DO NOT MOVE: the mask is on the box and the light is on
+   its child, so the segments stay pinned to the band and light up in place as
+   the glow passes under them. That is what keeps this a meter with cells rather
+   than a barber pole, which is what a moving mask would have made it. The glow
+   is the same 72px it always was; only the dark 108px between glows is new, and
+   that is what keeps the band's density where POD-1146 set it. */
 @keyframes podium-gauge-march {
   from {
-    background-position: -72px 0;
+    transform: translate3d(-180px, 0, 0);
   }
   to {
-    background-position: calc(100% + 72px) 0;
+    transform: translate3d(0, 0, 0);
   }
 }
 .gauge-band-march {
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--live) 42%, transparent),
-    transparent
-  );
-  background-repeat: no-repeat;
-  background-size: 72px 100%;
-  background-position: -72px 0;
+  overflow: hidden;
   -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
   mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
-  animation: podium-gauge-march 1.3s steps(8, end) infinite;
+}
+.gauge-band-march::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  /* One period wider than the band, so translating by exactly one period
+     always leaves the band covered and lands on an identical frame. */
+  width: calc(100% + 180px);
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0 108px,
+    color-mix(in srgb, var(--live) 42%, transparent) 144px,
+    transparent 180px
+  );
+  will-change: transform;
+  animation: podium-gauge-march 1.4s linear infinite;
 }
 
 /* THE GAUGE'S BLOCKED GROUND (POD-710).
@@ -8817,10 +8857,13 @@ a.ref-link--session::before {
     transition: none;
   }
   /* The cells stop marching; the band's own reserved working blue still says
-     which part of the mission is the moving part. */
+     which part of the mission is the moving part. The animation now lives on
+     the child, so it is the child that has to be stopped. */
   .gauge-band-march {
-    animation: none;
     opacity: 0;
+  }
+  .gauge-band-march::before {
+    animation: none;
   }
 }
 

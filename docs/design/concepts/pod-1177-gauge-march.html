@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The mission gauge marches smoothly</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --engraved: oklch(0.12 0 0);
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --live: #6f9dff;
+    --success-solid: oklch(0.7 0.15 162);
+    --success-foreground: oklch(0.22 0.05 162);
+    --attention: #f59e0b;
+    --text-strong: oklch(0.985 0 0);
+    --text-dim: oklch(0.62 0 0);
+    --text-faint: oklch(0.45 0 0);
+    --carve-drop: rgba(0, 0, 0, 0.5);
+    --hairline: oklch(1 0 0 / 10%);
+    --shell-type-micro: 10.5px;
+    --font-mono: ui-monospace, "Geist Mono", SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 28px 72px; background: var(--engraved); color: var(--foreground);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--text-dim); margin: 0 0 34px; font-size: 15px; }
+  h2 {
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim);
+    margin: 40px 0 12px; font-weight: 600;
+  }
+  p { font-size: 14.5px; color: oklch(0.85 0 0); margin: 0 0 14px; }
+  b { color: var(--foreground); font-weight: 600; }
+  .note { font-size: 13px; color: var(--text-dim); margin: 8px 0 0; }
+  code { font-family: var(--font-mono); font-size: 0.88em; color: var(--live); }
+
+  .case { border: 1px solid var(--hairline); border-radius: 12px; padding: 16px; margin: 0 0 14px; }
+  .case > .cap {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-dim); margin: 0 0 10px;
+  }
+  .cap .verdict { letter-spacing: 0; text-transform: none; font-family: var(--font-mono); font-size: 11px; }
+  .bad { color: #f0796a; }
+  .good { color: var(--success-solid); }
+
+  /* ── the real gauge, transcribed ───────────────────────────────────────── */
+  .track {
+    position: relative; display: flex; height: 26px; align-items: center; gap: 2px;
+    overflow: hidden; border-radius: 8px; background: var(--background); padding: 2px;
+    box-shadow: inset 0 1px 2px var(--carve-drop);
+  }
+  .track.narrow { width: 300px; }
+  .gauge-band {
+    position: relative; container: gauge-band / inline-size; display: flex; flex: 0 1 0;
+    align-items: center; justify-content: center; min-width: 0; height: 100%; padding: 0 3px;
+    overflow: hidden; border-radius: 2px; font-family: var(--font-mono);
+    font-size: var(--shell-type-micro); font-weight: 500; line-height: 1;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.06em; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .gauge-band[data-s="done"] { background-color: var(--success-solid); color: var(--success-foreground); }
+  .gauge-band[data-s="run"] {
+    background-color: color-mix(in srgb, var(--live) 26%, transparent);
+    box-shadow: inset 0 -2px 0 var(--live); color: var(--text-strong);
+  }
+  .gauge-band[data-s="wait"] { background-color: color-mix(in srgb, var(--foreground) 8%, transparent); color: var(--text-faint); }
+  .gauge-band-text { position: relative; }
+  .gauge-band-count { font-weight: 700; }
+
+  /* BEFORE — eight discrete positions per cycle, painted on a background. */
+  @keyframes old-march {
+    from { background-position: -72px 0; }
+    to { background-position: calc(100% + 72px) 0; }
+  }
+  .march-before {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--live) 42%, transparent), transparent);
+    background-repeat: no-repeat; background-size: 72px 100%; background-position: -72px 0;
+    -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
+    mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
+    animation: old-march 1.3s steps(8, end) infinite;
+  }
+
+  /* AFTER — the shipped rule: fixed cells, a transform-driven light train. */
+  @keyframes podium-gauge-march {
+    from { transform: translate3d(-180px, 0, 0); }
+    to { transform: translate3d(0, 0, 0); }
+  }
+  .march-after {
+    position: absolute; inset: 0; overflow: hidden;
+    -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
+    mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
+  }
+  .march-after::before {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 0;
+    width: calc(100% + 180px);
+    background-image: repeating-linear-gradient(90deg,
+      transparent 0 108px,
+      color-mix(in srgb, var(--live) 42%, transparent) 144px,
+      transparent 180px);
+    will-change: transform;
+    animation: podium-gauge-march 1.4s linear infinite;
+  }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 10px 0 0; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--hairline); }
+  th { font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
+  td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+  <h1>The mission gauge marches smoothly</h1>
+  <p class="sub">
+    The flight-deck gauge's running band stuttered because it was built to. Same
+    material, same gate, same density — the light just moves every frame now.
+  </p>
+
+  <h2>Before — and why it stuttered</h2>
+  <div class="case">
+    <div class="cap"><span>before</span><span class="verdict bad">8 positions per 1.3s · 90% of frames unchanged</span></div>
+    <div class="track">
+      <span class="gauge-band" data-s="done" style="flex-grow:3"><span class="gauge-band-text"><b class="gauge-band-count">3</b>&nbsp;done</span></span>
+      <span class="gauge-band" data-s="run" style="flex-grow:4"><span class="march-before"></span><span class="gauge-band-text"><b class="gauge-band-count">4</b>&nbsp;in progress</span></span>
+      <span class="gauge-band" data-s="wait" style="flex-grow:2"><span class="gauge-band-text"><b class="gauge-band-count">2</b>&nbsp;to go</span></span>
+    </div>
+  </div>
+  <p>
+    The stutter was deliberate: the band advanced in <code>steps(8, end)</code>, on the
+    reasoning that a meter speaking the braille spinner's grammar should step as the
+    spinner steps. That works for a <b>glyph</b> — each frame is a whole new character,
+    so there is nothing to be smooth between. It does not work for a <b>position</b>:
+    eight frames per cycle leaves 90% of rendered frames identical, then jerks the light
+    a sixth of the band in one go. What reads is not cadence, it is dropped frames — and
+    dropped frames are how this app says the machine is in trouble.
+  </p>
+
+  <h2>After</h2>
+  <div class="case">
+    <div class="cap"><span>after</span><span class="verdict good">every frame · ~2px steps · no frozen frames</span></div>
+    <div class="track">
+      <span class="gauge-band" data-s="done" style="flex-grow:3"><span class="gauge-band-text"><b class="gauge-band-count">3</b>&nbsp;done</span></span>
+      <span class="gauge-band" data-s="run" style="flex-grow:4"><span class="march-after"></span><span class="gauge-band-text"><b class="gauge-band-count">4</b>&nbsp;in progress</span></span>
+      <span class="gauge-band" data-s="wait" style="flex-grow:2"><span class="gauge-band-text"><b class="gauge-band-count">2</b>&nbsp;to go</span></span>
+    </div>
+  </div>
+  <div class="case">
+    <div class="cap"><span>after, at the 300px deck minimum</span></div>
+    <div class="track narrow">
+      <span class="gauge-band" data-s="done" style="flex-grow:3"><span class="gauge-band-text"><b class="gauge-band-count">3</b></span></span>
+      <span class="gauge-band" data-s="run" style="flex-grow:4"><span class="march-after"></span><span class="gauge-band-text"><b class="gauge-band-count">4</b></span></span>
+      <span class="gauge-band" data-s="wait" style="flex-grow:2"><span class="gauge-band-text"><b class="gauge-band-count">2</b></span></span>
+    </div>
+  </div>
+
+  <h2>What changed — three things, none of them the material</h2>
+  <p>
+    <b>1. Linear, not stepped.</b> The light moves on every frame it is on screen.
+  </p>
+  <p>
+    <b>2. A transform, not a background.</b> Sliding a background is a repaint every
+    frame; sliding a layer is a compositor transform and no paint at all. The gauge sits
+    in a column that re-renders on every wire frame, so the motion has to survive a busy
+    main thread — that is the half of the stutter a linear timing alone would not have
+    fixed.
+  </p>
+  <p>
+    <b>3. A repeating train, not one traversal.</b> The old glow crossed the band once
+    per cycle, so its speed <em>was</em> the band's width over 1.3s: a mission whose run
+    band grew marched faster for no reason anyone could name, and every cycle ended with
+    the light jumping from off the right edge back to off the left. The train repeats
+    every 180px and translates exactly one period, so the loop is seamless — first frame
+    and last are the same pixels — and the speed is a constant ~129px/s at every width.
+  </p>
+  <p>
+    The cells themselves do not move. The mask stays on the box and the light travels on
+    its child, so segments stay pinned to the band and light up in place as the glow
+    passes under them. That is what keeps this a meter with cells rather than a barber
+    pole. The glow is the same 72px it always was; only the 108px of dark between glows
+    is new, and that is what holds the band's density where it was set.
+  </p>
+
+  <h2>Measured, against the built stylesheet</h2>
+  <table>
+    <thead><tr><th>&nbsp;</th><th>Frames that paint nothing new</th><th>Biggest single jump</th></tr></thead>
+    <tbody>
+      <tr><td>Before</td><td class="num bad">90% (79 of 88)</td><td class="num bad">116px</td></tr>
+      <tr><td>After</td><td class="num good">0% (0 of 88)</td><td class="num good">4.3px</td></tr>
+    </tbody>
+  </table>
+  <p class="note">
+    Sampled every animation frame for 1.5s on the production bundle's CSS. Under a
+    deliberately jammed main thread (120ms long tasks) the before-case still froze and
+    still leapt 116px; the after-case kept advancing in proportion to elapsed time.
+  </p>
+
+  <h2>Unchanged</h2>
+  <p>
+    The gate is still <code>working</code> — an agent computing right now, never a task
+    merely parked in <code>in_progress</code> — so a stopped fleet still leaves the gauge
+    completely still. The cells are still 6px on, 3px off, in the band's own
+    <code>--live</code> blue at 42%, under the count rather than over it. Reduced motion
+    still drops the march entirely.
+  </p>
+</main>
+</body>
+</html>

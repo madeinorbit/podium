@@ -95,9 +95,21 @@ import { cn } from '@/lib/utils'
  * IT MARCHES, IT DOES NOT SWEEP. `.row-progress-sweep` is a full-height sheen
  * travelling over the whole segment — right on the sidebar's 3px rule, wrong
  * here, because this band has WORDS in it and the sheen washed across them
- * twice a second. `.gauge-band-march` steps cells of the band's own blue along
+ * twice a second. `.gauge-band-march` runs cells of the band's own blue along
  * the segment instead, under the count rather than over it. The sidebar keeps
  * the sweep; its meter has nothing to wash out.
+ *
+ * IT GLIDES (POD-1177). The march used to advance in `steps(8, end)`, on the
+ * reasoning that a meter speaking the spinner's grammar should step as the
+ * spinner steps. Stepping a ten-frame GLYPH is smooth — each frame is a whole
+ * new character. Stepping a POSITION is not: eight frames in 1.3s left 88% of
+ * rendered frames unchanged and moved the light a sixth of the band at a time,
+ * which reads as dropped frames rather than as cadence, and dropped frames are
+ * how this app says the machine is in trouble. The cells now travel every
+ * frame, on a compositor transform rather than a repainted background, at a
+ * constant speed the band's width no longer changes. The material — the 6/3
+ * cells, the 42% blue, the gate on `working` — is exactly what it was; see the
+ * rule in styles.css for the mechanics.
  *
  * NOTHING TO MEASURE is a state, not a gap. `total === 0` (a closed root, or
  * one whose members have all left) used to paint an empty groove beside
