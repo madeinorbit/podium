@@ -208,6 +208,11 @@ export class SessionLifecycle {
     fromClientId?: string,
   ) => void
   readonly draftRevision!: SessionStateService['draftRevision']
+  /** Whether a composer draft is typed into the agent's own prompt line here
+   *  (draft injection, the `draft-sync` experiment). Message delivery asks,
+   *  because that is the only state in which its composer-draft guard has real
+   *  input to protect [POD-1204]. */
+  readonly draftInjectionActive!: () => boolean
   /** The `sessions.handoff` handler (POD-642), built on first use. It holds the
    *  single-flight registry that stops a duplicate dispatch from forking a
    *  session, so it must outlive one call — see `handoffs()`. */

@@ -185,6 +185,9 @@ interface HarnessOpts {
   prefix?: string
   /** Source ids still physically waiting in SessionInbox's durable PTY queue. */
   queuedSourceIds?: Set<string>
+  /** Whether a draft is typed into the agent's prompt line here [POD-1204].
+   *  Unset = unwired, which the guard reads as "assume it is". */
+  draftInjectionActive?: () => boolean
 }
 
 function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
@@ -248,6 +251,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
         interrupted.push(i)
         return { ok: true, queued: true }
       },
+      ...(opts?.draftInjectionActive ? { draftInjectionActive: opts.draftInjectionActive } : {}),
     },
     mirrorIssueMail: (row) => store.issues.addIssueMessage(row),
     mirrorMarkIssueMailRead: (issueId, ids) =>
@@ -3633,6 +3637,65 @@ describe('composer-draft delivery guard [POD-865]', () => {
     )
     expect(sent).toHaveLength(0)
     expect(r.disposition).toBe('queued')
+  })
+
+  // POD-1204: the guard's whole hazard is bytes merging into a prompt line that
+  // already holds half a sentence. Where a draft is never typed into the agent's
+  // input — draft injection off, which is what ships — there is no such line, and
+  // holding on the draft only stalled the human's own chat send behind the draft
+  // they had just submitted.
+  describe('and whether the draft can reach the agent at all [POD-1204]', () => {
+    const off = () => false
+    const on = () => true
+
+    it('does not hold when a draft is never typed into the agent (injection off)', () => {
+      const { svc, sent } = harness([drafting()], { draftInjectionActive: off })
+      const r = svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'session', id: asSessionId('s1') }, body: 'go' },
+      )
+      expect(sent).toHaveLength(1)
+      expect(r.disposition).toBe('delivered')
+    })
+
+    it('still holds when injection makes the draft the prompt line', () => {
+      const { svc, sent } = harness([drafting()], { draftInjectionActive: on })
+      const r = svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'session', id: asSessionId('s1') }, body: 'go' },
+      )
+      expect(sent).toHaveLength(0)
+      expect(r.disposition).toBe('queued')
+    })
+
+    it('reads the switch per attempt, so flipping it releases a held row', () => {
+      let injecting = true
+      const sessions = [drafting()]
+      const { svc, sent } = harness(sessions, { draftInjectionActive: () => injecting })
+      svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'session', id: asSessionId('s1') }, body: 'held' },
+      )
+      expect(sent).toHaveLength(0)
+      injecting = false
+      svc.sweep()
+      expect(sent).toHaveLength(1)
+    })
+
+    it('the idle drain delivers too, with the same draft still standing', () => {
+      // The regression, in the shape the operator met it: a draft the browser
+      // could not clear, a session that never took a turn, and a message that
+      // sat queued through every drain and sweep there was.
+      const sessions = [drafting({ agentState: WORKING })]
+      const { svc, sent } = harness(sessions, { draftInjectionActive: off })
+      svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'session', id: asSessionId('s1') }, body: 'the first prompt' },
+      )
+      expect(sent).toHaveLength(0) // busy, not draft-held
+      svc.onSessionIdle(drafting({ agentState: IDLE }))
+      expect(sent.map((s) => s.text)).toEqual(['the first prompt'])
+    })
   })
 })
 

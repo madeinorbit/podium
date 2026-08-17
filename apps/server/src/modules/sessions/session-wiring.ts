@@ -371,6 +371,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.setSessionDraft = (input: any, fromClientId: string) =>
     bag.state.setDraft(input, fromClientId)
   bag.draftRevision = (sessionId: SessionId) => bag.state.draftRevision(sessionId)
+  bag.draftInjectionActive = () => bag.state.draftSyncEnabled()
   bag.clientControl = new SessionClientControl({
     sessions: bag.sessions,
     state: bag.state,

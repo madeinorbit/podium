@@ -40,6 +40,10 @@
  * the same losing sentence forever. Taking the rev and keeping the text is what
  * makes "ours wins" terminate.
  *
+ * It terminates in BOTH directions, which is the part POD-1204 had to repair: the
+ * rev the sequencer names is taken even when it is LOWER than the one we hold.
+ * See {@link DraftLedger.adoptRemote}.
+ *
  * ---------------------------------------------------------------------------
  * WHAT THIS IS NOT
  * ---------------------------------------------------------------------------
@@ -93,6 +97,10 @@ export interface DraftLedger {
   /**
    * Arbitrate an arriving `sessionDraftChanged`. A legacy server sends no `rev`,
    * which is treated as "no rev information" rather than as rev 0.
+   *
+   * A rev that is present is ALWAYS adopted, in either direction — the server is
+   * the only authority on where in the sequence it currently is, and it can move
+   * back (POD-1204).
    */
   adoptRemote(sessionId: SessionId, incoming: { text: string; rev?: number }): AdoptOutcome
   get(sessionId: SessionId): LocalDraft | undefined
@@ -132,12 +140,29 @@ export function createDraftLedger(): DraftLedger {
 
     adoptRemote(sessionId, incoming) {
       const local = entries.get(sessionId)
-      // A rev only ever moves forward. An out-of-order frame naming an older rev
-      // tells us nothing new about the server's position.
-      const nextRev =
-        incoming.rev !== undefined && incoming.rev > (local?.serverRev ?? 0)
-          ? incoming.rev
-          : (local?.serverRev ?? 0)
+      // THE SEQUENCER'S POSITION IS WHATEVER IT SAYS IT IS — INCLUDING BACKWARDS
+      // (POD-1204).
+      //
+      // This used to keep only the HIGHEST rev it had ever seen, on the reasoning
+      // that an older rev is an out-of-order frame with nothing to teach us. But
+      // frames for one session arrive over one ordered socket, so a lower rev is
+      // not a reordering artefact — it is the server telling us it MOVED BACK,
+      // which really happens: its document is persisted on a debounce, so a
+      // restart (or any re-hydration from the store) can reload a rev below the
+      // one it already broadcast.
+      //
+      // Refusing that answer was a permanent wedge. Every later edit went out
+      // with a `baseRev` above the document's, the soft lease had long lapsed, so
+      // the server rejected it and replied with its own lower rev — which we then
+      // discarded, and resent the same losing base forever. The composer's
+      // clear-on-submit is one of those edits, and a draft that cannot be cleared
+      // holds the operator's own chat sends indefinitely (see the delivery guard
+      // in the server's message service).
+      //
+      // Taking the rev costs at most one extra rejected round trip if a frame
+      // ever did arrive out of order — the next answer corrects it. Not taking it
+      // costs the session.
+      const nextRev = incoming.rev ?? local?.serverRev ?? 0
 
       // Nothing local, or nothing unsent: the server is simply the better
       // informed party and we take what it says.

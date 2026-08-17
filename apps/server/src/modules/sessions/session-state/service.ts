@@ -597,14 +597,34 @@ export class SessionStateService {
     }
   }
 
+  /**
+   * Persist the document behind a FIXED WINDOW, not a per-keystroke debounce
+   * (POD-1204).
+   *
+   * It used to clear the pending timer on every accepted edit and start a new
+   * one, which meant continuous typing wrote NOTHING: the window only ever
+   * elapsed after the person paused. Meanwhile every one of those revs had been
+   * broadcast to the clients — so anything that re-hydrates from the store
+   * (a restart, `restoreDeletedForIssue` at runtime) reloaded a document whose
+   * rev was BELOW the one the clients had already adopted, and their next edit
+   * arrived with a base the arbitration could only reject.
+   *
+   * A window that is not restarted bounds that loss to one interval however long
+   * the burst runs, and the write still lands on the LATEST document — the timer
+   * re-reads `draftDocs`, so nothing coalesced away is lost. A clear is written
+   * immediately and closes the window: it is the state that must never be a
+   * debounce behind, since a stale non-empty row is what holds a session's
+   * delivery.
+   */
   private persistDraftDoc(sessionId: SessionId, doc: DraftDoc): void {
-    const existing = this.draftDocWriteTimers.get(sessionId)
-    if (existing) clearTimeout(existing)
-    this.draftDocWriteTimers.delete(sessionId)
     if (!doc.text) {
+      const pending = this.draftDocWriteTimers.get(sessionId)
+      if (pending) clearTimeout(pending)
+      this.draftDocWriteTimers.delete(sessionId)
       this.writeDraftDoc(doc)
       return
     }
+    if (this.draftDocWriteTimers.has(sessionId)) return
     const timer = setTimeout(() => {
       this.draftDocWriteTimers.delete(sessionId)
       this.writeDraftDoc(this.draftDocs.get(sessionId) ?? doc)

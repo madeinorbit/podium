@@ -83,12 +83,56 @@ describe('a stale replay against local typing', () => {
     expect(ledger.get(S)?.serverRev).toBe(0)
   })
 
-  it('ignores a rev that moves backwards', () => {
+  // POD-1204: this used to assert the opposite — that a rev moving backwards was
+  // ignored as an out-of-order frame. It is not one (frames for a session arrive
+  // over one ordered socket); it is the sequencer saying it re-hydrated an older
+  // document, and refusing to believe it wedged the session forever.
+  it('follows a rev that moves backwards, so the next edit is based on it', () => {
     const ledger = createDraftLedger()
     ledger.adoptRemote(S, { text: 'seed', rev: 9 })
     ledger.localEdit(S, 'seed+', T0)
-    ledger.adoptRemote(S, { text: 'old', rev: 2 })
-    expect(ledger.get(S)?.serverRev).toBe(9)
+    expect(ledger.adoptRemote(S, { text: 'old', rev: 2 })).toEqual({
+      acceptText: false,
+      resend: true,
+    })
+    expect(ledger.get(S)?.serverRev).toBe(2)
+    expect(ledger.get(S)?.text).toBe('seed+') // the person's text still wins
+  })
+})
+
+// THE WEDGE POD-1204 REPAIRS. The server persists its draft document on a
+// debounce, so a restart can reload a rev BELOW the one it already broadcast.
+// Every later edit from this device then names a base above the document's, the
+// soft lease is long lapsed, and the server rejects it and answers with its own
+// rev. While that answer was discarded, the resend was identical to the edit
+// that had just been refused — forever — and the composer's clear-on-submit was
+// one of the edits that could never land.
+describe('a server whose rev rolled back', () => {
+  it('converges: the rejected clear is re-sent on the base the server named', () => {
+    const ledger = createDraftLedger()
+    // Typing, echoed and confirmed up to rev 3.
+    ledger.localEdit(S, 'abc', T0)
+    ledger.adoptRemote(S, { text: 'abc', rev: 3 })
+    expect(ledger.get(S)?.dirty).toBe(false)
+
+    // Enter: the composer clears, and the clear is a draft edit like any other.
+    ledger.localEdit(S, '', T0 + 1_000)
+    expect(ledger.get(S)?.serverRev).toBe(3)
+
+    // The restarted server rejects it and replies with the document it reloaded.
+    const rejected = ledger.adoptRemote(S, { text: 'abc', rev: 2 })
+    expect(rejected).toEqual({ acceptText: false, resend: true })
+
+    // The resend now carries baseRev 2 — a base the server can accept — and the
+    // text it carries is still the clear.
+    expect(ledger.get(S)).toEqual({ text: '', serverRev: 2, dirty: true, editedAt: T0 + 1_000 })
+
+    // Accepted: the echo of the empty document settles the entry.
+    expect(ledger.adoptRemote(S, { text: '', rev: 3 })).toEqual({
+      acceptText: false,
+      resend: false,
+    })
+    expect(ledger.dirtySessions()).toEqual([])
   })
 })
 

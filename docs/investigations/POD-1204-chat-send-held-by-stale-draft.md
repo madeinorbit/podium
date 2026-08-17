@@ -4,6 +4,10 @@ Investigated off `main` at `c9708e5ac`, against the live instance on
 `vmi3431366`. Reported symptom: *"a message stayed pending with claude; it only
 started once i fired a message in native view."*
 
+**The fix has since landed on this issue's branch** — see
+[What shipped](#what-shipped) at the end, including the one bullet of the
+proposed fix that turned out to be wrong and was dropped.
+
 The message was not lost and the agent was not stuck. The server **deliberately
 held** the message, because it believed the operator was still mid-sentence in
 that session's composer — and it believed that because the composer's
@@ -212,7 +216,7 @@ composer's clear.
      enabled, or `origin === 'native'`).
    - `drainPreferred` (service.ts:574) returns held rows as `handled` without
      delivering them; a hold should leave the rows for the next pass, not consume
-     the pass.
+     the pass. **(Wrong — see [What shipped](#what-shipped).)**
 
 A fourth, cheap safety net worth considering: an operator send whose text
 *equals* the session's current draft is that draft's submission — clearing the
@@ -226,6 +230,64 @@ has no entry for that session, adopts the server's document as authoritative, an
 repaints the stale text into the composer at the server's rev. Editing or
 clearing it *from that state* is accepted, `draftUpdatedAt` clears, and the
 `oplog.appended` → `onSessionEligibilityChanged` path drains anything still held.
+
+## What shipped
+
+Three changes, each with a test that was run against the OLD code first and seen
+to fail.
+
+**1. The client takes the rev the sequencer names, in either direction**
+(`packages/client-core/src/drafts/draft-ledger.ts`). `adoptRemote` no longer keeps
+only the highest rev it has seen. The reasoning it replaces — "a lower rev is an
+out-of-order frame" — does not hold: frames for one session arrive over one
+ordered socket, so a lower rev is the server saying it moved back. The dirty-text
+rule is untouched; only the rev is adopted, which is what lets a resend land.
+Test: `a server whose rev rolled back › converges: the rejected clear is re-sent
+on the base the server named` (and the old assertion, "ignores a rev that moves
+backwards", is now its opposite, with the reason written where the old rule was).
+
+**2. The draft write is a fixed window, not a per-keystroke debounce**
+(`apps/server/src/modules/sessions/session-state/service.ts`). `persistDraftDoc`
+no longer restarts its timer on every edit, so a burst persists every ~750 ms
+instead of nothing at all, and a re-hydration can be at most one window behind
+what the clients were told. A clear still writes immediately and now also closes
+any open window, so a stale non-empty row cannot outlive the submit that cleared
+it. Tests: `the draft write window › persists mid-burst instead of waiting for the
+typist to pause`, and `… › writes a clear immediately, even with a window already
+open` (in `relay.test.ts`).
+
+**3. The hold applies only where a draft can reach the agent's input**
+(`apps/server/src/modules/messages/service.ts`). `draftHoldActive` now asks
+`sessions.draftInjectionActive()` — the live `draft-sync` state, wired through
+`SessionLifecycle` — because injection is the only thing that makes a draft and
+the agent's prompt line the same text. With injection off (the shipped default)
+a chat draft lives in the browser, there is no half-typed prompt line to corrupt,
+and the guard has nothing to protect. Note the shape of what it was doing there:
+the daemon's native scrape is behind the same flag (`handleNativeDraft` returns
+early), so on a flag-off deployment the only draft the guard could ever see was
+the browser one — the harmless signal — and the dangerous one, a person typing in
+the native terminal view, was invisible to it either way. An unwired dependency
+still holds: that is the conservative side for a guard whose job is not corrupting
+someone's typing, and with (1) and (2) in place a hold now ends when the draft
+clears. Tests: the
+four cases under `composer-draft delivery guard [POD-865] › and whether the draft
+can reach the agent at all [POD-1204]`; every pre-existing POD-865 hold test
+passes untouched.
+
+**Dropped: the `drainPreferred` bullet.** It was wrong. Returning held rows as
+`handled` looks like the drain swallowing them, but `handled` is per-flush
+bookkeeping only — no row state is written, and the rows are re-queued by the next
+trigger. What it actually prevents is the same rows being re-attempted through
+`attemptOne` in the same pass, and that path is not side-effect-free:
+`prepareQueuedAttempt` clears `injected`, increments the echo-requeue count, and
+at `MAX_ECHO_REQUEUES` marks an injected row `delivered`. Letting draft-held rows
+fall through would have burned that budget and could have marked a message
+delivered that never landed. The suppression is right as it stands.
+
+Still open, deliberately: with `draft-sync` **on**, a rolled-back document is now
+recoverable but the hold is still unbounded, so the fourth safety net above (a
+send whose text is the draft submits it) remains worth doing. Recorded as deferred
+work on the issue rather than folded in here.
 
 ## Noticed in passing (not this bug)
 

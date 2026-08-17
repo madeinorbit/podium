@@ -192,6 +192,15 @@ export interface MessageDeliveryDeps {
     }
     cancelQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
     hasQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
+    /** Whether a composer draft is typed into the agent's own prompt line on
+     *  this deployment (draft injection, the `draft-sync` experiment). It is the
+     *  only condition under which a draft and the prompt line are the same text,
+     *  and therefore the only condition under which the composer-draft delivery
+     *  guard has anything to protect — see {@link draftHoldActive}. Read live, so
+     *  flipping the flag takes effect without a restart. Absent (partial
+     *  fixtures) = assume it does, the conservative answer for a guard that
+     *  exists to not corrupt someone's typing. */
+    draftInjectionActive?(): boolean
     /** ESC + queue-as-next-turn (#237 hard interrupt). */
     interruptText(input: InboxDeliveryInput): {
       ok: boolean
@@ -1014,7 +1023,8 @@ export class MessageDeliveryService {
     // cleared the instant the draft empties or submits — fresher than the
     // debounced session_drafts row), so presence ⇔ non-empty draft and the
     // design's "updated within 10s" clause is subsumed: no timestamp survives
-    // a clear, and a non-empty draft holds regardless of age.
+    // a clear, and a non-empty draft holds regardless of age. It holds only where
+    // the draft really is the agent's prompt line (POD-1204) — see the guard.
     if (this.draftHoldActive(target)) {
       return { ok: true, queued: true, disposition: 'queued' }
     }
@@ -1294,12 +1304,35 @@ export class MessageDeliveryService {
     })
   }
 
-  /** Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the session's human
-   *  has a non-empty composer/native-prompt draft (`draftUpdatedAt` present ⇔
-   *  non-empty text; cleared immediately on empty/submit). While true, nothing
-   *  is injected into the session's PTY — any urgency, any transport. */
+  /**
+   * Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the
+   * session's human has a non-empty composer/native-prompt draft
+   * (`draftUpdatedAt` present ⇔ non-empty text; cleared immediately on
+   * empty/submit). While true, nothing is injected into the session's PTY — any
+   * urgency, any transport.
+   *
+   * GATED ON THE DRAFT BEING ABLE TO REACH THE AGENT'S INPUT AT ALL (POD-1204).
+   *
+   * The hazard is concrete: bytes typed into a PTY whose prompt line already
+   * holds half a sentence merge into that sentence, and a trailing CR submits
+   * the pair. That can only happen where the draft and the prompt line are the
+   * same text — which is what draft INJECTION makes true. With injection off
+   * (the shipped default) a chat composer's draft lives in the browser and is
+   * never typed anywhere, the agent's prompt line is empty as far as anything
+   * here can know, and holding on it protected nothing while blocking real
+   * sends: the operator's own chat message rode this same path and sat queued
+   * behind the draft it had just submitted, indefinitely, whenever that draft's
+   * clear failed to land.
+   *
+   * A deployment that does not answer gets the hold. That is the conservative
+   * side of a guard whose job is to not corrupt a person's typing, and its
+   * failure mode is no longer permanent — POD-1204 also made a rolled-back draft
+   * document recoverable, so a hold now ends when the draft actually clears.
+   */
   private draftHoldActive(target: SessionMeta): boolean {
-    return target.draftUpdatedAt !== undefined
+    if (target.draftUpdatedAt === undefined) return false
+    const injects = this.deps.sessions.draftInjectionActive
+    return injects === undefined ? true : injects()
   }
 
   /** A queued row already pushed and awaiting its own confirmation must not be

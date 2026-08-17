@@ -4101,6 +4101,99 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     reg2.dispose()
     store2.close()
   })
+
+  /**
+   * THE ROW MUST NOT FALL ARBITRARILY FAR BEHIND THE REVS ALREADY BROADCAST
+   * (POD-1204).
+   *
+   * The write is debounced, and the debounce used to RESTART on every accepted
+   * edit — so somebody typing steadily persisted nothing at all, while every one
+   * of those revs went out to the clients. Anything that then re-hydrated from
+   * the store (a restart, `restoreDeletedForIssue`) came back at a rev BELOW the
+   * one the browsers had adopted, and their next edit — including the clear a
+   * submit performs — could only be rejected as stale from then on.
+   */
+  describe('the draft write window', () => {
+    it('persists mid-burst instead of waiting for the typist to pause', () => {
+      vi.useFakeTimers()
+      try {
+        const { reg, store } = plainReg()
+        const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+        const seen: ServerMessage[] = []
+        const idA = attachTestClient(reg.clientGateway, (m) => seen.push(m))
+
+        // Continuous typing: every gap is SHORTER than the write window, which is
+        // exactly the shape that used to starve it.
+        for (let i = 1; i <= 5; i += 1) {
+          reg.clientGateway.routeClientFrame(idA, {
+            type: 'draftEdit',
+            sessionId,
+            baseRev: i - 1,
+            text: 'x'.repeat(i),
+          })
+          vi.advanceTimersByTime(700)
+        }
+
+        const broadcastRev = seen
+          .filter((m) => m.type === 'sessionDraftChanged')
+          .map((m) => (m as { rev?: number }).rev ?? 0)
+          .at(-1)
+        expect(broadcastRev).toBe(5)
+
+        const persisted = store.sessions.loadDraftDocs()[sessionId]
+        expect(persisted).toBeDefined()
+        // Behind the live document (the window coalesces), but only by a window —
+        // never by the whole burst, which is what "rev 0 / no row" would mean.
+        expect(persisted!.rev).toBeGreaterThan(0)
+        expect(persisted!.rev).toBeLessThanOrEqual(broadcastRev!)
+        expect(persisted!.text).toBe('x'.repeat(persisted!.rev))
+        store.close()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('writes a clear immediately, even with a window already open', () => {
+      vi.useFakeTimers()
+      try {
+        const { reg, store } = plainReg()
+        const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+        const idA = attachTestClient(reg.clientGateway, () => {})
+
+        reg.clientGateway.routeClientFrame(idA, {
+          type: 'draftEdit',
+          sessionId,
+          baseRev: 0,
+          text: 'about to send this',
+        })
+        vi.advanceTimersByTime(1000) // the window closes: the row is on disk
+        expect(store.sessions.loadDraftDocs()[sessionId]).toBeDefined()
+
+        reg.clientGateway.routeClientFrame(idA, {
+          type: 'draftEdit',
+          sessionId,
+          baseRev: 1,
+          text: 'about to send this!',
+        })
+        // A window is open again. The submit's clear must not sit behind it: a
+        // stale non-empty row is what holds a session's message delivery.
+        reg.clientGateway.routeClientFrame(idA, {
+          type: 'draftEdit',
+          sessionId,
+          baseRev: 2,
+          text: '',
+        })
+
+        expect(store.sessions.loadDraftDocs()[sessionId]).toBeUndefined()
+        // …and the open window does not resurrect it when it elapses.
+        vi.advanceTimersByTime(2000)
+        expect(store.sessions.loadDraftDocs()[sessionId]).toBeUndefined()
+        store.close()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
 })
 
 describe('SessionRegistry read state (#124)', () => {
