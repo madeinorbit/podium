@@ -16,7 +16,7 @@ import { color, font, mono, radius, sans, space, tracking } from '../theme/theme
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
-import { BrailleSpinner } from './StatusGlyphs'
+import { WorkingMark } from './WorkingMark'
 
 /**
  * THE SPINE'S GEOMETRY, on a 393pt screen.
@@ -485,7 +485,7 @@ export function TaskStrip({
                 state is already carried on the left by the stage glyph, the
                 hatch, or the issue note naming the blocker. */}
             {state.state === 'working' && liveWord === undefined ? (
-              <BrailleSpinner size={9} tint={color.working} />
+              <WorkingMark size={11} tint={color.working} />
             ) : null}
             <Text numberOfLines={1} style={[styles.state, stateStyle(state)]}>
               {word}
@@ -696,7 +696,7 @@ export function SessionBand({
           ) : null}
         </View>
         <View style={styles.bandRight}>
-          {working ? <BrailleSpinner size={12} tint={color.working} /> : null}
+          {working ? <WorkingMark size={13} tint={color.working} /> : null}
           {asking ? (
             <View style={styles.askDisc}>
               <Text style={styles.askDiscCh}>!</Text>

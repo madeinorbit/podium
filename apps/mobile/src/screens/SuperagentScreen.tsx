@@ -17,16 +17,16 @@ import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
-import { BrailleSpinner } from '../components/StatusGlyphs'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
+import { WorkingMark } from '../components/WorkingMark'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import {
   applySuperagentModelPick,
   resolveSuperagentBackend,
-  superagentTurnChoice,
   type SuperagentBackendPick,
+  superagentTurnChoice,
 } from '../lib/superagent-backend'
 import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
 import { color, font, mono, sans, space } from '../theme/theme'
@@ -355,10 +355,7 @@ export function SuperagentScreen() {
               <Text style={styles.stop}>Stop</Text>
             </PressableScale>
           ) : null}
-          <HeaderButton
-            label="Clear context — start the chat fresh"
-            onPress={() => void clear()}
-          >
+          <HeaderButton label="Clear context — start the chat fresh" onPress={() => void clear()}>
             <Icon as={Eraser} size={15} color={color.textDim} />
           </HeaderButton>
         </>
@@ -422,7 +419,7 @@ export function SuperagentScreen() {
           </BootstrapCrossfade>
           {running && !liveText.trim() ? (
             <View style={styles.statusRow}>
-              <BrailleSpinner size={11} />
+              <WorkingMark size={13} />
               <Text style={styles.status}>{statusLabel ?? 'thinking'}</Text>
             </View>
           ) : null}

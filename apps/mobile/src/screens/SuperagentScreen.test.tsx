@@ -77,8 +77,8 @@ vi.mock('../components/LaunchPlaceholders', () => ({
 vi.mock('../components/PullToRefreshBoundary', () => ({
   PullToRefreshBoundary: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
-vi.mock('../components/StatusGlyphs', () => ({
-  BrailleSpinner: () => null,
+vi.mock('../components/WorkingMark', () => ({
+  WorkingMark: () => null,
 }))
 
 const { SuperagentScreen } = await import('./SuperagentScreen')

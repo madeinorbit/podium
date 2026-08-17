@@ -6,8 +6,8 @@ import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
 import { PressableScale } from '../PressableScale'
-import { BrailleSpinner } from '../StatusGlyphs'
 import { kindTone } from '../spine'
+import { WorkingMark } from '../WorkingMark'
 import { GitStampLine } from '../WorkRowParts'
 import { MachineLabel } from './chrome'
 
@@ -136,11 +136,7 @@ export function IssueNow({
             <Text style={styles.name} numberOfLines={1}>
               {sessionTitle(session)}
             </Text>
-            {phase === 'working' ? (
-              <BrailleSpinner size={10} />
-            ) : (
-              <View style={styles.waitingDot} />
-            )}
+            {phase === 'working' ? <WorkingMark size={12} /> : <View style={styles.waitingDot} />}
             <Icon as={ChevronRight} size={14} color={color.textFaint} />
           </PressableScale>
         )

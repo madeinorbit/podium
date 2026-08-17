@@ -16,8 +16,8 @@ import {
 } from '../theme/theme'
 import { IdSquare, type IdSquareState } from './IdSquare'
 import { PressableScale } from './PressableScale'
-import { BrailleSpinner } from './StatusGlyphs'
 import { Pill, StatusDot } from './ui'
+import { WorkingMark } from './WorkingMark'
 
 export type { SessionCardModel }
 
@@ -103,7 +103,7 @@ export function SessionCard({
           </Text>
         </View>
         <View style={styles.status}>
-          {working ? <BrailleSpinner size={11} /> : <StatusDot toneKey={toneKey} />}
+          {working ? <WorkingMark size={12} /> : <StatusDot toneKey={toneKey} />}
           {model.queuedCount ? (
             <Pill label={`${model.queuedCount} queued`} toneKey="accent" />
           ) : null}

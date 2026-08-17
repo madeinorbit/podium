@@ -50,9 +50,9 @@ import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
-import { BrailleSpinner } from '../components/StatusGlyphs'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
+import { WorkingMark } from '../components/WorkingMark'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
@@ -601,7 +601,7 @@ function WorkRow({
             {unsnoozed ? <Text style={styles.unsnoozed}>Unsnoozed</Text> : null}
           </View>
           <View style={styles.rowStatusLine}>
-            {working && phase !== 'working' ? <BrailleSpinner size={9} /> : null}
+            {working && phase !== 'working' ? <WorkingMark size={11} /> : null}
             <Text
               style={[
                 styles.status,

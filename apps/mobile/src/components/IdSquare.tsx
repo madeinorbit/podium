@@ -2,7 +2,8 @@ import { StyleSheet, Text, View } from 'react-native'
 import { issueColorHex, issueSquareFg } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, mono } from '../theme/theme'
-import { BrailleSpinner, CountPill } from './StatusGlyphs'
+import { CountPill } from './StatusGlyphs'
+import { WorkingMark } from './WorkingMark'
 
 /** The square language's states — mirrors the web IdSquare: `working`/
  *  `waiting`/`done` wear the solid grey border (live work), `queued`/`idle`
@@ -113,7 +114,7 @@ export function IdSquare({
             <CountPill count={badge.count ?? 0} size={13} />
           ) : badge.kind === 'working' ? (
             <View style={styles.workingBadge}>
-              <BrailleSpinner size={7} />
+              <WorkingMark size={9} />
             </View>
           ) : (
             <View style={styles.workingBadge}>

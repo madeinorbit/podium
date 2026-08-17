@@ -35,9 +35,9 @@ import { MissionDeck } from '../components/MissionDeck'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
-import { BrailleSpinner } from '../components/StatusGlyphs'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
+import { WorkingMark } from '../components/WorkingMark'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { mostRelevantSession } from '../lib/mission-session'
 import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
@@ -518,7 +518,7 @@ function MissionBar({
       </Text>
       {crewCount > 0 ? (
         <View style={styles.barLive}>
-          {working > 0 ? <BrailleSpinner size={9} /> : null}
+          {working > 0 ? <WorkingMark size={11} /> : null}
           <Text style={styles.barLiveText}>{crewCount}</Text>
         </View>
       ) : null}

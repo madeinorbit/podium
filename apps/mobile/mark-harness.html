@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Working mark — mobile harness</title>
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        height: 100%;
+        background: #0a0a0c;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Metro defines `global`; a browser does not, and react-native-web's
+         reduced-motion listener reaches for it. -->
+    <script>
+      window.global = window
+    </script>
+    <script type="module" src="/harness/mark-entry.tsx"></script>
+  </body>
+</html>

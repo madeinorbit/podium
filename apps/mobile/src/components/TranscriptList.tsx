@@ -78,6 +78,7 @@ import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
 import { SharedFiles } from './SharedFiles'
+import { WorkingMark } from './WorkingMark'
 
 /**
  * Flat Field rows (POD-159, adapted for mobile in POD-176): the agent's work
@@ -335,15 +336,18 @@ function TranscriptTail({ state }: { state?: TranscriptTailState }) {
   return (
     <View style={styles.tailWrap}>
       <View style={styles.tail} accessibilityRole="text">
-        <Text
-          style={[
-            styles.tailMark,
-            state.tone === 'working' && styles.tailWorking,
-            state.tone === 'attention' && styles.tailAttention,
-          ]}
-        >
-          {state.tone === 'working' ? '⠿' : '●'}
-        </Text>
+        {/* The end of the feed is the one surface a reader watches while
+            nothing else moves, so "working" is the moving mark here rather
+            than the static ⠿ cell it used to be — the same swap the web tail
+            made. The label beside it already says the state, so the mark is
+            decorative. */}
+        {state.tone === 'working' ? (
+          <WorkingMark size={18} label={null} />
+        ) : (
+          <Text style={[styles.tailMark, state.tone === 'attention' && styles.tailAttention]}>
+            ●
+          </Text>
+        )}
         <Text style={styles.tailLabel}>{state.label}</Text>
         {elapsed ? <Text style={styles.tailElapsed}>{elapsed}</Text> : null}
         <View style={styles.tailRule} />
@@ -1497,9 +1501,6 @@ const styles = StyleSheet.create({
     ...mono(500),
     color: color.textMicro,
     fontSize: font.tiny,
-  },
-  tailWorking: {
-    color: color.working,
   },
   tailAttention: {
     color: color.needsYouText,
