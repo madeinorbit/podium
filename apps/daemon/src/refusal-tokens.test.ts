@@ -187,9 +187,14 @@ describe('every refusal a daemon can produce is classified by the shared table',
       expect(classifyUpdateFailureDetail(detail), token).not.toBe('machine-unreachable')
     }
     // And the planner really does produce only those three.
-    expect(planConvergence({ current: 'a', target: { version: 'b', artifacts: {} } as never, caps: [], platform: 'linux-x86_64' })).toEqual(
-      { action: 'cannot', reason: 'no-artifact' },
-    )
+    expect(
+      planConvergence({
+        current: 'a',
+        target: { version: 'b', artifacts: {} } as never,
+        caps: [],
+        platform: 'linux-x86_64',
+      }),
+    ).toEqual({ action: 'cannot', reason: 'no-artifact' })
   })
 
   /**
@@ -200,14 +205,15 @@ describe('every refusal a daemon can produce is classified by the shared table',
    * never coming.
    */
   it('classifies every git delivery step failure as a delivery failure', async () => {
-    const cases: Array<[UpdateFailureToken, Record<string, { status: number; stdout?: string }>]> = [
-      ['dirty-working-tree', { status: { status: 0, stdout: ' M file\n' } }],
-      ['git-status-failed', { status: { status: 1 } }],
-      ['git-fetch-failed', { ...CLEAN, fetch: { status: 1 } }],
-      ['git-checkout-failed', { ...CLEAN, fetch: { status: 0 }, checkout: { status: 1 } }],
-      ['git-timed-out', { status: { status: GIT_TIMED_OUT_STATUS } }],
-      ['git-cancelled', { status: { status: GIT_ABORTED_STATUS } }],
-    ]
+    const cases: Array<[UpdateFailureToken, Record<string, { status: number; stdout?: string }>]> =
+      [
+        ['dirty-working-tree', { status: { status: 0, stdout: ' M file\n' } }],
+        ['git-status-failed', { status: { status: 1 } }],
+        ['git-fetch-failed', { ...CLEAN, fetch: { status: 1 } }],
+        ['git-checkout-failed', { ...CLEAN, fetch: { status: 0 }, checkout: { status: 1 } }],
+        ['git-timed-out', { status: { status: GIT_TIMED_OUT_STATUS } }],
+        ['git-cancelled', { status: { status: GIT_ABORTED_STATUS } }],
+      ]
     for (const [token, plan] of cases) {
       const detail = await gitDeliveryDetail(plan)
       expect(matchUpdateFailureToken(detail), token).toBe(token)

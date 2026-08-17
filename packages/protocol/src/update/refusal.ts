@@ -365,7 +365,9 @@ export const UPDATE_FAILURE_EXAMPLES = Object.fromEntries(
  * layer nobody wrapped), and the callers deliberately treat that differently
  * from a recognized token — see {@link classifyUpdateFailureDetail}.
  */
-export function matchUpdateFailureToken(detail: string | undefined): UpdateFailureToken | undefined {
+export function matchUpdateFailureToken(
+  detail: string | undefined,
+): UpdateFailureToken | undefined {
   const normalized = detail?.trim()
   if (!normalized) return undefined
   for (const matcher of UPDATE_FAILURE_MATCHERS) {

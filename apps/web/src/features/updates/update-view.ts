@@ -464,11 +464,10 @@ const MACHINE_FAILURE_COPY: Record<
  * `undefined` is what lets `operation-view.ts` keep degrading an unknown code
  * to the server's own sentence instead of to a blank panel (P8).
  */
-export function machineFailureCopy(
-  code: string,
-  subject?: string,
-): MachineFailureCopy | undefined {
-  const arm = (MACHINE_FAILURE_COPY as Record<string, ((s?: string) => MachineFailureCopy) | undefined>)[code]
+export function machineFailureCopy(code: string, subject?: string): MachineFailureCopy | undefined {
+  const arm = (
+    MACHINE_FAILURE_COPY as Record<string, ((s?: string) => MachineFailureCopy) | undefined>
+  )[code]
   return arm?.(subject)
 }
 

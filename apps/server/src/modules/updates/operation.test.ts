@@ -13,6 +13,8 @@ import {
 } from '../operations/engine'
 import { OperationKindRegistry } from '../operations/kinds'
 import { OperationStore } from '../operations/store'
+import { DevBundleUnavailableError } from './dev-bundle'
+import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
 import {
   admissibleDeferredPlaces,
   classifyMachineFailure,
@@ -28,6 +30,7 @@ import {
   resetUpdateOperationState,
   STEP_HEARTBEAT_INTERVAL_MS,
   UPDATE_BUDGETS,
+  UPDATE_ERROR_CODES,
   UPDATE_NOT_INSTALLED_ERROR_CODE,
   UPDATE_OPERATION_KIND,
   UPDATE_STEP_DEADLINES,
@@ -35,15 +38,12 @@ import {
   UPDATE_STEP_PREPARE,
   UPDATE_STEP_SERVER,
   UPDATE_STEP_WEB,
-  UPDATE_ERROR_CODES,
   type UpdateErrorCode,
   type UpdateFailure,
   type UpdateOperationContext,
   type UpdatePlanInput,
   updateOperationKind,
 } from './operation'
-import { DevBundleUnavailableError } from './dev-bundle'
-import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
 import { UpdatesService } from './service'
 import { offeredDeliveries, type WaveMachine } from './wave'
 
@@ -887,8 +887,7 @@ function harness(options: HarnessOptions = {}) {
       nextGrantId: () => `grant_${sent.length + 1}`,
       concurrency: 3,
       fleetChannel: () => 'dev',
-      exclusiveOperationActive: () =>
-        driver()?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+      exclusiveOperationActive: () => driver()?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
       exclusiveOperationVersion: (channel) =>
         exclusiveUpdateVersion(driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
     })
@@ -1304,7 +1303,11 @@ describe('the step runners', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
     h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
       grantId: 'grant_1',
@@ -1443,7 +1446,10 @@ describe('the step runners', () => {
    * never been given one, and the wave grants the next machine.
    */
   it('machines: keeps the refusal THIS operation was given, across a re-entry', async () => {
-    const fleet = [machine({ id: 'vmi', name: 'vmi3407763' }), machine({ id: 'laptop', online: false })]
+    const fleet = [
+      machine({ id: 'vmi', name: 'vmi3407763' }),
+      machine({ id: 'laptop', online: false }),
+    ]
     const h = harness({
       machines: fleet,
       target: packedTarget(),
@@ -1579,7 +1585,11 @@ describe('the step runners', () => {
 
     // The daemon reconnects on the new build: the machine DIRECTORY is the proof.
     fleet[0] = machine({ id: 'vmi', version: 'dev+abc1234' })
-    createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() }).onFleetChanged()
+    createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    }).onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(h.read().state).toBe('done')
   })
@@ -1901,8 +1911,10 @@ describe('a version published mid-operation', () => {
       fleetChannel: () => 'dev',
       exclusiveOperationActive: active,
       ...(deliveringVersion
-        ? { exclusiveOperationVersion: (channel: UpdateChannel) =>
-            channel === 'dev' ? deliveringVersion() : undefined }
+        ? {
+            exclusiveOperationVersion: (channel: UpdateChannel) =>
+              channel === 'dev' ? deliveringVersion() : undefined,
+          }
         : {}),
     })
     return { updates, sent }
@@ -2048,7 +2060,11 @@ describe('the fleet bridge', () => {
       state: 'downloading',
       version: '0.4.1',
     })
-    createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() }).onFleetChanged()
+    createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
@@ -2077,7 +2093,11 @@ describe('the fleet bridge', () => {
     expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
 
     fleet[1] = machine({ id: 'laptop' })
-    createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() }).onFleetChanged()
+    createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     const operation = h.read()
@@ -2175,7 +2195,11 @@ describe('the fleet bridge', () => {
 
     // `vmi` arrives, which is the whole of the planned wave.
     fleet[0] = machine({ id: 'vmi', version: 'dev+abc1234' })
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('done')
@@ -2202,7 +2226,11 @@ describe('the fleet bridge', () => {
     await h.engine.whenSettled('op_1')
 
     fleet[1] = machine({ id: 'laptop', supervised: true })
-    createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() }).onFleetChanged()
+    createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
     expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
@@ -2439,7 +2467,11 @@ describe('a silent grant, with nobody watching', () => {
     const h = silentWave()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
 
     for (const percent of [20, 55, 91]) {
       h.clock.advance(silenceMs - 60_000)
@@ -2467,7 +2499,11 @@ describe('a silent grant, with nobody watching', () => {
     const h = silentWave()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
 
     h.updates.onStatus(asMachineId('vmi'), {
       type: 'updateStatus',
@@ -2525,7 +2561,11 @@ describe('two machines, one of them dead', () => {
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
     })
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
     return {
       ...h,
       bridge,
@@ -2566,8 +2606,10 @@ describe('two machines, one of them dead', () => {
   ]
 
   /** The grant this machine is actually holding — a status quoting any other is inert. */
-  const grantIdFor = (h: { sent: Array<{ machineId: string; message: { grantId?: string } }> }, id: string) =>
-    [...h.sent].reverse().find((grant) => grant.machineId === id)?.message.grantId
+  const grantIdFor = (
+    h: { sent: Array<{ machineId: string; message: { grantId?: string } }> },
+    id: string,
+  ) => [...h.sent].reverse().find((grant) => grant.machineId === id)?.message.grantId
 
   /** One machine reports a fresh percentage; the others say nothing, ever. */
   const reports = (
@@ -2692,7 +2734,11 @@ describe('two machines, one of them dead', () => {
     })
     await h.engine.whenSettled('op_1')
     expect(grantedMachines(h)).toEqual(['a-canary', 'b', 'c', 'd'])
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: () => h.clock.clock.now() })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
@@ -2800,7 +2846,9 @@ describe('a machine that says why, and then goes quiet', () => {
       step.id === UPDATE_STEP_MACHINES
         ? {
             ...step,
-            places: [{ id: 'vmi', name: 'vmi3407763', state: 'stuck', detail: 'dirty-working-tree' }],
+            places: [
+              { id: 'vmi', name: 'vmi3407763', state: 'stuck', detail: 'dirty-working-tree' },
+            ],
           }
         : step,
     )

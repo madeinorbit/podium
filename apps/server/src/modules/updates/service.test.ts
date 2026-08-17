@@ -125,7 +125,11 @@ describe('UpdatesService', () => {
 
   it('issues no grants when authorization is only remembered', () => {
     const { svc, send } = make([m('a')])
-    svc.setTarget({ version: 'dev+47a01e3', critical: false, artifacts: { web: { digest: '47a01e3' } } } as never)
+    svc.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    } as never)
     svc.markAuthorized()
     expect(send).not.toHaveBeenCalled()
   })
@@ -157,7 +161,10 @@ describe('UpdatesService', () => {
       critical: false,
       artifacts: {
         web: { digest: '47a01e3' },
-        headless: { delivery: 'bundle', platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } } },
+        headless: {
+          delivery: 'bundle',
+          platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } },
+        },
       },
     } as never)
     // The bytes the wave is about to deliver are now published…
@@ -180,7 +187,10 @@ describe('UpdatesService', () => {
       critical: false,
       artifacts: {
         web: { digest: '47a01e3' },
-        headless: { delivery: 'bundle', platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } } },
+        headless: {
+          delivery: 'bundle',
+          platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } },
+        },
       },
     } as never)
     expect(send).not.toHaveBeenCalled()
@@ -711,15 +721,32 @@ describe('channel resolution', () => {
       ...(fleetDefault ? { fleetChannel: () => fleetDefault } : {}),
     })
 
-  const cases: { name: string; pin?: UpdateChannel; fleetDefault?: UpdateChannel; expected: UpdateChannel }[] =
-    [
-      { name: 'an explicit pin wins over the fleet default', pin: 'edge', fleetDefault: 'stable', expected: 'edge' },
-      { name: 'a pin is honoured even when it matches nothing else', pin: 'dev', fleetDefault: 'stable', expected: 'dev' },
-      { name: 'no pin follows a stable fleet default', fleetDefault: 'stable', expected: 'stable' },
-      { name: 'no pin follows an edge fleet default', fleetDefault: 'edge', expected: 'edge' },
-      { name: 'no pin follows a dev fleet default', fleetDefault: 'dev', expected: 'dev' },
-      { name: 'no pin and no stated fleet default falls back to the one shared constant', expected: DEFAULT_FLEET_UPDATE_CHANNEL },
-    ]
+  const cases: {
+    name: string
+    pin?: UpdateChannel
+    fleetDefault?: UpdateChannel
+    expected: UpdateChannel
+  }[] = [
+    {
+      name: 'an explicit pin wins over the fleet default',
+      pin: 'edge',
+      fleetDefault: 'stable',
+      expected: 'edge',
+    },
+    {
+      name: 'a pin is honoured even when it matches nothing else',
+      pin: 'dev',
+      fleetDefault: 'stable',
+      expected: 'dev',
+    },
+    { name: 'no pin follows a stable fleet default', fleetDefault: 'stable', expected: 'stable' },
+    { name: 'no pin follows an edge fleet default', fleetDefault: 'edge', expected: 'edge' },
+    { name: 'no pin follows a dev fleet default', fleetDefault: 'dev', expected: 'dev' },
+    {
+      name: 'no pin and no stated fleet default falls back to the one shared constant',
+      expected: DEFAULT_FLEET_UPDATE_CHANNEL,
+    },
+  ]
 
   for (const { name, pin, fleetDefault, expected } of cases) {
     it(name, () => {
