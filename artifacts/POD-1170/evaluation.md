@@ -75,3 +75,27 @@ Before the fix, every one of those rows overran its box and the ellipsis never f
 The selection tick stands 5px *outside* the row wrapper, so the new container was
 checked not to clip it: `container-type: inline-size` implies `contain: layout style
 inline-size` and **not** `paint`, and the tick still paints at −5px.
+
+## Finding 4 — the elbow was pierced by the selection tick
+
+Reported separately: rows where the guides read as a broken cross rather than a tree.
+
+The gutter between a rail and the thing hanging on it is `RAIL_INSET` — **eight pixels** —
+and the elbow crosses all eight of them. `TICK_SELECTED_X` parked a 3px tick at +3, dead
+centre of that run, so the elbow came in from the rail, disappeared behind the tick and
+re-emerged as a 2px stub on the far side. On a row that is *both* asking and selected
+that stub sits between an amber elbow and an amber inner rule, which is exactly the
+reported screenshot.
+
+`TICK_SELECTED_X` becomes `RAIL_INSET - TICK_WIDTH`, landing the tick's **right** edge on
+the row's own edge: the elbow now runs into the tick and stops, so the tick is the line's
+terminal cap instead of an obstacle in it. Attention is unaffected — it sits at −5, on the
+other side of the rail, and never met the elbow.
+
+The same constant drives task strips (`bandLeft − ownRailX` is the same 8px gutter, and
+the strip's elbow is the same 8px wide), so one change fixes both surfaces consistently.
+
+**Checked and *not* changed:** `HUNG_MID = 14` is correct. A first probe suggested the
+elbow sat 2px above the row's first line, but that was the probe omitting
+`shell-type-secondary` from the row and inflating its line box. With the real class the
+elbow, the ref, the role and the icon all centre on 14 — Δ = 0, wrapped and unwrapped.

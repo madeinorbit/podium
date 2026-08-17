@@ -222,9 +222,21 @@ const NATIVE_MID = 11
  */
 const TICK_WIDTH = 3
 const TICK_HEIGHT = 15
-/** Offsets from the row's own rail: selection just inside it, attention just
- *  outside — so attention is always the leftmost thing on the row. */
-const TICK_SELECTED_X = RAIL_INSET - 5
+/**
+ * Offsets from the row's own rail: selection just inside it, attention just
+ * outside — so attention is always the leftmost thing on the row.
+ *
+ * SELECTION IS FLUSH AGAINST THE ROW, NOT FLOATING MID-GUTTER (POD-1170).
+ * The gutter between a rail and the thing hanging on it is `RAIL_INSET` — eight
+ * pixels — and the ELBOW crosses all eight of them. A 3px tick parked at +3 sat
+ * in the middle of that run, so the elbow came in, disappeared behind the tick
+ * and re-emerged as a 2px stub on the far side: a rail, a tick and a horizontal
+ * reading as a broken cross rather than as a line arriving at a mark. Landing
+ * the tick's RIGHT edge on the row's own edge makes it the elbow's terminal cap
+ * instead — the line runs into it and stops, which is what it means.
+ * Attention keeps its own side of the rail and never met the elbow at all.
+ */
+const TICK_SELECTED_X = RAIL_INSET - TICK_WIDTH
 const TICK_ATTENTION_X = -5
 /**
  * The right-hand column every row parks its state in, so the whole mission
