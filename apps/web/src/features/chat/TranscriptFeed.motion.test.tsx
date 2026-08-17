@@ -38,6 +38,7 @@ function render(
       <TranscriptFeed
         scrollerRef={createRef<HTMLDivElement>()}
         onScroll={() => {}}
+        claimScrollForArrival={() => {}}
         compact={false}
         superagent={false}
         phase={opts.phase ?? 'ready'}

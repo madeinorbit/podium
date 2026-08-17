@@ -4288,6 +4288,72 @@ html[data-density="balanced"] .header-quota-pools {
   }
 }
 
+/* THE DECK TAKES A SHEET (POD-1158). Calls two through twelve of a run were the
+   one event on this surface with no motion at all. The row is already on
+   screen, so `.transcript-arrive` never fires; `.work-line-count` carries only
+   a hover colour transition; and the one-shot on `data-settle` fires once, at
+   the very end, when the whole run resolves. The number changed between two
+   frames with nothing to mark it.
+
+   The deck is already drawn and already means "more of these are folded behind
+   this line", so gaining a sheet is the honest reading of a call landing. The
+   row settles 3px and the two tiers re-stack behind it 40ms apart — a one-shot
+   morph in the sense the grammar allows, over in 260ms, after which the row is
+   completely still until the next call.
+
+   It is gated on `data-push`, which `usePushFlash` sets only when the count
+   GROWS and never on mount, so painting a transcript of finished runs replays
+   none of them. The tiers are `aria-hidden` decoration, so nothing a reader is
+   reading moves: the phrase, the timer and the count all hold position while
+   the deck settles underneath them. */
+@media (prefers-reduced-motion: no-preference) {
+  .work-line[data-push="true"] .work-line-row {
+    animation: work-line-push 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  /* Not for a lone call and not for an unfolded run: both hide the deck, and a
+     hidden deck must not animate itself back into view because a call landed. */
+  .work-line[data-push="true"]:not([data-open="true"]):not([data-single="true"])
+    .work-line-deck
+    i:first-child {
+    animation: work-line-deck-push 260ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
+  }
+  .work-line[data-push="true"]:not([data-open="true"]):not([data-single="true"])
+    .work-line-deck
+    i:last-child {
+    animation: work-line-deck-push-far 260ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
+  }
+}
+@keyframes work-line-push {
+  from {
+    transform: translateY(-3px);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes work-line-deck-push {
+  from {
+    opacity: 0.3;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Lands on the far tier's resting 0.6, not on 1: the fan is a depth cue and
+   the back sheet is the dimmer one at rest. */
+@keyframes work-line-deck-push-far {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 0.6;
+    transform: none;
+  }
+}
+
 /* The folded run's hover preview is gone (POD-993 round 7) — unfolding answers
    "which calls" and needs no positioner, no collision boundary and no height
    cap against a feed it floats over. Its short-form text moved to the unfolded
@@ -5172,23 +5238,60 @@ html[data-density="balanced"] .header-quota-pools {
   }
 }
 
-/* ── POD-423 arrival ─────────────────────────────────────────────────────────
+/* ── POD-423 arrival, re-aimed by POD-1158 ───────────────────────────────────
    A row that just landed was indistinguishable from one that had been there an
-   hour. It now reads as news for one beat and is then identical to every other
-   row — the tail's morph, borrowed for the rows above it, in the same weight
-   and the same curve.
+   hour, so POD-423 gave it a lift on the house curve. The MECHANISM was right
+   and stays exactly as it is — `use-feed-arrivals` latches, so opening a
+   session animates none of three hundred rows, a page from disk is history, and
+   a backfill over MAX_ARRIVALS stays still. What was wrong was the motion.
 
-   It costs nothing at rest: opacity and transform only, so no row changes
-   height and nothing below it moves, and the class is only ever on rows that
-   actually arrived (see use-feed-arrivals — NOT every row that mounts, which
-   would fire three hundred times on opening a session). One shot, then
-   stillness; there is no resting state to make louder. */
+   Measured at 1x, that lift travelled 7.1px, then 2.2px, then 0.5px at
+   0 / 55 / 110ms: four fifths of it was over inside one sample, on six pixels.
+   `cubic-bezier(0.22, 1, 0.36, 1)` is the right curve everywhere else in this
+   file because its whole job is to get OUT of the way — which is exactly the
+   wrong job for the one motion here that has to be caught by an eye looking
+   somewhere else on the screen. The operator's report was "a new message is
+   just suddenly there", and the animation firing correctly the whole time is
+   what makes that report worth trusting rather than explaining away.
+
+   THE TURN NOW OPENS. The row's own height runs from zero to its measured
+   height on `cubic-bezier(0.4, 0, 0.2, 1)`, which spends real time in the
+   middle, while the content inside holds still and is revealed by the frame.
+   The document grows, which is what actually happened. Two things make that
+   affordable in THIS scroller, and neither is optional:
+
+   1. THE HEIGHT IS MEASURED, NOT INTERPOLATED TO A KEYWORD. `--arrive-h` is
+      written by TranscriptFeed from one `offsetHeight` read at mount. The
+      `0fr`/`1fr` grid trick and `interpolate-size` both say this far more
+      neatly, and both are recent enough in WebKit that this file — the one with
+      an open Safari scroll bug against it — is the wrong place to find out. A
+      measured pixel height animates identically in every engine ever shipped.
+
+   2. THE ARRIVAL OWNS THE SCROLL WHILE IT RUNS. A row growing at the bottom of
+      a bottom-pinned feed is a moving target for three separate writers: the
+      ResizeObserver over every row, the MutationObserver beside it, and (since
+      POD-993 removed `overflow-anchor: none`) WebKit's own anchoring.
+      `claimScrollForArrival` stands the first two down for the duration and
+      runs a single rAF pin instead — FEWER writes and fewer forced layouts than
+      a landing message costs today, not more. See use-transcript-scroll.
+
+   `overflow: hidden` and the animation both hang off `data-unroll`, which is
+   removed on `animationend`, so an arrived row carries no clip, no containing
+   block and no residue once it is simply a row again. Under reduced motion the
+   attribute is never set at all. */
 @media (prefers-reduced-motion: no-preference) {
   .transcript-placeholder {
     animation: transcript-arrive 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .transcript-arrive {
-    animation: transcript-arrive 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  .transcript-row[data-unroll] {
+    /* `--arrive-h` is `offsetHeight`, which is the BORDER box. Stated here
+       rather than inherited from preflight, because a content-box row would
+       animate to its full height PLUS its padding, overshoot by 22px and snap
+       back on the last frame — which is exactly what the engine harness caught
+       (see e2e/pod1158-unroll-engine.ts). */
+    box-sizing: border-box;
+    overflow: hidden;
+    animation: transcript-unroll 260ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   /* THE CARD ARRIVES AS A CARD (POD-993 round 2). A row of prose slides up six
      pixels; the operator's turn is an OBJECT, so it comes in from a little
@@ -5219,6 +5322,25 @@ html[data-density="balanced"] .header-quota-pools {
     transform: none;
   }
 }
+/* The padding travels with the height, so a row at zero occupies zero rather
+   than opening as a 22px stub. `--arrive-h` is the full border box including
+   that padding, which is what `offsetHeight` reads. The opacity floor is 0.6
+   and not 0: the frame is the thing revealing the content, and fading the
+   content out from under it as well reads as two effects, not one. */
+@keyframes transcript-unroll {
+  from {
+    height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0.6;
+  }
+  to {
+    height: var(--arrive-h);
+    padding-top: 11px;
+    padding-bottom: 11px;
+    opacity: 1;
+  }
+}
 
 /* THE STREAMING CARET. An answer being written now looks like one that finished
    an hour ago; the caret says which. It does NOT blink: the braille spinner and
@@ -5240,7 +5362,9 @@ html[data-density="balanced"] .header-quota-pools {
 @media (prefers-reduced-motion: reduce) {
   .transcript-placeholder,
   .transcript-arrive,
-  .transcript-arrive-bubble {
+  .transcript-arrive-bubble,
+  .transcript-row[data-unroll] {
+    overflow: visible;
     animation: none;
   }
   .msg-foot .chat-clk,

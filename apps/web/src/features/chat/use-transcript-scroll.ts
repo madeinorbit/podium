@@ -66,6 +66,10 @@ export interface UseTranscriptScrollResult {
   syncStickyPromptPositions: () => void
   /** Drives the shelf drawn over the feed. Null → no shelf. */
   pinnedBrief: PinnedBrief | null
+  /** An arriving row is about to animate its OWN height for `ms`. Take the
+   *  scroll for exactly that long so one writer follows it instead of three.
+   *  See `claimScrollForArrival` below. */
+  claimScrollForArrival: (ms: number) => void
 }
 
 /**
@@ -141,6 +145,29 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
 
   const [atBottom, setAtBottom] = useState(true)
   const [pinnedBrief, setPinnedBrief] = useState<PinnedBrief | null>(null)
+  /**
+   * THE ARRIVAL OWNS THE SCROLL WHILE IT RUNS (POD-1158).
+   *
+   * A row that animates its own height at the end of a bottom-pinned feed is a
+   * moving target for every writer here at once. The ResizeObserver sees each
+   * frame of the growth and writes the bottom; the MutationObserver writes it
+   * again; and since POD-993 removed `overflow-anchor: none`, WebKit is doing
+   * its own anchoring beside them. Three authorities, one number.
+   *
+   * The fix is not to avoid a moving height — it is to stop them arguing. For
+   * the length of the animation this holds a deadline, the two observers
+   * early-return on it, and a SINGLE rAF loop follows the growth. That is
+   * strictly fewer writes and fewer forced layouts than a landing message costs
+   * today: `syncStickyPromptPositions` reads a rect per operator prompt on
+   * every one of those callbacks, and skipping it for 260ms is the larger
+   * saving of the two.
+   *
+   * A deadline rather than a boolean, so overlapping arrivals extend one claim
+   * instead of the first one's cleanup cancelling the second's. Zero means
+   * nobody holds it — `performance.now()` is never zero.
+   */
+  const arrivalClaim = useRef(0)
+  const arrivalHolds = useCallback(() => arrivalClaim.current > performance.now(), [])
   /** The reader has asked to leave the bottom with a wheel or a touch, and has
    *  not arrived back yet. See the intent listeners below. */
   const releasedByIntent = useRef(false)
@@ -324,6 +351,11 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       // load, a send), where the reader has just asked for it and nothing is
       // competing. The trap that made it worse is closed properly by the
       // pointer-intent listeners below, not by the write policy here.
+      // An arriving row's unroll is following its own growth with one rAF loop
+      // (see `claimScrollForArrival`). Standing down is what makes that ONE
+      // writer rather than three, and skipping the sticky pass with it is the
+      // larger saving: it reads a rect per operator prompt, every callback.
+      if (arrivalHolds()) return
       if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
       syncStickyPromptPositions()
     })
@@ -393,6 +425,11 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       // load, a send), where the reader has just asked for it and nothing is
       // competing. The trap that made it worse is closed properly by the
       // pointer-intent listeners below, not by the write policy here.
+      // An arriving row's unroll is following its own growth with one rAF loop
+      // (see `claimScrollForArrival`). Standing down is what makes that ONE
+      // writer rather than three, and skipping the sticky pass with it is the
+      // larger saving: it reads a rect per operator prompt, every callback.
+      if (arrivalHolds()) return
       if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
       syncStickyPromptPositions()
     })
@@ -401,7 +438,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       mo.disconnect()
       ro.disconnect()
     }
-  }, [syncStickyPromptPositions, rowsToRender])
+  }, [syncStickyPromptPositions, rowsToRender, arrivalHolds])
 
   // Snap to bottom on pane switch-in: the keep-mounted panel deck hides inactive
   // panels with `display:none`, so scroll events stop firing. When this pane
@@ -489,6 +526,33 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     if (el.scrollTop < 200 && moreAbove) loadOlder()
   }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions, moreAbove, loadOlder])
 
+  /** Follow an arriving row's own growth for `ms`, as the only writer. Does
+   *  nothing at all if the reader is not at the end — a row unrolling out of
+   *  sight must never pull them back to it. */
+  const claimScrollForArrival = useCallback(
+    (ms: number) => {
+      const el = scrollerRef.current
+      if (!el || !pinnedToBottom.current) return
+      const alreadyRunning = arrivalHolds()
+      arrivalClaim.current = performance.now() + ms
+      if (alreadyRunning) return
+      const step = (): void => {
+        if (!pinnedToBottom.current || !arrivalHolds()) {
+          arrivalClaim.current = 0
+          // The observers stood down while this ran, so the shelf's geometry is
+          // one pass stale by the time the claim ends. Settle it once here
+          // rather than on every frame, which is the whole point.
+          syncStickyPromptPositions()
+          return
+        }
+        el.scrollTop = el.scrollHeight
+        requestAnimationFrame(step)
+      }
+      step()
+    },
+    [scrollerRef, pinnedToBottom, arrivalHolds, syncStickyPromptPositions],
+  )
+
   const jumpToBottom = useCallback(() => {
     const el = scrollerRef.current
     if (!el) return
@@ -536,5 +600,6 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     scrollToBlock,
     syncStickyPromptPositions,
     pinnedBrief,
+    claimScrollForArrival,
   }
 }

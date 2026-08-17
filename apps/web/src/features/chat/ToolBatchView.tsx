@@ -63,6 +63,38 @@ function useSettleFlash(live: boolean): boolean {
   return settling
 }
 
+/** One beat of the deck taking a sheet. Shorter than the settle, because a
+ *  batch can land six of these in a second and they must not queue. */
+const PUSH_MS = 300
+
+/**
+ * True for one beat after the batch grows by a call, and never on mount.
+ *
+ * Calls two through twelve of a run were the one thing on this surface with no
+ * motion at all: the row is already on screen, so nothing ARRIVES, and the
+ * count changed between two frames with nothing to mark it. The deck is the
+ * honest place to put the beat — it is already drawn, it already means "there
+ * are more of these folded behind the line", and gaining a sheet is what
+ * actually happened.
+ *
+ * A fast run re-arms rather than queueing: the timer is replaced, so twelve
+ * calls in a second are one continuous settle and not twelve stacked 300ms
+ * animations fighting for the same three elements.
+ */
+function usePushFlash(count: number): boolean {
+  const [pushing, setPushing] = useState(false)
+  const prev = useRef(count)
+  useEffect(() => {
+    const grew = count > prev.current
+    prev.current = count
+    if (!grew) return undefined
+    setPushing(true)
+    const timer = setTimeout(() => setPushing(false), PUSH_MS)
+    return () => clearTimeout(timer)
+  }, [count])
+  return pushing
+}
+
 /**
  * The work line (POD-364): a run of consecutive tool calls rendered as ONE
  * progress object rather than N log entries.
@@ -236,6 +268,7 @@ export function ToolBatchView({
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = row.blocks[count - 1]!.item
   const settling = useSettleFlash(computing)
+  const pushing = usePushFlash(count)
   const face: ReactNode = (
     <>
       <span
@@ -272,6 +305,7 @@ export function ToolBatchView({
           data-open={expanded ? 'true' : 'false'}
           data-single={count === 1 ? 'true' : undefined}
           data-settle={settling ? 'true' : undefined}
+          data-push={pushing ? 'true' : undefined}
           data-ends-feed={endsFeed ? 'true' : undefined}
           data-testid="work-line"
         >

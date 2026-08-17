@@ -15,7 +15,7 @@ import {
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { ArrowUp, Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { type IssueReferenceLookup, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
@@ -175,9 +175,69 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
  * and not a deletion. Rendering "this was deleted" for it is the exact defect
  * doc §3.1 names; rendering a spinner forever is the other one.
  */
+/** How long a row takes to open. Matches the `transcript-unroll` keyframe, and
+ *  is the length of the scroll claim the unroll takes out. */
+const UNROLL_MS = 260
+
+/**
+ * THE TURN OPENS (POD-1158). Give every row that ARRIVED — not every row that
+ * mounted; `useFeedArrivals` already draws that line — its measured height, and
+ * let CSS run it from zero.
+ *
+ * The measurement is why this lives here rather than in ChatBlockView. There is
+ * one `offsetHeight` read per arriving row, bounded by `MAX_ARRIVALS` at four,
+ * and doing it centrally means every row renderer gets the same treatment
+ * without any of them growing a ref for it. It is a LAYOUT effect because the
+ * row must never paint at full height first: the attribute has to be on the
+ * element before the browser draws the frame it was inserted on.
+ *
+ * `data-unroll-seen` latches per ELEMENT, on top of the per-key latch the
+ * arrival set already does. The arrival marker deliberately stays on a row for
+ * as long as it is mounted (removing it a frame later would cancel the
+ * animation mid-flight), so without this a re-render for any of the feed's many
+ * other reasons would restart the unroll on a row that finished opening
+ * minutes ago.
+ */
+function useArrivalUnroll(
+  scrollerRef: RefObject<HTMLDivElement | null>,
+  arriving: ReadonlySet<string>,
+  claimScrollForArrival: (ms: number) => void,
+): void {
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller || arriving.size === 0) return
+    // Reduced motion gets the row, in place, at full height, with no attribute
+    // set and therefore nothing to clean up.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const fresh = scroller.querySelectorAll<HTMLElement>(
+      '.transcript-arrive:not([data-unroll-seen])',
+    )
+    if (fresh.length === 0) return
+    for (const row of fresh) {
+      row.dataset.unrollSeen = ''
+      row.style.setProperty('--arrive-h', `${row.offsetHeight}px`)
+      row.dataset.unroll = ''
+      const done = (event: AnimationEvent): void => {
+        // A row holds other one-shots — a work line's deck settling, a mail
+        // group unfolding — and their `animationend` bubbles to it. Only this
+        // row's own unroll may end the unroll.
+        if (event.target !== row || event.animationName !== 'transcript-unroll') return
+        row.removeEventListener('animationend', done)
+        delete row.dataset.unroll
+        row.style.removeProperty('--arrive-h')
+      }
+      row.addEventListener('animationend', done)
+    }
+    // One claim covers the whole batch: they start on the same frame and run
+    // for the same duration, so N arriving rows are still one rAF loop.
+    claimScrollForArrival(UNROLL_MS)
+  }, [scrollerRef, arriving, claimScrollForArrival])
+}
+
 export function TranscriptFeed({
   scrollerRef,
   onScroll,
+  claimScrollForArrival,
   compact,
   superagent,
   phase,
@@ -213,6 +273,9 @@ export function TranscriptFeed({
 }: {
   scrollerRef: RefObject<HTMLDivElement | null>
   onScroll: () => void
+  /** Hand the scroll to the arriving row's own rAF pin while it unrolls, so the
+   *  observers stand down instead of writing the bottom on every frame. */
+  claimScrollForArrival: (ms: number) => void
   compact: boolean
   /** This feed fronts a SUPERAGENT thread rather than an agent's session — it
    *  changes what an empty transcript means, and nothing else. */
@@ -262,6 +325,7 @@ export function TranscriptFeed({
   // use-feed-arrivals. Identity is per row and index-free, so paging older
   // messages in above does not read as the whole feed arriving at once.
   const arriving = useFeedArrivals(useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows]))
+  useArrivalUnroll(scrollerRef, arriving, claimScrollForArrival)
   const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
   // midnight, and by the time it does the next row to land refreshes it.

@@ -303,6 +303,7 @@ export function ChatView({
         <TranscriptFeed
           scrollerRef={chat.scrollerRef}
           onScroll={chat.scroll.onScroll}
+          claimScrollForArrival={chat.scroll.claimScrollForArrival}
           compact={compact}
           superagent={superThread !== undefined}
           phase={chat.phase}
