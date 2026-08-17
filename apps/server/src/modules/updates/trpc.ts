@@ -117,6 +117,8 @@ export interface UpdateFleetSnapshot {
    * been checked has no entry rather than a fabricated one.
    */
   channelChecks: ChannelCheckRecord[]
+  /** Whether the server would accept the update action represented by this snapshot. */
+  startability?: UpdateStartability
   /**
    * The durable operation currently converging this fleet, if one is (POD-2098).
    *
@@ -282,24 +284,35 @@ function contextFor(
  * exists only to fail with one. A refusal here is the same sentence the old
  * `startUpdate` produced, so the current dialog's copy is unchanged.
  */
-export function assertUpdateStartable(input: UpdatePlanInput): void {
+export type UpdateStartability =
+  | { startable: true }
+  | { startable: false; reason: string }
+
+export function updateStartability(input: UpdatePlanInput): UpdateStartability {
   const plan = planUpdateOperation(input)
   if (plan.steps.length === 0 && (plan.awaiting ?? []).length === 0) {
-    if ((plan.deferred ?? []).length > 0) return
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'Podium is already at this version everywhere.',
-    })
+    if ((plan.deferred ?? []).length > 0) return { startable: true }
+    return { startable: false, reason: 'Podium is already at this version everywhere.' }
   }
   const expectedWeb = input.target.artifacts.web?.digest
   const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
   const serverBehind = input.appVersion !== input.target.version
   if (webBehind && !serverBehind && !input.canRebuildWeb && !input.canPrepare) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'This Podium installation cannot rebuild its web app automatically.',
-    })
+    return {
+      startable: false,
+      reason: 'This Podium installation cannot rebuild its web app automatically.',
+    }
   }
+  return { startable: true }
+}
+
+export function assertUpdateStartable(input: UpdatePlanInput): void {
+  const verdict = updateStartability(input)
+  if (verdict.startable) return
+  throw new TRPCError({
+    code: 'PRECONDITION_FAILED',
+    message: verdict.reason,
+  })
 }
 
 const CHANNEL_PROSE: Record<UpdateChannel, string> = {
@@ -381,8 +394,19 @@ export function updateFleet(ctx: Context): UpdateFleetSnapshot {
   // The queued version belongs to the same authority as the counts above: a dev
   // publication is not what a stable host is waiting its turn for (POD-2222).
   const queued = updates.nextTarget(updates.operationChannel(state.store.hostMachineId))
+  const target = updates.target(updates.operationChannel(state.store.hostMachineId))
+  const startability = target
+    ? updateStartability(planInputFrom(contextFor(ctx)))
+    : {
+        startable: false as const,
+        reason: missingTargetReason(
+          updates.operationChannel(state.store.hostMachineId),
+          preparation?.failureDetail,
+        ),
+      }
   return {
     ...fleet,
+    startability,
     ...(preparation ? { preparation } : {}),
     ...(active?.kind === UPDATE_OPERATION_KIND ? { operationId: active.id } : {}),
     ...(queued ? { nextTargetVersion: queued.version } : {}),

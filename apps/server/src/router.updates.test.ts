@@ -1254,6 +1254,12 @@ describe('the update operation', () => {
       '2026-08-13T00:00:00.000Z',
     )
     registry.modules.updates.setTarget(target())
+    await expect(caller.updates.fleet()).resolves.toMatchObject({
+      startability: {
+        startable: false,
+        reason: 'Podium is already at this version everywhere.',
+      },
+    })
     await expect(caller.updates.start()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: 'Podium is already at this version everywhere.',
