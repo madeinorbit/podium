@@ -4693,7 +4693,10 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
         agentKind: 'claude-code',
         cwd: '/repo',
       })
-      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        ...bind(sessionId),
+        runtimeContract: true,
+      })
 
       const sent = registry.modules.messages.send(
         {
@@ -4712,7 +4715,11 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
       )
       expect(sent.message.status).toBe('queued')
       expect(daemon).toContainEqual(
-        expect.objectContaining({ type: 'input', sessionId, turnId: sent.message.id }),
+        expect.objectContaining({
+          type: 'runtimeSendRequest',
+          sessionId,
+          turnId: sent.message.id,
+        }),
       )
 
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
