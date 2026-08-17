@@ -351,22 +351,6 @@ export function WorkSections({
     return stableTargets
   }, [pinned, targetGroups])
   const { items: transitionRows, settle, discardExit } = useRowTransitions(transitionTargets)
-  // Motion's layout feature otherwise measures every mounted row whenever the
-  // sidebar receives an unrelated store update. Feed it a structural revision
-  // derived only from row slots; content/clock updates keep the same revision,
-  // while insertion, removal, lane changes, and reordering opt the measurement
-  // back in for the affected frame.
-  const layoutSignature = transitionTargets
-    .map((target) => `${target.key}:${target.placement}`)
-    .join('|')
-  const layoutRevisionRef = useRef({ signature: '', revision: 0 })
-  if (layoutRevisionRef.current.signature !== layoutSignature) {
-    layoutRevisionRef.current = {
-      signature: layoutSignature,
-      revision: layoutRevisionRef.current.revision + 1,
-    }
-  }
-  const layoutRevision = layoutRevisionRef.current.revision
 
   // Prune the quick-exit markers once their rows are gone from the transition
   // list — the exit has played and the styling has nothing left to style. Kept
@@ -404,7 +388,7 @@ export function WorkSections({
   // preview of its own. Reordering never touches row KEYS — so useArrivals stays
   // silent (no arrival one-shot on a drag, only on genuinely new rows).
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  const { startDrag } = useRowDrag({
+  const { startDrag, dragging } = useRowDrag({
     allowedTargets: (sourceScope, movedId) => {
       if (sourceScope === 'pinned') {
         // NARROWING AT THE DISCRIMINANT, not an adapter cast: `useRowDrag` hands
@@ -437,6 +421,40 @@ export function WorkSections({
     },
   })
   const onGripDown = (e: ReactPointerEvent, issueId: IssueId) => startDrag(e, issueId)
+
+  // Motion's layout feature otherwise measures every mounted row whenever the
+  // sidebar receives an unrelated store update. Feed it a structural revision
+  // derived only from row slots; content/clock updates keep the same revision,
+  // while insertion, removal, lane changes, and reordering opt the measurement
+  // back in for the affected frame.
+  //
+  // AND IT STANDS STILL FOR THE WHOLE OF A DRAG (POD-1191). This revision is the
+  // only thing in the app that makes Motion measure — `layoutDependency` is what
+  // `MeasureLayout` gates `willUpdate` on, every `layout` site in the sidebar
+  // passes this one value, and nothing else here uses `layoutId` or
+  // `AnimatePresence`. So holding it still IS the suspension `useRowDrag`
+  // requires: no measure pass, and therefore nothing writing `style.transform`
+  // on the rows the gesture has taken ownership of.
+  //
+  // Freezing the SIGNATURE with it matters as much as freezing the number. The
+  // drop's own repaint arrives while `dragging` is still true, so the reorder
+  // lands with no layout animation at all — which is exactly right, because the
+  // preview already put every row where the new order wants it, and the
+  // alternative was Motion measuring its "before" boxes THROUGH the gesture's
+  // transforms and animating 300ms from a place no row had ever been. When the
+  // transforms come off and the flag drops, this bumps once, Motion measures a
+  // settled DOM, finds no delta, and stays quiet.
+  const layoutSignature = transitionTargets
+    .map((target) => `${target.key}:${target.placement}`)
+    .join('|')
+  const layoutRevisionRef = useRef({ signature: '', revision: 0 })
+  if (!dragging && layoutRevisionRef.current.signature !== layoutSignature) {
+    layoutRevisionRef.current = {
+      signature: layoutSignature,
+      revision: layoutRevisionRef.current.revision + 1,
+    }
+  }
+  const layoutRevision = layoutRevisionRef.current.revision
 
   // SECTION BANDS FOLD (POD-1057): `Pinned`, and one band per project. Read
   // here rather than inside each band because the list itself has to consult it
