@@ -76,14 +76,6 @@ const SANCTIONED_SUB_FLOOR: Record<string, { sites: number; why: string }> = {
     sites: 2,
     why: 'placement menu: the `Current` mono marker and the mono footnote under it',
   },
-  'features/setup/ActivationShell.tsx': {
-    sites: 2,
-    why: 'the `Simplest` and `Best for multiple computers` mono badges pinned beside each choice title',
-  },
-  'features/setup/ExistingPodiumActivation.tsx': {
-    sites: 1,
-    why: 'the mono badge pinned beside the activation card title',
-  },
 }
 
 function productionSources(dir: string): string[] {

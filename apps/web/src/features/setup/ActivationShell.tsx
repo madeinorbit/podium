@@ -92,7 +92,7 @@ export function LocalProjectChoice({ onSelect }: { onSelect: () => void }): JSX.
           <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">
             Start with a project here
           </h2>
-          <span className="inline-flex h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 font-mono text-[9px] leading-none tracking-[0.14em] text-[#e3ba52] uppercase">
+          <span className="shell-type-micro inline-flex min-h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 py-[2px] font-mono tracking-[0.14em] text-[#e3ba52] uppercase">
             Simplest
           </span>
         </div>
@@ -118,7 +118,7 @@ export function AlwaysOnVpsChoice({ onSelect }: { onSelect: () => void }): JSX.E
           <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">
             Create an always-on Podium
           </h2>
-          <span className="inline-flex h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 font-mono text-[9px] leading-none tracking-[0.14em] text-[#a8adb6] uppercase">
+          <span className="shell-type-micro inline-flex min-h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 py-[2px] font-mono tracking-[0.14em] text-[#a8adb6] uppercase">
             Best for multiple computers
           </span>
         </div>

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sub-floor type in three setup surfaces — before / after</title>
+    <style>
+      :root {
+        --shell-type-micro: 10.5px;
+        --shell-leading-micro: 14px;
+        --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+        --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 40px 24px 72px;
+        background: #14171c;
+        color: #d7dae0;
+        font-family: var(--sans);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .page { max-width: 1080px; margin: 0 auto; }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: #f2f3f5;
+      }
+      .lede { margin: 0 0 8px; max-width: 720px; color: #9ba1ab; }
+      .note { max-width: 720px; color: #6f757f; font-size: 12.5px; }
+      h2 {
+        margin: 44px 0 4px;
+        font-size: 16px;
+        font-weight: 600;
+        color: #f2f3f5;
+      }
+      h2 span { font-family: var(--mono); font-size: 12px; font-weight: 400; color: #6f757f; }
+      .why { margin: 0 0 16px; max-width: 780px; font-size: 13px; color: #9ba1ab; }
+      .pair { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+      @media (max-width: 780px) { .pair { grid-template-columns: 1fr; } }
+      .cell { min-width: 0; }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 7px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #6f757f;
+      }
+      .tag::before { content: ''; width: 7px; height: 7px; border-radius: 2px; background: #4a5059; }
+      .cell.after .tag::before { background: #e3ba52; }
+      .cell.after .tag { color: #e3ba52; }
+      .frame { border-radius: 13px; background: #1b1e24; box-shadow: inset 0 0 0 1px #2f343d; }
+
+      /* ---- the real markup, transcribed ---- */
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 19px 20px;
+      }
+      .row + .row { border-top: 1px solid #272b33; }
+      .glyph {
+        display: flex;
+        flex: none;
+        width: 36px;
+        height: 36px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9px;
+        background: #22262d;
+        box-shadow: inset 0 0 0 1px #333842;
+        color: #d7dae0;
+      }
+      .body { min-width: 0; flex: 1; }
+      .titleline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+      .rowtitle { margin: 0; font-size: 15px; line-height: 1; font-weight: 600; color: #f2f3f5; }
+      .desc { margin: 5px 0 0; max-width: 620px; font-size: 13px; line-height: 1.55; color: #9ba1ab; }
+      .btn {
+        display: inline-flex;
+        height: 34px;
+        flex: none;
+        align-items: center;
+        border-radius: 9px;
+        padding: 0 15px;
+        font-size: 13px;
+        line-height: 1;
+        font-weight: 600;
+        color: #f2f3f5;
+        box-shadow: inset 0 0 0 1px #454b56;
+      }
+      .btn.primary { background: #e3ba52; color: #1a1408; box-shadow: none; }
+
+      /* the chip — the thing under review */
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 5px;
+        background: #2b2f37;
+        padding: 0 8px;
+        font-family: var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #a8adb6;
+      }
+      .chip.gold { color: #e3ba52; }
+      .before .chip { height: 19px; font-size: 9px; line-height: 1; }
+      .after .chip {
+        min-height: 19px;
+        padding: 2px 8px;
+        font-size: var(--shell-type-micro);
+        line-height: var(--shell-leading-micro);
+      }
+
+      /* the error page's disclosure */
+      .errframe { padding: 22px 24px; border-radius: 13px; background: #1b1e24; box-shadow: inset 0 0 0 1px #2f343d; }
+      .errtitle { margin: 0 0 8px; font-size: 17px; font-weight: 600; color: #f2f3f5; }
+      .errbody { margin: 0; font-size: 13px; line-height: 1.6; color: #9ba1ab; }
+      .details { margin-top: 22px; border-top: 1px solid #2f343d; padding-top: 12px; }
+      .summary {
+        font-family: var(--mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #8a9099;
+        cursor: pointer;
+      }
+      .before .summary { font-size: 9.5px; }
+      .after .summary { font-size: var(--shell-type-micro); line-height: var(--shell-leading-micro); }
+      .pre {
+        margin: 10px 0 0;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        line-height: 1.7;
+        color: #9ba1ab;
+        white-space: pre-wrap;
+      }
+      .callout {
+        margin-top: 12px;
+        border-radius: 9px;
+        background: rgba(227, 186, 82, 0.07);
+        box-shadow: inset 0 0 0 1px rgba(227, 186, 82, 0.22);
+        padding: 11px 13px;
+        font-size: 12.5px;
+        line-height: 1.55;
+        color: #cdb682;
+        max-width: 780px;
+      }
+      .narrow { width: 320px; max-width: 100%; border-radius: 13px; background: #1b1e24; box-shadow: inset 0 0 0 1px #2f343d; }
+      .narrow .row { flex-wrap: wrap; }
+      .narrow .btn { margin-left: 52px; }
+      .ruler {
+        margin: 0 0 7px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #6f757f;
+      }
+      footer { margin-top: 52px; border-top: 1px solid #272b33; padding-top: 18px; font-size: 12.5px; color: #6f757f; max-width: 780px; }
+      code { font-family: var(--mono); font-size: 0.92em; color: #c8cdd4; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>Raising four labels to the 10.5px floor</h1>
+      <p class="lede">
+        Three files carried type below the shell's 10.5px minimum with no entry in either sub-floor
+        list. All four sites are swept to the <code>shell-type-micro</code> role rather than
+        sanctioned as exceptions.
+      </p>
+      <p class="note">
+        Transcribed markup at true sizes. The app sets these in Geist Mono; this page falls back to
+        the system monospace, so letterforms differ slightly while sizes and layout do not.
+      </p>
+
+      <h2>Activation choices <span>features/setup/ActivationShell.tsx</span></h2>
+      <p class="why">
+        Two chips beside a 15px heading on the first screen a new user ever sees. They carry
+        editorial phrases — “Simplest”, “Best for multiple computers” — not the machine-voice tokens
+        the sanctioned list covers, and the pill is free-width, so nothing geometric held them at 9px.
+      </p>
+      <div class="pair">
+        <div class="cell before">
+          <div class="tag">Before · 9px</div>
+          <div class="frame">
+            <div class="row">
+              <span class="glyph">▤</span>
+              <div class="body">
+                <div class="titleline">
+                  <h3 class="rowtitle">Start with a project here</h3>
+                  <span class="chip gold">Simplest</span>
+                </div>
+                <p class="desc">Choose a repository already on this computer, or clone one from GitHub.</p>
+              </div>
+              <span class="btn primary">Choose a project</span>
+            </div>
+            <div class="row">
+              <span class="glyph">▢</span>
+              <div class="body">
+                <div class="titleline">
+                  <h3 class="rowtitle">Create an always-on Podium</h3>
+                  <span class="chip">Best for multiple computers</span>
+                </div>
+                <p class="desc">Add a new VPS as a machine, then move shared Podium state there so agents keep working after you close the lid.</p>
+              </div>
+              <span class="btn">Add a VPS</span>
+            </div>
+          </div>
+        </div>
+        <div class="cell after">
+          <div class="tag">After · 10.5px</div>
+          <div class="frame">
+            <div class="row">
+              <span class="glyph">▤</span>
+              <div class="body">
+                <div class="titleline">
+                  <h3 class="rowtitle">Start with a project here</h3>
+                  <span class="chip gold">Simplest</span>
+                </div>
+                <p class="desc">Choose a repository already on this computer, or clone one from GitHub.</p>
+              </div>
+              <span class="btn primary">Choose a project</span>
+            </div>
+            <div class="row">
+              <span class="glyph">▢</span>
+              <div class="body">
+                <div class="titleline">
+                  <h3 class="rowtitle">Create an always-on Podium</h3>
+                  <span class="chip">Best for multiple computers</span>
+                </div>
+                <p class="desc">Add a new VPS as a machine, then move shared Podium state there so agents keep working after you close the lid.</p>
+              </div>
+              <span class="btn">Add a VPS</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2>Connection choice <span>features/setup/ExistingPodiumActivation.tsx</span></h2>
+      <p class="why">The same pill, one card further in.</p>
+      <div class="pair">
+        <div class="cell before">
+          <div class="tag">Before · 9px</div>
+          <div class="frame" style="padding: 20px">
+            <div class="titleline">
+              <h3 class="rowtitle">Add this computer to it</h3>
+              <span class="chip">Shares this machine</span>
+            </div>
+            <p class="desc">Keep the other Podium as the server, but let it use repositories, credentials, and agents on this computer.</p>
+          </div>
+        </div>
+        <div class="cell after">
+          <div class="tag">After · 10.5px</div>
+          <div class="frame" style="padding: 20px">
+            <div class="titleline">
+              <h3 class="rowtitle">Add this computer to it</h3>
+              <span class="chip">Shares this machine</span>
+            </div>
+            <p class="desc">Keep the other Podium as the server, but let it use repositories, credentials, and agents on this computer.</p>
+          </div>
+        </div>
+      </div>
+
+      <h2>Error page disclosure <span>app/AppErrorPage.tsx</span></h2>
+      <p class="why">
+        The strongest case of the four: “What happened” is a control you click, and it was set
+        <em>smaller</em> than the 10.5px detail text it opens. The two now agree.
+      </p>
+      <div class="pair">
+        <div class="cell before">
+          <div class="tag">Before · 9.5px</div>
+          <div class="errframe">
+            <h3 class="errtitle">Something went wrong</h3>
+            <p class="errbody">Your agents keep running in the background, independently of this window.</p>
+            <div class="details">
+              <div class="summary">What happened</div>
+              <pre class="pre">TypeError: cannot read properties of undefined
+  at renderWorkList (worklist.tsx:214)</pre>
+            </div>
+          </div>
+        </div>
+        <div class="cell after">
+          <div class="tag">After · 10.5px</div>
+          <div class="errframe">
+            <h3 class="errtitle">Something went wrong</h3>
+            <p class="errbody">Your agents keep running in the background, independently of this window.</p>
+            <div class="details">
+              <div class="summary">What happened</div>
+              <pre class="pre">TypeError: cannot read properties of undefined
+  at renderWorkList (worklist.tsx:214)</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2>The one thing the raise put at risk</h2>
+      <p class="why">
+        “Best for multiple computers” is 27 tracked mono characters. At 10.5px it is wide enough to
+        run out of room in a phone-width column, and the chip was a fixed
+        <code>h-[19px]</code> pill — so a second line would have spilled out of it. The pill now
+        grows instead: <code>min-h-[19px]</code> with 2px of vertical padding, which is the exact
+        same 19px whenever the text fits on one line.
+      </p>
+      <div class="pair">
+        <div class="cell before">
+          <p class="ruler">320px column · fixed pill</p>
+          <div class="narrow">
+            <div class="row">
+              <span class="glyph">▢</span>
+              <div class="body">
+                <div class="titleline">
+                  <h3 class="rowtitle">Create an always-on Podium</h3>
+                  <span class="chip" style="height: 19px; font-size: 10.5px; line-height: 1; padding: 0 8px">Best for multiple computers</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="callout">A fixed-height pill either overflows the card or clips the second line.</div>
+        </div>
+        <div class="cell after">
+          <p class="ruler">320px column · growable pill</p>
+          <div class="narrow">
+            <div class="row">
+              <span class="glyph">▢</span>
+              <div class="body">
+                <div class="titleline">
+                  <h3 class="rowtitle">Create an always-on Podium</h3>
+                  <span class="chip" style="min-height: 19px; font-size: 10.5px; line-height: 14px; padding: 2px 8px">Best for multiple computers</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="callout">Wraps inside the pill and stays in the card. Identical at any width where it fits on one line.</div>
+        </div>
+      </div>
+
+      <footer>
+        <p>
+          <strong>This supersedes a landed decision.</strong> A second session reached the same red
+          test and answered it the other way: it raised the crash screen summary exactly as here,
+          but sanctioned the three activation chips at 9px, adding
+          <code>SANCTIONED_SUB_FLOOR</code> entries declaring 2 sites in
+          <code>ActivationShell.tsx</code> and 1 in <code>ExistingPodiumActivation.tsx</code>.
+          Raising the chips empties those entries, so both are removed here.
+        </p>
+        <p>
+          The disagreement is over one word in the exception's own text: it sanctions mono tokens
+          that read “as a mark rather than as prose”. <code>deleted</code> and <code>epic</code> are
+          marks. “Best for multiple computers” is a five-word recommendation set in mono — prose
+          wearing a mark's clothes — and unlike a numeral in a 16px circle or a fixed-width column
+          token, no geometry was holding it at 9px. Neither sub-floor list carries an entry for
+          these files now, and <code>apps/web/src/app/type-floor.test.ts</code> passes.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

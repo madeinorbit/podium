@@ -191,7 +191,7 @@ function ConnectionChoice({
       <div className="mt-[18px] flex flex-wrap items-center gap-2.5">
         <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">{title}</h2>
         {badge && (
-          <span className="inline-flex h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 font-mono text-[9px] leading-none tracking-[0.14em] text-[#a8adb6] uppercase">
+          <span className="shell-type-micro inline-flex min-h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 py-[2px] font-mono tracking-[0.14em] text-[#a8adb6] uppercase">
             {badge}
           </span>
         )}
