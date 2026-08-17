@@ -568,6 +568,7 @@ export function RepoPickerModal({
                       {entry.isRepo && (
                         <button
                           type="button"
+                          data-pressable
                           className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] group-hover:bg-[#e3ba52] group-hover:text-[#1a1408] group-hover:shadow-none"
                           disabled={busy}
                           onClick={() => void pickPath(entry.path)}

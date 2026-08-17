@@ -265,6 +265,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 trigger={
                   <button
                     type="button"
+                    data-pressable
                     aria-label="Agent"
                     className="inline-flex h-7 items-center gap-1.5 px-2.5 text-[11px] leading-none font-semibold text-text-strong hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
                   >
@@ -309,6 +310,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               trigger={
                 <button
                   type="button"
+                  data-pressable
                   className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                 >
                   <Monitor size={13} className="text-text-faint" aria-hidden="true" />
@@ -337,6 +339,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               </span>
               <button
                 type="button"
+                data-pressable
                 className="btn-primary-rim inline-flex h-[30px] items-center gap-[7px] rounded-[9px] border border-transparent bg-primary px-3.5 text-[12px] leading-none font-semibold text-primary-foreground transition-colors hover:bg-primary/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-text-strong disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={
                   busy ||

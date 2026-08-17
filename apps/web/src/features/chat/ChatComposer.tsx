@@ -468,6 +468,7 @@ export function ChatComposer({
               <span className="min-w-0 truncate">{attached.label}</span>
               <button
                 type="button"
+                data-pressable
                 className="ml-auto rounded-[4px] px-1 text-text-dim hover:bg-chip hover:text-text-strong"
                 title="Don't send this session's transcript"
                 aria-label={`Remove ${attached.label} from this message`}

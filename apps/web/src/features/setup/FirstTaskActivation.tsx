@@ -298,6 +298,7 @@ export function FirstTaskActivation({
                   <span className="h-px flex-1 bg-[#272b33]" aria-hidden="true" />
                   <button
                     type="button"
+                    data-pressable
                     onClick={() => void navigator.clipboard?.writeText(TELEMETRY_EXAMPLE)}
                     className="inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-2.5 text-[11.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04]"
                   >
@@ -333,6 +334,7 @@ export function FirstTaskActivation({
         <div className="mt-[22px] flex items-center gap-3.5">
           <button
             type="button"
+            data-pressable
             disabled={finishBusy}
             onClick={() => onRouteChange('agent')}
             className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
@@ -343,6 +345,7 @@ export function FirstTaskActivation({
           <span className="flex-1" />
           <button
             type="button"
+            data-pressable
             disabled={finishBusy || (!telemetryState && !telemetryUnavailable)}
             onClick={() => void finish()}
             className="inline-flex h-[38px] items-center gap-2 rounded-[9px] bg-[#e3ba52] px-[18px] text-[13.5px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] disabled:cursor-not-allowed disabled:opacity-50"
@@ -450,6 +453,7 @@ export function FirstTaskActivation({
           {needsLogin ? (
             <button
               type="button"
+              data-pressable
               disabled={loginBusyAgent !== null}
               onClick={() => void openLogin(agent)}
               className="inline-flex h-[31px] w-32 flex-none items-center justify-center gap-2 rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52] disabled:opacity-50"
@@ -466,6 +470,7 @@ export function FirstTaskActivation({
           ) : setupCommand ? (
             <button
               type="button"
+              data-pressable
               onClick={() => copySetupCommand(agent)}
               className="h-[31px] w-32 flex-none rounded-[9px] text-[12.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#e3ba52]"
             >
@@ -523,6 +528,7 @@ export function FirstTaskActivation({
       <div className="mt-8 flex flex-wrap items-center gap-3.5">
         <button
           type="button"
+          data-pressable
           onClick={() => onRouteChange('local-project')}
           className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]"
         >
@@ -538,6 +544,7 @@ export function FirstTaskActivation({
         </span>
         <button
           type="button"
+          data-pressable
           disabled={readyAgents.length === 0}
           onClick={() => onRouteChange('first-task')}
           className="inline-flex h-[34px] items-center gap-2 rounded-[9px] bg-[#e3ba52] px-[15px] text-[13px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:cursor-not-allowed disabled:opacity-40"
