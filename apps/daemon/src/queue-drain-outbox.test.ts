@@ -39,6 +39,27 @@ describe('queue-drain abandonment outbox', () => {
     expect(createQueueDrainOutbox(dir).pending()).toEqual([])
   })
 
+  it('recovers a complete next generation left in the temp file', () => {
+    const dir = temp()
+    const outbox = createQueueDrainOutbox(dir)
+    outbox.enqueue(report('retired-report'))
+    outbox.acknowledge('retired-report')
+    writeFileSync(
+      join(dir, 'queue-drain-outbox.json.tmp'),
+      `${JSON.stringify({ version: 1, reports: [report()] }, null, 2)}\n`,
+    )
+
+    expect(createQueueDrainOutbox(dir).pending()).toEqual([report()])
+  })
+
+  it('keeps the canonical generation when the temp file is incomplete', () => {
+    const dir = temp()
+    createQueueDrainOutbox(dir).enqueue(report())
+    writeFileSync(join(dir, 'queue-drain-outbox.json.tmp'), '{not-json')
+
+    expect(createQueueDrainOutbox(dir).pending()).toEqual([report()])
+  })
+
   it('fails closed rather than discarding a corrupt durable report file', () => {
     const dir = temp()
     writeFileSync(join(dir, 'queue-drain-outbox.json'), '{not-json')

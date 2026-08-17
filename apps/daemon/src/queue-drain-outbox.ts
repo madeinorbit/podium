@@ -61,7 +61,8 @@ function parseReports(raw: string, path: string): DurableQueueDrainReport[] {
  * turn immediately after this call returns, so returning before the report is
  * on disk would merely move the disconnect window one layer down. The temp file
  * is fsynced before rename and the containing directory is fsynced afterwards;
- * a crash before rename leaves the previous complete file authoritative.
+ * a complete temp file left by a crash is the next generation and supersedes
+ * the previous complete file when the daemon starts again.
  */
 export function createQueueDrainOutbox(dir: string): QueueDrainOutbox {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -69,17 +70,30 @@ export function createQueueDrainOutbox(dir: string): QueueDrainOutbox {
   const temporary = `${path}.tmp`
   let reports = new Map<string, DurableQueueDrainReport>()
 
-  if (existsSync(path)) {
+  if (existsSync(temporary)) {
+    let recovered: DurableQueueDrainReport[] | undefined
+    try {
+      // Every write starts from the canonical generation. A parseable temp is
+      // therefore its complete successor, even when the older file exists.
+      recovered = parseReports(readFileSync(temporary, 'utf8'), temporary)
+    } catch (error) {
+      // A crash during the temp write can leave an incomplete successor. The
+      // previous canonical generation remains safe in that case.
+      if (!existsSync(path)) throw error
+    }
+    if (recovered) {
+      reports = new Map(recovered.map((report) => [report.reportId, report]))
+      renameSync(temporary, path)
+      fsyncDirectory(dir)
+    } else {
+      reports = new Map(
+        parseReports(readFileSync(path, 'utf8'), path).map((report) => [report.reportId, report]),
+      )
+    }
+  } else if (existsSync(path)) {
     reports = new Map(
       parseReports(readFileSync(path, 'utf8'), path).map((report) => [report.reportId, report]),
     )
-  } else if (existsSync(temporary)) {
-    // First enqueue may have crashed after fsync and before rename. With no
-    // authoritative file yet, the complete temp is the durable report.
-    const recovered = parseReports(readFileSync(temporary, 'utf8'), temporary)
-    reports = new Map(recovered.map((report) => [report.reportId, report]))
-    renameSync(temporary, path)
-    fsyncDirectory(dir)
   }
 
   const persist = (next: Map<string, DurableQueueDrainReport>): void => {
