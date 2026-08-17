@@ -14,7 +14,6 @@ import {
   modelLimitNote,
   percentTone,
   type QuotaTone,
-  spentModels,
   splitQuotaWindows,
   statusNote,
   type UsageDay,
@@ -329,14 +328,14 @@ function gatingRows(groups: AccountQuotaGroup[]): GatingRow[] {
       })
       continue
     }
-    const spent = spentModels(group.windows)
+    const modelNote = modelLimitNote(group.agent, group.windows)
     for (const window of splitQuotaWindows(group.windows).gating) {
       rows.push({
         key: `${group.key}:${window.key}`,
         agent: group.agent,
         agentName: agentLabel(group.agent),
         window,
-        modelNote: spent.length > 0 ? modelLimitNote(group.agent, group.windows) : null,
+        modelNote,
       })
     }
   }

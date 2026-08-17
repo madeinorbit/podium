@@ -200,16 +200,15 @@ export function spentModels(windows: QuotaWindowWire[]): string[] {
 }
 
 /**
- * The line under a pool's model buckets, explaining what a scoped limit costs.
+ * The line under a pool's model buckets, naming what a spent model costs.
  * The distinction is the whole point of separating them: a spent model changes
- * which model you get, never whether the harness runs.
+ * which model you get, never whether the harness runs. Nothing spent, nothing
+ * to say — the buckets already read as scoped.
  */
-export function modelLimitNote(agent: AgentKind, windows: QuotaWindowWire[]): string {
+export function modelLimitNote(agent: AgentKind, windows: QuotaWindowWire[]): string | null {
   const spent = spentModels(windows)
+  if (spent.length === 0) return null
   const harness = agentLabel(agent)
-  if (spent.length === 0) {
-    return `Scoped to one model — ${harness} falls back to the shared pool when one is spent.`
-  }
   const names =
     spent.length === 1
       ? `${spent[0]} is`

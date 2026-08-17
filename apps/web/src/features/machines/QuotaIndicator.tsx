@@ -354,6 +354,7 @@ function QuotaTooltipBody({ groups }: { groups: AccountQuotaGroup[] }): JSX.Elem
 function AccountQuotaCard({ g }: { g: AccountQuotaGroup }): JSX.Element {
   const now = Date.now()
   const { gating, models } = splitQuotaWindows(g.windows)
+  const modelNote = modelLimitNote(g.agent, g.windows)
   return (
     <div className="rounded-md border border-border px-3 py-2.5">
       <div className="flex items-center justify-between gap-2">
@@ -387,9 +388,9 @@ function AccountQuotaCard({ g }: { g: AccountQuotaGroup }): JSX.Element {
               {models.map((w) => (
                 <QuotaWindowRow key={w.key} w={w} now={now} />
               ))}
-              <p className="m-0 text-[11px] text-muted-foreground/70">
-                {modelLimitNote(g.agent, g.windows)}
-              </p>
+              {modelNote ? (
+                <p className="m-0 text-[11px] text-muted-foreground/70">{modelNote}</p>
+              ) : null}
             </>
           )}
         </div>

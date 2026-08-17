@@ -246,7 +246,7 @@ describe('splitQuotaWindows / windowScopeModel', () => {
     expect(modelLimitNote('claude-code', windows)).toBe(
       'Fable is spent — Claude Code falls back to the models the shared pool covers.',
     )
-    expect(modelLimitNote('claude-code', [w({ key: 'session' })])).toContain('falls back')
+    expect(modelLimitNote('claude-code', [w({ key: 'session' })])).toBeNull()
   })
 })
 
