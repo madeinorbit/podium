@@ -608,6 +608,9 @@ export async function startServer(
       channel: registry.modules.updates.operationChannel(hostMachineId),
       appVersion: () => appVersion,
       hostMachineId,
+      createDatabaseSnapshot: (from, target) =>
+        registry.sessionStore.snapshotBeforeUpdate(from, target),
+      latestDatabaseSnapshot: () => registry.sessionStore.latestDatabaseSnapshot(),
       ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
       ...(devPublisher.requestWebRebuild
         ? { requestWebRebuild: devPublisher.requestWebRebuild }

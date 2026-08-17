@@ -45,6 +45,7 @@ import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
+import { backupDatabase, latestDatabaseBackup } from './migrations/backup'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from './migrations/index'
 import { OperationStore } from './modules/operations/store'
@@ -402,6 +403,29 @@ export class SessionStore {
   checkpointForTransfer(): void {
     this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
   }
+
+  /**
+   * Durable recovery point made by the update operation immediately before the
+   * coordinator restart can boot a binary with newer migrations.
+   */
+  snapshotBeforeUpdate(fromVersion: string, targetVersion: string): string | undefined {
+    if (this.path === ':memory:') return undefined
+    const safe = (version: string): string =>
+      version
+        .replace(/[^a-zA-Z0-9._-]+/g, '_')
+        .slice(0, 80)
+    return backupDatabase(
+      this.db,
+      this.path,
+      `update-${safe(fromVersion)}-to-${safe(targetVersion)}`,
+    )
+  }
+
+  /** Newest verified recovery point available for downgrade guidance. */
+  latestDatabaseSnapshot(): string | undefined {
+    return this.path === ':memory:' ? undefined : latestDatabaseBackup(this.path)
+  }
+
   private transferFenceHeld = false
 
   /** Reject new SQLite writes while the target is being promoted. */

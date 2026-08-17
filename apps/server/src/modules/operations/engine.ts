@@ -251,6 +251,25 @@ export class OperationEngine {
   }
 
   /**
+   * Persist kind-owned facts that must survive before a runner triggers an
+   * external boundary. The update server step uses this synchronously between
+   * publishing its database snapshot and requesting the process restart.
+   */
+  recordDetails(operationId: string, patch: Record<string, unknown>): Operation | undefined {
+    const operation = this.deps.store.get(operationId)?.operation
+    if (!operation || isTerminalOperationState(operation.state)) return undefined
+    const details =
+      operation.details && typeof operation.details === 'object' ? operation.details : {}
+    return this.persist(
+      {
+        ...operation,
+        details: { ...details, ...patch },
+      } as PersistedOperation,
+      this.now(),
+    )
+  }
+
+  /**
    * A DEFERRED PLACE BECAME REACHABLE while the step that would have carried it
    * is still running (spec §3.6, POD-2105).
    *

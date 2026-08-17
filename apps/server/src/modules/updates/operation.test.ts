@@ -719,6 +719,20 @@ describe('the error taxonomy', () => {
     expect(message).toMatch(/restore/i)
   })
 
+  it('names the verified snapshot that actually exists in schema-advanced guidance', () => {
+    const databaseSnapshotPath =
+      '/var/lib/podium/podium.db.backup-vupdate-0.4.1-to-0.4.2-2026-08-17'
+    const { message } = describeUpdateOperationFailure({
+      code: 'machine-schema-advanced',
+      places: ['m_a'],
+      names: ['vmi'],
+      detail: SCHEMA_ADVANCED_DETAIL,
+      databaseSnapshotPath,
+    })
+    expect(message).toContain(databaseSnapshotPath)
+    expect(message).toMatch(/pre-upgrade database snapshot/i)
+  })
+
   /**
    * The arm that must assert LESS than the others. A coordinator on a source
    * build reports `dev+<sha>`, which orders against nothing published — so
@@ -871,6 +885,8 @@ interface HarnessOptions {
   requestDestBundle?: () => Promise<unknown>
   requestWebRebuild?: () => void
   requestCoordinatorRestart?: () => void
+  createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
+  latestDatabaseSnapshot?: () => string | undefined
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
   hostMachineId?: string
   /** POD-2101: how often a watched step says it is still there. */
@@ -938,6 +954,13 @@ function harness(options: HarnessOptions = {}) {
     channel: 'dev',
     appVersion: () => options.appVersion ?? '0.4.1',
     ...(options.hostMachineId ? { hostMachineId: options.hostMachineId } : {}),
+    createDatabaseSnapshot:
+      options.createDatabaseSnapshot ??
+      (() => '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-test'),
+    latestDatabaseSnapshot: options.latestDatabaseSnapshot ?? (() => undefined),
+    recordOperationDetails: (id, patch) => {
+      driver().recordDetails(id, patch)
+    },
     ...(options.servedWebDigest ? { servedWebDigest: options.servedWebDigest } : {}),
     ...(options.requestDestBundle ? { requestDestBundle: options.requestDestBundle } : {}),
     ...(options.requestWebRebuild ? { requestWebRebuild: options.requestWebRebuild } : {}),
@@ -1241,22 +1264,49 @@ describe('the step runners', () => {
     expect(operation.error?.message).not.toContain('internal diagnostic')
   })
 
-  it('server: is persisted as running BEFORE the restart is requested', async () => {
-    const seen: string[] = []
+  it('server: records a durable snapshot path BEFORE the restart is requested', async () => {
+    const snapshotPath =
+      '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-2026-08-17'
+    const createDatabaseSnapshot = vi.fn(() => snapshotPath)
+    const seen: Array<{ state: string; snapshotPath: unknown }> = []
     const h = harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
+      createDatabaseSnapshot,
       requestCoordinatorRestart: () => {
-        // Read the store from inside the restart request: this is the exact
-        // instant the process may stop existing, so what is on disk here is
-        // everything the successor will have (§3.4).
-        seen.push(stepState(h.read(), UPDATE_STEP_SERVER) ?? 'absent')
+        const operation = h.read()
+        seen.push({
+          state: stepState(operation, UPDATE_STEP_SERVER) ?? 'absent',
+          snapshotPath: operation.details?.databaseSnapshotPath,
+        })
       },
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(seen).toEqual(['running'])
+    expect(createDatabaseSnapshot).toHaveBeenCalledWith('0.4.1', 'dev+abc1234')
+    expect(seen).toEqual([{ state: 'running', snapshotPath }])
+  })
+
+  it('server: fails closed without requesting restart when the snapshot fails', async () => {
+    const restart = vi.fn()
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      createDatabaseSnapshot: () => {
+        throw new Error('ENOSPC: no space left on device')
+      },
+      requestCoordinatorRestart: restart,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(restart).not.toHaveBeenCalled()
+    expect(h.read().state).toBe('failed')
+    expect(h.read().error?.message).toContain('Database snapshot failed')
+    expect(h.read().error?.message).toContain('ENOSPC')
   })
 
   it('server: a server already on the target does not restart', async () => {

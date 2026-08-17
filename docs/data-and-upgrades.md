@@ -48,8 +48,10 @@ updater):
    running until restarted (`podium stop` then `podium`, or `systemctl --user restart
    podium-server podium-daemon` for systemd-supervised installs).
 
-Updating never touches `~/.podium` — your database and config are only ever changed by
-the *new version starting up*, which is where migrations come in.
+The package swap does not change the live database. A managed server update does create
+a recovery snapshot beside it immediately before requesting the restart; the database
+schema and data are only changed by the *new version starting up*, which is where
+migrations come in.
 
 ## Schema migrations on startup
 
@@ -115,17 +117,31 @@ has closed.
 The `bun run audit:expand-only` gate enforces this policy against every generated
 migration. It flags dropped tables or columns, renames, SQLite table rebuilds, and
 `ADD COLUMN ... NOT NULL` without a default. If the gate reports a finding, split
-`--probe` mode proves each check can fire before a clean result is trusted.
-the migration into an additive expand step and a later contract step. Its
-## Backups before migrations
+the migration into an additive expand step and a later contract step. Its `--probe`
+mode proves each check can fire before a clean result is trusted.
+## Snapshots before update migrations
 
-Before any **version-advancing** migration run (i.e. a startup that will actually
-change the schema — not a routine restart), the server backs up the database first: it
-checkpoints the WAL, then copies `podium.db` (and its sidecar files) to a timestamped
-sibling next to the original (`podium.db.backup-v<from>-<to>-<timestamp>`), keeping the
-last 3 backups. If a migration ever goes
-wrong, the pre-upgrade state is sitting right next to `podium.db` in `~/.podium`.
+When a managed update reaches its **server** step, the currently running server
+checkpoints the WAL and creates a timestamped snapshot beside `podium.db` *before* it
+requests the restart that can run the new version's migrations. The snapshot path is
+recorded on the update operation, so a later schema-downgrade refusal can name the exact
+file to restore instead of assuming that an operator-created backup exists. Starting a
+new binary directly with pending migrations also takes the same pre-migration snapshot.
+A routine restart with neither an update server step nor pending migrations does not.
 
-To restore: stop Podium (`podium stop`), replace `podium.db` (and remove any stale
-`podium.db-wal` / `podium.db-shm`) with the backup copy, and start the matching binary
-version again.
+Snapshots use names such as
+`podium.db.backup-vupdate-<from>-to-<target>-<timestamp>`. Podium writes the database
+and any present SQLite sidecars to temporary `.partial-` names, fsyncs them, and
+atomically publishes the main snapshot name last. If copying stops partway (including
+because the disk fills), no truncated file is published under a restorable name and the
+update does not restart the server.
+
+Podium keeps the newest **3 verified snapshots**. Cleanup runs after every successful
+snapshot; it removes older snapshots only after they pass SQLite's integrity check.
+Unreadable snapshots and `.partial-` files are preserved, do not count toward the
+three, and are reported in the server log. A cleanup failure is also logged but does not
+turn a successfully snapshotted update into a failed update.
+
+To restore the path named by the update failure: stop Podium (`podium stop`), replace
+`podium.db` with that snapshot, remove any stale `podium.db-wal` /
+`podium.db-shm`, and start the matching older binary version again.

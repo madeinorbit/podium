@@ -182,7 +182,13 @@ export type UpdateFailure =
   | { code: 'machine-unsupported'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-unreachable'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-cannot-restart'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-schema-advanced'; places: string[]; names: string[]; detail?: string }
+  | {
+      code: 'machine-schema-advanced'
+      places: string[]
+      names: string[]
+      detail?: string
+      databaseSnapshotPath?: string
+    }
   | { code: 'machine-schema-unknown'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-schema-unreadable'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-delivery-failed'; places: string[]; names: string[]; detail?: string }
@@ -253,8 +259,12 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
           `${subject(failure)} was asked to move to an older version that cannot open the data ` +
           'it already has. Nothing was changed and Podium is still running there. Pick a ' +
           'version at least as new as the one it is on — or, if you really need the older one, ' +
-          'restore a database backup from before the upgrade by hand first ' +
-          '(docs/data-and-upgrades.md).',
+          (failure.databaseSnapshotPath
+            ? `restore the pre-upgrade database snapshot at ${failure.databaseSnapshotPath} ` +
+              'by hand first (docs/data-and-upgrades.md).'
+            : 'restore a database backup from before the upgrade by hand first ' +
+              '(no Podium-created snapshot is available for this older upgrade; see ' +
+              'docs/data-and-upgrades.md).'),
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
@@ -424,6 +434,8 @@ export interface UpdateOperationDetails {
   channel: UpdateChannel
   /** The version this server was on when the plan was computed — the "from". */
   fromVersion?: string
+  /** Verified restore point available when this attempt began or created by it. */
+  databaseSnapshotPath?: string
   surface?: UpdateSurface
   [key: string]: unknown
 }
@@ -483,6 +495,8 @@ export interface UpdatePlanInput {
   canRebuildWeb: boolean
   /** This server can restart itself onto the target (a source checkout). */
   canRestartServer: boolean
+  /** Newest verified restore point, when one already exists. */
+  databaseSnapshotPath?: string
   /** THIS host's machine id, so its own row can be recognised. */
   hostMachineId?: string
   surface?: UpdateSurface
@@ -600,6 +614,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
     target,
     channel: input.channel,
     fromVersion: input.appVersion,
+    ...(input.databaseSnapshotPath ? { databaseSnapshotPath: input.databaseSnapshotPath } : {}),
     ...(input.surface ? { surface: input.surface } : {}),
   }
 
@@ -965,6 +980,15 @@ export interface UpdateOperationContext {
   requestCoordinatorRestart?: () => void
   /** The dev publisher's readiness, for naming a failed website build. */
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
+  /** Server-owned snapshot seam; daemon places deliberately have none. */
+  createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
+  /** Verified recovery point to carry into a new operation's failure guidance. */
+  latestDatabaseSnapshot?: () => string | undefined
+  /**
+   * Synchronous because the path must be durable in the operation before the
+   * restart request can terminate this process.
+   */
+  recordOperationDetails?: (operationId: string, patch: Record<string, unknown>) => void
   /**
    * Report progress for one step of THIS operation.
    *
@@ -1528,7 +1552,16 @@ function settleMachines(
       names: failedPlaces.map((place) => place.name ?? place.id),
       ...(first.detail ? { detail: first.detail } : {}),
     }
-    const failure: UpdateFailure = { code: classifyMachineFailure(first.detail), ...shared }
+    const code = classifyMachineFailure(first.detail)
+    const snapshotPath = updateOperationDetails(operation)?.databaseSnapshotPath
+    const failure: UpdateFailure =
+      code === 'machine-schema-advanced'
+        ? {
+            code,
+            ...shared,
+            ...(snapshotPath ? { databaseSnapshotPath: snapshotPath } : {}),
+          }
+        : { code, ...shared }
     return {
       state: 'failed',
       places,
@@ -1569,8 +1602,39 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         }),
       }
     }
+    if (!context.createDatabaseSnapshot || !context.recordOperationDetails) {
+      return {
+        state: 'failed',
+        error: describeUpdateOperationFailure({
+          code: 'preparation-failed',
+          detail: 'Database snapshot support is unavailable; the server was not restarted.',
+        }),
+      }
+    }
+    let databaseSnapshotPath: string | undefined
+    try {
+      databaseSnapshotPath = context.createDatabaseSnapshot(
+        details.fromVersion ?? context.appVersion(),
+        details.target.version,
+      )
+      if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
+      context.recordOperationDetails(operation.id, { databaseSnapshotPath })
+    } catch (error) {
+      return {
+        state: 'failed',
+        error: describeUpdateOperationFailure({
+          code: 'preparation-failed',
+          detail: `Database snapshot failed; the server was not restarted: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        }),
+      }
+    }
     context.requestCoordinatorRestart()
-    return { state: 'running', detail: 'Restarting onto the new version…' }
+    return {
+      state: 'running',
+      detail: `Database snapshot: ${databaseSnapshotPath}. Restarting the server…`,
+    }
   },
 }
 
@@ -1898,6 +1962,7 @@ export function planInputFrom(context: UpdateOperationContext): UpdatePlanInput 
     servedWebDigest: context.servedWebDigest?.(),
     canPrepare: context.requestDestBundle !== undefined,
     canRebuildWeb: context.requestWebRebuild !== undefined,
+    databaseSnapshotPath: context.latestDatabaseSnapshot?.(),
     canRestartServer: context.requestCoordinatorRestart !== undefined,
     ...(context.hostMachineId ? { hostMachineId: context.hostMachineId } : {}),
     ...(context.surface ? { surface: context.surface } : {}),

@@ -216,6 +216,8 @@ export function updateOperationContext(input: {
   retryOf?: string
   servedWebDigest?: () => string | undefined
   servedMobileWeb?: () => MobileWebIdentity
+  createDatabaseSnapshot: (fromVersion: string, targetVersion: string) => string | undefined
+  latestDatabaseSnapshot: () => string | undefined
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
@@ -233,6 +235,11 @@ export function updateOperationContext(input: {
     ...(input.onlyMachines ? { onlyMachines: input.onlyMachines } : {}),
     ...(input.retryOf ? { retryOf: input.retryOf } : {}),
     ...(website ? { servedWebDigest: website } : {}),
+    createDatabaseSnapshot: input.createDatabaseSnapshot,
+    latestDatabaseSnapshot: input.latestDatabaseSnapshot,
+    recordOperationDetails: (operationId, patch) => {
+      input.operations.engine.recordDetails(operationId, patch)
+    },
     ...(input.requestCoordinatorRestart
       ? { requestCoordinatorRestart: input.requestCoordinatorRestart }
       : {}),
@@ -265,6 +272,8 @@ function contextFor(
     appVersion: serverBuildVersion,
     hostMachineId: state.store.hostMachineId,
     ...extra,
+    createDatabaseSnapshot: (from, target) => state.store.snapshotBeforeUpdate(from, target),
+    latestDatabaseSnapshot: () => state.store.latestDatabaseSnapshot(),
     ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
     ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
     ...(ctx.requestCoordinatorRestart
