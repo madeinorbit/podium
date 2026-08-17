@@ -95,6 +95,21 @@ other side of the rail, and never met the elbow.
 The same constant drives task strips (`bandLeft − ownRailX` is the same 8px gutter, and
 the strip's elbow is the same 8px wide), so one change fixes both surfaces consistently.
 
+### Why it reads so badly on *that* mission
+
+`--issue` is not a fixed token: `AppShell` sets it per subtree to the **selected mission's
+own palette colour** (`effectiveIssueColorHex`, defaulting to the neutral `--flow`). The
+branch rails derive from it too. So on a mission whose colour is amber, the rail, the
+selection tick, the attention elbow and the attention inner rule are **all the same hue** —
+four marks in ten pixels with nothing but position to tell them apart. That is why the
+reported row reads as one unresolvable `+` while the same geometry on a blue mission
+reads as a rail and a mark.
+
+Position is therefore the only separator available, which is exactly what the fix
+restores. A first pass at this evidence was rendered on the default neutral `--flow` and
+did **not** reproduce the report; re-rendered with an amber `--issue` it matches it
+exactly. The before/after shots attached to this issue are the amber ones.
+
 **Checked and *not* changed:** `HUNG_MID = 14` is correct. A first probe suggested the
 elbow sat 2px above the row's first line, but that was the probe omitting
 `shell-type-secondary` from the row and inflating its line box. With the real class the
