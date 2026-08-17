@@ -385,10 +385,10 @@
       answers each, and no way to wander off before there is anything to wander into.
     </p>
     <div class="meta">
-      <span>Web shell · activation</span>
+      <span>Web shell · setup</span>
       <span>2 new screens</span>
       <span>1 escape hatch removed</span>
-      <span>For review</span>
+      <span>Built · for review</span>
     </div>
   </header>
 
@@ -660,25 +660,37 @@
   </section>
 
   <section>
-    <div class="sec-head"><span class="sec-num">07</span><h2>Two calls worth confirming</h2></div>
+    <div class="sec-head"><span class="sec-num">07</span><h2>Two calls, both settled</h2></div>
     <div class="ask">
       <div>
-        <h4>An empty window bar, or no bar at all</h4>
+        <h4>The window bar stays, empty</h4>
         <p>
-          Proposed: keep the bar, empty, because it is the drag region and holds the minimise,
-          maximise and close buttons on Windows and Linux. The alternative is no bar during setup,
-          which on those platforms leaves the window without controls.
+          It is the drag region and it holds the minimise, maximise and close buttons on Windows and
+          Linux. When setup finishes and hands the window back, its contents fade up in a short
+          left-to-right sweep instead of appearing in one frame.
         </p>
       </div>
       <div>
-        <h4>Named steps instead of “1 of 3”</h4>
+        <h4>Steps are named, not counted</h4>
         <p>
-          The counter cannot survive a fork — the local path and the VPS path are different lengths.
-          Proposed: name each step in the eyebrow. If you want progress shown, the alternative is a
-          count that only starts after the fork, on the local path.
+          A counter cannot survive a fork — the local path and the VPS path are different lengths —
+          so the eyebrow names the step instead: <em>Set up Podium</em>, <em>· VPS</em>,
+          <em>· New VPS</em>, <em>· Agents</em>, <em>· Ready</em>.
+        </p>
+      </div>
+      <div>
+        <h4>One thing this uncovered</h4>
+        <p>
+          The update card is mounted above the shell, so setup could not simply not render it — and
+          on a phone it covered an entire choice. Setup now marks the document and the card comes
+          back the moment the window is handed over.
         </p>
       </div>
     </div>
+    <p class="footnote">
+      Built and verified against an isolated from-source instance with no repositories. The five
+      screenshots attached to this issue are that run, not mock-ups.
+    </p>
   </section>
 
 </div>
