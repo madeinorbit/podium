@@ -38,6 +38,7 @@ import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { driverIdIsServerFamily } from '../../harness-manifest'
 import type { Session, SessionVolatileField } from './session'
 
 const log = createLogger('server:sessions')
@@ -191,6 +192,32 @@ export class SessionMachineReconciler {
    */
   reviveParkedButAlive(session: Session, machineId: MachineId, reason: string): void {
     if (session.status !== 'hibernated' && session.status !== 'exited') return
+    /**
+     * A SERVER-FAMILY ROW IS NEVER BLIND-REATTACHED FROM A RECEIPT (POD-2249).
+     *
+     * For the PTY family the reattach below is passive — it binds an existing
+     * master or answers `reattachFailed`; a wrong guess costs a probe. For the
+     * server family the reattach path routes to `adoptFromJournal`, and codex's
+     * `adopt()` STARTS A FRESH APP-SERVER: an unconfirmed reap would spawn a
+     * SECOND credentialed child beside the un-killable first, and every
+     * repeated `killed:false` would spawn another. So the row stays parked —
+     * needs-recovery, loudly logged — rather than converging through a probe
+     * that is not passive for this family. The daemon's reap escalates to
+     * SIGKILL on its own; a process that survives that needs an operator, not
+     * a spawn loop.
+     */
+    if (session.driverId && driverIdIsServerFamily(session.driverId)) {
+      log.warn(
+        'a parked server-driver session still reports a live process — holding the park (needs recovery)',
+        {
+          sessionId: session.sessionId,
+          driverId: session.driverId,
+          status: session.status,
+          reason,
+        },
+      )
+      return
+    }
     log.warn('a parked session is still running — reviving the row', {
       sessionId: session.sessionId,
       durableLabel: session.durableLabel,

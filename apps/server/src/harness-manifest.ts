@@ -9,6 +9,7 @@
  */
 export type { HarnessInterrupt } from '@podium/harness/metadata'
 export {
+  driverIdIsServerFamily,
   harnessCapabilitiesFor,
   harnessDisplayName,
   harnessInterrupt,

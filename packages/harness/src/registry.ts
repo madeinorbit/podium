@@ -203,6 +203,23 @@ export function harnessDisplayName(kind: AgentKind | string): string {
   return manifestFor(kind)?.displayName ?? kind
 }
 
+/**
+ * Is this driver id a SERVER-family one — declared by some harness as its
+ * server driver? Read off the manifests, never a table (POD-2249).
+ *
+ * The daemon has asked this of the manifests since POD-2113
+ * (`runtime/registry.ts`'s `isServerDriverId`); this static twin exists because
+ * the SERVER now needs the same fact — a `killed:false` reap receipt must not
+ * blind-reattach a server-family session, whose reattach path can SPAWN (codex
+ * `adopt()` starts a fresh app-server) — and the row's `driverId` is all it
+ * holds. Pure metadata: names no process, reaches no host.
+ */
+export function driverIdIsServerFamily(driverId: string): boolean {
+  return Object.values(AGENT_MANIFESTS).some(
+    (manifest) => declaredValue(manifest.runtime.server)?.driverId === driverId,
+  )
+}
+
 export function harnessResumeKind(kind: HarnessAgent): string
 export function harnessResumeKind(kind: AgentKind | string): string | undefined
 export function harnessResumeKind(kind: AgentKind | string): string | undefined {

@@ -3160,6 +3160,47 @@ describe('hibernation', () => {
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
+  // POD-2249. For the PTY family the revive's reattach is passive; for the
+  // server family it routes to adoptFromJournal, and codex's adopt() STARTS A
+  // FRESH APP-SERVER — so a blind revive of an unconfirmed reap would put a
+  // second credentialed child beside the un-killable first, once per receipt,
+  // unbounded. A killed:false for a server-family row must hold the park.
+  it('holds the park on an unconfirmed kill of a SERVER-family session — no reattach, no spawn loop', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/w',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'codex app-server (codex-app-server)',
+      agentKind: 'codex',
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805180' },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel: `podium-cx-${sessionId}`,
+      killed: false,
+      reason: 'the server-driver process is still running',
+    })
+
+    // Parked, held: no reattach means no adopt means no second codex child.
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon.map((m) => m.type)).not.toContain('reattach')
+  })
+
   it('leaves a parked row alone when the daemon confirms the kill', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
@@ -3203,7 +3244,9 @@ describe('hibernation', () => {
     // every deliberate hibernation would come back on the next daemon connect.
     expect(byId.get(reallyParked)).toBe('hibernated')
     expect(
-      daemon.filter((m) => m.type === 'reattach').map((m) => (m as { sessionId: string }).sessionId),
+      daemon
+        .filter((m) => m.type === 'reattach')
+        .map((m) => (m as { sessionId: string }).sessionId),
     ).toEqual([ghost])
   })
 

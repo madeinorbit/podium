@@ -45,8 +45,17 @@
  *   - codex, grok: cgroup membership of the journalled scope unit. Their
  *     transports are the child's stdio, so a daemon restart takes every child
  *     with it and there is no credentialed probe to ask; the scope unit is the
- *     one identity that survives into `/proc/<pid>/cgroup`. Unscoped (macOS)
+ *     one identity that survives into `/proc/<pid>/cgroup`. (`systemd-run
+ *     --scope` execs, so the journalled pid IS the agent pid and the sole
+ *     scope member — reading the pid's own cgroup file is the same fact as
+ *     `systemctl show <unit> -p MainPID`, without the fork.) Unscoped (macOS)
  *     they cannot be corroborated — and cannot have survived either.
+ *
+ *   RECORDED RESIDUAL: an UNSCOPED session that also fails its probe (an
+ *   unscoped opencode whose server wedged) reads as "no survivor". The upgrade
+ *   path, should that case ever be observed, is a boot-id + `/proc` start-time
+ *   stamp on `ProcessIdentity` at launch — not taken now because it touches
+ *   all three hosts' launch paths for a state no platform currently produces.
  *
  *   A pid that fails corroboration is NEVER signalled, and it also does not
  *   count as "alive" in the receipt: an unreadable or foreign `/proc` entry
