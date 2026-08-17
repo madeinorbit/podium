@@ -56,6 +56,7 @@ import {
 import {
   cancelOperation,
   errorCode,
+  errorDetail,
   errorMessage,
   isMissingProcedure,
   readActiveOperation,
@@ -380,10 +381,11 @@ function toActionError(error: unknown): ActionError {
   if (isNativeDesktopUpdateError(error)) return { code: error.code, message: error.message }
   const code = errorCode(error)
   const message = errorMessage(error)
+  const detail = errorDetail(error)
   return {
     ...(code ? { code } : {}),
     ...(message ? { message } : {}),
-    ...(error instanceof Error && error.stack ? { detail: error.stack.split('\n')[0] } : {}),
+    ...(detail ? { detail } : {}),
   }
 }
 

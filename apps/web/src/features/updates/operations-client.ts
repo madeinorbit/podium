@@ -16,7 +16,7 @@
  */
 import type { Operation } from '@podium/protocol'
 import { parseOperation } from '@podium/protocol'
-import type { makeTrpc } from '@/app/trpc'
+import { SERVER_UNAVAILABLE_MESSAGE, type makeTrpc } from '@/app/trpc'
 
 export type Trpc = ReturnType<typeof makeTrpc>
 
@@ -38,8 +38,29 @@ export function errorMessage(error: unknown): string | undefined {
   if (!error || typeof error !== 'object') return undefined
   const value = error as { message?: unknown; data?: { message?: unknown } }
   if (typeof value.data?.message === 'string') return value.data.message
-  if (typeof value.message === 'string' && value.message.length > 0) return value.message
+  if (typeof value.message === 'string' && value.message.length > 0) {
+    return /\bTRPCClientError\b|\bJSON\b|Unexpected end of .*input|Failed to execute .* on Response/i.test(
+      value.message,
+    )
+      ? SERVER_UNAVAILABLE_MESSAGE
+      : value.message
+  }
   return undefined
+}
+
+/** A collapsed detail is still UI. Keep client/parser class names in logs only. */
+export function errorDetail(error: unknown): string | undefined {
+  if (!(error instanceof Error) || !error.stack) return undefined
+  const detail = error.stack.split('\n')[0]
+  if (
+    !detail ||
+    /\bTRPCClientError\b|\bJSON\b|Unexpected end of .*input|Failed to execute .* on Response/i.test(
+      detail,
+    )
+  ) {
+    return undefined
+  }
+  return detail
 }
 
 /**

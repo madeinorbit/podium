@@ -1,6 +1,7 @@
 import { parseOperation } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { errorCode, errorMessage } from './operations-client'
+import { SERVER_UNAVAILABLE_MESSAGE } from '@/app/trpc'
+import { errorCode, errorDetail, errorMessage } from './operations-client'
 import {
   cancelRefusalSentence,
   formatDuration,
@@ -620,6 +621,30 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
     expect(result.state).toBe('waiting-you')
     expect(result.primary).toMatchObject({ kind: 'reload' })
     expect(JSON.stringify(result)).not.toContain('TRPCClientError')
+  })
+
+  it('replaces parser failures with temporary-unavailability copy everywhere visible', () => {
+    const raw = new Error(
+      'TRPCClientError: Failed to execute json on Response: Unexpected end of JSON input',
+    )
+    raw.name = 'TRPCClientError'
+    const message = errorMessage(raw)
+    const detail = errorDetail(raw)
+    const result = operationView({
+      operation: null,
+      offer: OFFER,
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+      actionError: {
+        ...(message ? { message } : {}),
+        ...(detail ? { detail } : {}),
+      },
+    })
+
+    expect(message).toBe(SERVER_UNAVAILABLE_MESSAGE)
+    expect(detail).toBeUndefined()
+    expect(JSON.stringify(result)).not.toMatch(/JSON|TRPCClientError/i)
   })
 
   it('maps every desktop error code to three layers', () => {
