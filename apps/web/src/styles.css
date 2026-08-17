@@ -5193,6 +5193,41 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   margin-top: 2px;
 }
 
+/* THE ENGINE'S ANCHOR FOLLOWS THE PIN (POD-1160).
+
+   Safari 26 ships scroll anchoring, and on this feed it is an authority
+   problem: the engine picks an anchor row and then REVERTS whatever moves it —
+   the app's bottom writes (measured: a -200px write applied late, partially,
+   or never, then snapped back) and the reader's own wheel (measured: 0px of
+   escape against it). Turning anchoring off wholesale is worse in two ways
+   that are both on the record: `overflow-anchor: none` on the SCROLLER makes
+   WebKit under-compute the scrollable region outright (POD-993, 444px
+   unreachable), and excluding every child starves the same geometry-refresh
+   channel, so the engine's idea of the maximum runs stale and it drags the
+   view up to it — 115-161px short, exactly the "it jumps up a second or two
+   after I reach the bottom" report.
+
+   So eligibility follows the reader's intent, which the scroll hook already
+   tracks (use-transcript-scroll.ts):
+
+   - PINNED (`data-anchor-end` present): only the LAST child is eligible. The
+     engine anchors the end of the feed — native stick-to-bottom, and its
+     geometry stays fresh. Measured: pull-up 0px, growth at the end heals on
+     the next layout pass, in both engines.
+   - RELEASED (attribute absent, set on wheel-up/touch intent): nothing is
+     eligible, so the engine has no anchor to defend and the reader is free.
+     Measured: 1440-1481px of escape against a bottom-writer, position holds.
+
+   The hook re-grants eligibility on any DOWNWARD movement, before arrival:
+   the style flip itself refreshes the engine's stale maximum, so the true
+   bottom is reachable again by the time the reader gets there. */
+[data-feed-scroller] > * {
+  overflow-anchor: none;
+}
+[data-feed-scroller][data-anchor-end] > :last-child {
+  overflow-anchor: auto;
+}
+
 /* THE TAIL — where the transcript ENDS, in three weights. One shape (mark,
    phrase, mono figure, rule running out to the right edge); what changes is
    what the state deserves. See TranscriptTail.tsx for the reasoning. */

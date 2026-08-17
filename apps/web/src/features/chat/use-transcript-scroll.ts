@@ -84,6 +84,25 @@ export interface UseTranscriptScrollResult {
  */
 const SETTLE_FRAMES = 10
 
+/**
+ * Grant or revoke the ENGINE's end-of-feed anchor (POD-1160).
+ *
+ * Safari 26 ships scroll anchoring, and on this feed the engine reverts
+ * whatever moves its chosen anchor — the pin's writes and the reader's wheel
+ * alike. The stylesheet therefore excludes every row from anchor selection and
+ * re-admits only the LAST child, only while this attribute is present (see
+ * styles.css). With it, WebKit holds the bottom natively and keeps its scroll
+ * geometry fresh; without it, the engine has no anchor to defend and a reader
+ * who has scrolled up cannot be dragged back. The attribute is written
+ * imperatively because it changes on the scroll path, where a re-render per
+ * flip would be the most expensive possible way to toggle one bit.
+ */
+function setAnchorEnd(el: HTMLElement, on: boolean): void {
+  if (on === el.hasAttribute('data-anchor-end')) return
+  if (on) el.setAttribute('data-anchor-end', '')
+  else el.removeAttribute('data-anchor-end')
+}
+
 /** Frames still owed to a scroller, so overlapping callers extend one loop
  *  rather than each starting their own. */
 const settling = new WeakMap<HTMLElement, number>()
@@ -171,6 +190,9 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   /** The reader has asked to leave the bottom with a wheel or a touch, and has
    *  not arrived back yet. See the intent listeners below. */
   const releasedByIntent = useRef(false)
+  /** Last seen scroll offset — direction is what re-arms the engine's end
+   *  anchor on the way down (see `onScroll`). */
+  const lastScrollTop = useRef(0)
   /**
    * The ELEMENT currently on the shelf, not its index.
    *
@@ -490,6 +512,10 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const release = (): void => {
       pinnedToBottom.current = false
       releasedByIntent.current = true
+      // The engine's anchor must let go WITH the pin: leaving it eligible is
+      // exactly the measured trap where anchoring undoes every upward wheel
+      // notch (0px of escape in WebKit).
+      setAnchorEnd(el, false)
     }
     // Only UPWARD wheeling counts. Wheeling down at the bottom is not a request
     // to leave it, and treating it as one would drop the pin on a reader who
@@ -512,6 +538,16 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     if (!el) return
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight
     const near = gap < 80
+    // DOWNWARD MOVEMENT RE-ARMS THE ENGINE'S END ANCHOR, before arrival
+    // (POD-1160). Two reasons it cannot wait for the bottom: an eligible
+    // anchor below the viewport is inert, so granting early costs nothing —
+    // and in WebKit the grant is what refreshes the engine's stale maximum
+    // scroll, without which a user scroll is CLAMPED short of the true bottom
+    // and the `gap <= 4` arrival below can never fire at all. Direction from
+    // the scroll offset itself so wheel, touch and scrollbar drags all count.
+    const goingDown = el.scrollTop > lastScrollTop.current
+    lastScrollTop.current = el.scrollTop
+    if (goingDown) setAnchorEnd(el, true)
     // NEAR THE END AND FOLLOWING IT ARE TWO QUESTIONS. `near` decides whether to
     // offer the jump affordance, and has always been generous on purpose. The
     // PIN is whether to keep writing the bottom under the reader, and after they
@@ -520,6 +556,11 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     // the pixel or so of fractional residue WebKit reports at a true bottom.
     pinnedToBottom.current = releasedByIntent.current ? gap <= 4 : near
     if (pinnedToBottom.current) releasedByIntent.current = false
+    // ...and UPWARD movement that has genuinely left the bottom revokes it —
+    // the scrollbar-drag case, which raises no wheel or touch intent. Never
+    // while pinned: a clamp after content below unmounts also reads as an
+    // upward move, and the pin is exactly what should survive that.
+    if (!goingDown && !pinnedToBottom.current) setAnchorEnd(el, false)
     setAtBottom(near)
     syncStickyPromptPositions()
     // Near the TOP and more exists above → reveal/fetch older content.
@@ -558,6 +599,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     if (!el) return
     pinnedToBottom.current = true
     releasedByIntent.current = false
+    setAnchorEnd(el, true)
     // ONE WRITE IS NOT ENOUGH, because "the bottom" is a number that is still
     // moving when the click lands. `scrollHeight` is whatever has laid out SO
     // FAR: a code block still measuring, an image without intrinsic size, a
@@ -580,8 +622,10 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   const pinToBottom = useCallback(() => {
     pinnedToBottom.current = true
     releasedByIntent.current = false
+    const el = scrollerRef.current
+    if (el) setAnchorEnd(el, true)
     setAtBottom(true)
-  }, [pinnedToBottom])
+  }, [pinnedToBottom, scrollerRef])
 
   const scrollToBlock = useCallback(
     (index: number) => {

@@ -367,6 +367,11 @@ export function TranscriptFeed({
       // composer, which is how the work-line preview came to cover the prompt
       // box. See WorkLinePreview in ToolBatchView.tsx.
       data-feed-scroller=""
+      // The engine's end-of-feed anchor starts GRANTED because the pin starts
+      // true; from here on use-transcript-scroll owns the attribute (revoked on
+      // wheel/touch intent, re-armed on downward movement). See the anchor
+      // rules in styles.css (POD-1160) for why eligibility must follow intent.
+      data-anchor-end=""
       className={cn(
         'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
         // NO `overflow-anchor: none` HERE, AND THAT IS THE WHOLE SAFARI BUG.
