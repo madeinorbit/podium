@@ -7,7 +7,7 @@ import {
   asUserId,
   type SessionId,
 } from '@podium/model'
-import { asDelegationRef } from '@podium/protocol'
+import { asDelegationRef, type TurnReceipt } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
 import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
@@ -42,10 +42,17 @@ function harness(
      *  an agent session, and what the confirmation gate keys off (POD-1100). */
     transcriptAvailable?: boolean
     stateObservedAt?: string
+    /** Model a server-family session (no PTY bridge behind it) — POD-2291. */
+    serverDriven?: boolean
+    /** Receipts the fake contract port answers with, in order; when omitted
+     *  entirely the port itself is absent (the bare-fixture shape). */
+    contractReceipts?: TurnReceipt[]
+    phase?: string
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
   const sent: unknown[] = []
+  const contractCalls: unknown[] = []
   const rejected: unknown[] = []
   const answered: unknown[] = []
   let authorized = true
@@ -131,12 +138,33 @@ function harness(
     prepareSend: vi.fn(),
     ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
     resurrect: async () => ({ ok: true }),
+    ...(options.serverDriven !== undefined
+      ? { serverDriven: () => options.serverDriven === true }
+      : {}),
+    ...(options.contractReceipts
+      ? {
+          contractDeliver: (input: unknown) => {
+            contractCalls.push(input)
+            return Promise.resolve(
+              options.contractReceipts?.shift() ??
+                ({
+                  outcome: 'accepted',
+                  turnEpoch: 1,
+                  deliveredAs: 'when-ready',
+                  provenBy: 'protocol-ack',
+                  at: new Date().toISOString(),
+                } satisfies TurnReceipt),
+            )
+          },
+        }
+      : {}),
   })
   return {
     inbox,
     session,
     rows,
     sent,
+    contractCalls,
     rejected,
     answered,
     applied,
@@ -922,5 +950,119 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     expect(typedTexts(h.sent)).toEqual([PROMPT])
     expect(h.rows).toEqual([])
     expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_blind', sessionId: SID })
+  })
+})
+
+/**
+ * POD-2291: a server-family session has no PTY bridge, so the drain must never
+ * "type" a queued row at it — the daemon discards the bytes silently while this
+ * side reports them applied, which is how the operator's first codex prompt
+ * vanished with no transcript entry, no error and no dead-letter. Queued input
+ * either delivers through the runtime contract, or stays visibly queued.
+ */
+describe('server-family drain via the runtime contract [POD-2291]', () => {
+  const queueOne = (h: ReturnType<typeof harness>, id: string, sourceMessageId?: string) =>
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'first prompt',
+      mutationId: asMutationId(id),
+      ...(sourceMessageId ? { sourceMessageId } : {}),
+      principal: agentPrincipal(),
+    })
+
+  it('delivers a queued row through the contract and never as PTY bytes', async () => {
+    vi.useFakeTimers()
+    const h = harness({ serverDriven: true, contractReceipts: [] })
+
+    expect(queueOne(h, 'srv-1', 'msg_srv_1')).toEqual({ ok: true, queued: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(h.contractCalls).toEqual([
+      expect.objectContaining({
+        sessionId: SID,
+        turnId: 'msg_srv_1',
+        text: 'first prompt',
+      }),
+    ])
+    // NOTHING typed toward the PTY: those bytes have nowhere to go.
+    expect(h.sent).toEqual([])
+    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_1', sessionId: SID })
+    expect(h.rows).toEqual([])
+  })
+
+  it('keeps the row visibly queued when the contract refuses (not_running)', async () => {
+    vi.useFakeTimers()
+    const h = harness({
+      serverDriven: true,
+      contractReceipts: [
+        { outcome: 'refused', refusal: { reason: 'not_running', detail: 'daemon gone' } },
+      ],
+    })
+
+    expect(queueOne(h, 'srv-2', 'msg_srv_2')).toEqual({ ok: true, queued: true })
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    // One attempt, then the drain ended — the row REMAINS, visible, for the
+    // next bind/reconnect drain. It is never confirmed and never silently gone.
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.rows).toHaveLength(1)
+    expect(h.sent).toEqual([])
+  })
+
+  it('waits out a busy turn — past the PTY drain deadline — and delivers at the boundary', async () => {
+    vi.useFakeTimers()
+    const h = harness({ serverDriven: true, contractReceipts: [], phase: 'working' })
+
+    expect(queueOne(h, 'srv-3', 'msg_srv_3')).toEqual({ ok: true, queued: true })
+    // Well past the 25s never-live deadline: a busy server session is making
+    // progress, so the drain must keep polling rather than strand the row.
+    await vi.advanceTimersByTimeAsync(40_000)
+    expect(h.contractCalls).toEqual([])
+    expect(h.rows).toHaveLength(1)
+
+    Object.assign(h.session, { agentState: { phase: 'idle' } })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.rows).toEqual([])
+    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_3', sessionId: SID })
+  })
+
+  it('re-polls after a busy refusal (the turn opened between the check and the send)', async () => {
+    vi.useFakeTimers()
+    const h = harness({
+      serverDriven: true,
+      contractReceipts: [{ outcome: 'refused', refusal: { reason: 'busy' } }],
+    })
+
+    expect(queueOne(h, 'srv-4', 'msg_srv_4')).toEqual({ ok: true, queued: true })
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    // First receipt refused busy; the drain kept polling and the default
+    // accepted receipt then confirmed the row.
+    expect(h.contractCalls.length).toBeGreaterThanOrEqual(2)
+    expect(h.rows).toEqual([])
+    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_4', sessionId: SID })
+  })
+
+  it('leaves the row queued when no contract port is wired, rather than typing into the void', async () => {
+    vi.useFakeTimers()
+    const h = harness({ serverDriven: true })
+
+    expect(queueOne(h, 'srv-5', 'msg_srv_5')).toEqual({ ok: true, queued: true })
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(h.sent).toEqual([])
+    expect(h.rows).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it('refuses a direct typeText toward a server-family session', () => {
+    vi.useFakeTimers()
+    const h = harness({ serverDriven: true })
+
+    expect(h.inbox.sendText({ sessionId: SID, text: 'typed at nothing' })).toEqual({ ok: false })
+    expect(h.sent).toEqual([])
   })
 })

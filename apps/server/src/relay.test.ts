@@ -4876,6 +4876,152 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
   })
 })
 
+/**
+ * POD-2291: the operator's first prompt into a fresh codex app-server session
+ * showed "sending" and then vanished — no transcript entry, no error, no
+ * dead-letter. The send rode the durable queue (correct: the session was still
+ * `starting`), but the drain then "typed" it at a session with no PTY bridge:
+ * the daemon discarded the bytes silently while this side marked the ledger row
+ * delivered-via-injection. These pin the promise the drain now keeps: a queued
+ * chat prompt to a server-family session delivers through the contract, or
+ * stays visibly queued — it never becomes PTY bytes and never silently
+ * disappears.
+ */
+describe('codex app-server first-prompt delivery [POD-2291]', () => {
+  const codexBind = (sessionId: SessionId) =>
+    ({
+      ...bind(sessionId),
+      cmd: 'codex app-server (codex-app-server)',
+      agentKind: 'codex',
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    }) as const
+
+  const sendFirstPrompt = (registry: SessionRegistry, sessionId: SessionId) =>
+    registry.modules.messages.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: sessionId }, body: 'first prompt', urgency: 'next-turn' },
+    )
+
+  const inputFramesWith = (daemon: ControlMessage[], needle: string) =>
+    daemon.filter(
+      (message) =>
+        message.type === 'input' &&
+        Buffer.from(message.data, 'base64').toString().includes(needle),
+    )
+
+  it('a prompt sent during the starting window delivers through the contract on bind — never as PTY bytes', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      // The spawn (version probe + handshake + thread mint) is still in
+      // flight: the row rides the durable queue, visibly.
+      const sent = sendFirstPrompt(registry, sessionId)
+      expect(sent.message.status).toBe('queued')
+      expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
+
+      // bind lands with the server-family facts; the drain must now route the
+      // queued row through the contract.
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      // Real timers on purpose: the drain's ready poll is 200ms, and swapping in
+      // a fake clock around a full SessionRegistry orphans its background
+      // intervals into whichever test runs next.
+      await vi.waitFor(() =>
+        expect(
+          daemon.some(
+            (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+          ),
+        ).toBe(true),
+      )
+      const request = daemon.find(
+        (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
+      expect(request).toMatchObject({
+        turnId: sent.message.id,
+        text: expect.stringContaining('first prompt'),
+      })
+      expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
+
+      // The driver acks the turn → the ledger row is honestly delivered.
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: request!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: 'when-ready',
+          provenBy: 'protocol-ack',
+          at: '2026-01-01T00:00:00.000Z',
+        },
+      })
+      await vi.waitFor(() =>
+        expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+          status: 'delivered',
+        }),
+      )
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  it('a refused delivery leaves the row visibly queued — never delivered, never silently gone', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      const sent = sendFirstPrompt(registry, sessionId)
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      await vi.waitFor(() =>
+        expect(
+          daemon.some(
+            (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+          ),
+        ).toBe(true),
+      )
+      const request = daemon.find(
+        (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
+      expect(request).toBeDefined()
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: request!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'refused',
+          refusal: { reason: 'not_running', detail: 'the daemon dropped the handle' },
+        },
+      })
+      // Give the refusal's continuation a real beat to run, then hold still:
+      // the row must not move.
+      await new Promise((resolve) => setTimeout(resolve, 250))
+
+      // The row is still queued — the chat view keeps rendering its pending
+      // bubble — and nothing ever typed PTY bytes at the bridgeless session.
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
+      expect(registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
+      expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
+    } finally {
+      registry.dispose()
+    }
+  })
+})
+
 describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
   it('delivers once when bind/live metadata makes queued issue mail eligible', () => {
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })

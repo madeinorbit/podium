@@ -29,7 +29,7 @@ import {
   asUserId,
   isAgentComputing,
 } from '@podium/model'
-import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
+import type { AgentObservation, ObservationInputOrigin, TurnReceipt } from '@podium/protocol'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
@@ -261,6 +261,35 @@ export interface SessionInboxDeps {
    * grant table. Production always injects it.
    */
   authorizeDrive?(principal: ClientPrincipal, sessionId: SessionId): boolean
+  /**
+   * Is this session driven by a SERVER-family runtime driver — a session with
+   * no PTY bridge behind it (POD-2291)?
+   *
+   * The drain below branches on it because typing at such a session is not
+   * merely suboptimal, it is a guaranteed silent loss: the daemon's `input`
+   * handler resolves the PTY bridge by session id, finds none, and discards the
+   * bytes with no error — while this side reports the row applied. The fact is
+   * read off the bind-reported `driverId`, so it is only ever true for a LIVE
+   * session; a `starting` one stays on the queue until bind says which family
+   * it became.
+   */
+  serverDriven?(session: Session): boolean
+  /**
+   * Deliver one queued row through the runtime contract (`when-ready`), for
+   * sessions {@link serverDriven} says have no PTY to type into.
+   *
+   * The receipt is the driver's own answer, not a prediction. Optional only as
+   * a fixture affordance: production always wires it, and a server-driven
+   * session without it leaves rows visibly queued rather than typing them into
+   * the void.
+   */
+  contractDeliver?(input: {
+    sessionId: SessionId
+    turnId: string
+    text: string
+    origin: ObservationInputOrigin
+    principal: InboxPrincipalReference
+  }): Promise<TurnReceipt>
 }
 
 /**
@@ -731,11 +760,85 @@ export class SessionInbox {
         afterHead(current)
         return
       }
+      if (this.deps.serverDriven?.(current) === true) {
+        /**
+         * NO PTY TO TYPE INTO — the row goes through the runtime contract, and
+         * the driver's receipt decides what happens to it (POD-2291).
+         *
+         * This branch exists because the alternative was measured, not
+         * imagined: a chat prompt sent while a codex app-server session was
+         * still `starting` rode this queue, and the PTY path below "delivered"
+         * it into a bridge that does not exist — the daemon discarded the
+         * bytes, this side marked the ledger row delivered, and the operator's
+         * message vanished without a transcript entry, an error, or a
+         * dead-letter. Accepted input must never vanish: it delivers, stays
+         * visibly queued, or dead-letters visibly.
+         */
+        const contractDeliver = this.deps.contractDeliver
+        if (!contractDeliver) {
+          // No contract port wired (bare fixtures). The row STAYS queued and
+          // visible — the one thing this path must never do is claim delivery.
+          stop()
+          return
+        }
+        void contractDeliver({
+          sessionId,
+          turnId: head.sourceMessageId ?? head.id,
+          text: head.text,
+          origin: head.inputOrigin,
+          principal: head.principal,
+        }).then(
+          (receipt) => {
+            const after = this.deps.getSession(sessionId)
+            if (!after) {
+              stop()
+              return
+            }
+            if (receipt.outcome === 'refused') {
+              // `busy` / `needs_user`: a turn opened (or an ask arrived)
+              // between the idle check and the delivery — an ordinary race, so
+              // keep polling for the next boundary. Anything else ends this
+              // drain; the row stays visibly queued and the next bind,
+              // reconnect or enqueue re-drains it.
+              if (receipt.refusal.reason === 'busy' || receipt.refusal.reason === 'needs_user') {
+                setTimeout(tick, READY_POLL_MS).unref?.()
+              } else stop()
+              return
+            }
+            // `accepted` (protocol-acked), `queued` (the driver's own FIFO now
+            // holds it) or `unverified` (the RPC window closed first — the
+            // optimistic posture the `now` path already takes, and the one that
+            // can never double-deliver). The row crossed to the driver: confirm
+            // it and move on.
+            if (head.sourceMessageId) {
+              // A retraction that raced the in-flight send is a no-op here:
+              // `onQueuedInputApplied` only moves rows still `queued`.
+              this.deps.authorization.applied({
+                sourceMessageId: head.sourceMessageId,
+                sessionId,
+              })
+            }
+            // The delivery was ASYNC, so the row may have been retracted while
+            // it was in flight — removeHead on an already-deleted row would
+            // decrement `queuedMessageCount` a second time.
+            if (this.deps.queue.list(sessionId).some((row) => row.id === head.id)) {
+              removeHead(after, head.id)
+            }
+            if (after.queuedMessageCount > 0) {
+              setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
+            } else stop()
+          },
+          () => stop(),
+        )
+        // The receipt continuation above owns pacing and stop; falling through
+        // to the synchronous tail would drive the queue twice.
+        return
+      }
       // ATTEMPTS ARE THE ROW'S, NOT THE PASS'S (POD-1242). The cap used to reset
       // every time a bind, an idle edge or a reconnect re-armed the drain, so a
       // row that could not be confirmed was retyped five times per pass, forever.
-      // Spent means spent: the row stays durable and waits for a fresh process,
-      // which is the one event that hands the budget back.
+      // Contract delivery above has its own typed receipts; this budget applies
+      // only to the terminal path.
       if (head.attempts >= MAX_DELIVERY_ATTEMPTS) {
         stop()
         return
@@ -768,6 +871,24 @@ export class SessionInbox {
       }
       const now = this.deps.now()
       if (current.status === 'live') {
+        if (this.deps.serverDriven?.(current) === true) {
+          /**
+           * A server-family session has no terminal output to watch settle and
+           * no composer to protect — the DRIVER owns readiness, and `when-ready`
+           * is how the drain asks it (POD-2291). Deliver at turn boundaries:
+           * idle (or no phase reported yet) delivers now; a session mid-turn
+           * keeps polling PAST the drain deadline, because the deadline exists
+           * to abandon typing into a PTY that never became ready, and applying
+           * it here stranded rows behind any turn longer than 25 seconds.
+           */
+          const phase = current.agentState?.phase
+          if (phase === undefined || phase === 'idle') {
+            deliverNext()
+            return
+          }
+          setTimeout(tick, READY_POLL_MS).unref?.()
+          return
+        }
         if (!liveAtMs) {
           liveAtMs = now
           baseOutputMs = current.terminal.lastOutputAtMs
@@ -1030,6 +1151,11 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
+    // A server-family session has no PTY bridge: the daemon discards "typed"
+    // bytes without an error, so an ok here would be the exact lie POD-2291
+    // closes. Refusing keeps the caller's row queued and visible; the drain's
+    // contract branch is the path that actually delivers.
+    if (this.deps.serverDriven?.(session) === true) return { ok: false }
     if (!afterEsc && session.agentState?.phase === 'needs_user') return { ok: false }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
     if (input.recordSend !== false)

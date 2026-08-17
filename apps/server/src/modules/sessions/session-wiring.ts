@@ -23,6 +23,7 @@ import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
 import {
+  driverIdIsServerFamily,
   harnessDisplayName,
   harnessInterrupt,
   harnessNeedsSubmitVerification,
@@ -376,6 +377,31 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     // Take-control / hold-control re-auth at every apply (POD-1081).
     authorizeDrive: (principal, sessionId) => bag.authorizeClientDrive(principal, sessionId),
+    /**
+     * THE DRAIN'S NO-PTY FACT (POD-2291), keyed on durable-enough data: the
+     * bind-reported `runtimeContract` AND a `driverId` some manifest declares as
+     * server-family. Both are bind facts, so a `starting` session answers false
+     * and stays queued until bind says which family it became — which is
+     * exactly when the drain runs. The conjunction matters: `runtimeContract`
+     * alone is true for TERMINAL-driver sessions too, whose PTY drain must not
+     * change.
+     */
+    serverDriven: (session) =>
+      session.runtimeContract === true &&
+      session.driverId !== undefined &&
+      driverIdIsServerFamily(session.driverId),
+    // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
+    // this function, and the first drain that can need it runs strictly after
+    // a bind frame — long past composition.
+    contractDeliver: (input) =>
+      bag.runtimeGateway.send({
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        text: input.text,
+        origin: input.origin,
+        delivery: 'when-ready',
+        principal: input.principal,
+      }),
   })
   bag.sendText = (input: any) => bag.inbox.sendText(input)
   bag.interruptText = (input: any) => bag.inbox.interruptText(input)

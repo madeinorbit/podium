@@ -1365,7 +1365,18 @@ export const sessionHandlers: Pick<
     if (input.includes('\r') || input.includes('\n')) {
       ctx.observers.recordInputOrigin(msg.sessionId, msg.inputOrigin)
     }
-    ctx.bridges.get(msg.sessionId)?.write(msg.data)
+    const bridge = ctx.bridges.get(msg.sessionId)
+    if (!bridge && sessionIsBehindContract(ctx, msg.sessionId)) {
+      // A server-family session has no PTY bridge, so these bytes have nowhere
+      // to go — the server side must route sends through `runtimeSendRequest`
+      // instead. Said out loud because the silent version of this line is how a
+      // chat prompt vanished with no transcript row and no error (POD-2291).
+      log.warn('discarding input bytes for a bridgeless contract session', {
+        sessionId: msg.sessionId,
+        bytes: msg.data.length,
+      })
+    }
+    bridge?.write(msg.data)
     // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
     // replica is hot, so the engine defers injection. No-op for unflagged sessions.
     ctx.composerEngine.onInputByte(msg.sessionId)

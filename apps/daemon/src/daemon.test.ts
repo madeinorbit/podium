@@ -44,6 +44,7 @@ import {
 } from './daemon'
 import type { DaemonContext } from './control/context'
 import { sessionHandlers } from './control/session'
+import { runtimeHandlers } from './runtime/handlers'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import {
   codexAppServerVersionProbe,
@@ -1164,6 +1165,88 @@ describe('default server-driver spawn integration', () => {
       await expect(waitForDefaultServerBind(sent, 'default-codex')).resolves.toMatchObject({
         runtimeContract: true,
         driverId: 'codex-app-server',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  /**
+   * POD-2291: the operator's first chat prompt into a fresh codex spawn
+   * vanished. The daemon's half of the promise is honesty about the readiness
+   * window — the app-server handle exists only after the child spawn, the
+   * handshake and the thread mint, and a send arriving before that must come
+   * back `refused` (so the server keeps the row visibly queued) rather than
+   * being swallowed. Once the thread exists the same send must deliver.
+   */
+  it('answers refused inside the codex readiness window, then delivers once the thread is minted', async () => {
+    resetCodexAppServerVersionProbe()
+    expect(
+      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+    ).toBe(true)
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    const sendResults = () =>
+      sent.filter(
+        (msg): msg is Extract<DaemonMessage, { type: 'runtimeSendResult' }> =>
+          msg.type === 'runtimeSendResult',
+      )
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'readiness-codex',
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      // Inside the readiness window: the spawn is dispatched but the launch has
+      // not registered a handle yet. The answer is a refusal the server can act
+      // on — never silence, never a fake acceptance.
+      runtimeHandlers.runtimeSendRequest(
+        ctx,
+        {
+          type: 'runtimeSendRequest',
+          requestId: 'req-early',
+          turnId: 'turn-early',
+          sessionId: 'readiness-codex',
+          text: 'sent before the thread exists',
+          origin: 'controller',
+          delivery: 'when-ready',
+        } as never,
+      )
+      await vi.waitFor(() =>
+        expect(sendResults().some((msg) => msg.requestId === 'req-early')).toBe(true),
+      )
+      expect(sendResults().find((msg) => msg.requestId === 'req-early')?.receipt).toMatchObject({
+        outcome: 'refused',
+        refusal: { reason: 'not_running' },
+      })
+
+      await waitForDefaultServerBind(sent, 'readiness-codex')
+      runtimeHandlers.runtimeSendRequest(
+        ctx,
+        {
+          type: 'runtimeSendRequest',
+          requestId: 'req-after-bind',
+          turnId: 'turn-after-bind',
+          sessionId: 'readiness-codex',
+          text: 'sent after the thread exists',
+          origin: 'controller',
+          delivery: 'when-ready',
+        } as never,
+      )
+      await vi.waitFor(() =>
+        expect(sendResults().some((msg) => msg.requestId === 'req-after-bind')).toBe(true),
+      )
+      expect(
+        sendResults().find((msg) => msg.requestId === 'req-after-bind')?.receipt,
+      ).toMatchObject({
+        outcome: 'accepted',
+        provenBy: 'protocol-ack',
       })
     } finally {
       runtime.dispose()
