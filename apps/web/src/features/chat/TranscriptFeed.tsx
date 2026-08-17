@@ -215,17 +215,38 @@ function useArrivalUnroll(
     if (fresh.length === 0) return
     for (const row of fresh) {
       row.dataset.unrollSeen = ''
-      row.style.setProperty('--arrive-h', `${row.offsetHeight}px`)
+      const height = row.offsetHeight
+      // A ROW WE CANNOT MEASURE IS A ROW WE MUST NOT CLIP (found in WebKit
+      // against the running app, POD-1158). `offsetHeight` is zero for a row
+      // inside a `display: none` subtree — which this feed genuinely produces,
+      // since the panel deck keeps inactive panes mounted and hidden. Stamping
+      // one anyway is the worst outcome available: it would animate to
+      // `--arrive-h: 0px`, and an animation on a hidden element never runs and
+      // so never fires `animationend`, leaving the row clipped to nothing with
+      // no way back. The reader switches to that pane and the message is
+      // simply not there. A row with nothing to measure has nothing to open.
+      if (height === 0) continue
+      row.style.setProperty('--arrive-h', `${height}px`)
       row.dataset.unroll = ''
-      const done = (event: AnimationEvent): void => {
+      const release = (): void => {
+        row.removeEventListener('animationend', done)
+        window.clearTimeout(timer)
+        delete row.dataset.unroll
+        row.style.removeProperty('--arrive-h')
+      }
+      function done(event: AnimationEvent): void {
         // A row holds other one-shots — a work line's deck settling, a mail
         // group unfolding — and their `animationend` bubbles to it. Only this
         // row's own unroll may end the unroll.
         if (event.target !== row || event.animationName !== 'transcript-unroll') return
-        row.removeEventListener('animationend', done)
-        delete row.dataset.unroll
-        row.style.removeProperty('--arrive-h')
+        release()
       }
+      // THE CLIP IS NEVER PERMANENT. `animationend` is the normal path and is
+      // not a guarantee: an animation that is cancelled, or that never starts
+      // because the element stopped being rendered mid-flight, fires nothing.
+      // The clip has to come off on a clock as well, because the cost of
+      // missing it once is an invisible message that stays invisible.
+      const timer = window.setTimeout(release, UNROLL_MS * 3)
       row.addEventListener('animationend', done)
     }
     // One claim covers the whole batch: they start on the same frame and run
