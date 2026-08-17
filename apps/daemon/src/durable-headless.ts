@@ -16,7 +16,13 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
-import { declaredValue, type HarnessHeadless, harnessAdapterFor } from '@podium/harness'
+import {
+  declaredValue,
+  type HarnessHeadless,
+  harnessAdapterFor,
+  resolvedHarnessPath,
+  type ResolvedHarnessInventory,
+} from '@podium/harness'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import {
   type AgentSession,
@@ -27,7 +33,6 @@ import {
   spawnAbducoAgent,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
-import type { HarnessBins } from './harness-exec.js'
 import {
   buildHeadlessExec,
   type HeadlessEmit,
@@ -211,11 +216,11 @@ export function buildClaudeDurableExec(
 
 function cursorSessionId(
   paths: DurablePaths,
-  bins: HarnessBins,
+  snapshot: ResolvedHarnessInventory,
   env?: Record<string, string>,
 ): string {
   if (existsSync(paths.cursorSession)) return readFileSync(paths.cursorSession, 'utf8').trim()
-  const output = execFileSync(bins.cursor(), ['create-chat'], {
+  const output = execFileSync(resolvedHarnessPath(snapshot, 'cursor'), ['create-chat'], {
     encoding: 'utf8',
     timeout: 60_000,
     env: { ...process.env, ...env },
@@ -231,7 +236,7 @@ function cursorSessionId(
 function prepareInvocation(
   spec: HeadlessTurnSpec,
   paths: DurablePaths,
-  bins: HarnessBins,
+  snapshot: ResolvedHarnessInventory,
 ): {
   cmd: string
   args: string[]
@@ -249,12 +254,14 @@ function prepareInvocation(
     const exec = buildClaudeDurableExec(spec, paths)
     return {
       ...exec,
+      cmd: resolvedHarnessPath(snapshot, 'claude-code'),
+      env: { ...snapshot.commandEnvironment.env },
       knownSessionId: spec.resumeValue ?? spec.sessionUuid,
     }
   }
   let sessionId = spec.resumeValue ?? spec.sessionUuid
   if (headless.resumeIdAllocation === 'create-chat' && !sessionId)
-    sessionId = cursorSessionId(paths, bins, spec.env)
+    sessionId = cursorSessionId(paths, snapshot, { ...snapshot.commandEnvironment.env, ...spec.env })
   const exec = buildHeadlessExec(
     spec.agent,
     {
@@ -269,7 +276,7 @@ function prepareInvocation(
       ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
       ...(sessionId ? { sessionId } : {}),
     },
-    bins,
+    snapshot,
   )
   return { ...exec, ...(sessionId ? { knownSessionId: sessionId } : {}) }
 }
@@ -277,12 +284,12 @@ function prepareInvocation(
 function writeRunner(
   spec: HeadlessTurnSpec,
   paths: DurablePaths,
-  bins: HarnessBins,
+  snapshot: ResolvedHarnessInventory,
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
 ): { knownSessionId?: string; env?: Record<string, string> } {
   ensureDirectoryDurable(paths.dir)
   if (!existsSync(paths.createdAt)) writeAtomic(paths.createdAt, String(Date.now()))
-  const invocation = prepareInvocation(spec, paths, bins)
+  const invocation = prepareInvocation(spec, paths, snapshot)
   if (invocation.stdin !== undefined) writeAtomic(paths.input, invocation.stdin)
   const command = [invocation.cmd, ...invocation.args].map(shellQuote).join(' ')
   const stdin = invocation.stdin !== undefined ? ` < ${shellQuote(paths.input)}` : ''
@@ -559,7 +566,7 @@ export function runDurableHeadlessTurn(
   sessionId: SessionId,
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
-  bins: HarnessBins,
+  snapshot: ResolvedHarnessInventory,
 ): HeadlessTurnHandle {
   const identity: DurableIdentity = {
     sessionId,
@@ -578,7 +585,7 @@ export function runDurableHeadlessTurn(
   }
 
   const label = spec.durableLabel ?? `podium-${sessionId}`
-  const { knownSessionId, env: execEnv } = writeRunner(spec, paths, bins)
+  const { knownSessionId, env: execEnv } = writeRunner(spec, paths, snapshot)
   const spawnEnv = { ...spec.env, ...execEnv }
   let attachment: AgentSession | undefined
   let settled = false

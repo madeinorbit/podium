@@ -11,6 +11,7 @@ import {
   createDurableProgressParser,
   runDurableHeadlessTurn,
 } from './durable-headless.js'
+import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
 
 const roots: string[] = []
 const identity = {
@@ -174,6 +175,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       PODIUM_NO_SCOPE: process.env.PODIUM_NO_SCOPE,
     }
     process.env.PATH = `${binDir}:${previous.PATH ?? ''}`
+    const snapshot = testHarnessSnapshot({ grok: join(binDir, 'grok') })
     process.env.PODIUM_STATE_DIR = join(root, 'state')
     process.env.ABDUCO_SOCKET_DIR = socketDir
     process.env.PODIUM_NO_SCOPE = '1'
@@ -193,10 +195,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       timeoutMs: 15_000,
     }
     try {
-      const first = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, {
-        opencode: () => 'opencode',
-        cursor: () => 'cursor-agent',
-      })
+      const first = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, snapshot)
       for (let attempt = 0; attempt < 100; attempt++) {
         if (await abducoHasSession(label)) break
         await new Promise((resolve) => setTimeout(resolve, 20))
@@ -208,7 +207,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
           sessionId,
           { ...spec, prompt: 'changed input', requestDigest: 'c'.repeat(64) },
           () => {},
-          { opencode: () => 'opencode', cursor: () => 'cursor-agent' },
+          snapshot,
         ),
       ).toThrow(/replay identity mismatch/)
       acknowledgeDurableHeadlessTurn({
@@ -227,10 +226,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       ).toThrow(/mismatched durable headless acknowledgement/)
       first.dispose?.()
 
-      const reattached = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, {
-        opencode: () => 'opencode',
-        cursor: () => 'cursor-agent',
-      })
+      const reattached = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, snapshot)
       // Poll rather than one-shot: reattach latency varies under load.
       let stillAlive = false
       for (let attempt = 0; attempt < 100; attempt++) {
@@ -250,10 +246,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
         await new Promise((resolve) => setTimeout(resolve, 50))
       }
       await new Promise((resolve) => setTimeout(resolve, 200))
-      const recovered = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, {
-        opencode: () => 'opencode',
-        cursor: () => 'cursor-agent',
-      })
+      const recovered = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, snapshot)
       await expect(recovered.done).resolves.toMatchObject({
         harnessSessionId: spec.sessionUuid,
         output: expect.stringContaining('survive'),

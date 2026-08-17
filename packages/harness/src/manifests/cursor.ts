@@ -2,7 +2,6 @@ import { join } from 'node:path'
 import { cursorRecordToItems } from '@podium/transcript'
 import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
 import { withStateChannel } from '../agent-state/types.js'
-import { cursorBinCandidates, resolveCursorBin } from '../cursor/cli.js'
 import { cursorSessionPaths } from '../cursor/paths.js'
 import { createCursorConversationProvider } from '../discovery/providers/cursor.js'
 import { composeAgentInstructions } from '../instructions.js'
@@ -54,17 +53,17 @@ export const cursorManifest: AgentManifest = {
   resumeKind: 'cursor-chat',
 
   inventory: {
-    binCandidates: (homeDir) => [...cursorBinCandidates(homeDir), 'cursor-agent'],
+    executable: {
+      names: ['agent', 'cursor-agent'],
+      versionArgs: ['--version'],
+      identityProbe: {
+        args: ['--help'],
+        accepts: (output) => output.includes('Cursor Agent'),
+      },
+    },
     loginCommand: unsupported('Cursor does not expose a supported native login command yet'),
     loginIdentity: unsupported('Cursor does not expose a stable local account identity yet'),
     portableCredential: unsupported('Cursor credential portability is not supported yet'),
-    // Cursor deliberately installs as the generic `agent` executable. Grok also
-    // exposes an `agent` alias, so require Cursor's own help marker before
-    // reporting this machine as Cursor-capable.
-    identityProbe: {
-      args: ['--help'],
-      accepts: (output) => output.includes('Cursor Agent'),
-    },
     detectLogin: () => ({ state: 'unknown' }),
   },
 
@@ -74,7 +73,7 @@ export const cursorManifest: AgentManifest = {
       ...(isSet(opts.model) ? ['--model', opts.model] : []),
     ]
     const instructions = composeAgentInstructions(opts.instructions)
-    if (!instructions) return { cmd: resolveCursorBin(), args, cwd: opts.cwd }
+    if (!instructions) return { cmd: 'agent', args, cwd: opts.cwd }
     if (!opts.runtimeDir) throw new Error('cursor launch requires an instruction runtime directory')
     const manifestPath = join(opts.runtimeDir, '.cursor-plugin', 'plugin.json')
     const rulePath = join(opts.runtimeDir, 'rules', 'podium-session-context.mdc')
@@ -93,7 +92,7 @@ export const cursorManifest: AgentManifest = {
     const rule = `---\ndescription: Podium session context\nalwaysApply: true\n---\n\n${instructions}\n`
     // No effort flag (capabilities.effortFlag 'none') and no argv prompt.
     return {
-      cmd: resolveCursorBin(),
+      cmd: 'agent',
       args: [...args, '--plugin-dir', opts.runtimeDir],
       cwd: opts.cwd,
       files: [
@@ -103,13 +102,13 @@ export const cursorManifest: AgentManifest = {
     }
   },
 
-  exec: supported((opts, bins) => {
+  exec: supported((opts) => {
     // Cursor can persist a named CLI default that the current account cannot use;
     // pin Podium's absent/auto selection to Cursor's real Auto model.
     const model = opts.model || 'auto'
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
-    return { cmd: bins.cursor(), args: ['-p', '--model', model, prompt] }
+    return { cmd: 'agent', args: ['-p', '--model', model, prompt] }
   }),
 
   headless: supported({
@@ -119,7 +118,7 @@ export const cursorManifest: AgentManifest = {
     // on stdout) so even the first turn runs pinned via --resume.
     resumeIdAllocation: 'create-chat',
     noTools: 'unsupported',
-    buildExec: supported((opts, bins) => {
+    buildExec: supported((opts) => {
       // A preallocated chat otherwise inherits Cursor's persisted named model.
       // Pin Auto explicitly when Podium supplied no model override.
       const model = opts.model || 'auto'
@@ -127,7 +126,7 @@ export const cursorManifest: AgentManifest = {
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
       return {
-        cmd: bins.cursor(),
+        cmd: 'agent',
         args: [
           '-p',
           '--resume',

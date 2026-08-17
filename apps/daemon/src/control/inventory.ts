@@ -36,7 +36,7 @@ export const DEFAULT_INVENTORY_REFRESH_INTERVAL_MS = 60_000
 
 export async function reportInventory(
   ctx: DaemonContext,
-  opts: { rebuild?: boolean } = {},
+  opts: { rebuild?: boolean; reprobe?: boolean } = {},
 ): Promise<void> {
   // The separator is a real NUL written as an ESCAPE, deliberately. NUL cannot
   // occur in a machineId or a path, so the composite key can never collide --
@@ -44,6 +44,25 @@ export async function reportInventory(
   // BINARY, and grep then reports nothing and exits 1 rather than erroring.
   // scripts/check-no-nul-bytes.ts exists for exactly this mistake and caught
   // this line. [POD-758]
+  if (ctx.harnessRuntime) {
+    try {
+      const snapshot = await (opts.rebuild
+        ? ctx.harnessRuntime.refresh()
+        : opts.reprobe
+          ? ctx.harnessRuntime.reprobe()
+          : ctx.harnessRuntime.current())
+      if (!ctx.harnessRuntime.isCurrent(snapshot)) return
+      ctx.send({
+        type: 'inventoryReport',
+        machineId: asMachineId(ctx.machineId),
+        inventory: snapshot.inventory,
+      })
+    } catch (err) {
+      log.warn('inventory report failed', { err })
+    }
+    return
+  }
+
   const key = `${ctx.machineId}\u0000${ctx.homeDir ?? ''}`
   let pending: Promise<MachineHarnessInventory> | undefined
   try {
@@ -80,7 +99,7 @@ export function startInventoryRefresh(
   ctx: DaemonContext,
   intervalMs = DEFAULT_INVENTORY_REFRESH_INTERVAL_MS,
 ): () => void {
-  const timer = setInterval(() => void reportInventory(ctx, { rebuild: true }), intervalMs)
+  const timer = setInterval(() => void reportInventory(ctx, { reprobe: true }), intervalMs)
   timer.unref?.()
   return () => clearInterval(timer)
 }
@@ -113,14 +132,32 @@ async function runModelProbe(
 ): Promise<void> {
   let byAgent: Awaited<ReturnType<typeof probeAllModels>> = {}
   try {
+    const snapshot = await ctx.harnessRuntime?.current()
+    const credentialHome = ctx.accountHome?.path ?? ctx.homeDir
     byAgent = await probeAllModels({
-      // The daemon's own home, so the CLI probes run with the same user install
-      // roots on PATH that spawnEnv makes authoritative for every spawned agent
-      // (POD-362) — a systemd unit's inherited PATH has no ~/.local/bin.
-      ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+      ...(snapshot
+        ? {
+            executables: {
+              ...(snapshot.executables.get('grok')
+                ? { grok: snapshot.executables.get('grok')!.path }
+                : {}),
+              ...(snapshot.executables.get('cursor')
+                ? { cursor: snapshot.executables.get('cursor')!.path }
+                : {}),
+              ...(snapshot.executables.get('opencode')
+                ? { opencode: snapshot.executables.get('opencode')!.path }
+                : {}),
+              ...(snapshot.executables.get('codex')
+                ? { codex: snapshot.executables.get('codex')!.path }
+                : {}),
+            },
+            env: snapshot.commandEnvironment.env,
+          }
+        : {}),
+      ...(credentialHome ? { homeDir: credentialHome } : {}),
       claude: {
         ...(process.env.ANTHROPIC_API_KEY ? { apiKey: process.env.ANTHROPIC_API_KEY } : {}),
-        ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+        ...(credentialHome ? { homeDir: credentialHome } : {}),
       },
     })
   } catch (err) {

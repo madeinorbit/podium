@@ -1,11 +1,11 @@
-import type { HarnessBins, HarnessExecOptions, HarnessExecSpec } from '@podium/harness'
+import type { HarnessExecOptions, HarnessExecSpec } from '@podium/harness'
 import { harnessAdapterFor } from '@podium/harness'
 import type { HarnessAgent } from '@podium/model'
 
 /** @deprecated Unified with protocol's HarnessAgent (#158); kept as an alias. */
 export type HarnessAgentKind = HarnessAgent
 
-export type { HarnessBins, HarnessExecSpec }
+export type { HarnessExecSpec }
 
 /**
  * Build the CLI command + args for one non-interactive ("full harness") agent
@@ -19,7 +19,6 @@ export type { HarnessBins, HarnessExecSpec }
 export function buildHarnessExec(
   agent: HarnessAgent,
   opts: HarnessExecOptions,
-  bins: HarnessBins,
 ): HarnessExecSpec {
   const manifest = harnessAdapterFor(agent)
   if (!manifest) throw new Error(`no harness manifest for agent kind ${String(agent)}`)
@@ -29,5 +28,5 @@ export function buildHarnessExec(
     throw new Error(
       `harness ${manifest.kind} declares one-shot exec unsupported: ${manifest.exec.reason}`,
     )
-  return manifest.exec.value(opts, bins)
+  return manifest.exec.value(opts)
 }

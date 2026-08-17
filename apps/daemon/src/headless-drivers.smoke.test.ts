@@ -15,8 +15,8 @@ import {
   isOpencodeCliAvailable,
   resolveOpencodeBin,
 } from '../../../packages/harness/src/opencode/cli.js'
-import type { HarnessBins } from './harness-exec.js'
 import { runHeadlessTurn } from './headless-drivers.js'
+import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
 
 /**
  * REAL-BINARY smoke (repo rule from the #84 post-mortem): every constructed
@@ -34,7 +34,13 @@ const hasBin = (bin: string): boolean => {
   }
 }
 
-const bins: HarnessBins = { opencode: resolveOpencodeBin, cursor: resolveCursorBin }
+const snapshot = testHarnessSnapshot({
+  'claude-code': 'claude',
+  codex: 'codex',
+  grok: 'grok',
+  opencode: resolveOpencodeBin(),
+  cursor: resolveCursorBin(),
+})
 const identity = (agent: HarnessAgent) => ({
   accountId: asAccountId(`native:${agent}:smoke`),
   requestDigest: 'a'.repeat(64),
@@ -68,7 +74,7 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('claude'))(
           timeoutMs: 240_000,
         },
         (e) => events.push(e),
-        bins,
+        snapshot,
       )
       const r1 = await turn1.done
       expect(r1.harnessSessionId).toBe(sessionUuid)
@@ -87,7 +93,7 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('claude'))(
           timeoutMs: 240_000,
         },
         () => {},
-        bins,
+        snapshot,
       )
       const r2 = await turn2.done
       expect(r2.harnessSessionId).toBe(sessionUuid)
@@ -112,7 +118,7 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('codex'))(
           timeoutMs: 240_000,
         },
         (e) => events.push(e),
-        bins,
+        snapshot,
       )
       const r1 = await turn1.done
       expect(r1.harnessSessionId).toMatch(/^[0-9a-f-]{36}$/i)
@@ -129,7 +135,7 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('codex'))(
           timeoutMs: 240_000,
         },
         () => {},
-        bins,
+        snapshot,
       )
       const r2 = await turn2.done
       expect(r2.harnessSessionId).toBe(r1.harnessSessionId)
@@ -179,7 +185,7 @@ for (const smoke of resumeExecCases) {
             timeoutMs: 240_000,
           },
           () => {},
-          bins,
+          snapshot,
         )
         const r1 = await first.done
         expect(r1.harnessSessionId.length).toBeGreaterThan(0)
@@ -195,7 +201,7 @@ for (const smoke of resumeExecCases) {
             timeoutMs: 240_000,
           },
           () => {},
-          bins,
+          snapshot,
         )
         const r2 = await resumed.done
         expect(r2.harnessSessionId).toBe(r1.harnessSessionId)

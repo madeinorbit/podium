@@ -32,7 +32,8 @@
     "./migration-ledger": "./src/migration-ledger.ts",
     "./update-delivery": "./src/update-delivery.ts",
     "./update-delivery-git": "./src/update-delivery-git.ts",
-    "./source-version": "./src/source-version.ts"
+    "./source-version": "./src/source-version.ts",
+    "./command-environment": "./src/command-environment.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",

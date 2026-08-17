@@ -17,19 +17,14 @@ export function cursorBinCandidates(homeDir?: string): string[] {
   return [join(home, '.local', 'bin', 'agent'), 'agent']
 }
 
-let resolvedBin: string | undefined
-
 /** Resolve the Cursor Agent binary to an absolute path when possible. */
 export function resolveCursorBin(homeDir?: string): string {
-  if (resolvedBin && homeDir === undefined) return resolvedBin
   for (const candidate of cursorBinCandidates(homeDir)) {
     if (candidate !== 'agent' && !existsSync(candidate)) continue
     if (agentRuns(candidate)) {
-      if (homeDir === undefined) resolvedBin = candidate
       return candidate
     }
   }
-  if (homeDir === undefined) resolvedBin = 'agent'
   return 'agent'
 }
 

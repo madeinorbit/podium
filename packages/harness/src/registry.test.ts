@@ -78,7 +78,8 @@ describe('agent manifest registry', () => {
       // conversations for, is not a harness.
       expect(typeof manifest.launch).toBe('function')
       expect(manifest.discovery.agentKind).toBe(kind)
-      expect(typeof manifest.inventory.binCandidates).toBe('function')
+      expect(manifest.inventory.executable.names.length).toBeGreaterThan(0)
+      expect(manifest.inventory.executable.versionArgs.length).toBeGreaterThan(0)
       expect(typeof manifest.inventory.detectLogin).toBe('function')
       for (const [field, declaration] of [
         ['loginIdentity', manifest.inventory.loginIdentity],
@@ -355,7 +356,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       capabilities: { ...AGENT_MANIFESTS['claude-code'].capabilities },
       resumeKind: 'fictional-session',
       inventory: {
-        binCandidates: () => ['fictional'],
+        executable: { names: ['fictional'], versionArgs: ['--version'] },
         detectLogin: () => ({ state: 'unknown' }),
         loginCommand: unsupported('fictional harness'),
         loginIdentity: unsupported('fictional harness'),

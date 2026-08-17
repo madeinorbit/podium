@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import { harnessMcpConfigTransport, resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
+import { bindHarnessExec, buildResolvedInventory, harnessMcpConfigTransport } from '@podium/harness'
 import type { UsageBucketWire } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { bundleStagePath } from '../handoff-package'
@@ -119,12 +119,15 @@ async function runHarnessExec(
   try {
     // Inside the try: buildHarnessExec THROWS on a malformed codex MCP config
     // (refusing a silent tool-less run) — that must surface as a failed turn.
+    const snapshot = ctx.harnessRuntime
+      ? await ctx.harnessRuntime.current()
+      : await buildResolvedInventory({ ...(ctx.homeDir ? { machineHome: ctx.homeDir } : {}) })
     const {
       cmd,
       args,
       stdin,
       env: execEnv,
-    } = buildHarnessExec(
+    } = bindHarnessExec(snapshot, msg.agent, buildHarnessExec(
       msg.agent,
       {
         prompt: msg.prompt,
@@ -135,8 +138,7 @@ async function runHarnessExec(
         ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
         ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
       },
-      { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
-    )
+    ))
     // promisified execFile still exposes the child: deliver the prompt on
     // stdin (claude — variadic --allowedTools would eat an argv prompt) and
     // ALWAYS close the pipe, or stdin-appending CLIs (codex) block on EOF.

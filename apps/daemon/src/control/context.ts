@@ -10,6 +10,7 @@ import type { BindingStore } from '../binding-store'
 import type { BrowserOpenManager } from '../browser-open'
 import type { ComposerSyncEngine } from '../composer-sync'
 import type { HeadlessTurnHandle } from '../headless-drivers.js'
+import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
 import type { SessionBinding } from '../session-binding'
@@ -41,8 +42,10 @@ export interface DaemonContext {
   durableLabels: Map<SessionId, string>
   durableLabelFor(sessionId: SessionId): string
   backend: DurableBackend
-  /** Maps an agent kind to a spawn command (tests inject a fixture). */
+  /** Legacy pure argv builder retained as a test seam. Production launches through harnessRuntime. */
   launch: typeof agentLaunchCommand
+  /** Generation-bound executable inventory and launch service. */
+  harnessRuntime?: DaemonHarnessRuntime
   /** Where per-session hook settings files are written. */
   settingsDir: string
   /** Discovery homeDir override (tests / isolated HOME); undefined = real home. */

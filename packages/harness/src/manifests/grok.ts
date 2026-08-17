@@ -129,7 +129,7 @@ export const grokManifest: AgentManifest = {
   resumeKind: 'grok-session',
 
   inventory: {
-    binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'grok'), 'grok'],
+    executable: { names: ['grok'], versionArgs: ['--version'] },
     loginCommand: supported({ cmd: 'grok', args: ['login'] }),
     loginIdentity: supported((homeDir) => grokIdentity(grokHome(homeDir))),
     portableCredential: supported({ files: ['.grok/auth.json'], compareFreshness: () => null }),
