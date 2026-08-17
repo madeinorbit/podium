@@ -15,6 +15,12 @@ See **[docs/agents/driving-podium.md](docs/agents/driving-podium.md)** for how t
 Podium through Playwright or the native Linux shell — including isolation, the `?e2e=1`
 test API, terminal cells, and choosing the harness vs. a live instance.
 
+A browser cannot stand in for the desktop shell when the boundary IS the shell: the
+all-in-one window loads the bundled UI from `tauri://localhost` and talks to a loopback
+backend, so cross-origin, cookie and sidecar-spawn behavior only reproduce there. See
+**[docs/agents/driving-desktop.md](docs/agents/driving-desktop.md)** — including the
+isolation this needs, since the shell spawns its sidecar with `--takeover`.
+
 ## Testing independent instances
 
 When changing instance identity, state, endpoints, CLI routing, agent ownership, or lifecycle
@@ -96,6 +102,7 @@ known, use `-- --uncached-because="<missing input>"` and file the gap; bare `--f
 
 - [docs/multi-instance.md](docs/multi-instance.md) — operate and test fully independent instances on one machine.
 - [docs/agents/driving-podium.md](docs/agents/driving-podium.md) — drive the Podium UI with Playwright to verify features at runtime.
+- [docs/agents/driving-desktop.md](docs/agents/driving-desktop.md) — run the Tauri desktop shell headlessly, for the few properties only the real webview answers (cross-origin, cookies, sidecar spawn).
 - [docs/agents/agent-state-classification.md](docs/agents/agent-state-classification.md) — how agent run-state is classified from transcripts.
 - [docs/agents/podium-issues.md](docs/agents/podium-issues.md) — use the `podium issue` CLI to track work from inside a session.
 - [docs/agents/delegating.md](docs/agents/delegating.md) — spawn other agents: placement, naming, concurrency, advisory locks.
