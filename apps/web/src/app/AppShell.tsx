@@ -152,7 +152,7 @@ export function AppShell(): JSX.Element {
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
-  const kernel = useKernelReplica({ trpc: gateTrpc })
+  const kernel = useKernelReplica({ trpc: gateTrpc, httpOrigin: config.httpOrigin })
 
   // Queued offline writes the boot migration could not simply carry across
   // (POD-1232). Shown once, as a toast rather than a console line, because the

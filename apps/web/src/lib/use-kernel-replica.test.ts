@@ -18,6 +18,34 @@ describe('offline replica principal resolution', () => {
     ).resolves.toBe('alice')
   })
 
+  it('resolves the status route against the server origin, not the page origin', async () => {
+    // The desktop all-in-one webview runs on tauri://localhost, where a relative
+    // /auth/status is answered by the bundled SPA, not the server.
+    const fetched: unknown[] = []
+    vi.stubGlobal('fetch', async (input: unknown) => {
+      fetched.push(input)
+      return response({ userId: 'alice' })
+    })
+    await expect(
+      resolveReplicaPrincipal({ httpOrigin: 'http://backend.test:1234' }),
+    ).resolves.toBe('alice')
+    expect(fetched).toEqual(['http://backend.test:1234/auth/status'])
+  })
+
+  it('treats an HTML 200 answer as an unavailable account, not a parse crash', async () => {
+    // A backend (or SPA fallback) serving index.html for /auth/status must fail
+    // closed with the gate's own message, not WebKit's bare SyntaxError.
+    await expect(
+      resolveReplicaPrincipal({
+        fetchStatus: async () =>
+          new Response('<!doctype html><html></html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+          }),
+      }),
+    ).rejects.toThrow('authenticated account is unavailable')
+  })
+
   it('uses exactly one existing namespaced principal after a network failure', async () => {
     await expect(
       resolveReplicaPrincipal({
@@ -80,6 +108,27 @@ describe('private replica boot failure', () => {
     vi.unstubAllGlobals()
   })
 
+  it('hands the server origin to the principal resolver', async () => {
+    const resolvePrincipal = vi.fn(async () => 'alice')
+    const openAssembly = vi.fn(async () => {
+      throw new DOMException('IndexedDB is blocked', 'SecurityError')
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const { result, unmount } = renderHook(() =>
+      useKernelReplica({
+        trpc: {} as Trpc,
+        httpOrigin: 'http://backend.test:1234',
+        resolvePrincipal,
+        openAssembly,
+      }),
+    )
+
+    await waitFor(() => expect(result.current.status).toBe('failed'))
+    expect(resolvePrincipal).toHaveBeenCalledWith({ httpOrigin: 'http://backend.test:1234' })
+    unmount()
+  })
+
   it('stays fatal when the supported private replica cannot open', async () => {
     const resolvePrincipal = vi.fn(async () => 'alice')
     const openAssembly = vi.fn(async () => {
@@ -88,7 +137,7 @@ describe('private replica boot failure', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
     const { result, unmount } = renderHook(() =>
-      useKernelReplica({ trpc: {} as Trpc, resolvePrincipal, openAssembly }),
+      useKernelReplica({ trpc: {} as Trpc, httpOrigin: '', resolvePrincipal, openAssembly }),
     )
 
     await waitFor(() => {

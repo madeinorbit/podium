@@ -48,6 +48,12 @@ export type KernelReplicaGate =
     }
 
 export interface ResolveReplicaPrincipalOptions {
+  /** The server's HTTP origin from `serverConfig`. The status fetch must target
+   *  it explicitly: the desktop all-in-one webview runs on tauri://localhost,
+   *  where a relative /auth/status is answered by the bundled SPA's index.html —
+   *  a 200 whose HTML body used to surface as WebKit's bare "The string did not
+   *  match the expected pattern." and kill the boot gate. */
+  readonly httpOrigin?: string
   readonly fetchStatus?: () => Promise<Response>
   readonly inspectNamespaces?: () => readonly string[]
 }
@@ -64,7 +70,7 @@ export interface ResolveReplicaPrincipalOptions {
 export async function resolveReplicaPrincipal(
   options: ResolveReplicaPrincipalOptions = {},
 ): Promise<string> {
-  const fetchStatus = options.fetchStatus ?? (() => fetch('/auth/status'))
+  const fetchStatus = options.fetchStatus ?? (() => fetch(`${options.httpOrigin ?? ''}/auth/status`))
   let response: Response
   try {
     response = await fetchStatus()
@@ -87,7 +93,15 @@ export async function resolveReplicaPrincipal(
   }
 
   if (!response.ok) throw new Error('authenticated account is unavailable')
-  const status = (await response.json()) as { userId?: unknown }
+  // A 200 whose body is not JSON (an SPA fallback or a proxy's HTML page) is a
+  // backend that cannot vouch for an account. Same fail-closed answer as a
+  // refusal — never a raw parse error, and never a fall back to device data.
+  let status: { userId?: unknown }
+  try {
+    status = (await response.json()) as { userId?: unknown }
+  } catch {
+    throw new Error('authenticated account is unavailable')
+  }
   if (typeof status.userId !== 'string' || status.userId.length === 0) {
     throw new Error('authenticated account is unavailable')
   }
@@ -119,11 +133,14 @@ declare global {
 
 export function useKernelReplica(args: {
   trpc: Trpc
+  /** The server origin every gate request targets — see ResolveReplicaPrincipalOptions. */
+  httpOrigin: string
   resolvePrincipal?: typeof resolveReplicaPrincipal
   openAssembly?: typeof openKernelAssembly
 }): KernelReplicaGate {
   const {
     trpc,
+    httpOrigin,
     resolvePrincipal = resolveReplicaPrincipal,
     openAssembly = openKernelAssembly,
   } = args
@@ -135,7 +152,7 @@ export function useKernelReplica(args: {
     void (async () => {
       if (!alive) return
       try {
-        const principal = await resolvePrincipal()
+        const principal = await resolvePrincipal({ httpOrigin })
         // Captured DURING the open: the migration runs inside `openKernelAssembly`
         // and reports through `onDegraded`, which is the only channel that exists
         // before the store (and its toasts) are mounted.
@@ -179,7 +196,7 @@ export function useKernelReplica(args: {
       alive = false
       if (opened) void opened.dispose()
     }
-  }, [openAssembly, resolvePrincipal, trpc])
+  }, [httpOrigin, openAssembly, resolvePrincipal, trpc])
 
   return gate
 }
