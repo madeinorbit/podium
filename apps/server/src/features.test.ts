@@ -7,33 +7,41 @@ function settings(experimental: Record<string, boolean> = {}): PodiumSettings {
   return { ...DEFAULT_SETTINGS, experimental }
 }
 
+// `shipwright` stands in for the hidden tier throughout this block: the resolve
+// rules are per-visibility, not per-flag, and this is the registry's hidden entry.
+// If it ever widens, retarget these at whatever is hidden then — the rules under
+// test are the tier's, and the exhaustive per-tier matrix lives in
+// packages/protocol/src/features.test.ts.
+const HIDDEN = 'shipwright'
+
 describe('getFeatureStates [spec:SP-f4b9]', () => {
-  it('dev mode lists hidden sample-experiment; default off', () => {
+  it('dev mode lists a hidden flag with its definition copy; default off', () => {
     const result = getFeatureStates(settings(), {}, { PODIUM_APP_VERSION: 'dev' })
     expect(result.devMode).toBe(true)
     expect(result.channel).toBe('stable')
-    const sample = result.flags.find((f) => f.id === 'sample-experiment')
-    expect(sample).toMatchObject({
+    const hidden = result.flags.find((f) => f.id === HIDDEN)
+    expect(hidden).toMatchObject({
       listed: true,
       enabled: false,
       source: 'default',
       locked: false,
       visibility: 'hidden',
-      name: 'Sample experiment',
     })
+    expect(hidden?.name.length ?? 0).toBeGreaterThan(0)
+    expect(hidden?.description.length ?? 0).toBeGreaterThan(0)
   })
 
   it('production stable does not list hidden flags', () => {
     const result = getFeatureStates(
-      settings({ 'sample-experiment': true }),
+      settings({ [HIDDEN]: true }),
       {},
       {
         PODIUM_APP_VERSION: '1.2.3',
       },
     )
     expect(result.devMode).toBe(false)
-    const sample = result.flags.find((f) => f.id === 'sample-experiment')
-    expect(sample).toMatchObject({
+    const hidden = result.flags.find((f) => f.id === HIDDEN)
+    expect(hidden).toMatchObject({
       listed: false,
       enabled: false,
       source: 'default',
@@ -43,13 +51,13 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
 
   it('honors user toggle when listed (dev)', () => {
     const result = getFeatureStates(
-      settings({ 'sample-experiment': true }),
+      settings({ [HIDDEN]: true }),
       {},
       {
         PODIUM_APP_VERSION: 'dev',
       },
     )
-    expect(result.flags.find((f) => f.id === 'sample-experiment')).toMatchObject({
+    expect(result.flags.find((f) => f.id === HIDDEN)).toMatchObject({
       listed: true,
       enabled: true,
       source: 'user',
@@ -58,11 +66,11 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
   })
 
   it('config override force-enables and locks', () => {
-    const config: PodiumConfig = { features: { 'sample-experiment': true } }
-    const result = getFeatureStates(settings({ 'sample-experiment': false }), config, {
+    const config: PodiumConfig = { features: { [HIDDEN]: true } }
+    const result = getFeatureStates(settings({ [HIDDEN]: false }), config, {
       PODIUM_APP_VERSION: '1.0.0',
     })
-    expect(result.flags.find((f) => f.id === 'sample-experiment')).toMatchObject({
+    expect(result.flags.find((f) => f.id === HIDDEN)).toMatchObject({
       listed: false,
       enabled: true,
       source: 'config',
@@ -71,11 +79,11 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
   })
 
   it('config force-disables even when user is on and listed', () => {
-    const config: PodiumConfig = { features: { 'sample-experiment': false } }
-    const result = getFeatureStates(settings({ 'sample-experiment': true }), config, {
+    const config: PodiumConfig = { features: { [HIDDEN]: false } }
+    const result = getFeatureStates(settings({ [HIDDEN]: true }), config, {
       PODIUM_APP_VERSION: 'dev',
     })
-    expect(result.flags.find((f) => f.id === 'sample-experiment')).toMatchObject({
+    expect(result.flags.find((f) => f.id === HIDDEN)).toMatchObject({
       listed: true,
       enabled: false,
       source: 'config',
@@ -100,28 +108,21 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
 
 describe('isFeatureEnabled', () => {
   it('returns false by default', () => {
-    expect(
-      isFeatureEnabled('sample-experiment', settings(), {}, { PODIUM_APP_VERSION: 'dev' }),
-    ).toBe(false)
+    expect(isFeatureEnabled(HIDDEN, settings(), {}, { PODIUM_APP_VERSION: 'dev' })).toBe(false)
   })
 
   it('returns true when user enabled in dev', () => {
     expect(
-      isFeatureEnabled(
-        'sample-experiment',
-        settings({ 'sample-experiment': true }),
-        {},
-        { PODIUM_APP_VERSION: 'dev' },
-      ),
+      isFeatureEnabled(HIDDEN, settings({ [HIDDEN]: true }), {}, { PODIUM_APP_VERSION: 'dev' }),
     ).toBe(true)
   })
 
   it('returns true when config forces on (even unlisted)', () => {
     expect(
       isFeatureEnabled(
-        'sample-experiment',
+        HIDDEN,
         settings(),
-        { features: { 'sample-experiment': true } },
+        { features: { [HIDDEN]: true } },
         { PODIUM_APP_VERSION: '1.0.0' },
       ),
     ).toBe(true)

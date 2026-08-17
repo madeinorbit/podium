@@ -99,13 +99,6 @@ describe('FEATURES registry', () => {
     expect(FEATURES).toEqual(
       expect.arrayContaining([
         {
-          id: 'sample-experiment',
-          name: 'Sample experiment',
-          description:
-            'Demonstrates the experimental-features system. Does nothing; remove when the first real flag lands.',
-          visibility: 'hidden',
-        },
-        {
           id: 'draft-sync',
           name: 'Draft sync',
           description:

@@ -21,13 +21,6 @@ export interface FeatureDefinition {
 
 export const FEATURES = [
   {
-    id: 'sample-experiment',
-    name: 'Sample experiment',
-    description:
-      'Demonstrates the experimental-features system. Does nothing; remove when the first real flag lands.',
-    visibility: 'hidden',
-  },
-  {
     // Draft Sync v2 (POD-859). Edge-visibility: listed in Settings → Experimental on
     // edge-channel installs; enablement flows through resolveFeatureState like any
     // other flag. Ships dark (default off) — off = today's client-scraped behavior.
