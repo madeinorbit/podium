@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/clipboard'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { Row, Section } from './shared'
 import {
@@ -169,6 +170,16 @@ export function UpdatesSection(): JSX.Element {
       const result = await trpc.setup.setChannel.mutate({ channel: next })
       setChannel(result.channel)
       setEnvForced(result.envForced)
+      // The server owns the fleet choice, while this bridge owns the installed shell's native
+      // fallback. Development uses the edge desktop feed; desktop has no third release channel.
+      const persist = nativeDesktopBridge()?.setUpdateChannel
+      if (persist) {
+        try {
+          await persist(result.channel === 'stable' ? 'stable' : 'edge')
+        } catch (e) {
+          setChannelError(e instanceof Error ? e.message : String(e))
+        }
+      }
     } catch (e) {
       setChannel(prev)
       setChannelError(e instanceof Error ? e.message : String(e))

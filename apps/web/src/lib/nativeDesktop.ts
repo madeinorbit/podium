@@ -34,6 +34,8 @@ export interface NativeDesktopBridge {
    * Older shells ignore the extra argument, which is why it stays optional.
    */
   installUpdate?: (channel?: NativeDesktopUpdateChannel) => Promise<void>
+  /** Persists the user's production feed choice for native update checks without a page. */
+  setUpdateChannel?: (channel: NativeDesktopUpdateChannel) => Promise<void>
   /**
    * Opens a URL in the OS browser. Needed for the server's OWN URLs: the shell's link shim
    * only diverts cross-origin links, so a same-origin `_blank` lands in an in-app webview

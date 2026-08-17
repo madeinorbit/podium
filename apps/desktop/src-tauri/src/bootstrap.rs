@@ -18,20 +18,38 @@ pub fn pick_free_port() -> u16 {
         .unwrap_or(18787)
 }
 
-/// Desktop release channel persisted in the shared Podium config.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// Desktop release channel persisted in the shared Podium config or stamped into the build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateChannel {
-    #[default]
     Stable,
     Edge,
 }
 
 impl UpdateChannel {
-    fn from_config(value: Option<&str>) -> Self {
+    pub fn from_config(value: Option<&str>) -> Option<Self> {
         match value {
-            Some("edge") => Self::Edge,
-            _ => Self::Stable,
+            Some("stable") => Some(Self::Stable),
+            Some("edge") => Some(Self::Edge),
+            _ => None,
         }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Edge => "edge",
+        }
+    }
+}
+
+/// The release workflow sets this for every shipped desktop artifact. Local builds are not
+/// promoted from a channel, so they retain the historical stable fallback (and cannot update in
+/// debug mode anyway).
+pub fn build_update_channel() -> UpdateChannel {
+    match option_env!("PODIUM_DESKTOP_RELEASE_CHANNEL") {
+        Some("edge") => UpdateChannel::Edge,
+        Some("stable") | None => UpdateChannel::Stable,
+        Some(value) => panic!("invalid PODIUM_DESKTOP_RELEASE_CHANNEL: {value}"),
     }
 }
 
@@ -40,7 +58,9 @@ impl UpdateChannel {
 pub struct DesktopConfig {
     pub mode: Option<String>,
     pub server_url: Option<String>,
-    pub update_channel: UpdateChannel,
+    /// A valid user choice from config.json. Absence and unknown values deliberately remain
+    /// distinguishable so the updater can fall back to the channel stamped into this build.
+    pub update_channel: Option<UpdateChannel>,
 }
 
 /// What the shell should do at launch, derived purely from the config.
@@ -119,8 +139,8 @@ fn is_local_host(action: &LaunchAction) -> bool {
 }
 
 /// Read `$PODIUM_STATE_DIR/config.json` else `~/.podium/config.json`, extracting `mode`,
-/// `serverUrl`, and `updateChannel`. A missing or corrupt file yields an empty config
-/// (→ all-in-one behavior on the stable update channel).
+/// `serverUrl`, and `updateChannel`. A missing or corrupt file yields an empty config; the updater
+/// resolves the missing channel against the build stamp rather than inventing a persisted choice.
 pub fn read_config() -> DesktopConfig {
     let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -144,9 +164,8 @@ pub fn read_config() -> DesktopConfig {
             .get("serverUrl")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        // [spec:SP-7f2c] Desktop releases have only explicit stable/edge channels.
-        // Missing or unrecognized values fail closed to stable rather than inventing a
-        // development channel or an arbitrary feed.
+        // [spec:SP-7f2c] Missing or unrecognized values are not user choices, so the channel
+        // stamped into the installed build remains authoritative.
         update_channel: UpdateChannel::from_config(
             json.get("updateChannel").and_then(|v| v.as_str()),
         ),
@@ -356,6 +375,35 @@ pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
     );
     let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     // Write-then-rename so a crash mid-write can't leave a truncated config.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, format!("{out}\n"))
+        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+}
+
+/// Persist the desktop updater's production channel without disturbing config fields owned by
+/// the server. Unlike the hosting transition this is valid before config.json exists: choosing a
+/// channel in the app is enough to create the user's override.
+pub fn write_update_channel(channel: UpdateChannel) -> Result<(), String> {
+    let path = state_dir().join("config.json");
+    let mut json = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
+            .map_err(|e| format!("config.json is not valid JSON: {e}"))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::Value::Object(serde_json::Map::new())
+        }
+        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
+    };
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| "config.json is not a JSON object".to_string())?;
+    obj.insert(
+        "updateChannel".to_string(),
+        serde_json::Value::String(channel.as_str().to_string()),
+    );
+    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(state_dir())
+        .map_err(|e| format!("cannot create {}: {e}", state_dir().display()))?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, format!("{out}\n"))
         .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
@@ -656,6 +704,7 @@ pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::updater::resolve_update_channel;
     use std::sync::Mutex;
 
     // Serializes tests that mutate the PODIUM_STATE_DIR env var (env is process-global).
@@ -1052,7 +1101,7 @@ mod tests {
         let cfg = read_config();
         assert_eq!(cfg.mode.as_deref(), Some("daemon"));
         assert_eq!(cfg.server_url.as_deref(), Some("ws://h:9"));
-        assert_eq!(cfg.update_channel, UpdateChannel::Edge);
+        assert_eq!(cfg.update_channel, Some(UpdateChannel::Edge));
         match prev {
             Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
             None => std::env::remove_var("PODIUM_STATE_DIR"),
@@ -1061,7 +1110,7 @@ mod tests {
     }
 
     #[test]
-    fn read_config_defaults_unknown_update_channel_to_stable() {
+    fn unknown_config_value_falls_back_to_build_channel() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = std::env::temp_dir().join(format!("podium-cfg-channel-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1069,7 +1118,12 @@ mod tests {
         std::fs::write(tmp.join("config.json"), r#"{"updateChannel":"nightly"}"#).unwrap();
         let prev = std::env::var("PODIUM_STATE_DIR").ok();
         std::env::set_var("PODIUM_STATE_DIR", &tmp);
-        assert_eq!(read_config().update_channel, UpdateChannel::Stable);
+        let persisted = read_config().update_channel;
+        assert_eq!(persisted, None);
+        assert_eq!(
+            resolve_update_channel(None, persisted, UpdateChannel::Edge),
+            UpdateChannel::Edge
+        );
         match prev {
             Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
             None => std::env::remove_var("PODIUM_STATE_DIR"),
@@ -1094,6 +1148,28 @@ mod tests {
             None => std::env::remove_var("PODIUM_STATE_DIR"),
         }
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn stable_user_choice_persists_and_wins_over_edge_build() {
+        with_state_dir(
+            "channel-persist",
+            Some(r#"{"mode":"client","extra":42}"#),
+            || {
+                write_update_channel(UpdateChannel::Stable).expect("channel write failed");
+                let persisted = read_config().update_channel;
+                assert_eq!(persisted, Some(UpdateChannel::Stable));
+                assert_eq!(
+                    resolve_update_channel(None, persisted, UpdateChannel::Edge),
+                    UpdateChannel::Stable
+                );
+                let raw: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(raw["extra"], 42);
+            },
+        );
     }
 
     #[test]

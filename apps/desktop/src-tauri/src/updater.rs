@@ -1,4 +1,4 @@
-use crate::bootstrap::UpdateChannel;
+use crate::bootstrap::{build_update_channel, write_update_channel, UpdateChannel};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -145,13 +145,14 @@ pub fn progress_percent(received: u64, total: Option<u64>) -> Option<u8> {
     Some(received.saturating_mul(100).checked_div(total)?.min(100) as u8)
 }
 
-/// Bridge calls always supply a server-resolved channel. Shell config is consulted
-/// only by the native fallback, where no page exists to provide one.
+/// Resolve one updater authority everywhere. Precedence is the explicit bridge argument, then the
+/// persisted user choice, then the channel stamped into the installed build. [spec:SP-7f2c]
 pub fn resolve_update_channel(
     argument: Option<UpdateChannel>,
-    config: UpdateChannel,
+    persisted: Option<UpdateChannel>,
+    build: UpdateChannel,
 ) -> UpdateChannel {
-    argument.unwrap_or(config)
+    argument.or(persisted).unwrap_or(build)
 }
 
 pub fn should_install_native_update(update_available: bool, confirmed: bool) -> bool {
@@ -383,6 +384,14 @@ pub fn claim_update_ownership(ownership: State<'_, UpdateOwnership>) -> Result<(
     Ok(())
 }
 
+/// Keep the shell's native fallback on the same production feed the user chose in the app.
+#[tauri::command]
+pub fn set_update_channel(channel: String) -> Result<(), String> {
+    let channel = channel_from_name(&channel)
+        .map_err(|_| "unsupported desktop update channel".to_string())?;
+    write_update_channel(channel)
+}
+
 /// Check a production feed and retain the signed update for a later install command.
 #[tauri::command]
 pub async fn check_update(
@@ -481,13 +490,20 @@ pub async fn install_update(
 
 /// When the page does not claim update ownership, check the configured channel and
 /// offer a minimal native install path. Network failures remain non-fatal at launch.
-pub async fn check_and_prompt_update(app: AppHandle, config_channel: UpdateChannel) {
+pub async fn check_and_prompt_update(
+    app: AppHandle,
+    persisted_channel: Option<UpdateChannel>,
+) {
     if !production_auto_update_enabled(cfg!(debug_assertions)) {
         log::info!("production auto-update disabled in debug builds");
         return;
     }
 
-    let channel = resolve_update_channel(None, config_channel);
+    let channel = resolve_update_channel(
+        None,
+        persisted_channel,
+        build_update_channel(),
+    );
     let updater = match updater_for_channel(&app, channel) {
         Ok(updater) => updater,
         Err(error) => {
@@ -700,13 +716,29 @@ mod tests {
     }
 
     #[test]
-    fn bridge_argument_wins_and_config_is_fallback_only() {
+    fn an_edge_build_without_config_resolves_edge() {
         assert_eq!(
-            resolve_update_channel(Some(UpdateChannel::Edge), UpdateChannel::Stable),
+            resolve_update_channel(None, None, UpdateChannel::Edge),
             UpdateChannel::Edge
         );
+    }
+
+    #[test]
+    fn explicit_bridge_argument_wins_over_persisted_choice_and_build() {
         assert_eq!(
-            resolve_update_channel(None, UpdateChannel::Stable),
+            resolve_update_channel(
+                Some(UpdateChannel::Edge),
+                Some(UpdateChannel::Stable),
+                UpdateChannel::Stable,
+            ),
+            UpdateChannel::Edge
+        );
+    }
+
+    #[test]
+    fn persisted_choice_wins_over_build_channel() {
+        assert_eq!(
+            resolve_update_channel(None, Some(UpdateChannel::Stable), UpdateChannel::Edge),
             UpdateChannel::Stable
         );
     }
