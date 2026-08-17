@@ -765,6 +765,14 @@ fn main() {
                     MenuItemBuilder::with_id("about-podium", "About Podium ADE").build(app)?;
                 let check_updates =
                     MenuItemBuilder::with_id("check-updates", "Check for Updates…").build(app)?;
+                // Cmd+, is where macOS keeps app preferences, and like Cmd+N/W below
+                // the chord only exists if a menu item claims it — the webview never
+                // sees it otherwise. It opens the web app's Settings sheet (an
+                // overlay over the held shell, not a second window), so the ellipsis
+                // is honest and matches the rest of this menu's grammar.
+                let settings = MenuItemBuilder::with_id("open-settings", "Settings…")
+                    .accelerator("CmdOrCtrl+,")
+                    .build(app)?;
                 // Hide/Quit carry the app name explicitly. Left to their defaults, the
                 // predefined items title themselves from NSRunningApplication's
                 // localizedName, which reads CFBundleDisplayName/CFBundleName — and
@@ -778,6 +786,8 @@ fn main() {
                 let podium_menu = SubmenuBuilder::new(app, "Podium ADE")
                     .item(&about)
                     .item(&check_updates)
+                    .separator()
+                    .item(&settings)
                     .separator()
                     .services()
                     .separator()
@@ -1004,6 +1014,7 @@ fn main() {
             "add-project" => eval_menu_hook(app, "__PODIUM_ADD_PROJECT__"),
             "about-podium" => eval_menu_hook(app, "__PODIUM_ABOUT__"),
             "check-updates" => eval_menu_hook(app, "__PODIUM_CHECK_UPDATES__"),
+            "open-settings" => eval_menu_hook(app, "__PODIUM_SETTINGS__"),
             "focus-session-prompt" => eval_menu_hook(app, "__PODIUM_FOCUS_SESSION_PROMPT__"),
             "toggle-session-view" => eval_menu_hook(app, "__PODIUM_TOGGLE_SESSION_VIEW__"),
             "toggle-left-sidebar" => eval_menu_hook(app, "__PODIUM_TOGGLE_LEFT_SIDEBAR__"),

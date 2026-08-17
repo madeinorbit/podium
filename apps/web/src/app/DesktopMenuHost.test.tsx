@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  openSettings: vi.fn(),
   toggleLeft: vi.fn(),
   toggleFlight: vi.fn(),
   toggleRight: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock('./use-desktop-close-tab', () => ({
 
 vi.mock('./AboutPodium', () => ({
   AboutPodium: ({ open }: { open: boolean }) =>
-    open ? <div role="dialog" aria-label="About Podium ADE" /> : null,
+    open ? <div role="dialog" aria-label="Podium ADE" /> : null,
 }))
 
 import { DesktopMenuHost } from './DesktopMenuHost'
@@ -35,14 +36,16 @@ afterEach(() => {
   vi.clearAllMocks()
   delete desktopGlobal.__PODIUM_DESKTOP__
   delete (globalThis as { __PODIUM_ABOUT__?: unknown }).__PODIUM_ABOUT__
+  delete (globalThis as { __PODIUM_SETTINGS__?: unknown }).__PODIUM_SETTINGS__
   delete (globalThis as { __PODIUM_ADD_PROJECT__?: unknown }).__PODIUM_ADD_PROJECT__
   delete (globalThis as { __PODIUM_TOGGLE_LEFT_SIDEBAR__?: unknown }).__PODIUM_TOGGLE_LEFT_SIDEBAR__
 })
 
 describe('DesktopMenuHost', () => {
-  it('routes About, Add Project, and sidebar toggles from the macOS menu hooks', async () => {
+  it('routes About, Settings, Add Project, and sidebar toggles from the macOS menu hooks', async () => {
     render(
       <DesktopMenuHost
+        openSettings={mocks.openSettings}
         toggleLeftSidebar={mocks.toggleLeft}
         toggleFlightDeck={mocks.toggleFlight}
         toggleRightSidebar={mocks.toggleRight}
@@ -51,6 +54,7 @@ describe('DesktopMenuHost', () => {
 
     const g = globalThis as {
       __PODIUM_ABOUT__?: () => void
+      __PODIUM_SETTINGS__?: () => void
       __PODIUM_ADD_PROJECT__?: () => void
       __PODIUM_TOGGLE_LEFT_SIDEBAR__?: () => void
       __PODIUM_TOGGLE_FLIGHT_DECK__?: () => void
@@ -58,9 +62,11 @@ describe('DesktopMenuHost', () => {
     }
 
     g.__PODIUM_ABOUT__?.()
-    await waitFor(() =>
-      expect(screen.getByRole('dialog', { name: 'About Podium ADE' })).toBeTruthy(),
-    )
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Podium ADE' })).toBeTruthy())
+
+    // ⌘, opens the Settings sheet over whichever mode the shell is holding.
+    g.__PODIUM_SETTINGS__?.()
+    expect(mocks.openSettings).toHaveBeenCalledOnce()
 
     g.__PODIUM_ADD_PROJECT__?.()
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Add project' })).toBeTruthy())
@@ -77,6 +83,7 @@ describe('DesktopMenuHost', () => {
     desktopGlobal.__PODIUM_DESKTOP__ = { platform: 'macos' }
     render(
       <DesktopMenuHost
+        openSettings={mocks.openSettings}
         toggleLeftSidebar={mocks.toggleLeft}
         toggleFlightDeck={mocks.toggleFlight}
         toggleRightSidebar={mocks.toggleRight}
@@ -97,6 +104,7 @@ describe('DesktopMenuHost', () => {
   it('leaves ⌘B to the browser when this is not the desktop shell', () => {
     render(
       <DesktopMenuHost
+        openSettings={mocks.openSettings}
         toggleLeftSidebar={mocks.toggleLeft}
         toggleFlightDeck={mocks.toggleFlight}
         toggleRightSidebar={mocks.toggleRight}

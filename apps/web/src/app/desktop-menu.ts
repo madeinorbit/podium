@@ -36,6 +36,7 @@ type MenuHook = () => void | boolean
 export interface DesktopMenuHooks {
   about?: MenuHook
   checkUpdates?: MenuHook
+  settings?: MenuHook
   addProject?: MenuHook
   toggleLeftSidebar?: MenuHook
   toggleFlightDeck?: MenuHook
@@ -46,6 +47,7 @@ export interface DesktopMenuHooks {
 type DesktopMenuGlobals = {
   __PODIUM_ABOUT__?: MenuHook
   __PODIUM_CHECK_UPDATES__?: MenuHook
+  __PODIUM_SETTINGS__?: MenuHook
   __PODIUM_ADD_PROJECT__?: MenuHook
   __PODIUM_TOGGLE_LEFT_SIDEBAR__?: MenuHook
   __PODIUM_TOGGLE_FLIGHT_DECK__?: MenuHook
@@ -56,6 +58,7 @@ type DesktopMenuGlobals = {
 const GLOBAL_KEYS = [
   ['about', '__PODIUM_ABOUT__'],
   ['checkUpdates', '__PODIUM_CHECK_UPDATES__'],
+  ['settings', '__PODIUM_SETTINGS__'],
   ['addProject', '__PODIUM_ADD_PROJECT__'],
   ['toggleLeftSidebar', '__PODIUM_TOGGLE_LEFT_SIDEBAR__'],
   ['toggleFlightDeck', '__PODIUM_TOGGLE_FLIGHT_DECK__'],

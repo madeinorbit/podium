@@ -60,9 +60,13 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('__PODIUM_NEW_AGENT__')
   })
 
-  it('owns About, updates, Add Project, and View sidebar toggles', () => {
+  it('owns About, updates, Settings, Add Project, and View sidebar toggles', () => {
     expect(mainSource).toContain('MenuItemBuilder::with_id("about-podium", "About Podium ADE")')
     expect(mainSource).toContain('MenuItemBuilder::with_id("check-updates", "Check for Updates…")')
+    expect(mainSource).toContain('MenuItemBuilder::with_id("open-settings", "Settings…")')
+    // ⌘, is where macOS users look for preferences, and only a menu item can
+    // claim it — an unowned accelerator never reaches WKWebView.
+    expect(mainSource).toMatch(/"open-settings"[^;]*\.accelerator\("CmdOrCtrl\+,"\)/)
     expect(mainSource).toContain('MenuItemBuilder::with_id("add-project", "Add Project…")')
     expect(mainSource).toContain(
       'MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")',
@@ -82,6 +86,7 @@ describe('tauri desktop config', () => {
     expect(mainSource).toMatch(/"toggle-left-sidebar"[^;]*\.accelerator\("Shift\+CmdOrCtrl\+B"\)/)
     expect(mainSource).toContain('__PODIUM_ABOUT__')
     expect(mainSource).toContain('__PODIUM_CHECK_UPDATES__')
+    expect(mainSource).toContain('__PODIUM_SETTINGS__')
     expect(mainSource).toContain('__PODIUM_ADD_PROJECT__')
     expect(mainSource).toContain('__PODIUM_TOGGLE_LEFT_SIDEBAR__')
     expect(mainSource).toContain('__PODIUM_TOGGLE_FLIGHT_DECK__')

@@ -604,6 +604,7 @@ function AppBody(): JSX.Element {
 
   const menuHost = (
     <DesktopMenuHost
+      openSettings={() => setView('settings')}
       toggleLeftSidebar={toggleLeftSidebar}
       toggleFlightDeck={toggleFlightDeck}
       toggleRightSidebar={toggleRightSidebar}

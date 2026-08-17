@@ -17,10 +17,12 @@ const RepoScanFlow = lazy(() =>
 )
 
 export function DesktopMenuHost({
+  openSettings,
   toggleLeftSidebar,
   toggleFlightDeck,
   toggleRightSidebar,
 }: {
+  openSettings: () => void
   toggleLeftSidebar: () => void
   toggleFlightDeck: () => void
   toggleRightSidebar: () => void
@@ -42,6 +44,10 @@ export function DesktopMenuHost({
   useEffect(() => {
     return installDesktopMenuHooks({
       about: openAboutPodium,
+      // Podium ADE > Settings… (⌘,). The sheet layers over whichever mode is
+      // held, so this is a plain view change, not an event other surfaces
+      // listen for.
+      settings: openSettings,
       addProject: openAddProject,
       toggleLeftSidebar,
       toggleFlightDeck,
