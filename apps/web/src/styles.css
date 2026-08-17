@@ -8722,7 +8722,7 @@ a.ref-link--session::before {
    The flight deck's mission bar is a row of bands, one per state, each sized by
    how many tasks it holds and each carrying its own count INSIDE itself. A band
    with no work in it is not rendered at all — not a sliver, not a zero — so a
-   one-task mission reads `1 RUNNING` across the whole track and says one thing
+   one-task mission reads `1 UNDERWAY` across the whole track and says one thing
    once. `MissionGauge.tsx` owns the markup and the reasoning.
 
    THE NARROW LADDER. The deck column is resizable from 300px, so a band running
@@ -8859,9 +8859,11 @@ a.ref-link--session::before {
     display: inline;
   }
 }
-/* `IN PROGRESS` is four characters longer than `RUNNING` was, so its rung moves
-   up with it — below this the band sheds to the count alone, exactly as before. */
-@container gauge-band (min-width: 86px) {
+/* `UNDERWAY` (POD-1181) is three characters shorter than `IN PROGRESS`, which the
+   run band wore while its bucket was one stage, so the rung comes back DOWN with
+   it: the word now survives on a band 16px narrower than before. Below this the
+   band sheds to the count alone, exactly as at every other rung. */
+@container gauge-band (min-width: 70px) {
   .gauge-band[data-s="run"] .gauge-band-word {
     display: inline;
   }

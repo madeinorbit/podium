@@ -224,7 +224,7 @@ describe('per-entry progress in the worklist (POD-516 round 3)', () => {
     expect(widthsOf(meter)).toEqual([(2 / 4) * 100, 0])
     expect(widthsOf(meter).reduce((sum, width) => sum + width, 0)).toBeLessThanOrEqual(100)
     expect(meter.getAttribute('aria-label')).toBe(
-      '4 tasks · 2 done · 0 running · 1 blocked · 1 waiting',
+      '4 tasks · 2 done · 0 underway · 1 blocked · 1 waiting',
     )
   })
 

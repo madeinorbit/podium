@@ -946,6 +946,20 @@ describe('missionProgress', () => {
       { total: 5, done: 1, run: 1, review: 1, block: 1, wait: 1 },
     ],
     [
+      // POD-1181. `run` matched `in_progress` alone, so these two fell through to
+      // the `wait` remainder — the band whose word is `TO GO`, i.e. "nobody has
+      // picked this up" — about a task an agent is designing in and a task
+      // already in Shipping's custody.
+      'planning and shipping as work underway, never as work still to go',
+      [
+        issue('root', { stage: 'in_progress' }),
+        issue('a', { parentId: 'root', stage: 'planning' }),
+        issue('b', { parentId: 'root', stage: 'shipping' }),
+        issue('c', { parentId: 'root', stage: 'backlog' }),
+      ],
+      { total: 3, done: 0, run: 2, review: 0, block: 0, wait: 1 },
+    ],
+    [
       'a child closed as done by reason rather than by stage',
       [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', closedReason: 'done' })],
       { total: 1, done: 1, run: 0, review: 0, block: 0, wait: 0 },
@@ -989,6 +1003,32 @@ describe('missionProgress', () => {
 
   it.each(cases)('reports %s', (_name, issues, expected) => {
     expect(missionProgress(issues, [], issues[0]?.id ?? null)).toEqual(expected)
+  })
+
+  // POD-1179 IN THE FLESH: a lone root in `planning` with an agent working in it,
+  // and the gauge's only band read `1 TO GO`. The stage says the work was picked
+  // up and the session says someone is on it right now; `to go` denied both.
+  it('does not call a planning root with an agent in it work still to go', () => {
+    const root = issue('root', { stage: 'planning' })
+    const sessions = [sess('s-root', { issueId: 'root', agentState: workingState })]
+    expect(missionProgress([root], sessions, 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 1,
+      review: 0,
+      block: 0,
+      wait: 0,
+    })
+    // Blocked still wins over the stage: a planning task waiting on a dependency
+    // is stopped, and the exclusive ladder has to keep saying so.
+    expect(missionProgress([{ ...root, blocked: true }], sessions, 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 0,
+      review: 0,
+      block: 1,
+      wait: 0,
+    })
   })
 
   it('classifies a review-stage root with no agents as review, not running', () => {
@@ -1313,6 +1353,24 @@ describe('collapsedSummary', () => {
     })
     // A leaf hides nothing.
     expect(rowFor(rows, 'a').collapsedSummary.tasks).toBe(0)
+  })
+
+  // POD-1181's other half. This meter's `run` is "started and not done" — that is
+  // why it takes `review` — so the stages the gauge folded into `UNDERWAY` belong
+  // in it too. They used to count in `tasks` and in neither tier, which paints
+  // picked-up work into the trough.
+  it('paints planning, shipping and review as started, never as trough', () => {
+    const issues = [
+      issue('root'),
+      issue('a', { parentId: 'root', seq: 1, stage: 'planning' }),
+      issue('b', { parentId: 'root', seq: 2, stage: 'shipping' }),
+      issue('c', { parentId: 'root', seq: 3, stage: 'review' }),
+      issue('d', { parentId: 'root', seq: 4, stage: 'backlog' }),
+    ]
+    const summary = rowFor(buildFlightDeckRows(issues, [], 'root'), 'root').collapsedSummary
+    expect(summary.tasks).toBe(4)
+    expect(summary.done).toBe(0)
+    expect(summary.run).toBe(3)
   })
 
   it('carries up to two distinct harness kinds from the live sessions it hides', () => {

@@ -344,6 +344,26 @@ export function spinOffOriginId(issue: {
 const UNSTARTED = new Set(['proposed', 'backlog'])
 
 /**
+ * Stages whose own name says the work has BEGUN — the gauge's `run` bucket.
+ *
+ * Deliberately wider than `in_progress`, and deliberately not the complement of
+ * {@link UNSTARTED}: `review` and the closed stages are begun too, and they have
+ * their own segments because "waiting for you" and "over" are not "underway".
+ * What is left is the three stages that mean someone is on it —
+ *
+ *   `planning`    an agent is designing; the CLI tells every agent to sit here
+ *                 while it investigates and to move to `in_progress` when it
+ *                 starts changing code, so this is as picked-up as a stage gets
+ *   `in_progress` the obvious one
+ *   `shipping`    system-owned custody (`isSystemOwnedIssueStage`), which
+ *                 `deckIssueState` and `operationalState` both already read as
+ *                 working — the meter was the only surface that did not
+ *
+ * — and none of them may land in the `wait` remainder, whose word is `to go`.
+ */
+const UNDERWAY = new Set(['planning', 'in_progress', 'shipping'])
+
+/**
  * A spin-off the operator has STARTED has left the mission that discovered it.
  *
  * Both halves matter. Until it starts it belongs on the origin's spine — the
@@ -692,6 +712,14 @@ function sessionsForIssue(
  * issue land in two buckets, which would push the bar past 100%. Classification
  * here is EXCLUSIVE in the order done → block → review → run → wait: blocked
  * work is not running, and review work is an obligation rather than execution.
+ *
+ * `wait` IS THE REMAINDER, AND IT USED TO SWALLOW STAGES (POD-1181). `run` matched
+ * `in_progress` alone, so `planning` and `shipping` fell through to the remainder
+ * and the gauge said `to go` — "nobody has picked this up" — about a task with an
+ * agent designing in it, and about one already in Shipping's custody. See
+ * {@link UNDERWAY}: the run bucket is every stage that says work has begun, which
+ * is also what `deckIssueState` and `operationalState` already read `shipping` as,
+ * so the meter and the strips can no longer disagree about the same task.
  */
 export function missionProgress(
   issues: readonly IssueNavigationModel[],
@@ -729,7 +757,7 @@ export function missionProgress(
     if (issueClosed(issue)) done += 1
     else if (issue.blocked) block += 1
     else if (issue.stage === 'review') review += 1
-    else if (issue.stage === 'in_progress') run += 1
+    else if (UNDERWAY.has(issue.stage)) run += 1
   }
   const total = units.length
   return {
@@ -960,9 +988,14 @@ export function buildFlightDeckRows(
         // not painted in the success tier. It stays in `tasks`, because the
         // fold really is hiding that many rows.
         done: hidden.filter((child) => issueClosed(child) && !issueAbandoned(child)).length,
+        // This meter's `run` is "started and not done", which is why it takes
+        // `review` as well — so it takes every {@link UNDERWAY} stage too, and for
+        // the same reason the gauge does (POD-1181): a folded branch hiding a
+        // child in `planning` or `shipping` counted it in `tasks` and in neither
+        // tier, which paints picked-up work into the trough.
         run: hidden.filter(
           (child) =>
-            !child.closedReason && (child.stage === 'in_progress' || child.stage === 'review'),
+            !child.closedReason && (UNDERWAY.has(child.stage) || child.stage === 'review'),
         ).length,
         kinds: [...new Set(subtreeSessions.filter(openSession).map((s) => s.agentKind))].slice(
           0,

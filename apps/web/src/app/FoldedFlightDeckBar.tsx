@@ -39,7 +39,7 @@ import { useReplicaIssues, useStoreSelector } from './store'
  *   WHICH mission instead of which column.
  *
  *   THE GAUGE. One tick per task, top-down, in the open gauge's own state order
- *   (done → in review → running → blocked → to go) so review-stage work
+ *   (done → in review → underway → blocked → to go) so review-stage work
  *   never reads as active execution when the deck folds. The column itself
  *   becomes the meter; the exact datum sits under it.
  *
@@ -84,12 +84,14 @@ function tickGap(total: number): number {
 const NO_COLOUR_PICK = (_color: IssueColorSlot | null): void => {}
 
 /** The mission's state as one sentence — the same one the open gauge speaks, so
- *  folding cannot change what the mission is said to have done. */
+ *  folding cannot change what the mission is said to have done. It said `running`
+ *  here against the gauge's `in progress` for the same bucket, which is exactly
+ *  the drift that claim exists to forbid; both say `underway` now (POD-1181). */
 function reading(progress: MissionProgress): string {
   const { total, done, run, review, block, wait } = progress
   return [
     `${done} of ${total} task${total === 1 ? '' : 's'} done`,
-    run > 0 ? `${run} running` : null,
+    run > 0 ? `${run} underway` : null,
     review > 0 ? `${review} in review` : null,
     block > 0 ? `${block} blocked` : null,
     wait > 0 ? `${wait} to go` : null,

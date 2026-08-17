@@ -85,10 +85,11 @@
  * belongs at this scale. The count survives in the meter's own tooltip, and the
  * Flight Deck names which task is blocked and by what — one fact, one place.
  *
- * The RUNNING segment carries a slow sheen travelling along it, which is the
- * part the operator asked to move. It is gated on the same predicate as the
- * braille spinner — an agent on this row actually computing, not merely a task
- * parked in `in_progress` — so the row goes completely still the moment the
+ * The UNDERWAY segment — every stage that says work has begun (POD-1181) —
+ * carries a slow sheen travelling along it, which is the part the operator asked
+ * to move. It is gated on the same predicate as the braille spinner — an agent on
+ * this row actually computing, not merely a task
+ * parked in a started stage — so the row goes completely still the moment the
  * fleet stops, and stillness stays legible as "this is waiting for you".
  * DESIGN.md §5 names the spinner as the only perpetual motion; this is not a
  * second signal beside it but the same fact rendered as the texture of the
@@ -122,7 +123,7 @@ export function rowProgressLabel(progress: MissionProgress): string {
   return [
     `${progress.total} tasks`,
     `${progress.done} done`,
-    `${progress.run} running`,
+    `${progress.run} underway`,
     ...(progress.review > 0 ? [`${progress.review} in review`] : []),
     ...(progress.block > 0 ? [`${progress.block} blocked`] : []),
     `${progress.wait} waiting`,

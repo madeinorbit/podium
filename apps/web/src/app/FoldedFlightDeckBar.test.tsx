@@ -53,7 +53,7 @@ describe('folded Flight Deck', () => {
     expect(gauge.getAttribute('data-resolution')).toBe('task')
     expect(ticks()).toEqual(['done', 'run', 'run', 'wait', 'wait'])
     expect(gauge.textContent).toContain('1/5')
-    expect(gauge.getAttribute('aria-label')).toContain('1 of 5 tasks done, 2 running, 2 to go')
+    expect(gauge.getAttribute('aria-label')).toContain('1 of 5 tasks done, 2 underway, 2 to go')
 
     const activity = screen.getByTestId('flight-deck-activity')
     const attention = screen.getByTestId('flight-deck-attention')
@@ -76,7 +76,7 @@ describe('folded Flight Deck', () => {
     expect(screen.getByTestId('flight-deck-activity')).not.toBeNull()
   })
 
-  it('reports a zero-agent review root as review, not running', () => {
+  it('reports a zero-agent review root as review, not underway', () => {
     state.rows = [{ liveAgentCount: 0, workingAgentCount: 0, actionableCount: 1 }]
     state.progress = { total: 1, done: 0, run: 0, review: 1, block: 0, wait: 0 }
     render(<FoldedFlightDeckBar onExpand={vi.fn()} />)
@@ -84,7 +84,7 @@ describe('folded Flight Deck', () => {
     const gauge = screen.getByTestId('flight-deck-gauge')
     expect(ticks()).toEqual(['review'])
     expect(gauge.getAttribute('aria-label')).toContain('1 in review')
-    expect(gauge.getAttribute('aria-label')).not.toContain('running')
+    expect(gauge.getAttribute('aria-label')).not.toContain('underway')
     expect(screen.getByTestId('flight-deck-activity').getAttribute('aria-label')).toContain(
       '0 agents',
     )

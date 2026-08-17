@@ -73,9 +73,9 @@ describe('Flight Deck mission gauge', () => {
     )
     // The complaint, answered: one task is one band saying one thing.
     expect(bands().map((band) => band.getAttribute('data-s'))).toEqual(['run'])
-    expect(label(bands()[0])).toBe('1 in progress')
+    expect(label(bands()[0])).toBe('1 underway')
     expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
-      '0 of 1 task done, 1 in progress · 1 working',
+      '0 of 1 task done, 1 underway · 1 working',
     )
 
     view.rerender(
@@ -96,7 +96,7 @@ describe('Flight Deck mission gauge', () => {
     // Blocked is hueless: the deck's own "stopped" texture, never the signal colour.
     expect(bands()[2]?.className).toContain('gauge-hatch')
     expect(screen.getByTestId('mission-gauge').getAttribute('title')).toBe(
-      '3 of 8 tasks done, 2 in progress, 1 blocked, 2 to go · 5 working',
+      '3 of 8 tasks done, 2 underway, 1 blocked, 2 to go · 5 working',
     )
   })
 

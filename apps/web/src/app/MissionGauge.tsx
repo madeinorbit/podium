@@ -17,15 +17,15 @@ import { cn } from '@/lib/utils'
  *
  * It replaces a well that drew a tinted region, a floor rule and a three-word
  * legend for the same facts, so a one-task mission spent three devices saying
- * one thing. Now a mission of one running task is a single band reading
- * `1 IN PROGRESS`, filling the track: one fact, one place. That is the operator's
+ * one thing. Now a mission of one started task is a single band reading
+ * `1 UNDERWAY`, filling the track: one fact, one place. That is the operator's
  * complaint answered at the bar as well as in the arithmetic — the counting
  * half lives in `missionProgress` (one unit of work is one task; the root is
  * the container being measured, not a segment of it).
  *
- * Bands run done → in review → in progress → blocked → to go, so review-stage
- * work cannot masquerade as execution when the fleet chip correctly says zero
- * agents. The track fills from the left as work lands.
+ * Bands run done → in review → underway → blocked → to go, so review-stage work
+ * cannot masquerade as execution when the fleet chip correctly says zero agents.
+ * The track fills from the left as work lands.
  *
  * ---------------------------------------------------------------------------
  * THE NARROW LADDER — the deck starts at 300px, so this is routine
@@ -68,12 +68,19 @@ import { cn } from '@/lib/utils'
  * motion. That holds in Daylight, where done and running are two blues and hue
  * alone could not carry it, and it reinforces the hue everywhere else.
  *
- * THE BAND IS CALLED `IN PROGRESS`, NOT `RUNNING`. In `missionProgress` the
- * `run` bucket counts tasks whose STAGE is `in_progress`, while the motion
- * gates on `working` — a session actually computing. Those are two different
- * facts, and a band reading `3 RUNNING` sitting perfectly still claimed one
- * while measuring the other. The band takes the stage's own name; the marching
- * cells say whether anything is happening inside it.
+ * THE BAND IS CALLED `UNDERWAY`, NOT `RUNNING` AND NO LONGER `IN PROGRESS`. In
+ * `missionProgress` the `run` bucket counts tasks whose STAGE says work has
+ * begun, while the motion gates on `working` — a session actually computing.
+ * Those are two different facts, and a band reading `3 RUNNING` sitting
+ * perfectly still claimed one while measuring the other; the marching cells say
+ * whether anything is happening inside it.
+ *
+ * It took the stage's own name, `IN PROGRESS`, for as long as the bucket was one
+ * stage. It is three now — `planning`, `in_progress`, `shipping` (POD-1181,
+ * `UNDERWAY` in mission.ts) — because the remainder band's word is `TO GO`, i.e.
+ * "nobody has picked this up", and it was saying that about a task with an agent
+ * designing in it. A band covering three stages cannot wear one stage's label, so
+ * it takes the word all three have in common and none of them owns.
  *
  * BLOCKED TAKES NO HUE AT ALL. `--warning` IS `--attention` (#f5c518) in
  * Superade, so a warning-toned band would spend the one signal colour on work
@@ -137,7 +144,7 @@ export function MissionGauge({
       ? 'No tasks'
       : [
           `${done} of ${total} task${total === 1 ? '' : 's'} done`,
-          run > 0 ? `${run} in progress` : null,
+          run > 0 ? `${run} underway` : null,
           review > 0 ? `${review} in review` : null,
           block > 0 ? `${block} blocked` : null,
           wait > 0 ? `${wait} to go` : null,
@@ -156,7 +163,7 @@ export function MissionGauge({
           [
             ['done', 'done', done],
             ['review', 'in review', review],
-            ['run', 'in progress', run],
+            ['run', 'underway', run],
             ['block', 'blocked', block],
             ['wait', 'to go', wait],
           ] as const
