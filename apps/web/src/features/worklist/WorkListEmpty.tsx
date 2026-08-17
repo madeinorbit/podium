@@ -1,11 +1,15 @@
 /**
  * THE WORK LIST WITH NOTHING IN IT (POD-1058, "ADE Empty States" 2a/2b).
  *
- * Four ghost rows under a section band, then one line of live copy and the
- * column's own spawn. What it replaced was a single grey sentence ("Nothing yet
- * — start an agent or create an issue above"), which told the operator the list
- * was empty — a fact they could already see — and nothing about what a filled
- * one looks like.
+ * Four ghost rows under a section band, then one line of live copy. What it
+ * replaced was a single grey sentence ("Nothing yet — start an agent or create
+ * an issue above"), which told the operator the list was empty — a fact they
+ * could already see — and nothing about what a filled one looks like.
+ *
+ * NO SPAWN OF ITS OWN. The surface carried a "New Claude" button repeating the
+ * spawn row directly above it and the ⌘N chord; a third delivery of one action,
+ * inside the only view where the other two are already unmissable. Starting
+ * work stays with the row that owns it.
  *
  * IT MIRRORS THE 3a ROW, NOT THE ONE BEFORE IT. The ghost's whole claim is
  * "this is what will be here", so its anatomy is read from the live row's own
@@ -28,11 +32,8 @@
  * ghosts are the one thing on this surface that could be mistaken for data, and
  * a live zero beside them is the cheapest possible proof that they are not.
  */
-import { panelLabel } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
 import { GhostBar, GhostPreview } from '@/components/GhostPreview'
-import { agentBrandText } from '@/lib/agent-tone'
-import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
 import { useDefaultSpawn } from './spawn-row'
 import { ID_GUTTER_W, META_COL_W } from './WorkRowShell'
@@ -105,11 +106,10 @@ function GhostWorkRow({
 }
 
 export function WorkListEmpty(): JSX.Element {
-  // `bindChord: false` — the spawn row above this one owns ⌘N. Two mounted
-  // owners spawn two agents from one press.
-  const { defaultAgent, defaultRepo, defaultTarget, spawn } = useDefaultSpawn(undefined, {
-    bindChord: false,
-  })
+  // Read only for the band's project name. `bindChord: false` — the spawn row
+  // above this one owns ⌘N, and two mounted owners spawn two agents from one
+  // press.
+  const { defaultTarget } = useDefaultSpawn(undefined, { bindChord: false })
   const project = defaultTarget?.repoName
   return (
     <>
@@ -137,38 +137,6 @@ export function WorkListEmpty(): JSX.Element {
         <p className="text-[12.5px] leading-[1.5] text-text-dim text-pretty">
           One row per task, newest first.
         </p>
-        {defaultRepo && (
-          <button
-            data-pressable
-            type="button"
-            data-testid="work-empty-spawn"
-            // The SAME spawn as the row above and the ⌘N chord — one action with
-            // three deliveries, not a second way to start work that would then
-            // need its own explanation of how it differs.
-            onClick={() => spawn(defaultAgent, defaultRepo)}
-            title={
-              defaultTarget
-                ? `Start a new ${panelLabel(defaultAgent)} agent in ${defaultTarget.repoName}`
-                : undefined
-            }
-            className="mt-4 flex h-8 items-center justify-center gap-2 rounded-[9px] bg-attention/12 text-[12.5px] font-semibold text-attention ring-1 ring-attention/30 ring-inset hover:bg-attention/20"
-          >
-            <span
-              aria-hidden="true"
-              className={cn(
-                'size-[10px] flex-none rounded-[3px] bg-current',
-                agentBrandText(defaultAgent),
-              )}
-            />
-            New {panelLabel(defaultAgent)}
-            {/* The chord is claimed by a native shell only — a browser tab
-                keeps ⌘N for its own new window, so promising it there would be
-                teaching a shortcut that does nothing. */}
-            {nativeDesktopBridge() && (
-              <span className="font-mono text-[10px] text-attention/60">⌘N</span>
-            )}
-          </button>
-        )}
       </div>
     </>
   )
