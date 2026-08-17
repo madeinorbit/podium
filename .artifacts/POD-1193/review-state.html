@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review state on vacated work</title>
+<style>
+  :root{
+    --dark-ink:#16171a; --panel-ink:#23262d; --chip-ink:#252830; --engraved:#191a1e;
+    --bar-ink:#1b1d21; --rail-ink:#1e2024;
+    --seam:#26292f; --hairline:#24272d; --border-strong:#3a3f48;
+    --ink-strong:#f2f3f5; --ink:#d7dae0; --ink-muted:#a8adb6; --ink-dim:#848a94; --ink-faint:#6f7580;
+    --yellow:#f5c518; --gold:#e3ba52; --red:#e5303f; --live:#6f9dff; --terracotta:#d97757;
+    --sans:"Geist Variable",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"Geist Mono Variable",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--dark-ink); color:var(--ink);
+    font-family:var(--sans); font-size:13px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:56px 32px 96px}
+  @media (max-width:720px){.wrap{padding:36px 18px 72px}}
+
+  /* ---- masthead ---------------------------------------------------- */
+  .kicker{
+    font-family:var(--mono); font-size:8.5px; font-weight:500; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-faint);
+  }
+  h1{
+    font-size:30px; line-height:1.12; font-weight:600; letter-spacing:-.022em;
+    color:var(--ink-strong); margin:14px 0 0;
+  }
+  @media (max-width:720px){h1{font-size:24px}}
+  .thesis{
+    margin:18px 0 0; max-width:64ch; font-size:15px; line-height:1.6; color:var(--ink-muted);
+  }
+  .thesis b{color:var(--ink-strong); font-weight:600}
+
+  /* ---- section spine ----------------------------------------------- */
+  section{margin-top:64px}
+  h2{
+    font-size:11px; font-family:var(--mono); font-weight:500; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--ink-dim);
+    margin:0 0 22px; padding-bottom:9px; border-bottom:1px solid var(--seam);
+    display:flex; align-items:baseline; gap:10px;
+  }
+  h2 .n{color:var(--ink-faint)}
+  h3{font-size:14px;font-weight:600;color:var(--ink-strong);margin:34px 0 8px;letter-spacing:-.01em}
+  p{margin:0 0 12px; max-width:70ch}
+  p.lede{color:var(--ink-muted)}
+  code{
+    font-family:var(--mono); font-size:11.5px; color:var(--gold);
+    background:var(--engraved); padding:1px 5px; border-radius:4px;
+  }
+  .ref{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+
+  /* ---- the five statements ----------------------------------------- */
+  .says{display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline)}
+  .say{
+    display:grid; grid-template-columns:132px 1fr 1fr; gap:20px;
+    padding:13px 0; border-bottom:1px solid var(--hairline); align-items:start;
+  }
+  @media (max-width:720px){.say{grid-template-columns:1fr;gap:5px}}
+  .say .where{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--ink-faint);text-transform:uppercase;padding-top:2px}
+  .say .quote{color:var(--ink-strong);font-size:13px}
+  .say .quote em{font-style:normal;color:var(--gold)}
+  .say .verdict{color:var(--ink-dim);font-size:12.5px}
+  .say.bad .verdict{color:#e88f97}
+
+  /* ---- row mocks ---------------------------------------------------- */
+  .mocks{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:8px}
+  @media (max-width:860px){.mocks{grid-template-columns:1fr}}
+  .mock{border:1px solid var(--seam);border-radius:8px;background:var(--rail-ink);overflow:hidden}
+  .mock > header{
+    font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+    padding:8px 12px;border-bottom:1px solid var(--seam);color:var(--ink-faint);
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .mock.now > header{color:#c88f95}
+  .mock.next > header{color:var(--gold)}
+  .mock .stage{background:var(--engraved);padding:16px 12px}
+  .note{padding:11px 13px;border-top:1px solid var(--hairline);color:var(--ink-dim);font-size:12px;line-height:1.5}
+
+  /* the sidebar row itself */
+  .row{
+    display:grid;grid-template-columns:34px 1fr auto;gap:9px;
+    padding:9px 10px;border-radius:7px;background:#1c1e23;align-items:start;
+    border:1px solid transparent;
+  }
+  .row.sel{border-color:#2f333b;background:#212429}
+  .row .id{font-family:var(--mono);font-size:11px;color:var(--ink-faint);padding-top:1px}
+  .row .title{font-size:12px;font-weight:500;color:var(--ink-strong);letter-spacing:-.005em}
+  .row .l2{font-family:var(--mono);font-size:10.5px;margin-top:3px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .row .right{text-align:right;font-family:var(--mono);font-size:10px;color:var(--ink-faint);white-space:nowrap;padding-top:1px}
+  .amber{color:var(--gold);font-weight:600}
+  .dim{color:var(--ink-faint)}
+  .muted{color:var(--ink-dim)}
+  .dot{width:5px;height:5px;border-radius:50%;display:inline-block;flex:none}
+  .dot.amber{background:var(--gold)}
+  .dot.clean{background:#4a5058}
+  .strike{text-decoration:line-through;text-decoration-color:#7a3a40;text-decoration-thickness:1px;opacity:.72}
+
+  /* ---- verdict bar --------------------------------------------------- */
+  .pane{background:var(--engraved);border-radius:8px;padding:0;overflow:hidden}
+  .panehead{
+    display:flex;align-items:center;gap:10px;padding:11px 13px;border-bottom:1px solid var(--seam);
+    background:var(--bar-ink);
+  }
+  .panehead .ref2{font-family:var(--mono);font-size:11px;color:var(--ink-muted)}
+  .panehead .ttl{font-size:14px;font-weight:600;color:var(--ink-strong);margin-left:2px}
+  .chip{
+    font-family:var(--mono);font-size:9px;letter-spacing:.11em;text-transform:uppercase;
+    border:1px solid var(--border-strong);border-radius:4px;padding:3px 7px;color:var(--ink-dim);
+  }
+  .verdictbar{padding:13px}
+  .vhead{display:flex;align-items:baseline;gap:9px;margin-bottom:3px}
+  .vhead .q{font-size:13px;font-weight:600;color:var(--ink-strong)}
+  .vsub{color:var(--ink-dim);font-size:12px;margin-bottom:11px;max-width:62ch}
+  .agenda{
+    border-left:1px solid var(--border-strong); padding:2px 0 2px 11px; margin:0 0 13px;
+    display:flex;flex-direction:column;gap:5px;
+  }
+  .agenda .item{display:grid;grid-template-columns:74px 1fr;gap:10px;font-size:12px;align-items:baseline}
+  @media (max-width:600px){.agenda .item{grid-template-columns:1fr;gap:1px}}
+  .agenda .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-faint)}
+  .agenda .v{color:var(--ink)}
+  .agenda .v .tag{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+  .btns{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .btn{
+    font-family:var(--sans);font-size:12px;font-weight:500;height:28px;padding:0 11px;
+    border-radius:6px;border:1px solid var(--border-strong);background:var(--chip-ink);color:var(--ink);
+    display:inline-flex;align-items:center;gap:6px;cursor:default;
+  }
+  .btn.primary{background:var(--yellow);color:var(--dark-ink);border-color:var(--yellow);font-weight:600}
+  .btn.ghost{background:transparent;border-color:transparent;color:var(--ink-dim)}
+
+  /* ---- state table -------------------------------------------------- */
+  .tablewrap{overflow-x:auto;border:1px solid var(--seam);border-radius:8px}
+  table{border-collapse:collapse;width:100%;min-width:660px;font-size:12.5px}
+  th{
+    text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--ink-faint);font-weight:500;padding:10px 13px;background:var(--bar-ink);
+    border-bottom:1px solid var(--seam);white-space:nowrap;
+  }
+  td{padding:11px 13px;border-bottom:1px solid var(--hairline);vertical-align:top;color:var(--ink-muted)}
+  tr:last-child td{border-bottom:none}
+  td.say2{font-family:var(--mono);font-size:11px;color:var(--ink-strong);white-space:nowrap}
+  td.tone{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+  .t-amber{color:var(--gold)} .t-quiet{color:var(--ink-faint)} .t-live{color:var(--live)}
+
+  /* ---- fixes -------------------------------------------------------- */
+  .fix{
+    display:grid;grid-template-columns:24px 1fr;gap:14px;padding:19px 0;
+    border-bottom:1px solid var(--hairline);
+  }
+  .fix:last-of-type{border-bottom:none}
+  .fix .num{font-family:var(--mono);font-size:11px;color:var(--ink-faint);padding-top:2px}
+  .fix h4{margin:0 0 6px;font-size:13.5px;font-weight:600;color:var(--ink-strong);letter-spacing:-.008em}
+  .fix p{margin:0 0 7px;color:var(--ink-muted);max-width:72ch}
+  .fix .files{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:8px}
+  .fix .files span{display:block}
+  .sz{
+    display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    border:1px solid var(--border-strong);border-radius:3px;padding:1px 5px;color:var(--ink-dim);margin-left:8px;
+    vertical-align:2px;
+  }
+  footer{margin-top:72px;padding-top:18px;border-top:1px solid var(--seam);color:var(--ink-faint);font-size:11.5px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="kicker">POD-1193 · concept</p>
+  <h1>Review state on vacated work</h1>
+  <p class="thesis">
+    POD-1158 shipped, merged, and handed its leftovers to POD-1192. The board renders that as
+    <b>amber, forever</b> — because <code>review</code> is a stage the agent sets, the UI prints it as
+    an ask aimed at the operator, and <b>nothing in the product can answer it</b>. An attention state
+    with no exit is a permanent alarm, and the operator learns to stop seeing amber.
+  </p>
+
+  <!-- ============================================================== -->
+  <section>
+    <h2><span class="n">01</span> What the screen says about one task</h2>
+    <p class="lede">Five statements, three of them about lifecycle, none of them agreeing.</p>
+
+    <div class="says">
+      <div class="say">
+        <div class="where">pane header</div>
+        <div class="quote">POD-1158 <em>review</em></div>
+        <div class="verdict">Stage word. Reads as “a human owes a verdict.”</div>
+      </div>
+      <div class="say">
+        <div class="where">pane header</div>
+        <div class="quote">CONTINUED IN POD-1192</div>
+        <div class="verdict">Lifecycle word — and the later of the two. Sits beside the first, contradicting it.</div>
+      </div>
+      <div class="say">
+        <div class="where">state paragraph</div>
+        <div class="quote">“Shipped and deployed. Both commits are on local main…”</div>
+        <div class="verdict">The truest line on screen. Clipped at three lines, with the two genuinely open questions below the fold.</div>
+      </div>
+      <div class="say bad">
+        <div class="where">sidebar row</div>
+        <div class="quote"><em>needs review</em> · 4 uncommitted 1 commit ahead</div>
+        <div class="verdict">Wrong twice. “needs review” means <i>nothing to land</i>; “1 commit ahead” means there is. Both counters come from a stale worktree, and <code>gitState.merged === true</code> — the one fact that settles it — is computed and then dropped.</div>
+      </div>
+      <div class="say">
+        <div class="where">spine card</div>
+        <div class="quote">Work continued in POD-1192 → [Open POD-1192] [Tuck away]</div>
+        <div class="verdict">Leave, or hide. Neither is a verdict, so the amber survives both.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <section>
+    <h2><span class="n">02</span> The row</h2>
+    <p class="lede">
+      In <span class="ref">UnifiedIssueRow.tsx:252</span> the pending-decision label wins the ternary and
+      <code>continuationStatus</code> is only reached when there is no decision. So the moment an issue
+      enters review, the sidebar loses the ability to say the work moved on — while the pane, twelve
+      inches right, says exactly that.
+    </p>
+
+    <div class="mocks">
+      <div class="mock now">
+        <header><span>Now</span><span>permanent amber</span></header>
+        <div class="stage">
+          <div class="row sel">
+            <div class="id">1158</div>
+            <div>
+              <div class="title">Chat feed motion</div>
+              <div class="l2"><span class="amber">needs review</span></div>
+            </div>
+            <div class="right">3m ago<br><span class="dim">4 uncommitted 1 commit ahead</span></div>
+          </div>
+        </div>
+        <p class="note">
+          Counts toward “needs you”. Cannot be decremented from anywhere in the UI.
+          The git stamp describes a worktree nobody will open again.
+        </p>
+      </div>
+
+      <div class="mock next">
+        <header><span>Proposed</span><span>quiet, with a route</span></header>
+        <div class="stage">
+          <div class="row sel">
+            <div class="id">1158</div>
+            <div>
+              <div class="title">Chat feed motion</div>
+              <div class="l2"><span class="dot clean"></span><span class="muted">continued · POD-1192</span></div>
+            </div>
+            <div class="right">3m ago<br><span class="dim">merged</span></div>
+          </div>
+        </div>
+        <p class="note">
+          Work that moved on is <b>not</b> an ask. Neutral ink, no attention count.
+          The stamp says the fact that settles the decision — <code>merged</code> — and drops the stale
+          worktree’s counters.
+        </p>
+      </div>
+    </div>
+
+    <h3>And when the review is real</h3>
+    <div class="mocks">
+      <div class="mock now">
+        <header><span>Now</span><span>a mood</span></header>
+        <div class="stage">
+          <div class="row">
+            <div class="id">1175</div>
+            <div>
+              <div class="title">Sidebar item height parity</div>
+              <div class="l2"><span class="amber">needs review</span></div>
+            </div>
+            <div class="right">2h ago</div>
+          </div>
+        </div>
+        <p class="note">Review of <i>what</i>? The row asks for a decision without naming its subject or its size.</p>
+      </div>
+      <div class="mock next">
+        <header><span>Proposed</span><span>a fact</span></header>
+        <div class="stage">
+          <div class="row">
+            <div class="id">1175</div>
+            <div>
+              <div class="title">Sidebar item height parity</div>
+              <div class="l2"><span class="dot amber"></span><span class="amber">your call · 2 open</span></div>
+            </div>
+            <div class="right">2h ago</div>
+          </div>
+        </div>
+        <p class="note">
+          Same grammar the merge decision already uses — <code>ready to merge · 2</code> works because it
+          names the action <i>and</i> its size. Review deserves the same sentence.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <section>
+    <h2><span class="n">03</span> The verdict bar</h2>
+    <p class="lede">
+      Today the only review controls in the product are the agent’s <code>podium offer</code> buttons — and
+      an offer is consumed by the next turn in either direction. So a review can outlive every control
+      that could ever end it. The stage must carry its own, derived from the stage, always present.
+    </p>
+
+    <div class="pane">
+      <div class="panehead">
+        <span class="ref2">POD-1158</span>
+        <span class="ttl">Chat feed motion</span>
+        <span style="flex:1"></span>
+        <span class="chip">continued in POD-1192</span>
+      </div>
+      <div class="verdictbar">
+        <div class="vhead">
+          <span class="q">Nothing is running here.</span>
+        </div>
+        <p class="vsub">
+          Merged to main and continued in POD-1192. Two questions were parked rather than answered —
+          closing this out leaves them to POD-1192.
+        </p>
+        <div class="agenda">
+          <div class="item">
+            <div class="k">todo</div>
+            <div class="v">Prove it in WebKit before calling it done <span class="tag">— 1 of 4 open</span></div>
+          </div>
+          <div class="item">
+            <div class="k">parked</div>
+            <div class="v">Reader scrolling up mid-unroll <span class="tag">→ POD-1160</span></div>
+          </div>
+          <div class="item">
+            <div class="k">parked</div>
+            <div class="v">Streaming turns insert empty — no answer yet <span class="tag">unfiled</span></div>
+          </div>
+          <div class="item">
+            <div class="k">git</div>
+            <div class="v">2 commits on main <span class="tag">merged · stale worktree, 4 files</span></div>
+          </div>
+        </div>
+        <div class="btns">
+          <span class="btn primary">Close it out</span>
+          <span class="btn">Send back…</span>
+          <span class="btn">Open POD-1192</span>
+          <span class="btn ghost">Keep open</span>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-top:14px" class="lede">
+      One sentence of situation, the agenda that makes the call possible, and an exit. <b>Close it out</b> is
+      the recommended verb because the state is resolvable; on a review with unmerged commits the primary
+      becomes <b>Merge · 2</b>, and on one with a live agent the bar does not render at all.
+      <b>Send back…</b> takes a note and re-prompts — or spawns a session if none remains — which is the
+      native version of what <code>--action-input</code> already does in an offer.
+    </p>
+  </section>
+
+  <!-- ============================================================== -->
+  <section>
+    <h2><span class="n">04</span> One vocabulary, five states</h2>
+    <p class="lede">
+      The rule underneath all of it: <b>the row states what is being asked and what would end it.</b>
+      Amber is never spent on a state the operator cannot resolve from that row.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Situation</th><th>Row says</th><th>Tone</th><th>Exit in the pane</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Unmerged commits on a private branch</td>
+            <td class="say2">ready to merge · 2</td>
+            <td class="tone t-amber">attention</td>
+            <td>Merge · 2 &nbsp;/&nbsp; Send back…</td>
+          </tr>
+          <tr>
+            <td>In review, an agent is running again</td>
+            <td class="say2">working</td>
+            <td class="tone t-live">live</td>
+            <td>none — the decision returns when the turn settles</td>
+          </tr>
+          <tr>
+            <td>In review, vacated, work continued elsewhere</td>
+            <td class="say2">continued · POD-1192</td>
+            <td class="tone t-quiet">quiet</td>
+            <td>Close it out &nbsp;/&nbsp; Open POD-1192</td>
+          </tr>
+          <tr>
+            <td>In review, nothing running, open questions</td>
+            <td class="say2">your call · 2 open</td>
+            <td class="tone t-amber">attention</td>
+            <td>Accept &amp; close &nbsp;/&nbsp; Send back…</td>
+          </tr>
+          <tr>
+            <td>In review, merged, nothing open</td>
+            <td class="say2">shipped</td>
+            <td class="tone t-quiet">quiet</td>
+            <td>Close it out</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <section>
+    <h2><span class="n">05</span> What it takes</h2>
+
+    <div class="fix">
+      <div class="num">1</div>
+      <div>
+        <h4>Continuation outranks the review label<span class="sz">small</span></h4>
+        <p>
+          <code>isVacatedOrigin()</code> already computes “sessionless, and the work carried on in a
+          started spin-off”. <code>issuePendingDecision()</code> never asks it, so a vacated origin still
+          returns <code>'review'</code> and burns attention. Teach the decision to return null there,
+          and let the row’s continuation line take the slot it already knows how to render.
+        </p>
+        <div class="files">
+          <span>packages/client-core/src/viewmodels/mission.ts:449 — isVacatedOrigin</span>
+          <span>packages/client-core/src/viewmodels/slices/issues.ts:306 — issuePendingDecision</span>
+          <span>apps/web/src/features/worklist/UnifiedIssueRow.tsx:252 — flip the ternary</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="fix">
+      <div class="num">2</div>
+      <div>
+        <h4>A standing verdict bar for the review stage<span class="sz">the real work</span></h4>
+        <p>
+          Derived from <code>stage === 'review'</code>, not from a session offer, so it survives every
+          turn and every reload. Primary verb chosen by the same predicate that picks the row’s words:
+          Merge when there are commits, Close it out when the work is elsewhere, Accept &amp; close
+          otherwise. This is the piece that makes the amber finite.
+        </p>
+        <div class="files">
+          <span>apps/web/src/app/FlightDeck.tsx — above the spine, beside WhereTheWorkWent</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="fix">
+      <div class="num">3</div>
+      <div>
+        <h4>The review gets an agenda<span class="sz">small</span></h4>
+        <p>
+          Open todos, parked/deferred items and the git verdict are already on the issue and already
+          rendered elsewhere. Lifting the open ones next to the buttons is what turns “needs review”
+          from a mood into a list — and gives <b>Accept &amp; close</b> an honest confirmation when a
+          todo is still open.
+        </p>
+      </div>
+    </div>
+
+    <div class="fix">
+      <div class="num">4</div>
+      <div>
+        <h4>The stamp says <code>merged</code><span class="sz">tiny</span></h4>
+        <p>
+          <code>deriveGitStamp</code> computes <code>merged</code> and the sidebar density renders only
+          <code>dirty</code> and <code>ahead</code> — so the row keeps the alarming number and drops the
+          reassuring one. And when the issue record carries no branch, a leftover worktree’s dirt is not
+          this task’s: suppress it, or name it once as a stale worktree with a cleanup action.
+        </p>
+        <div class="files">
+          <span>apps/web/src/components/GitStamp.tsx:57–60 — stamp density</span>
+          <span>packages/client-core/src/viewmodels/git-stamp.ts:89 — merged is already there</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="fix">
+      <div class="num">5</div>
+      <div>
+        <h4>The header names the object, not the ask<span class="sz">tiny</span></h4>
+        <p>
+          <code>POD-1158 review</code> and <code>CONTINUED IN POD-1192</code> are two answers to one
+          question, printed eight pixels apart. Keep the later one in the header; the ask belongs in the
+          bar below, where it has buttons.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>POD-1193 · review-state.html · concept for discussion, no code changed</footer>
+</div>
+</body>
+</html>
