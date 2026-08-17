@@ -108,6 +108,33 @@ describe('operationView — the seven states', () => {
     expect(result.indicatorLabel).toBe('Podium 0.4.3 is available')
   })
 
+  /**
+   * THE UNREAD OPERATION, WITH AN OFFER ALREADY IN HAND (POD-2307).
+   *
+   * The sibling assertions in `use-update-state` cannot reach this: there, the
+   * offer and the operation become known in the same batch, so "no operation
+   * yet" never coexists with a renderable offer and the guard below is never
+   * asked anything. A reloaded page DOES reach it — the fleet snapshot arrives
+   * from the store while `operations.active` is still in flight — which is the
+   * state that offered the user an update the server was already running.
+   *
+   * Proven able to fail: with the `operation === undefined` guard removed, this
+   * renders the offer and the assertion reddens. Without it, every other test in
+   * both files still passes, which is why it is written here and not there.
+   */
+  it('says nothing while the operation is unread, even holding an offer', () => {
+    const result = operationView({
+      operation: undefined,
+      offer: OFFER,
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+    })
+    expect(result.state).toBe('none')
+    expect(result.primary).toBeUndefined()
+    expect(result.indicator).toBe('none')
+  })
+
   it('offers a reload when only this page is stale and no operation exists', () => {
     const result = operationView({
       operation: null,
