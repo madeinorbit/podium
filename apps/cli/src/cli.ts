@@ -1004,10 +1004,10 @@ export function daemonOptionsForPlan(
   plan: ModePlan,
   serverPort: number,
   localBootstrapToken?: string,
-  /** This host's minted id (`<stateDir>/machine.id`). Defaulted rather than required so
-   *  the argv-shaped tests keep calling this with three arguments; the same file the
-   *  server read is the same file read here, because it is the same host. */
-  hostMachineId: MachineId = readOrCreateLocalMachineId(),
+  /** This host's minted id (`<stateDir>/machine.id`), when already known. */
+  hostMachineId?: MachineId,
+  /** Injected only so tests can prove remote planning never touches local identity. */
+  readHostMachineId: () => MachineId = readOrCreateLocalMachineId,
 ): DaemonStartOptions {
   const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : localServerWsUrl(serverPort)
   if (!serverUrl)
@@ -1017,7 +1017,10 @@ export function daemonOptionsForPlan(
     if (plan.mode !== 'all-in-one') return {}
     if (!localBootstrapToken)
       throw new Error('podium all-in-one daemon needs local bootstrap token')
-    return { bootstrapToken: localBootstrapToken, machineId: hostMachineId }
+    return {
+      bootstrapToken: localBootstrapToken,
+      machineId: hostMachineId ?? readHostMachineId(),
+    }
   })()
 
   return {
