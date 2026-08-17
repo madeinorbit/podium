@@ -26,7 +26,13 @@
  * (session-urgency). Imports no other slice.
  * Platform-neutral: no DOM, no storage.
  */
-import { isHeadlessSession, type IssueWire, type SessionMeta } from '@podium/model'
+import {
+  isHeadlessSession,
+  issueStatusOf,
+  issueStatusOutcome,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import { panelLabel } from '../session-status'
 import {
   resolveReferent,
@@ -269,6 +275,26 @@ export function isClosedTopLevelIssue(
   return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
 }
 
+/**
+ * CLOSED IS NOT ONE ANSWER — "we finished it" and "we are not doing it" are two
+ * (POD-1074).
+ *
+ * `issueClosed` is the right question for anything asking "is this over": an
+ * abandoned task takes the same silence a completed one does, so attention,
+ * seats and offers all stop either way. It is the WRONG question for anything
+ * that reports what happened, or that offers to carry the work further.
+ *
+ * Deliberately delegated rather than re-derived: `issueStatusOutcome` is the
+ * model's own Linear-shaped axis, so `cancelled`, `duplicate` and `superseded`
+ * (and the legacy `wontfix` spellings) all answer here without this file
+ * holding a second opinion about which words are endings.
+ */
+export function issueAbandoned(
+  issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>,
+): boolean {
+  return issueStatusOutcome(issueStatusOf(issue)) === 'cancelled'
+}
+
 /** A private issue branch holding work that never landed on its parent branch.
  *  The explicit ahead check keeps a never-moved/empty branch out, while
  *  `merged !== true` reuses the cleanup guard's ancestry verdict.
@@ -278,10 +304,23 @@ function issueHasUnmergedDelivery(issue: IssueWire): boolean {
   return Boolean(issue.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
 }
 
-/** A FINISHED issue whose branch still has unlanded work. */
+/**
+ * A FINISHED issue whose branch still has unlanded work — and that somebody is
+ * therefore still expected to land.
+ *
+ * ABANDONED CLOSURES ARE NOT AWAITING ANYTHING (POD-1263). Cancelling an issue,
+ * or closing it as a duplicate of another, ends the work; the commits on its
+ * branch are not a deliverable held up by a missing merge, they are the reason
+ * the branch now wants deleting. Counting them as pending merge kept the row
+ * out of `finishedIssueSettled`, which is the gate on BOTH the closed fold and
+ * the "Tuck away" control — so a duplicate closed with three commits on its
+ * branch sat in the live list forever, labelled `ready to merge`, with no
+ * gesture available to dismiss it. Completion is the only ending that leaves a
+ * merge outstanding.
+ */
 export function issueAwaitingMerge(issue: IssueWire): boolean {
   const finished = issue.stage === 'done' || issue.closedReason != null
-  return finished && issueHasUnmergedDelivery(issue)
+  return finished && !issueAbandoned(issue) && issueHasUnmergedDelivery(issue)
 }
 
 /** What the human is actually being asked to decide (POD-279). A queue of
@@ -307,6 +346,9 @@ export function issuePendingDecision(issue: IssueWire): IssuePendingDecision | n
   // `blocked` is derived from open outgoing `blocks` edges by the replica. Such
   // work is waiting on its dependency, not on a human merge/review decision.
   if (issue.blocked) return null
+  // An abandoned closure asks nothing further: there is no merge to offer for
+  // work that was cancelled or folded into another issue (POD-1263).
+  if (issueAbandoned(issue)) return null
   if (issueHasUnmergedDelivery(issue)) return 'merge'
   // A finished issue with nothing to land is simply done — only an explicit
   // review stage still holds an open question.

@@ -60,6 +60,16 @@ function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
   } as SessionMeta
 }
 
+/** A private branch with three commits that never reached `main`. */
+const unlanded = {
+  updatedAt: '2026-07-23T11:00:00.000Z',
+  branch: 'issue/1-abandoned',
+  shared: false,
+  merged: false,
+  ahead: 3,
+  dirtyFiles: 0,
+}
+
 const sections: SidebarSections = { pinnedWorktrees: [], pinnedRepos: [], repos: [] }
 
 function row(value: IssueNavigationModel, sessions: SessionMeta[] = []): UnifiedIssueRow {
@@ -173,6 +183,56 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     // for no other reason (POD-1188) — the mirror of the two lines above.
     expect(rowCanBringBack(tucked, NOW)).toBe(true)
     expect(rowCanBringBack(row(done), NOW)).toBe(false)
+  })
+
+  it.each([
+    'cancelled',
+    'duplicate',
+    'superseded',
+    'wontfix',
+  ] as const)('offers tuck away on a %s closure whose branch never landed (POD-1263)', (closedReason) => {
+    // The commits on an abandoned branch are not a deliverable held up by a
+    // missing merge — they are the reason the branch wants deleting. Treating
+    // them as awaiting-merge held the row out of the fold AND out of the
+    // tuck-away control, so it sat in the live list with no way to dismiss it.
+    const abandoned = row(
+      issue({
+        stage: 'done',
+        closedReason,
+        closedAt: '2026-07-23T11:30:00.000Z',
+        branch: 'issue/1-abandoned',
+        gitState: unlanded,
+      }),
+    )
+    expect(rowAwaitsTuck(abandoned, null, false, NOW)).toBe(true)
+    expect(rowInClosedFold(abandoned, null, false, NOW)).toBe(false)
+
+    // A COMPLETED close with the same unlanded branch still asks for the merge,
+    // so it keeps its full row and offers no dismissal.
+    const done = row(
+      issue({
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: '2026-07-23T11:30:00.000Z',
+        branch: 'issue/1-abandoned',
+        gitState: unlanded,
+      }),
+    )
+    expect(rowAwaitsTuck(done, null, false, NOW)).toBe(false)
+    expect(rowInClosedFold(done, null, false, NOW)).toBe(false)
+  })
+
+  it('folds an abandoned unlanded closure once its grace window passes (POD-1263)', () => {
+    const stale = row(
+      issue({
+        stage: 'done',
+        closedReason: 'duplicate',
+        closedAt: '2026-07-21T11:30:00.000Z',
+        branch: 'issue/1-abandoned',
+        gitState: unlanded,
+      }),
+    )
+    expect(rowInClosedFold(stale, null, false, NOW)).toBe(true)
   })
 
   it('stops offering the bring-back once the grace backstop owns the row (POD-1188)', () => {

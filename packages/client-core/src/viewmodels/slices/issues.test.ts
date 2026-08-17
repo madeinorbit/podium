@@ -4,6 +4,8 @@ import type { ReferentExit } from '../session-ownership'
 import {
   branchRollup,
   filterIssueNav,
+  type IssueNavigationModel,
+  issueAbandoned,
   issueAwaitingMerge,
   issueFinishedAt,
   issueNavList,
@@ -13,7 +15,6 @@ import {
   pendingDecisionTitle,
   resolveIssueEdge,
   subIssuesOf,
-  type IssueNavigationModel,
 } from './issues'
 
 // ---------------------------------------------------------------------------
@@ -105,6 +106,36 @@ describe('pending decision — merge is distinguishable from review', () => {
     expect(issuePendingDecision(i)).toBe('review')
     expect(issuePendingMergeCommits(i)).toBe(0)
     expect(pendingDecisionLabel(i, 'review')).toBe('needs review')
+  })
+
+  it.each([
+    'cancelled',
+    'duplicate',
+    'superseded',
+    'wontfix',
+  ] as const)('asks for no merge on a %s closure, whatever its branch still carries (POD-1263)', (closedReason) => {
+    const i = issue('POD-8', {
+      stage: 'done',
+      closedReason,
+      branch: 'issue/8',
+      gitState: unmerged,
+    })
+    expect(issuePendingDecision(i)).toBeNull()
+    expect(issuePendingMergeCommits(i)).toBe(0)
+    expect(issueAwaitingMerge(i)).toBe(false)
+    expect(issueAbandoned(i)).toBe(true)
+  })
+
+  it('still asks for the merge when the work was COMPLETED (POD-1263)', () => {
+    const i = issue('POD-9', {
+      stage: 'done',
+      closedReason: 'done',
+      branch: 'issue/9',
+      gitState: unmerged,
+    })
+    expect(issuePendingDecision(i)).toBe('merge')
+    expect(issueAwaitingMerge(i)).toBe(true)
+    expect(issueAbandoned(i)).toBe(false)
   })
 
   it('asks for no decision while an open dependency blocks the delivery', () => {

@@ -3,8 +3,6 @@ import {
   asIssueId,
   asSessionId,
   type IssueId,
-  issueStatusOf,
-  issueStatusOutcome,
   type SessionId,
   type SessionMeta,
   spawnedByParentSessionId,
@@ -13,7 +11,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase } from './session-status'
-import { type IssueNavigationModel, isEmptyDraftVessel } from './slices/issues'
+import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './slices/issues'
 import { isCoordinatorSession } from './slices/terminal'
 
 export type FlightDeckMode = 'full' | 'active' | 'needs-you'
@@ -222,29 +220,6 @@ export function sessionNeedsHuman(session: SessionMeta): boolean {
  *  this over" must accept both — the board writes one, `issue close` the other. */
 export function issueClosed(issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>): boolean {
   return issue.stage === 'done' || Boolean(issue.closedReason)
-}
-
-/**
- * CLOSED IS NOT ONE ANSWER — "we finished it" and "we are not doing it" are two
- * (POD-1074).
- *
- * `issueClosed` is the right question for anything asking "is this over": an
- * abandoned task takes the same silence a completed one does, so attention,
- * seats and offers all stop either way. It is the WRONG question for anything
- * that reports what happened, and the deck asked it in two such places — the
- * gauge counted every ending into `done`, and the strip printed the word `Done`
- * beside the very cancel glyph `issueStatusOf` was already rendering correctly.
- *
- * This is the other half of that split, and it is deliberately delegated rather
- * than re-derived: `issueStatusOutcome` is the model's own Linear-shaped axis,
- * so `cancelled`, `duplicate` and `superseded` (and the legacy `wontfix`
- * spellings) all answer here without this file holding a second opinion about
- * which words are endings.
- */
-export function issueAbandoned(
-  issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>,
-): boolean {
-  return issueStatusOutcome(issueStatusOf(issue)) === 'cancelled'
 }
 
 /**
