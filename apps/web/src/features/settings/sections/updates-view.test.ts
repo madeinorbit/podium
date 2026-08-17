@@ -164,7 +164,9 @@ describe('historyRows (spec §3.7)', () => {
       NOW,
     )
     expect(row?.outcome).toEqual({ label: 'Failed', tone: 'error' })
-    expect(row?.error?.message).toBe("The update couldn't be downloaded.")
+    // POD-2241 moved this sentence into the one machine-failure copy table, so
+    // history and the panel say it the same way.
+    expect(row?.error?.message).toBe('Podium could not download this update.')
     expect(row?.error?.detail).toContain('operation: op_01k')
   })
 

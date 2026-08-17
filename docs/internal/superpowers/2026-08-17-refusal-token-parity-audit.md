@@ -127,6 +127,32 @@ nine gates that could not. So:
    uncommitted changes"* — which the machine-side dirty-checkout pattern was
    claiming until the token was anchored and moved first.
 
+## Two sentences per code, on purpose — and what pins them together
+
+§7 gives the SERVER its own one-line message: what happened plus the next
+action, because a client too old to know the code still owes the user words.
+apps/web renders the same failure in its own two layers. They are allowed to
+differ in shape; what they may not do is differ in what they **claim**.
+
+So the claim that did the damage is pinned on both sides, over the same token
+list: `operation.test.ts` and `update-view.test.ts` each assert that no code
+except `machine-unreachable` may say "stopped responding" or "resume when it
+reconnects". Both were proven able to fire.
+
+## A regression this work caused, and the gate that caught it
+
+Importing the shared table through the `@podium/protocol` barrel pulled the
+whole wire schema into the lazy update chunk that POD-2190 split out to keep
+99 KB off the first paint. Measured against the fork point, the chunk's cold
+import went from **~250 ms to ~3 s**, and `updates-context.test.tsx` — which
+drives the real lazy boundary rather than a mocked one, precisely so a boundary
+that never resolves stays visible — timed out waiting for the panel.
+
+The table imports nothing, so it now has its own tsup entry and export
+(`@podium/protocol/update-refusal`). Re-measured: **~250 ms**, back at the
+baseline. Worth recording as the *counter*-example to this document's theme:
+that gate could say no, and did.
+
 ### Proof the gates fire
 
 | Gate | Mutation | Result |
@@ -137,3 +163,5 @@ nine gates that could not. So:
 | `refusal-tokens.test.ts` | same | red: "leaves no token in the shared table without a producer behind it" |
 | `operation.test.ts` | point a token at `machine-unreachable` | red: "reserves the unreachable default for the machine that actually went quiet" |
 | `update-view.test.ts` | same | red: "never tells the operator a machine that answered on purpose stopped responding" |
+| `operation.test.ts` (server copy) | write "stopped responding" into a non-unreachable arm | red: same test name, server side |
+| `updates-context.test.tsx` | pull the protocol barrel into the lazy chunk | red: panel never appears within 1 s |

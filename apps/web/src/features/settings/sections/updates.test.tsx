@@ -377,8 +377,8 @@ describe('UpdatesSection', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: 'What happened?' }))
 
-      expect(screen.getByText(/local edits that prevent a safe update/)).toBeTruthy()
-      expect(screen.getByText(/Commit or stash/)).toBeTruthy()
+      expect(screen.getByText(/local files or edits that prevent a safe update/)).toBeTruthy()
+      expect(screen.getByText(/Commit, stash, move, or locally exclude/)).toBeTruthy()
       // The operation id travels with the copyable detail — that is what
       // "share the last failed update" needs (§3.7).
       expect(screen.getByText(/operation: op_01k/)).toBeTruthy()

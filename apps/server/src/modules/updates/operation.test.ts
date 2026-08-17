@@ -1,6 +1,10 @@
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { Operation, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
-import { CODE_FOR_UPDATE_FAILURE_TOKEN, UPDATE_FAILURE_TOKENS } from '@podium/protocol'
+import {
+  CODE_FOR_UPDATE_FAILURE_TOKEN,
+  UPDATE_FAILURE_EXAMPLES,
+  UPDATE_FAILURE_TOKENS,
+} from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
@@ -788,6 +792,33 @@ describe('the error taxonomy', () => {
     )
     expect(unreachable).toEqual(['stopped-reporting-progress'])
     expect(classifyMachineFailure(undefined)).toBe('machine-unreachable')
+  })
+
+  /**
+   * THE SUBSTANCE, PINNED ON THIS SIDE TOO (POD-2241).
+   *
+   * §7 gives the server its OWN sentence — one line that carries what happened
+   * and the next action, because a client too old to know the code still owes
+   * the user words. apps/web renders the same failure in its own two layers.
+   * The two are allowed to differ in shape; what they may NOT do is differ in
+   * what they CLAIM, and the claim that did the damage is a specific one.
+   *
+   * apps/web has the mirror of this over its copy table, so a future arm cannot
+   * reintroduce the sentence on either side alone.
+   */
+  it('never tells the operator a machine that answered on purpose stopped responding', () => {
+    for (const token of UPDATE_FAILURE_TOKENS) {
+      const code = CODE_FOR_UPDATE_FAILURE_TOKEN[token]
+      if (code === 'machine-unreachable') continue
+      const { message } = describeUpdateOperationFailure({
+        code,
+        places: ['m_a'],
+        names: ['vmi'],
+        detail: UPDATE_FAILURE_EXAMPLES[token],
+      } as UpdateFailure)
+      expect(message, token).not.toMatch(/stopped responding/i)
+      expect(message, token).not.toMatch(/resume when it reconnects/i)
+    }
   })
 
   it('quotes the publisher‘s public reason for a preparation failure', () => {
