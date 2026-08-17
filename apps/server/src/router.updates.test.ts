@@ -276,6 +276,29 @@ describe('release target checks', () => {
     registry.dispose()
   })
 
+  it('adds current component identities to the existing fleet payload', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.1'
+    const { registry, caller } = harness({
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.4.1',
+        digest: '47a01e3',
+      },
+    })
+
+    await expect(caller.updates.fleet()).resolves.toMatchObject({
+      appVersion: '0.4.1',
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.4.1',
+        digest: '47a01e3',
+      },
+    })
+    registry.dispose()
+  })
+
   it('has nothing to say about a channel it has never checked', async () => {
     const { registry, caller } = harness()
 

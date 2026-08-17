@@ -125,7 +125,11 @@ describe('what a served website says about its checkout', () => {
   it('reports the checkout of a stamped dist', () => {
     buildDist()
     stamp({ wireSchemaDigest: wireSchemaDigest(), sourceSha: '47a01e3' })
-    expect(servedWebIdentity(dir)).toEqual({ present: true, digest: '47a01e3' })
+    expect(servedWebIdentity(dir)).toEqual({
+      present: true,
+      appVersion: 'dev+47a01e3',
+      digest: '47a01e3',
+    })
   })
 
   it('reports a dist that is there and names no checkout as present, not missing', () => {
@@ -150,7 +154,11 @@ describe('what a served website says about its checkout', () => {
     stamp({ wireSchemaDigest: wireSchemaDigest(), sourceSha: '47a01e3' })
     // The phone export is built by a separate unit that can finish long after
     // boot, so this must be a live probe rather than a captured flag.
-    expect(servedWebIdentity(dir)).toEqual({ present: true, digest: '47a01e3' })
+    expect(servedWebIdentity(dir)).toEqual({
+      present: true,
+      appVersion: 'dev+47a01e3',
+      digest: '47a01e3',
+    })
   })
 })
 

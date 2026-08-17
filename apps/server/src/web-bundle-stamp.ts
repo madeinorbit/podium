@@ -40,6 +40,7 @@ import {
   BUILD_STAMP_FILE,
   type BuildStamp,
   parseBuildStamp,
+  productVersionFromStamp,
   webSourceDigest,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -132,13 +133,21 @@ export function servedWebSourceDigest(webDir: string): string | undefined {
  */
 export interface ServedWebIdentity {
   present: boolean
+  appVersion?: string
   digest?: string
 }
 
 export function servedWebIdentity(webDir: string): ServedWebIdentity {
   if (!webDir || !existsSync(join(webDir, 'index.html'))) return { present: false }
-  const digest = servedWebSourceDigest(webDir)
-  return digest ? { present: true, digest } : { present: true }
+  const stamp = readWebBuildStamp(webDir)
+  if (!stamp) return { present: true }
+  const digest = webSourceDigest(stamp)
+  const hasProductIdentity = typeof stamp.appVersion === 'string' || digest !== undefined
+  return {
+    present: true,
+    ...(hasProductIdentity ? { appVersion: productVersionFromStamp(stamp) } : {}),
+    ...(digest ? { digest } : {}),
+  }
 }
 
 export function gradeWebBundle(webDir: string): BundleStatus {

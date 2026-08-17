@@ -13,6 +13,8 @@ import { UpdateTarget } from './target'
 export const MobileWebIdentity = z.object({
   /** An exported phone website exists here. Absent means "no phone app", not "stale". */
   present: z.boolean(),
+  /** Product version from the phone bundle's build stamp, when the stamp names one. */
+  appVersion: z.string().optional(),
   /** Its checkout, in the same currency as `artifacts.web.digest`. */
   digest: z.string().optional(),
 })

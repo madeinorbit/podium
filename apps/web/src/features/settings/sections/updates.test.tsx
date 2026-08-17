@@ -34,12 +34,17 @@ vi.mock('@/app/store', () => ({
 let developing = false
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
 
+let webVersion = '0.4.1'
+vi.mock('@/lib/logging/build-version', () => ({ pageBuildVersion: () => webVersion }))
+
 const { UpdatesSection } = await import('./updates')
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
   developing = false
+  webVersion = '0.4.1'
   machines[0]!.updateChannelOverride = null
   machines[0]!.targetUnavailableReason = null
   machines[0]!.targetVersion = null
@@ -92,6 +97,82 @@ describe('UpdatesSection', () => {
     expect(screen.getByText('ludovico')).toBeTruthy()
     expect(screen.getByText('Behind target')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('keeps one running-version line when every present component agrees', async () => {
+    vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', currentVersion: '0.4.1' })
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.4.1',
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.4.1',
+        digest: '47a01e3',
+      },
+    })
+
+    render(<UpdatesSection />)
+
+    await screen.findByText('None published')
+    expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
+    expect(screen.queryByText('Server')).toBeNull()
+    expect(screen.queryByText('Phone app')).toBeNull()
+    expect(screen.queryByText('Desktop app')).toBeNull()
+  })
+
+  it('names each component when the phone bundle comes from a different build', async () => {
+    vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', currentVersion: '0.4.1' })
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.4.1',
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.4.1',
+        digest: 'aaaaaaa',
+      },
+    })
+
+    render(<UpdatesSection />)
+
+    expect(await screen.findByTestId('component-version-breakdown')).toBeTruthy()
+    expect(screen.getByText('Server')).toBeTruthy()
+    expect(screen.getByText('Web app')).toBeTruthy()
+    expect(screen.getByText('Phone app')).toBeTruthy()
+    expect(screen.getByText('Different build from web app')).toBeTruthy()
+    expect(screen.getByText('Desktop app')).toBeTruthy()
+    expect(screen.queryByText('aaaaaaa')).toBeNull()
+  })
+
+  it('omits the desktop row outside the desktop shell', async () => {
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.2' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.4.2',
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.4.1',
+        digest: '47a01e3',
+      },
+    })
+
+    render(<UpdatesSection />)
+
+    expect(await screen.findByTestId('component-version-breakdown')).toBeTruthy()
+    expect(screen.getByText('Server')).toBeTruthy()
+    expect(screen.getByText('Web app')).toBeTruthy()
+    expect(screen.getByText('Phone app')).toBeTruthy()
+    expect(screen.queryByText('Desktop app')).toBeNull()
   })
 
   it('keeps the channel selector writable', async () => {

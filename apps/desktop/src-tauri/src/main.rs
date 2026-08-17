@@ -309,6 +309,7 @@ const DESKTOP_PLATFORM: &str = "macos";
 const DESKTOP_PLATFORM: &str = "windows";
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 const DESKTOP_PLATFORM: &str = "linux";
+const DESKTOP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Eval a web-app menu hook if the page has registered it. Missing handlers are
 /// a no-op: setup/onboarding has nothing to spawn, and an empty workspace must
@@ -362,6 +363,7 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     format!(
         r#"window.__PODIUM_DESKTOP__ = Object.freeze({{
             platform: "{DESKTOP_PLATFORM}",
+            currentVersion: "{DESKTOP_VERSION}",
             launchMode: {launch_mode_expression}{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
@@ -1244,6 +1246,7 @@ mod tests {
     fn native_hook_exposes_only_window_actions() {
         let hook = native_desktop_hook("all-in-one", None);
         assert!(hook.contains(&format!("platform: \"{DESKTOP_PLATFORM}\"")));
+        assert!(hook.contains(&format!("currentVersion: \"{DESKTOP_VERSION}\"")));
         assert!(hook.contains("? \"all-in-one\" : 'daemon'"));
         assert!(hook.contains("plugin:window|minimize"));
         assert!(hook.contains("plugin:window|toggle_maximize"));

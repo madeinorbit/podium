@@ -14,6 +14,8 @@ export interface NativeDesktopUpdateInfo {
 
 export interface NativeDesktopBridge {
   platform: NativeDesktopPlatform
+  /** Shell package version. Older shells omit it. */
+  currentVersion?: string
   launchMode?: NativeDesktopLaunchMode
   /** This device's paired machine id (~/.podium/daemon.json), if it ever paired. [spec:SP-3701] */
   machineId?: MachineId
