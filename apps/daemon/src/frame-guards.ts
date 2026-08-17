@@ -108,7 +108,7 @@ function describeUnreadableApprovalOp(op: unknown): string | undefined {
 
 export interface FrameGuard {
   receive(raw: RawData): void
-  send(socket: Pick<WebSocket, 'readyState' | 'send'> | undefined, msg: DaemonMessage): void
+  send(socket: Pick<WebSocket, 'readyState' | 'send'> | undefined, msg: DaemonMessage): boolean
 }
 
 /**
@@ -168,11 +168,13 @@ export function createFrameGuard(
       }
     },
     send(socket, msg) {
-      if (socket?.readyState !== 1) return
+      if (socket?.readyState !== 1) return false
       try {
         socket.send(encodeDaemonMessage(msg))
+        return true
       } catch (error) {
         warnDropped(error, 'outbound')
+        return false
       }
     },
   }

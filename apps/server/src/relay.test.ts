@@ -4717,6 +4717,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
 
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeQueueDrainAbandoned',
+        reportId: 'report-after-restart',
         sessionId,
         turnIds: [sent.message.id],
         reason: 'teardown',
@@ -4727,6 +4728,10 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
         deliveredTo: sessionId,
         deliveryDeferredReason: 'teardown',
         deadLetteredAt: expect.any(String),
+      })
+      expect(daemon).toContainEqual({
+        type: 'runtimeQueueDrainAbandonedAck',
+        reportId: 'report-after-restart',
       })
     } finally {
       registry.dispose()

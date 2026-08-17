@@ -25,6 +25,7 @@ describe('daemonRuntimeHost', () => {
     expect(sent).toEqual([
       {
         type: 'runtimeQueueDrainAbandoned',
+        reportId: expect.any(String),
         sessionId,
         turnIds: ['msg-1', 'msg-2'],
         reason,

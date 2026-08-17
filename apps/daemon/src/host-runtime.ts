@@ -114,6 +114,7 @@ export async function createDaemonHostRuntime(args: {
   build: PeerBuild
   installDir: string | undefined
   send: (message: DaemonMessage) => void
+  acknowledgeQueueDrainReport: (reportId: string) => void
 }): Promise<DaemonHostRuntime> {
   const { options: opts, instance, build, installDir, send: sendUpstream } = args
   /**
@@ -507,6 +508,7 @@ export async function createDaemonHostRuntime(args: {
 
   const ctx: DaemonContext = {
     send,
+    acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     machineId,
     instanceId: instance.instanceId,
     durableLabels: new Map<SessionId, string>(),

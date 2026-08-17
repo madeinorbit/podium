@@ -39,16 +39,18 @@ import {
 } from './daemon'
 
 describe('shared schemas', () => {
-  it('distinguishes retryable queue teardown from a never-live deadline', () => {
+  it('names an at-least-once queue teardown report distinctly from a never-live deadline', () => {
     expect(
       RuntimeQueueDrainAbandonedMessage.parse({
         type: 'runtimeQueueDrainAbandoned',
+        reportId: 'report-1',
         sessionId: asSessionId('s1'),
         turnIds: ['msg-1'],
         reason: 'teardown',
       }),
     ).toEqual({
       type: 'runtimeQueueDrainAbandoned',
+      reportId: 'report-1',
       sessionId: asSessionId('s1'),
       turnIds: ['msg-1'],
       reason: 'teardown',

@@ -92,14 +92,30 @@ describe('daemon frame guards', () => {
     const send = vi.fn(() => {
       throw new Error('closing')
     })
-    guard.send({ readyState: 1, send } as never, {
-      type: 'inventoryReport',
-      machineId: asMachineId('machine-1'),
-      inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
-    })
+    expect(
+      guard.send({ readyState: 1, send } as never, {
+        type: 'inventoryReport',
+        machineId: asMachineId('machine-1'),
+        inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
+      }),
+    ).toBe(false)
     expect(warn).toHaveBeenCalledWith(
       'dropped a malformed control frame',
       expect.objectContaining({ direction: 'outbound', err: expect.any(Error) }),
     )
+  })
+
+  it('reports a non-open socket without attempting send', () => {
+    const guard = createFrameGuard(context())
+    const send = vi.fn()
+
+    expect(
+      guard.send({ readyState: 0, send } as never, {
+        type: 'inventoryReport',
+        machineId: asMachineId('machine-1'),
+        inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
+      }),
+    ).toBe(false)
+    expect(send).not.toHaveBeenCalled()
   })
 })

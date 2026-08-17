@@ -9,6 +9,7 @@ import { createDetachedRestart, waitForDetachedRestartParent } from './detached-
 import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
 import type { PortableStateControl } from './portable-state-fence'
+import { createQueueDrainOutbox } from './queue-drain-outbox'
 
 export type { DurableBackend } from './control/context'
 export { sessionRelayEnv } from './control/session'
@@ -100,12 +101,26 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     receiptDir: opts.hooks?.receiptDir,
   })
   let connection: DaemonConnection | undefined
+  const queueDrainOutbox = createQueueDrainOutbox(instance.runtimeDir)
   const host = await createDaemonHostRuntime({
     options,
     instance,
     build,
     installDir,
-    send: (message) => connection?.send(message),
+    send: (message) => {
+      // The host exists briefly before its transport does. Persist the one frame
+      // whose producer drops its only copy even in that bootstrap window;
+      // connection.send repeats the idempotent enqueue once the transport exists.
+      if (message.type === 'runtimeQueueDrainAbandoned') {
+        if (!message.reportId) throw new Error('queue-drain abandonment requires reportId')
+        queueDrainOutbox.enqueue({ ...message, reportId: message.reportId })
+      }
+      connection?.send(message)
+    },
+    acknowledgeQueueDrainReport: (reportId) => {
+      if (connection) connection.acknowledgeQueueDrainReport(reportId)
+      else queueDrainOutbox.acknowledge(reportId)
+    },
   })
   connection = createDaemonConnection({
     options,
@@ -115,6 +130,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     receiveApplicationFrame: host.receive,
     sendApplicationFrame: (socket, message) =>
       host.frameGuard.send(socket as never, message as DaemonMessage),
+    queueDrainOutbox,
     onConnected: host.connected,
     onTerminal: host.close,
     restartAfterUpdate: options.restartAfterUpdate,

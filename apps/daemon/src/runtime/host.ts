@@ -13,6 +13,7 @@
  * teardown and the spawn path. All of it predates this epic.
  */
 
+import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { abducoHasSession, scopeUnitName, tmuxHasSession } from '@podium/pty'
 import type { DaemonContext } from '../control/context'
@@ -97,6 +98,7 @@ export function daemonRuntimeHost(
     onDrainAbandoned: ({ sessionId, turns, reason }) =>
       send({
         type: 'runtimeQueueDrainAbandoned',
+        reportId: randomUUID(),
         sessionId,
         turnIds: turns.map((turn) => turn.id),
         reason,

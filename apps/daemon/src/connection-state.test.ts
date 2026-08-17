@@ -2,8 +2,13 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId } from '@podium/model'
-import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import { asMachineId, asSessionId } from '@podium/model'
+import {
+  type DaemonMessage,
+  type PeerHello,
+  type PeerHelloReply,
+  WIRE_VERSION,
+} from '@podium/protocol'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
@@ -11,6 +16,7 @@ import { createDaemonConnection } from './connection-state'
 import { buildReport } from './build-report'
 import { loadIdentity } from './identity'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
+import { createQueueDrainOutbox } from './queue-drain-outbox'
 
 const roots: string[] = []
 const MACHINE_ID = asMachineId('11111111-1111-4111-8111-111111111111')
@@ -59,7 +65,8 @@ function connection(
     machineId: MACHINE_ID,
     identity,
     receiveApplicationFrame: vi.fn(),
-    sendApplicationFrame: vi.fn(),
+    sendApplicationFrame: vi.fn(() => true),
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
   })
@@ -281,7 +288,8 @@ it('reports transport loss as backoff and schedules a retry', async () => {
     machineId: MACHINE_ID,
     identity: { token: 'token' },
     receiveApplicationFrame: vi.fn(),
-    sendApplicationFrame: vi.fn(),
+    sendApplicationFrame: vi.fn(() => true),
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => socket,
@@ -322,7 +330,8 @@ it('keeps the daemon boot identity when the live source changes before reconnect
     machineId: MACHINE_ID,
     identity: { token: 'token' },
     receiveApplicationFrame: vi.fn(),
-    sendApplicationFrame: vi.fn(),
+    sendApplicationFrame: vi.fn(() => true),
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => sockets[socketIndex++] as FakeSocket,
@@ -351,7 +360,7 @@ it('keeps the daemon boot identity when the live source changes before reconnect
 
 it('retains a host diagnostic until the machine transport authenticates', async () => {
   const socket = new FakeSocket()
-  const sendApplicationFrame = vi.fn()
+  const sendApplicationFrame = vi.fn(() => true)
   const state = createDaemonConnection({
     options: { serverUrl: 'ws://server', identityDir: temp() },
     build: buildReport(process.env, undefined),
@@ -359,6 +368,7 @@ it('retains a host diagnostic until the machine transport authenticates', async 
     identity: { token: 'token' },
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame,
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => socket,
@@ -385,5 +395,62 @@ it('retains a host diagnostic until the machine transport authenticates', async 
       code: 'codex-version-unsupported',
     }),
   )
+  await state.close()
+})
+
+it('repeats an abandonment report until the server acknowledges its durable correction', async () => {
+  const socket = new FakeSocket()
+  const outbox = createQueueDrainOutbox(temp())
+  const sent: DaemonMessage[] = []
+  const retries: Array<() => void> = []
+  const clearTimeout = vi.fn()
+  const state = createDaemonConnection({
+    options: {
+      serverUrl: 'ws://server',
+      identityDir: temp(),
+      reconnectTimers: {
+        setTimeout: (fn) => {
+          retries.push(fn)
+          return fn
+        },
+        clearTimeout,
+      },
+    },
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: { token: 'token' },
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame: (_socket, message) => {
+      sent.push(message)
+      return true
+    },
+    queueDrainOutbox: outbox,
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+    openSocket: () => socket,
+  })
+
+  const started = state.start()
+  socket.emit('open')
+  socket.message(ok)
+  await started
+
+  state.send({
+    type: 'runtimeQueueDrainAbandoned',
+    reportId: 'report-1',
+    sessionId: asSessionId('session-1'),
+    turnIds: ['message-1'],
+    reason: 'never-live',
+  })
+  expect(sent).toHaveLength(1)
+  expect(outbox.pending()).toHaveLength(1)
+
+  retries[0]?.()
+  expect(sent).toHaveLength(2)
+  expect(sent[1]).toEqual(sent[0])
+
+  state.acknowledgeQueueDrainReport('report-1')
+  expect(outbox.pending()).toEqual([])
+  expect(clearTimeout).toHaveBeenCalled()
   await state.close()
 })

@@ -67,9 +67,10 @@ export interface SessionDaemonLifecyclePorts {
    * The daemon reporting turns its queue never typed (POD-2132, POD-2202).
    *
    * Bound at the composition root to the message service, which moves each named
-   * durable row to its terminal not-delivered state. THE FRAME REPEATS — it is
-   * retryable and survives restarts — so whatever is bound here MUST DEDUPE BY
-   * TURN ID rather than assume one report per turn.
+   * durable row to its terminal not-delivered state. THE FRAME REPEATS from a
+   * durable daemon outbox until this lifecycle sends its acknowledgement after
+   * `record` returns, so whatever is bound here MUST DEDUPE BY TURN ID rather
+   * than assume one report per turn.
    */
   queueDrainAbandoned?: {
     record(msg: Extract<SessionsDaemonFrame, { type: 'runtimeQueueDrainAbandoned' }>): void
@@ -720,7 +721,18 @@ export class SessionDaemonLifecycle {
       }
       case 'runtimeQueueDrainAbandoned': {
         const owner = this.sessions.get(msg.sessionId)
-        if (owner?.machineId === machineId) this.ports.queueDrainAbandoned?.record(msg)
+        if (owner?.machineId === machineId && this.ports.queueDrainAbandoned) {
+          // `record` is the synchronous durable boundary: it returns only after
+          // the guarded queued→dead_letter update and its transition/notice work.
+          // If it throws, no ack is sent and the daemon retains/replays the report.
+          this.ports.queueDrainAbandoned.record(msg)
+          if (msg.reportId) {
+            this.ports.toMachine(machineId, {
+              type: 'runtimeQueueDrainAbandonedAck',
+              reportId: msg.reportId,
+            })
+          }
+        }
         break
       }
       case 'runtimeEvent': {

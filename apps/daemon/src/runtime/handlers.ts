@@ -1,11 +1,10 @@
 /**
  * THE RUNTIME CONTROL FRAMES (POD-1761 W3; `snapshot` added by W5).
  *
- * FIVE verbs, one shape: find this session's driver handle, call the contract
- * method, answer with the correlated result frame. There is no interpretation
- * here — a refusal is a value the handle returned and travels as one, and an
- * unregistered session produces `not_running`, which is the honest answer to
- * "drive this through the contract" for a session that is not behind it.
+ * FIVE verbs share one shape: find this session's driver handle, call the
+ * contract method, answer with the correlated result frame. The sixth frame is
+ * the server's acknowledgement that a durable queue-abandonment correction
+ * landed; it retires that named daemon outbox record and sends no reply.
  *
  * `attach` is still implemented on the driver with no frame, for W1's original
  * reason: nothing remote negotiates one, and a schema with no caller is a
@@ -81,7 +80,12 @@ export const runtimeHandlers: Pick<
   | 'runtimeAnswerRequest'
   | 'runtimeLifecycleRequest'
   | 'runtimeSnapshotRequest'
+  | 'runtimeQueueDrainAbandonedAck'
 > = {
+  runtimeQueueDrainAbandonedAck: (ctx, msg) => {
+    ctx.acknowledgeQueueDrainReport(msg.reportId)
+  },
+
   runtimeSendRequest: (ctx, msg) => {
     const handle = handleFor(ctx, msg.sessionId)
     if (!handle) {

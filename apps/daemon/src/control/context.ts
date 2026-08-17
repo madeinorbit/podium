@@ -35,8 +35,12 @@ export type DurableBackend = 'abduco' | 'tmux' | 'none'
  */
 export interface DaemonContext {
   // -- wire ------------------------------------------------------------------
-  /** Send a frame to the server over the live socket (drops when disconnected). */
+  /** Send a frame to the server. Ordinary frames drop while disconnected; queue
+   *  abandonment is durably replayed until acknowledged. */
   send(msg: DaemonMessage): void
+  /** Retire one durable queue-abandonment report after the server acknowledges
+   *  that its terminal receipt correction committed. */
+  acknowledgeQueueDrainReport(reportId: string): void
 
   // -- configuration ---------------------------------------------------------
   /** The machine identity this daemon registers as (inventory reports carry it). */

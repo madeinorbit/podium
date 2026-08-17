@@ -9,6 +9,7 @@ import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
+import type { QueueDrainOutbox } from './queue-drain-outbox'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 import { createLogger } from '@podium/logger'
@@ -17,6 +18,7 @@ const log = createLogger('daemon:connection')
 
 const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
+const QUEUE_DRAIN_RETRY_MS = 500
 
 /**
  * How long a protocol-mismatch `podium update` may run before it is killed.
@@ -67,7 +69,8 @@ export interface DaemonConnectionDeps {
   readonly machineId: MachineId
   readonly identity: { token?: string; updatePubkey?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
-  readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => void
+  readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => boolean
+  readonly queueDrainOutbox: QueueDrainOutbox
   readonly onConnected: () => void
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
@@ -78,6 +81,7 @@ export interface DaemonConnection {
   readonly state: DaemonConnectionState
   start(): Promise<void>
   send(msg: DaemonMessage): void
+  acknowledgeQueueDrainReport(reportId: string): void
   close(): Promise<void>
 }
 
@@ -104,14 +108,16 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let socket: SocketLike | undefined
   let localAttachment: Extract<LocalDaemonAttachment, { established: true }> | undefined
   let reconnectTimer: unknown | undefined
+  let queueDrainRetryTimer: unknown | undefined
   let reconnectBackoffMs = RECONNECT_MIN_MS
   let closing = false
   let started = false
   let pairFallbackTried = false
   let lastSocketError: string | undefined
   // Host diagnostics are durable attention, not telemetry. Keep the latest one
-  // per code/version until an authenticated machine transport exists; ordinary
-  // runtime frames retain the historical drop-while-offline behavior.
+  // per code/version until an authenticated machine transport exists. Ordinary
+  // runtime frames retain historical drop-while-offline behavior; queue-drain
+  // abandonment is the one durable, acknowledged exception below.
   const pendingDiagnostics = new Map<
     string,
     Extract<DaemonMessage, { type: 'machineDiagnostic' }>
@@ -139,6 +145,46 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
     if (options.pairCode) return { kind: 'pairCode', code: options.pairCode }
     return null
+  }
+
+  const stopQueueDrainRetry = (): void => {
+    if (queueDrainRetryTimer === undefined) return
+    timers.clearTimeout(queueDrainRetryTimer)
+    queueDrainRetryTimer = undefined
+  }
+
+  const sendConnected = (msg: DaemonMessage): boolean => {
+    if (localAttachment) {
+      try {
+        localAttachment.deliver(msg)
+        return true
+      } catch (error) {
+        log.warn('could not deliver a daemon frame over the local link', { err: error })
+        return false
+      }
+    }
+    return deps.sendApplicationFrame(socket, msg)
+  }
+
+  const scheduleQueueDrainRetry = (): void => {
+    if (
+      closing ||
+      state !== 'connected' ||
+      queueDrainRetryTimer !== undefined ||
+      deps.queueDrainOutbox.pending().length === 0
+    ) {
+      return
+    }
+    queueDrainRetryTimer = timers.setTimeout(() => {
+      queueDrainRetryTimer = undefined
+      replayQueueDrainReports()
+    }, QUEUE_DRAIN_RETRY_MS)
+  }
+
+  const replayQueueDrainReports = (): void => {
+    if (state !== 'connected') return
+    for (const report of deps.queueDrainOutbox.pending()) sendConnected(report)
+    scheduleQueueDrainRetry()
   }
 
   const scheduleReconnect = (): void => {
@@ -242,6 +288,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       else deps.sendApplicationFrame(socket, diagnostic)
     }
     pendingDiagnostics.clear()
+    replayQueueDrainReports()
     resolveStart()
   }
 
@@ -419,6 +466,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     })
     active.on('close', () => {
       if (socket === active) socket = undefined
+      stopQueueDrainRetry()
       scheduleReconnect()
     })
   }
@@ -442,21 +490,29 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return ready
     },
     send(msg) {
+      if (msg.type === 'runtimeQueueDrainAbandoned') {
+        if (!msg.reportId) {
+          throw new Error('runtimeQueueDrainAbandoned requires reportId before daemon send')
+        }
+        deps.queueDrainOutbox.enqueue({ ...msg, reportId: msg.reportId })
+      }
       if (state !== 'connected') {
         if (msg.type === 'machineDiagnostic') {
           pendingDiagnostics.set(`${msg.code}\0${msg.observedVersion ?? ''}`, msg)
         }
         return
       }
-      if (localAttachment) {
-        localAttachment.deliver(msg)
-        return
-      }
-      deps.sendApplicationFrame(socket, msg)
+      sendConnected(msg)
+      if (msg.type === 'runtimeQueueDrainAbandoned') scheduleQueueDrainRetry()
+    },
+    acknowledgeQueueDrainReport(reportId) {
+      deps.queueDrainOutbox.acknowledge(reportId)
+      if (deps.queueDrainOutbox.pending().length === 0) stopQueueDrainRetry()
     },
     async close() {
       closing = true
       state = 'closed'
+      stopQueueDrainRetry()
       if (reconnectTimer !== undefined) {
         timers.clearTimeout(reconnectTimer)
         reconnectTimer = undefined

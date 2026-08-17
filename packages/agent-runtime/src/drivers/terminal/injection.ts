@@ -206,10 +206,13 @@ export interface TerminalInjectionPorts {
    * afterwards would deliver bytes the ledger already recorded as undelivered, with
    * no receipt anywhere. What is owed is stated once, here, and then owed by nobody.
    *
-   * THE TRANSPORT, THOUGH, IS RETRYABLE. A report can be repeated across restarts
-   * and may carry turn ids a consumer already handled. CONSUMERS MUST DEDUPE BY
-   * TURN ID before correcting receipts or emitting transitions — retryable means
-   * "safe to hear twice", never "safe to deliver twice".
+   * THE HOST MUST MAKE THE TRANSPORT AT-LEAST-ONCE. Before this callback returns,
+   * it durably records the report; it replays while connected and across host
+   * restarts, and removes that record only after the receipt consumer
+   * acknowledges its durable correction. A report can therefore repeat and may
+   * carry turn ids a consumer already handled. CONSUMERS MUST DEDUPE BY TURN ID
+   * before correcting receipts or emitting transitions — retryable means "safe
+   * to hear twice", never "safe to deliver twice".
    */
   onDrainAbandoned?(turns: readonly QueuedTurn[], reason: QueueDrainAbandonedReason): void
 }

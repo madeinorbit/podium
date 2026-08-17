@@ -1052,13 +1052,25 @@ export const RuntimeSnapshotResultMessage = z.object({
 })
 export type RuntimeSnapshotResultMessage = z.infer<typeof RuntimeSnapshotResultMessage>
 
-/** server → daemon: drive one session verb through the contract. */
+/** server → daemon: the named abandonment report has reached its durable
+ *  terminal-row consumer. A lost ack is harmless: the daemon replays the report,
+ *  the consumer dedupes its turn ids, and the server acknowledges it again. */
+export const RuntimeQueueDrainAbandonedAckMessage = z.object({
+  type: z.literal('runtimeQueueDrainAbandonedAck'),
+  reportId: z.string().min(1),
+})
+export type RuntimeQueueDrainAbandonedAckMessage = z.infer<
+  typeof RuntimeQueueDrainAbandonedAckMessage
+>
+
+/** server → daemon: drive one session verb, or acknowledge one durable report. */
 export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeSendRequestMessage,
   RuntimeInterruptRequestMessage,
   RuntimeAnswerRequestMessage,
   RuntimeLifecycleRequestMessage,
   RuntimeSnapshotRequestMessage,
+  RuntimeQueueDrainAbandonedAckMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -1075,12 +1087,18 @@ export type RuntimeSendResultMessage = z.infer<typeof RuntimeSendResultMessage>
  * before delivery. No turn was started, so this is a receipt correction, not a
  * turn event — the daemon is saying these turns were never typed and will not be.
  *
- * THE FRAME is retryable and repeats across restarts; THE DELIVERY it reports on
- * is not retried by anybody. Consumers dedupe by turn id, so hearing it twice
- * corrects the same receipt once.
+ * THE FRAME is at-least-once, not fire-and-forget. Before the driver discards
+ * these turns the daemon durably records this report, replays it while connected
+ * and across daemon restarts, and retires it only after the server acknowledges
+ * the durable correction. THE DELIVERY it reports on is not retried by anybody.
+ * Consumers still dedupe by turn id, so hearing a replay corrects the same
+ * receipt once.
  */
 export const RuntimeQueueDrainAbandonedMessage = z.object({
   type: z.literal('runtimeQueueDrainAbandoned'),
+  /** Present on daemons with the acknowledged outbox. Optional only so a newer
+   *  server can still accept the pre-outbox frame during a rolling upgrade. */
+  reportId: z.string().min(1).optional(),
   sessionId: z.string().min(1).pipe(SessionIdField),
   turnIds: z.array(z.string().min(1)).min(1),
   reason: z.enum(['never-live', 'teardown']),
@@ -1165,6 +1183,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeAnswerRequest',
   'runtimeLifecycleRequest',
   'runtimeSnapshotRequest',
+  'runtimeQueueDrainAbandonedAck',
   'runtimeSendResult',
   'runtimeQueueDrainAbandoned',
   'runtimeLifecycleResult',

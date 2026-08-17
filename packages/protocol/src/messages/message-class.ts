@@ -250,6 +250,9 @@ export const CONTROL_PLANE_CLASS = {
   runtimeInterruptRequest: 'control.command',
   runtimeAnswerRequest: 'control.command',
   runtimeLifecycleRequest: 'control.command',
+  // Receipt for a durable-synced daemon report. It is safe to repeat and only
+  // retires the daemon outbox record whose reportId it names.
+  runtimeQueueDrainAbandonedAck: 'control.command',
   /** The observation bootstrap request (POD-2023) — a correlated round-trip
    *  like every other session verb, so the same class for the same reason: a
    *  lost one is a failed RPC the caller already handles. */

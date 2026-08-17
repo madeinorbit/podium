@@ -1634,6 +1634,18 @@
       "encoded": "{\"type\":\"runtimeSnapshotRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
     },
     {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "runtimeQueueDrainAbandonedAck",
+        "reportId": "reportId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandonedAck\",\"reportId\":\"reportId\"}"
+    },
+    {
       "schema": "RuntimeDaemonMessage",
       "variant": "minimal",
       "wire": {
@@ -1678,6 +1690,7 @@
       "variant": "full/arm1",
       "wire": {
         "type": "runtimeQueueDrainAbandoned",
+        "reportId": "reportId",
         "sessionId": "sessionId",
         "turnIds": ["turnIds[0]"],
         "reason": "teardown"
@@ -1685,7 +1698,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"teardown\"}"
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"reportId\":\"reportId\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"teardown\"}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -2787,6 +2800,7 @@
       "variant": "full/arm1",
       "wire": {
         "type": "runtimeQueueDrainAbandoned",
+        "reportId": "reportId",
         "sessionId": "sessionId",
         "turnIds": ["turnIds[0]"],
         "reason": "teardown"
@@ -2794,7 +2808,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"teardown\"}"
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"reportId\":\"reportId\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"teardown\"}"
     },
     {
       "schema": "RuntimeMessage",
@@ -2911,6 +2925,30 @@
       "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
     },
     {
+      "schema": "RuntimeQueueDrainAbandonedAckMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeQueueDrainAbandonedAck",
+        "reportId": "reportId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandonedAck\",\"reportId\":\"reportId\"}"
+    },
+    {
+      "schema": "RuntimeQueueDrainAbandonedAckMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeQueueDrainAbandonedAck",
+        "reportId": "reportId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandonedAck\",\"reportId\":\"reportId\"}"
+    },
+    {
       "schema": "RuntimeQueueDrainAbandonedMessage",
       "variant": "minimal",
       "wire": {
@@ -2929,6 +2967,7 @@
       "variant": "full",
       "wire": {
         "type": "runtimeQueueDrainAbandoned",
+        "reportId": "reportId",
         "sessionId": "sessionId",
         "turnIds": ["turnIds[0]"],
         "reason": "never-live"
@@ -2936,7 +2975,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"never-live\"}"
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"reportId\":\"reportId\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"never-live\"}"
     },
     {
       "schema": "RuntimeSendRequestMessage",
