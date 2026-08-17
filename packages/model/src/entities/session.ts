@@ -407,8 +407,8 @@ export const SessionMetaEntity = z.object({
    * older daemons and legacy sessions that have no agent-runtime handle. Never
    * infer this from the requested runtime contract. */
   driverId: z.string().min(1).optional(),
-  /** Machine-wide driver preference that degraded to driverId. Transient and
-   * daemon-reported; absent when selection was honoured. */
+  /** Manifest-default or machine-wide server preference that degraded to
+   * driverId. Transient and daemon-reported; absent when selection was honoured. */
   requestedDriverId: z.string().min(1).optional(),
   /** Number of durable server-held messages waiting to be typed into this agent
    *  once it is back (docs/spec/outbox-write-path.md §2.2). Absent = none. Like

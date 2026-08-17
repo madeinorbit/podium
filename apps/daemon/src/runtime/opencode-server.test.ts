@@ -32,6 +32,7 @@ import {
   droppedDriverPreference,
   isServerDriver,
   resolveRuntimeDriver,
+  runtimeDriverIntentForSpawn,
   spawnNamedServerDriver,
   unhonouredSpawnDriver,
 } from './registry'
@@ -69,18 +70,91 @@ describe('the per-spawn driver override', () => {
 
 describe('driver resolution', () => {
   const available = ['claude-pty', 'generic-pty', 'opencode-server'] as const
+  it.each([
+    ['opencode', 'opencode-server'],
+    ['codex', 'codex-app-server'],
+    ['grok', 'grok-acp'],
+  ] as const)('%s defaults to its server, degrades visibly, and preserves explicit overrides', (agentKind, serverDriver) => {
+    expect(
+      runtimeDriverIntentForSpawn({
+        agentKind,
+        perSpawn: undefined,
+        machineDefault: undefined,
+      }),
+    ).toEqual({ requested: undefined, preferred: serverDriver })
 
-  it('DEFAULTS TO TERMINAL, even with the server driver available', () => {
-    // The behaviour-neutrality claim, at the one place a spawn could break it.
+    const supported = resolveRuntimeDriver({
+      agentKind,
+      requested: undefined,
+      machineDefault: undefined,
+      available: [serverDriver, 'generic-pty'],
+      platform: 'linux',
+    })
+    expect(supported).toEqual({ ok: true, driverId: serverDriver })
+
+    const fallback = resolveRuntimeDriver({
+      agentKind,
+      requested: undefined,
+      machineDefault: undefined,
+      available: ['generic-pty'],
+      platform: 'linux',
+    })
+    expect(fallback).toEqual({ ok: true, driverId: 'generic-pty' })
+    const records: LogRecord[] = []
+    const dispose = addSink({
+      name: 'default-driver-degrade-test',
+      write: (record) => records.push(record),
+    })
+    const requestedDriverId = reportDriverPreferenceDegrade({
+      sessionId: SESSION,
+      agentKind,
+      preference: serverDriver,
+      resolved: 'generic-pty',
+      reason: 'driver probe did not admit this machine',
+    })
+    dispose()
+    expect(requestedDriverId).toBe(serverDriver)
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        level: 'warn',
+        msg: 'the preferred runtime driver was not available; using fallback',
+        preferred: serverDriver,
+        resolved: 'generic-pty',
+      }),
+    )
+
+    expect(
+      resolveRuntimeDriver({
+        agentKind,
+        requested: 'generic-pty',
+        machineDefault: undefined,
+        available: [serverDriver, 'generic-pty'],
+        platform: 'linux',
+      }),
+    ).toEqual({ ok: true, driverId: 'generic-pty' })
+
+    expect(
+      resolveRuntimeDriver({
+        agentKind,
+        requested: serverDriver + '-bogus',
+        machineDefault: undefined,
+        available: [serverDriver, 'generic-pty'],
+        platform: 'linux',
+      }).ok,
+    ).toBe(false)
+  })
+
+  it('defaults to opencode-server when the machine admits it', () => {
+    // No per-spawn or machine preference: the harness policy owns the choice.
     const resolved = resolveRuntimeDriver({
       agentKind: 'opencode',
-      requested: true,
+      requested: undefined,
       machineDefault: undefined,
       available: [...available],
       platform: 'linux',
     })
-    expect(resolved).toEqual({ ok: true, driverId: 'generic-pty' })
-    expect(isServerDriver('opencode', 'generic-pty')).toBe(false)
+    expect(resolved).toEqual({ ok: true, driverId: 'opencode-server' })
+    expect(isServerDriver('opencode', 'opencode-server')).toBe(true)
   })
 
   it('honours an explicit opt-in', () => {
@@ -146,7 +220,9 @@ describe('driver resolution', () => {
     // way it can observe — refusing would be pedantry about a label, and it
     // would turn `PODIUM_RUNTIME_DRIVER=claude-pty` on an opencode session into
     // a dead spawn.
-    expect(unhonouredSpawnDriver({ perSpawn: 'claude-pty', resolved: 'generic-pty' })).toBeUndefined()
+    expect(
+      unhonouredSpawnDriver({ perSpawn: 'claude-pty', resolved: 'generic-pty' }),
+    ).toBeUndefined()
   })
 
   it('asks ONE question for both refusals, so a stale env var cannot kill a box', () => {
@@ -195,7 +271,10 @@ describe('driver resolution', () => {
 
   it('pins the degrade warning and the requested-driver projection together', () => {
     const records: LogRecord[] = []
-    const dispose = addSink({ name: 'driver-degrade-test', write: (record) => records.push(record) })
+    const dispose = addSink({
+      name: 'driver-degrade-test',
+      write: (record) => records.push(record),
+    })
     const requestedDriverId = reportDriverPreferenceDegrade({
       sessionId: SESSION,
       agentKind: 'opencode',
@@ -208,7 +287,7 @@ describe('driver resolution', () => {
     expect(records).toContainEqual(
       expect.objectContaining({
         level: 'warn',
-        msg: 'a machine-wide runtime driver preference was not honoured',
+        msg: 'the preferred runtime driver was not available; using fallback',
         sessionId: SESSION,
         preferred: 'opencode-server',
         resolved: 'generic-pty',
@@ -216,9 +295,9 @@ describe('driver resolution', () => {
       }),
     )
     /**
-     * A machine-wide preference that becomes a terminal session must emit the
-     * warning above and return the requested id for the bind read surface. The
-     * shared guard prevents those two facts from drifting (review finding 3).
+     * A preferred server driver that becomes a terminal session must emit the
+     * warning above and return the preferred id for the bind read surface. The
+     * shared guard prevents those two facts from drifting.
      *
      * The emission is asserted above; the remaining cases pin the guard negatives.
      */
@@ -234,7 +313,9 @@ describe('driver resolution', () => {
       droppedDriverPreference({ preference: 'opencode-server', resolved: 'opencode-server' }),
     ).toBeUndefined()
     // No preference at all is the overwhelmingly common spawn.
-    expect(droppedDriverPreference({ preference: undefined, resolved: 'generic-pty' })).toBeUndefined()
+    expect(
+      droppedDriverPreference({ preference: undefined, resolved: 'generic-pty' }),
+    ).toBeUndefined()
     // A terminal id resolving to its sibling is not a degrade: both reach the
     // same PTY launch, so nothing was lost to report.
     expect(
@@ -286,7 +367,9 @@ describe('the version gate, as the daemon reads it', () => {
   afterEach(() => resetOpencodeVersionProbe())
 
   const answered = (output: string) => () => ({ output, ok: true })
-  const silent = (output = '') => () => ({ output, ok: false })
+  const silent =
+    (output = '') =>
+    () => ({ output, ok: false })
 
   it('admits a version in range and refuses one outside it', () => {
     expect(opencodeVersionProbe(answered('1.18.16'))).toEqual({ drivable: true })
@@ -406,7 +489,9 @@ describe('the binding journal', () => {
   })
 
   it('answers undefined for a session it never saw, rather than throwing', () => {
-    expect(createOpencodeJournal().read(asSessionId('22222222-2222-4222-8222-222222222222'))).toBeUndefined()
+    expect(
+      createOpencodeJournal().read(asSessionId('22222222-2222-4222-8222-222222222222')),
+    ).toBeUndefined()
   })
 })
 

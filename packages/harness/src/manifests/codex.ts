@@ -356,26 +356,10 @@ export const codexManifest: AgentManifest = {
     // The permanent fallback: a protocol break degrades Codex sessions to the
     // terminal driver instead of stranding them (spec §3, churn stance).
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    /**
-     * THE DEFAULT STAYS TERMINAL, AND THE APP-SERVER DRIVER IS OPT-IN (W6).
-     *
-     * W1's note here anticipated that W6 would put `codex-app-server` first for
-     * every auth mode. It does not, and the plan W6 implements is explicit about
-     * why: the terminal driver is Codex's PERMANENT fallback (spec §3's
-     * protocol-churn stance), and this item ships "the same explicit per-spawn
-     * opt-in as opencode". Promoting a driver in the ranking is a separate
-     * decision from shipping it, and it belongs to whoever has run it long
-     * enough to argue for it — not to the agent that wrote it.
-     *
-     * The ranking is therefore unchanged: a spawn expressing no preference gets
-     * exactly what it got before this driver existed. What makes the driver
-     * reachable is `ctx.preference`, which `selectRuntimeDriver` honours ahead
-     * of the ranking AND only when the machine reports the driver available — so
-     * an operator naming `codex-app-server` on a box whose codex is out of the
-     * pinned range falls through to terminal instead of getting a session that
-     * hangs on its first tool call.
-     */
-    select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
+    // App-server is the default for every Codex auth mode when the version probe
+    // admits it. The terminal driver remains the permanent protocol-churn
+    // fallback, and an explicit terminal preference still wins.
+    select: (ctx) => selectRuntimeDriver(ctx, ['codex-app-server', 'generic-pty']),
   },
   headless: supported({
     driver: 'codex-json',

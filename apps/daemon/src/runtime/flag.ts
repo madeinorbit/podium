@@ -26,9 +26,11 @@
  * The same field now also carries a DRIVER ID, which is the operator's explicit
  * per-spawn choice of driver (spec §9 phase 3). `true` still means "drive this
  * through the contract, with whatever the manifest's policy picks"; a string
- * means "…with this driver". The default is untouched by both: a spawn that says
- * nothing gets the legacy path, and a spawn that says `true` gets the terminal
- * driver, because that is what every manifest's `select()` still ranks first.
+ * means "…with this driver". Driver selection is now independent of this
+ * receipt-path flag: a server-capable harness prefers its admitted server driver
+ * even when the spawn says nothing, while a fallback with no flag continues on
+ * the legacy terminal path. `true` still means "use the contract path and let
+ * the manifest choose"; it is not an engine picker.
  */
 
 import type { RuntimeContractRequest } from '@podium/protocol'

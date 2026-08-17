@@ -689,8 +689,9 @@ export interface TerminalRuntimeSpec {
 }
 
 /**
- * The shared body of every `select()`: honour an available preference, else take
- * the first available driver in the harness's own ranked order.
+ * The shared body of every `select()`: honour an available preference that is
+ * valid for this harness (plus either terminal sibling), else take the first
+ * available driver in the harness's own ranked order.
  *
  * `ranked` MUST end with this harness's terminal driver id, and that is not a
  * convention — it is what makes the function total. The terminal family is
@@ -711,9 +712,20 @@ export function selectRuntimeDriver(
 ): DriverId {
   const available = new Set(ctx.available)
   // An explicit operator choice wins over the policy — but only if the machine
-  // can actually run it. Honouring an unavailable preference would turn a
-  // settings toggle into a broken session.
-  if (ctx.preference && available.has(ctx.preference)) return ctx.preference
+  // can actually run it AND this harness declares it. Without the second half,
+  // a machine-wide preference for one harness's healthy server can route a
+  // different harness into that server family. Terminal ids are interchangeable
+  // at the launch seam, so either terminal preference still explicitly opts out
+  // of a harness's preferred server driver.
+  if (
+    ctx.preference &&
+    available.has(ctx.preference) &&
+    (ranked.includes(ctx.preference) ||
+      ctx.preference === 'claude-pty' ||
+      ctx.preference === 'generic-pty')
+  ) {
+    return ctx.preference
+  }
   for (const id of ranked) if (available.has(id)) return id
   return ranked[ranked.length - 1] as DriverId
 }

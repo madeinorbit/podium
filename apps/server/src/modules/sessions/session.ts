@@ -281,8 +281,8 @@ export class Session {
    * `runtimeContract`: the live handle owns this fact, so it is re-established
    * by every bind and is never reconstructed from the spawn request. */
   driverId: string | undefined = undefined
-  /** Machine-wide driver preference that degraded to driverId. Like driverId,
-   * this is a transient fact re-established by daemon bind/reattach. */
+  /** Manifest-default or machine-wide server preference that degraded to
+   * driverId. Transient and re-established by daemon bind/reattach. */
   requestedDriverId: string | undefined = undefined
   /** Agent action offer [spec:SP-c7f1] — a freeform message + action buttons the
    *  agent offers the user as next steps. Lives in its own `offers` table (not

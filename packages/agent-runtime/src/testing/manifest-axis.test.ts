@@ -5,8 +5,8 @@
  * axis that declares it — so there is no second list here to reconcile. What
  * still needs proving is that the five manifests USE it correctly: that every
  * harness declares a terminal driver, that nobody names a driver this build has
- * never heard of, and that `select()` is behavior-neutral in W1 rather than
- * quietly promising a driver that does not exist yet.
+ * never heard of, and that `select()` ranks each shipped server driver ahead of
+ * its permanent terminal fallback only when the machine admits it.
  *
  * A manifest naming a phantom driver would typecheck perfectly and fail at spawn
  * time on somebody's machine, which is the worst possible place to discover a
@@ -63,12 +63,11 @@ describe('the AgentManifest runtime axis', () => {
       auth: 'api-key',
       platform: 'linux',
       available: ['codex-app-server', 'generic-pty'],
-      preference: 'codex-app-server',
+      preference: 'generic-pty',
     })
-    // The operator asked for a specific driver and the machine can run it.
-    // Overriding that with the policy's own order is how a settings toggle stops
-    // meaning anything.
-    expect(chosen).toBe('codex-app-server')
+    // An explicit terminal request remains the opt-out from the headless
+    // default; replacing it with the policy order would make the override lie.
+    expect(chosen).toBe('generic-pty')
   })
 
   it('is TOTAL: an empty availability list still answers, with the terminal driver', () => {
@@ -128,24 +127,35 @@ describe('per-harness selection (spec §2 matrix)', () => {
     expect(embedded.value.auth).not.toContain('subscription')
   })
 
-  it('is BEHAVIOR-NEUTRAL in W1: terminal even when a server driver is available', () => {
-    // W1 ships declarations, not drivers. `select()` must not name a driver that
-    // does not exist yet, however loudly the manifest declares its server spec —
-    // a policy that returns `opencode-server` before W5 builds one turns this
-    // work item into a behavior change, which is exactly what it must not be.
-    for (const [kind, terminal] of [
-      ['codex', 'generic-pty'],
-      ['opencode', 'generic-pty'],
-      ['claude-code', 'claude-pty'],
-    ] as const) {
-      expect(
-        AGENT_MANIFESTS[kind].runtime.select({
-          auth: 'api-key',
-          platform: 'linux',
-          available: [...DRIVER_IDS],
-        }),
-      ).toBe(terminal)
-    }
+  it.each([
+    ['opencode', 'opencode-server'],
+    ['codex', 'codex-app-server'],
+    ['grok', 'grok-acp'],
+  ] as const)('%s defaults to its admitted server and falls back to PTY', (kind, server) => {
+    const runtime = AGENT_MANIFESTS[kind].runtime
+    const terminal = runtime.terminal.driverId
+    expect(
+      runtime.select({
+        auth: 'unknown',
+        platform: 'linux',
+        available: [server, terminal],
+      }),
+    ).toBe(server)
+    expect(
+      runtime.select({
+        auth: 'unknown',
+        platform: 'linux',
+        available: [terminal],
+      }),
+    ).toBe(terminal)
+    expect(
+      runtime.select({
+        auth: 'unknown',
+        platform: 'linux',
+        available: [server, terminal],
+        preference: terminal,
+      }),
+    ).toBe(terminal)
   })
 
   it('leaves cursor terminal-only', () => {

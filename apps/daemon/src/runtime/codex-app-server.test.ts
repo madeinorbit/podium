@@ -8,8 +8,8 @@
  *     `getAuthStatus` assertion is the proof half, tested in the driver package.
  *   - "version gate refuses out-of-range codex (unit-tested)".
  *
- * Plus the selection wiring, which is what makes the driver reachable at all
- * and, just as importantly, what keeps it UNreachable by default.
+ * Plus the selection wiring, which makes the admitted driver the default while
+ * keeping the terminal path as its permanent fallback.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -153,7 +153,9 @@ describe('the spawn config', () => {
 
 describe('the version gate', () => {
   const answered = (output: string) => () => ({ output, ok: true })
-  const unanswered = (output = '') => () => ({ output, ok: false })
+  const unanswered =
+    (output = '') =>
+    () => ({ output, ok: false })
 
   it('admits the version the fixtures were recorded from', () => {
     resetCodexAppServerVersionProbe()
@@ -234,16 +236,14 @@ describe('the version gate', () => {
     let attempt = 0
     const probe = () => {
       attempt += 1
-      return attempt === 1
-        ? { output: '', ok: false }
-        : { output: 'codex-cli 0.147.0', ok: true }
+      return attempt === 1 ? { output: '', ok: false } : { output: 'codex-cli 0.147.0', ok: true }
     }
     expect(codexAppServerVersionProbe(probe).drivable).toBe(false)
     expect(codexAppServerVersionProbe(probe).drivable).toBe(true)
   })
 })
 
-describe('selection — reachable on purpose, unreachable by default', () => {
+describe('selection — server first, terminal fallback', () => {
   it('lists the driver only where the gate admitted the binary', () => {
     expect(availableDriverIds({ opencodeDrivable: false, codexDrivable: true })).toContain(
       'codex-app-server',
@@ -266,13 +266,8 @@ describe('selection — reachable on purpose, unreachable by default', () => {
     expect(isServerDriver('opencode', 'codex-app-server')).toBe(false)
   })
 
-  it('DEFAULTS TO TERMINAL when a spawn expresses no preference', () => {
-    /**
-     * The plan is explicit that the terminal driver stays Codex's permanent
-     * fallback and that this driver ships as an explicit per-spawn opt-in. A
-     * spawn that says nothing must get exactly what it got before this driver
-     * existed.
-     */
+  it('defaults to app-server when a spawn expresses no preference', () => {
+    // The terminal driver remains the fallback, not the first-ranked choice.
     const resolved = resolveRuntimeDriver({
       agentKind: 'codex',
       requested: undefined,
@@ -281,7 +276,7 @@ describe('selection — reachable on purpose, unreachable by default', () => {
       platform: 'linux',
     })
     expect(resolved.ok).toBe(true)
-    if (resolved.ok) expect(resolved.driverId).toBe('generic-pty')
+    if (resolved.ok) expect(resolved.driverId).toBe('codex-app-server')
   })
 
   it('honours an explicit per-spawn preference', () => {

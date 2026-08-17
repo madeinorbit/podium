@@ -8,19 +8,15 @@
  * Two things, both small:
  *
  *   1. WHICH DRIVER a harness gets — read straight off `AgentManifest.runtime`,
- *      never invented here. The manifest is where per-harness variance lives
- *      (POD-303's whole argument), and a second table in the daemon would be the
- *      first place the two disagreed.
- *   2. WHETHER a session is driven through the contract at all — the flag, and
- *      nothing else. No heuristics, no "and also if the harness supports it": a
- *      parallel path that turned itself on would not be a parallel path.
+ *      never invented here. Server-capable harnesses default to their own
+ *      admitted server driver; terminal remains their total fallback.
+ *   2. WHETHER a TERMINAL fallback uses the receipt contract path — the flag,
+ *      and nothing else. Server-family sessions necessarily bind through the
+ *      contract; a no-preference fallback with the flag off stays on the legacy
+ *      PTY path.
  *
- *   3. WHICH DRIVER, now that there is a second answer (POD-2023). W3 declined to
- *      call `manifest.runtime.select(ctx)` because its answer was a constant, and
- *      "a call site that looks like a policy but is a constant is worse than no
- *      call at all". W5 ships `opencode-server`, so the call is now a real
- *      decision and {@link resolveRuntimeDriver} makes it — in ONE place, so the
- *      server planning a spawn and the machine performing one cannot disagree.
+ * `resolveRuntimeDriver` is the one policy call site, so the server planning a
+ * spawn and the machine performing one cannot disagree.
  */
 
 import {
@@ -140,13 +136,12 @@ export type DriverResolution = { ok: true; driverId: DriverId } | { ok: false; r
  * Resolve the driver for one spawn: the explicit override if there is one, the
  * manifest's policy otherwise.
  *
- * THE OVERRIDE IS ROUTED THROUGH `select()` RATHER THAN AROUND IT, and that is
- * the point of the design. `selectRuntimeDriver` already honours
- * `ctx.preference` ahead of its ranking AND only when the machine reports the
- * driver available — so an operator naming `opencode-server` on a box whose
- * opencode is missing or out of range falls through to the terminal driver
- * instead of getting a session that cannot start. Bypassing the policy would
- * have meant re-implementing that rule here, differently.
+ * THE OVERRIDE IS ROUTED THROUGH `select()` RATHER THAN AROUND IT. The shared
+ * policy honours it only when the machine reports it available and the harness
+ * declares it (either terminal id is accepted as the same PTY-family opt-out).
+ * An unavailable server therefore resolves to the harness's ranked fallback;
+ * the caller then refuses a per-spawn server id or visibly degrades a
+ * machine/policy preference.
  *
  * The one thing decided outside the policy is an UNKNOWN id, because `select()`
  * cannot distinguish "this build does not ship that driver" from "this machine
@@ -176,6 +171,21 @@ export function resolveRuntimeDriver(input: {
     ...(preference ? { preference: preference as DriverId } : {}),
   }
   return { ok: true, driverId: manifest.runtime.select(ctx) }
+}
+/**
+ * The preference whose probe a spawn must consult. With no explicit or
+ * machine-wide value, a server-capable harness contributes its own declared
+ * server id; a terminal-only harness contributes nothing and skips probing.
+ */
+export function runtimeDriverIntentForSpawn(input: {
+  agentKind: AgentKind
+  perSpawn: RuntimeContractRequest | undefined
+  machineDefault: string | undefined
+}): { requested: string | undefined; preferred: string | undefined } {
+  const requested = runtimeDriverFor(input.machineDefault, input.perSpawn)
+  const manifest = manifestFor(input.agentKind)
+  const declaredServer = manifest ? declaredValue(manifest.runtime.server) : undefined
+  return { requested, preferred: requested ?? declaredServer?.driverId }
 }
 
 /** Does this harness declare a server driver at all, and is it the one selected?

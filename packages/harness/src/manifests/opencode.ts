@@ -180,25 +180,10 @@ export const opencodeManifest: AgentManifest = {
     }),
     embedded: unsupported('opencode ships a server, not a library to host in-process'),
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    /**
-     * THE DEFAULT STAYS TERMINAL, AND THE SERVER DRIVER IS OPT-IN (spec §9
-     * phase 3; POD-2023).
-     *
-     * The ranking is unchanged from W1 — `generic-pty` and nothing above it — so
-     * a spawn that expresses no preference gets exactly what it got before this
-     * driver existed. What makes the server driver reachable is
-     * `ctx.preference`, which `selectRuntimeDriver` already honours ahead of the
-     * ranking AND only when the machine reports the driver available. That is
-     * the whole opt-in: an operator names `opencode-server` per spawn (or
-     * machine-wide via `PODIUM_RUNTIME_DRIVER`), and a machine whose opencode is
-     * missing or out of the pinned range simply does not list it, so the
-     * preference falls through to terminal instead of producing a broken
-     * session.
-     *
-     * Promoting it in the RANKING is a separate decision from shipping it, and
-     * it belongs to whoever has run it long enough to argue for it.
-     */
-    select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
+    // The server is the default whenever its version probe admits this machine.
+    // Terminal remains the permanent fallback for an absent, unsupported or
+    // temporarily unprobeable server, and an explicit terminal preference wins.
+    select: (ctx) => selectRuntimeDriver(ctx, ['opencode-server', 'generic-pty']),
   },
   headless: supported({
     driver: 'resume-exec',

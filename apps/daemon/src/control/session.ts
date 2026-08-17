@@ -31,7 +31,7 @@ import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
-import { runtimeContractEnabledFor, runtimeDriverByEnv, runtimeDriverFor } from '../runtime/flag'
+import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
 import { opencodeVersionProbe } from '../runtime/opencode-server'
@@ -39,7 +39,9 @@ import {
   availableDriverIds,
   droppedDriverPreference,
   isServerDriver,
+  isServerDriverId,
   resolveRuntimeDriver,
+  runtimeDriverIntentForSpawn,
   spawnNamedServerDriver,
   terminalProfileFor,
   unhonouredSpawnDriver,
@@ -538,11 +540,11 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
    * transition ABOVE still ran, because who owns a session is not a question
    * about how it is driven.
    *
-   * A spawn that says nothing never reaches this branch — `resolveRuntimeDriver`
-   * only ever answers with a server driver when the spawn (or the machine-wide
-   * default) explicitly named one AND this machine reports it available. That is
-   * the whole of the "default-path sessions are byte-identical" claim on this
-   * path.
+   * Every spawn is offered to the harness policy. Server-capable harnesses take
+   * their own server driver when its three-valued probe admits this machine; an
+   * absent, unsupported or unprobeable driver falls through to the PTY path.
+   * Harnesses without a server declaration (including Claude Code) never probe
+   * and stay on that path.
    */
   const runtimeLaunch = await launchServerDriverSession(ctx, msg)
   if (runtimeLaunch.handled) return
@@ -685,8 +687,9 @@ async function adoptServerDriverSession(
 type ServerDriverLaunchResult = { handled: true } | { handled: false; requestedDriverId?: string }
 
 /**
- * Emit the operator-facing record for the one permitted runtime-driver
- * degradation and return the dropped preference for the bind projection.
+ * Emit the operator-facing record for a permitted runtime-driver degradation
+ * (machine-wide or manifest-default) and return the preferred id for the bind
+ * projection.
  * Keeping both consequences behind one guard prevents the log and read surface
  * from disagreeing about whether a degradation happened.
  */
@@ -699,7 +702,7 @@ export function reportDriverPreferenceDegrade(input: {
 }): string | undefined {
   const dropped = droppedDriverPreference(input)
   if (dropped === undefined) return undefined
-  log.warn('a machine-wide runtime driver preference was not honoured', {
+  log.warn('the preferred runtime driver was not available; using fallback', {
     sessionId: input.sessionId,
     preferred: dropped,
     resolved: input.resolved,
@@ -713,8 +716,12 @@ async function launchServerDriverSession(
   ctx: DaemonContext,
   msg: SpawnControl,
 ): Promise<ServerDriverLaunchResult> {
-  const requested = runtimeDriverFor(runtimeDriverByEnv(), msg.runtimeContract)
-  if (!requested) return { handled: false }
+  const { preferred } = runtimeDriverIntentForSpawn({
+    agentKind: msg.agentKind,
+    perSpawn: msg.runtimeContract,
+    machineDefault: runtimeDriverByEnv(),
+  })
+  if (!preferred) return { handled: false }
   /**
    * WHAT *THIS SPAWN* SAID, as opposed to what the machine was configured to
    * prefer. `requested` has the env default folded in and cannot tell them
@@ -732,7 +739,9 @@ async function launchServerDriverSession(
    * absent from that list exactly like an unsupported one. The distinction lives
    * here, where the caller's intent is still in hand.
    */
-  const probe = opencodeVersionProbe()
+  let opencodeVerdict: ReturnType<typeof opencodeVersionProbe> | undefined
+  const opencodeProbe = (): ReturnType<typeof opencodeVersionProbe> =>
+    (opencodeVerdict ??= opencodeVersionProbe())
   /**
    * CODEX IS PROBED ONLY WHEN A CODEX DRIVER IS ACTUALLY IN PLAY (POD-2024
    * review, finding 7).
@@ -755,36 +764,20 @@ async function launchServerDriverSession(
   const grokProbe = (): ReturnType<typeof grokAcpVersionProbe> =>
     (grokVerdict ??= grokAcpVersionProbe())
   /**
-   * THE PROBE THAT MATTERS IS THE ONE FOR THE DRIVER THAT WAS ASKED FOR.
-   *
-   * W6 added a second server driver with its own binary and its own probe, and
-   * consulting only opencode's here would reintroduce the exact failure this
-   * check exists to prevent — one driver's healthy probe vouching for another
-   * driver's binary. A request for `codex-app-server` on a box whose codex did
-   * not answer would sail past this refusal, then vanish from `available` below,
-   * and come back as a terminal session: the deliberate request silently
-   * converted into a different kind of session because a box was busy.
-   *
-   * WHICH PROBE and MAY I REFUSE READ DIFFERENT INPUTS, deliberately (POD-2113).
-   * The subject above is probe SELECTION, and `requested` is right for it: every
-   * caller of `probeFor` wants the probe belonging to the driver id in hand,
-   * whatever named it. The REFUSAL below keys on `namedHere`, because a probe
-   * that could not answer is a fact about this machine and only a per-spawn
-   * instruction outranks it.
+   * Probe the one preferred server driver, whether the preference came from the
+   * harness policy, the machine default, or this spawn. Each driver has its own
+   * binary and version range, so one harness's healthy probe must never vouch for
+   * another. The REFUSAL below still keys on `namedHere`: an unprobeable
+   * manifest or machine default degrades, while a per-spawn server id refuses.
    */
-  const probeFor = (
-    driverId: string,
-  ):
-    | ReturnType<typeof codexAppServerVersionProbe>
-    | ReturnType<typeof grokAcpVersionProbe>
-    | typeof probe => {
+  const probeFor = (driverId: string) => {
     return driverId === 'codex-app-server'
       ? codexProbe()
       : driverId === 'grok-acp'
         ? grokProbe()
-        : probe
+        : opencodeProbe()
   }
-  const requestedProbe = probeFor(requested)
+  const namedProbe = namedHere ? probeFor(namedHere) : undefined
   /**
    * REFUSED ONLY WHEN *THIS SPAWN* NAMED THE DRIVER — the fix to a defect this
    * very check used to have (POD-2113, found by review).
@@ -801,38 +794,27 @@ async function launchServerDriverSession(
    * not. W6's second driver doubled the ways in without changing the shape.
    *
    * `namedHere === requested` whenever this fires (the per-spawn field wins in
-   * `runtimeDriverFor`), so `requestedProbe` is this driver's own probe.
+   * `runtimeDriverFor`), so `namedProbe` is this driver's own probe.
    */
-  if (
-    namedHere !== undefined &&
-    !requestedProbe.drivable &&
-    requestedProbe.reason === 'unprobeable'
-  ) {
+  if (namedProbe !== undefined && !namedProbe.drivable && namedProbe.reason === 'unprobeable') {
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
-      message: `${requestedProbe.diagnostic.title}: ${requestedProbe.diagnostic.body}`,
+      message: `${namedProbe.diagnostic.title}: ${namedProbe.diagnostic.body}`,
     })
     return { handled: true }
   }
+  const preferredServer = preferred && isServerDriverId(preferred) ? preferred : undefined
   const resolution = resolveRuntimeDriver({
     agentKind: msg.agentKind,
     requested: msg.runtimeContract,
     machineDefault: runtimeDriverByEnv(),
-    // The gate's own verdict, memoized for the daemon's life — a machine whose
-    // opencode is missing or out of the pinned range does not list the driver,
-    // so an explicit preference for it falls through rather than producing a
-    // session that cannot start.
+    // Only the preferred server is probed and admitted. An explicit terminal
+    // request therefore avoids every server probe.
     available: availableDriverIds({
-      grokDrivable: isServerDriver(msg.agentKind, 'grok-acp') ? grokProbe().drivable : false,
-      opencodeDrivable: probe.drivable,
-      // The SAME three-answer verdict, asked the same way. An UNSUPPORTED codex
-      // legitimately drops out of this list and degrades; an UNPROBEABLE one
-      // never reaches here, because the check above already refused it.
-      // …and asked at all only when this harness DECLARES a server driver. One
-      // that declares none can never resolve to `codex-app-server`, so probing
-      // for it would be paying for an answer that cannot change the outcome.
-      codexDrivable: manifestFor(msg.agentKind)?.runtime.server ? codexProbe().drivable : false,
+      grokDrivable: preferredServer === 'grok-acp' && probeFor(preferredServer).drivable,
+      opencodeDrivable: preferredServer === 'opencode-server' && probeFor(preferredServer).drivable,
+      codexDrivable: preferredServer === 'codex-app-server' && probeFor(preferredServer).drivable,
     }),
     platform: process.platform,
   })
@@ -883,33 +865,32 @@ async function launchServerDriverSession(
     /**
      * THE DEGRADE THAT SURVIVES, SAID OUT LOUD.
      *
-     * A machine-wide `PODIUM_RUNTIME_DRIVER` naming a server driver this box
-     * cannot run still degrades — deliberately, so one stale env var cannot kill
-     * every spawn on the machine — and until this line it did so with no trace
-     * anywhere. An operator who set the variable, watched every session come up
-     * terminal, and went looking had nothing to find: no error, no warning, and
-     * no driver id on any read surface.
+     * A manifest-default or machine-wide server preference this box cannot run
+     * degrades deliberately, so an unsupported binary or transient probe miss
+     * cannot kill the spawn. The warning is the machine-level operational trace;
+     * the same guard supplies preferred-versus-actual to bind.
      *
-     * The warning remains the machine-level operational trace and names the
-     * reason; the same guard now also supplies requested-versus-actual to bind.
+     * Explicit per-spawn server ids never reach here: the refusal above keeps
+     * their refuse-not-degrade contract. Explicit terminal ids produce no
+     * dropped server preference and therefore no warning.
      */
-    // Only for a SERVER-family preference that was dropped. A terminal id
-    // resolving to its sibling is not a degrade, and `true` names no driver at
-    // all — warning on either would train an operator to ignore the line that
-    // matters. Per-spawn server ids never reach here; they were refused above,
-    // so what remains is the machine-wide default, which is exactly the value
-    // that must degrade rather than refuse. The guard is a function so a test
-    // pins both the warning and the bind projection.
-    const droppedProbe = probeFor(requested)
-    const requestedDriverId = reportDriverPreferenceDegrade({
-      sessionId: msg.sessionId,
-      agentKind: msg.agentKind,
-      preference: requested,
+    const dropped = droppedDriverPreference({
+      preference: preferred,
       resolved: resolution.driverId,
-      reason: droppedProbe.drivable
-        ? 'the harness does not declare it'
-        : droppedProbe.diagnostic.title,
     })
+    const requestedDriverId = (() => {
+      if (dropped === undefined) return undefined
+      const droppedProbe = probeFor(dropped)
+      return reportDriverPreferenceDegrade({
+        sessionId: msg.sessionId,
+        agentKind: msg.agentKind,
+        preference: dropped,
+        resolved: resolution.driverId,
+        reason: droppedProbe.drivable
+          ? 'the harness does not declare it'
+          : droppedProbe.diagnostic.title,
+      })
+    })()
     return {
       handled: false,
       ...(requestedDriverId ? { requestedDriverId } : {}),
