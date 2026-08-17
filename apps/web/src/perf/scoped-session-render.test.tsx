@@ -424,11 +424,14 @@ describe('scoped session render subscriptions', () => {
     const cache = new RenderProbeCache()
     const issueCount = 674
     const sessionCount = 530
+    // Both halves per issue: `buildIssueViewModel` publishes a model only once a
+    // projection row and its retained legacy row are both present, so a fixture
+    // that seeds 674 of the first and one of the second projects one model.
     for (let index = 0; index < issueCount; index++) {
       const issue = issueProjection(index)
       cache.put('issueProjection', issue.id, issue)
+      cache.put('issue', issue.id, { id: issue.id, pinned: false })
     }
-    cache.put('issue', 'i0', { id: 'i0', pinned: false })
     cache.put('repo', 'repo-1', { id: 'repo-1', prefix: 'POD' })
     for (let index = 0; index < sessionCount; index++) {
       const row = issueSession(index)
