@@ -127,7 +127,14 @@ describe('GitHub project intake', () => {
     expect((screen.getByLabelText('Where should Podium keep it?') as HTMLInputElement).value).toBe(
       '/Users/me/src/hello-world',
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Use hello-world' }))
+    // The restored draft selects the row, so cloning is the second step rather
+    // than a per-row "Use <repo>" button.
+    expect(
+      screen
+        .getByRole('button', { name: 'octocat/hello-world Hello' })
+        .getAttribute('aria-pressed'),
+    ).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: /Clone repository/ }))
 
     await waitFor(() =>
       expect(onClone).toHaveBeenCalledWith('octocat/hello-world', '/Users/me/src/hello-world'),
