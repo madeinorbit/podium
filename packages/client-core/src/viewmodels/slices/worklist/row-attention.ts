@@ -14,17 +14,17 @@ import {
   agentBadge,
   isSessionWorking,
   isUnstartedSession,
-  motionPhase,
   type MotionPhase,
   type MotionTiming,
+  motionPhase,
 } from '../../session-status'
 import { mostUrgentSession } from '../../session-urgency'
 import {
+  type IssueNavigationModel,
+  type IssuePendingDecision,
   issueFinishedAt,
   issuePendingDecision,
   pendingDecisionLabel,
-  type IssueNavigationModel,
-  type IssuePendingDecision,
 } from '../issues'
 import { rowSessions, type UnifiedIssueRow, type UnifiedWorkRow } from './row-types'
 
@@ -94,16 +94,28 @@ export function rowWaitingCount(row: UnifiedWorkRow): number {
 
 /**
  * The decision this ROW is waiting on, if any (POD-279). Issue-level classification
- * plus the one piece of context the issue itself can't see: a review-stage issue
+ * plus the two pieces of context the issue itself can't see: a review-stage issue
  * whose own agent is running again (sent back, follow-up turn) is not waiting on
- * the human — its decision returns when the turn settles. A finished issue keeps
- * its awaiting-merge reading regardless, since nothing is going to re-decide it.
+ * the human — its decision returns when the turn settles — and one whose work has
+ * carried on elsewhere is a signpost rather than an ask (POD-1193). A finished
+ * issue keeps its awaiting-merge reading regardless, since nothing is going to
+ * re-decide it.
  */
 export function rowPendingDecision(row: UnifiedIssueRow): IssuePendingDecision | null {
   const decision = issuePendingDecision(row.issue)
   if (decision === null) return null
   const finished = row.issue.stage === 'done' || row.issue.closedReason != null
   if (!finished && row.sessions.some(isSessionWorking)) return null
+  // THE WORK LEFT, SO THE REVIEW LEFT WITH IT. `review` is a stage an agent
+  // sets on ITSELF; the row prints it as an ask aimed at the operator. When the
+  // agent then hopped to a spin-off, nobody is waiting on that verdict — and
+  // nothing in the sidebar can ever clear it, so the amber was permanent and
+  // taught the operator to stop reading amber. The row says where the work went
+  // instead ({@link IssueContinuation.line}).
+  //
+  // A MERGE IS NEVER CANCELLED THIS WAY: unlanded commits stay unlanded no
+  // matter where their author went, and that decision has a control that ends it.
+  if (decision === 'review' && row.continuation) return null
   return decision
 }
 
@@ -255,6 +267,12 @@ export function rowStatusLine(
     }
     return head + 'done'
   }
+  // A VACATED ROW IS NOT IDLE (POD-1193). Stillness here has a reason and a
+  // route: the work carried on somewhere else. "idle" is what the fall-through
+  // used to say once the review's amber was correctly withdrawn, which trades a
+  // wrong ask for no information at all. Placed on the quiet path only — a row
+  // with a live descendant is working, and that outranks the signpost.
+  if (row.kind === 'issue' && row.continuation) return head + row.continuation + progress
   // Motion still uses the `queued` bucket for dim stillness; the human-facing
   // word is idle — quiet, not waiting in line.
   return head + 'idle' + progress

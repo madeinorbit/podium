@@ -38,7 +38,12 @@ export function GitStamp({
   if (density === 'stamp') {
     if (m.kind !== 'ready') return null
     const ahead = suppressAhead ? undefined : m.ahead
-    const hasAction = m.mismatch || m.dirty !== undefined || ahead !== undefined
+    // `merged` EARNS THE LINE (POD-1193). The stamp stays silent on clean
+    // no-ops, but landing is not a no-op: it is the outcome of the one decision
+    // this column shouts about ("ready to merge · N"), and the row that shouted
+    // must be able to say the shouting is over. It reads in the same dim mono
+    // as the other facts — the answer to a question, not a new one.
+    const hasAction = m.mismatch || m.merged || m.dirty !== undefined || ahead !== undefined
     if (!hasAction) return null
     // Yellow is the "needs you" signal alone (DESIGN.md, The Signal Rule).
     // Uncommitted / ahead are facts, not asks — they read as dim mono, no chip
@@ -54,6 +59,7 @@ export function GitStamp({
         } ${className}`}
       >
         {m.mismatch && <span>Wrong branch</span>}
+        {m.merged && <span>merged</span>}
         {m.dirty !== undefined && <span>{m.dirty} uncommitted</span>}
         {ahead !== undefined && (
           <span>

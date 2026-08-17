@@ -25,7 +25,8 @@ export interface GitStampModel {
   refreshing: boolean
   /** Issue has a private branch but the checkout dirties a shared one. */
   mismatch: boolean
-  /** Merge axis: `↑N` (private worktree only, N > 0). */
+  /** Merge axis: `↑N` (private worktree only, N > 0). Absent once `merged` —
+   *  the landed verdict settles this axis, see {@link deriveGitStamp}. */
   ahead?: number
   /** Task axis: attributed commit count (shared checkout, N > 0). */
   commits?: number
@@ -35,7 +36,9 @@ export interface GitStampModel {
   dirtyLabel: 'files' | 'yours'
   /** Some of the task's commits are not on the upstream yet. */
   unpushed: boolean
-  /** Branch fully landed on parentBranch — chip relaxes to `✓ merged`. */
+  /** Branch fully landed on parentBranch. Every density says so — the chip as
+   *  `✓ merged`, the sidebar stamp as a bare `merged` — because it is the fact
+   *  that ends the merge decision. */
   merged: boolean
   /** Muted trailing note ('no commits' / 'no changes' / 'clean'). */
   note?: string
@@ -83,10 +86,18 @@ export function deriveGitStamp(
   // "yours".
   const attributedDirty = git.shared && git.dirtyOwn !== undefined && !git.fallback
   const commits = git.shared ? (git.commits?.length ?? 0) : 0
-  const ahead = git.shared ? 0 : (git.ahead ?? 0)
   const dirty = git.shared ? (attributedDirty ? (git.dirtyOwn ?? 0) : 0) : git.dirtyFiles
-  const committed = git.shared ? commits > 0 : ahead > 0
   const merged = git.merged === true && !git.shared
+  // MERGED SETTLES THE MERGE AXIS (POD-1193). `merged` is the authoritative
+  // landed verdict and is deliberately NOT gated on `ahead === 0` (POD-576):
+  // a tip already contained in main still counts as ahead of a frozen
+  // cut-parent. So a landed branch printed "1 commit ahead" — the one counter
+  // that reads as undelivered work — beside the fact that contradicts it, and
+  // the sidebar density showed only the counter. The verdict wins: once the
+  // branch has landed, the distance to a stale parent is not a delivery fact
+  // and no density may spend a counter on it.
+  const ahead = git.shared || merged ? 0 : (git.ahead ?? 0)
+  const committed = git.shared ? commits > 0 : ahead > 0
   // Red is reserved for one anomaly: the issue HAS a private branch but its
   // checkout is dirtying a shared branch instead (POD-98 §01).
   const mismatch =

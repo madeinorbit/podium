@@ -2,7 +2,6 @@ import {
   draftIssueLabel,
   type IssueNavigationModel,
   isDraftAgentVessel,
-  issueContinuation,
   missionProgress,
   pendingDecisionLabel,
   pendingDecisionTitle,
@@ -143,10 +142,6 @@ export function UnifiedIssueRow({
     () => missionProgress(issues, allSessions, issue.id),
     [issues, allSessions, issue.id],
   )
-  const issueById = useMemo(
-    () => new Map(issues.map((candidate) => [candidate.id as string, candidate])),
-    [issues],
-  )
   const hex = issueColorHex(issue.color)
   // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). The 30px square carried the
   // ref, the phase, a corner badge and the colour picker — four jobs on the
@@ -163,10 +158,12 @@ export function UnifiedIssueRow({
   // A closed handoff points FORWARD. That answer outranks the provenance tick:
   // an old row saying only "done ⤷ 766" explains its ancestry but gives no
   // route to the task where the work actually continued.
-  const continuation = issueContinuation(issue, issueById, allSessions)
-  const continuationStatus = continuation
-    ? continuation.full.charAt(0).toLowerCase() + continuation.full.slice(1)
-    : null
+  //
+  // Read off the ROW, not recomputed here (POD-1193). The same verdict now
+  // withdraws the row's amber in `rowPendingDecision`, and a list that decides
+  // its attention from one derivation and its words from another can disagree
+  // with itself. It is also a graph walk per row per render, gone.
+  const continuationStatus = row.continuation ?? null
   // Draft vessel whose only content is agents → clicking opens the session.
   // Shared with the nesting rule so structure and rendering agree (POD-282).
   const draftAgentOnly = isDraftAgentVessel(issue, mine)
@@ -314,7 +311,7 @@ export function UnifiedIssueRow({
         }
         statusExtra={
           origin &&
-          !continuation && (
+          !continuationStatus && (
             <span
               // No size of its own: line 2 sets one, and a second here was what
               // made the tick's line box taller than the sentence it annotates.

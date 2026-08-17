@@ -82,6 +82,7 @@ describe('WhereTheWorkWent', () => {
       target,
       short: '#1016',
       full: 'Work continued in #1016',
+      line: 'continued · #1016',
     }
     const onOpen = vi.fn()
     const onTuck = vi.fn()

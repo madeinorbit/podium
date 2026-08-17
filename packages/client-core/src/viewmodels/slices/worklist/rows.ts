@@ -12,18 +12,19 @@ import {
   isSystemOwnedIssueStage,
   type SessionMeta,
 } from '@podium/model'
-import { isSessionWorking } from '../../session-status'
+import { issueContinuation } from '../../mission'
 import {
   issueIdOwningSession,
-  sessionsForIssueNav,
   type SessionOwnershipIndex,
+  sessionsForIssueNav,
 } from '../../session-ownership'
+import { isSessionWorking } from '../../session-status'
 import { elevateCoordinatorSession, sortSessionsForSidebar } from '../../session-urgency'
 import {
+  type IssueNavigationModel,
   isClosedTopLevelIssue,
   isDraftAgentVessel,
   issueAwaitingMerge,
-  type IssueNavigationModel,
 } from '../issues'
 import type { SidebarSections } from './nav'
 import { compareManualOrder, sortUnifiedWorkRows } from './row-order'
@@ -138,10 +139,22 @@ function buildUnifiedRows(
       parentId = parent.parentId
     }
   }
+  // WHERE THE WORK WENT, STAMPED ONCE (POD-1193). Whether a row's work carried
+  // on elsewhere needs the whole issue graph and every session in the replica,
+  // which neither a row nor `IssueWire` carries — so it is answered here, where
+  // both are in hand, and read from the row everywhere after. Stamped BEFORE
+  // nesting so `attach`'s spread carries it onto descendant rows too: a parent
+  // sums attention over its branch, and a vacated child must not contribute an
+  // ask to that sum.
+  const continued = rows.map((row) => {
+    if (row.kind !== 'issue') return row
+    const went = issueContinuation(row.issue, issueById, sessions)
+    return went ? { ...row, continuation: went.line } : row
+  })
   // The work sidebar is issue-only. Unattached and orphaned sessions remain
   // available through session/history surfaces, but a repository branch is
   // never promoted into a pseudo-issue row (for example "podium · main").
-  return nestStartedByIssues(rows, sessions, allWorktreePaths, issues, ownership)
+  return nestStartedByIssues(continued, sessions, allWorktreePaths, issues, ownership)
 }
 
 /**

@@ -162,6 +162,40 @@ describe('rowMotionPhase — aggregate row phase (#41)', () => {
         expect(rowPendingDecision(issueRow([done()], false, reviewIssue({ stage })))).toBeNull()
       }
     })
+
+    // POD-1193: `review` is a stage an agent sets on ITSELF, and the row prints
+    // it as an ask aimed at the operator. When the agent then hopped to a
+    // spin-off, nobody is waiting on that verdict — and the sidebar has no
+    // control that could ever clear it, so the amber was permanent.
+    describe('the work carried on somewhere else', () => {
+      const continued = (over: Record<string, unknown> = {}) => ({
+        ...issueRow([], false, reviewIssue({ gitState: undefined, ...over })),
+        continuation: 'continued · POD-1192',
+      })
+
+      it('withdraws the ask and says where the work went instead', () => {
+        const row = continued()
+        expect(rowPendingDecision(row)).toBeNull()
+        expect(rowMotionPhase(row)).not.toBe('waiting')
+        expect(rowWaitingCount(row)).toBe(0)
+        expect(rowStatusLine(row, NOW)).toBe('continued · POD-1192')
+      })
+
+      it('never cancels a MERGE — unlanded commits stay unlanded', () => {
+        // That decision has a control that ends it, and where its author went
+        // has no bearing on whether the commits reached the parent branch.
+        const row = { ...continued({ gitState: reviewIssue().gitState }) }
+        expect(rowPendingDecision(row)).toBe('merge')
+        expect(rowStatusLine(row, NOW)).toBe('ready to merge · 3')
+      })
+
+      it('does not outrank a live agent on the branch', () => {
+        // A descendant is still computing: the signpost is true but it is not
+        // the row's news, and stillness must stay the "needs you" signal.
+        const row = { ...continued(), sessions: [working()] }
+        expect(rowStatusLine(row, NOW)).toBe('working')
+      })
+    })
   })
 
   it('idle-ready or empty rows read queued (dimmed stillness)', () => {

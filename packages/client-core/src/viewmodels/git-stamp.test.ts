@@ -61,6 +61,19 @@ describe('deriveGitStamp', () => {
     expect(m.note).toBeUndefined()
   })
 
+  // POD-1193: `merged` is deliberately NOT gated on `ahead === 0` (POD-576), so
+  // a landed branch can still report a distance to a frozen cut-parent. The
+  // verdict settles the axis — nothing may spend a counter on that distance,
+  // or the row prints "1 commit ahead" beside the fact that contradicts it.
+  test('merged settles the merge axis even while ahead of a stale parent', () => {
+    const m = deriveGitStamp(null, { ...base, merged: true, ahead: 1, dirtyFiles: 4 })
+    expect(m.merged).toBe(true)
+    expect(m.ahead).toBeUndefined()
+    expect(m.dirty).toBe(4)
+    expect(m.title).toContain('merged')
+    expect(m.title).not.toContain('ahead of parent')
+  })
+
   test('shared checkout suppresses the merge axis', () => {
     const m = deriveGitStamp(null, {
       ...base,

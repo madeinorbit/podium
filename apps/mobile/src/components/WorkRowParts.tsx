@@ -91,9 +91,13 @@ export function GitStampLine({
   const m = deriveGitStamp(branch, git)
   if (m.kind !== 'ready') return null
   const ahead = suppressAhead ? undefined : m.ahead
-  if (!m.mismatch && m.dirty === undefined && ahead === undefined) return null
+  // `merged` earns the line here for the same reason it does on the desktop
+  // stamp (POD-1193): landing is the outcome of the merge decision, not a
+  // clean no-op, so the row that asked for it can say it is done.
+  if (!m.mismatch && !m.merged && m.dirty === undefined && ahead === undefined) return null
   const parts: string[] = []
   if (m.mismatch) parts.push('Wrong branch')
+  if (m.merged) parts.push('merged')
   if (m.dirty !== undefined) parts.push(`${m.dirty} uncommitted`)
   if (ahead !== undefined) parts.push(`${ahead} commit${ahead === 1 ? '' : 's'} ahead`)
   return (

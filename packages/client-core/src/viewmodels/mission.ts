@@ -1401,6 +1401,15 @@ export interface IssueContinuation {
   target?: IssueNavigationModel
   short: string
   full: string
+  /**
+   * The sidebar's density: a status PHRASE, not a sentence (POD-1193).
+   *
+   * Line 2 of a work row is ~22 mono characters, so `full` ("Work continued in
+   * POD-1192") ellipsized away the ref — the only part of it that is a route.
+   * This keeps the ref and spends the rest on one word, in the same
+   * `verb · subject` grammar the merge decision already uses.
+   */
+  line: string
 }
 
 export function issueContinuation(
@@ -1418,12 +1427,14 @@ export function issueContinuation(
           ...(target ? { target } : {}),
           short: ref,
           full: `Work continued in ${ref}`,
+          line: `continued · ${ref}`,
         }
       : {
           kind: 'duplicate',
           ...(target ? { target } : {}),
           short: ref,
           full: `The same work is tracked in ${ref}`,
+          line: `duplicate · ${ref}`,
         }
   }
   // Hopscotch: the session left, and a started spin-off is where it went.
@@ -1440,6 +1451,7 @@ export function issueContinuation(
     target: tip,
     short: ref,
     full: `Work continued in ${ref}`,
+    line: `continued · ${ref}`,
   }
 }
 

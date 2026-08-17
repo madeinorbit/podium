@@ -10,7 +10,7 @@
  * reordering (see row-order.ts's header) — so the rank the row used to hold
  * had no reader anywhere in the tree and is gone (POD-1501).
  */
-import { type SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import { isSessionWorking } from '../../session-status'
 import { subtreeUnread } from '../../unread'
 import type { IssueNavigationModel } from '../issues'
@@ -28,6 +28,17 @@ export type UnifiedIssueRow = {
   startedByChildren?: UnifiedIssueRow[]
   /** Own + descendant sessions, used only for bubbled status/attention. */
   aggregateSessions?: SessionMeta[]
+  /**
+   * Where this row's work went, when it went somewhere else (POD-1193) — the
+   * compact phrase, `continued · POD-1192`. Present IFF the work carried on
+   * elsewhere, so it is both the verdict and the words.
+   *
+   * Stamped at construction because the question needs the whole issue graph
+   * and every session in the replica ({@link issueContinuation}), which a row
+   * on its own has neither of — and because the row's DESCENDANTS need the
+   * same verdict when a parent sums attention over its branch.
+   */
+  continuation?: string
 }
 
 /** One row of the unified sidebar's WORK LIST: a human-origin issue (drafts
@@ -76,6 +87,7 @@ function reuseRow(previous: UnifiedWorkRow | undefined, next: UnifiedWorkRow): U
   const sameIssue =
     previous.issue === next.issue &&
     previous.activityAt === next.activityAt &&
+    previous.continuation === next.continuation &&
     sameRefs(previous.sessions, next.sessions) &&
     sameRefs(previous.aggregateSessions, next.aggregateSessions) &&
     sameRefs(previousChildren, children)
