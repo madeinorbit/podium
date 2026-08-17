@@ -137,7 +137,7 @@ describe('StatusStrip agent concurrency history', () => {
     )
   })
 
-  it('keeps the existing spinner and count while adding the capped pixel history', async () => {
+  it('keeps the spinner and scales concurrency to the visible-window peak', async () => {
     fixture.sessions.push(
       { status: 'live', agentState: { phase: 'working' } },
       { status: 'live', agentState: { phase: 'compacting' } },
@@ -146,9 +146,11 @@ describe('StatusStrip agent concurrency history', () => {
 
     expect(screen.getByTestId('status-strip-working').textContent).toContain('2 agents working')
     expect(container.querySelector('.status-strip-spinner')).toBeTruthy()
-    await waitFor(() =>
-      expect(container.querySelectorAll('[data-over-cap="true"]')).toHaveLength(1),
-    )
+    await waitFor(() => {
+      const stacks = container.querySelectorAll<HTMLElement>('.status-strip-history-stack')
+      expect(stacks[14]?.style.getPropertyValue('--history-height')).toBe('12px')
+      expect(stacks[11]?.style.getPropertyValue('--history-height')).toBe('4px')
+    })
     expect(screen.getByTestId('agent-concurrency-history').getAttribute('aria-label')).toContain(
       '2 agents working now. Peak 16.',
     )

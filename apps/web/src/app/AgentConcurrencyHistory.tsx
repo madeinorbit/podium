@@ -4,7 +4,7 @@ import { shareAgentConcurrency } from './status-share'
 import type { Trpc } from './trpc'
 
 const BUCKETS = 24
-const PIXEL_CAP = 12
+const DEFAULT_BUCKET_MS = 30 * 60 * 1_000
 const REFRESH_MS = 5 * 60 * 1_000
 
 interface HistoryBucket {
@@ -113,7 +113,7 @@ export function AgentConcurrencyHistory({
         label: value === 1 ? 'agent at peak' : 'agents at peak',
       })}
       foot="Last 12 hours · 30-minute peaks"
-      scaleMax={PIXEL_CAP}
+      bucketMs={history?.bucketMs ?? DEFAULT_BUCKET_MS}
       shareText={shareAgentConcurrency(working)}
     />
   )
