@@ -134,10 +134,7 @@ export function WorkListEmpty(): JSX.Element {
           read as a list, and a centred block in it reads as a different kind of
           surface. */}
       <div className="flex min-h-0 flex-1 flex-col px-[13px] pt-4 pb-14">
-        <p className="text-[14.5px] leading-[1.3] font-semibold tracking-[-.01em] text-text-strong">
-          Your work lands here
-        </p>
-        <p className="mt-[7px] text-[12.5px] leading-[1.5] text-text-dim text-pretty">
+        <p className="text-[12.5px] leading-[1.5] text-text-dim text-pretty">
           One row per task, newest first.
         </p>
         {defaultRepo && (

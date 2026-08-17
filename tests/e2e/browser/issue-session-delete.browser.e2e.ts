@@ -49,10 +49,10 @@ test('sidebar issue delete removes its sessions and the tracker can restore the 
   // The empty state only shows when the deleted row was the LAST one — earlier
   // specs sharing the harness may have seeded other rows.
   if (before === 1) {
-    // The ghost-preview empty state (POD-1058). Its heading is the assertion
+    // The ghost-preview empty state (POD-1058). Its live copy is the assertion
     // rather than the ghost rows: the rows are aria-hidden decoration and
     // deliberately unreachable to anything reading the accessible tree.
-    await expect(aside.getByText('Your work lands here', { exact: true })).toBeVisible()
+    await expect(aside.getByText('One row per task, newest first.', { exact: true })).toBeVisible()
   }
 
   // The app nav lives in the top bar since the shell relayout (#40/#41).
