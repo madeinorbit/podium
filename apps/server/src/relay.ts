@@ -142,13 +142,13 @@ import {
   ShipwrightService,
   shipwrightApplyPatchThroughRelay,
 } from './modules/shipping/shipwright'
+import { LIFECYCLE_EXCLUSION_GROUP } from './modules/operations/lifecycle'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
 import {
   createUpdateFleetBridge,
   exclusiveUpdateVersion,
-  LIFECYCLE_EXCLUSION_GROUP,
   updateOperationKind,
 } from './modules/updates/operation'
 import { UpdateReconciler } from './modules/updates/reconciler'

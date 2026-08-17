@@ -1,9 +1,13 @@
+import { OperationCleanupJanitor } from './cleanup-janitor'
 import { type OperationClock, OperationEngine, systemOperationClock } from './engine'
 import { OperationKindRegistry } from './kinds'
 import type { OperationRow, OperationStore } from './store'
 
+export * from './actor'
+export * from './cleanup-janitor'
 export * from './engine'
 export * from './kinds'
+export * from './lifecycle'
 export * from './store'
 export * from './trpc'
 
@@ -24,19 +28,28 @@ export * from './trpc'
 export interface OperationsModule {
   readonly kinds: OperationKindRegistry
   readonly engine: OperationEngine
+  readonly cleanupJanitor: OperationCleanupJanitor
 }
 
 export function createOperations(deps: {
   store: OperationStore
   clock?: OperationClock
   onChanged?: (row: OperationRow) => void
+  cleanupContextFor?: (row: OperationRow) => unknown | Promise<unknown>
 }): OperationsModule {
   const kinds = new OperationKindRegistry()
+  const clock = deps.clock ?? systemOperationClock
   const engine = new OperationEngine({
     store: deps.store,
     registry: kinds,
-    clock: deps.clock ?? systemOperationClock,
+    clock,
     ...(deps.onChanged ? { onChanged: deps.onChanged } : {}),
   })
-  return { kinds, engine }
+  const cleanupJanitor = new OperationCleanupJanitor({
+    engine,
+    clock,
+    contextFor: deps.cleanupContextFor ?? (() => undefined),
+  })
+  cleanupJanitor.start()
+  return { kinds, engine, cleanupJanitor }
 }

@@ -9,9 +9,9 @@ import { attributionOf } from '../../command-principal'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import type { OperationsModule } from '../operations'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import {
   fleetCanTakeTargetNow,
-  LIFECYCLE_EXCLUSION_GROUP,
   planInputFrom,
   planUpdateOperation,
   UPDATE_OPERATION_KIND,

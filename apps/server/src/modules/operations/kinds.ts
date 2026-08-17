@@ -7,6 +7,7 @@ import type {
   OperationStepState,
   StepPlace,
 } from '@podium/protocol'
+import type { CommandPrincipal } from '../../command-principal'
 import type { DeadlineBreach } from './transitions'
 
 /**
@@ -37,9 +38,29 @@ export interface StepProgressPatch {
  * then whatever `recordProgress` says, policed by the deadline table. Every
  * other outcome advances the plan immediately.
  */
-export interface StepOutcome extends StepProgressPatch {
-  state: 'done' | 'running' | 'skipped' | 'failed'
+export type StepOutcome = Omit<StepProgressPatch, 'state'> & {
+  state: 'done' | 'running' | 'skipped' | 'failed' | 'handed-off'
 }
+
+export interface HandoffSealPatch {
+  step?: StepProgressPatch
+  detailsPatch?: Record<string, unknown>
+}
+
+export interface CancelCleanupPending {
+  what: string
+  retryable: true
+}
+
+export interface CancelCleanupResult {
+  stepPatches?: Record<string, StepProgressPatch>
+  detailsPatch?: Record<string, unknown>
+  cleanup: 'complete' | 'pending'
+  pending?: CancelCleanupPending[]
+}
+
+export type OperationActionMode = 'engine' | 'sealed'
+export type OperationActionResult = Record<string, unknown>
 
 /**
  * A step executor. THE CONTRACT IS IDEMPOTENCE, REALITY FIRST: `ensure()` looks
@@ -103,6 +124,18 @@ export interface OperationKindDefinition<Ctx = unknown, Reality = unknown> {
   reconcile(operation: Operation, reality: Reality): Operation | Promise<Operation>
   runners: Record<string, StepRunner<Ctx>>
   deadlines?: Record<string, StepDeadlines>
+  projectSealed?(operation: Operation): Operation | Promise<Operation>
+  onAction?(input: {
+    operation: Operation
+    actionId: string
+    principal: CommandPrincipal
+    mode: OperationActionMode
+  }): Promise<OperationActionResult>
+  onCancel?(input: {
+    operation: Operation
+    step: OperationStep | undefined
+    context: Ctx
+  }): Promise<CancelCleanupResult>
   /**
    * NAME THE TIMEOUT, when the kind can say more than "it stopped" (POD-2167).
    *

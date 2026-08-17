@@ -17,6 +17,7 @@ import {
 } from '../operations/engine'
 import { OperationKindRegistry } from '../operations/kinds'
 import { OperationStore } from '../operations/store'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import { DevBundleUnavailableError } from './dev-bundle'
 import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
 import {
@@ -27,7 +28,6 @@ import {
   describeUpdateOperationFailure,
   describeUpdateWaitingExpiry,
   exclusiveUpdateVersion,
-  LIFECYCLE_EXCLUSION_GROUP,
   mergedWaveRounds,
   planUpdateOperation,
   RELOAD_SURFACES_ASK,

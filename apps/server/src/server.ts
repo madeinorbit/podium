@@ -1176,6 +1176,7 @@ export async function startServer(
       // the store about to close — and a port-in-use start, the routine outcome
       // with a stale backend on :18787, takes exactly this path. Same call and
       // same order as the shutdown persist list below.
+      registry.modules.operations.cleanupJanitor.stop()
       registry.modules.operations.engine.stop()
       store.close()
       reject(
@@ -1449,7 +1450,13 @@ export async function startServer(
               // to persist a stall against it. Operations are durable, so losing
               // the timer costs nothing — the successor adopts the operation and
               // re-derives it from reality, which is the stronger answer anyway.
-              ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
+              [
+                'operations.stopTimers',
+                () => {
+                  registry.modules.operations.cleanupJanitor.stop()
+                  registry.modules.operations.engine.stop()
+                },
+              ],
               // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
               // final network flush: shutdown is a user-visible latency path
               // (POD-611 made it deterministic and fast), and a report is worth

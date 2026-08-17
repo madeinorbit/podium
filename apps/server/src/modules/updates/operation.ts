@@ -28,6 +28,7 @@ import type {
   StepProgressPatch,
   StepRunner,
 } from '../operations/kinds'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import type { UpdatesService } from './service'
 import {
   IN_FLIGHT_STATES,
@@ -84,12 +85,6 @@ import {
  */
 
 export const UPDATE_OPERATION_KIND = 'update'
-
-/**
- * §3.0: `update` and a future `server-move` share one group, so the two can
- * never interleave. Named here because `update` is the kind that introduces it.
- */
-export const LIFECYCLE_EXCLUSION_GROUP = 'lifecycle'
 
 export const UPDATE_STEP_PREPARE = 'prepare'
 export const UPDATE_STEP_MACHINES = 'machines'

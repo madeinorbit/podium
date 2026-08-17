@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import {
   isTerminalOperationState,
@@ -5,9 +6,13 @@ import {
   type OperationError,
   type OperationStep,
 } from '@podium/protocol'
+import type { CommandPrincipal } from '../../command-principal'
 import type {
   AnyOperationKindDefinition,
+  type CancelCleanupResult,
+  type HandoffSealPatch,
   OperationKindRegistry,
+  type OperationActionResult,
   OperationPlan,
   StepDeadlines,
   StepOutcome,
@@ -82,7 +87,18 @@ export type StartResult =
 
 export type CancelResult =
   | { canceled: true; operation: Operation }
-  | { canceled: false; refused: 'not-found' | 'already-finished' | 'irreversible'; step?: string }
+  | {
+      canceled: false
+      refused: 'not-found' | 'already-finished' | 'irreversible' | 'handed-off'
+      step?: string
+    }
+
+export type ActionDispatchResult =
+  | { handled: true; result: OperationActionResult }
+  | {
+      handled: false
+      refused: 'not-found' | 'already-finished' | 'not-offered' | 'unsupported'
+    }
 
 /** The one error code the framework itself contributes to the taxonomy (§7). */
 export const STALLED_ERROR_CODE = 'stalled'
@@ -92,6 +108,10 @@ export const UNKNOWN_KIND_ERROR_CODE = 'unknown-operation-kind'
 export const ADOPTION_FAILED_ERROR_CODE = 'operation-adoption-failed'
 /** The engine's own loop threw while advancing an operation nobody is awaiting (POD-2151). */
 export const DRIVE_FAILED_ERROR_CODE = 'operation-drive-failed'
+/** A runner claimed successor ownership without first sealing the durable row. */
+export const HANDOFF_UNSEALED_ERROR_CODE = 'handoff-unsealed'
+/** Cleanup gets a real deadline even when a kind does not name one. */
+export const DEFAULT_CANCEL_DEADLINE_MS = 60_000
 
 /**
  * How long a `waiting` operation is held open for asks only a surface can
@@ -114,6 +134,17 @@ export const DEFAULT_WAITING_GRACE_MS = 10 * 60_000
 /** `ensure()` outstayed its step's budget — see `invokeWithin`. */
 const OVERDUE = Symbol('operation-step-overdue')
 
+type HandoffState = {
+  stepId: string
+  phase: 'sealed' | 'reclaiming' | 'handed-off'
+}
+
+type RunnerIdentity = {
+  operationId: string
+  stepId: string
+  token: symbol
+}
+
 export class OperationEngine {
   private readonly deps: OperationEngineDeps
   /** One deadline timer per operation — §3.3's "a single scheduler". */
@@ -131,7 +162,14 @@ export class OperationEngine {
    * operation, so the per-operation map cannot hold them and `stop()` could not
    * see them (POD-2148).
    */
-  private readonly budgetTimers = new Set<OperationTimerHandle>()
+  private readonly budgetTimers = new Map<OperationTimerHandle, string>()
+  /** A seal belongs to this process; persisted handoff bytes remain adoptable elsewhere. */
+  private readonly handoffs = new Map<string, HandoffState>()
+  /** Only the runner currently inside ensure may seal or reclaim its row. */
+  private readonly activeRunners = new Map<string, symbol>()
+  private readonly runnerScope = new AsyncLocalStorage<RunnerIdentity>()
+  /** Concurrent callers share one cleanup run and one terminal result. */
+  private readonly cancelRuns = new Map<string, Promise<CancelResult>>()
   /** Set by `stop()`. The store is about to close, so nothing may write again. */
   private stopped = false
 
@@ -216,7 +254,9 @@ export class OperationEngine {
     stepId: string,
     patch: StepProgressPatch,
   ): Promise<void> {
+    if (this.isSealed(operationId)) return
     await this.enqueue(operationId, async () => {
+      if (this.isSealed(operationId)) return
       const operation = this.deps.store.get(operationId)?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
       const step = (operation.steps ?? []).find((s) => s.id === stepId)
@@ -256,6 +296,7 @@ export class OperationEngine {
    * publishing its database snapshot and requesting the process restart.
    */
   recordDetails(operationId: string, patch: Record<string, unknown>): Operation | undefined {
+    if (this.isSealed(operationId)) return undefined
     const operation = this.deps.store.get(operationId)?.operation
     if (!operation || isTerminalOperationState(operation.state)) return undefined
     const details =
@@ -267,6 +308,90 @@ export class OperationEngine {
       } as PersistedOperation,
       this.now(),
     )
+  }
+
+  /**
+   * Persist the last source-owned row before an irreversible coordinator handoff.
+   * The sealing step remains running and all successors remain pending.
+   */
+  sealForHandoff(operationId: string, stepId: string, patch: HandoffSealPatch = {}): Operation {
+    if (this.stopped) throw new Error('the operations engine is stopped')
+    if (this.handoffs.has(operationId)) throw new Error('operation is already sealed')
+    const runner = this.runnerScope.getStore()
+    if (
+      !runner ||
+      runner.operationId !== operationId ||
+      runner.stepId !== stepId ||
+      this.activeRunners.get(operationId) !== runner.token
+    ) {
+      throw new Error('handoff may only be sealed by the active runner')
+    }
+
+    const operation = this.require(operationId)
+    const steps = operation.steps ?? []
+    const index = steps.findIndex((step) => step.id === stepId)
+    if (index < 0 || inFlightStep(operation)?.id !== stepId) {
+      throw new Error('handoff may only seal the step in flight')
+    }
+    if (patch.step?.state === 'done') {
+      throw new Error('the sealing step must remain running')
+    }
+    if (steps.slice(index + 1).some((step) => step.state !== 'pending')) {
+      throw new Error('handoff successor steps must remain pending')
+    }
+
+    const at = this.now()
+    const details =
+      operation.details && typeof operation.details === 'object' ? operation.details : {}
+    const withStep = this.applyPatch(
+      operation,
+      stepId,
+      { ...patch.step, state: 'running' },
+      at,
+    )
+    const sealed: PersistedOperation = {
+      ...withStep,
+      details: {
+        ...details,
+        ...patch.detailsPatch,
+        _handoff: { stepId, sealedAt: at },
+      },
+      updatedAt: at,
+    }
+
+    // No callback is allowed between the durable write and the in-memory seal.
+    this.deps.store.update(sealed)
+    this.handoffs.set(operationId, { stepId, phase: 'sealed' })
+    this.disarm(operationId)
+    this.disarmBudgets(operationId)
+    this.announce(operationId)
+    return sealed
+  }
+
+  /**
+   * Re-open exactly the terminal failure write after kind cleanup proved that
+   * no successor-activating message could have been sent.
+   */
+  reclaimHandoff(operationId: string): void {
+    const handoff = this.handoffs.get(operationId)
+    if (!handoff || handoff.phase !== 'sealed') {
+      throw new Error('operation has no reclaimable handoff')
+    }
+    const runner = this.runnerScope.getStore()
+    if (
+      !runner ||
+      runner.operationId !== operationId ||
+      runner.stepId !== handoff.stepId ||
+      this.activeRunners.get(operationId) !== runner.token
+    ) {
+      throw new Error('handoff may only be reclaimed by its sealing runner')
+    }
+    handoff.phase = 'reclaiming'
+  }
+
+  /** True only for this process's sealed source row. */
+  isSealed(operationId: string): boolean {
+    return this.handoffs.has(operationId)
   }
 
   /**
@@ -308,7 +433,9 @@ export class OperationEngine {
     placeIds: readonly string[],
     patch: StepProgressPatch,
   ): Promise<void> {
+    if (this.isSealed(operationId)) return
     await this.enqueue(operationId, async () => {
+      if (this.isSealed(operationId)) return
       const operation = this.deps.store.get(operationId)?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
       const step = (operation.steps ?? []).find((s) => s.id === stepId)
@@ -353,7 +480,9 @@ export class OperationEngine {
    * disturb a step that is stalled and already owed a retry.
    */
   async reensure(operationId: string, stepId: string, patch?: StepProgressPatch): Promise<void> {
+    if (this.isSealed(operationId)) return
     await this.enqueue(operationId, async () => {
+      if (this.isSealed(operationId)) return
       const operation = this.deps.store.get(operationId)?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
       const step = inFlightStep(operation)
@@ -372,23 +501,91 @@ export class OperationEngine {
    * because "this can't be canceled now, it will finish or fail" is a sentence
    * the panel has to be able to say.
    */
-  cancel(operationId: string): CancelResult {
+  async cancel(operationId: string): Promise<CancelResult> {
+    if (this.isSealed(operationId)) return { canceled: false, refused: 'handed-off' }
+    const existing = this.cancelRuns.get(operationId)
+    if (existing) return existing
+
+    const run = this.enqueueResult(operationId, () => this.cancelLocked(operationId))
+    this.cancelRuns.set(operationId, run)
+    void run.then(
+      () => {
+        if (this.cancelRuns.get(operationId) === run) this.cancelRuns.delete(operationId)
+      },
+      () => {
+        if (this.cancelRuns.get(operationId) === run) this.cancelRuns.delete(operationId)
+      },
+    )
+    return run
+  }
+
+  private async cancelLocked(operationId: string): Promise<CancelResult> {
+    if (this.isSealed(operationId)) return { canceled: false, refused: 'handed-off' }
     const row = this.deps.store.get(operationId)
     if (!row) return { canceled: false, refused: 'not-found' }
     if (isTerminalOperationState(row.state)) return { canceled: false, refused: 'already-finished' }
     const operation = row.operation
-    // Unreadable bytes cannot be shown to be safe, and cancel is the one verb
-    // that must never proceed on an assumption.
     if (!operation) return { canceled: false, refused: 'irreversible' }
 
     const def = this.deps.registry.get(operation.kind)
-    const inFlight = inFlightStep(operation)
-    if (inFlight && def?.runners[inFlight.id]?.reversible !== true) {
-      return { canceled: false, refused: 'irreversible', step: inFlight.id }
+    const currentStep = inFlightStep(operation)
+    if (currentStep && def?.runners[currentStep.id]?.reversible !== true) {
+      return { canceled: false, refused: 'irreversible', step: currentStep.id }
     }
 
-    const canceled = this.finish(this.persistable(operation), 'canceled', this.now())
-    return { canceled: true, operation: canceled }
+    const at = this.now()
+    let canceling = this.persistable(operation, def)
+    if (currentStep) {
+      canceling = this.applyPatch(canceling, currentStep.id, { detail: 'canceling' }, at)
+      this.persist(canceling, at)
+    }
+
+    let cleanup: CancelCleanupResult = { cleanup: 'complete' }
+    let cleanupError: string | undefined
+    if (def?.onCancel) {
+      try {
+        cleanup = await this.invokeCancelWithin(
+          () =>
+            def.onCancel!({
+              operation: canceling,
+              step: currentStep,
+              context: this.contexts.get(operationId) as never,
+            }),
+          operationId,
+          def.deadlines?.['#cancel']?.totalMs ?? DEFAULT_CANCEL_DEADLINE_MS,
+        )
+      } catch (error) {
+        cleanupError = error instanceof Error ? error.message : String(error)
+        cleanup = {
+          cleanup: 'pending',
+          pending: [{ what: 'operation cleanup', retryable: true }],
+        }
+      }
+    }
+
+    const finishedAt = this.now()
+    let canceled = canceling
+    for (const [stepId, patch] of Object.entries(cleanup.stepPatches ?? {})) {
+      canceled = this.applyPatch(canceled, stepId, patch, finishedAt)
+    }
+    const details =
+      canceled.details && typeof canceled.details === 'object' ? canceled.details : {}
+    canceled = {
+      ...canceled,
+      details: {
+        ...details,
+        ...cleanup.detailsPatch,
+        cleanup: {
+          status: cleanup.cleanup,
+          ...(cleanup.pending ? { pending: cleanup.pending } : {}),
+          ...(cleanupError ? { error: cleanupError } : {}),
+        },
+      },
+    }
+    return {
+      canceled: true,
+      operation: this.finish(this.persistable(canceled, def), 'canceled', finishedAt),
+    }
   }
 
   /**
@@ -499,7 +696,9 @@ export class OperationEngine {
    * exit at all — a state nothing can leave is not a state, it is a wedge.
    */
   async settleAsk(operationId: string, askId: string): Promise<void> {
+    if (this.isSealed(operationId)) return
     await this.enqueue(operationId, async () => {
+      if (this.isSealed(operationId)) return
       const operation = this.deps.store.get(operationId)?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
       this.persist(
@@ -516,6 +715,83 @@ export class OperationEngine {
   active(group?: string): OperationRow | undefined {
     if (group !== undefined) return this.deps.store.activeByGroup(group)
     return this.deps.store.active()[0]
+  }
+
+  get(operationId: string): OperationRow | undefined {
+    return this.deps.store.get(operationId)
+  }
+
+  async project(row: OperationRow): Promise<Operation | null> {
+    const operation = row.operation
+    if (!operation) return null
+    const def = this.deps.registry.get(operation.kind)
+    if (!def?.projectSealed || !this.hasPersistedHandoff(operation)) return operation
+    return def.projectSealed(operation)
+  }
+
+  async dispatchAction(
+    operationId: string,
+    actionId: string,
+    principal: CommandPrincipal,
+    options: { settleAsk: boolean },
+  ): Promise<ActionDispatchResult> {
+    const row = this.deps.store.get(operationId)
+    if (!row?.operation) return { handled: false, refused: 'not-found' }
+    if (isTerminalOperationState(row.state)) {
+      return { handled: false, refused: 'already-finished' }
+    }
+
+    const sealed = this.isSealed(operationId) || this.hasPersistedHandoff(row.operation)
+    if (sealed) {
+      const operation = await this.project(row)
+      if (!operation || !this.actionOffered(operation, actionId)) {
+        return { handled: false, refused: 'not-offered' }
+      }
+      const def = this.deps.registry.get(operation.kind)
+      if (!def?.onAction) return { handled: false, refused: 'unsupported' }
+      const result = await def.onAction({
+        operation,
+        actionId,
+        principal,
+        mode: 'sealed',
+      })
+      return { handled: true, result }
+    }
+
+    return this.enqueueResult(operationId, async () => {
+      const current = this.deps.store.get(operationId)
+      if (!current?.operation) return { handled: false, refused: 'not-found' }
+      if (isTerminalOperationState(current.state)) {
+        return { handled: false, refused: 'already-finished' }
+      }
+      if (!this.actionOffered(current.operation, actionId)) {
+        return { handled: false, refused: 'not-offered' }
+      }
+      const def = this.deps.registry.get(current.operation.kind)
+      if (!def) return { handled: false, refused: 'unsupported' }
+      if (!def.onAction && !options.settleAsk) {
+        return { handled: false, refused: 'unsupported' }
+      }
+      const result = def.onAction
+        ? await def.onAction({
+            operation: current.operation,
+            actionId,
+            principal,
+            mode: 'engine',
+          })
+        : { settled: true }
+      if (options.settleAsk) {
+        this.persist(
+          this.persistable({
+            ...current.operation,
+            awaiting: (current.operation.awaiting ?? []).filter((ask) => ask.id !== actionId),
+          }),
+          this.now(),
+        )
+        await this.driveLocked(operationId)
+      }
+      return { handled: true, result }
+    })
   }
 
   /**
@@ -535,6 +811,7 @@ export class OperationEngine {
    * the report it sends is dropped exactly as before.
    */
   watching(operationId: string, stepId: string): boolean {
+    if (this.isSealed(operationId)) return false
     const operation = this.deps.store.get(operationId)?.operation
     if (!operation || isTerminalOperationState(operation.state)) return false
     return inFlightStep(operation)?.id === stepId
@@ -542,6 +819,68 @@ export class OperationEngine {
 
   history(kind?: string, limit?: number): OperationRow[] {
     return this.deps.store.history(kind, limit)
+  }
+
+  async retryPendingCleanup(
+    contextFor: (row: OperationRow) => unknown | Promise<unknown> = () => undefined,
+  ): Promise<number> {
+    let completed = 0
+    for (const pending of this.deps.store.pendingCleanup()) {
+      completed += await this.enqueueResult(pending.id, async () => {
+        const row = this.deps.store.get(pending.id)
+        const operation = row?.operation
+        if (!row || !operation || !isTerminalOperationState(row.state)) return 0
+        const def = this.deps.registry.get(operation.kind)
+        if (!def?.onCancel) return 0
+
+        const step = inFlightStep(operation)
+        let result: CancelCleanupResult
+        let cleanupError: string | undefined
+        try {
+          const context = await contextFor(row)
+          result = await this.invokeCancelWithin(
+            () =>
+              def.onCancel!({
+                operation,
+                step,
+                context: context as never,
+              }),
+            operation.id,
+            def.deadlines?.['#cancel']?.totalMs ?? DEFAULT_CANCEL_DEADLINE_MS,
+          )
+        } catch (error) {
+          cleanupError = error instanceof Error ? error.message : String(error)
+          result = {
+            cleanup: 'pending',
+            pending: [{ what: 'operation cleanup', retryable: true }],
+          }
+        }
+
+        const at = this.now()
+        let updated = this.persistable(operation, def, at)
+        for (const [stepId, patch] of Object.entries(result.stepPatches ?? {})) {
+          updated = this.applyPatch(updated, stepId, patch, at)
+        }
+        const details =
+          updated.details && typeof updated.details === 'object' ? updated.details : {}
+        updated = {
+          ...updated,
+          details: {
+            ...details,
+            ...result.detailsPatch,
+            cleanup: {
+              status: result.cleanup,
+              ...(result.pending ? { pending: result.pending } : {}),
+              ...(cleanupError ? { error: cleanupError } : {}),
+            },
+          },
+        }
+        this.deps.store.update(updated)
+        this.announce(updated.id)
+        return result.cleanup === 'complete' ? 1 : 0
+      })
+    }
+    return completed
   }
 
   /**
@@ -581,21 +920,30 @@ export class OperationEngine {
     this.stopped = true
     for (const handle of this.timers.values()) this.deps.clock.clearTimeout(handle)
     this.timers.clear()
-    for (const handle of this.budgetTimers) this.deps.clock.clearTimeout(handle)
+    for (const handle of this.budgetTimers.keys()) this.deps.clock.clearTimeout(handle)
     this.budgetTimers.clear()
+    this.activeRunners.clear()
   }
 
   // ───────────────────────────── driving ──────────────────────────────
 
-  private enqueue(operationId: string, work: () => Promise<void>): Promise<void> {
-    if (this.stopped) return Promise.resolve()
+  private enqueueResult<T>(operationId: string, work: () => Promise<T>): Promise<T> {
+    if (this.stopped) return Promise.reject(new Error('the operations engine is stopped'))
     const previous = this.chains.get(operationId) ?? Promise.resolve()
     const next = previous.then(work, work)
     this.chains.set(
       operationId,
-      next.catch(() => undefined),
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
     )
     return next
+  }
+
+  private enqueue(operationId: string, work: () => Promise<void>): Promise<void> {
+    if (this.stopped) return Promise.resolve()
+    return this.enqueueResult(operationId, work)
   }
 
   private drive(operationId: string): Promise<void> {
@@ -611,7 +959,7 @@ export class OperationEngine {
    */
   private async driveLocked(operationId: string): Promise<void> {
     for (;;) {
-      if (this.stopped) return
+      if (this.stopped || this.isSealed(operationId)) return
       const operation = this.deps.store.get(operationId)?.operation
       if (!operation || isTerminalOperationState(operation.state)) return
 
@@ -646,6 +994,24 @@ export class OperationEngine {
 
       const current = this.deps.store.get(operationId)?.operation
       if (!current || isTerminalOperationState(current.state)) return
+      if (outcome.state === 'handed-off') {
+        this.completeHandoff(current, step.id)
+        return
+      }
+      const handoff = this.handoffs.get(operationId)
+      if (handoff?.phase === 'reclaiming') {
+        if (outcome.state !== 'failed') {
+          throw new Error('a reclaimed handoff runner must return failed')
+        }
+        this.finishReclaimed(
+          current,
+          step.id,
+          outcome.error ?? { code: 'step-failed' },
+        )
+        return
+      }
+      if (handoff) return
+
       const at = this.now()
       const next = this.applyPatch(current, step.id, outcome, at)
       this.persist(next, at)
@@ -690,6 +1056,7 @@ export class OperationEngine {
     budget: StepDeadlines | undefined,
   ): Promise<StepOutcome | typeof OVERDUE> {
     const ensure = this.invoke(runner, operation, stepId)
+    if (this.isSealed(operation.id)) return ensure
     const step = (operation.steps ?? []).find((s) => s.id === stepId)
     const due = step ? deadlineDue(step, budget, this.now()) : undefined
     if (due === undefined) return ensure
@@ -701,13 +1068,14 @@ export class OperationEngine {
           this.budgetTimers.delete(timer)
           if (settled) return
           settled = true
+          this.activeRunners.delete(operation.id)
           resolve(OVERDUE)
         },
         Math.max(0, due - this.now()),
       )
       // Registered so `stop()` can drop it (POD-2148): this timer is keyed to a
       // call, not to an operation, so `this.timers` could never hold it.
-      this.budgetTimers.add(timer)
+      this.budgetTimers.set(timer, operation.id)
       void ensure.then((outcome) => {
         if (settled) return
         settled = true
@@ -725,12 +1093,17 @@ export class OperationEngine {
     stepId: string,
   ): Promise<StepOutcome> {
     const step = (operation.steps ?? []).find((s) => s.id === stepId) as OperationStep
+    const token = Symbol(stepId)
+    const identity: RunnerIdentity = { operationId: operation.id, stepId, token }
+    this.activeRunners.set(operation.id, token)
     try {
-      return await runner.ensure({
-        operation,
-        step,
-        context: this.contexts.get(operation.id) as never,
-      })
+      return await this.runnerScope.run(identity, () =>
+        runner.ensure({
+          operation,
+          step,
+          context: this.contexts.get(operation.id) as never,
+        }),
+      )
     } catch (err) {
       return {
         state: 'failed',
@@ -739,6 +1112,10 @@ export class OperationEngine {
           message: `The '${stepId}' step could not be completed.`,
           detail: err instanceof Error ? err.message : String(err),
         },
+      }
+    } finally {
+      if (this.activeRunners.get(operation.id) === token) {
+        this.activeRunners.delete(operation.id)
       }
     }
   }
@@ -775,6 +1152,104 @@ export class OperationEngine {
     return next
   }
 
+  private completeHandoff(operation: Operation, stepId: string): void {
+    const handoff = this.handoffs.get(operation.id)
+    if (!handoff) {
+      this.fail(operation, stepId, {
+        code: HANDOFF_UNSEALED_ERROR_CODE,
+        message: 'This operation attempted a handoff before its state was sealed.',
+      })
+      return
+    }
+    if (handoff.phase !== 'sealed' || handoff.stepId !== stepId) {
+      throw new Error('handed-off outcome did not come from the sealing runner')
+    }
+    handoff.phase = 'handed-off'
+    this.disarm(operation.id)
+    this.disarmBudgets(operation.id)
+    this.contexts.delete(operation.id)
+  }
+
+  private finishReclaimed(
+    operation: Operation,
+    stepId: string,
+    error: OperationError,
+  ): Operation {
+    const at = this.now()
+    const marked = this.applyPatch(operation, stepId, { state: 'failed', error }, at)
+    const details =
+      marked.details && typeof marked.details === 'object' ? { ...marked.details } : {}
+    delete details._handoff
+    const finished: PersistedOperation = {
+      ...marked,
+      details,
+      state: 'failed',
+      updatedAt: at,
+      finishedAt: at,
+      error,
+    }
+    this.deps.store.update(finished)
+    this.handoffs.delete(operation.id)
+    this.disarm(operation.id)
+    this.contexts.delete(operation.id)
+    this.deps.store.sweepRetention(finished.kind)
+    this.announce(operation.id)
+    return finished
+  }
+
+  private invokeCancelWithin(
+    cleanup: () => Promise<CancelCleanupResult>,
+    operationId: string,
+    budgetMs: number,
+  ): Promise<CancelCleanupResult> {
+    return new Promise<CancelCleanupResult>((resolve, reject) => {
+      let settled = false
+      const timer = this.deps.clock.setTimeout(() => {
+        this.budgetTimers.delete(timer)
+        if (settled) return
+        settled = true
+        reject(new Error('operation cleanup exceeded its deadline'))
+      }, Math.max(0, budgetMs))
+      this.budgetTimers.set(timer, operationId)
+      void cleanup().then(
+        (result) => {
+          if (settled) return
+          settled = true
+          this.deps.clock.clearTimeout(timer)
+          this.budgetTimers.delete(timer)
+          resolve(result)
+        },
+        (error) => {
+          if (settled) return
+          settled = true
+          this.deps.clock.clearTimeout(timer)
+          this.budgetTimers.delete(timer)
+          reject(error)
+        },
+      )
+    })
+  }
+
+  private actionOffered(operation: Operation, actionId: string): boolean {
+    if ((operation.awaiting ?? []).some((ask) => ask.id === actionId)) return true
+    const details =
+      operation.details && typeof operation.details === 'object' ? operation.details : {}
+    const actions = Array.isArray(details.actions) ? details.actions : []
+    return actions.some(
+      (action) =>
+        typeof action === 'object' &&
+        action !== null &&
+        'id' in action &&
+        action.id === actionId,
+    )
+  }
+
+  private hasPersistedHandoff(operation: Operation): boolean {
+    const details =
+      operation.details && typeof operation.details === 'object' ? operation.details : {}
+    return typeof details._handoff === 'object' && details._handoff !== null
+  }
+
   // ─────────────────────────── transitions ────────────────────────────
 
   /**
@@ -783,6 +1258,7 @@ export class OperationEngine {
    * asks do not hold it open; stragglers self-serve on their next load.
    */
   private settle(operation: Operation, def: AnyOperationKindDefinition): void {
+    if (this.isSealed(operation.id)) return
     const blocking = (operation.awaiting ?? []).filter((ask) => ask.required === true)
     const at = this.now()
     if (blocking.length > 0) {
@@ -807,6 +1283,7 @@ export class OperationEngine {
    * flight to be judged: every step is finished, or `settle` was not reached.
    */
   private armWaitingGrace(operationId: string, def: AnyOperationKindDefinition): void {
+    if (this.isSealed(operationId)) return
     this.disarm(operationId)
     const grace = def.waitingGraceMs ?? DEFAULT_WAITING_GRACE_MS
     this.timers.set(
@@ -859,6 +1336,9 @@ export class OperationEngine {
     at: number,
     error?: OperationError,
   ): Operation {
+    if (this.handoffs.has(operation.id)) {
+      throw new Error('sealed operation cannot be finished by this engine')
+    }
     const finished: PersistedOperation = {
       ...operation,
       state,
@@ -948,6 +1428,9 @@ export class OperationEngine {
     at: number,
     state?: Operation['state'],
   ): Operation {
+    if (this.handoffs.has(operation.id)) {
+      throw new Error('sealed operation cannot be persisted by this engine')
+    }
     const next: PersistedOperation = { ...operation, updatedAt: at, ...(state ? { state } : {}) }
     this.deps.store.update(next)
     this.announce(next.id)
@@ -973,6 +1456,7 @@ export class OperationEngine {
    * makes silence — rather than slowness — the thing that fires.
    */
   private armDeadline(operationId: string): void {
+    if (this.isSealed(operationId)) return
     this.disarm(operationId)
     const due = this.nextDue(operationId)
     if (due === undefined) return
@@ -1023,6 +1507,14 @@ export class OperationEngine {
     const handle = this.timers.get(operationId)
     if (handle !== undefined) this.deps.clock.clearTimeout(handle)
     this.timers.delete(operationId)
+  }
+
+  private disarmBudgets(operationId: string): void {
+    for (const [handle, owner] of this.budgetTimers) {
+      if (owner !== operationId) continue
+      this.deps.clock.clearTimeout(handle)
+      this.budgetTimers.delete(handle)
+    }
   }
 
   /**
@@ -1115,6 +1607,24 @@ export class OperationEngine {
     }
     const after = this.deps.store.get(operationId)?.operation
     if (!after || isTerminalOperationState(after.state)) return
+    if (outcome.state === 'handed-off') {
+      this.completeHandoff(after, step.id)
+      return
+    }
+    const handoff = this.handoffs.get(operationId)
+    if (handoff?.phase === 'reclaiming') {
+      if (outcome.state !== 'failed') {
+        throw new Error('a reclaimed handoff runner must return failed')
+      }
+      this.finishReclaimed(
+        after,
+        step.id,
+        outcome.error ?? { code: 'step-failed' },
+      )
+      return
+    }
+    if (handoff) return
+
     const at = this.now()
     const next = this.applyPatch(after, step.id, outcome, at)
     this.persist(next, at)
