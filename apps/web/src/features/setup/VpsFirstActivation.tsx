@@ -1,14 +1,14 @@
 import { ONBOARDING_VPS_SERVER_DRAFT_KEY, type UiState } from '@podium/client-core/ui-state'
 import { isServerReadiness } from '@podium/model'
 import { buildVpsBootstrapCommand, type VpsReleaseChannel } from '@podium/runtime/vps-bootstrap'
-import { ArrowLeft, ArrowRight, Check, Copy, Server, ShieldCheck, Terminal } from 'lucide-react'
+import { ArrowRight, Check, Copy, Server, ShieldCheck, Terminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { parseServerOrigin, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ActivationShell } from './ActivationShell'
+import { ActivationBack, ActivationShell } from './ActivationShell'
 import type { ActivationRoute } from './activation-route'
 import type { ConfirmedVpsActivation } from './use-vps-activation'
 
@@ -75,13 +75,11 @@ export function VpsFirstActivation({
   trpc,
   vps,
   onRouteChange,
-  onExplore,
   onConfigured,
 }: {
   trpc: Trpc
   vps: ConfirmedVpsActivation
   onRouteChange: (route: ActivationRoute) => void
-  onExplore: () => void
   onConfigured: () => Promise<void>
 }): JSX.Element {
   const uiState = useStoreSelector((store) => store.uiState) as Pick<UiState, 'get' | 'set'>
@@ -155,7 +153,7 @@ export function VpsFirstActivation({
   }
 
   const goBack = async (): Promise<void> => {
-    const returnRoute = vps.state?.returnRoute ?? 'welcome'
+    const returnRoute = vps.state?.returnRoute ?? 'vps-choice'
     try {
       await vps.clear()
       onRouteChange(returnRoute)
@@ -167,13 +165,12 @@ export function VpsFirstActivation({
 
   return (
     <ActivationShell
-      eyebrow="Activate Podium · VPS"
+      eyebrow="Set up Podium · New VPS"
       title="Put Podium on your VPS."
-      description="Create a new always-on Podium on the VPS, then connect this app to it. Nothing on this computer is exposed, paired, or transferred."
+      description="Install a new always-on Podium on the VPS, then connect this app to it. Nothing on this computer is exposed, paired, or transferred."
       icon={<Server aria-hidden="true" />}
       contentClassName="mt-[34px]"
       frameClassName="pb-16 sm:pb-[72px] lg:pb-[72px]"
-      onExplore={onExplore}
     >
       <div className="max-w-[760px] space-y-4">
         <section className="rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d] sm:p-6">
@@ -273,15 +270,7 @@ export function VpsFirstActivation({
           </p>
         </section>
 
-        <button
-          type="button"
-          disabled={busy || vps.saving}
-          onClick={() => void goBack()}
-          className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
-        >
-          <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
-          Back to activation choices
-        </button>
+        <ActivationBack disabled={busy || vps.saving} onBack={() => void goBack()} />
         {vps.error && <ConnectionError error={vps.error} />}
       </div>
     </ActivationShell>

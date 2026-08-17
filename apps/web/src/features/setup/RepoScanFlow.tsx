@@ -77,7 +77,7 @@ export function RepoScanFlow({
   onClose: () => void
   /** Fired once the selection is committed; the count covers adds + removals. */
   onDone: (changedCount: number) => void
-  /** Persist first-run intake progress across reloads and Explore Podium. */
+  /** Persist first-run intake progress across reloads and restarts. */
   onboarding?: boolean
   /** Preselect a machine (e.g. the machines panel's per-row "Find repos"). */
   initialMachineId?: MachineId

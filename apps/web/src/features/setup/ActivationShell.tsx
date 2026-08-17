@@ -1,13 +1,19 @@
-import { ArrowRight, FolderGit2, Link2, Server, Sparkles } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
+/**
+ * The frame every setup step is drawn in. Until setup finishes it is the ONLY
+ * thing on screen (POD-1174): AppShell renders no sidebars, no dock, no rail and
+ * no status strip, and the window bar keeps nothing but its drag region and the
+ * platform window buttons. There is deliberately no way out of here — an empty
+ * Podium is not a product tour, and "Explore Podium" used to drop people into
+ * one and let them conclude it was broken.
+ */
 export function ActivationShell({
   eyebrow,
   title,
   description,
-  onExplore,
   icon,
   contentClassName,
   frameClassName,
@@ -17,7 +23,6 @@ export function ActivationShell({
   eyebrow: string
   title: string
   description: ReactNode
-  onExplore?: () => void
   icon?: ReactNode
   contentClassName?: string
   frameClassName?: string
@@ -60,150 +65,113 @@ export function ActivationShell({
             {description}
           </p>
           <div className={cn('mt-11', contentClassName)}>{children}</div>
-          {onExplore && (
-            <div className="mt-10 flex flex-wrap items-center gap-3.5 border-t border-[#363b45] pt-[22px] pb-8 sm:pb-10">
-              <button
-                type="button"
-                onClick={onExplore}
-                className="inline-flex h-8 items-center gap-2 rounded-[9px] px-[13px] text-[13px] leading-none font-semibold text-[#e6e8ec] shadow-[inset_0_0_0_1px_#333842] transition-colors hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]"
-              >
-                Explore Podium
-                <ArrowRight size={15} className="text-[#9ba1ab]" aria-hidden="true" />
-              </button>
-              <p className="text-[12.5px] leading-none text-[#6f757f]">
-                Setup stays ready here until you return.
-              </p>
-            </div>
-          )}
         </div>
       </div>
     </main>
   )
 }
 
-export function LocalProjectChoice({ onSelect }: { onSelect: () => void }): JSX.Element {
-  return (
-    <article className="flex items-center gap-4 px-5 py-[19px] max-md:flex-wrap max-md:[&>button:last-child]:ml-[52px] max-md:[&>button:last-child]:w-[calc(100%-52px)]">
-      <span className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#d7dae0] shadow-[inset_0_0_0_1px_#333842]">
-        <FolderGit2 size={19} aria-hidden="true" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">
-            Start with a project here
-          </h2>
-          <span className="shell-type-micro inline-flex min-h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 py-[2px] font-mono tracking-[0.14em] text-[#e3ba52] uppercase">
-            Simplest
-          </span>
-        </div>
-        <p className="mt-[5px] text-[13px] leading-[1.55] text-[#9ba1ab]">
-          Choose a repository already on this computer, or clone one from GitHub.
-        </p>
-      </div>
-      <ActivationRowButton primary onClick={onSelect}>
-        Choose a project
-      </ActivationRowButton>
-    </article>
-  )
-}
-
-export function AlwaysOnVpsChoice({ onSelect }: { onSelect: () => void }): JSX.Element {
-  return (
-    <article className="flex items-center gap-4 border-t border-[#272b33] px-5 py-[19px] max-md:flex-wrap max-md:[&>button:last-child]:ml-[52px] max-md:[&>button:last-child]:w-[calc(100%-52px)]">
-      <span className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#d7dae0] shadow-[inset_0_0_0_1px_#333842]">
-        <Server size={19} aria-hidden="true" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">
-            Create an always-on Podium
-          </h2>
-          <span className="shell-type-micro inline-flex min-h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 py-[2px] font-mono tracking-[0.14em] text-[#a8adb6] uppercase">
-            Best for multiple computers
-          </span>
-        </div>
-        <p className="mt-[5px] max-w-[620px] text-[13px] leading-[1.55] text-[#9ba1ab]">
-          Add a new VPS as a machine, then move shared Podium state there so agents keep working
-          after you close the lid.
-        </p>
-      </div>
-      <ActivationRowButton onClick={onSelect}>Add a VPS</ActivationRowButton>
-    </article>
-  )
-}
-
-export function ExistingPodiumChoice({ onSelect }: { onSelect: () => void }): JSX.Element {
-  return (
-    <article className="flex items-center gap-4 border-t border-[#272b33] px-5 py-[19px] max-md:flex-wrap max-md:[&>button:last-child]:ml-[52px] max-md:[&>button:last-child]:w-[calc(100%-52px)]">
-      <span className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#8a9099] shadow-[inset_0_0_0_1px_#333842]">
-        <Link2 size={19} aria-hidden="true" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <h2 className="text-[15px] leading-none font-semibold text-[#e6e8ec]">
-          Connect to a Podium elsewhere
-        </h2>
-        <p className="mt-[5px] max-w-[620px] text-[13px] leading-[1.55] text-[#9ba1ab]">
-          For people who already have a Podium server: open it here, or contribute this computer's
-          projects and agents.
-        </p>
-      </div>
-      <ActivationRowButton tertiary onClick={onSelect}>
-        View connection options
-      </ActivationRowButton>
-    </article>
-  )
-}
-
-function ActivationRowButton({
-  children,
-  onClick,
+/**
+ * One answer to the question the step asks. The whole card is the target — the
+ * button's `::after` covers it — so the action label never has to repeat the
+ * heading, and the heading stays a real heading instead of illegal flow content
+ * inside a `<button>`.
+ */
+export function ActivationChoice({
+  icon,
+  title,
+  badge,
+  badgeLit = false,
+  description,
+  action,
+  note,
   primary = false,
-  tertiary = false,
+  onSelect,
 }: {
-  children: ReactNode
-  onClick: () => void
+  icon: ReactNode
+  title: string
+  badge?: string
+  badgeLit?: boolean
+  description: ReactNode
+  action: string
+  note?: ReactNode
   primary?: boolean
-  tertiary?: boolean
+  onSelect: () => void
+}): JSX.Element {
+  return (
+    <article className="group relative flex flex-col rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d] transition-colors hover:bg-[#1e2128] hover:shadow-[inset_0_0_0_1px_#454b56]">
+      <span
+        className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#d7dae0] shadow-[inset_0_0_0_1px_#333842] [&_svg]:size-[19px]"
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <div className="mt-[18px] flex flex-wrap items-center gap-2.5">
+        <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">{title}</h2>
+        {badge && (
+          <span
+            className={cn(
+              // At the 10.5px floor, with a min height rather than a fixed one
+              // so a badge that wraps on a narrow column stays inside its pill
+              // (POD-1157).
+              'shell-type-micro inline-flex min-h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 py-[2px] font-mono tracking-[0.14em] uppercase',
+              badgeLit ? 'text-[#e3ba52]' : 'text-[#a8adb6]',
+            )}
+          >
+            {badge}
+          </span>
+        )}
+      </div>
+      <p className="mt-2 text-[13px] leading-[1.6] text-[#9ba1ab] text-wrap-pretty">
+        {description}
+      </p>
+      {note}
+      <span className="min-h-[18px] flex-1" aria-hidden="true" />
+      <button
+        type="button"
+        onClick={onSelect}
+        className={cn(
+          'mt-[18px] inline-flex h-[34px] self-start items-center gap-2 rounded-[9px] px-[15px] text-[13px] leading-none font-semibold transition-colors after:absolute after:inset-0 after:rounded-[13px] after:content-[""] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]',
+          primary
+            ? 'bg-[#e3ba52] text-[#1a1408] group-hover:bg-[#efc95f]'
+            : 'text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] group-hover:bg-white/[0.04]',
+        )}
+      >
+        {action}
+        <ArrowRight size={16} className={primary ? undefined : 'text-[#9ba1ab]'} aria-hidden="true" />
+      </button>
+    </article>
+  )
+}
+
+/** A limit worth knowing before the choice, not after it. Quiet on purpose. */
+export function ActivationChoiceNote({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <p className="mt-3.5 border-t border-[#272b33] pt-3.5 text-[12.5px] leading-[1.5] text-[#8a9099]">
+      {children}
+    </p>
+  )
+}
+
+/** Back goes exactly one step up, on every screen that has one above it. */
+export function ActivationBack({
+  label = 'Back',
+  disabled = false,
+  onBack,
+}: {
+  label?: string
+  disabled?: boolean
+  onBack: () => void
 }): JSX.Element {
   return (
     <button
       type="button"
-      onClick={onClick}
-      className={cn(
-        'inline-flex h-[34px] flex-none items-center gap-2 rounded-[9px] px-[15px] text-[13px] leading-none font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]',
-        primary
-          ? 'bg-[#e3ba52] text-[#1a1408] hover:bg-[#efc95f]'
-          : tertiary
-            ? 'text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04] hover:text-[#f2f3f5]'
-            : 'text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04]',
-      )}
+      onClick={onBack}
+      disabled={disabled}
+      className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] transition-colors hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52] disabled:opacity-50"
     >
-      {children}
-      <ArrowRight size={16} className={primary ? undefined : 'text-[#9ba1ab]'} aria-hidden="true" />
+      <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
+      {label}
     </button>
-  )
-}
-
-export function ActivationResumeBar({
-  routeLabel,
-  onResume,
-}: {
-  routeLabel: string
-  onResume: () => void
-}): JSX.Element {
-  return (
-    <aside
-      aria-label="Resume Podium activation"
-      className="flex min-h-10 flex-none items-center justify-between gap-3 border-b border-border bg-primary/[0.08] px-4 py-1.5"
-    >
-      <div className="flex min-w-0 items-center gap-2 text-xs">
-        <Sparkles size={13} className="flex-none text-primary" aria-hidden="true" />
-        <span className="font-medium text-foreground">Activation paused</span>
-        <span className="truncate text-muted-foreground">Continue at {routeLabel}</span>
-      </div>
-      <Button type="button" size="sm" onClick={onResume}>
-        Resume activation
-      </Button>
-    </aside>
   )
 }

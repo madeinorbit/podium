@@ -48,7 +48,7 @@ function trpcWith(connect = vi.fn(async () => undefined)): Trpc {
 
 function vpsController(clear = vi.fn(async () => undefined)): ConfirmedVpsActivation {
   return {
-    state: vpsIntroState('welcome'),
+    state: vpsIntroState('vps-choice'),
     ready: true,
     saving: false,
     error: null,
@@ -97,7 +97,6 @@ describe('fresh VPS activation', () => {
         trpc={trpcWith(connect)}
         vps={vpsController(clear)}
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onConfigured={onConfigured}
       />,
     )

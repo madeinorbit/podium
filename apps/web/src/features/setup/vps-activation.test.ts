@@ -8,8 +8,15 @@ import {
 
 describe('fresh VPS activation state', () => {
   it('round-trips the small direct-bootstrap checkpoint', () => {
-    const state = vpsIntroState('local-project')
+    const state = vpsIntroState('vps-choice')
     expect(parseVpsActivation(serializeVpsActivation(state))).toEqual(state)
+  })
+
+  it('still parses checkpoints written before the VPS question existed', () => {
+    for (const returnRoute of ['welcome', 'local-project'] as const) {
+      const state = vpsIntroState(returnRoute)
+      expect(parseVpsActivation(serializeVpsActivation(state))).toEqual(state)
+    }
   })
 
   it('collapses an old transfer checkpoint back to direct VPS setup', () => {

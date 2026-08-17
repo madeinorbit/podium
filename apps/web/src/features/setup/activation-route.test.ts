@@ -9,56 +9,44 @@ import {
 } from './activation-route'
 
 describe('activation route persistence', () => {
-  it('defaults missing or unknown state to the active welcome route', () => {
+  it('defaults missing or unknown state to the welcome route', () => {
     expect(readActivationState('')).toEqual(DEFAULT_ACTIVATION_STATE)
-    expect(readActivationState('?activation=future-step&activationMode=bogus')).toEqual(
-      DEFAULT_ACTIVATION_STATE,
-    )
+    expect(readActivationState('?activation=future-step')).toEqual(DEFAULT_ACTIVATION_STATE)
   })
 
-  it('restores the exact local-project route and paused exploration mode', () => {
-    expect(readActivationState('?activation=local-project')).toEqual({
-      route: 'local-project',
-      mode: 'active',
-    })
+  it('restores the exact local-project route and ignores a retired exploring URL', () => {
+    expect(readActivationState('?activation=local-project')).toEqual({ route: 'local-project' })
     expect(readActivationState('?activation=local-project&activationMode=exploring')).toEqual({
       route: 'local-project',
-      mode: 'exploring',
     })
   })
 
-  it('restores the VPS-first route and retires obsolete transfer subroutes', () => {
-    expect(readActivationState('?activation=vps-intro')).toEqual({
-      route: 'vps-intro',
-      mode: 'active',
-    })
+  it('restores both VPS routes and retires obsolete transfer subroutes', () => {
+    expect(readActivationState('?activation=vps-choice')).toEqual({ route: 'vps-choice' })
+    expect(readActivationState('?activation=vps-intro')).toEqual({ route: 'vps-intro' })
     expect(readActivationState('?activation=vps-transfer')).toEqual(DEFAULT_ACTIVATION_STATE)
   })
 
-  it('restores every existing-install route exactly, including while exploring', () => {
+  it('restores every existing-install route exactly', () => {
     for (const route of ['existing-podium', 'existing-client', 'existing-machine'] as const) {
-      expect(readActivationState(`?activation=${route}`)).toEqual({ route, mode: 'active' })
+      expect(readActivationState(`?activation=${route}`)).toEqual({ route })
     }
-    expect(readActivationState('?activation=existing-machine&activationMode=exploring')).toEqual({
-      route: 'existing-machine',
-      mode: 'exploring',
-    })
   })
 
-  it('restores the agent and first-task activation routes exactly', () => {
+  it('restores the agent and first-task setup routes exactly', () => {
     for (const route of ['agent', 'first-task'] as const) {
-      expect(readActivationState(`?activation=${route}`)).toEqual({ route, mode: 'active' })
+      expect(readActivationState(`?activation=${route}`)).toEqual({ route })
     }
   })
 
-  it('preserves shell/router query state while writing activation', () => {
+  it('preserves shell/router query state while writing the setup step', () => {
     const url = activationUrl(
       {
         pathname: '/issues',
         search: '?server=ws%3A%2F%2Fhost%3A9&e2e&wt=%2Frepo',
         hash: '#detail',
       },
-      { route: 'local-project', mode: 'exploring' },
+      { route: 'local-project' },
     )
     const parsed = new URL(url, 'https://podium.test')
 
@@ -67,11 +55,12 @@ describe('activation route persistence', () => {
     expect(parsed.searchParams.has('e2e')).toBe(true)
     expect(parsed.searchParams.get('wt')).toBe('/repo')
     expect(parsed.searchParams.get('activation')).toBe('local-project')
-    expect(parsed.searchParams.get('activationMode')).toBe('exploring')
+    // Retired with the Explore/Resume hatch: never written, always swept.
+    expect(parsed.searchParams.has('activationMode')).toBe(false)
     expect(parsed.hash).toBe('#detail')
   })
 
-  it('retires only activation params after real setup completes', () => {
+  it('retires only setup params after real setup completes', () => {
     const url = activationUrl(
       {
         pathname: '/workspace',
@@ -86,7 +75,7 @@ describe('activation route persistence', () => {
     expect(hasActivationState('?e2e=1')).toBe(false)
   })
 
-  it('keeps a durable VPS handoff resumable after work is created while exploring', () => {
+  it('keeps a durable VPS handoff resumable after a restart has created work', () => {
     expect(
       isActivationEligible({
         loaded: true,

@@ -11,20 +11,16 @@ export type ActivationNavigation = {
   state: ActivationState
   /** Visit a step and make it the exact route restored by reload/back/forward. */
   navigate: (route: ActivationRoute) => void
-  /** Replace a stale step from durable state without changing active/exploring mode. */
+  /** Replace a stale step from durable state without adding a history entry. */
   reconcile: (route: ActivationRoute) => void
-  /** Leave activation without completing it or discarding its current route. */
-  explore: () => void
-  /** Return to the route held while the user explored. */
-  resume: () => void
-  /** Retire activation URL state once real setup has completed. */
+  /** Retire setup URL state once real setup has completed. */
   clear: () => void
 }
 
 /**
- * Browser-history persistence for the activation layer. Query params are used
+ * Browser-history persistence for the setup layer. Query params are used
  * deliberately: the main router preserves foreign params across every shell
- * mode, so users can explore and reload without activation becoming a second
+ * mode, so a reload restores the exact step without setup becoming a second
  * competing application router.
  */
 export function useActivationRoute(): ActivationNavigation {
@@ -54,22 +50,8 @@ export function useActivationRoute(): ActivationNavigation {
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
-  const navigate = useCallback(
-    (route: ActivationRoute) => commit({ route, mode: 'active' }),
-    [commit],
-  )
-  const reconcile = useCallback(
-    (route: ActivationRoute) => commit({ route, mode: stateRef.current.mode }, true),
-    [commit],
-  )
-  const explore = useCallback(
-    () => commit({ route: stateRef.current.route, mode: 'exploring' }),
-    [commit],
-  )
-  const resume = useCallback(
-    () => commit({ route: stateRef.current.route, mode: 'active' }),
-    [commit],
-  )
+  const navigate = useCallback((route: ActivationRoute) => commit({ route }), [commit])
+  const reconcile = useCallback((route: ActivationRoute) => commit({ route }, true), [commit])
   const clear = useCallback(() => {
     const nextUrl = activationUrl(window.location, null)
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
@@ -78,5 +60,5 @@ export function useActivationRoute(): ActivationNavigation {
     setState(DEFAULT_ACTIVATION_STATE)
   }, [])
 
-  return { state, navigate, reconcile, explore, resume, clear }
+  return { state, navigate, reconcile, clear }
 }

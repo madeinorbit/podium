@@ -4,7 +4,6 @@ import {
   type UiState,
 } from '@podium/client-core/ui-state'
 import {
-  ArrowLeft,
   ArrowRight,
   Ban,
   History,
@@ -23,7 +22,7 @@ import { useStoreSelector } from '@/app/store'
 import { parseServerOrigin, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ActivationShell } from './ActivationShell'
+import { ActivationBack, ActivationChoice, ActivationShell } from './ActivationShell'
 import type { ActivationRoute } from './activation-route'
 
 export const EXISTING_PODIUM_ROUTES = [
@@ -89,13 +88,11 @@ export function ExistingPodiumActivation({
   route,
   trpc,
   onRouteChange,
-  onExplore,
   onConfigured,
 }: {
   route: ExistingPodiumRoute
   trpc: Trpc
   onRouteChange: (route: ActivationRoute) => void
-  onExplore: () => void
   onConfigured: () => Promise<void>
 }): JSX.Element {
   const uiState = useStoreSelector((store) => store.uiState)
@@ -106,8 +103,6 @@ export function ExistingPodiumActivation({
         trpc={trpc}
         uiState={uiState}
         onBack={() => onRouteChange('existing-podium')}
-        onLocalSetup={() => onRouteChange('welcome')}
-        onExplore={onExplore}
         onConfigured={onConfigured}
       />
     )
@@ -119,8 +114,6 @@ export function ExistingPodiumActivation({
         trpc={trpc}
         uiState={uiState}
         onBack={() => onRouteChange('existing-podium')}
-        onLocalSetup={() => onRouteChange('welcome')}
-        onExplore={onExplore}
         onConfigured={onConfigured}
       />
     )
@@ -128,95 +121,36 @@ export function ExistingPodiumActivation({
 
   return (
     <ActivationShell
-      eyebrow="Existing Podium"
-      title="Use a Podium that already exists elsewhere."
-      description="This is only for a Podium server you already run on another computer or VPS. Choose whether this device should simply open it or also contribute its local projects and agents."
+      eyebrow="Set up Podium · Your VPS"
+      title="How should this computer connect?"
+      description="Either way the other Podium stays in charge. The difference is whether it may also use what is on this computer."
+      icon={<Network aria-hidden="true" />}
       descriptionClassName="max-w-[660px]"
-      onExplore={onExplore}
     >
       <div>
         <div className="grid gap-4 md:grid-cols-2">
-          <ConnectionChoice
-            icon={<Laptop size={17} aria-hidden="true" />}
-            title="Open the other Podium"
-            description="Use this app as a viewer and controller. The remote Podium keeps all server work; no projects or agents run on this computer."
+          <ActivationChoice
+            primary
+            icon={<Laptop aria-hidden="true" />}
+            title="Just open it here"
+            description="This app becomes a window onto the other Podium. Nothing runs on this computer."
             action="Use as a client"
             onSelect={() => onRouteChange('existing-client')}
           />
-          <ConnectionChoice
-            icon={<MonitorUp size={17} aria-hidden="true" />}
+          <ActivationChoice
+            icon={<MonitorUp aria-hidden="true" />}
             title="Add this computer to it"
-            description="Keep the other Podium as the server, but let it use repositories, credentials, and agents on this computer."
-            action="Add this machine"
             badge="Shares this machine"
-            secondary
+            description="The other Podium stays the server, and may run agents on the projects, credentials, and repositories that live here."
+            action="Add this machine"
             onSelect={() => onRouteChange('existing-machine')}
           />
         </div>
-        <button
-          type="button"
-          onClick={() => onRouteChange('welcome')}
-          className="mt-[18px] inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]"
-        >
-          <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
-          Back to activation choices
-        </button>
+        <div className="mt-[18px]">
+          <ActivationBack onBack={() => onRouteChange('vps-choice')} />
+        </div>
       </div>
     </ActivationShell>
-  )
-}
-
-function ConnectionChoice({
-  icon,
-  title,
-  description,
-  action,
-  badge,
-  secondary = false,
-  onSelect,
-}: {
-  icon: JSX.Element
-  title: string
-  description: string
-  action: string
-  badge?: string
-  secondary?: boolean
-  onSelect: () => void
-}): JSX.Element {
-  return (
-    <article className="flex min-h-[230px] flex-col rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d]">
-      <span className="flex size-9 items-center justify-center rounded-[9px] bg-[#22262d] text-[#d7dae0] shadow-[inset_0_0_0_1px_#333842]">
-        {icon}
-      </span>
-      <div className="mt-[18px] flex flex-wrap items-center gap-2.5">
-        <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">{title}</h2>
-        {badge && (
-          <span className="shell-type-micro inline-flex min-h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 py-[2px] font-mono tracking-[0.14em] text-[#a8adb6] uppercase">
-            {badge}
-          </span>
-        )}
-      </div>
-      <p className="mt-2 text-[13px] leading-[1.6] text-[#9ba1ab] text-wrap-pretty">
-        {description}
-      </p>
-      <span className="min-h-5 flex-1" aria-hidden="true" />
-      <button
-        type="button"
-        className={`inline-flex h-[34px] self-start items-center gap-2 rounded-[9px] px-[15px] text-[13px] leading-none font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52] ${
-          secondary
-            ? 'text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04]'
-            : 'bg-[#e3ba52] text-[#1a1408] hover:bg-[#efc95f]'
-        }`}
-        onClick={onSelect}
-      >
-        {action}
-        <ArrowRight
-          size={16}
-          className={secondary ? 'text-[#9ba1ab]' : undefined}
-          aria-hidden="true"
-        />
-      </button>
-    </article>
   )
 }
 
@@ -224,15 +158,11 @@ function ExistingClientStep({
   trpc,
   uiState,
   onBack,
-  onLocalSetup,
-  onExplore,
   onConfigured,
 }: {
   trpc: Trpc
   uiState: Pick<UiState, 'get' | 'set'>
   onBack: () => void
-  onLocalSetup: () => void
-  onExplore: () => void
   onConfigured: () => Promise<void>
 }): JSX.Element {
   const [serverUrl, setServerUrl] = useState(
@@ -266,12 +196,11 @@ function ExistingClientStep({
 
   return (
     <ActivationShell
-      eyebrow="Existing Podium · Client"
-      title="Open your existing Podium here."
-      description="This device becomes a client for the remote installation. It no longer hosts separate Podium state, projects, or agents."
+      eyebrow="Set up Podium · Client"
+      title="Open your Podium here."
+      description="This computer becomes a client for the other installation. It stops keeping Podium state, projects, or agents of its own."
       icon={<Laptop aria-hidden="true" />}
       contentClassName="mt-[38px]"
-      onExplore={onExplore}
     >
       <div>
         <div className="rounded-[13px] bg-[#1b1e24] p-[22px] shadow-[inset_0_0_0_1px_#2f343d]">
@@ -320,31 +249,15 @@ function ExistingClientStep({
               restarts — this URL doesn't bypass its authentication.
             </Consequence>
             <Consequence icon={<History />}>
-              Your local activation progress stays available until you confirm the change.
+              Everything you have set up so far stays available until you confirm the change.
             </Consequence>
           </ul>
         </div>
         <div className="mt-3">
           <ConnectionError error={error} />
         </div>
-        <div className="mt-5 flex flex-wrap items-center gap-5">
-          <button
-            type="button"
-            onClick={onBack}
-            disabled={busy}
-            className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
-          >
-            <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
-            Connection options
-          </button>
-          <button
-            type="button"
-            onClick={onLocalSetup}
-            disabled={busy}
-            className="text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
-          >
-            Back to activation choices
-          </button>
+        <div className="mt-5">
+          <ActivationBack disabled={busy} onBack={onBack} />
         </div>
       </div>
     </ActivationShell>
@@ -355,15 +268,11 @@ function ExistingMachineStep({
   trpc,
   uiState,
   onBack,
-  onLocalSetup,
-  onExplore,
   onConfigured,
 }: {
   trpc: Trpc
   uiState: Pick<UiState, 'get' | 'set'>
   onBack: () => void
-  onLocalSetup: () => void
-  onExplore: () => void
   onConfigured: () => Promise<void>
 }): JSX.Element {
   const [joinCode, setJoinCode] = useState(
@@ -412,12 +321,11 @@ function ExistingMachineStep({
 
   return (
     <ActivationShell
-      eyebrow="Existing Podium · Machine"
-      title="Let your existing Podium use this machine."
-      description="A join code points this machine at the remote server and pairs it as a place where projects and agents can run."
-      icon={<Network aria-hidden="true" />}
+      eyebrow="Set up Podium · Machine"
+      title="Let your Podium use this computer."
+      description="A join code points this computer at the other server and pairs it as a place where projects and agents can run."
+      icon={<MonitorUp aria-hidden="true" />}
       contentClassName="mt-[38px]"
-      onExplore={onExplore}
     >
       <div>
         <div className="rounded-[13px] bg-[#1b1e24] p-[22px] shadow-[inset_0_0_0_1px_#2f343d]">
@@ -433,7 +341,7 @@ function ExistingMachineStep({
                 Join token or command
               </label>
               <p className="mt-1.5 text-[13.5px] leading-[1.5] text-[#9ba1ab]">
-                In the existing Podium, open Machines › Add a machine, then paste its one-line code
+                In the other Podium, open Machines › Add a machine, then paste its one-line code
                 here.
               </p>
             </div>
@@ -503,24 +411,8 @@ function ExistingMachineStep({
         <div className="mt-3">
           <ConnectionError error={error} />
         </div>
-        <div className="mt-5 flex flex-wrap items-center gap-5">
-          <button
-            type="button"
-            onClick={onBack}
-            disabled={busy}
-            className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
-          >
-            <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
-            Connection options
-          </button>
-          <button
-            type="button"
-            onClick={onLocalSetup}
-            disabled={busy}
-            className="text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
-          >
-            Back to activation choices
-          </button>
+        <div className="mt-5">
+          <ActivationBack disabled={busy} onBack={onBack} />
         </div>
       </div>
     </ActivationShell>

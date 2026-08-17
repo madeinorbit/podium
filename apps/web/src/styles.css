@@ -2281,38 +2281,58 @@ html[data-density="balanced"] .header-quota-pools {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Activation is a focused first-run surface. On a phone, persistent desktop
-   columns are not merely cramped — they steal the reading width from the one
-   action the user came to take. Keep the shell bar, give activation the whole
-   stage, and restore the desktop instruments as soon as the workspace returns. */
+/* FIRST-RUN SETUP OWNS THE WINDOW (POD-1174). The shell renders no columns at
+   all while setup is unfinished, so there is nothing here to hide — only the
+   phone's tighter gutter, because on a small screen the stage IS the reading
+   width and 14px of desktop gutter is a quarter of a word. */
 @media (max-width: 720px) {
-  .desktop-shell-row[data-activation-visible="true"] > :not(:nth-child(3)) {
-    display: none;
-  }
-
-  .desktop-shell-row[data-activation-visible="true"] > :nth-child(3) {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-
-  .desktop-shell-row[data-activation-visible="true"] .native-agents-pane {
+  .desktop-shell[data-setup-only="true"] .native-agents-pane {
     padding: 8px;
   }
 
-  .desktop-shell-row[data-activation-visible="true"] .workspace-sheet {
+  .desktop-shell[data-setup-only="true"] .workspace-sheet {
     border-radius: 9px;
   }
 
-  .desktop-shell-row[data-activation-visible="true"] .workspace-sheet > div {
+  .desktop-shell[data-setup-only="true"] .workspace-sheet > div {
     justify-content: flex-start;
     padding-top: 24px;
     padding-bottom: 24px;
   }
 }
 
-@media (min-width: 721px) and (max-width: 1080px) {
-  .desktop-shell-row[data-activation-visible="true"] [data-flight-deck-shell] {
-    display: none;
+/* Handing the window back. The bar goes from empty chassis to full instrument
+   panel in one frame, which reads as a flicker rather than an arrival, so its
+   contents fade up while the window buttons — the one thing that was already
+   there — stay exactly where they were. */
+@keyframes topbar-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.desktop-topbar[data-revealing="true"] > *:not(.native-window-controls) {
+  animation: topbar-reveal 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* A left-to-right sweep rather than one block fade: the mark and the modes are
+   what you look at first, so they arrive first. */
+.desktop-topbar[data-revealing="true"] > *:nth-child(n + 2) {
+  animation-delay: 70ms;
+}
+
+.desktop-topbar[data-revealing="true"] > *:nth-child(n + 4) {
+  animation-delay: 140ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-topbar[data-revealing="true"] > *:not(.native-window-controls) {
+    animation: none;
   }
 }
 /* The right dock is a DARK DEFAULT surface (POD-516 item 9), not an

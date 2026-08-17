@@ -106,7 +106,6 @@ describe('FirstTaskActivation', () => {
       <FirstTaskActivation
         route="agent"
         onRouteChange={onRouteChange}
-        onExplore={vi.fn()}
         onComplete={vi.fn()}
       />,
     )
@@ -129,7 +128,6 @@ describe('FirstTaskActivation', () => {
       <FirstTaskActivation
         route="agent"
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onComplete={vi.fn()}
       />,
     )
@@ -148,7 +146,6 @@ describe('FirstTaskActivation', () => {
       <FirstTaskActivation
         route="first-task"
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onComplete={onComplete}
       />,
     )

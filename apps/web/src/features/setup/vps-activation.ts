@@ -4,7 +4,13 @@ export const VPS_ACTIVATION_VERSION = 2 as const
 export const VPS_ACTIVATION_ROUTES = ['vps-intro'] as const
 
 export type VpsActivationRoute = (typeof VPS_ACTIVATION_ROUTES)[number]
-export type VpsReturnRoute = 'welcome' | 'local-project'
+/**
+ * New checkpoints always return to `vps-choice` — the step that asks whether the
+ * VPS already runs Podium. The two older values stay in the union so a
+ * checkpoint written before that step existed still parses and still goes back
+ * somewhere real.
+ */
+export type VpsReturnRoute = 'vps-choice' | 'welcome' | 'local-project'
 
 /**
  * Durable progress for fresh VPS onboarding. The VPS is a new authority, not a transfer target,
@@ -21,29 +27,8 @@ export function isVpsActivationRoute(route: ActivationRoute): route is VpsActiva
   return (VPS_ACTIVATION_ROUTES as readonly string[]).includes(route)
 }
 
-export function activationRouteLabel(route: ActivationRoute): string {
-  switch (route) {
-    case 'welcome':
-      return 'welcome'
-    case 'local-project':
-      return 'local projects'
-    case 'agent':
-      return 'agent readiness'
-    case 'first-task':
-      return 'your first task draft'
-    case 'existing-podium':
-      return 'existing Podium setup'
-    case 'existing-client':
-      return 'remote client connection'
-    case 'existing-machine':
-      return 'machine connection'
-    case 'vps-intro':
-      return 'always-on VPS setup'
-  }
-}
-
 function isReturnRoute(value: unknown): value is VpsReturnRoute {
-  return value === 'welcome' || value === 'local-project'
+  return value === 'vps-choice' || value === 'welcome' || value === 'local-project'
 }
 
 /** Parse current state and safely collapse legacy pairing/transfer checkpoints to fresh setup. */

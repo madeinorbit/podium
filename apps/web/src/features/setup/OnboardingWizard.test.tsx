@@ -2,7 +2,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
-import { ActivationResumeBar } from './ActivationShell'
 import { OnboardingWizard } from './OnboardingWizard'
 import type { ConfirmedVpsActivation } from './use-vps-activation'
 
@@ -51,16 +50,14 @@ function trpc(): Trpc {
   } as unknown as Trpc
 }
 
-describe('OnboardingWizard activation routes', () => {
-  it('starts on a shell-native welcome surface with a prominent exploration exit', () => {
+describe('OnboardingWizard setup routes', () => {
+  it('opens on two answers and no way out of setup', () => {
     const onRouteChange = vi.fn()
-    const onExplore = vi.fn()
     const onEnterVps = vi.fn().mockResolvedValue(undefined)
     render(
       <OnboardingWizard
         route="welcome"
         onRouteChange={onRouteChange}
-        onExplore={onExplore}
         onComplete={() => {}}
         onConnectionConfigured={vi.fn()}
         onEnterVps={onEnterVps}
@@ -70,26 +67,52 @@ describe('OnboardingWizard activation routes', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Where should Podium run?' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Add a VPS' }))
-    expect(onEnterVps).toHaveBeenCalledWith('welcome')
-    fireEvent.click(screen.getByRole('button', { name: 'Choose a project' }))
+    expect(screen.queryByRole('button', { name: /Explore Podium/ })).toBeNull()
+    // The local answer says what it costs before it is taken.
+    expect(screen.getByText(/sessions running here stay here/i)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a project' }))
     expect(onRouteChange).toHaveBeenCalledWith('local-project')
-    fireEvent.click(screen.getByRole('button', { name: 'View connection options' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onRouteChange).toHaveBeenCalledWith('vps-choice')
+    // Connecting to an installation that already exists is no longer a peer
+    // choice here — it lives behind the VPS question.
+    expect(onEnterVps).not.toHaveBeenCalled()
+    expect(onRouteChange).not.toHaveBeenCalledWith('existing-podium')
+  })
+
+  it('splits the VPS lane into a new install and one that already runs', () => {
+    const onRouteChange = vi.fn()
+    const onEnterVps = vi.fn().mockResolvedValue(undefined)
+    render(
+      <OnboardingWizard
+        route="vps-choice"
+        onRouteChange={onRouteChange}
+        onComplete={() => {}}
+        onConnectionConfigured={vi.fn()}
+        onEnterVps={onEnterVps}
+        trpc={trpc()}
+        vps={vpsController()}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Is Podium already on your VPS?' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Set up my VPS' }))
+    expect(onEnterVps).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Connect to it' }))
     expect(onRouteChange).toHaveBeenCalledWith('existing-podium')
-    fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
-    expect(onExplore).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(onRouteChange).toHaveBeenCalledWith('welcome')
   })
 
   it('opens repository intake without repeating the welcome actions', () => {
     const onRouteChange = vi.fn()
-    const onExplore = vi.fn()
     const onComplete = vi.fn()
     const onEnterVps = vi.fn().mockResolvedValue(undefined)
     render(
       <OnboardingWizard
         route="local-project"
         onRouteChange={onRouteChange}
-        onExplore={onExplore}
         onComplete={onComplete}
         onConnectionConfigured={vi.fn()}
         onEnterVps={onEnterVps}
@@ -109,17 +132,5 @@ describe('OnboardingWizard activation routes', () => {
     expect(onRouteChange).toHaveBeenCalledWith('agent')
     expect(onComplete).not.toHaveBeenCalled()
     expect(onEnterVps).not.toHaveBeenCalled()
-    expect(onExplore).not.toHaveBeenCalled()
-  })
-
-  it('offers an accessible durable resume action', () => {
-    const onResume = vi.fn()
-    render(<ActivationResumeBar routeLabel="local projects" onResume={onResume} />)
-
-    expect(screen.getByLabelText('Resume Podium activation').textContent).toContain(
-      'Continue at local projects',
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Resume activation' }))
-    expect(onResume).toHaveBeenCalledOnce()
   })
 })

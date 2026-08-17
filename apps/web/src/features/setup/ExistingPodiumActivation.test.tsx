@@ -69,43 +69,39 @@ describe('existing Podium activation', () => {
     expect(existingPodiumJoinToken('sh install.sh --join first --join second')).toBeNull()
   })
 
-  it('keeps local setup and exploration available from the connection choice', () => {
+  it('offers both connection roles and steps back to the VPS question', () => {
     const onRouteChange = vi.fn()
-    const onExplore = vi.fn()
     render(
       <ExistingPodiumActivation
         route="existing-podium"
         trpc={trpcWith()}
         onRouteChange={onRouteChange}
-        onExplore={onExplore}
         onConfigured={vi.fn()}
       />,
     )
 
+    expect(screen.queryByRole('button', { name: /Explore Podium/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Use as a client' }))
     expect(onRouteChange).toHaveBeenCalledWith('existing-client')
     fireEvent.click(screen.getByRole('button', { name: 'Add this machine' }))
     expect(onRouteChange).toHaveBeenCalledWith('existing-machine')
-    fireEvent.click(screen.getByRole('button', { name: 'Back to activation choices' }))
-    expect(onRouteChange).toHaveBeenCalledWith('welcome')
-    fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
-    expect(onExplore).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(onRouteChange).toHaveBeenCalledWith('vps-choice')
   })
 
-  it('returns from a connection form to the activation choices, not repository intake', () => {
+  it('returns from a connection form to the connection roles, not repository intake', () => {
     const onRouteChange = vi.fn()
     render(
       <ExistingPodiumActivation
         route="existing-client"
         trpc={trpcWith()}
         onRouteChange={onRouteChange}
-        onExplore={vi.fn()}
         onConfigured={vi.fn()}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back to activation choices' }))
-    expect(onRouteChange).toHaveBeenCalledWith('welcome')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(onRouteChange).toHaveBeenCalledWith('existing-podium')
   })
 
   it('configures client-only mode with the normalized URL and explains remote login', async () => {
@@ -118,7 +114,6 @@ describe('existing Podium activation', () => {
         route="existing-client"
         trpc={trpcWith({ connect })}
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onConfigured={onConfigured}
       />,
     )
@@ -140,15 +135,13 @@ describe('existing Podium activation', () => {
     expect(uiSet).toHaveBeenLastCalledWith(EXISTING_PODIUM_CLIENT_DRAFT_KEY, null)
   })
 
-  it('restores the client URL after Explore or reload and keeps it when configuration fails', async () => {
+  it('restores the client URL after a reload and keeps it when configuration fails', async () => {
     const connect = vi.fn().mockRejectedValue(new Error('remote unavailable'))
-    const onExplore = vi.fn()
     const first = render(
       <ExistingPodiumActivation
         route="existing-client"
         trpc={trpcWith({ connect })}
         onRouteChange={vi.fn()}
-        onExplore={onExplore}
         onConfigured={vi.fn()}
       />,
     )
@@ -156,8 +149,6 @@ describe('existing Podium activation', () => {
     fireEvent.change(screen.getByLabelText('Existing Podium URL'), {
       target: { value: 'https://saved.example.com' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
-    expect(onExplore).toHaveBeenCalledOnce()
     expect(uiValues.get(EXISTING_PODIUM_CLIENT_DRAFT_KEY)).toBe('https://saved.example.com')
 
     first.unmount()
@@ -166,7 +157,6 @@ describe('existing Podium activation', () => {
         route="existing-client"
         trpc={trpcWith({ connect })}
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onConfigured={vi.fn()}
       />,
     )
@@ -186,7 +176,6 @@ describe('existing Podium activation', () => {
         route="existing-client"
         trpc={trpcWith({ connect })}
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onConfigured={vi.fn()}
       />,
     )
@@ -211,7 +200,6 @@ describe('existing Podium activation', () => {
         route="existing-machine"
         trpc={trpcWith({ join })}
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onConfigured={onConfigured}
       />,
     )
@@ -236,13 +224,11 @@ describe('existing Podium activation', () => {
     const command = MACHINE_PAIRING_COMMAND
     const expectedToken = MACHINE_PAIRING_TOKEN
     const failedJoin = vi.fn().mockRejectedValue(new Error('pairing expired'))
-    const onExplore = vi.fn()
     const first = render(
       <ExistingPodiumActivation
         route="existing-machine"
         trpc={trpcWith({ join: failedJoin })}
         onRouteChange={vi.fn()}
-        onExplore={onExplore}
         onConfigured={vi.fn()}
       />,
     )
@@ -250,8 +236,6 @@ describe('existing Podium activation', () => {
     fireEvent.change(screen.getByLabelText('Join token or command'), {
       target: { value: command },
     })
-    fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
-    expect(onExplore).toHaveBeenCalledOnce()
     expect(uiValues.get(EXISTING_PODIUM_MACHINE_DRAFT_KEY)).toBe(command)
     first.unmount()
 
@@ -260,7 +244,6 @@ describe('existing Podium activation', () => {
         route="existing-machine"
         trpc={trpcWith({ join: failedJoin })}
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onConfigured={vi.fn()}
       />,
     )
@@ -276,7 +259,6 @@ describe('existing Podium activation', () => {
         route="existing-machine"
         trpc={trpcWith({ join })}
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onConfigured={vi.fn().mockResolvedValue(undefined)}
       />,
     )
@@ -294,7 +276,6 @@ describe('existing Podium activation', () => {
         route="existing-machine"
         trpc={trpcWith({ join })}
         onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
         onConfigured={vi.fn().mockRejectedValue(new Error('restart unavailable'))}
       />,
     )

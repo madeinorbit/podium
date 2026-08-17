@@ -49,7 +49,15 @@ const log = createLogger('web:desktop-window')
  * The centre is deliberately empty in Work: every Work-scoped action already has
  * a correct home one level down. See ToolbarSlot for the rule that governs it.
  */
-export function TopBar(): JSX.Element {
+export function TopBar({
+  chromeless = false,
+  revealing = false,
+}: {
+  /** First-run setup (POD-1174): the bar is a chassis, not an instrument panel. */
+  chromeless?: boolean
+  /** The first bar after setup hands the window back — fade its contents in. */
+  revealing?: boolean
+} = {}): JSX.Element {
   const { view, setView } = useStoreSelector(
     (s) => ({ view: s.view, setView: s.setView }),
     shallowEqual,
@@ -67,8 +75,32 @@ export function TopBar(): JSX.Element {
   const desktopBridge = nativeDesktopBridge()
   const dragRegion = desktopBridge ? { 'data-tauri-drag-region': true } : undefined
 
+  // Setup keeps the bar and empties it: it is still the drag handle, and off
+  // macOS it still carries the only minimise, maximise and close buttons the
+  // window has. Everything else in it reports on work that cannot exist yet.
+  if (chromeless) {
+    return (
+      <header
+        className="desktop-topbar"
+        data-testid="desktop-topbar"
+        data-chromeless="true"
+        {...dragRegion}
+      >
+        <span className="desktop-topbar-gap" {...dragRegion} />
+        {desktopBridge && desktopBridge.platform !== 'macos' && (
+          <NativeWindowControls bridge={desktopBridge} />
+        )}
+      </header>
+    )
+  }
+
   return (
-    <header className="desktop-topbar" data-testid="desktop-topbar" {...dragRegion}>
+    <header
+      className="desktop-topbar"
+      data-testid="desktop-topbar"
+      data-revealing={revealing ? 'true' : undefined}
+      {...dragRegion}
+    >
       <span className="desktop-topbar-logo" {...dragRegion}>
         <PodiumLogo height={18} className="flex-none" />
       </span>

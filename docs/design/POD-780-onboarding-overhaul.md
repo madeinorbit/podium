@@ -11,10 +11,17 @@ registering a repository.
 
 ## Product decision
 
-Use a revealed-shell activation experience. Keep the real Podium navigation, work sidebar,
+> **Superseded by POD-1174.** The revealed shell is gone: until setup finishes, setup is the only
+> thing in the window — no sidebars, no dock, no rail, no status strip, and a command bar holding
+> nothing but its drag region and the platform window buttons. There is no **Explore Podium** and no
+> resume affordance, because every instrument in the shell reports on work that cannot exist yet and
+> the escape hatch delivered people into an empty product they read as broken. Drafts and the exact
+> step still survive a reload. Concept: `docs/design/POD-1174-onboarding-flow.html`.
+
+~~Use a revealed-shell activation experience. Keep the real Podium navigation, work sidebar,
 Settings, Help, connection health, and any existing work visible while onboarding occupies the
 main empty stage. A persistent **Explore Podium** action leaves onboarding without marking it
-complete, preserves progress and drafts, and exposes a clear resume affordance.
+complete, preserves progress and drafts, and exposes a clear resume affordance.~~
 
 Reserve blocking setup for genuine safety or runtime prerequisites. Optional topology,
 integrations, telemetry, and education must not stand between a normal local user and useful work.
@@ -86,7 +93,7 @@ draft throughout detection and authentication.
 
 - A clean supported local install reaches Project, Agent, and First task without premature topology
   or remote-access configuration.
-- Explore Podium and reload preserve the exact activation route and drafts.
+- A reload preserves the exact setup step and every draft (POD-1174 retired Explore Podium).
 - Agent availability is truthful and recovery actions do not discard the prompt.
 - The first task uses production catalogs and starts real work.
 - GitHub CLI missing, logged-out, ready, refresh, and clone states are recoverable and accessible.

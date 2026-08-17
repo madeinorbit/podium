@@ -102,12 +102,10 @@ function TelemetryChoice({
 export function FirstTaskActivation({
   route,
   onRouteChange,
-  onExplore,
   onComplete,
 }: {
   route: Extract<ActivationRoute, 'agent' | 'first-task'>
   onRouteChange: (route: ActivationRoute) => void
-  onExplore: () => void
   onComplete: () => void
 }): JSX.Element {
   const { trpc, repos, machines, uiState } = useStoreSelector(
@@ -251,13 +249,12 @@ export function FirstTaskActivation({
 
     return (
       <ActivationShell
-        eyebrow="Activate Podium · 3 of 3"
+        eyebrow="Set up Podium · Ready"
         title="Podium is good to go."
         description="Your project and agents are set up. One optional privacy choice is left, then you can start working."
         icon={<Check aria-hidden="true" />}
         contentClassName="mt-8"
         frameClassName="min-h-[1000px] lg:pt-14 lg:pb-11 [&>div:first-child]:bg-[#2a2718] [&>div:first-child]:shadow-[inset_0_0_0_1px_#4a4324]"
-        onExplore={onExplore}
       >
         <section className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
           <div className="px-[22px] pt-5 pb-[18px]">
@@ -483,7 +480,7 @@ export function FirstTaskActivation({
 
   return (
     <ActivationShell
-      eyebrow="Activate Podium · 2 of 3"
+      eyebrow="Set up Podium · Agents"
       title="Set up your agents."
       description={
         <>
@@ -495,7 +492,6 @@ export function FirstTaskActivation({
         </>
       }
       contentClassName="mt-7"
-      onExplore={onExplore}
     >
       <div className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
         {readyAgents.length > 0 && (

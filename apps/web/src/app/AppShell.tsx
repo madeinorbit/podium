@@ -18,7 +18,7 @@ import {
 import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
-import { activationRouteLabel, vpsIntroState } from '@/features/setup/vps-activation'
+import { vpsIntroState } from '@/features/setup/vps-activation'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
@@ -88,14 +88,6 @@ const ApprovalDialog = lazy(() =>
 const AutoContinueDialog = lazy(() =>
   import('./AutoContinueDialog').then((module) => ({ default: module.AutoContinueDialog })),
 )
-// Renders only mid-activation; a static import would drag the whole activation
-// shell into the eager bundle for every ordinary launch.
-const ActivationResumeBar = lazy(() =>
-  import('@/features/setup/ActivationShell').then((module) => ({
-    default: module.ActivationResumeBar,
-  })),
-)
-
 function LoadingScreen(): JSX.Element {
   return (
     <div className="app-loading" role="status" aria-live="polite">
@@ -292,8 +284,6 @@ function AppBody(): JSX.Element {
     state: activationState,
     navigate: navigateActivation,
     reconcile: reconcileActivation,
-    explore: explorePodium,
-    resume: resumeActivationRoute,
     clear: clearActivation,
   } = useActivationRoute()
   const vpsActivation = useConfirmedVpsActivation(trpc)
@@ -316,10 +306,27 @@ function AppBody(): JSX.Element {
     hasActivationCheckpoint,
     hasVpsCheckpoint: vpsActivation.state !== null,
   })
-  const activationVisible =
-    activationEligible && activationState.mode === 'active' && workspaceActive
-  const activationResumeVisible =
-    activationEligible && (activationState.mode === 'exploring' || !workspaceActive)
+  // Setup owns the window outright (POD-1174). There is no exploring mode and no
+  // other view to be in: while this is true the shell below simply does not
+  // render, so nothing else can be reached until setup finishes.
+  const activationVisible = activationEligible
+
+  // Handing the window back is the one moment the shell appears out of nothing.
+  // Fade the command bar's contents in over that hand-off instead of snapping a
+  // full instrument panel onto a screen that held one sentence a moment ago.
+  const [revealingChrome, setRevealingChrome] = useState(false)
+  const wasActivating = useRef(false)
+  useEffect(() => {
+    if (activationVisible) {
+      wasActivating.current = true
+      return
+    }
+    if (!wasActivating.current) return
+    wasActivating.current = false
+    setRevealingChrome(true)
+    const timer = setTimeout(() => setRevealingChrome(false), 1_200)
+    return () => clearTimeout(timer)
+  }, [activationVisible])
 
   useEffect(() => {
     if (shouldContinueRemoteActivation) reconcileActivation('local-project')
@@ -343,10 +350,11 @@ function AppBody(): JSX.Element {
     vpsActivation.state,
   ])
 
-  const enterVpsActivation = async (returnRoute: 'welcome' | 'local-project'): Promise<void> => {
+  const enterVpsActivation = async (): Promise<void> => {
     // A fresh install needs the topology explanation before Podium starts minting
     // credentials or waiting for another machine. Pairing follows from this overview.
-    const next = vpsIntroState(returnRoute)
+    // Back from the install screen returns to the question that led here.
+    const next = vpsIntroState('vps-choice')
     await vpsActivation.persist(next)
     navigateActivation(next.route)
   }
@@ -355,11 +363,6 @@ function AppBody(): JSX.Element {
     clearActivation()
     if (vpsActivation.state) void vpsActivation.clear().catch(() => {})
     setSelectedIssueId(null)
-    setView('workspace')
-  }
-
-  const resumeActivation = (): void => {
-    resumeActivationRoute()
     setView('workspace')
   }
   // SUBSCRIBED, not seeded — the same bug as the two below, on the worklist
@@ -576,6 +579,40 @@ function AppBody(): JSX.Element {
     )
   }
 
+  // SETUP OWNS THE WINDOW (POD-1174). No work sidebar, Flight Deck, dock, rail
+  // or status strip, and a command bar with nothing in it but its drag region
+  // and the platform window buttons. Every instrument in this shell reports on
+  // work that cannot exist yet, and the one escape hatch we did offer landed
+  // people in an empty product they reasonably read as broken.
+  if (activationVisible) {
+    return (
+      <>
+        {menuHost}
+        <div className="desktop-shell" data-setup-only="true">
+          <TopBar chromeless />
+          <div className="desktop-shell-row">
+            <Suspense fallback={<RouteFallback />}>
+              <OnboardingWizard
+                route={activationState.route}
+                onRouteChange={navigateActivation}
+                onComplete={completeActivation}
+                onConnectionConfigured={async () => {
+                  // The saved topology survives a restart; the old setup URL must not.
+                  // Retire it synchronously before Tauri or reload can terminate this page.
+                  clearActivation()
+                  await restartPodiumShell()
+                }}
+                onEnterVps={enterVpsActivation}
+                trpc={trpc}
+                vps={vpsActivation}
+              />
+            </Suspense>
+          </div>
+        </div>
+      </>
+    )
+  }
+
   const selectedIssue = selectedIssueId
     ? issues.find((issue) => issue.id === selectedIssueId && !issue.archived && !issue.deletedAt)
     : undefined
@@ -604,20 +641,8 @@ function AppBody(): JSX.Element {
           data-issue-colored={effectiveHex ? 'true' : 'false'}
           style={issueStyle}
         >
-          <TopBar />
-          {activationResumeVisible && (
-            <Suspense fallback={null}>
-              <ActivationResumeBar
-                routeLabel={activationRouteLabel(activationState.route)}
-                onResume={resumeActivation}
-              />
-            </Suspense>
-          )}
-          <div
-            className="desktop-shell-row"
-            data-sidebar-collapsed={sidebarCollapsed}
-            data-activation-visible={activationVisible ? 'true' : 'false'}
-          >
+          <TopBar revealing={revealingChrome} />
+          <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
             {/* The work list is persistent chrome: it stays mounted in every mode,
               so switching modes swaps the CONTENT REGION rather than the window
               (POD-365). The engraved column, dock and rail are workspace
@@ -678,30 +703,7 @@ function AppBody(): JSX.Element {
                 )}
               </div>
             )}
-            <MainViewOutlet
-              workspace={
-                activationVisible ? (
-                  <OnboardingWizard
-                    route={activationState.route}
-                    onRouteChange={navigateActivation}
-                    onExplore={explorePodium}
-                    onComplete={completeActivation}
-                    onConnectionConfigured={async () => {
-                      // The saved topology survives a restart; the old activation URL must not.
-                      // Retire it synchronously before Tauri or reload can terminate this page.
-                      clearActivation()
-                      await restartPodiumShell()
-                    }}
-                    onEnterVps={enterVpsActivation}
-                    trpc={trpc}
-                    vps={vpsActivation}
-                  />
-                ) : (
-                  <Workspace />
-                )
-              }
-              view={baseView}
-            />
+            <MainViewOutlet workspace={<Workspace />} view={baseView} />
             {workspaceActive && (
               <ResizableColumn
                 storageKey="podium:rightdock:width"
