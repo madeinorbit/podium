@@ -150,7 +150,18 @@ export function WorkerLabel({
     ? 'Handing over → ' + session.handoffTarget
     : sessionDisplayName(session)
   return (
-    <span className="worker-label inline-flex min-w-0 items-center gap-2">
+    // `max-w-full` IS THE ELLIPSIS (POD-1170). `min-w-0` only lifts the flex
+    // item's automatic minimum; it does nothing when this label is not a flex
+    // item at all. In a BLOCK parent an `inline-flex` is sized shrink-to-fit,
+    // and shrink-to-fit floors at the box's min-content width — which
+    // `white-space: nowrap` below makes equal to the whole name. So the label
+    // grew past its parent, the name never reached its ellipsis, and the deck's
+    // agent rows clipped the name mid-glyph and painted it over the ref.
+    // Clamping to the parent's width makes the inner flex line overflow instead,
+    // which is what the shrink rules below are written for. Cheaper and safer
+    // than switching to `flex`: this label sits in an inline run in the tab
+    // strip, and block-level here would break the line.
+    <span className="worker-label inline-flex min-w-0 max-w-full items-center gap-2">
       <KindIcon
         kind={session.agentKind}
         chip={chip}

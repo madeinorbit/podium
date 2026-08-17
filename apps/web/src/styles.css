@@ -8557,8 +8557,17 @@ a.ref-link--session::before {
    ragging. The name takes the slack and is the only shrinker; the ref parks at
    68px right-aligned, the role word at 96px, the state in the shared column.
    Its own container, because an agent row is inset further than the strip it
-   hangs under and narrows before it does. */
-.deck-agent {
+   hangs under and narrows before it does.
+
+   THE CONTAINER IS THE ROW'S WRAPPER, NOT THE ROW (POD-1170). A container query
+   styles DESCENDANTS of the container and never the container itself, so
+   declaring it on `.deck-agent` and then writing `.deck-agent { flex-wrap }`
+   inside `@container deck-agent` asked the row to restyle itself — which is
+   simply ignored. Every rung below was dead code, and a deck at its 366px
+   default pushed the ref, the role and the state clean out of the column: the
+   name cell shrank to nothing and only the ref survived. `.deck-agent-row` is
+   the wrapper `SessionRow` already draws and is exactly as wide as the row. */
+.deck-agent-row {
   container-type: inline-size;
   container-name: deck-agent;
 }
@@ -8587,7 +8596,22 @@ a.ref-link--session::before {
   order: 3;
 }
 
-@container deck-agent (max-width: 310px) {
+/* 400px, NOT 310 (POD-1170) — the rung is the NAME's own measure, the way every
+   other ladder in this file is keyed on the text it has to hold.
+   Four rigid columns spend 244px before the name gets a pixel. The deck opens
+   at 366px, which leaves a root agent row about 334px and a row hung under a
+   task less than that, so on one line the name was down to 41px — three
+   characters of the one string on the row an operator actually reads — while
+   `COORDINATOR` sat beside it in full. A column that is only affordable on a
+   deck nobody has dragged wider is not a column, it is a squeeze.
+   A name wants ~120px to be worth printing, and one line only pays that from
+   about 400px up. Below it the row spends the line it was always allowed to
+   spend: name and ref on line 1, where the name gets ~210px, role and state on
+   line 2. UNCONDITIONALLY, even on a row whose second line carries only a
+   timestamp — a roster of rows that are sometimes 28px and sometimes 44px scans
+   worse than a roster that is honestly one height, which is the whole reason
+   these cells are columns in the first place. */
+@container deck-agent (max-width: 400px) {
   .deck-agent {
     flex-wrap: wrap;
     row-gap: 2px;
@@ -8599,14 +8623,16 @@ a.ref-link--session::before {
     height: 0;
   }
   /* Line 1 ends with the ref, hard against the right edge; line 2 opens under
-     the name with the role and ends with the state. Both cells give up their
-     rigid width — there is no column to line up with on a row of their own. */
+     the name with the role and ends with the state. The ref and the state give
+     up their rigid width — a line they have to themselves has no column to line
+     up with — but the ROLE takes its 96px cell back, because line 2 is a column
+     of its own down the roster and that is exactly how the design draws it. */
   .deck-agent-ref,
-  .deck-agent-role,
   .deck-agent-state {
     width: auto;
   }
   .deck-agent-role {
+    width: 96px;
     margin-left: 28px;
   }
   /* A row with no role still HOLDS the cell — it just does not indent an empty

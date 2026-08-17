@@ -974,7 +974,15 @@ function SessionRow({
         // rather than hanging off it as a pill: no rounded collar, because a
         // rounded edge is what makes the task strips read as units and an agent
         // is not one of those.
-        'group/srow relative',
+        // `deck-agent-row` IS THE QUERY CONTAINER for the row's narrow ladder,
+        // and it has to live out here rather than on the row itself (POD-1170).
+        // A container query never matches the element that declares the
+        // container — `@container deck-agent (...) { .deck-agent { … } }` asks
+        // the row to restyle itself, which no browser will do — so the whole
+        // ladder below 310px was dead the day it was written and a narrow deck
+        // simply overflowed its refs and states out of the column. The wrapper
+        // is the same width as the row, so the rungs are unchanged.
+        'deck-agent-row group/srow relative',
         // The mission's own lead is the one agent row in the spine with a fill.
         // It owns the whole mission, so it is allowed to be the loudest thing
         // in the roster — and being the only one, the fill means exactly that.
@@ -1074,7 +1082,12 @@ function SessionRow({
               same words the sidebar and the pane header use, so the row never
               invents a second vocabulary for the same event. */}
           <span className="deck-agent-name flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-            <span className={cn('min-w-0', unread && 'font-semibold text-text-strong')}>
+            {/* `flex`, not a bare block — the sidebar's rows already wrap the
+                label this way. A block parent leaves `WorkerLabel`'s inline-flex
+                to size itself shrink-to-fit, which floors at the whole name;
+                as a flex item it takes the width flex gives it and the name
+                reaches its ellipsis (POD-1170). */}
+            <span className={cn('flex min-w-0', unread && 'font-semibold text-text-strong')}>
               <WorkerLabel session={session} chip />
             </span>
             {unread ? (
