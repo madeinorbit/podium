@@ -29,7 +29,14 @@ import {
   resolveAddress,
   SINGLE_USER_CEILING,
 } from '@podium/commands'
-import { asIssueId, asSessionId, type IssueId, isSpawnedBy, type SessionId, type MachineId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  type IssueId,
+  isSpawnedBy,
+  type SessionId,
+  type MachineId,
+} from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
@@ -254,7 +261,7 @@ export class MailAccess {
    */
   resolveRecipient(to: string): AddressResolution {
     return resolveAddress(to, {
-      isKnownSession: (ref) => this.deps.listSessions().some((s) => s.sessionId === ref),
+      isKnownSession: (ref) => findSessionById(this.deps, asSessionId(ref)) !== undefined,
       resolveIssueRef: (ref) => this.deps.issues.resolveRef(ref),
       issueExists: (id) => this.deps.issues.has(id),
       ceiling: this.ceiling,

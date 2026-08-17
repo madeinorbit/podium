@@ -687,7 +687,7 @@ export async function startServer(
       liveSessionIds: () =>
         new Set(
           registry.modules.sessions
-            .listSessions()
+            .listSessions(undefined, 'steward')
             .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
             .map((s) => s.sessionId),
         ),

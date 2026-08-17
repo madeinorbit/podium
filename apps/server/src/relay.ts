@@ -1673,11 +1673,7 @@ export class SessionRegistry {
                 ? op.target.sessionId
                 : null
           const existing =
-            existingSessionId === null
-              ? null
-              : sessionsSvc
-                  .listSessions()
-                  .find((session) => session.sessionId === existingSessionId)
+            existingSessionId === null ? null : sessionsSvc.sessionById(existingSessionId)
           if (existingSessionId !== null && !existing) {
             throw new Error(`unknown target session: ${existingSessionId}`)
           }

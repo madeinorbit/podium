@@ -24,6 +24,7 @@ const log = createLogger('server:sessions')
 export interface SessionBroadcastPorts {
   hasPendingVolatile(): boolean
   scheduleVolatileCapture(): void
+  drainVolatileSlice(): { remaining: number }
   flushVolatileCaptures(): void
   flushDeltas(): void
 }
@@ -60,14 +61,27 @@ export class SessionBroadcastCoordinator {
     this.cooldown.unref?.()
   }
 
+  /** Entry point for the repository's zero-delay slice timer. */
+  runScheduled(): void {
+    this.pending = false
+    this.run()
+  }
+
   flush(): void {
     if (this.cooldown) {
       clearTimeout(this.cooldown)
       this.cooldown = null
     }
-    if (this.pending || this.ports.hasPendingVolatile()) {
-      this.pending = false
-      this.run()
+    this.pending = false
+    if (this.runningGeneration !== -1) {
+      this.pending = true
+      return
+    }
+    this.runningGeneration = -2
+    try {
+      this.ports.flushVolatileCaptures()
+    } finally {
+      this.runningGeneration = -1
     }
     this.ports.flushDeltas()
   }
@@ -81,7 +95,9 @@ export class SessionBroadcastCoordinator {
     }
     this.runningGeneration = -2
     try {
-      this.ports.flushVolatileCaptures()
+      const { remaining } = this.ports.drainVolatileSlice()
+      this.ports.flushDeltas()
+      if (remaining > 0) this.ports.scheduleVolatileCapture()
     } finally {
       this.runningGeneration = -1
     }

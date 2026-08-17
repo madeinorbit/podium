@@ -1229,7 +1229,7 @@ export class SuperagentService {
   }
 
   private listSessions() {
-    return this.modules.sessions.listSessions()
+    return this.modules.sessions.listSessions(undefined, 'superagent')
   }
   /** ONE session, without wiring the other 1100 [POD-1646]. */
   private sessionById(sessionId: SessionId) {

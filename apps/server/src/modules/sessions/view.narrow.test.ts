@@ -12,6 +12,7 @@
 import { asIssueId, asMachineId, asSessionId, type IssueId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { sessionsForIssue } from '../../issue-util'
+import { SessionLifecycle } from './lifecycle'
 import { Session } from './session'
 import type { SessionStatePrincipal } from './session-state/service'
 import { SessionView, type SessionViewPorts } from './view'
@@ -177,5 +178,51 @@ describe('SessionView.spawnedByOf [POD-1646]', () => {
     const { view } = viewOver(CHILD(), new Set(['child']))
     expect(view.spawnedByOf(asSessionId('child'), PRINCIPAL)).toBeUndefined()
     expect(view.spawnedByOf(asSessionId('ghost'), PRINCIPAL)).toBeUndefined()
+  })
+})
+
+describe('SessionView.byIds [POD-2322]', () => {
+  it('equals full-list filtering in source order and deduplicates ids', () => {
+    const { view } = viewOver(CORPUS(), new Set(['mine-by-cwd']))
+    const ids = [
+      asSessionId('unrelated'),
+      asSessionId('mine-explicit'),
+      asSessionId('ghost'),
+      asSessionId('unrelated'),
+      asSessionId('mine-by-cwd'),
+    ]
+    const wanted = new Set(ids)
+    const expected = view.list(PRINCIPAL).filter((row) => wanted.has(row.sessionId))
+    expect(view.byIds(ids, PRINCIPAL)).toEqual(expected)
+    expect(expected.map((row) => row.sessionId)).toEqual(['mine-explicit', 'unrelated'])
+  })
+
+  it('does no projection work for an empty set and only visits resident requested ids', () => {
+    const { view, canReadCalls } = viewOver(CORPUS())
+    expect(view.byIds([], PRINCIPAL)).toEqual([])
+    expect(canReadCalls).toEqual([])
+    view.byIds(
+      [asSessionId('unrelated'), asSessionId('ghost'), asSessionId('unrelated')],
+      PRINCIPAL,
+    )
+    expect(canReadCalls).toEqual(['unrelated'])
+  })
+})
+
+describe('SessionLifecycle.sessionRoutingFacts [POD-2322]', () => {
+  it('copies only routing fields from live sessions without invoking the view', () => {
+    const sessions = CORPUS().slice(0, 2)
+    const wire = vi.fn()
+    const lifecycle = { sessions, view: { wire } } as unknown as SessionLifecycle
+    const facts = SessionLifecycle.prototype.sessionRoutingFacts.call({
+      ...lifecycle,
+      sessions: new Map(sessions.map((row) => [row.sessionId, row])),
+    })
+    expect(facts.map((fact) => fact.sessionId)).toEqual(['mine-explicit', 'mine-by-cwd'])
+    expect(Object.keys(facts[0]!).sort()).toEqual(
+      ['agentKind', 'archived', 'cwd', 'issueId', 'sessionId', 'status'].sort(),
+    )
+    expect(facts[0]).toMatchObject({ issueId: asIssueId(ISSUE), cwd: '/elsewhere' })
+    expect(wire).not.toHaveBeenCalled()
   })
 })

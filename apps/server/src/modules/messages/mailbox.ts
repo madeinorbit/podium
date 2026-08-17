@@ -36,6 +36,7 @@ import type { MessageKind, MessageLifecycle, MessageRow, MessageUrgency } from '
 import type { MessagesRepository } from '../../store/messages'
 import type { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
+import { findSessionById } from '../sessions/session-by-id'
 import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
 
 /** Urgency-gated blocking send budgets [spec:SP-cb9f] [POD-854]. A `next-turn`
@@ -78,6 +79,7 @@ export interface MessageMailboxDeps {
   issues: Pick<IssueService, 'resolveRef' | 'has'>
   notificationArbiter: Pick<NotificationArbiter, 'retire'>
   listSessions(): SessionMeta[]
+  sessionById?(sessionId: SessionId): SessionMeta | undefined
   now(): string
   /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
    *  substrate inbox read must consume the mirror row's unread status too, or
@@ -102,10 +104,9 @@ export class MessageMailbox {
    *  superagent thread/UI inbox picks them up — stage 6). */
   replyTarget(original: MessageRow): { kind: 'issue' | 'session' | 'operator'; id?: string } {
     if (original.fromKind === 'agent') {
-      if (
-        original.fromSession &&
-        this.deps.listSessions().some((s) => s.sessionId === original.fromSession)
-      ) {
+      const fromSession = original.fromSession ? asSessionId(original.fromSession) : undefined
+      const known = fromSession ? findSessionById(this.deps, fromSession) !== undefined : false
+      if (original.fromSession && known) {
         return { kind: 'session', id: original.fromSession }
       }
       // Harden against legacy ref-string senders (#463): rows migrated by 016

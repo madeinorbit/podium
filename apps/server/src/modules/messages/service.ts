@@ -63,6 +63,7 @@ import type { NotificationFactsRepository } from '../../store/notification-facts
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import type { InboxPrincipalReference } from '../sessions/inbox'
+import type { SessionRoutingFacts } from '../sessions/lifecycle'
 import { findSessionById } from '../sessions/session-by-id'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
@@ -180,6 +181,7 @@ export interface MessageDeliveryDeps {
      *  it — so an unwired fixture is slow, never wrong. */
     sessionById?(sessionId: SessionId): SessionMeta | undefined
     listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): SessionMeta[]
+    sessionRoutingFacts?(): SessionRoutingFacts[]
     sendText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
@@ -399,6 +401,7 @@ export class MessageDeliveryService {
       issues: deps.issues,
       notificationArbiter: this.notificationArbiter,
       listSessions: () => deps.sessions.listSessions(),
+      sessionById: (id) => findSessionById(deps.sessions, id),
       now: deps.now,
       ...(deps.mirrorMarkIssueMailRead
         ? {
@@ -418,6 +421,7 @@ export class MessageDeliveryService {
     this.render = new MessageRenderer({
       issues: deps.issues,
       listSessions: () => deps.sessions.listSessions(),
+      sessionById: (id) => findSessionById(deps.sessions, id),
       ...(deps.machineName ? { machineName: (id: string) => deps.machineName!(id) } : {}),
     })
   }
@@ -441,9 +445,7 @@ export class MessageDeliveryService {
       boundaryThrough?: ReadonlyMap<string, MessagePageCursor>
     },
   ): void {
-    const session =
-      changed ??
-      this.deps.sessions.listSessions().find((candidate) => candidate.sessionId === sessionId)
+    const session = changed ?? findSessionById(this.deps.sessions, sessionId)
     const previousIssueId = this.sessionIssueTargets.get(sessionId)
     const nextIssueId = this.issueForSession(session)
     if (nextIssueId) this.sessionIssueTargets.set(sessionId, nextIssueId)
@@ -481,6 +483,20 @@ export class MessageDeliveryService {
     }
   }
 
+  /** Fleet-scan equivalent when no preferred session or boundary cursor exists. */
+  private onRoutingEligibilityChanged(session: SessionRoutingFacts): void {
+    const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
+    const nextIssueId = this.issueForSession(session)
+    if (nextIssueId) this.sessionIssueTargets.set(session.sessionId, nextIssueId)
+    else this.sessionIssueTargets.delete(session.sessionId)
+
+    this.queueDeliveryTarget({ kind: 'session', id: session.sessionId })
+    if (previousIssueId && previousIssueId !== nextIssueId) {
+      this.queueDeliveryTarget({ kind: 'issue', id: previousIssueId })
+    }
+    if (nextIssueId) this.queueDeliveryTarget({ kind: 'issue', id: nextIssueId })
+  }
+
   /** Whether `session` may take an issue's pending mail at its turn boundary
    *  [POD-1365] [POD-1371]. The coordinator owns its issue's mail by ROLE while
    *  it still exists as a non-exited member: peers hold, and the row waits for
@@ -495,11 +511,11 @@ export class MessageDeliveryService {
     if (!session) return undefined
     const coordinatorId = this.deps.issues.get(issueId)?.coordinatorSessionId
     if (typeof coordinatorId !== 'string' || coordinatorId === session.sessionId) return session
-    const coordinatorOwns = this.deps.sessions
-      .listSessions()
-      .some(
-        (s) => s.sessionId === coordinatorId && s.agentKind !== 'shell' && s.status !== 'exited',
-      )
+    const coordinator = findSessionById(this.deps.sessions, asSessionId(coordinatorId))
+    const coordinatorOwns =
+      coordinator !== undefined &&
+      coordinator.agentKind !== 'shell' &&
+      coordinator.status !== 'exited'
     return coordinatorOwns ? undefined : session
   }
 
@@ -531,7 +547,8 @@ export class MessageDeliveryService {
     const changed = new Set(issueIds)
     if (changed.size === 0) return
     for (const issueId of changed) this.queueDeliveryTarget({ kind: 'issue', id: issueId })
-    for (const session of this.deps.sessions.listSessions()) {
+    const sessions = this.deps.sessions.sessionRoutingFacts?.() ?? this.deps.sessions.listSessions()
+    for (const session of sessions) {
       const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
       const nextIssueId = this.issueForSession(session)
       if (
@@ -544,7 +561,7 @@ export class MessageDeliveryService {
         // recomputed, which is not this change's business.
         previousIssueId !== nextIssueId
       ) {
-        this.onSessionEligibilityChanged(session.sessionId, session)
+        this.onRoutingEligibilityChanged(session)
       }
     }
   }
@@ -595,7 +612,7 @@ export class MessageDeliveryService {
   /** Begin a bounded startup walk. The session→issue before-state is this
    *  service's to restore; the walk itself is the scheduler's. */
   reconcileQueued(): void {
-    const sessions = this.deps.sessions.listSessions()
+    const sessions = this.deps.sessions.sessionRoutingFacts?.() ?? this.deps.sessions.listSessions()
     if (this.scheduler.queueIsEmpty()) {
       // Preserve the before-state needed by detach/reassign events without
       // issuing two principal COUNTs per live session on the overwhelmingly
@@ -607,7 +624,7 @@ export class MessageDeliveryService {
       return
     }
     for (const session of sessions) {
-      this.onSessionEligibilityChanged(session.sessionId, session)
+      this.onRoutingEligibilityChanged(session)
     }
     this.scheduler.reconcile()
   }
@@ -676,7 +693,7 @@ export class MessageDeliveryService {
 
     const targetSession =
       input.to.kind === 'session'
-        ? this.deps.sessions.listSessions().find((s) => s.sessionId === toId)
+        ? findSessionById(this.deps.sessions, asSessionId(toId!))
         : undefined
 
     // v1 defaults: mail stays fyi+wait; session sends declare next-turn.
@@ -1624,7 +1641,7 @@ export class MessageDeliveryService {
     return 'running'
   }
 
-  private issueForSession(s: SessionMeta | undefined): IssueId | null {
+  private issueForSession(s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined): IssueId | null {
     if (!s) return null
     if (s.issueId) return s.issueId
     try {

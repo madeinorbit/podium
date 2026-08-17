@@ -113,19 +113,20 @@ function sessionTitlePrime(
   issues: IssueService,
   actorSessionId: SessionId,
 ): string {
-  const all = sessionsSvc.listSessions()
-  const actor = all.find((s) => s.sessionId === actorSessionId)
+  const actor = sessionsSvc.sessionById(actorSessionId)
   if (!actor) return ''
   if (actor.name?.trim()) return ''
   const issueId = actor.issueId ?? issues.issueForCwd(actor.cwd)
   if (!issueId) return ''
-  const seq = issues.getMeta(issueId)?.seq
+  const issue = issues.getMeta(issueId)
+  const seq = issue?.seq
   if (seq === undefined) return ''
   // Siblings = the other sessions on the SAME issue that have a usable label. A
   // session still showing a placeholder ('Claude Code', a spinner frame, an empty
   // OSC title) contributes nothing an agent could distinguish itself from, so it
   // is skipped rather than listed as noise.
-  const siblings = all
+  const siblings = sessionsSvc
+    .listSessionsForIssue(issue?.worktreePath ?? null, issueId)
     .filter((s) => s.sessionId !== actorSessionId && !s.archived)
     .filter((s) => (s.issueId ?? issues.issueForCwd(s.cwd)) === issueId)
     .map((s) => sessionLabel(s))

@@ -62,16 +62,31 @@ export interface SessionViewPorts {
   sessionOccupancyCount?(sessionId: SessionId): number | undefined
 }
 
+export type SessionListCaller =
+  | 'bootstrap'
+  | 'listAllTool'
+  | 'issueDeleteRestore'
+  | 'attentionPass'
+  | 'steward'
+  | 'superagent'
+  | 'fixtureFallback'
+  | 'repositoryReconcile'
+  | 'unlabeled'
+
 /** The single live-model → reader-scoped SessionMeta projection. */
 export class SessionView {
   constructor(private readonly ports: SessionViewPorts) {}
 
-  list(forPrincipal?: SessionStatePrincipal): SessionMeta[] {
+  list(
+    forPrincipal?: SessionStatePrincipal,
+    caller: SessionListCaller = 'unlabeled',
+  ): SessionMeta[] {
     const startedAt = performance.now()
     try {
       return this.project([...this.ports.sessions.values()], forPrincipal)
     } finally {
       perf.record('phase', 'sessionView.list', performance.now() - startedAt, DEPLOYMENT)
+      perf.record('phase', `sessionView.list.${caller}`, performance.now() - startedAt, DEPLOYMENT)
     }
   }
 
@@ -128,6 +143,27 @@ export class SessionView {
       return this.project([session], forPrincipal)[0]
     } finally {
       perf.record('phase', 'sessionView.byId', performance.now() - startedAt, DEPLOYMENT)
+    }
+  }
+
+  /**
+   * A KNOWN SET of sessions by id, without wiring the rest [POD-2322].
+   *
+   * Candidates are selected in the live map's insertion order, exactly as
+   * `list().filter(...)` would return them. Visibility and projection still
+   * use the shared path; duplicate and absent ids add no work.
+   */
+  byIds(sessionIds: Iterable<SessionId>, forPrincipal?: SessionStatePrincipal): SessionMeta[] {
+    const startedAt = performance.now()
+    try {
+      const wanted = new Set(sessionIds)
+      if (wanted.size === 0) return []
+      const candidates = [...this.ports.sessions.values()].filter((session) =>
+        wanted.has(session.sessionId),
+      )
+      return this.project(candidates, forPrincipal)
+    } finally {
+      perf.record('phase', 'sessionView.byIds', performance.now() - startedAt, DEPLOYMENT)
     }
   }
 
