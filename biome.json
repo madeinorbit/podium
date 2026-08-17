@@ -7,7 +7,15 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!.artifacts", "!.design", "!artifacts", "!.github/skills"]
+    "includes": [
+      "**",
+      "!.artifacts",
+      "!.design",
+      "!artifacts",
+      "!.github/skills",
+      "!docs/design",
+      "!pspec"
+    ]
   },
   "formatter": {
     "enabled": true,

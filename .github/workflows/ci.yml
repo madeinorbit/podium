@@ -26,8 +26,12 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
-      # Non-blocking for now: ~249 pre-existing biome errors are being burned down
+      # Non-blocking for now: ~1292 pre-existing biome errors are being burned down
       # separately (podium #30). Flip this to blocking once the count reaches zero.
+      # The count grew from 249 because nothing here blocks regression; ~1141 of it
+      # is `biome check --write` territory (format + organizeImports). Design
+      # prototypes under docs/design and pspec are excluded in biome.json — they
+      # are throwaway mockups and contributed 180 errors nobody would ever fix.
       - name: biome + boundaries (non-blocking)
         continue-on-error: true
         run: bun run lint
