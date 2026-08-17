@@ -26,6 +26,11 @@ import { clearHoveredSession, setHoveredSession } from './session-hover'
 const harness = vi.hoisted(() => ({
   issues: [] as unknown[],
   sessions: [] as unknown[],
+  // The mission's `Add agent` reads these to decide which harnesses its hosts can
+  // actually run (POD-1201). Empty is the unscoped case — nothing known, so
+  // nothing refused — and every test but the harness one leaves them that way.
+  repos: [] as unknown[],
+  machines: [] as unknown[],
   selectedIssueId: null as string | null,
   paneA: null as string | null,
   openSessionTab: vi.fn(),
@@ -66,7 +71,7 @@ vi.mock('./store', () => ({
   useStoreSelector: (select: (store: Record<string, unknown>) => unknown) =>
     select({
       sessions: harness.sessions,
-      repos: [],
+      repos: harness.repos,
       selectedIssueId: harness.selectedIssueId,
       paneA: harness.paneA,
       paneB: null,
@@ -93,8 +98,9 @@ vi.mock('./store', () => ({
       markSessionRead: vi.fn(async () => undefined),
       setIssueTucked: harness.setIssueTucked,
       renameSession: vi.fn(async () => undefined),
-      // The shared task menu reads these; the deck itself never does.
-      machines: [],
+      // The shared task menu and `Add agent` read these; the deck's own
+      // projection never does.
+      machines: harness.machines,
       trpc: harness.trpc,
     }),
   useReplicaIssues: () => harness.issues,
@@ -163,6 +169,8 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   harness.ui.clear()
   harness.listeners.clear()
+  harness.repos = []
+  harness.machines = []
   harness.selectedIssueId = 'root'
   harness.paneA = null
   harness.openSessionTab.mockClear()
@@ -250,6 +258,57 @@ describe('flight deck mission agent action', () => {
       expect(harness.addSession).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
     )
     expect(harness.startIssue).not.toHaveBeenCalled()
+  })
+
+  /**
+   * THE HARNESS AXIS (POD-1201). `Add agent` offered every harness the build
+   * knows about, so on a host without Cursor installed `Add Cursor` looked
+   * startable and produced a session that died on a missing binary. It now wears
+   * the same refusal the tab strip's "+" and the sidebar's spawn menu do.
+   *
+   * The host runs codex and not cursor, so the counterfactual is inside the same
+   * menu: a gate applied indiscriminately fails the Codex half.
+   */
+  it('refuses a harness the mission’s host does not have, and offers the one it does', async () => {
+    harness.repos = [
+      { path: '/repo', kind: 'repository', branch: 'main', machineId: 'mine', worktrees: [] },
+    ]
+    harness.machines = [
+      {
+        id: 'mine',
+        name: 'mine',
+        hostname: 'mine',
+        online: true,
+        inventory: {
+          agents: [
+            { kind: 'codex', installed: true, login: { state: 'in' } },
+            { kind: 'cursor', installed: false, login: { state: 'unknown' } },
+          ],
+        },
+      },
+    ]
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 'root'
+        ? {
+            ...(candidate as Issue),
+            worktreePath: '/repo',
+            repoPath: '/repo',
+            defaultAgent: 'codex',
+          }
+        : candidate,
+    )
+    deck()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
+
+    const cursor = await screen.findByRole('menuitem', { name: /Add Cursor/ })
+    expect(cursor.textContent).toContain('not installed')
+    expect(cursor.getAttribute('data-refused')).toBe('true')
+    fireEvent.click(cursor)
+    expect(harness.addSession).not.toHaveBeenCalled()
+
+    const codex = await screen.findByRole('menuitem', { name: /Add Codex/ })
+    expect(codex.getAttribute('data-refused')).toBeNull()
   })
 })
 

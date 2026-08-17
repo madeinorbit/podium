@@ -11,7 +11,7 @@ import {
   usableMachines,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import { asMachineId, type AgentKind, type MachineId } from '@podium/model/browser'
+import { type AgentKind, asMachineId, type MachineId } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, FolderPlus, Search } from 'lucide-react'
 import type { JSX } from 'react'
@@ -20,7 +20,13 @@ import { openAddProject } from '@/app/desktop-menu'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
+import {
+  type AgentRowStatus,
+  agentFleetStatus,
+  candidateFromAvailability,
+} from '@/lib/agent-capability'
 import { agentBrandText } from '@/lib/agent-tone'
+import { MENU_HINT } from '@/lib/menu-surface'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -253,6 +259,28 @@ export function useDefaultSpawn(
     }
   }, [bindChord])
 
+  /**
+   * WHETHER THE MAIN BUTTON'S OWN AGENT CAN ACTUALLY START (POD-1201).
+   *
+   * The button spawns `defaultAgent` into `defaultRepo` with no menu in between,
+   * so it is a spawn affordance in its own right and gets the same reading the
+   * menu rows get. Scoped to the hosts that hold the default repo — the button
+   * names that repo, so a harness installed somewhere else in the fleet is not
+   * an answer to "can this button run".
+   */
+  const defaultAgentStatus: AgentRowStatus = (() => {
+    if (!defaultRepo) return {}
+    const repoMachineIds = new Set((defaultRepo.machines ?? []).map((m) => m.machineId))
+    const views = machineViews.filter((view) => repoMachineIds.has(view.machine.id))
+    // No machines recorded for the repo is the ordinary local-daemon case, and
+    // unknowable is not refused — see the note in `NewAgentMenu`.
+    if (views.length === 0) return {}
+    return agentFleetStatus(
+      views.map((view) => candidateFromAvailability(view.machine, view.availability, defaultAgent)),
+      panelLabel(defaultAgent),
+    )
+  })()
+
   return {
     defaultAgent,
     defaultRepo,
@@ -261,6 +289,9 @@ export function useDefaultSpawn(
     /** Machines with their verbs and availability — NOT the raw wire list. The
      *  submenu renders `unauthorized` and `unreachable` as different things. */
     machineViews,
+    /** Why the one-click spawn is refused (or the warning it carries), scoped to
+     *  the default repo's hosts. */
+    defaultAgentStatus,
     spawn,
     persistDefaultAgent,
   }
@@ -273,6 +304,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
     defaultTarget,
     menuRepos,
     machineViews,
+    defaultAgentStatus,
     spawn,
     persistDefaultAgent,
   } = useDefaultSpawn(sections)
@@ -308,14 +340,30 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           // `--secondary` fill and body ink — on paper that is the rail tone, so
           // the control reads as a recess in the column rather than a card
           // floating on it, and `data-pressable` supplies the hover lift.
-          className="flex h-[30px] w-full min-w-0 items-center gap-2 rounded-lg bg-secondary px-[10px] pr-[32px] text-[12px] leading-[normal] text-foreground disabled:opacity-50"
-          disabled={!defaultRepo}
+          className={cn(
+            'flex h-[30px] w-full min-w-0 items-center gap-2 rounded-lg bg-secondary px-[10px] pr-[32px] text-[12px] leading-[normal] text-foreground disabled:opacity-50',
+            // The refusal is a DIM, not a colour: the row's own hue is the
+            // agent's brand swatch, and greying is what every other refused
+            // spawn affordance does. Warning ink is the exception — it is the
+            // one state the operator has to act on before the pane is useful.
+            defaultAgentStatus.warning && !defaultAgentStatus.reason && 'text-warning',
+          )}
+          disabled={!defaultRepo || defaultAgentStatus.reason !== undefined}
+          // The refusal replaces the invitation. A button that still reads
+          // "Start a new Cursor agent in podium" while refusing the click is
+          // worse than one that says why (POD-1201).
           title={
-            defaultTarget
+            defaultAgentStatus.reason ??
+            defaultAgentStatus.warning ??
+            (defaultTarget
               ? `Start a new ${panelLabel(defaultAgent)} agent in ${defaultTarget.repoName}`
-              : 'No repos yet'
+              : 'No repos yet')
           }
-          onClick={() => defaultRepo && void spawn(defaultAgent, defaultRepo)}
+          onClick={() =>
+            defaultRepo &&
+            defaultAgentStatus.reason === undefined &&
+            void spawn(defaultAgent, defaultRepo)
+          }
         >
           {/* A 10px rounded square in the agent's brand colour, not the agent's
               glyph (POD-725). At 14px the glyph competed with the ID squares
@@ -333,6 +381,10 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           <span className="min-w-0 truncate">
             New {panelLabel(defaultAgent)} in {defaultTarget?.repoName ?? '…'}
           </span>
+          {/* Stated on the control, not only in its tooltip: the chevron beside
+              it opens a menu where another harness may well work, and a dimmed
+              button with no words is a dead end. */}
+          {defaultAgentStatus.hint && <span className={MENU_HINT}>{defaultAgentStatus.hint}</span>}
         </button>
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger

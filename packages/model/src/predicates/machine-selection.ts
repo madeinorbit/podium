@@ -18,8 +18,8 @@
 import type { z } from 'zod'
 import type { MachineUseDecision } from '../entities/machine'
 import type { IssueWorkspace } from '../fields/issue'
-import type { MachineId, RepoId } from '../ids/brands'
 import { worktreeForCwd, worktreeSubpath } from '../identity/worktree'
+import type { MachineId, RepoId } from '../ids/brands'
 
 export interface RepoMachines {
   machines?: { machineId: MachineId; path: string }[]
@@ -224,10 +224,29 @@ export function agentCapabilityRejection<M extends HandoffMachine>(
 ): AgentCapabilityRejection | undefined {
   if (machine.use === 'denied') return 'unauthorized'
   if (!machine.online) return 'offline'
+  return harnessRejection(machine, agentKind)
+}
+
+/**
+ * THE HARNESS DIMENSION ALONE — for callers that have already settled
+ * authorization and liveness by another route.
+ *
+ * The client resolves `use` per-LIST rather than per-machine (a machine wire with
+ * no `use` decision means NOT EVALUATED, and single-machine deployments carry
+ * none), so `MachineView.availability` — not `machine.use` — is the authorization
+ * reading on every spawn surface. Such a caller still needs the inventory rule,
+ * and it must be the SAME rule: an agent row that greys out for a missing harness
+ * in one menu and stays live in another is the drift this split exists to
+ * prevent. `agentCapabilityRejection` above is this function plus the two checks
+ * that precede it.
+ */
+export function harnessRejection<M extends HandoffMachine>(
+  machine: M,
+  agentKind: string,
+): 'harness-missing' | undefined {
   if (agentKind === 'shell') return undefined
   const harness = machine.inventory?.agents.find((agent) => agent.kind === agentKind)
-  if (harness?.installed !== true) return 'harness-missing'
-  return undefined
+  return harness?.installed === true ? undefined : 'harness-missing'
 }
 
 /** Online machines that can run `agentKind` according to their latest inventory. */

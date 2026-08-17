@@ -209,6 +209,7 @@ export function SidebarRail(): JSX.Element {
     defaultTarget,
     menuRepos,
     machineViews,
+    defaultAgentStatus,
     spawn,
     persistDefaultAgent,
   } = useDefaultSpawn(derivation.sections)
@@ -386,10 +387,21 @@ export function SidebarRail(): JSX.Element {
           type="button"
           data-testid="rail-new-agent"
           className="flex size-[34px] flex-none cursor-pointer items-center justify-center rounded-[9px] border border-border-strong bg-chip transition-colors hover:border-text-faint hover:bg-accent disabled:opacity-50"
-          disabled={!defaultRepo}
-          title={defaultTarget ? `New agent in ${defaultTarget.repoName}` : 'No repos yet'}
+          disabled={!defaultRepo || defaultAgentStatus.reason !== undefined}
+          // At rail scale the tile is a swatch and nothing else, so the tooltip
+          // is the ONLY place a refusal can be stated — which is exactly why the
+          // reason replaces the invitation rather than sitting beside it.
+          title={
+            defaultAgentStatus.reason ??
+            defaultAgentStatus.warning ??
+            (defaultTarget ? `New agent in ${defaultTarget.repoName}` : 'No repos yet')
+          }
           aria-label={defaultTarget ? `New agent in ${defaultTarget.repoName}` : 'New agent'}
-          onClick={() => defaultRepo && spawn(defaultAgent, defaultRepo)}
+          onClick={() =>
+            defaultRepo &&
+            defaultAgentStatus.reason === undefined &&
+            spawn(defaultAgent, defaultRepo)
+          }
         >
           <span
             aria-hidden="true"

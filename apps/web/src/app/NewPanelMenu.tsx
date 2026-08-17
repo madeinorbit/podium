@@ -15,9 +15,9 @@ import {
   resolveTargetMachineForAgent,
   type SessionId,
 } from '@podium/model/browser'
-import { Circle, FileText, RotateCcw, Search, SquarePlus } from 'lucide-react'
+import { Circle, FileText, SquarePlus } from 'lucide-react'
 import type React from 'react'
-import { type JSX, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { type JSX, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -28,17 +28,16 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { AGENT_KIND_ICON } from '@/lib/agent-tone'
 import {
-  MENU_EMPTY,
-  MENU_HEADER,
-  MENU_HEADER_REF,
-  MENU_HINT,
-  MENU_SECTION,
-} from '@/lib/menu-surface'
-import { type ConversationHit, useConversationSearch } from '@/lib/useConversationSearch'
+  agentLabel,
+  CapabilityAgentItem,
+  capabilityHint,
+  capabilityReason,
+  loginWarning,
+} from '@/lib/agent-capability'
+import { AGENT_KIND_ICON } from '@/lib/agent-tone'
+import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_SECTION } from '@/lib/menu-surface'
 import { useStoreSelector } from './store'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
@@ -69,16 +68,13 @@ export const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }
 // online machine (agentCapabilityRejection returns undefined for 'shell').
 const TAB_AGENTS = NEW_AGENTS
 
-const MINI_LIMIT = 8
-// Fewer hits shown inside each machine's submenu to keep it compact.
-const SUB_HIT_LIMIT = 4
 // Recent files shown in the menu (POD-149) — reachability, not a file browser.
 const RECENT_LIMIT = 6
 
-/** Every glyph in the panel is 14px on one text column, so agent marks, file
- *  glyphs and the resume arrow leave their labels at the same x. That is also
- *  the dropdown's own default, so this states in the markup what the panel
- *  depends on rather than inheriting it silently. */
+/** Every glyph in the panel is 14px on one text column, so agent marks and file
+ *  glyphs leave their labels at the same x. That is also the dropdown's own
+ *  default, so this states in the markup what the panel depends on rather than
+ *  inheriting it silently. */
 const MENU_GLYPH = 'size-3.5 flex-none'
 
 /** A machine's status dot is a reading, not an icon, so it keeps the 6px the
@@ -87,9 +83,20 @@ const MENU_GLYPH = 'size-3.5 flex-none'
 const MACHINE_DOT = 'mx-[4px] size-1.5 flex-none'
 
 /**
- * The "+" menu: start a fresh agent/shell, or resume from history. The resume
- * list is the mini search — server-indexed, capped, recency-first, with a
- * filter box — instead of dumping every discovered conversation.
+ * The "+" menu: start a fresh agent or shell in this checkout.
+ *
+ * ---------------------------------------------------------------------------
+ * NO RESUME REGION (POD-1201)
+ * ---------------------------------------------------------------------------
+ *
+ * It used to end in a RESUME section — a server-indexed mini-search over
+ * discovered conversations, with its own filter field that took the menu's focus
+ * on open and forced the panel non-modal so the mobile keyboard could pin. The
+ * operator's call is that the "+" is for STARTING something: a history search
+ * competing for the same 248px is a second, differently-shaped tool wearing the
+ * new-panel menu's clothes, and it was the region that decided this menu's focus
+ * behaviour for every other row in it. Picking up an old conversation is its own
+ * gesture and does not belong on the tab strip's plus.
  *
  * ---------------------------------------------------------------------------
  * THE HOUSE VOCABULARY (POD-1084)
@@ -132,7 +139,6 @@ export function NewPanelMenu({
     (s) => ({ trpc: s.trpc, repos: s.repos, sessions: s.sessions, machines: s.machines }),
     shallowEqual,
   )
-  const [filter, setFilter] = useState('')
   // Uncontrolled fallback so the desktop/mobile "+" still works without a parent
   // driving its open state; the controlled props win when supplied.
   const [internalOpen, setInternalOpen] = useState(false)
@@ -142,49 +148,6 @@ export function NewPanelMenu({
     if (!isControlled) setInternalOpen(next)
     onOpenChange?.(next)
   }
-  // Focus the "Search history…" field the moment the menu opens so the user can
-  // filter resumable conversations immediately (the input stops key propagation
-  // so Base UI's typeahead won't steal the keystrokes).
-  const searchRef = useRef<HTMLInputElement | null>(null)
-  useEffect(() => {
-    if (!open) return
-    // Wait for the portalled content to mount before focusing.
-    const id = requestAnimationFrame(() => searchRef.current?.focus())
-    return () => cancelAnimationFrame(id)
-  }, [open])
-  const now = Date.now()
-  // Main worktree searches the whole repo subtree so repo-level conversations
-  // that matched no specific worktree are not lost; others stay exact.
-  const scope = worktree.isMain ? worktree.repoPath : worktree.path
-
-  // Worktrees commonly nest under the repo (e.g. .claude/worktrees/*), so a
-  // subtree search from the main checkout would pull in every sibling worktree's
-  // conversations and crowd out the repo's own. Exclude paths that belong to
-  // another worktree of this repo.
-  const siblingWorktreePaths = useMemo(() => {
-    if (!worktree.isMain) return []
-    const repo = reposToViews(repos).find((r) => r.path === worktree.repoPath)
-    return (repo?.worktrees ?? [])
-      .filter((w) => !w.isMain && w.path !== worktree.path)
-      .map((w) => w.path)
-  }, [repos, worktree.isMain, worktree.repoPath, worktree.path])
-
-  // Over-fetch a little so the sibling filter still leaves a full list.
-  const { hits: raw } = useConversationSearch({
-    query: filter,
-    projectPath: scope,
-    limit: siblingWorktreePaths.length > 0 ? MINI_LIMIT * 3 : MINI_LIMIT,
-    debounceMs: 150,
-  })
-  const hits = raw
-    .filter((h) => h.resumeValue)
-    .filter(
-      (h) =>
-        !siblingWorktreePaths.some(
-          (p) => h.projectPath === p || h.projectPath?.startsWith(`${p}/`),
-        ),
-    )
-    .slice(0, MINI_LIMIT)
 
   // Resolve the repo view for the current worktree (cross-machine merged view).
   const repoView = useMemo((): RepoView => {
@@ -223,19 +186,6 @@ export function NewPanelMenu({
     onOpened(sessionId)
   }
 
-  async function resume(hit: ConversationHit) {
-    if (!hit.resumeKind || !hit.resumeValue) return
-    const { sessionId } = await trpc.sessions.resume.mutate({
-      agentKind: hit.agentKind as AgentKind,
-      cwd: hit.projectPath ?? worktree.path,
-      resume: { kind: hit.resumeKind, value: hit.resumeValue },
-      conversationId: hit.id,
-      ...(hit.name || hit.title ? { title: hit.name ?? hit.title } : {}),
-      ...(hit.machineId ? { machineId: hit.machineId } : {}),
-    })
-    onOpened(sessionId)
-  }
-
   const defaultTrigger = (
     <Button variant="ghost" size="icon" aria-label="New panel">
       <SquarePlus size={16} />
@@ -255,22 +205,12 @@ export function NewPanelMenu({
     </div>
   )
 
-  const resumeSection = (
-    <ResumeSection
-      hits={hits}
-      now={now}
-      filter={filter}
-      onFilterChange={setFilter}
-      searchRef={searchRef}
-      onResume={resume}
-    />
-  )
-
   // Single-machine (or no machines yet): no Machines region to choose between.
   if (machines.length <= 1) {
     return (
-      // modal={false}: the resume <input> lives in the content, so we must not
-      // scroll-lock — that would fight the mobile keyboard pinning.
+      // modal={false}: this opens a pixel from the tab strip inside a shell that
+      // scrolls behind it, and scroll-locking the whole window for a 248px menu
+      // is a heavier claim than the gesture makes.
       <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger render={trigger ?? defaultTrigger} />
         <DropdownMenuContent
@@ -281,25 +221,26 @@ export function NewPanelMenu({
           {TAB_AGENTS.map(({ kind, label, Icon }) => {
             const machine = machines[0]
             const rejection = machine ? agentCapabilityRejection(machine, kind) : undefined
+            const reason = machine ? capabilityReason(machine.name, label, rejection) : undefined
+            const hint = machine ? capabilityHint(rejection) : undefined
+            const warning = machine
+              ? loginWarning(machine.name, label, agentLoginCondition(machine, kind))
+              : undefined
             return (
               <CapabilityAgentItem
                 key={kind}
-                kind={kind}
                 label={label}
-                Icon={Icon}
-                reason={machine ? capabilityReason(machine, label, rejection) : undefined}
-                hint={machine ? capabilityHint(rejection) : undefined}
-                warning={
-                  machine
-                    ? loginWarning(machine, label, agentLoginCondition(machine, kind))
-                    : undefined
-                }
+                icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
+                status={{
+                  ...(reason ? { reason } : {}),
+                  ...(hint ? { hint } : {}),
+                  ...(warning ? { warning } : {}),
+                }}
                 onSelect={() => void create(kind, machine?.id)}
               />
             )
           })}
           <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
-          {resumeSection}
         </DropdownMenuContent>
       </DropdownMenu>
     )
@@ -311,7 +252,7 @@ export function NewPanelMenu({
   const eligibleIds = new Set(eligible.map((m) => m.id))
 
   return (
-    // modal={false}: keep mobile keyboard pinning working.
+    // modal={false}: see the single-machine panel above.
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger render={trigger ?? defaultTrigger} />
       <DropdownMenuContent align="end" className="flex w-[248px] max-w-[calc(100vw-24px)] flex-col">
@@ -323,15 +264,16 @@ export function NewPanelMenu({
           return (
             <CapabilityAgentItem
               key={kind}
-              kind={kind}
               label={label}
-              Icon={Icon}
-              reason={
+              icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
+              status={
                 target
-                  ? undefined
-                  : `No online machine with this repository can run ${agentLabel(label)}.`
+                  ? {}
+                  : {
+                      reason: `No online machine with this repository can run ${agentLabel(label)}.`,
+                      hint: 'no host',
+                    }
               }
-              hint={target ? undefined : 'no host'}
               onSelect={() =>
                 void create(kind, target === undefined ? undefined : asMachineId(target))
               }
@@ -376,23 +318,11 @@ export function NewPanelMenu({
               )
             }
 
-            return (
-              <MachineSubmenu
-                key={machine.id}
-                machine={machine}
-                onCreate={create}
-                onResume={resume}
-                hits={hits}
-                now={now}
-              />
-            )
+            return <MachineSubmenu key={machine.id} machine={machine} onCreate={create} />
           })}
         </TooltipProvider>
 
         <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
-
-        {/* 3. Resume convos — global mini-search */}
-        {resumeSection}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -404,85 +334,6 @@ export function NewPanelMenu({
 function worktreeLabel(worktree: WorktreeView, repoView: RepoView): string {
   if (!worktree.isMain && worktree.branch) return worktree.branch
   return repoView.name || worktree.repoPath.split('/').pop() || worktree.repoPath
-}
-
-/** The Resume region: the mini-search field and its hits.
- *
- *  One component, two call sites — the single- and multi-machine panels rendered
- *  a byte-identical copy of this each, which is how their section headings drifted
- *  apart in the first place. */
-function ResumeSection({
-  hits,
-  now,
-  filter,
-  onFilterChange,
-  searchRef,
-  onResume,
-}: {
-  hits: ConversationHit[]
-  now: number
-  filter: string
-  onFilterChange: (next: string) => void
-  searchRef: RefObject<HTMLInputElement | null>
-  onResume: (hit: ConversationHit) => Promise<void>
-}): JSX.Element {
-  return (
-    <>
-      <div className={MENU_SECTION}>RESUME</div>
-      <div className="relative mx-[5px] mb-[5px]">
-        <Search
-          className="pointer-events-none absolute top-1/2 left-[7px] size-3 -translate-y-1/2 text-text-faint"
-          aria-hidden="true"
-        />
-        <Input
-          ref={searchRef}
-          type="text"
-          aria-label="Search history"
-          // Carved into the panel rather than raised on it: `--background` is the
-          // window's ground and the panel is `--chip`, so the field reads as
-          // pressed in without a shadow (DESIGN.md §4, The Carved Rule).
-          className="h-[26px] rounded-md border-hairline-soft bg-background pr-2 pl-[23px] text-[11.5px] placeholder:text-text-faint focus-visible:border-hairline-soft focus-visible:ring-2 focus-visible:ring-ring/40 md:text-[11.5px]"
-          placeholder="Search history…"
-          value={filter}
-          onChange={(e) => onFilterChange(e.target.value)}
-          // Base UI's Menu treats keystrokes as typeahead/arrow navigation and
-          // steals them from this input (the post-Base-UI "search is broken"
-          // regression). Keep keystrokes local to the field.
-          onKeyDown={(e) => e.stopPropagation()}
-        />
-      </div>
-      {hits.length === 0 && <div className={MENU_EMPTY}>No matching history</div>}
-      {hits.map((hit) => (
-        <HistoryItem key={hit.id} hit={hit} now={now} onResume={onResume} />
-      ))}
-    </>
-  )
-}
-
-/** One resumable conversation. The arrow is a glyph on the shared text column,
- *  not a `↻` typed into the label — a character in the copy sits on the baseline
- *  at the font's own weight and left every row in this region indented
- *  differently from the file rows above it. */
-function HistoryItem({
-  hit,
-  now,
-  onResume,
-}: {
-  hit: ConversationHit
-  now: number
-  onResume: (hit: ConversationHit) => Promise<void>
-}): JSX.Element {
-  return (
-    <DropdownMenuItem onClick={() => void onResume(hit)}>
-      <RotateCcw className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />
-      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-        {hit.name || hit.title || hit.id}
-      </span>
-      {hit.updatedAt && (
-        <span className={`${MENU_HINT} tabular-nums`}>{relativeTime(hit.updatedAt, now)}</span>
-      )}
-    </DropdownMenuItem>
-  )
 }
 
 /** The "+" menu's Recent-files section (POD-149): strict issue scoping shows a
@@ -552,19 +403,10 @@ function RecentFilesSection({
 function MachineSubmenu({
   machine,
   onCreate,
-  onResume,
-  hits,
-  now,
 }: {
   machine: MachineWire
   onCreate: (kind: AgentKind, machineId: MachineId) => Promise<void>
-  onResume: (hit: ConversationHit) => Promise<void>
-  hits: ConversationHit[]
-  now: number
 }): JSX.Element {
-  // Filter global hits to this machine; cap so the submenu stays compact.
-  const machineHits = hits.filter((h) => h.machineId === machine.id).slice(0, SUB_HIT_LIMIT)
-
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
@@ -577,136 +419,26 @@ function MachineSubmenu({
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-[168px]">
-        {TAB_AGENTS.map(({ kind, label, Icon }) => (
-          <CapabilityAgentItem
-            key={kind}
-            kind={kind}
-            label={label}
-            Icon={Icon}
-            reason={capabilityReason(machine, label, agentCapabilityRejection(machine, kind))}
-            hint={capabilityHint(agentCapabilityRejection(machine, kind))}
-            warning={loginWarning(machine, label, agentLoginCondition(machine, kind))}
-            onSelect={() => void onCreate(kind, machine.id)}
-          />
-        ))}
-        {machineHits.length > 0 && (
-          <>
-            <div className={MENU_SECTION}>RESUME</div>
-            {machineHits.map((hit) => (
-              <HistoryItem key={hit.id} hit={hit} now={now} onResume={onResume} />
-            ))}
-          </>
-        )}
+        {TAB_AGENTS.map(({ kind, label, Icon }) => {
+          const rejection = agentCapabilityRejection(machine, kind)
+          const reason = capabilityReason(machine.name, label, rejection)
+          const hint = capabilityHint(rejection)
+          const warning = loginWarning(machine.name, label, agentLoginCondition(machine, kind))
+          return (
+            <CapabilityAgentItem
+              key={kind}
+              label={label}
+              icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
+              status={{
+                ...(reason ? { reason } : {}),
+                ...(hint ? { hint } : {}),
+                ...(warning ? { warning } : {}),
+              }}
+              onSelect={() => void onCreate(kind, machine.id)}
+            />
+          )
+        })}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
-  )
-}
-
-function agentLabel(menuLabel: string): string {
-  return menuLabel.replace(/^New /, '')
-}
-
-function loginWarning(
-  machine: Pick<MachineWire, 'name'>,
-  label: string,
-  condition: ReturnType<typeof agentLoginCondition>,
-): string | undefined {
-  return condition === 'logged-out'
-    ? `${agentLabel(label)} isn't logged in on ${machine.name}; the session will open so you can log in in the pane.`
-    : undefined
-}
-
-function capabilityReason(
-  machine: Pick<MachineWire, 'name'>,
-  label: string,
-  rejection: ReturnType<typeof agentCapabilityRejection>,
-): string | undefined {
-  // Exhaustive on purpose: an unhandled rejection would return undefined, and
-  // undefined ENABLES the row — so a new refusal reason would silently become
-  // "spawn is fine". A `never` here makes adding one a compile error instead.
-  switch (rejection) {
-    case undefined:
-      return undefined
-    // §3.1.4 M5: spawn UI must not offer machines the principal lacks `use` on,
-    // and denied must not read as offline — those need opposite responses.
-    case 'unauthorized':
-      return `You don’t have access to run agents on ${machine.name}.`
-    case 'offline':
-      return `${machine.name} is offline.`
-    case 'harness-missing':
-      return `${agentLabel(label)} is not installed on ${machine.name}.`
-    default: {
-      const exhaustive: never = rejection
-      return exhaustive
-    }
-  }
-}
-
-/** The short form of a refusal, stated on the row itself. The tooltip carries the
- *  sentence; a touch pointer never opens a tooltip, so the row has to say enough
- *  on its own to explain why it will not respond. */
-function capabilityHint(
-  rejection: ReturnType<typeof agentCapabilityRejection>,
-): string | undefined {
-  switch (rejection) {
-    case 'unauthorized':
-      return 'no access'
-    case 'offline':
-      return 'offline'
-    case 'harness-missing':
-      return 'not installed'
-    default:
-      return undefined
-  }
-}
-
-/** Disabled menu rows retain pointer events on a wrapper so their reason is hoverable. */
-function CapabilityAgentItem({
-  kind,
-  label,
-  Icon,
-  reason,
-  warning,
-  hint,
-  onSelect,
-}: {
-  kind: AgentKind
-  label: string
-  Icon: IconComponent
-  reason?: string
-  warning?: string
-  hint?: string
-  onSelect: () => void
-}): JSX.Element {
-  const detail = reason ?? warning
-  const item = (
-    <DropdownMenuItem
-      key={kind}
-      disabled={reason !== undefined}
-      // Attention as INK, and it has to survive the hover: the row's preset
-      // lifts a hovered row to `--text-strong`, which would drop the one signal
-      // the row exists to carry at exactly the moment the pointer is on it.
-      className={
-        warning && !reason ? 'text-warning hover:text-warning focus:text-warning' : undefined
-      }
-      onClick={onSelect}
-    >
-      <Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />
-      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-        {label}
-      </span>
-      {hint && <span className={MENU_HINT}>{hint}</span>}
-    </DropdownMenuItem>
-  )
-  if (!detail) return item
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger render={<span className="block pointer-events-auto" />}>
-          {item}
-        </TooltipTrigger>
-        <TooltipContent side="right">{detail}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
   )
 }

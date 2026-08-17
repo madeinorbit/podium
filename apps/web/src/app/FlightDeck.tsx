@@ -19,6 +19,7 @@ import {
   issueNote,
   issueOwnContentUnread,
   type MissionDeparture,
+  machineViewsFromWire,
   missionDepartures,
   missionIssueIds,
   missionProgress,
@@ -29,8 +30,8 @@ import {
   presenceNote,
   reposToViews,
   reuseFlightDeckRows,
-  selectedMissionRoot,
   type SessionRole,
+  selectedMissionRoot,
   sessionAsksOnIssue,
   sessionNeedsHuman,
   sessionRole,
@@ -43,6 +44,7 @@ import { asIssueId } from '@podium/model'
 import {
   type IssueId,
   issueStatusOf,
+  type MachineId,
   type SessionId,
   type SessionMeta,
 } from '@podium/model/browser'
@@ -80,7 +82,13 @@ import {
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph, StatusGlyph } from '@/features/issues/issue-glyphs'
-import { type IssueAgentKind, issueAgentOptions } from '@/lib/issue-agents'
+import {
+  type AgentRowStatus,
+  agentFleetStatus,
+  CapabilityAgentItem,
+  candidateFromAvailability,
+} from '@/lib/agent-capability'
+import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { BrailleSpinner, PhaseTimer, useArrivals } from '@/lib/motion'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -100,15 +108,54 @@ const MODES: Array<{ id: FlightDeckMode; label: string }> = [
   { id: 'needs-you', label: 'Needs you' },
 ]
 
+/**
+ * `Add agent` — one more agent onto the mission root.
+ *
+ * IT REFUSES WHAT IT CANNOT RUN (POD-1201). This menu listed every harness the
+ * build knows about, so on a host with no Cursor installed `Add Cursor` looked
+ * exactly as startable as `Add Claude Code` and produced a session that died on
+ * a missing binary. The reading and the words come from `lib/agent-capability`,
+ * shared with the tab strip's "+" and the sidebar's spawn menu.
+ *
+ * WHICH HOSTS COUNT: the issue's own, and only those. An issue that pins a
+ * `machineId` runs its agents there — the harness being installed somewhere else
+ * in the fleet is not an answer — and an unpinned one can land on any host
+ * holding its repo, which is the same set `addSession`/`start` will choose from.
+ */
 function MissionAgentMenu({
   defaultAgent,
+  repoPath,
+  machineId,
   onAdd,
 }: {
   defaultAgent: string
+  repoPath: string
+  /** Set = this issue's agents run on that host, so it is the only candidate. */
+  machineId?: MachineId | null
   onAdd: (agentKind?: IssueAgentKind) => Promise<unknown>
 }): JSX.Element {
   const [busy, setBusy] = useState(false)
+  const { repos, machines } = useStoreSelector(
+    (s) => ({ repos: s.repos, machines: s.machines }),
+    shallowEqual,
+  )
   const options = issueAgentOptions(defaultAgent)
+  /** The hosts this issue's agents could land on. Empty = unknowable (no machines
+   *  recorded for the repo), which stays offered rather than guessing. */
+  const hosts = useMemo(() => {
+    const views = machineViewsFromWire(machines)
+    if (machineId) return views.filter((view) => view.machine.id === machineId)
+    const repo = reposToViews(repos).find((r) => r.path === repoPath)
+    const ids = new Set((repo?.machines ?? []).map((m) => m.machineId))
+    return views.filter((view) => ids.has(view.machine.id))
+  }, [machines, machineId, repos, repoPath])
+  const statusFor = (kind: IssueAgentKind, label: string): AgentRowStatus =>
+    hosts.length === 0
+      ? {}
+      : agentFleetStatus(
+          hosts.map((view) => candidateFromAvailability(view.machine, view.availability, kind)),
+          label,
+        )
   const add = (agentKind: string): void => {
     setBusy(true)
     void onAdd((agentKind || undefined) as IssueAgentKind | undefined)
@@ -135,12 +182,27 @@ function MissionAgentMenu({
           </Button>
         }
       />
-      <DropdownMenuContent align="end" className="w-48">
+      {/* 224px, not the 192 it had: a row now carries a trailing `not installed`
+          beside its label, and at w-48 the widest label truncated to "Add Cur…"
+          — the row would have been refusing a click while hiding WHICH harness
+          it was refusing (POD-1201). */}
+      <DropdownMenuContent align="end" className="w-56">
         {options.map((option) => (
-          <DropdownMenuItem key={option.value || 'default'} onClick={() => add(option.value)}>
-            {option.icon}
-            Add {option.label}
-          </DropdownMenuItem>
+          <CapabilityAgentItem
+            key={option.value || 'default'}
+            icon={option.icon}
+            label={`Add ${option.label}`}
+            // The agent name for the refusal comes from `option.label`, not from
+            // the row's copy: "Add Claude Code (default) is not installed" is not
+            // a sentence.
+            status={statusFor(
+              option.value
+                ? issueDefaultAgentKind(option.value)
+                : issueDefaultAgentKind(defaultAgent),
+              option.label,
+            )}
+            onSelect={() => add(option.value)}
+          />
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -2849,7 +2911,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   <MissionGauge progress={progress} live={liveCount} working={workingCount} />
                 </div>
                 {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
-                  <MissionAgentMenu defaultAgent={rootIssue.defaultAgent} onAdd={addMissionAgent} />
+                  <MissionAgentMenu
+                    defaultAgent={rootIssue.defaultAgent}
+                    repoPath={rootIssue.repoPath}
+                    machineId={rootIssue.machineId}
+                    onAdd={addMissionAgent}
+                  />
                 )}
               </div>
             </div>
