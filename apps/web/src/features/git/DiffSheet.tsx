@@ -1,10 +1,12 @@
 import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
+import { DIFF_SHEET_WRAP_KEY } from '@podium/client-core/ui-state'
 import { GitBranch, RefreshCw, WrapText } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import { useStoreSelector } from '@/app/store'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { type DiffRow, type ParsedDiff, parseDiff, splitPath } from './diff-model'
 import { entryBadge, entryStatus, entryTone, type StatusEntry, untrackedDiff } from './git-panel'
 
@@ -70,7 +72,7 @@ export function DiffSheet({
   sources?: Record<string, string> | undefined
 }): JSX.Element {
   const [selected, setSelected] = useState(initialPath)
-  const [wrap, setWrap] = useState(readWrapPreference)
+  const [wrap, setWrap] = usePersistedUiState<boolean>(DIFF_SHEET_WRAP_KEY, readWrap, writeWrap)
   const diffs = useDiffs({ entries, cwd, machineId, selected, sources })
 
   // The inventory can change under the sheet (refresh, or an agent committing
@@ -172,10 +174,7 @@ export function DiffSheet({
             aria-pressed={wrap}
             title={wrap ? 'Wrap long lines — on' : 'Wrap long lines — off'}
             onClick={() => {
-              setWrap((w) => {
-                writeWrapPreference(!w)
-                return !w
-              })
+              setWrap(!wrap)
             }}
           >
             <WrapText size={14} aria-hidden="true" />
@@ -540,21 +539,8 @@ function useDiffs({
 
 // ---------------------------------------------------------------------------
 
-const WRAP_KEY = 'podium:diff-sheet:wrap'
-
-/** Wrapping is a reading preference, so it outlives the sheet that set it. */
-function readWrapPreference(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(WRAP_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function writeWrapPreference(on: boolean): void {
-  try {
-    globalThis.localStorage?.setItem(WRAP_KEY, on ? '1' : '0')
-  } catch {
-    // A blocked storage is not a reason to refuse the toggle.
-  }
-}
+/** Wrapping is a reading preference, so it outlives the sheet that set it. It
+ *  is device-local UI state with a declared home (POD-329), which is why it is
+ *  read through the ui-state collection rather than a key of this file's own. */
+const readWrap = (raw: string | null): boolean => raw === '1'
+const writeWrap = (on: boolean): string => (on ? '1' : '0')

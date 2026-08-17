@@ -49,6 +49,32 @@ const SANCTIONED_STORAGE_FILES = new Set([
   'apps/mobile/src/client/MobileClientProvider.tsx',
 ])
 
+/**
+ * DECLARED EXCEPTIONS — feature files that hold a raw key with a stated reason
+ * and a named owner for its removal. Distinct from {@link SANCTIONED_STORAGE_FILES}
+ * on purpose: that set is STRUCTURAL (the storage owner, the replica adapter,
+ * the composition roots that inject storage into it) and a feature surface can
+ * never legitimately join it. This one is a DEBT LEDGER, and its rows are
+ * expected to leave.
+ *
+ * A row here is not a way to keep a key: it is a promise that an issue owns the
+ * decision, which is why the assertion below pins the whole table rather than
+ * merely tolerating whatever it contains. Adding a second row must be a
+ * deliberate edit to a list someone reviews, not a silent slot.
+ */
+const DECLARED_STORAGE_EXCEPTIONS: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/web/src/features/updates/use-update-state.ts',
+    'The watched-operation id is handed across an app RESTART (POD-2104): the page that ' +
+      'watched the update is gone, along with the store that would have held the key. Every ' +
+      'home ui-state offers is closed to it — a second raw accessor fails the one-writer ' +
+      'rule of ui-state.ts, the pre-auth family is pinned to the theme, and a principal-bound ' +
+      'device-local read that resolves late degrades to silence, which is the exact failure ' +
+      'the handoff exists to prevent. POD-2225 owns the resolution; the file states the full ' +
+      'argument above its two accessors.',
+  ],
+])
+
 function sources(dir: string): string[] {
   const out: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -206,10 +232,33 @@ describe('UI persistence ownership lint', () => {
       /(?:(?:globalThis|window)\.)?localStorage\s*\??\.(?:getItem|setItem|removeItem|clear)\b|\bAsyncStorage\s*\??\.(?:getItem|setItem|removeItem|multiGet|multiSet|getAllKeys|clear)\b/
     const offenders = PRODUCT_ROOTS.flatMap(sources)
       .map((path) => ({ path, rel: relative(ROOT, path), text: readFileSync(path, 'utf8') }))
-      .filter(({ rel, text }) => !SANCTIONED_STORAGE_FILES.has(rel) && CALL.test(text))
+      .filter(
+        ({ rel, text }) =>
+          !SANCTIONED_STORAGE_FILES.has(rel) &&
+          !DECLARED_STORAGE_EXCEPTIONS.has(rel) &&
+          CALL.test(text),
+      )
       .map(({ rel }) => rel)
       .sort()
     expect(offenders).toEqual([])
+  })
+
+  it('the declared exceptions are exactly the ledger, and each one still holds its key', () => {
+    // Two directions, because an exception list rots in both. A row nobody
+    // reviewed is how the rule quietly stops applying; a row whose file no
+    // longer touches storage is a permission left lying around for the next
+    // edit to pick up, and it is exactly what POD-2225 closing should delete.
+    expect([...DECLARED_STORAGE_EXCEPTIONS.keys()].sort()).toEqual([
+      'apps/web/src/features/updates/use-update-state.ts',
+    ])
+    for (const [rel, reason] of DECLARED_STORAGE_EXCEPTIONS) {
+      expect(readFileSync(join(ROOT, rel), 'utf8'), rel).toMatch(
+        /(?:(?:globalThis|window)\.)?localStorage\s*\??\.(?:getItem|setItem|removeItem|clear)\b/,
+      )
+      // A reason that does not name the issue that removes the row is a
+      // permanent exception wearing a temporary one's clothes.
+      expect(reason, rel).toMatch(/POD-\d+/)
+    }
   })
 })
 

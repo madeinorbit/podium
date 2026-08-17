@@ -11,6 +11,7 @@
  *  3. An untracked file reads as a diff like any other — it goes through the
  *     file read and the synthesized hunk, and lands numbered from 1.
  */
+import { DIFF_SHEET_WRAP_KEY } from '@podium/client-core/ui-state'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -48,14 +49,37 @@ const readFileScoped = vi.fn(async (_scope: unknown, path: string) =>
     : { ok: true, content: 'alpha\nbeta\n' },
 )
 
+/**
+ * The device-local ui-state collection, in memory. The wrap toggle is a
+ * persisted key with a declared home (POD-329), not state this component owns,
+ * so the sheet reads and writes it here rather than through storage of its own.
+ */
+const uiRows = new Map<string, string>()
+const uiListeners = new Set<() => void>()
+const uiState = {
+  get: (key: string): string | null => uiRows.get(key) ?? null,
+  set: (key: string, value: string | null): void => {
+    if (value === null) uiRows.delete(key)
+    else uiRows.set(key, value)
+    for (const notify of [...uiListeners]) notify()
+  },
+  subscribe: (notify: () => void): (() => void) => {
+    uiListeners.add(notify)
+    return () => {
+      uiListeners.delete(notify)
+    }
+  },
+}
+
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (sel: (s: unknown) => unknown) => sel({ gitDiffFile, readFileScoped }),
+  useStoreSelector: (sel: (s: unknown) => unknown) => sel({ gitDiffFile, readFileScoped, uiState }),
 }))
 
 afterEach(() => {
   cleanup()
   gitDiffFile.mockClear()
   readFileScoped.mockClear()
+  uiRows.clear()
 })
 
 const open = (initialPath: string) =>
@@ -149,6 +173,26 @@ describe('DiffSheet', () => {
     expect(document.querySelector('.diff-notice-error')).toBeNull()
     // No counts on the rail row either: there is nothing to count.
     expect(row('shot.png').textContent).not.toContain('+')
+  })
+
+  it('persists the wrap toggle as ui-state, so a reopened sheet reads it back', async () => {
+    open('src/a.ts')
+    await screen.findByText('function shape() {')
+    const toggle = screen.getByTitle(/Wrap long lines/)
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+
+    await userEvent.click(toggle)
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(document.querySelector('.diff-scroll')?.getAttribute('data-wrap')).toBe('on')
+    // The declared key, in the collection — not a private localStorage row.
+    expect(uiRows.get(DIFF_SHEET_WRAP_KEY)).toBe('1')
+
+    // The preference outlives the sheet that set it: this is the whole reason
+    // it is persisted rather than component state.
+    cleanup()
+    open('src/a.ts')
+    await screen.findByText('function shape() {')
+    expect(screen.getByTitle(/Wrap long lines/).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('walks the files with j and k', async () => {

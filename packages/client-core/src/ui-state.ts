@@ -202,6 +202,10 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   /** How much of a transcript the chat feed renders (POD-376) — a reading
    *  preference belonging to the screen you read on, not to the session. */
   'podium.chat.verbosity',
+  /** Whether the diff sheet wraps long lines — the same species as chat
+   *  verbosity: how wide the screen you are reading on is, not a property of
+   *  the diff. A phone has no business inheriting a monitor's answer. */
+  'podium:diff-sheet:wrap',
   'podium.sounds.enabled',
   'podium.sounds.ownerWindow',
   'podium.terminal.appearance',
@@ -268,6 +272,7 @@ export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
 export const FLIGHT_DECK_FOLDS_KEY = 'podium.flightDeck.folds'
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
+export const DIFF_SHEET_WRAP_KEY = 'podium:diff-sheet:wrap'
 export const SOUNDS_ENABLED_KEY = 'podium.sounds.enabled'
 export const SOUND_OWNER_KEY = 'podium.sounds.ownerWindow'
 export const TERMINAL_APPEARANCE_KEY = 'podium.terminal.appearance'
