@@ -846,7 +846,7 @@ export function AgentPanel({
                     ) : (
                       <SquareTerminal size={12} aria-hidden="true" />
                     )}
-                    {m === 'chat' ? 'Chat' : 'Native'}
+                    {m === 'chat' ? 'Chat' : 'CLI'}
                   </button>
                 ))}
               </span>

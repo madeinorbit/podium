@@ -78,14 +78,14 @@ export function standbyCopy(session: SessionMeta | undefined, superagent = false
   if (session?.agentKind === 'shell')
     return {
       title: 'A shell keeps no transcript',
-      note: 'Every command and its output is in Native view.',
+      note: 'Every command and its output is in CLI view.',
       asking: false,
     }
   const running = session?.status === 'live' || session?.status === 'starting'
   if (session && !running)
     return {
       title: 'This session wrote nothing',
-      note: 'Whatever it printed is still in Native view.',
+      note: 'Whatever it printed is still in CLI view.',
       asking: false,
     }
   return { title: 'What do you want to work on?', asking: true }

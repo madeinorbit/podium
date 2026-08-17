@@ -19,7 +19,7 @@ describe('standbyCopy', () => {
   it('treats a shell as having no transcript BY DESIGN, not as a missing one', () => {
     const copy = standbyCopy(session({ agentKind: 'shell' }))
     expect(copy.title).toMatch(/shell/i)
-    expect(copy.note).toMatch(/Native/)
+    expect(copy.note).toMatch(/CLI/)
   })
 
   it('says a stopped session wrote nothing — and asks nothing of the reader', () => {

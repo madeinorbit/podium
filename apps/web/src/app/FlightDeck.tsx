@@ -848,7 +848,7 @@ const seatFor = (note: PresenceNote | null): PresenceNote | null =>
  * A session's native subagents, hung off it on their own guide.
  *
  * They are the harness's own workers, not Podium sessions — the quietest tier in
- * the spine, mono throughout, and they open the PARENT in its Native view
+ * the spine, mono throughout, and they open the PARENT in its CLI view
  * because there is no child transcript to route to.
  */
 function NativeRows({
@@ -882,7 +882,7 @@ function NativeRows({
             className="shell-type-micro flex h-[22px] w-full items-center gap-1.5 pr-2 text-left font-mono text-text-faint hover:bg-muted hover:text-text-dim"
             style={{ paddingLeft: NATIVE_INDENT + 4 }}
             onClick={onOpen}
-            title={`Focus ${sessionDisplayName(session)} in Native · ${agent.anonymous ? 'unnamed worker' : agent.id}`}
+            title={`Focus ${sessionDisplayName(session)} in CLI · ${agent.anonymous ? 'unnamed worker' : agent.id}`}
           >
             {/* The artifact's `native-row`: TYPE first and lit, its id dimmed
                 behind a separator. The full 17-character harness id was the
