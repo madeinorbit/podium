@@ -7,7 +7,8 @@ import type {
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Archive, ChevronRight, Pin } from 'lucide-react'
-import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useId } from 'react'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { cn } from '@/lib/utils'
@@ -19,8 +20,12 @@ import { ID_GUTTER_W } from './WorkRowShell'
  *  count, a rule, the chevron holding its right end. `12 closed`, not
  *  `Closed · 12`: the quantity is what you are deciding about, and leading with
  *  the label made these look like the SECTION BANDS, which own a name. */
+/*  The artboard's box is `padding:16px 13px 0` — sixteen of air above the line
+ *  and NOTHING under it, so the fold sits directly on the rows it opens onto.
+ *  Ours carried a 4px tail, which read as a gap the fold did not own, and the
+ *  count sat a rung too faint to be the thing you are deciding about. */
 const TAIL_FOLD_CLASS =
-  'flex w-full items-center gap-[9px] px-[13px] pb-1 text-left font-mono text-[10px] tracking-[.02em] tabular-nums text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]'
+  'flex w-full items-center gap-[9px] px-[13px] pt-4 text-left font-mono text-[10px] tracking-[.02em] tabular-nums text-text-dim hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]'
 
 /**
  * THE SECTION BAND (POD-1057, the 3a design).
@@ -44,7 +49,7 @@ const TAIL_FOLD_CLASS =
  *  none of the hover, focus or transition a button needs. Two spellings of
  *  34px/`--muted`/hairline would drift the moment one of them is retuned. */
 export const SECTION_BAND_CLASS =
-  'flex h-[34px] w-full flex-none items-center gap-2 border-b border-hairline-bar bg-muted px-[13px] text-left'
+  'flex h-[34px] w-full flex-none items-center gap-[9px] border-b border-hairline-bar bg-muted px-[13px] text-left'
 
 /** The gap ABOVE a section that is not the first (POD-1078, the design's 14px).
  *  The band already said where a group STARTS; nothing said where one ended, so
@@ -191,6 +196,99 @@ export type WorkPlacement =
       row: UnifiedIssueRowView
     }
 
+/**
+ * THE DISCLOSURE, ANIMATED (POD-1253).
+ *
+ * Every fold in this column — the section bands, the snoozed tail, the closed
+ * tail — used to be `{!collapsed && rows}`: thirty rows present in one frame and
+ * absent in the next, with everything below them teleporting into the hole. The
+ * band's chevron was the only part of the gesture that moved, which made the
+ * turn read as a hiccup rather than as a fold.
+ *
+ * WHAT MOVES IS THE CLIP, NOT THE CONTENT. The panel animates its own height
+ * from 0 to the content's natural height while clipping; the rows inside never
+ * move, never squash and never re-lay-out. So the eye follows one edge sweeping
+ * up the column, the rows below ride it exactly (they are `layout="position"`
+ * elements whose `layoutDependency` does NOT bump on a fold — see
+ * `SidebarUnified` — so Motion never measures and never animates a second,
+ * competing interpolation against this one), and the text stays legible the
+ * whole way down.
+ *
+ * `contain: layout paint` is not decoration: animating height relayouts every
+ * frame, and without containment a webview is free to keep a stale tile of a
+ * row mid-collapse (POD-1146, the Flight Deck's own height one-shot). It makes
+ * the panel its own containing block and clips its subtree to it, so a shrinking
+ * fold can never paint past its bounds however the frame lands.
+ *
+ * THE OPACITY IS NOT THE HEIGHT'S TWIN. A fade running the full length of the
+ * collapse leaves half-transparent rows sliding under the band, which reads as
+ * two things happening. Out is quick and front-loaded (the rows are gone before
+ * the edge arrives); in is short and late (the space is made, then the rows
+ * appear in it) — the shape a disclosure has when it feels like one surface
+ * sliding over another rather than a list dissolving.
+ */
+/**
+ * THE CURVE, MEASURED RATHER THAN CHOSEN BY NAME. The first cut used the
+ * shell's usual `[0.32, 0.72, 0, 1]` expo-out, which is right for a chip
+ * arriving and wrong for six hundred pixels of column: sampled frame by frame it
+ * spent 76% of the travel in the first 18% of the time and then crawled the last
+ * hundred pixels, which reads as a snap followed by a drift rather than as one
+ * fold. `[0.4, 0, 0.2, 1]` is the standard accelerate-and-settle arc — ~14% of
+ * the travel at a fifth of the way, ~62% at half, a soft landing — and over this
+ * distance that is the one that reads as a single continuous movement.
+ */
+const FOLD_EASE = [0.4, 0, 0.2, 1] as const
+const FOLD_IN = {
+  height: { duration: 0.32, ease: FOLD_EASE },
+  opacity: { duration: 0.22, delay: 0.06, ease: 'easeOut' as const },
+}
+const FOLD_OUT = {
+  height: { duration: 0.26, ease: FOLD_EASE },
+  opacity: { duration: 0.12, ease: 'easeIn' as const },
+}
+
+export function FoldPanel({
+  open,
+  id,
+  testId,
+  children,
+}: {
+  open: boolean
+  id?: string
+  testId?: string
+  children: ReactNode
+}): JSX.Element {
+  const reduceMotion = useReducedMotion()
+  return (
+    // `initial={false}`: the first paint of a column is not a disclosure. An
+    // open fold on load must simply BE open — otherwise every reload plays
+    // thirty rows unrolling, which is the one motion nobody asked for.
+    <AnimatePresence initial={false}>
+      {open && (
+        <motion.div
+          key="fold"
+          id={id}
+          data-testid={testId}
+          className="min-w-0 overflow-hidden"
+          style={{ contain: 'layout paint' }}
+          initial={{ height: 0, opacity: 0 }}
+          // The two directions carry their own transitions ON the variant, which
+          // is the only place Motion lets an exit be shaped differently from the
+          // enter it is undoing.
+          animate={{
+            height: 'auto',
+            opacity: 1,
+            transition: reduceMotion ? { duration: 0 } : FOLD_IN,
+          }}
+          exit={{ height: 0, opacity: 0, transition: reduceMotion ? { duration: 0 } : FOLD_OUT }}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
 export const ROW_LAYOUT_TRANSITION = {
   type: 'spring' as const,
   stiffness: 105,
@@ -312,7 +410,7 @@ export function SnoozedIssueFold({
       <button
         data-pressable
         type="button"
-        className={cn(TAIL_FOLD_CLASS, 'pt-3')}
+        className={TAIL_FOLD_CLASS}
         aria-expanded={!collapsed}
         aria-controls={contentId}
         onClick={toggle}
@@ -321,13 +419,13 @@ export function SnoozedIssueFold({
         <span>{rows.length} snoozed</span>
         <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
         <ChevronRight
-          size={12}
-          className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
+          size={13}
+          className={cn('flex-none transition-transform duration-200', !collapsed && 'rotate-90')}
           aria-hidden="true"
         />
       </button>
-      {!collapsed && (
-        <div id={contentId} className="min-w-0" data-testid="snoozed-fold-rows">
+      <FoldPanel open={!collapsed} id={contentId} testId="snoozed-fold-rows">
+        <div className="min-w-0">
           {rows.map((row) => {
             const arriving = arrivals.has(row.key) || row.phase === 'entering'
             return (
@@ -350,7 +448,7 @@ export function SnoozedIssueFold({
             )
           })}
         </div>
-      )}
+      </FoldPanel>
     </div>
   )
 }
@@ -389,7 +487,7 @@ export function ClosedIssueFold<T>({
         <button
           data-pressable
           type="button"
-          className={cn(TAIL_FOLD_CLASS, 'pt-4')}
+          className={TAIL_FOLD_CLASS}
           aria-expanded={!collapsed}
           aria-controls={contentId}
           onClick={toggle}
@@ -398,8 +496,8 @@ export function ClosedIssueFold<T>({
           <span>{rows.length} closed</span>
           <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
           <ChevronRight
-            size={12}
-            className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
+            size={13}
+            className={cn('flex-none transition-transform duration-200', !collapsed && 'rotate-90')}
             aria-hidden="true"
           />
         </button>
@@ -417,8 +515,8 @@ export function ClosedIssueFold<T>({
           <span>All</span>
         </button>
       </div>
-      {!collapsed && (
-        <div id={contentId} className="min-w-0" data-testid="closed-fold-rows">
+      <FoldPanel open={!collapsed} id={contentId} testId="closed-fold-rows">
+        <div className="min-w-0">
           {rows.map((row) => {
             const issueRow = issueForRow(row)
             return (
@@ -451,7 +549,7 @@ export function ClosedIssueFold<T>({
             )
           })}
         </div>
-      )}
+      </FoldPanel>
     </div>
   )
 }

@@ -323,16 +323,16 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
   const newAgentAnchorRef = useRef<HTMLDivElement | null>(null)
 
   return (
-    // The design's own block: 10px above the control, 8px below, 12px in from
-    // the column edge, and NO rule under it (POD-725). It used to sit on the
-    // shell's single horizontal datum (--section-bar-h) with a hairline, which
-    // was the right call while every column started at the same y — but the
-    // stage is a sheet inset 12px from the top now and the flight deck's own
-    // header is 32px, so there is no shared datum left to hold. What the seam
-    // was doing, the WORK label below it does better.
-    // pr-4 clears the absolutely-positioned collapse control on the sidebar's
-    // right edge (translateX(50%) into the content column).
-    <div className="flex flex-none items-center gap-2 pt-2.5 pr-4 pb-2 pl-3">
+    // THE ARTBOARD'S BLOCK: `padding: 9px 10px 0` (POD-1253). 3a rules the block
+    // off underneath; 3b — which is the composition we actually ship, because
+    // the inline filter sits under this control — drops the rule and the bottom
+    // padding and lets the field's own 8px top margin part the two. The block
+    // was `10px 16px 8px 12px` and unruled, which is neither.
+    //
+    // 10px on the right is also exactly enough for the collapse control: it is
+    // 18px wide at `translateX(50%)`, so it reaches 9px into this column and the
+    // button's rim clears it by one.
+    <div className="flex flex-none items-center gap-2 px-[10px] pt-[9px]">
       <div
         ref={newAgentAnchorRef}
         data-testid="new-agent-button"
@@ -344,12 +344,21 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           data-pressable
           type="button"
           // A fixed height, not py-2 (POD-365: the row is on the shell's datum,
-          // so its control takes one). The design's 30px chip: no rim, a
-          // `--secondary` fill and body ink — on paper that is the rail tone, so
-          // the control reads as a recess in the column rather than a card
-          // floating on it, and `data-pressable` supplies the hover lift.
+          // so its control takes one).
+          //
+          // THE 3a CONTROL IS A RAISED CARD, NOT A RECESS (POD-1253). It was a
+          // 30px `--secondary` chip with no rim — the POD-725 paper design's
+          // answer, kept through the 3a redraw. The artboard makes it the
+          // tallest thing in the column and the only RAISED one: 38px of inside
+          // on a 1px rim, radius 8, on the same ground the selected row takes
+          // (`#ffffff` on paper, `#23262d` in the dark artboard — which is what
+          // `--chip` is in both). It is the column's one invitation, and it now
+          // looks like one instead of like a search box.
+          //
+          // `h-10` = the artboard's 38px content plus its rim, since this box is
+          // border-box; `px-[11px]` plus that rim is the mock's 12px inset.
           className={cn(
-            'flex h-[30px] w-full min-w-0 items-center gap-2 rounded-lg bg-secondary px-[10px] pr-[32px] text-[12px] leading-[normal] text-foreground disabled:opacity-50',
+            'flex h-10 w-full min-w-0 items-center gap-[9px] rounded-[8px] border border-border-strong bg-chip px-[11px] pr-[31px] text-[12.5px] font-medium tracking-[-0.005em] leading-[normal] text-foreground disabled:opacity-50',
             // The refusal is a DIM, not a colour: the row's own hue is the
             // agent's brand swatch, and greying is what every other refused
             // spawn affordance does. Warning ink is the exception — it is the
@@ -373,16 +382,16 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
             void spawn(defaultAgent, defaultRepo)
           }
         >
-          {/* A 10px rounded square in the agent's brand colour, not the agent's
+          {/* An 11px rounded square in the agent's brand colour, not the agent's
               glyph (POD-725). At 14px the glyph competed with the ID squares
-              two rows below it — three drawn marks in the same 30px column, one
-              of which is not an issue. The design makes it a swatch: it names
-              WHICH agent by hue and nothing else, and the words beside it
-              already say the rest. */}
+              two rows below it — three drawn marks in the same column, one of
+              which is not an issue. The design makes it a swatch: it names WHICH
+              agent by hue and nothing else, and the words beside it already say
+              the rest. 11px and radius 3 are the artboard's own numbers. */}
           <span
             aria-hidden="true"
             className={cn(
-              'size-[10px] flex-none rounded-[3px] bg-current',
+              'size-[11px] flex-none rounded-[3px] bg-current',
               agentBrandText(defaultAgent),
             )}
           />
@@ -400,10 +409,12 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
               <button
                 data-pressable
                 type="button"
-                className="absolute top-1/2 right-[9px] flex size-6 -translate-y-1/2 items-center justify-center rounded text-text-faint hover:text-foreground"
+                className="absolute top-1/2 right-[7px] flex size-6 -translate-y-1/2 items-center justify-center rounded text-text-faint hover:text-foreground"
                 aria-label="Choose agent and repo"
               >
-                <ChevronDown size={14} aria-hidden="true" />
+                {/* 16px — the artboard's `expand_more`, which reads as the
+                    control's second half rather than as a speck beside it. */}
+                <ChevronDown size={16} aria-hidden="true" />
               </button>
             }
           />
@@ -439,13 +450,22 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
 export function AppToolsRow({ className }: { className?: string }): JSX.Element {
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const commandPaletteEnabled = useFeature('command-palette')
+  // THE ARTBOARD'S STRIP IS GLYPHS ON THE COLUMN'S INSET, 14px APART (POD-1253):
+  // no cells, the first glyph starting at the same 13px every row title starts
+  // at. Ours were 28px cells 4px apart, which put the first glyph at 19px — off
+  // the column's one vertical datum — and drew two boxes in a strip the design
+  // leaves as bare marks. The cell survives as the HIT TARGET only: it keeps its
+  // 28px and pulls itself back by the 6px it is wider than its 16px glyph, so
+  // the glyph lands on 13px and the pair sits 14px apart while the pointer still
+  // gets a full control to hit.
   const btn = (active = false) =>
     cn(
       'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-text-strong',
+      '-mx-1.5',
       active && 'bg-muted text-text-strong',
     )
   return (
-    <div className={cn('flex items-center gap-1', className)}>
+    <div className={cn('flex items-center gap-[14px]', className)}>
       <button
         data-pressable
         type="button"
@@ -454,7 +474,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
         aria-label="Add project"
         onClick={openAddProject}
       >
-        <FolderPlus size={15} aria-hidden="true" />
+        <FolderPlus size={16} aria-hidden="true" />
       </button>
 
       {commandPaletteEnabled && (
@@ -466,7 +486,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
           aria-label="Search"
           onClick={() => setPaletteOpen(true)}
         >
-          <Search size={15} aria-hidden="true" />
+          <Search size={16} aria-hidden="true" />
         </button>
       )}
       {commandPaletteEnabled && (

@@ -91,7 +91,7 @@ export function WorkSearchField({ filter }: { filter: WorkFilter }): JSX.Element
       data-testid="work-search"
       className="mx-2.5 mt-2 mb-[9px] flex h-[30px] flex-none items-center gap-2 rounded-[7px] border border-input bg-background px-[9px] focus-within:ring-2 focus-within:ring-ring/40"
     >
-      <Search size={13} className="flex-none text-text-faint" aria-hidden="true" />
+      <Search size={14} className="flex-none text-text-faint" aria-hidden="true" />
       <input
         ref={inputRef}
         value={query}

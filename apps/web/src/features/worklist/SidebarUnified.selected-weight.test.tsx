@@ -210,6 +210,33 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     // the air on both sides of it.
     expect(cssBlock('.shell-work-row')).toContain('border-bottom: 1px solid var(--hairline-soft)')
 
+    /**
+     * THE ARTBOARD'S TWO ROW BOXES (POD-1253).
+     *
+     * `ADE Sidebar 3a.dc.html` writes `min-height:36px` on a two-line row and
+     * `min-height:46px` on one carrying the meter, on a CONTENT box — so its
+     * rows measure 36+14+1 = 51px and 46+14+1 = 61px. This landed as a single
+     * `min-h-[46px]` utility on a BORDER-box row, which is 47px: one number
+     * where the design has two, and the wrong one, four pixels under the
+     * artboard's short row.
+     *
+     * Asserted against the stylesheet rather than a rendered height because
+     * happy-dom lays nothing out — and asserted at all because this row box has
+     * now been re-derived three times (POD-1057, POD-1078, here) and each time
+     * the thing that drifted was the reading of the mock's `min-height`.
+     */
+    expect(cssBlock('.shell-work-row')).toContain('--work-row-content: 36px')
+    expect(cssBlock('.shell-work-row')).toContain(
+      'min-height: calc(var(--work-row-content) + 2 * var(--work-row-pad) + 1px)',
+    )
+    expect(cssBlock('.shell-work-row:has([data-testid="row-progress"])')).toContain(
+      '--work-row-content: 46px',
+    )
+    // And the row must NOT also carry a utility min-height, which would be a
+    // second, density-blind spelling of the same decision silently winning or
+    // losing depending on the cascade.
+    expect(active.className).not.toMatch(/\bmin-h-\[/)
+
     // The selection ring is an inset box-shadow, never a border that changes
     // the shared box dimensions.
     expect(active.className.split(/\s+/)).not.toContain('border')

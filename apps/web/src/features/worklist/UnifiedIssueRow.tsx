@@ -227,6 +227,10 @@ export function UnifiedIssueRow({
       plainLanguage
       leadingSeparator={timing.phase === 'done'}
       mutedWaiting
+      // The artboard's meta column: a blue braille cell in front of NEUTRAL
+      // digits. The row's blue lives on the spinner and on the meter's running
+      // segment; a blue clock beside them was a third voice for one fact.
+      mutedWorking
       className="flex-none"
     />
   )

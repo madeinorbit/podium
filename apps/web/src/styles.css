@@ -93,12 +93,28 @@ html[data-density="compact"] {
    numbers come back together, because they are one decision — a line between
    rows needs air on both sides of it or it reads as a squeeze.
 
-   The row lands at 46px (a 16px title line, 5px, a 14px status line, 7px top
-   and bottom, and the rule); a row carrying the progress meter lands at 54px on
-   the same padding. Exported as a var because the tuck chip has to align itself
-   to line 1's box, and it cannot know the density switch any other way. */
+   THE MOCK'S `min-height` IS A CONTENT BOX, AND IT HAS TWO VALUES (POD-1253).
+   Read as a total row height — which is what `min-h-[46px]` on a border-box row
+   meant — it produced a 47px row against the artboard's 51px, and every row in
+   the column came out four pixels tight. The mock writes `min-height:36px` on a
+   two-line row and `min-height:46px` on one carrying the meter, on a content
+   box, so the rows measure 36+14+1 = 51px and 46+14+1 = 61px. Both numbers are
+   MINIMA over a text block that is shorter than either (a 16px title, 5px, a
+   10.5px status line = 31.5px), which is the whole point: the row centres that
+   block in a taller box, and the leftover is the air that makes the column read
+   as calm rather than as a stack of lines.
+
+   `:has()` rather than a prop, because the fact is "does this row draw a meter"
+   and the meter is the one thing that knows — `RowProgressMeter` returns null
+   under `ROW_PROGRESS_MIN_TASKS`, so a boolean threaded through `WorkRowShell`
+   would be a second copy of that threshold to keep in step.
+
+   Exported as a var because the tuck chip has to align itself to line 1's box,
+   and it cannot know the density switch any other way. */
 .shell-work-row {
   --work-row-pad: 7px;
+  --work-row-content: 36px;
+  min-height: calc(var(--work-row-content) + 2 * var(--work-row-pad) + 1px);
   padding-block: var(--work-row-pad);
   /* THE ROW RULE. Without it the band tint is the only thing parting one row
      from the next — which works while rows are tinted and does nothing at all on
@@ -108,6 +124,10 @@ html[data-density="compact"] {
      to stay the loudest structure in the column, and a row rule at their weight
      would flatten the grouping back out. */
   border-bottom: 1px solid var(--hairline-soft);
+}
+/* A row speaking for a subtree is the artboard's taller box. */
+.shell-work-row:has([data-testid="row-progress"]) {
+  --work-row-content: 46px;
 }
 html[data-density="compact"] .shell-work-row {
   --work-row-pad: 6px;

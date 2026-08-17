@@ -29,7 +29,14 @@ export const META_COL_W = 56
  *  amber in the row. */
 function statusInk(phase: MotionPhase): string | undefined {
   if (phase === 'waiting') return 'var(--attention)'
-  if (phase === 'working') return 'var(--live)'
+  // WORKING TAKES NO INK OF ITS OWN (POD-1253). It used to set the whole status
+  // line in `--live`, which put a full blue sentence on every running row — and
+  // the artboard has no blue text anywhere in this column. What it colours blue
+  // is the braille cell in the meta column and the running segment of the meter,
+  // both of which are still here and both of which say "an agent is computing"
+  // about the same row. DESIGN.md §5 asks live activity to read calm blue; it
+  // does, in the two marks that ARE the activity. The word beside them is a
+  // status phrase and reads on the ramp with `done`, `idle` and the counts.
   if (phase === 'done') return 'var(--muted-foreground)'
   // --text-dim, not --text-faint: faint is 3.87:1 on the dark ground, and a
   // queued row's status word is persistent copy the reader is meant to be able
@@ -197,8 +204,13 @@ export function WorkRowShell({
           // one surface with things ON it rather than as a stack of thirty
           // slats. It IS ruled (POD-1078) — a soft hairline on `.shell-work-row`,
           // under 7px of air — but the rule parts rows WITHIN that one surface;
-          // it does not cut them into cards. 46px is the mock's row.
-          'shell-work-row phase-surface group/row relative flex min-h-[46px] min-w-0 items-center px-[13px]',
+          // it does not cut them into cards.
+          //
+          // THE ROW'S HEIGHT LIVES IN `.shell-work-row` (POD-1253), not here: the
+          // mock's two minima are content-box numbers over a border-box row, and
+          // a `min-h-[46px]` utility could only ever spell one of them — the
+          // wrong one, four pixels under the artboard's two-line row.
+          'shell-work-row phase-surface group/row relative flex min-w-0 items-center px-[13px]',
           // SELECTION IS A LIFT PLUS A SPINE. The band rises to the RAISED tier
           // and the ink spine names it as the one you are in. No issue wash on
           // top — the hue is the row's resting ground, and mixing more of it

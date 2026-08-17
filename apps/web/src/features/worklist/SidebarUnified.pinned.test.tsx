@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -212,7 +212,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(row.getAttribute('style')).toContain('--row-hover-bg')
   })
 
-  it('folds settled closures per project; selected open finished rows keep the full lane', () => {
+  it('folds settled closures per project; selected open finished rows keep the full lane', async () => {
     render(<SidebarUnified />)
 
     // Unread no longer blocks fold eligibility (manual tuck path). Past-grace
@@ -236,7 +236,12 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     )
 
     fireEvent.click(toggle)
-    expect(screen.queryByText('Closed alpha')).toBeNull()
+    // A SHUT FOLD IS NOT AN INSTANT UNMOUNT ANY MORE (POD-1253). The disclosure
+    // clips its own height away and the rows leave with it, so they are still in
+    // the DOM for the length of that exit — `waitFor` is asserting the same
+    // thing this always asserted, at the end of the gesture rather than in the
+    // frame the click landed in.
+    await waitFor(() => expect(screen.queryByText('Closed alpha')).toBeNull())
   })
 
   /**
@@ -249,7 +254,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
    * collapsed project is the worst of both readings), and the state lands on the
    * per-user replicated `podium:sidebar:` key rather than somewhere device-local.
    */
-  it('shuts the PINNED band without shutting the column', () => {
+  it('shuts the PINNED band without shutting the column', async () => {
     render(<SidebarUnified />)
     const band = screen.getByTestId('pinned-section-label')
     expect(band.getAttribute('aria-expanded')).toBe('true')
@@ -262,7 +267,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     // The band itself survives — with its count, which is the whole point of
     // being able to shut it and still know what is in there.
     expect(band.textContent).toContain('Pinned')
-    expect(screen.queryByText('Pinned issue')).toBeNull()
+    await waitFor(() => expect(screen.queryByText('Pinned issue')).toBeNull())
     // The project below is untouched.
     expect(screen.getByText('Plain issue')).toBeTruthy()
     expect(ui.get('podium:sidebar:pinned-fold')).toBe('true')
@@ -276,7 +281,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(ui.get('podium:sidebar:pinned-fold')).toBeNull()
   })
 
-  it('shuts a project band over its rows AND its closed fold', () => {
+  it('shuts a project band over its rows AND its closed fold', async () => {
     render(<SidebarUnified />)
     const group = screen.getByTestId('project-group')
     const groupKey = group.getAttribute('data-drag-scope')?.replace(/^group:/, '')
@@ -286,8 +291,10 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     fireEvent.click(band)
 
     expect(group.getAttribute('data-collapsed')).toBe('true')
-    expect(screen.queryByText('Plain issue')).toBeNull()
-    expect(screen.queryByTestId('closed-fold-toggle')).toBeNull()
+    await waitFor(() => {
+      expect(screen.queryByText('Plain issue')).toBeNull()
+      expect(screen.queryByTestId('closed-fold-toggle')).toBeNull()
+    })
     // Pinned work lives above every project group, so it is not a project's to
     // hide (POD-166, R3) — and this is the assertion that proves the two bands
     // read independent state rather than sharing one key.

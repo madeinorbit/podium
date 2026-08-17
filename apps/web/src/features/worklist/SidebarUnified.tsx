@@ -37,6 +37,7 @@ import { matchesWorkQuery, normalizeWorkQuery } from './work-filter'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
+  FoldPanel,
   PinnedSectionLabel,
   ProjectGroupLabel,
   ROW_LAYOUT_TRANSITION,
@@ -742,7 +743,9 @@ export function WorkSections({
               collapsed={pinnedCollapsed}
               onToggle={() => toggleBand(PINNED_FOLD_KEY)}
             />
-            {!pinnedCollapsed && filteredPinned.map((item) => renderWorkRow(item))}
+            <FoldPanel open={!pinnedCollapsed} testId="pinned-section-rows">
+              {filteredPinned.map((item) => renderWorkRow(item))}
+            </FoldPanel>
           </motion.div>
         )}
         {renderedGroups.map((group, index) => {
@@ -773,41 +776,47 @@ export function WorkSections({
                 collapsed={collapsed}
                 onToggle={() => toggleBand(projectFoldKey(group.key))}
               />
-              {!collapsed && group.rows.map((item) => renderWorkRow(item))}
-              {!collapsed && group.snoozedRows.length > 0 && (
-                <motion.div
-                  layout="position"
-                  layoutDependency={layoutRevision}
-                  transition={
-                    shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
-                  }
-                >
-                  <SnoozedIssueFold
-                    groupKey={group.key}
-                    rows={group.snoozedRows}
-                    renderRow={renderWorkRow}
-                    settleTransition={settle}
-                  />
-                </motion.div>
-              )}
-              {/* The column's one tail fold. Suspended work folds above it. */}
-              {!collapsed && group.closedRows.length > 0 && (
-                <motion.div
-                  layout="position"
-                  layoutDependency={layoutRevision}
-                  transition={
-                    shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
-                  }
-                >
-                  <ClosedIssueFold
-                    groupKey={group.key}
-                    rows={group.closedRows}
-                    renderRow={renderWorkRow}
-                    issueForRow={(item) => item.value.row as UnifiedIssueRowView}
-                    onArchive={archiveClosedIssue}
-                  />
-                </motion.div>
-              )}
+              {/* ONE PANEL FOR THE WHOLE GROUP (POD-1253). A shut band takes its
+                  live rows and both tail folds with it — see `collapsed` above —
+                  so the three of them fold as one surface rather than as three
+                  clips racing each other down the column. */}
+              <FoldPanel open={!collapsed} testId="project-group-rows">
+                {group.rows.map((item) => renderWorkRow(item))}
+                {group.snoozedRows.length > 0 && (
+                  <motion.div
+                    layout="position"
+                    layoutDependency={layoutRevision}
+                    transition={
+                      shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                    }
+                  >
+                    <SnoozedIssueFold
+                      groupKey={group.key}
+                      rows={group.snoozedRows}
+                      renderRow={renderWorkRow}
+                      settleTransition={settle}
+                    />
+                  </motion.div>
+                )}
+                {/* The column's one tail fold. Suspended work folds above it. */}
+                {group.closedRows.length > 0 && (
+                  <motion.div
+                    layout="position"
+                    layoutDependency={layoutRevision}
+                    transition={
+                      shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                    }
+                  >
+                    <ClosedIssueFold
+                      groupKey={group.key}
+                      rows={group.closedRows}
+                      renderRow={renderWorkRow}
+                      issueForRow={(item) => item.value.row as UnifiedIssueRowView}
+                      onArchive={archiveClosedIssue}
+                    />
+                  </motion.div>
+                )}
+              </FoldPanel>
             </motion.div>
           )
         })}
