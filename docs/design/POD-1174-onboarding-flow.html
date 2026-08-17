@@ -1,0 +1,684 @@
+<title>POD-1174 — First-run onboarding</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* Colours are lifted from the shipped activation surface
+     (apps/web/src/features/setup/ActivationShell.tsx) so a panel drawn here and
+     the real screen resolve the same value. This page commits to the dark
+     world on purpose: it is a mock-up of a dark product surface, and a light
+     repaint would misreport what the user will see. */
+  :root {
+    --page: #111317;
+    --stage: #16181c;
+    --card: #1b1e24;
+    --card-lift: #22262d;
+    --line: #2f343d;
+    --line-soft: #272b33;
+    --ink: #f2f3f5;
+    --ink-2: #d7dae0;
+    --dim: #9ba1ab;
+    --faint: #6f757f;
+    --accent: #e3ba52;
+    --new: #6fbc8c;
+    --gone: #e0868c;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 0 24px 96px;
+    background: var(--page);
+    color: var(--ink-2);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { margin: 0 auto; max-width: 1020px; }
+
+  /* ── page head ─────────────────────────────────────────────────────────── */
+  .masthead { padding: 56px 0 40px; border-bottom: 1px solid var(--line-soft); }
+  .kicker {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    margin: 14px 0 0;
+    font-size: clamp(30px, 4vw, 42px);
+    line-height: 1.08;
+    letter-spacing: -0.028em;
+    font-weight: 600;
+    color: var(--ink);
+    text-wrap: balance;
+  }
+  .standfirst {
+    margin: 16px 0 0;
+    max-width: 62ch;
+    font-size: 16.5px;
+    color: var(--dim);
+    text-wrap: pretty;
+  }
+  .meta {
+    margin: 26px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .meta span {
+    padding: 5px 9px;
+    border-radius: 6px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+
+  /* ── sections ──────────────────────────────────────────────────────────── */
+  section { padding-top: 64px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    color: var(--faint);
+  }
+  h2 {
+    margin: 0;
+    font-size: 23px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .lede { margin: 12px 0 0; max-width: 68ch; color: var(--dim); }
+  .lede + .lede { margin-top: 10px; }
+  strong { color: var(--ink); font-weight: 600; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    color: var(--ink-2);
+    background: #0f1114;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  /* ── shell diagrams ────────────────────────────────────────────────────── */
+  .shells { display: grid; gap: 20px; margin-top: 28px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) { .shells { grid-template-columns: 1fr; } }
+  .shell-figure { margin: 0; }
+  .shell-cap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .shell {
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--stage);
+    box-shadow: inset 0 0 0 1px var(--line);
+    font-family: var(--mono);
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .shell-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 8px;
+    background: #0f1114;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .shell-bar .chip {
+    padding: 3px 6px;
+    border-radius: 4px;
+    background: #1c1f25;
+    color: var(--dim);
+  }
+  .shell-bar .push { margin-left: auto; }
+  .shell-row { display: flex; height: 154px; }
+  .shell-col {
+    padding: 8px 7px;
+    border-right: 1px solid var(--line-soft);
+    background: #131519;
+  }
+  .shell-col:last-child { border-right: 0; }
+  .shell-stage {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 7px;
+    padding: 14px;
+    background: var(--stage);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .shell-stage b {
+    display: block;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .shell-stage .ln { height: 6px; border-radius: 3px; background: #23272e; }
+  .shell-stage .ln.short { width: 46%; }
+  .shell-foot {
+    height: 18px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    background: #0f1114;
+    border-top: 1px solid var(--line-soft);
+  }
+  .dot-gone { width: 6px; height: 6px; border-radius: 50%; background: var(--gone); flex: none; }
+  .dot-keep { width: 6px; height: 6px; border-radius: 50%; background: var(--new); flex: none; }
+
+  /* ── flow map ──────────────────────────────────────────────────────────── */
+  .flow {
+    margin-top: 28px;
+    padding: 26px 24px;
+    border-radius: 13px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px var(--line);
+    overflow-x: auto;
+  }
+  .flow-tree {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 2;
+    white-space: pre;
+    color: var(--dim);
+  }
+  .flow-tree b { color: var(--ink); font-weight: 600; }
+  .flow-tree .n { color: var(--new); }
+  .flow-tree .x { color: var(--gone); }
+  .flow-tree .a { color: var(--accent); }
+
+  /* ── mock-ups ──────────────────────────────────────────────────────────── */
+  .mock {
+    margin-top: 26px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--stage);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .mock-bar {
+    height: 30px;
+    background: #0f1114;
+    border-bottom: 1px solid var(--line-soft);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 7px;
+    padding: 0 10px;
+  }
+  .mock-bar i { width: 9px; height: 9px; border-radius: 2px; background: #23272e; display: block; }
+  .mock-body { padding: 44px 44px 40px; }
+  @media (max-width: 720px) { .mock-body { padding: 28px 22px 26px; } }
+  .glyph {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+    background: #2b2f37;
+    box-shadow: inset 0 0 0 1px #3a4049;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .eyebrow {
+    margin: 22px 0 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .mock h3 {
+    margin: 14px 0 0;
+    max-width: 20ch;
+    font-size: clamp(26px, 3vw, 34px);
+    line-height: 1.12;
+    letter-spacing: -0.024em;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .mock .sub { margin: 14px 0 0; max-width: 58ch; font-size: 14.5px; color: var(--dim); }
+  .choices { display: grid; gap: 16px; margin-top: 40px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) { .choices { grid-template-columns: 1fr; } }
+  .choice {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 20px;
+    min-height: 196px;
+    text-align: left;
+    border: 0;
+    border-radius: 13px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px var(--line);
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    transition: box-shadow 140ms ease, background 140ms ease;
+  }
+  .choice:hover { background: #1e2128; box-shadow: inset 0 0 0 1px #454b56; }
+  .choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .choice .ic {
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background: var(--card-lift);
+    box-shadow: inset 0 0 0 1px #333842;
+    color: var(--ink-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .choice .row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+  .choice h4 { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink); }
+  .badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dim);
+    background: #2b2f37;
+    border-radius: 5px;
+    padding: 4px 7px;
+    line-height: 1;
+  }
+  .badge.lit { color: var(--accent); }
+  .choice p { margin: 9px 0 0; font-size: 13px; line-height: 1.55; color: var(--dim); }
+  .choice .go {
+    margin-top: auto;
+    padding-top: 18px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .choice .go svg { color: var(--faint); }
+  .footnote { margin: 18px 0 0; font-size: 12.5px; color: var(--faint); }
+  .backlink {
+    margin: 22px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--dim);
+  }
+
+  /* ── annotations ───────────────────────────────────────────────────────── */
+  .notes { margin: 22px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+  .notes li {
+    display: grid;
+    grid-template-columns: 78px 1fr;
+    gap: 16px;
+    align-items: baseline;
+    font-size: 14px;
+    color: var(--dim);
+  }
+  @media (max-width: 560px) { .notes li { grid-template-columns: 1fr; gap: 4px; } }
+  .notes .tag {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .notes .tag.new { color: var(--new); }
+  .notes .tag.gone { color: var(--gone); }
+  .notes .tag.copy { color: var(--accent); }
+
+  .strike { text-decoration: line-through; text-decoration-color: var(--gone); color: var(--faint); }
+
+  .ask {
+    margin-top: 28px;
+    display: grid;
+    gap: 14px;
+  }
+  .ask div {
+    padding: 18px 20px;
+    border-radius: 12px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .ask h4 { margin: 0 0 6px; font-size: 14.5px; font-weight: 600; color: var(--ink); }
+  .ask p { margin: 0; font-size: 13.5px; color: var(--dim); }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="kicker">POD-1174 · Concept</p>
+    <h1>First run, and nothing else</h1>
+    <p class="standfirst">
+      Until Podium is set up, setup is the only thing on screen. One question per screen, two
+      answers each, and no way to wander off before there is anything to wander into.
+    </p>
+    <div class="meta">
+      <span>Web shell · activation</span>
+      <span>2 new screens</span>
+      <span>1 escape hatch removed</span>
+      <span>For review</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>The shell steps back</h2></div>
+    <p class="lede">
+      Today onboarding sits inside the live app: work sidebar on the left, Flight Deck beside it,
+      dock and rail on the right, status strip along the bottom, mode tabs and readouts in the
+      header. All of it points at a product that has nothing in it yet.
+    </p>
+    <p class="lede">
+      While setup is unfinished, none of it renders. The window keeps its bar — it is the drag
+      handle and, off macOS, it carries the window buttons — but the bar is empty. Everything
+      else is the setup screen.
+    </p>
+
+    <div class="shells">
+      <figure class="shell-figure">
+        <figcaption class="shell-cap"><span class="dot-gone"></span>Today</figcaption>
+        <div class="shell">
+          <div class="shell-bar">
+            <span class="chip">Podium</span>
+            <span class="chip">Work</span>
+            <span class="chip">Tasks</span>
+            <span class="chip push">hosts</span>
+            <span class="chip">quota</span>
+            <span class="chip">⚙</span>
+          </div>
+          <div class="shell-row">
+            <div class="shell-col" style="width: 21%">sidebar</div>
+            <div class="shell-col" style="width: 19%">deck</div>
+            <div class="shell-stage">
+              <b>Where should Podium run?</b>
+              <span class="ln"></span><span class="ln short"></span>
+            </div>
+            <div class="shell-col" style="width: 17%">dock</div>
+            <div class="shell-col" style="width: 6%">▪</div>
+          </div>
+          <div class="shell-foot">status strip</div>
+        </div>
+      </figure>
+
+      <figure class="shell-figure">
+        <figcaption class="shell-cap"><span class="dot-keep"></span>Proposed</figcaption>
+        <div class="shell">
+          <div class="shell-bar"><span class="push"></span><span class="chip">▫ ▫ ▫</span></div>
+          <div class="shell-row">
+            <div class="shell-stage">
+              <b>Where should Podium run?</b>
+              <span class="ln"></span><span class="ln short"></span>
+            </div>
+          </div>
+        </div>
+      </figure>
+    </div>
+
+    <ul class="notes">
+      <li><span class="tag gone">Gone</span><span>Work sidebar, Flight Deck, right dock, right rail, status strip, mode tabs, host and quota readouts, Settings and Usage buttons.</span></li>
+      <li><span class="tag">Kept</span><span>The window bar itself, empty, so the window can still be dragged, minimised and closed.</span></li>
+      <li><span class="tag">After</span><span>The moment setup completes, the full shell comes back exactly as it is today.</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Two answers per screen</h2></div>
+    <p class="lede">
+      The first screen asks where Podium runs. The VPS answer then asks one more question — new
+      server, or one you already have — which is the fork that used to be a third option on the
+      first screen, where it confused people who had nothing to connect to yet.
+    </p>
+
+    <div class="flow">
+<pre class="flow-tree"><b>Where should Podium run?</b>
+│
+├─ <b>Work locally</b>  ──────────▶  Pick a project  ─▶  Set up agents  ─▶  First task  ─▶  <span class="a">done</span>
+│
+└─ <b>Work on my VPS</b>  ────────▶  <span class="n">Is Podium already on your VPS?  ← new step</span>
+                                │
+                                ├─ <b>No</b>   ─▶  Install it over SSH  ─▶  Connect  ─▶  <span class="a">restart</span>
+                                │
+                                └─ <b>Yes</b>  ─▶  Open it here  ────────────────────▶  <span class="a">restart</span>
+                                            or  Add this computer to it  ─▶  <span class="a">restart</span></pre>
+    </div>
+
+    <ul class="notes">
+      <li><span class="tag gone">Gone</span><span><span class="strike">Connect to a Podium elsewhere</span> as a third first-screen option. It now lives one level down, behind “yes, it’s already running”, where it is an answer rather than a distraction.</span></li>
+      <li><span class="tag copy">Copy</span><span>Steps are named, not numbered. “1 of 3” cannot be honest once the path forks, and a wrong count is worse than none.</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Screen one — where Podium runs</h2></div>
+
+    <div class="mock">
+      <div class="mock-bar"><i></i><i></i><i></i></div>
+      <div class="mock-body">
+        <div class="glyph" aria-hidden="true">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>
+        </div>
+        <p class="eyebrow">Set up Podium</p>
+        <h3>Where should Podium run?</h3>
+        <p class="sub">
+          Podium keeps your agents working. Pick the computer it lives on — you can move it later.
+        </p>
+
+        <div class="choices">
+          <button type="button" class="choice">
+            <span class="ic" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/></svg>
+            </span>
+            <span class="row">
+              <h4>Work locally</h4>
+              <span class="badge lit">Simplest</span>
+            </span>
+            <p>Podium runs on this computer. Point it at a project and start — there is nothing else to set up.</p>
+            <span class="go">Pick a project
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </span>
+          </button>
+
+          <button type="button" class="choice">
+            <span class="ic" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
+            </span>
+            <span class="row">
+              <h4>Work on my VPS</h4>
+              <span class="badge">Always on</span>
+            </span>
+            <p>Podium runs on your own server. Agents keep going after you shut the laptop, and you can reach them from any device.</p>
+            <span class="go">Continue
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </span>
+          </button>
+        </div>
+
+        <p class="footnote">You can add machines or move Podium later. This is not a one-way door.</p>
+      </div>
+    </div>
+
+    <ul class="notes">
+      <li><span class="tag gone">Gone</span><span>The <span class="strike">Explore Podium</span> button and the line under it. There is nothing to explore before a project exists, and it let people land in an empty app and call it broken.</span></li>
+      <li><span class="tag new">New</span><span>The whole card is the target, so the label never has to repeat the heading. Bigger hit area, one tab stop each.</span></li>
+      <li><span class="tag copy">Copy</span><span>Plain second person, no jargon: “Podium runs on this computer”, not “all-in-one topology”.</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Screen two — new VPS, or one you have</h2></div>
+    <p class="lede">
+      The step that is being added. It is a yes/no question, so it is written as one.
+    </p>
+
+    <div class="mock">
+      <div class="mock-bar"><i></i><i></i><i></i></div>
+      <div class="mock-body">
+        <div class="glyph" aria-hidden="true">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
+        </div>
+        <p class="eyebrow">Set up Podium · VPS</p>
+        <h3>Is Podium already on your VPS?</h3>
+        <p class="sub">
+          If it isn’t, one command puts it there. If it is, this app connects to it instead.
+        </p>
+
+        <div class="choices">
+          <button type="button" class="choice">
+            <span class="ic" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7.5 9.5l2.5 2.5-2.5 2.5M13 15h4"/></svg>
+            </span>
+            <span class="row">
+              <h4>No — set it up now</h4>
+              <span class="badge lit">Guided</span>
+            </span>
+            <p>Paste one command into your server over SSH. It installs Podium and the agents, then asks for a URL and a password.</p>
+            <span class="go">Set up my VPS
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </span>
+          </button>
+
+          <button type="button" class="choice">
+            <span class="ic" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+            </span>
+            <span class="row">
+              <h4>Yes — it’s running</h4>
+            </span>
+            <p>Podium is already installed on a server or another computer. Connect this app to it.</p>
+            <span class="go">Connect to it
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </span>
+          </button>
+        </div>
+
+        <p class="backlink">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--faint)"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+          Back
+        </p>
+      </div>
+    </div>
+
+    <ul class="notes">
+      <li><span class="tag new">New</span><span>“No” keeps the existing SSH install screen, unchanged apart from its label and where Back returns to.</span></li>
+      <li><span class="tag new">New</span><span>“Yes” opens the existing connect flow — the one that offers <em>open it here</em> or <em>add this computer to it</em> — reworded now that the user has already said the server exists.</span></li>
+      <li><span class="tag copy">Copy</span><span>Back goes one screen up, every time. No screen dead-ends and no screen offers two different ways backwards.</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Screen three — how this computer connects</h2></div>
+    <p class="lede">
+      Reached from “yes, it’s running”. Same two options as today, but the heading no longer has to
+      explain that a remote Podium exists — the previous screen just established that.
+    </p>
+
+    <div class="mock">
+      <div class="mock-bar"><i></i><i></i><i></i></div>
+      <div class="mock-body">
+        <p class="eyebrow" style="margin-top: 0">Set up Podium · Your VPS</p>
+        <h3>How should this computer connect?</h3>
+        <p class="sub">
+          Either way the other Podium stays in charge. The difference is whether it may also use
+          what is on this computer.
+        </p>
+
+        <div class="choices">
+          <button type="button" class="choice">
+            <span class="ic" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/></svg>
+            </span>
+            <span class="row"><h4>Just open it here</h4></span>
+            <p>This app becomes a window onto the other Podium. Nothing runs on this computer.</p>
+            <span class="go">Use as a client
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </span>
+          </button>
+
+          <button type="button" class="choice">
+            <span class="ic" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20M12 11V6M9.5 8.5L12 6l2.5 2.5"/></svg>
+            </span>
+            <span class="row">
+              <h4>Add this computer to it</h4>
+              <span class="badge">Shares this machine</span>
+            </span>
+            <p>The other Podium stays the server, and may run agents on the projects that live here.</p>
+            <span class="go">Add this machine
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </span>
+          </button>
+        </div>
+
+        <p class="backlink">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--faint)"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+          Back
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>What comes out</h2></div>
+    <ul class="notes">
+      <li><span class="tag gone">Gone</span><span><strong>Explore Podium.</strong> Removed from every setup screen — the first screen, the SSH install screen, both connect screens, agents and first task.</span></li>
+      <li><span class="tag gone">Gone</span><span><strong>The “Activation paused · Resume” bar.</strong> Nothing can pause setup any more, so nothing needs resuming.</span></li>
+      <li><span class="tag gone">Gone</span><span><strong>Exploring mode</strong> and its <code>activationMode=exploring</code> URL state. Setup still remembers which step you were on across a reload; it just has no “away” state to come back from.</span></li>
+      <li><span class="tag">Kept</span><span>Every saved draft — the typed server URL, the picked repositories, the first task text — still survives a reload, as it does today.</span></li>
+      <li><span class="tag">Kept</span><span>Login and server-unreachable screens are untouched. They sit outside setup and already own the whole window.</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>Two calls worth confirming</h2></div>
+    <div class="ask">
+      <div>
+        <h4>An empty window bar, or no bar at all</h4>
+        <p>
+          Proposed: keep the bar, empty, because it is the drag region and holds the minimise,
+          maximise and close buttons on Windows and Linux. The alternative is no bar during setup,
+          which on those platforms leaves the window without controls.
+        </p>
+      </div>
+      <div>
+        <h4>Named steps instead of “1 of 3”</h4>
+        <p>
+          The counter cannot survive a fork — the local path and the VPS path are different lengths.
+          Proposed: name each step in the eyebrow. If you want progress shown, the alternative is a
+          count that only starts after the fork, on the local path.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</div>
