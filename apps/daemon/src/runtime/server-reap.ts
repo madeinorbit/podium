@@ -134,10 +134,14 @@ const defaultIo: ServerReapIo = {
   pidInUnit(pid, scopeUnit) {
     try {
       // `/proc/<pid>/cgroup` names the unit path of every controller the pid
-      // sits in; a scope member's line ends in `/<unit>`. Unreadable — ESRCH,
-      // ENOENT, or EPERM for a foreign uid — is NOT membership: a pid this
-      // daemon cannot even inspect is a recycled pid, never our child.
-      return readFileSync(`/proc/${pid}/cgroup`, 'utf8').includes(scopeUnit)
+      // sits in; a scope member's line ends in `/<unit>` — matched as exactly
+      // that, per `ProcessIdentity.key`'s own warning ("EXACT. A prefix match
+      // here is how ghost sessions happen"). Unreadable — ESRCH, ENOENT, or
+      // EPERM for a foreign uid — is NOT membership: a pid this daemon cannot
+      // even inspect is a recycled pid, never our child.
+      return readFileSync(`/proc/${pid}/cgroup`, 'utf8')
+        .split('\n')
+        .some((line) => line.endsWith(`/${scopeUnit}`))
     } catch {
       return false
     }
@@ -379,27 +383,54 @@ async function reapByIdentity(
         if (identity.pid !== undefined) io.signal(identity.pid, 'SIGKILL')
         dead = await pollGone(() => corroboratedAlive(reap, io), KILL_GRACE_MS, io)
       }
-    } else {
+    }
+    let ambiguity: string | undefined
+    if (!ours) {
       // Nothing corroborates a survivor: the process is gone, or the pid now
       // belongs to someone else (a reboot, a recycle, another uid). Either way
-      // this session has no live process — which is also why this arm reports
-      // killed rather than inverting into the permanent `killed:false` that
-      // would make `reviveParkedButAlive` resurrect a long-dead session.
+      // this session has no PROVEN live process — which is also why this arm
+      // reports killed rather than inverting into the permanent `killed:false`
+      // that would make `reviveParkedButAlive` resurrect a long-dead session.
       await reclaimScope()
+      // THE AMBIGUOUS CORNER, SAID OUT LOUD (review residual). A pid that is
+      // PRESENT but uncorroborable is genuinely unknown — for an unscoped
+      // wedged opencode (the one driver whose child outlives the daemon) it
+      // may be this session's credentialed server running on. The receipt
+      // still says killed, but the ambiguity is logged and named on it rather
+      // than collapsing into silent confidence.
+      if (identity.pid !== undefined && io.pidAlive(identity.pid)) {
+        ambiguity =
+          'an uncorroborable process holds the journalled pid — possibly a wedged unscoped survivor'
+        log.warn('a journalled server-driver pid is occupied but uncorroborable', {
+          sessionId,
+          driver: reap.driver,
+          processKey: identity.key,
+          pid: identity.pid,
+        })
+      }
     }
     // The journal is the adoption path's map to a credentialed endpoint. A
     // retired session must not stay on that map; a parked one keeps its entry
     // (a dead process fails the adopt probe, so a stale entry only costs a
     // refused rebind — the same trade the handle verbs make).
     if (opts.retire) reap.clearJournal()
-    sendKillResult(ctx, sessionId, identity.key, dead)
+    sendKillResult(ctx, sessionId, identity.key, dead, ambiguity)
   } catch (err) {
     log.warn('could not reap the journalled server-driver session', { err, sessionId })
+    const alive = await corroboratedAlive(reap, io).catch(() => false)
+    if (!alive && identity.pid !== undefined && io.pidAlive(identity.pid)) {
+      log.warn('a journalled server-driver pid is occupied but uncorroborable', {
+        sessionId,
+        driver: reap.driver,
+        processKey: identity.key,
+        pid: identity.pid,
+      })
+    }
     ctx.send({
       type: 'sessionKillResult',
       sessionId,
       durableLabel: identity.key,
-      killed: !(await corroboratedAlive(reap, io).catch(() => false)),
+      killed: !alive,
       reason: err instanceof Error ? err.message : String(err),
     })
   }
@@ -414,6 +445,10 @@ function sendKillResult(
   sessionId: SessionId,
   processKey: string,
   dead: boolean | undefined,
+  /** A caveat worth carrying on a KILLED receipt — the uncorroborable-pid
+   *  ambiguity. The server acts only on `killed`, so this is for the operator
+   *  reading the receipt, not for the row machinery. */
+  note?: string,
 ): void {
   if (dead === false) {
     log.warn('the server-driver process is STILL running after a kill', {
@@ -421,11 +456,12 @@ function sendKillResult(
       processKey,
     })
   }
+  const reason = dead === false ? 'the server-driver process is still running' : note
   ctx.send({
     type: 'sessionKillResult',
     sessionId,
     durableLabel: processKey,
     killed: dead !== false,
-    ...(dead === false ? { reason: 'the server-driver process is still running' } : {}),
+    ...(reason ? { reason } : {}),
   })
 }

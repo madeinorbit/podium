@@ -331,12 +331,29 @@ describe('teardown from the journal alone — the post-daemon-restart arm, once 
 
     expect(io.signals).toHaveLength(0)
     expect(killResult(sent)).toMatchObject({ killed: true })
+    // …but never SILENTLY (review residual): the pid is occupied and
+    // uncorroborable, which for an unscoped wedged opencode could be this
+    // session's credentialed server — the receipt names the ambiguity.
+    expect(killResult(sent)?.reason).toMatch(/uncorroborable/)
     // The scope stop still ran — it is session-named and cannot hit a
     // bystander, and it clears any lingering cgroup the pid signal missed.
     expect(io.systemctl.length).toBeGreaterThan(0)
     // Retire still clears the journal: the row is gone, the credential's
     // address must go with it.
     expect(journalCleared).toEqual([SESSION])
+  })
+
+  it('a journalled reap of a DEAD pid stays a clean receipt — no ambiguity note', async () => {
+    const state: FakeProcessState = { alive: false, diesOn: 'SIGTERM' }
+    const { ctx, sent } = fakeCtx('codexRuntime', { journalEntry: journalEntryFor('codex') })
+    const io = fakeIo(state, {})
+
+    beginServerDriverReap(ctx, SESSION, { retire: false }, io)
+    await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+
+    expect(io.signals).toHaveLength(0)
+    expect(killResult(sent)).toMatchObject({ killed: true })
+    expect(killResult(sent)?.reason).toBeUndefined()
   })
 
   it('escalates a corroborated SIGTERM survivor to SIGKILL', async () => {
