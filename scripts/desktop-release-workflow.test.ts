@@ -81,6 +81,9 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('release_notes:')
     expect(desktopWorkflow).toContain('TAURI_SIGNING_PRIVATE_KEY:')
     expect(desktopWorkflow).toContain('TAURI_SIGNING_PRIVATE_KEY_PASSWORD:')
+    expect(desktopWorkflow).toContain(
+      'PODIUM_DESKTOP_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}',
+    )
     expect(desktopWorkflow).toContain('libwebkit2gtk-4.1-dev')
     expect(desktopWorkflow).toContain('blacksmith-6vcpu-macos-15')
     expect(desktopWorkflow).toContain('target: darwin-aarch64')

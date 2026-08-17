@@ -7,6 +7,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/clipboard'
+import { pageBuildVersion } from '@/lib/logging/build-version'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { Row, Section } from './shared'
 import {
@@ -30,6 +32,13 @@ interface FleetMachine {
 }
 
 interface FleetSnapshot {
+  appVersion?: string
+  servedWebDigest?: string
+  servedMobileWeb?: {
+    present: boolean
+    appVersion?: string
+    digest?: string
+  }
   targetVersion: string | null
   machines: FleetMachine[]
   /** POD-2100, additive: absent on a server older than the field (P8). */
@@ -38,6 +47,11 @@ interface FleetSnapshot {
 
 interface VersionInfo {
   appVersion?: string
+}
+
+interface ComponentVersionRow {
+  label: string
+  value: string
 }
 
 type VersionState = 'unreported' | 'current' | 'behind' | 'ahead'
@@ -169,6 +183,16 @@ export function UpdatesSection(): JSX.Element {
       const result = await trpc.setup.setChannel.mutate({ channel: next })
       setChannel(result.channel)
       setEnvForced(result.envForced)
+      // The server owns the fleet choice, while this bridge owns the installed shell's native
+      // fallback. Development uses the edge desktop feed; desktop has no third release channel.
+      const persist = nativeDesktopBridge()?.setUpdateChannel
+      if (persist) {
+        try {
+          await persist(result.channel === 'stable' ? 'stable' : 'edge')
+        } catch (e) {
+          setChannelError(e instanceof Error ? e.message : String(e))
+        }
+      }
     } catch (e) {
       setChannel(prev)
       setChannelError(e instanceof Error ? e.message : String(e))
@@ -293,15 +317,59 @@ export function UpdatesSection(): JSX.Element {
 
   const rows: HistoryRow[] = history ? historyRows(history, Date.now()) : []
 
+  const serverVersion = fleet?.appVersion ?? versionInfo?.appVersion
+  const webVersion = pageBuildVersion()
+  const desktopVersion = nativeDesktopBridge()?.currentVersion
+  const phone = fleet?.servedMobileWeb?.present ? fleet.servedMobileWeb : undefined
+  // A source digest is comparison evidence, not a product version. Use it to expose
+  // divergence, but describe that mismatch in words instead of printing a hash.
+  const phoneBuildDiffers = Boolean(
+    phone?.digest && fleet?.servedWebDigest && phone.digest !== fleet.servedWebDigest,
+  )
+  const componentRows: ComponentVersionRow[] = [
+    ...(serverVersion ? [{ label: 'Server', value: serverVersion }] : []),
+    { label: 'Web app', value: webVersion },
+    ...(phone
+      ? [
+          {
+            label: 'Phone app',
+            value: phoneBuildDiffers
+              ? 'Different build from web app'
+              : (phone.appVersion ??
+                (phone.digest === fleet?.servedWebDigest
+                  ? 'Same build as web app'
+                  : 'Version unavailable')),
+          },
+        ]
+      : []),
+    ...(desktopVersion ? [{ label: 'Desktop app', value: desktopVersion }] : []),
+  ]
+  const reportedVersions = [serverVersion, webVersion, phone?.appVersion, desktopVersion].filter(
+    (version): version is string => version !== undefined,
+  )
+  const versionsDiffer = reportedVersions.some((version) => version !== reportedVersions[0])
+  const showComponentVersions = fleet !== null && (versionsDiffer || phoneBuildDiffers)
+
   return (
     <Section
       title="Updates"
       hint="Which builds the self-updater (podium update) pulls, for this server and every machine that has not pinned a source of its own. stable = released builds · edge = latest from main."
     >
       <Row label="Running version">
-        <code className="settings-value">
-          {versionInfo?.appVersion ?? <span className="settings-micro font-sans">Loading…</span>}
-        </code>
+        {showComponentVersions ? (
+          <dl className="flex w-full flex-col gap-1" data-testid="component-version-breakdown">
+            {componentRows.map((component) => (
+              <div key={component.label} className="flex items-baseline justify-between gap-4">
+                <dt className="settings-micro">{component.label}</dt>
+                <dd className="settings-value text-right font-mono">{component.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <code className="settings-value">
+            {serverVersion ?? <span className="settings-micro font-sans">Loading…</span>}
+          </code>
+        )}
       </Row>
       <Row
         label="Target version"

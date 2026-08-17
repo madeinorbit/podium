@@ -2,7 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
@@ -11,6 +11,8 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { recoverFromWireSkew } from '@/features/setup/version-guard'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
+import { LoadingScreen } from './LoadingScreen'
+import { SyncLoader } from './SyncLoader'
 import {
   hasActivationState,
   isActivationEligible,
@@ -28,12 +30,12 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import type { KernelAssembly } from '@/lib/kernelReplica'
+import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
-import { AsciiLoader } from './AsciiLoader'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
@@ -89,14 +91,6 @@ const ApprovalDialog = lazy(() =>
 const AutoContinueDialog = lazy(() =>
   import('./AutoContinueDialog').then((module) => ({ default: module.AutoContinueDialog })),
 )
-function LoadingScreen(): JSX.Element {
-  return (
-    <div className="app-loading" role="status" aria-live="polite">
-      <AsciiLoader />
-    </div>
-  )
-}
-
 function RouteFallback(): JSX.Element {
   return <div className="flex min-h-0 min-w-0 flex-1" aria-hidden="true" />
 }
@@ -228,7 +222,7 @@ export function AppShell(): JSX.Element {
                   {/* Above both TopBar and the view outlet: the command bar's centre
                     is a portal target the active mode fills (POD-365). */}
                   <ToolbarSlotProvider>
-                    <AppBody />
+                    <AppBody syncProgress={kernel.assembly.progress} />
                   </ToolbarSlotProvider>
                 </ConfirmProvider>
               </RoutedDensityProvider>
@@ -264,7 +258,7 @@ function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Eleme
  *  arrow would hand `RightRail` a new callback every render (POD-540). */
 const writeRightPanel = (panel: RightPanelTab | null): string => panel ?? ''
 
-function AppBody(): JSX.Element {
+function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Element {
   const {
     repos,
     reposLoaded,
@@ -291,6 +285,7 @@ function AppBody(): JSX.Element {
   )
   const view = useStoreSelector((s) => s.view)
   const setView = useStoreSelector((s) => s.setView)
+  const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
   const issues = useReplicaIssues()
   // Settings and Usage are utilities layered OVER a mode, not modes themselves
   // (POD-365). The shell keeps rendering the mode underneath, and closing the
@@ -611,11 +606,28 @@ function AppBody(): JSX.Element {
     />
   )
 
-  if (!reposLoaded) {
+  // THE FIRST-SYNC GATE (POD-1249). `reposLoaded` alone is the wrong condition
+  // on a cold replica: it flips when the discovery tRPC call answers, which is
+  // unrelated to the feed bootstrap — the old gate dropped the loader while the
+  // whole world was still downloading and left a fully-chromed empty shell. A
+  // cold launch therefore also waits for the bootstrap to INSTALL, and shows the
+  // detailed sync screen instead of the splash; warm launches keep the splash
+  // for the enrichment beat exactly as before.
+  const firstSyncPending = sync.firstSync && sync.phase !== 'ready'
+  if (!reposLoaded || firstSyncPending) {
     return (
       <>
         {menuHost}
-        <LoadingScreen />
+        {sync.firstSync ? (
+          <SyncLoader
+            store={syncProgress}
+            reposLoaded={reposLoaded}
+            repoCount={repos.length}
+            worktreeCount={repos.reduce((n, repo) => n + repo.worktrees.length, 0)}
+          />
+        ) : (
+          <LoadingScreen />
+        )}
       </>
     )
   }

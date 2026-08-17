@@ -209,4 +209,16 @@ describe('UpdatesEngine', () => {
     fireEvent.click(screen.getByTestId('update-primary'))
     expect(mocks.run).toHaveBeenCalledWith('start')
   })
+
+  it('routes a check-again action back through the full manual check', () => {
+    mount({
+      ...OFFER,
+      state: 'failed',
+      primary: { kind: 'check', label: 'Check again', pendingLabel: 'Checking…' },
+    })
+
+    fireEvent.click(screen.getByTestId('update-primary'))
+    expect(mocks.checkNow).toHaveBeenCalledTimes(1)
+    expect(mocks.run).not.toHaveBeenCalled()
+  })
 })

@@ -202,6 +202,9 @@ jobs:
           APPLE_API_KEY: ${{ matrix.target == 'darwin-aarch64' && secrets.APPLE_API_KEY || '' }}
           APPLE_API_ISSUER: ${{ matrix.target == 'darwin-aarch64' && secrets.APPLE_API_ISSUER || '' }}
           BUILD_ARGS: ${{ matrix.build_args }}
+          # Compile the resolved promotion channel into the installed shell so a pristine config
+          # checks the feed this artifact actually came from.
+          PODIUM_DESKTOP_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run --cwd apps/desktop build $BUILD_ARGS

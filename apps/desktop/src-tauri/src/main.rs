@@ -21,7 +21,7 @@ use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::path::BaseDirectory;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
-use updater::{check_update, claim_update_ownership, install_update};
+use updater::{check_update, claim_update_ownership, install_update, set_update_channel};
 
 const DESKTOP_SUPERVISED_ENV: &str = "PODIUM_DESKTOP_SUPERVISED";
 /// This shell's own PID, handed to every backend we spawn so the backend can tie its
@@ -41,6 +41,7 @@ const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "allow-claim-update-ownership",
     "allow-check-update",
     "allow-install-update",
+    "allow-set-update-channel",
     "process:allow-restart",
 ];
 
@@ -364,6 +365,7 @@ const DESKTOP_PLATFORM: &str = "macos";
 const DESKTOP_PLATFORM: &str = "windows";
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 const DESKTOP_PLATFORM: &str = "linux";
+const DESKTOP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Eval a web-app menu hook if the page has registered it. Missing handlers are
 /// a no-op: setup/onboarding has nothing to spawn, and an empty workspace must
@@ -384,7 +386,7 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     };
     // Desktop updates are available in every launch mode. The page may be remote or older
     // than this shell, so these methods are always present and are feature-detected by the page.
-    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('install_update', { channel })";
+    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('install_update', { channel }),\n            setUpdateChannel: (channel) => window.__TAURI_INTERNALS__.invoke('set_update_channel', { channel })";
     // Hand a URL to the OS browser on purpose. The injected opener shim only rescues
     // CROSS-origin links (bootstrap::opener_shim_script); a page that wants the real browser
     // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
@@ -417,6 +419,7 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     format!(
         r#"window.__PODIUM_DESKTOP__ = Object.freeze({{
             platform: "{DESKTOP_PLATFORM}",
+            currentVersion: "{DESKTOP_VERSION}",
             launchMode: {launch_mode_expression}{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
@@ -516,7 +519,8 @@ fn main() {
             enable_hosting,
             claim_update_ownership,
             check_update,
-            install_update
+            install_update,
+            set_update_channel
         ])
         .setup(|app| {
             // TEST AID: record the running app version so the e2e can deterministically
@@ -1284,6 +1288,7 @@ mod tests {
                 "allow-claim-update-ownership",
                 "allow-check-update",
                 "allow-install-update",
+                "allow-set-update-channel",
                 "process:allow-restart",
             ]
         );
@@ -1318,6 +1323,7 @@ mod tests {
     fn native_hook_exposes_only_window_actions() {
         let hook = native_desktop_hook("all-in-one", None);
         assert!(hook.contains(&format!("platform: \"{DESKTOP_PLATFORM}\"")));
+        assert!(hook.contains(&format!("currentVersion: \"{DESKTOP_VERSION}\"")));
         assert!(hook.contains("? \"all-in-one\" : 'daemon'"));
         assert!(hook.contains("plugin:window|minimize"));
         assert!(hook.contains("plugin:window|toggle_maximize"));
@@ -1336,6 +1342,8 @@ mod tests {
             assert!(hook.contains("checkUpdate: (channel)"));
             assert!(hook.contains("installUpdate: (channel)"));
             assert!(hook.contains("invoke('install_update', { channel })"));
+            assert!(hook.contains("setUpdateChannel: (channel)"));
+            assert!(hook.contains("invoke('set_update_channel', { channel })"));
         }
     }
 

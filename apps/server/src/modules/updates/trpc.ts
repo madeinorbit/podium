@@ -93,6 +93,12 @@ export interface UpdateFleetMachine {
 }
 
 export interface UpdateFleetSnapshot {
+  /** Running coordinator version; additive so an older web bundle can ignore it. */
+  appVersion?: string
+  /** Served desktop-web checkout identity. A digest is comparison evidence, not display copy. */
+  servedWebDigest?: string
+  /** Served phone bundle identity, absent when this installation has no phone export. */
+  servedMobileWeb?: MobileWebIdentity
   targetVersion: string | null
   total: number
   behind: number
@@ -293,9 +299,7 @@ function contextFor(
  * exists only to fail with one. A refusal here is the same sentence the old
  * `startUpdate` produced, so the current dialog's copy is unchanged.
  */
-export type UpdateStartability =
-  | { startable: true }
-  | { startable: false; reason: string }
+export type UpdateStartability = { startable: true } | { startable: false; reason: string }
 
 export function updateStartability(input: UpdatePlanInput): UpdateStartability {
   const plan = planUpdateOperation(input)
@@ -413,8 +417,23 @@ export function updateFleet(ctx: Context): UpdateFleetSnapshot {
           preparation?.failureDetail,
         ),
       }
+  let servedWebDigest: string | undefined
+  let servedMobileWeb: MobileWebIdentity | undefined
+  try {
+    servedWebDigest = ctx.servedWebDigest?.()
+  } catch {
+    servedWebDigest = undefined
+  }
+  try {
+    servedMobileWeb = ctx.servedMobileWeb?.()
+  } catch {
+    servedMobileWeb = undefined
+  }
   return {
     ...fleet,
+    appVersion: serverBuildVersion(),
+    ...(servedWebDigest ? { servedWebDigest } : {}),
+    ...(servedMobileWeb ? { servedMobileWeb } : {}),
     startability,
     ...(preparation ? { preparation } : {}),
     ...(active?.kind === UPDATE_OPERATION_KIND ? { operationId: active.id } : {}),

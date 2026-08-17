@@ -162,9 +162,10 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
 
   const onAction = useCallback(
     (kind: PanelActionKind) => {
-      void run(kind)
+      if (kind === 'check') void checkNow()
+      else void run(kind)
     },
-    [run],
+    [checkNow, run],
   )
 
   const surface = useMemo<UpdatesContextValue>(

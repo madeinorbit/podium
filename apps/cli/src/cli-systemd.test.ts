@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
+  installSystemd,
   renderDaemonUnit,
   renderJanitorUnit,
   renderServerUnit,
   renderSystemdFiles,
-  shouldInstallUpdateTimer,
   userUnitDir,
 } from './cli-systemd'
 
@@ -133,12 +136,11 @@ describe('renderJanitorUnit', () => {
 })
 
 describe('systemd profile rendering', () => {
-  it('packages the daemon and daily update artifacts from the same source', () => {
+  it('packages runtime services without an update timer', () => {
     const files = renderSystemdFiles({ profile: 'packaged', instanceId: 'default' }).units
     expect(files['podium-daemon.service']).toBe(renderDaemonUnit())
     expect(files['podium-server.service']).toBe(renderServerUnit())
-    expect(files['podium-update-user.service']).toContain('podium update')
-    expect(files['podium-update-user.timer']).toContain('Unit=podium-update-user.service')
+    expect(Object.keys(files).filter((name) => name.includes('update'))).toEqual([])
   })
 
   it('keeps packaged units instance-scoped', () => {
@@ -150,8 +152,7 @@ describe('systemd profile rendering', () => {
     expect(files['podium-blue-janitor.service']).toContain(
       'ExecStart=%h/.local/bin/podium-blue janitor --server http://localhost:23000',
     )
-    expect(files['podium-blue-update.service']).toContain('%h/.local/bin/podium-blue update')
-    expect(files['podium-blue-update.timer']).toContain('Unit=podium-blue-update.service')
+    expect(Object.keys(files).filter((name) => name.includes('update'))).toEqual([])
   })
 
   it('renders an instance-scoped dev profile, including redeploy and health units', () => {
@@ -166,7 +167,7 @@ describe('systemd profile rendering', () => {
       'Environment=PODIUM_HEALTH_UNIT=podium-blue-server.service',
     )
     expect(files['podium-blue-health.timer']).toContain('Unit=podium-blue-health.service')
-    expect(files['podium-blue-update.timer']).toContain('Unit=podium-blue-update.service')
+    expect(Object.keys(files).filter((name) => name.includes('update'))).toEqual([])
   })
 
   /**
@@ -210,24 +211,68 @@ describe('userUnitDir', () => {
   })
 })
 
-describe('shouldInstallUpdateTimer', () => {
-  it('installs for a standalone all-in-one install with no server', () => {
-    expect(shouldInstallUpdateTimer({ mode: 'all-in-one', serverUrl: undefined })).toBe(true)
+describe('installSystemd update-timer retirement', () => {
+  const dirs: string[] = []
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
   })
 
-  it('does not install for a daemon attached to a server', () => {
-    expect(shouldInstallUpdateTimer({ mode: 'daemon', serverUrl: 'wss://hub.test' })).toBe(false)
+  function install(mode: 'all-in-one' | 'server' | 'daemon', instanceId = 'default') {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-systemd-install-'))
+    dirs.push(dir)
+    const commands: Array<{ cmd: string; args: string[] }> = []
+    const result = installSystemd(mode, 18787, instanceId, {
+      hasSystemctl: () => true,
+      hasUserSystemd: () => true,
+      unitDir: () => dir,
+      run: (cmd, args) => commands.push({ cmd, args }),
+    })
+    expect(result).toEqual({ ok: true })
+    return { dir, commands }
+  }
+
+  it.each([
+    'all-in-one',
+    'server',
+    'daemon',
+  ] as const)('setup/reconcile installs no update units in %s mode', (mode) => {
+    const { dir, commands } = install(mode)
+    expect(readdirSync(dir).filter((name) => name.includes('update'))).toEqual([])
+    expect(commands.flatMap(({ args }) => args).filter((arg) => arg.includes('update'))).toEqual([])
   })
 
-  it('does not install for a client attached to a server', () => {
-    expect(shouldInstallUpdateTimer({ mode: 'client', serverUrl: 'wss://hub.test' })).toBe(false)
-  })
+  it.each([
+    {
+      instanceId: 'default',
+      timer: 'podium-update-user.timer',
+      service: 'podium-update-user.service',
+    },
+    {
+      instanceId: 'blue',
+      timer: 'podium-blue-update.timer',
+      service: 'podium-blue-update.service',
+    },
+  ])('disables and removes an existing $instanceId timer on setup/reconcile', (fixture) => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-systemd-install-'))
+    dirs.push(dir)
+    writeFileSync(join(dir, fixture.timer), 'legacy timer')
+    writeFileSync(join(dir, fixture.service), 'legacy service')
+    const commands: Array<{ cmd: string; args: string[] }> = []
 
-  it('installs for a standalone server', () => {
-    expect(shouldInstallUpdateTimer({ mode: 'server', serverUrl: undefined })).toBe(true)
-  })
+    const result = installSystemd('server', 18787, fixture.instanceId, {
+      hasSystemctl: () => true,
+      hasUserSystemd: () => true,
+      unitDir: () => dir,
+      run: (cmd, args) => commands.push({ cmd, args }),
+    })
 
-  it('keeps a daemon without authority standalone', () => {
-    expect(shouldInstallUpdateTimer({ mode: 'daemon', serverUrl: undefined })).toBe(true)
+    expect(result).toEqual({ ok: true })
+    expect(commands).toContainEqual({
+      cmd: 'systemctl',
+      args: ['--user', 'disable', '--now', fixture.timer],
+    })
+    expect(readdirSync(dir)).not.toContain(fixture.timer)
+    expect(readdirSync(dir)).not.toContain(fixture.service)
   })
 })

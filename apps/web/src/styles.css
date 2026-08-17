@@ -2751,6 +2751,218 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   letter-spacing: 0.4em;
   text-transform: uppercase;
 }
+/* First-sync screen (SyncLoader, POD-1249): the detailed sync progress shown
+   instead of the ASCII splash when this launch opened a COLD replica. Text and
+   hairlines ride the theme tokens; the hero tile stays dark in both themes
+   because it is the app icon, and the accent is the icon's brand gold. */
+.sync-loading {
+  /* Same subtraction as .app-loading: #root has already padded this down. */
+  height: calc(var(--viewport-h, 100dvh) - var(--wire-skew-banner-h, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--background);
+  --sync-acc: #d99725;
+  --sync-glyph-well: color-mix(in srgb, var(--foreground) 18%, var(--background));
+}
+.sync-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(452px, calc(100vw - 48px));
+  animation: sync-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sync-loader-defs {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.sync-loader-tide-a {
+  animation: sync-tide 3.2s cubic-bezier(0.44, 0, 0.56, 1) infinite;
+}
+.sync-loader-tide-b {
+  animation: sync-tide-b 3.2s cubic-bezier(0.44, 0, 0.56, 1) infinite;
+}
+.sync-loader-charge-fill {
+  animation: sync-charge 2.4s cubic-bezier(0.32, 0.72, 0.3, 1) infinite;
+}
+.sync-loader-wordmark {
+  margin-top: 24px;
+  width: 112px;
+  height: 43px;
+  background: var(--foreground);
+  -webkit-mask: center / contain no-repeat;
+  mask: center / contain no-repeat;
+}
+.sync-loader-subtitle {
+  margin-top: 22px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+.sync-loader-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 26px;
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.sync-loader-meta-strong {
+  color: var(--foreground);
+}
+.sync-loader-meta-pct {
+  color: var(--sync-acc);
+}
+.sync-loader-track {
+  width: 100%;
+  margin-top: 9px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.sync-loader-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--sync-acc);
+  transition: width 380ms cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+.sync-loader-fill[data-indeterminate] {
+  width: 38%;
+  animation: sync-indeterminate 1.2s ease-in-out infinite;
+}
+.sync-loader-ledger {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-top: 26px;
+  border-top: 1px solid var(--border);
+}
+.sync-loader-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 31px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+.sync-loader-row-icon {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+.sync-loader-row-label {
+  flex: 1;
+  color: var(--muted-foreground);
+}
+.sync-loader-row-value {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.sync-loader-row[data-state='done'] .sync-loader-row-icon {
+  color: var(--sync-acc);
+}
+.sync-loader-row[data-state='active'] .sync-loader-row-label {
+  color: var(--foreground);
+}
+.sync-loader-row[data-state='active'] .sync-loader-row-value {
+  color: var(--sync-acc);
+}
+.sync-loader-row[data-state='queued'] .sync-loader-row-icon,
+.sync-loader-row[data-state='queued'] .sync-loader-row-label,
+.sync-loader-row[data-state='queued'] .sync-loader-row-value {
+  opacity: 0.55;
+}
+.sync-loader-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 20px;
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+  opacity: 0.8;
+}
+.sync-loader-foot-clock {
+  font-variant-numeric: tabular-nums;
+}
+@keyframes sync-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sync-tide {
+  0%,
+  100% {
+    transform: translateY(15px);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+@keyframes sync-tide-b {
+  0%,
+  100% {
+    transform: translateY(7px);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+@keyframes sync-charge {
+  0% {
+    transform: translateY(106px);
+    opacity: 0.9;
+  }
+  56% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  74% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  94%,
+  100% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+}
+@keyframes sync-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sync-loader,
+  .sync-loader-tide-a,
+  .sync-loader-tide-b,
+  .sync-loader-charge-fill,
+  .sync-loader-fill[data-indeterminate] {
+    animation: none;
+  }
+}
 /* Key accessory bars (terminal keys / submit row): these belonged to the
    retired responsive mobile shell [POD-102]. AgentPanel still renders the DOM;
    these base rules keep it hidden until that markup is stripped too. */
@@ -5259,17 +5471,25 @@ html[data-density="compact"] .brief-shelf {
 
 /* THE ENGINE'S ANCHOR FOLLOWS THE PIN (POD-1160).
 
-   Safari 26 ships scroll anchoring, and on this feed it is an authority
-   problem: the engine picks an anchor row and then REVERTS whatever moves it —
-   the app's bottom writes (measured: a -200px write applied late, partially,
-   or never, then snapped back) and the reader's own wheel (measured: 0px of
-   escape against it). Turning anchoring off wholesale is worse in two ways
-   that are both on the record: `overflow-anchor: none` on the SCROLLER makes
-   WebKit under-compute the scrollable region outright (POD-993, 444px
-   unreachable), and excluding every child starves the same geometry-refresh
-   channel, so the engine's idea of the maximum runs stale and it drags the
-   view up to it — 115-161px short, exactly the "it jumps up a second or two
-   after I reach the bottom" report.
+   KNOW WHICH ENGINE THE MEASUREMENTS BELOW CAME FROM (round 2): every one of
+   them ran in Playwright's TRUNK WebKit, which ships scroll anchoring.
+   RELEASE Safari — the operator's browser — has none at all
+   (`CSS.supports('overflow-anchor: none')` is false there), so this whole
+   block is inert for it; the bug that browser actually has is a stale async
+   scroll maximum, owned by `writeBottom` and arrival-by-intent in
+   use-transcript-scroll.ts. This regime manages the engine the automated
+   tests run in today and the one release Safari becomes when anchoring ships.
+
+   In an anchoring WebKit this feed is an authority problem: the engine picks
+   an anchor row and then REVERTS whatever moves it — the app's bottom writes
+   (measured: a -200px write applied late, partially, or never, then snapped
+   back) and the reader's own wheel (measured: 0px of escape against it).
+   Turning anchoring off wholesale is worse in two ways that are both on the
+   record: `overflow-anchor: none` on the SCROLLER makes WebKit under-compute
+   the scrollable region outright (POD-993, 444px unreachable), and excluding
+   every child starves the same geometry-refresh channel, so the engine's idea
+   of the maximum runs stale and it drags the view up to it — 115-161px short,
+   exactly the "it jumps up a second or two after I reach the bottom" report.
 
    So eligibility follows the reader's intent, which the scroll hook already
    tracks (use-transcript-scroll.ts):
@@ -5283,8 +5503,9 @@ html[data-density="compact"] .brief-shelf {
      Measured: 1440-1481px of escape against a bottom-writer, position holds.
 
    The hook re-grants eligibility on any DOWNWARD movement, before arrival:
-   the style flip itself refreshes the engine's stale maximum, so the true
-   bottom is reachable again by the time the reader gets there. */
+   in an anchoring engine the style flip refreshes the stale maximum on its
+   own; in release Safari it does nothing, which is why a write that falls
+   short heals the geometry itself with one frame of real padding. */
 [data-feed-scroller] > * {
   overflow-anchor: none;
 }

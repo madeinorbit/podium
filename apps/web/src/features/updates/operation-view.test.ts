@@ -599,6 +599,11 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
     const codes = [
       'debug-build',
       'no-pending-update',
+      'invalid-update-channel',
+      'updater-unavailable',
+      'no-release-on-channel',
+      'network-unreachable',
+      'update-check-failed',
       'download-failed',
       'signature-invalid',
       'install-failed',
@@ -611,6 +616,85 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
       expect(presented.nextAction.length).toBeGreaterThan(0)
       expect(presented.detail).toContain('operation: op_1')
     }
+  })
+
+  it('keeps desktop check failures distinct with one useful next action', () => {
+    const cases = [
+      {
+        error: {
+          code: 'updater-unavailable',
+          message: 'Podium could not start the desktop update checker.',
+        },
+        message: 'Podium could not start the desktop update checker.',
+        nextAction: 'Restart Podium, then check again.',
+      },
+      {
+        error: {
+          code: 'no-release-on-channel',
+          message: 'Nothing has been published on the stable channel yet.',
+        },
+        message: 'Nothing has been published on the stable channel yet.',
+        nextAction: 'Choose a different release channel.',
+      },
+      {
+        error: {
+          code: 'network-unreachable',
+          message: 'Podium could not reach the stable update channel.',
+        },
+        message: 'Podium could not reach the stable update channel.',
+        nextAction: "Check this machine's internet connection, then check again.",
+      },
+      {
+        error: {
+          code: 'update-check-failed',
+          message: 'Podium could not read release information from the stable channel.',
+        },
+        message: 'Podium could not read release information from the stable channel.',
+        nextAction: 'Ask the release publisher to check the desktop manifest.',
+      },
+      {
+        error: {
+          code: 'invalid-update-channel',
+          message: 'Podium received an unsupported desktop update channel.',
+        },
+        message: 'Podium received an unsupported desktop update channel.',
+        nextAction: 'Report this as a Podium bug.',
+      },
+      {
+        error: {
+          code: 'download-failed',
+          message: 'Podium could not download the desktop update.',
+        },
+        message: 'Podium could not download this update.',
+        nextAction: 'Check the connection, then try the update again.',
+      },
+    ]
+
+    for (const expected of cases) {
+      const presented = presentOperationError(expected.error)
+      expect(presented.message).toBe(expected.message)
+      expect(presented.nextAction).toBe(expected.nextAction)
+    }
+
+    expect(new Set(cases.map(({ error }) => error.code)).size).toBe(cases.length)
+    expect(new Set(cases.map(({ message }) => message)).size).toBe(cases.length)
+  })
+
+  it('does not offer a retry when a channel has no release to find', () => {
+    const result = operationView({
+      operation: null,
+      offer: OFFER,
+      local: NOT_BEHIND,
+      surface: 'desktop-all-in-one',
+      now: NOW,
+      actionError: {
+        code: 'no-release-on-channel',
+        message: 'Nothing has been published on the stable channel yet.',
+      },
+    })
+
+    expect(result.error?.message).toBe('Nothing has been published on the stable channel yet.')
+    expect(result.primary).toBeUndefined()
   })
 
   /**

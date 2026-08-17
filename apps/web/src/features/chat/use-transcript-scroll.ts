@@ -85,17 +85,45 @@ export interface UseTranscriptScrollResult {
 const SETTLE_FRAMES = 10
 
 /**
+ * Two wheel-down notches against a frozen offset re-pin a reader the geometry
+ * refuses to let arrive (see the intent listeners). The spacing is what keeps
+ * a FAST reader out of it: two notches inside the same frame read the same
+ * offset because the engine has not applied the first yet, not because it
+ * refused it — async scrolling applies within a frame or two, so 100ms is
+ * comfortably past honest lag while a held wheel against the clamp crosses it
+ * in a beat.
+ */
+const STUCK_NOTCH_SPACING_MS = 100
+/** An upward move that stays inside this band reads as the rubber band
+ *  settling onto a stale maximum, not as the reader leaving — the measured
+ *  staleness runs 115–161px (see `writeBottom`). */
+const REVOKE_TRAVEL_PX = 160
+/** How long after a wheel-down notch an upward move still belongs to that
+ *  gesture (its own clamp or rubber-band retraction) rather than to fresh
+ *  intent. */
+const WHEEL_GESTURE_MS = 300
+
+/**
  * Grant or revoke the ENGINE's end-of-feed anchor (POD-1160).
  *
- * Safari 26 ships scroll anchoring, and on this feed the engine reverts
+ * Trunk WebKit ships scroll anchoring, and on this feed that engine reverts
  * whatever moves its chosen anchor — the pin's writes and the reader's wheel
  * alike. The stylesheet therefore excludes every row from anchor selection and
  * re-admits only the LAST child, only while this attribute is present (see
- * styles.css). With it, WebKit holds the bottom natively and keeps its scroll
- * geometry fresh; without it, the engine has no anchor to defend and a reader
- * who has scrolled up cannot be dragged back. The attribute is written
- * imperatively because it changes on the scroll path, where a re-render per
- * flip would be the most expensive possible way to toggle one bit.
+ * styles.css). With it, an anchoring WebKit holds the bottom natively; without
+ * it, the engine has no anchor to defend and a reader who has scrolled up
+ * cannot be dragged back.
+ *
+ * KNOW WHICH ENGINE THIS IS FOR (round 2): RELEASE Safari has no scroll
+ * anchoring at all — `CSS.supports('overflow-anchor: none')` is false in the
+ * operator's own browser — so there this attribute is inert both ways, and the
+ * bug that browser actually has is a stale scroll maximum (see `writeBottom`).
+ * The regime stays because the engine it manages is the one Playwright tests
+ * run in today and the one release Safari becomes when anchoring ships.
+ *
+ * The attribute is written imperatively because it changes on the scroll
+ * path, where a re-render per flip would be the most expensive possible way
+ * to toggle one bit.
  */
 function setAnchorEnd(el: HTMLElement, on: boolean): void {
   if (on === el.hasAttribute('data-anchor-end')) return
@@ -108,6 +136,57 @@ function setAnchorEnd(el: HTMLElement, on: boolean): void {
 const settling = new WeakMap<HTMLElement, number>()
 
 /**
+ * Write the bottom, and HEAL THE ENGINE'S MAXIMUM if the write comes up short
+ * (POD-1160 round 2, the recording of 2026-08-17).
+ *
+ * Release Safari scrolls this feed asynchronously against a CACHED maximum,
+ * and that cache is refreshed only by a layout pass that changes the
+ * scroller's scrollable overflow. Content that mounts without forcing one —
+ * the waiting tail row on a quiet transcript — leaves the cached maximum short
+ * of the DOM's, and from then on EVERYTHING is clamped at the stale ceiling:
+ * measured in the operator's own Safari, `scrollTop = scrollHeight` moved 0px
+ * against a maximum 115px under the DOM's, and 96 real wheel-down notches got
+ * the same wall. (Every earlier measurement that "disproved" a stale clamp —
+ * including the one an older comment here reported — ran in Playwright's
+ * trunk WebKit, which does not exhibit it. The operator's browser does.)
+ *
+ * A second write on a later frame gets zero pixels further, because time is
+ * not what the cache is waiting for. One frame of genuinely changed geometry
+ * is: a pixel of padding, a forced layout, and the padding back off. Verified
+ * live in the operator's console — gap 115 → 0 on exactly this sequence —
+ * and paid for only when a write has demonstrably fallen short, so the
+ * streaming hot path (where writes land) never sees the extra layout.
+ */
+function writeBottom(el: HTMLElement): void {
+  el.scrollTop = el.scrollHeight
+  if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) return
+  el.style.paddingBottom = '1px'
+  void el.offsetHeight
+  el.style.paddingBottom = ''
+  el.scrollTop = el.scrollHeight
+}
+
+/** A wheel over a scrollable region inside the feed chains to the feed only
+ *  once that region is spent — until then the feed's offset is frozen for the
+ *  OPPOSITE reason to the clamp, and the notches must not count as pushing
+ *  against the end. */
+function innerScrollerHasTheWheel(target: EventTarget | null, el: HTMLElement): boolean {
+  let node: Node | null = target instanceof Node ? target : null
+  while (node && node !== el) {
+    if (
+      node instanceof HTMLElement &&
+      node.scrollHeight > node.clientHeight + 1 &&
+      node.scrollTop + node.clientHeight < node.scrollHeight - 1
+    ) {
+      const overflowY = getComputedStyle(node).overflowY
+      if (overflowY === 'auto' || overflowY === 'scroll') return true
+    }
+    node = node.parentNode
+  }
+  return false
+}
+
+/**
  * Hold the view at the bottom while the layout under it is still moving.
  *
  * Every caller here wants the same thing and used to write it the same way —
@@ -116,12 +195,13 @@ const settling = new WeakMap<HTMLElement, number>()
  * window and abandons immediately if the pin is dropped, so it can never fight
  * a user who has taken the scroll back.
  *
- * IT IS NOT A FIX FOR A STALE CLAMP, which is what I once wrote here. That
- * theory — that `scrollTop` clamps against a maximum the engine has not
- * recomputed — was tested in WebKit and is false: a second write on a later
- * frame got zero pixels further. What was actually wrong was
- * `overflow-anchor: none` on the scroller, which made WebKit under-compute the
- * scrollable region outright; see TranscriptFeed.
+ * IT IS NOT ITSELF A FIX FOR A STALE CLAMP — and the history of that sentence
+ * is a caution. An earlier version here declared the stale-clamp theory tested
+ * and false, because a second write on a later frame got zero pixels further.
+ * Both halves were right and the conclusion was wrong: the clamp is real in
+ * release Safari and a LATER FRAME is simply not what heals it (see
+ * `writeBottom`, which this loop writes through — the test that "disproved"
+ * the clamp ran in Playwright's trunk WebKit, which does not have it).
  *
  * What re-asserting genuinely buys is the case it was first written for: the
  * height the write aimed at is whatever had laid out so far, and a code block
@@ -139,7 +219,7 @@ function settleToBottom(el: HTMLElement, pinned: RefObject<boolean>): void {
       settling.set(el, 0)
       return
     }
-    el.scrollTop = el.scrollHeight
+    writeBottom(el)
     const left = (settling.get(el) ?? 0) - 1
     settling.set(el, left)
     if (left > 0) requestAnimationFrame(step)
@@ -193,6 +273,16 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   /** Last seen scroll offset — direction is what re-arms the engine's end
    *  anchor on the way down (see `onScroll`). */
   const lastScrollTop = useRef(0)
+  /** When the reader last wheeled DOWN — an upward move inside this window is
+   *  that gesture's own clamp or retraction, not fresh intent (see `onScroll`).
+   *  Starts at -Infinity: zero would read as "a notch at page birth" and
+   *  swallow every revoke in the first `WHEEL_GESTURE_MS` of the clock. */
+  const lastWheelDownAt = useRef(Number.NEGATIVE_INFINITY)
+  /** The frozen-offset count behind arrival-by-intent: the offset the last
+   *  counted notch read, when it read it, and how many in a row agreed. */
+  const stuckNotchTop = useRef<number | null>(null)
+  const stuckNotchAt = useRef(0)
+  const stuckNotches = useRef(0)
   /**
    * The ELEMENT currently on the shelf, not its index.
    *
@@ -378,7 +468,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       // writer rather than three, and skipping the sticky pass with it is the
       // larger saving: it reads a rect per operator prompt, every callback.
       if (arrivalHolds()) return
-      if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+      if (pinnedToBottom.current) writeBottom(el)
       syncStickyPromptPositions()
     })
     ro.observe(el)
@@ -452,7 +542,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       // writer rather than three, and skipping the sticky pass with it is the
       // larger saving: it reads a rect per operator prompt, every callback.
       if (arrivalHolds()) return
-      if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+      if (pinnedToBottom.current) writeBottom(el)
       syncStickyPromptPositions()
     })
     mo.observe(el, { childList: true })
@@ -505,6 +595,20 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
    * end is what re-pins them — genuinely at it, not merely near it — and the
    * 80px band goes back to meaning only what it should have meant all along:
    * whether to offer the jump affordance.
+   *
+   * AND ARRIVAL MUST NOT DEPEND ON THE GEOMETRY AGREEING (round 2, the
+   * recording of 2026-08-17). In release Safari the maximum the engine will
+   * scroll to runs stale — 115px short of the DOM's, measured live (see
+   * `writeBottom`) — and against that ceiling "genuinely at the end" is a
+   * place the reader is REFUSED: 96 recorded wheel-down notches got zero
+   * pixels, `gap <= 4` never fired, the pin could never re-engage, and the
+   * feed froze with the jump affordance on. So the wheel answers what the
+   * offset cannot: a reader pushing DOWN while the offset refuses to move is
+   * arriving in the only sense that matters, and gets the pin, the anchor,
+   * and a healed write of the bottom. Two spaced notches, not one — see
+   * `STUCK_NOTCH_SPACING_MS` for why fast honest scrolling cannot trip it —
+   * and none of it counts while an inner scroller is the one consuming the
+   * wheel.
    */
   useEffect(() => {
     const el = scrollerRef.current
@@ -521,7 +625,51 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     // to leave it, and treating it as one would drop the pin on a reader who
     // is trying to follow the stream.
     const onWheel = (e: WheelEvent): void => {
-      if (e.deltaY < 0) release()
+      if (e.deltaY < 0) {
+        release()
+        stuckNotches.current = 0
+        stuckNotchTop.current = null
+        return
+      }
+      if (e.deltaY === 0) return
+      lastWheelDownAt.current = performance.now()
+      if (pinnedToBottom.current) {
+        stuckNotches.current = 0
+        stuckNotchTop.current = null
+        return
+      }
+      if (innerScrollerHasTheWheel(e.target, el)) {
+        stuckNotches.current = 0
+        stuckNotchTop.current = null
+        return
+      }
+      const now = performance.now()
+      const top = el.scrollTop
+      if (stuckNotchTop.current !== null && Math.abs(top - stuckNotchTop.current) < 1) {
+        // Same offset as the last counted notch. Count it only if enough time
+        // has passed for the engine to have APPLIED that notch — inside the
+        // window this is async lag, not the clamp, and it neither counts nor
+        // resets what came before it.
+        if (now - stuckNotchAt.current < STUCK_NOTCH_SPACING_MS) return
+        stuckNotchAt.current = now
+        stuckNotches.current += 1
+        if (stuckNotches.current < 2) return
+        // Arrival by intent: pin, arm, and write the bottom through the heal.
+        stuckNotches.current = 0
+        stuckNotchTop.current = null
+        releasedByIntent.current = false
+        pinnedToBottom.current = true
+        setAnchorEnd(el, true)
+        settleToBottom(el, pinnedToBottom)
+        setAtBottom(true)
+        syncStickyPromptPositions()
+        return
+      }
+      // A moving offset — or the first notch of an approach. A fresh baseline
+      // either way.
+      stuckNotchTop.current = top
+      stuckNotchAt.current = now
+      stuckNotches.current = 1
     }
     el.addEventListener('wheel', onWheel, { passive: true })
     // Touch has no direction until the finger moves, and a drag that turns out
@@ -531,7 +679,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       el.removeEventListener('wheel', onWheel)
       el.removeEventListener('touchstart', release)
     }
-  }, [scrollerRef, pinnedToBottom])
+  }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions])
 
   const onScroll = useCallback(() => {
     const el = scrollerRef.current
@@ -541,10 +689,11 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     // DOWNWARD MOVEMENT RE-ARMS THE ENGINE'S END ANCHOR, before arrival
     // (POD-1160). Two reasons it cannot wait for the bottom: an eligible
     // anchor below the viewport is inert, so granting early costs nothing —
-    // and in WebKit the grant is what refreshes the engine's stale maximum
-    // scroll, without which a user scroll is CLAMPED short of the true bottom
-    // and the `gap <= 4` arrival below can never fire at all. Direction from
-    // the scroll offset itself so wheel, touch and scrollbar drags all count.
+    // and in an ANCHORING WebKit the grant is what refreshes the engine's
+    // stale maximum scroll. (Release Safari has no anchoring, so there the
+    // grant refreshes nothing — `writeBottom`'s heal and the wheel listeners'
+    // arrival-by-intent carry that browser instead.) Direction from the
+    // scroll offset itself so wheel, touch and scrollbar drags all count.
     const goingDown = el.scrollTop > lastScrollTop.current
     lastScrollTop.current = el.scrollTop
     if (goingDown) setAnchorEnd(el, true)
@@ -559,8 +708,21 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     // ...and UPWARD movement that has genuinely left the bottom revokes it —
     // the scrollbar-drag case, which raises no wheel or touch intent. Never
     // while pinned: a clamp after content below unmounts also reads as an
-    // upward move, and the pin is exactly what should survive that.
-    if (!goingDown && !pinnedToBottom.current) setAnchorEnd(el, false)
+    // upward move, and the pin is exactly what should survive that. And never
+    // for ENGINE motion (round 2): a rubber band settling onto release
+    // Safari's stale maximum is an upward move inside the stale-clamp band,
+    // moments after the reader's own wheel-down — reading it as a drag
+    // revoked the re-arm mid-gesture, every gesture, which is what kept the
+    // arm from ever surviving to a layout pass. Only travel clearly past the
+    // band, outside any wheel gesture, is a drag.
+    if (
+      !goingDown &&
+      !pinnedToBottom.current &&
+      gap > REVOKE_TRAVEL_PX &&
+      performance.now() - lastWheelDownAt.current > WHEEL_GESTURE_MS
+    ) {
+      setAnchorEnd(el, false)
+    }
     setAtBottom(near)
     syncStickyPromptPositions()
     // Near the TOP and more exists above → reveal/fetch older content.
@@ -586,7 +748,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
           syncStickyPromptPositions()
           return
         }
-        el.scrollTop = el.scrollHeight
+        writeBottom(el)
         requestAnimationFrame(step)
       }
       step()

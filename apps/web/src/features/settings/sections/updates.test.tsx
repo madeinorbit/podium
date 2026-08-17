@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
 
 const trpc = {
   setup: {
@@ -33,16 +34,22 @@ vi.mock('@/app/store', () => ({
 let developing = false
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
 
+let webVersion = '0.4.1'
+vi.mock('@/lib/logging/build-version', () => ({ pageBuildVersion: () => webVersion }))
+
 const { UpdatesSection } = await import('./updates')
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
   developing = false
+  webVersion = '0.4.1'
   machines[0]!.updateChannelOverride = null
   machines[0]!.targetUnavailableReason = null
   machines[0]!.targetVersion = null
   machines[0]!.supervised = false
+  ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = undefined
 })
 
 const emptyFleet = {
@@ -92,6 +99,82 @@ describe('UpdatesSection', () => {
     expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
   })
 
+  it('keeps one running-version line when every present component agrees', async () => {
+    vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', currentVersion: '0.4.1' })
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.4.1',
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.4.1',
+        digest: '47a01e3',
+      },
+    })
+
+    render(<UpdatesSection />)
+
+    await screen.findByText('None published')
+    expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
+    expect(screen.queryByText('Server')).toBeNull()
+    expect(screen.queryByText('Phone app')).toBeNull()
+    expect(screen.queryByText('Desktop app')).toBeNull()
+  })
+
+  it('names each component when the phone bundle comes from a different build', async () => {
+    vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', currentVersion: '0.4.1' })
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.4.1',
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.4.1',
+        digest: 'aaaaaaa',
+      },
+    })
+
+    render(<UpdatesSection />)
+
+    expect(await screen.findByTestId('component-version-breakdown')).toBeTruthy()
+    expect(screen.getByText('Server')).toBeTruthy()
+    expect(screen.getByText('Web app')).toBeTruthy()
+    expect(screen.getByText('Phone app')).toBeTruthy()
+    expect(screen.getByText('Different build from web app')).toBeTruthy()
+    expect(screen.getByText('Desktop app')).toBeTruthy()
+    expect(screen.queryByText('aaaaaaa')).toBeNull()
+  })
+
+  it('omits the desktop row outside the desktop shell', async () => {
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.2' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.4.2',
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.4.1',
+        digest: '47a01e3',
+      },
+    })
+
+    render(<UpdatesSection />)
+
+    expect(await screen.findByTestId('component-version-breakdown')).toBeTruthy()
+    expect(screen.getByText('Server')).toBeTruthy()
+    expect(screen.getByText('Web app')).toBeTruthy()
+    expect(screen.getByText('Phone app')).toBeTruthy()
+    expect(screen.queryByText('Desktop app')).toBeNull()
+  })
+
   it('keeps the channel selector writable', async () => {
     trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
     trpc.setup.info.query.mockResolvedValue({ appVersion: 'dev+abc1234' })
@@ -107,6 +190,31 @@ describe('UpdatesSection', () => {
     )
     expect(screen.getByRole('button', { name: 'Edge' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('dev+abc1234')).toBeTruthy()
+  })
+
+  it('persists a stable switch into the native shell', async () => {
+    const persist = vi.fn(async () => {})
+    ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      setUpdateChannel: persist,
+    }
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'edge', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1-edge.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    trpc.setup.setChannel.mutate.mockResolvedValue({ channel: 'stable', envForced: false })
+
+    render(<UpdatesSection />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Stable' }))
+
+    await waitFor(() => {
+      expect(trpc.setup.setChannel.mutate).toHaveBeenCalledWith({ channel: 'stable' })
+      expect(persist).toHaveBeenCalledWith('stable')
+    })
+    expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
   })
 
   /**

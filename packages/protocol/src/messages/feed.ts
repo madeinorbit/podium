@@ -203,6 +203,14 @@ export const FeedBootstrapMessage = z.object({
   changes: z.array(FeedChange),
   /** False on every chunk but the last. A replica installs on `last`. */
   last: z.boolean(),
+  /** The whole world's row count, stamped on every chunk so a first-sync UI can
+   *  show real progress from whichever chunk it reads first [POD-1249]. Rows are
+   *  entity-interleaved (`ORDER BY seq`), so a prefix carries no denominator of
+   *  its own. Optional: absent from older servers means UNKNOWN, never zero. */
+  totalRows: z.number().int().nonnegative().optional(),
+  /** Per-entity row counts for the same world — the `issue`/`session`/…
+   *  denominators. Same optionality rule as `totalRows`. */
+  countsByEntity: z.record(z.string(), z.number().int().nonnegative()).optional(),
 })
 export type FeedBootstrapMessage = z.infer<typeof FeedBootstrapMessage>
 
@@ -211,6 +219,8 @@ export const FeedBootstrapMessageLenient = z.object({
   ...CertifiedRangeFields,
   changes: z.array(FeedChangeLenient),
   last: z.boolean(),
+  totalRows: z.number().int().nonnegative().optional(),
+  countsByEntity: z.record(z.string(), z.number().int().nonnegative()).optional(),
 })
 export type FeedBootstrapMessageLenient = z.infer<typeof FeedBootstrapMessageLenient>
 

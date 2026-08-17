@@ -278,10 +278,13 @@ if (checkBudget) {
   atMost('eager gzip bytes', report.eager.gzip, 680_000)
   atMost('eager Brotli bytes', report.eager.brotli, 566_000)
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000
-  // (2026-08-16; see the measured split above) → 7_600_000 (2026-08-17, DOWN —
-  // the paydown every note here said had to come next). This one counts
-  // `sourcesContent`, i.e. ORIGINAL source text with comments, so it prices the
-  // house style rather than anything the browser downloads.
+  // (2026-08-16; see the measured split above) → 7_700_000 (2026-08-17, on the
+  // release line; the first 0.1.0 edge build measured 7,689,167 while every
+  // payload budget still passed) → 7_600_000 (2026-08-17, DOWN — the paydown
+  // every note here said had to come next; see THE PAYDOWN below for why the
+  // lower of the two survives their merge). This one counts `sourcesContent`,
+  // i.e. ORIGINAL source text with comments, so it prices the house style
+  // rather than anything the browser downloads.
   //
   // THE PAYDOWN (POD-1239). Drift took the eager graph to 7,694,486 and the gate
   // went red on `main` for every build, whatever the change. That is also how

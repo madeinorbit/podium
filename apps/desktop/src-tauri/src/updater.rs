@@ -1,4 +1,4 @@
-use crate::bootstrap::UpdateChannel;
+use crate::bootstrap::{build_update_channel, write_update_channel, UpdateChannel};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -35,6 +35,11 @@ const PROGRESS_PERCENT_STEP: u8 = 5;
 pub enum UpdateErrorCode {
     DebugBuild,
     NoPendingUpdate,
+    InvalidUpdateChannel,
+    UpdaterUnavailable,
+    NoReleaseOnChannel,
+    NetworkUnreachable,
+    UpdateCheckFailed,
     DownloadFailed,
     SignatureInvalid,
     InstallFailed,
@@ -48,10 +53,10 @@ pub struct UpdateError {
 }
 
 impl UpdateError {
-    fn new(code: UpdateErrorCode, message: &'static str) -> Self {
+    fn new(code: UpdateErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
-            message: message.to_string(),
+            message: message.into(),
         }
     }
 
@@ -66,6 +71,50 @@ impl UpdateError {
         Self::new(
             UpdateErrorCode::NoPendingUpdate,
             "No checked desktop update is ready to install.",
+        )
+    }
+
+    fn invalid_update_channel() -> Self {
+        Self::new(
+            UpdateErrorCode::InvalidUpdateChannel,
+            "Podium received an unsupported desktop update channel.",
+        )
+    }
+
+    fn updater_unavailable() -> Self {
+        Self::new(
+            UpdateErrorCode::UpdaterUnavailable,
+            "Podium could not start the desktop update checker.",
+        )
+    }
+
+    fn no_release_on_channel(channel: UpdateChannel) -> Self {
+        Self::new(
+            UpdateErrorCode::NoReleaseOnChannel,
+            format!(
+                "Nothing has been published on the {} channel yet.",
+                channel.as_str()
+            ),
+        )
+    }
+
+    fn network_unreachable(channel: UpdateChannel) -> Self {
+        Self::new(
+            UpdateErrorCode::NetworkUnreachable,
+            format!(
+                "Podium could not reach the {} update channel.",
+                channel.as_str()
+            ),
+        )
+    }
+
+    fn update_check_failed(channel: UpdateChannel) -> Self {
+        Self::new(
+            UpdateErrorCode::UpdateCheckFailed,
+            format!(
+                "Podium could not read release information from the {} channel.",
+                channel.as_str()
+            ),
         )
     }
 
@@ -145,13 +194,14 @@ pub fn progress_percent(received: u64, total: Option<u64>) -> Option<u8> {
     Some(received.saturating_mul(100).checked_div(total)?.min(100) as u8)
 }
 
-/// Bridge calls always supply a server-resolved channel. Shell config is consulted
-/// only by the native fallback, where no page exists to provide one.
+/// Resolve one updater authority everywhere. Precedence is the explicit bridge argument, then the
+/// persisted user choice, then the channel stamped into the installed build. [spec:SP-7f2c]
 pub fn resolve_update_channel(
     argument: Option<UpdateChannel>,
-    config: UpdateChannel,
+    persisted: Option<UpdateChannel>,
+    build: UpdateChannel,
 ) -> UpdateChannel {
-    argument.unwrap_or(config)
+    argument.or(persisted).unwrap_or(build)
 }
 
 pub fn should_install_native_update(update_available: bool, confirmed: bool) -> bool {
@@ -173,7 +223,10 @@ pub fn channel_from_name(channel: &str) -> Result<UpdateChannel, UpdateError> {
     match channel {
         "stable" => Ok(UpdateChannel::Stable),
         "edge" => Ok(UpdateChannel::Edge),
-        _ => Err(UpdateError::download_failed()),
+        _ => {
+            log::error!("unsupported desktop update channel: {channel}");
+            Err(UpdateError::invalid_update_channel())
+        }
     }
 }
 
@@ -197,21 +250,49 @@ struct CheckedUpdate {
     update: Update,
 }
 
+fn parse_updater_endpoint(endpoint: &str) -> Result<tauri::Url, UpdateError> {
+    tauri::Url::parse(endpoint).map_err(|error| {
+        log::error!("invalid updater endpoint: {error}");
+        UpdateError::updater_unavailable()
+    })
+}
+
 fn updater_for_channel(
     app: &AppHandle,
     channel: UpdateChannel,
 ) -> Result<tauri_plugin_updater::Updater, UpdateError> {
-    let endpoint = tauri::Url::parse(endpoint_for_channel(channel)).map_err(|error| {
-        log::error!("invalid updater endpoint: {error}");
-        UpdateError::download_failed()
-    })?;
+    let endpoint = parse_updater_endpoint(endpoint_for_channel(channel))?;
     app.updater_builder()
         .endpoints(vec![endpoint])
         .and_then(|builder| builder.build())
         .map_err(|error| {
             log::error!("updater unavailable: {error}");
-            UpdateError::download_failed()
+            UpdateError::updater_unavailable()
         })
+}
+
+/// Classify failures while asking a channel for its manifest. The updater crate reports a
+/// non-successful endpoint (including the production feed's observed 404) as ReleaseNotFound;
+/// transport failures remain distinct from a response that cannot be interpreted.
+fn check_error(
+    error: &tauri_plugin_updater::Error,
+    channel: UpdateChannel,
+) -> UpdateError {
+    let public = match error {
+        tauri_plugin_updater::Error::ReleaseNotFound => {
+            UpdateError::no_release_on_channel(channel)
+        }
+        tauri_plugin_updater::Error::Reqwest(error) if !error.is_decode() => {
+            UpdateError::network_unreachable(channel)
+        }
+        tauri_plugin_updater::Error::Network(_) => UpdateError::network_unreachable(channel),
+        _ => UpdateError::update_check_failed(channel),
+    };
+    log::error!(
+        "desktop update check failed for {}: {error}",
+        channel.as_str()
+    );
+    public
 }
 
 fn update_error(error: &tauri_plugin_updater::Error) -> UpdateError {
@@ -383,6 +464,14 @@ pub fn claim_update_ownership(ownership: State<'_, UpdateOwnership>) -> Result<(
     Ok(())
 }
 
+/// Keep the shell's native fallback on the same production feed the user chose in the app.
+#[tauri::command]
+pub fn set_update_channel(channel: String) -> Result<(), String> {
+    let channel = channel_from_name(&channel)
+        .map_err(|_| "unsupported desktop update channel".to_string())?;
+    write_update_channel(channel)
+}
+
 /// Check a production feed and retain the signed update for a later install command.
 #[tauri::command]
 pub async fn check_update(
@@ -404,10 +493,10 @@ pub async fn check_update(
 
     let channel = channel_from_name(&channel)?;
     let updater = updater_for_channel(&app, channel)?;
-    let update = updater.check().await.map_err(|error| {
-        log::error!("desktop update check failed: {error}");
-        UpdateError::download_failed()
-    })?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|error| check_error(&error, channel))?;
 
     match update {
         Some(update) => {
@@ -459,10 +548,7 @@ pub async fn install_update(
             updater
                 .check()
                 .await
-                .map_err(|error| {
-                    log::error!("desktop update check before install failed: {error}");
-                    UpdateError::download_failed()
-                })?
+                .map_err(|error| check_error(&error, channel))?
                 .ok_or_else(UpdateError::no_update_available)?
         }
     };
@@ -481,13 +567,20 @@ pub async fn install_update(
 
 /// When the page does not claim update ownership, check the configured channel and
 /// offer a minimal native install path. Network failures remain non-fatal at launch.
-pub async fn check_and_prompt_update(app: AppHandle, config_channel: UpdateChannel) {
+pub async fn check_and_prompt_update(
+    app: AppHandle,
+    persisted_channel: Option<UpdateChannel>,
+) {
     if !production_auto_update_enabled(cfg!(debug_assertions)) {
         log::info!("production auto-update disabled in debug builds");
         return;
     }
 
-    let channel = resolve_update_channel(None, config_channel);
+    let channel = resolve_update_channel(
+        None,
+        persisted_channel,
+        build_update_channel(),
+    );
     let updater = match updater_for_channel(&app, channel) {
         Ok(updater) => updater,
         Err(error) => {
@@ -615,7 +708,10 @@ mod tests {
 
     #[test]
     fn unknown_bridge_channel_is_rejected() {
-        assert!(channel_from_name("development").is_err());
+        assert_eq!(
+            channel_from_name("development"),
+            Err(UpdateError::invalid_update_channel())
+        );
     }
 
     #[test]
@@ -664,6 +760,11 @@ mod tests {
         let errors = [
             UpdateError::debug_build(),
             UpdateError::no_pending_update(),
+            UpdateError::invalid_update_channel(),
+            UpdateError::updater_unavailable(),
+            UpdateError::no_release_on_channel(UpdateChannel::Stable),
+            UpdateError::network_unreachable(UpdateChannel::Stable),
+            UpdateError::update_check_failed(UpdateChannel::Stable),
             UpdateError::download_failed(),
             UpdateError::signature_invalid(),
             UpdateError::install_failed(),
@@ -672,6 +773,11 @@ mod tests {
         let codes = [
             "debug-build",
             "no-pending-update",
+            "invalid-update-channel",
+            "updater-unavailable",
+            "no-release-on-channel",
+            "network-unreachable",
+            "update-check-failed",
             "download-failed",
             "signature-invalid",
             "install-failed",
@@ -687,9 +793,58 @@ mod tests {
     }
 
     #[test]
-    fn updater_failures_map_to_explainable_categories() {
+    fn check_failures_map_to_distinct_codes_and_messages() {
+        assert_eq!(
+            check_error(
+                &tauri_plugin_updater::Error::ReleaseNotFound,
+                UpdateChannel::Stable
+            ),
+            UpdateError::new(
+                UpdateErrorCode::NoReleaseOnChannel,
+                "Nothing has been published on the stable channel yet."
+            )
+        );
+        assert_eq!(
+            check_error(
+                &tauri_plugin_updater::Error::Network("offline".to_string()),
+                UpdateChannel::Edge
+            ),
+            UpdateError::new(
+                UpdateErrorCode::NetworkUnreachable,
+                "Podium could not reach the edge update channel."
+            )
+        );
+        let malformed = tauri_plugin_updater::Error::Serialization(
+            serde_json::from_str::<serde_json::Value>("{").expect_err("malformed JSON"),
+        );
+        assert_eq!(
+            check_error(&malformed, UpdateChannel::Stable),
+            UpdateError::new(
+                UpdateErrorCode::UpdateCheckFailed,
+                "Podium could not read release information from the stable channel."
+            )
+        );
+    }
+
+    #[test]
+    fn malformed_endpoint_is_an_updater_setup_failure() {
+        assert_eq!(
+            parse_updater_endpoint("not a URL"),
+            Err(UpdateError::new(
+                UpdateErrorCode::UpdaterUnavailable,
+                "Podium could not start the desktop update checker."
+            ))
+        );
+    }
+
+    #[test]
+    fn transfer_failures_remain_download_failures() {
         let download = tauri_plugin_updater::Error::Network("offline".to_string());
-        assert_eq!(update_error(&download).code, UpdateErrorCode::DownloadFailed);
+        assert_eq!(update_error(&download), UpdateError::download_failed());
+    }
+
+    #[test]
+    fn install_failures_map_to_explainable_categories() {
         let signature = tauri_plugin_updater::Error::SignatureUtf8("invalid".to_string());
         assert_eq!(
             update_error(&signature).code,
@@ -700,13 +855,29 @@ mod tests {
     }
 
     #[test]
-    fn bridge_argument_wins_and_config_is_fallback_only() {
+    fn an_edge_build_without_config_resolves_edge() {
         assert_eq!(
-            resolve_update_channel(Some(UpdateChannel::Edge), UpdateChannel::Stable),
+            resolve_update_channel(None, None, UpdateChannel::Edge),
             UpdateChannel::Edge
         );
+    }
+
+    #[test]
+    fn explicit_bridge_argument_wins_over_persisted_choice_and_build() {
         assert_eq!(
-            resolve_update_channel(None, UpdateChannel::Stable),
+            resolve_update_channel(
+                Some(UpdateChannel::Edge),
+                Some(UpdateChannel::Stable),
+                UpdateChannel::Stable,
+            ),
+            UpdateChannel::Edge
+        );
+    }
+
+    #[test]
+    fn persisted_choice_wins_over_build_channel() {
+        assert_eq!(
+            resolve_update_channel(None, Some(UpdateChannel::Stable), UpdateChannel::Edge),
             UpdateChannel::Stable
         );
     }
