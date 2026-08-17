@@ -69,7 +69,7 @@ import {
   X,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
@@ -291,6 +291,22 @@ const TICK_HEIGHT = 15
  * Offsets from the row's own rail: selection just inside it, attention just
  * outside — so attention is always the leftmost thing on the row.
  *
+ * AN AGENT ROW WEARS THE SAME TWO TICKS AS A STRIP (POD-1226). Attention used to
+ * arrive on an agent row as a 2px amber rule inset on the row's own left edge —
+ * a second grammar for the one fact this column already has a mark for, and the
+ * row has NO left padding (it opens onto its rail), so the rule was painted
+ * exactly where the 20px agent tile starts. What the operator saw was an amber
+ * line crossing the icon's rounded corner, and, once the row wrapped to two
+ * lines, a long amber bar running down past the content into empty space. Under
+ * one grammar the marks stand in the gutter at the offsets above, in one order
+ * at every depth and every row kind — attention, rail, selection, then the row —
+ * and the tile is left alone.
+ *
+ * The elbow goes back to carrying PROVENANCE only. It was painted amber on an
+ * asking row on the argument that attention outranks it; with attention standing
+ * on its own side of the rail there is nothing to outrank, and an amber elbow
+ * running INTO an amber rule was most of what made these ten pixels unreadable.
+ *
  * SELECTION IS FLUSH AGAINST THE ROW, NOT FLOATING MID-GUTTER (POD-1170).
  * The gutter between a rail and the thing hanging on it is `RAIL_INSET` — eight
  * pixels — and the ELBOW crosses all eight of them. A 3px tick parked at +3 sat
@@ -306,6 +322,12 @@ const TICK_ATTENTION_X = -5
 /**
  * The right-hand column every row parks its state in, so the whole mission
  * scans as one vertical read. Rigid: the title is the only shrinker.
+ *
+ * EVERY ROW TAKES THE COLUMN, INCLUDING THE ASKING ONE (POD-1226). `Needs you ·
+ * 30m ago` is still wider than 80px and still earns the room — an obligation is
+ * not a status — but it takes that room from its own ROLE cell rather than from
+ * the name, so the ref, the name and the state's right edge all land where every
+ * other row's do. See `[data-needs-you]` in `styles.css`.
  *
  * 80px, and the width lives in CSS (`--deck-state-col` / `.deck-state-col`) so
  * the agent row's narrow ladder can release it — a container query cannot
@@ -1044,6 +1066,20 @@ function SessionRow({
   // The pointer is on this session's TAB, over in the strip. Same session, drawn
   // twice — so the row answers "this one" in the only device it has spare.
   const pointed = useSessionHovered(session.sessionId)
+  // WHAT THE LADDER DROPS SURVIVES HERE (POD-1226), which is the same contract
+  // the strips keep: a narrow deck closes the role column and, narrower still,
+  // takes the elapsed off the asking row's obligation, so both have to be
+  // readable somewhere. The row said nothing on hover before — the four cells
+  // were assumed always to fit, which is the assumption the ladder replaces.
+  const waited = Number.isFinite(since) ? relativeTime(new Date(since).toISOString(), now) : null
+  const rowTitle = [
+    name,
+    session.displayRef,
+    label,
+    needs ? `Needs you${waited ? ` · ${waited}` : ''}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
   const body = (
     <div
       className={cn(
@@ -1051,21 +1087,16 @@ function SessionRow({
         // rather than hanging off it as a pill: no rounded collar, because a
         // rounded edge is what makes the task strips read as units and an agent
         // is not one of those.
-        // `deck-agent-row` IS THE QUERY CONTAINER for the row's narrow ladder,
-        // and it has to live out here rather than on the row itself (POD-1170).
-        // A container query never matches the element that declares the
-        // container — `@container deck-agent (...) { .deck-agent { … } }` asks
-        // the row to restyle itself, which no browser will do — so the whole
-        // ladder below 310px was dead the day it was written and a narrow deck
-        // simply overflowed its refs and states out of the column. The wrapper
-        // is the same width as the row, so the rungs are unchanged.
+        // `deck-agent-row` is the wrapper the ticks and the ⋯ are positioned
+        // against. It is no longer a query container: the roster's ladder is
+        // keyed on the LIST (`deck-rows`), because these cells are one
+        // mission-wide table and a per-row container made them a property of
+        // each row's indent instead — see the ladder in `styles.css`.
         'deck-agent-row group/srow relative',
         // The mission's own lead is the one agent row in the spine with a fill.
         // It owns the whole mission, so it is allowed to be the loudest thing
         // in the roster — and being the only one, the fill means exactly that.
         role?.kind === 'coordinator' && 'deck-lead-fill',
-        // Attention is an inner rule and amber type, never a wash.
-        needs && 'shadow-[inset_2px_0_0_var(--attention)]',
         flat && 'rounded-md',
       )}
       style={{ marginLeft: flat ? 0 : AGENT_INDENT }}
@@ -1094,6 +1125,24 @@ function SessionRow({
             height: TICK_HEIGHT,
             background: 'var(--issue)',
             opacity: active ? 1 : 0.45,
+          }}
+        />
+      )}
+      {/* THE ASK STANDS OUTSIDE THE RAIL, on the same side and at the same size
+          a task strip's does (POD-1226) — never as a rule on the row's own edge,
+          which is the 20px agent tile's edge. See the tick note in the geometry
+          block above. Amber outranks the issue accent when both land, because
+          they are on opposite sides of the rail and cannot overlap. */}
+      {needs && !flat && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute"
+          style={{
+            left: AGENT_RAIL - AGENT_INDENT + TICK_ATTENTION_X,
+            top: HUNG_MID - TICK_HEIGHT / 2,
+            width: TICK_WIDTH,
+            height: TICK_HEIGHT,
+            background: 'var(--attention)',
           }}
         />
       )}
@@ -1147,6 +1196,7 @@ function SessionRow({
             event.preventDefault()
             setMenuAnchor({ x: event.clientX, y: event.clientY })
           }}
+          title={rowTitle}
         >
           {/* FOUR RIGID COLUMNS — name · ref · role · state (POD-1146).
               The name takes all the slack and is the only shrinker; everything
@@ -1182,27 +1232,27 @@ function SessionRow({
           <span className="deck-agent-ref shell-type-micro flex-none text-right font-mono font-normal whitespace-nowrap text-text-faint">
             {session.displayRef}
           </span>
-          {/* ATTENTION OUTRANKS PROVENANCE, here as on the elbow. An asking row
-              spends its width on the question and the answer — but it leaves the
-              role cell STANDING rather than closing it up, so the state column
-              beside it does not step left on the one row the operator is
-              scanning for. */}
+          {/* ATTENTION OUTRANKS PROVENANCE. An asking row spends its width on the
+              question and the answer — literally: its role cell closes and its
+              obligation is built out of that cell plus the state column, so
+              nothing else on the row moves (see `[data-needs-you]` in
+              styles.css). The placeholder is still rendered on rows that simply
+              have no role, because a column that closes up when one row is empty
+              is not a column. */}
           {role && label && !needs ? (
             <RoleWord role={role} label={label} />
           ) : (
             <span aria-hidden className="deck-agent-role flex-none" />
           )}
-          {/* The forced wrap: inert until the agent row's own container query
-              turns it on, at which point role and state drop to a second line
-              under the name. */}
-          <span aria-hidden className="deck-agent-break" />
           <span
             className={cn(
-              'deck-agent-state flex flex-none items-center gap-1.5',
-              // Everything but the asking row parks in the shared state column.
-              // "Needs you · 1:12" is the one line allowed to overrun it: it is
-              // an obligation, not a status, and it earns the room.
-              needs ? 'justify-end' : cn('justify-end', STATE_COL),
+              'deck-agent-state flex flex-none items-center justify-end gap-1.5',
+              // EVERY row parks in the shared state column, the asking one
+              // included (POD-1226). "Needs you · 1:12" still overruns it — an
+              // obligation is not a status and it earns the room — but from a
+              // floor rather than instead of one, so the column is rigid at
+              // every width and the narrow rung can hand the cell back.
+              STATE_COL,
             )}
           >
             {needs ? (
@@ -1215,7 +1265,15 @@ function SessionRow({
                 </span>
                 <span className="shell-type-micro font-semibold text-attention">Needs you</span>
                 {Number.isFinite(since) && (
-                  <PhaseTimer phase="waiting" sinceMs={since} leadingSeparator />
+                  <PhaseTimer
+                    phase="waiting"
+                    sinceMs={since}
+                    leadingSeparator
+                    // The overrun, and the only thing on this row the ladder can
+                    // take back: it is what makes the obligation 127px wide
+                    // instead of the column's 80. On the row's tooltip either way.
+                    className="deck-agent-elapsed"
+                  />
                 )}
               </>
             ) : retired ? (
@@ -1291,9 +1349,10 @@ function SessionRow({
       // THE LEAD'S OWN ELBOW IS THE ONLY COLOURED ONE. Everybody in the block
       // hangs on the same coloured line; only the agent the line is ABOUT is
       // joined to it in that colour, so the branch names one agent instead of
-      // tinting the roster. An asking row overrides it — amber outranks
-      // provenance, because one of them is a job for the operator.
-      elbow={needs ? 'bg-attention' : lead ? rail.className : 'bg-hairline-soft'}
+      // tinting the roster. It carries provenance and nothing else now
+      // (POD-1226): the ask has its own tick on the far side of the rail, so
+      // there is no longer a claim here for amber to outrank.
+      elbow={lead ? rail.className : 'bg-hairline-soft'}
     >
       {body}
     </Hung>
@@ -2867,6 +2926,29 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   }
 
   /**
+   * THE MISSION'S SPINE IS ONE LINE, DRAWN ONCE (POD-1226).
+   *
+   * The header's descent, the view bar, the search bar and the list's top pad
+   * each drew their own `w-px bg-hairline-soft` at `ROOT_RAIL`, while the root's
+   * agent block below them drew `railFor(leadTone(root.id))` — 2px in the
+   * mission's accent whenever the mission has a coordinator. Same left edge,
+   * different width and different ink: the line ran 1px and grey through the
+   * chrome and then stepped a pixel wider and changed colour at the first agent
+   * row, which is exactly where the design says it must read as unbroken.
+   *
+   * So the rail is resolved ONCE here and every segment of it is drawn from that
+   * one object. A jog cannot come back without changing this line.
+   */
+  const spineRail = railFor(leadTone(root?.id))
+  const spineSegment = (className: string, style?: CSSProperties): JSX.Element => (
+    <span
+      aria-hidden
+      className={cn('pointer-events-none absolute', spineRail.className, className)}
+      style={{ left: ROOT_RAIL, width: spineRail.width, ...style }}
+    />
+  )
+
+  /**
    * THE COLLAPSE CHEVRON IS A MEMBER OF THE EYEBROW ROW (POD-1146).
    *
    * It used to be `absolute top-1 right-2` on the column itself, and the eyebrow
@@ -3014,11 +3096,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             {/* THE DESCENT. The spine leaves the header on the mission's own
                 rail and is picked up, unbroken, by the view bar and then by the
                 root's agents — whose rail IS this one (see ROOT_BLOCK_INSET). */}
-            <span
-              aria-hidden
-              className="pointer-events-none absolute bottom-0 h-4 w-px bg-hairline-soft"
-              style={{ left: ROOT_RAIL }}
-            />
+            {spineSegment('bottom-0 h-4')}
           </div>
           {/* Rules TOP AND BOTTOM, both in the soft tier: the bar is a band cut
               through the column, and its top rule is the seam the header no
@@ -3030,11 +3108,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             {/* The view bar sits in the spine's gutter rather than across it: its
                 controls start where a depth-1 strip starts, and the rail runs
                 behind them from the header to the tree. */}
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 w-px bg-hairline-soft"
-              style={{ left: ROOT_RAIL }}
-            />
+            {spineSegment('inset-y-0')}
             {MODES.map((option) => (
               <button
                 data-pressable
@@ -3100,11 +3174,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-2"
               style={{ paddingLeft: GUTTER }}
             >
-              <span
-                aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-px bg-hairline-soft"
-                style={{ left: ROOT_RAIL }}
-              />
+              {spineSegment('inset-y-0')}
               <Search size={13} aria-hidden="true" className="flex-none text-text-faint" />
               <input
                 // biome-ignore lint/a11y/noAutofocus: the field exists only while searching
@@ -3137,19 +3207,20 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           {/* Each task block owns a small trailing gap. Because the guide rails
               cross the whole block, the spacing separates issue groups without
               breaking the tree into disconnected fragments. */}
+          {/* THE ROSTER'S COLUMNS ARE DECIDED BY THE COLUMN, NOT BY EACH ROW
+              (POD-1226) — `deck-rows` is the query container the agent rows'
+              ladder keys on. See the ladder in `styles.css`: the cells to the
+              right of the name are a mission-wide table, and a table's columns
+              are a property of the table. Keying them per row made an indented
+              row shed a column its shallower sibling kept, which is how one
+              roster came out with three different right-hand edges. */}
           <div
-            className="min-h-0 flex-1 overflow-y-auto pb-1.5 pr-2"
+            className="deck-rows min-h-0 flex-1 overflow-y-auto pb-1.5 pr-2"
             data-testid="flight-deck-rows"
           >
             {/* The rail crosses the list's own top padding, so the header's
                 descent meets the first thing under it without a six-pixel gap. */}
-            <div className="relative h-1.5">
-              <span
-                aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-px bg-hairline-soft"
-                style={{ left: ROOT_RAIL }}
-              />
-            </div>
+            <div className="relative h-1.5">{spineSegment('inset-y-0')}</div>
             {/* THE MISSION'S OWN AGENTS, hanging off the header (round 3 §4).
                 Not a strip — the header above IS their task. Their rail lands on
                 ROOT_RAIL exactly, so the header's descent runs through their
@@ -3166,7 +3237,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   arrivals={arrivals}
                   settle={settle}
                   inset={ROOT_BLOCK_INSET}
-                  rail={railFor(leadTone(root.id))}
+                  rail={spineRail}
                   tail={visibleRows.length > 0}
                   onSelectSession={(session, permanent) =>
                     selectSession(rootRow.issue.id, session, { permanent })
@@ -3177,13 +3248,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 />
                 {rootSessions.length > 0 && visibleRows.length > 0 && (
                   <div className="relative h-2" aria-hidden>
-                    <span
-                      className={cn(
-                        'pointer-events-none absolute inset-y-0',
-                        railFor(leadTone(root.id)).className,
-                      )}
-                      style={{ left: ROOT_RAIL, width: railFor(leadTone(root.id)).width }}
-                    />
+                    {spineSegment('inset-y-0')}
                   </div>
                 )}
               </>

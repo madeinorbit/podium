@@ -839,6 +839,136 @@ describe('flight deck spine (POD-758)', () => {
 })
 
 /**
+ * THE SPINE IS ONE LINE, AND THE GUTTER HOLDS ONE GRAMMAR (POD-1226).
+ *
+ * happy-dom has no layout, so neither of these can be checked by measuring — but
+ * both defects were structural rather than metric, and the structure is exactly
+ * what a DOM test can hold still. The jog was four segments drawn with a
+ * hardcoded hairline while the fifth was drawn from `railFor`, so the invariant
+ * is "every vertical segment at ROOT_RAIL shares one class and one width". The
+ * collision was an amber rule on the row's own edge — which is the agent tile's
+ * edge — so the invariant is "attention is a tick, and the row carries no inset
+ * rule". The pixel side is covered by the harness in `harness/deck-entry.tsx`.
+ */
+describe('flight deck spine geometry (POD-1226)', () => {
+  /**
+   * Every VERTICAL mark the deck draws at the mission's own rail, HOWEVER it is
+   * drawn. The elbows start on the same left edge and are excluded by their
+   * `h-px` class — they are the line arriving at a row, not the line itself.
+   *
+   * Deliberately NOT filtered on having an inline width: the defect being held
+   * shut here was four segments whose width came from a `w-px` utility class
+   * while a fifth took it from `railFor`, so a filter that only admitted the
+   * fifth kind could not see the defect at all. (It did not: the first version
+   * of this test passed with the jog planted back in.)
+   */
+  const spineSegments = (): HTMLElement[] =>
+    [...document.querySelectorAll<HTMLElement>('span[aria-hidden]')].filter(
+      (el) => el.style.left === '16px' && !el.className.includes('h-px'),
+    )
+
+  const withLead = (): void => {
+    harness.issues = harness.issues.map((raw) => {
+      const candidate = raw as Issue
+      return candidate.id === 'root'
+        ? { ...candidate, memberSessionIds: ['lead'], coordinatorSessionId: 'lead' }
+        : candidate
+    })
+    harness.sessions = [...harness.sessions, session('lead', { issueId: 'root', name: 'Lead' })]
+  }
+
+  /** A segment's INK, not its positioning — the segments are anchored
+   *  differently (`bottom-0 h-4`, `inset-y-0`, an explicit height) and only the
+   *  tone and the width are the thing that must agree. */
+  const toneOf = (el: HTMLElement): string =>
+    [...el.classList].find((c) => c.startsWith('deck-rail-') || c.startsWith('bg-')) ?? ''
+
+  it('draws the whole spine — chrome and rows — from one rail', () => {
+    withLead()
+    deck()
+    const segments = spineSegments()
+    // The header's descent, the view bar, the list's top pad, the gap under the
+    // root roster, and the root rows' own rail.
+    expect(segments.length).toBeGreaterThan(3)
+    // Each one takes its width FROM THE RAIL OBJECT, so a hardcoded `w-px`
+    // anywhere on the spine fails here rather than at a jog on somebody's screen.
+    expect(segments.filter((el) => el.style.width === '')).toEqual([])
+    expect([...new Set(segments.map((el) => el.style.width))]).toEqual(['2px'])
+    expect([...new Set(segments.map(toneOf))]).toEqual(['deck-rail-mission'])
+  })
+
+  it('falls back to one hairline spine on a mission with no lead', () => {
+    deck()
+    const segments = spineSegments()
+    expect(segments.filter((el) => el.style.width === '')).toEqual([])
+    expect([...new Set(segments.map((el) => el.style.width))]).toEqual(['1px'])
+    expect([...new Set(segments.map(toneOf))]).toEqual(['bg-hairline-soft'])
+  })
+
+  it('marks an asking agent with a gutter tick, never a rule on the row', () => {
+    harness.sessions = harness.sessions.map((raw) => {
+      const meta = raw as SessionMeta
+      return meta.sessionId === 's1'
+        ? { ...meta, agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' } }
+        : meta
+    })
+    deck()
+    const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')
+    if (!row) throw new Error('no asking row')
+    expect(row.dataset.needsYou).toBe('true')
+    // No 2px amber rule inset on the row's left edge — that edge is the agent
+    // tile's edge, and the rule was painted across the tile's own corner.
+    expect(row.className).not.toContain('inset_2px')
+    // The ask is a tick standing OUTSIDE the rail, at the strips' own offset.
+    const tick = [...row.querySelectorAll<HTMLElement>('span[aria-hidden]')].find(
+      (el) => el.style.background === 'var(--attention)',
+    )
+    expect(tick).toBeDefined()
+    expect(tick?.style.width).toBe('3px')
+    expect(tick?.style.height).toBe('15px')
+  })
+
+  it('keeps every agent row in the shared state column and on one line', () => {
+    deck()
+    for (const row of document.querySelectorAll('[data-flight-session]')) {
+      const state = row.querySelector('.deck-agent-state')
+      // Including the asking row: its obligation is built from the role cell in
+      // CSS, so nothing on the row is left outside the column.
+      expect(state?.className).toContain('deck-state-col')
+      // The forced second line is gone; nothing may reintroduce a wrap.
+      expect(row.querySelector('.deck-agent-break')).toBeNull()
+    }
+  })
+
+  it('puts what the narrow ladder drops on the row’s own tooltip', () => {
+    harness.issues = harness.issues.map((raw) => {
+      const candidate = raw as Issue
+      return candidate.id === 'root'
+        ? { ...candidate, memberSessionIds: ['lead'], coordinatorSessionId: 'lead' }
+        : candidate
+    })
+    harness.sessions = [
+      ...harness.sessions,
+      session('lead', {
+        issueId: 'root',
+        name: 'Lead',
+        displayRef: 'POD-1-A',
+        agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' },
+      }),
+    ]
+    deck()
+    const button = document
+      .querySelector('[data-flight-session="lead"]')
+      ?.querySelector('.deck-agent')
+    // Name, ref and the obligation with its elapsed — the two things a narrow
+    // deck stops printing are the role word and that elapsed.
+    expect(button?.getAttribute('title')).toContain('POD-1-A')
+    expect(button?.getAttribute('title')).toContain('Needs you')
+    expect(button?.getAttribute('title')).toMatch(/ago|just now/)
+  })
+})
+
+/**
  * POINTING AT A TAB POINTS AT ITS ROW (POD-1067). The strip and the spine draw
  * the same session, and the link between them is one transient mark on the row
  * — no selection, no scroll, nothing that survives the pointer.

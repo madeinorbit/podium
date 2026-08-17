@@ -8679,110 +8679,125 @@ a.ref-link--session::before {
    release it — a container query cannot outrank a style attribute. */
 :root {
   --deck-state-col: 80px;
+  /* The role word's cell and the gap between every pair of cells, named because
+     the asking row's obligation is built out of them by `calc()` below and a
+     table whose column widths are three unrelated literals drifts. */
+  --deck-role-col: 96px;
+  --deck-cell-gap: 6px;
 }
 .deck-state-col {
   width: var(--deck-state-col);
+}
+/* THE ASKING ROW SPENDS ITS ROLE CELL ON THE ASK (POD-1226).
+   `Needs you · 30m ago` is 123px where the state column is 80, and it used to
+   take that room by having no width at all — `justify-end` and nothing else —
+   so the extra 43px came out of the NAME and every cell on the row shifted left.
+   One row of a five-row roster then had its ref 43px out of the column the four
+   others shared, which is raggedness in the one list built to be read down its
+   edges.
+   It comes out of the ROLE cell instead, which is the cell an asking row already
+   gives up: attention outranks provenance, so the word is not printed here
+   anyway. Role + gap + state is one 182px obligation cell whose left edge, right
+   edge and remaining name are all exactly where every other row's are — the
+   design's own sentence ("an asking row spends its width on the question and the
+   answer") made true in geometry rather than approximated by leaving an empty box
+   standing in front of it. */
+.deck-agent-row[data-needs-you="true"] .deck-agent-role {
+  display: none;
+}
+.deck-agent-row[data-needs-you="true"] .deck-agent-state {
+  width: calc(var(--deck-state-col) + var(--deck-role-col) + var(--deck-cell-gap));
 }
 
 /* An AGENT row gives way on the same principle, and it is FOUR RIGID COLUMNS —
    name · ref · role · state — so the roster reads down its edges instead of
    ragging. The name takes the slack and is the only shrinker; the ref parks at
-   68px right-aligned, the role word at 96px, the state in the shared column.
-   Its own container, because an agent row is inset further than the strip it
-   hangs under and narrows before it does.
-
-   THE CONTAINER IS THE ROW'S WRAPPER, NOT THE ROW (POD-1170). A container query
-   styles DESCENDANTS of the container and never the container itself, so
-   declaring it on `.deck-agent` and then writing `.deck-agent { flex-wrap }`
-   inside `@container deck-agent` asked the row to restyle itself — which is
-   simply ignored. Every rung below was dead code, and a deck at its 366px
-   default pushed the ref, the role and the state clean out of the column: the
-   name cell shrank to nothing and only the ref survived. `.deck-agent-row` is
-   the wrapper `SessionRow` already draws and is exactly as wide as the row. */
-.deck-agent-row {
-  container-type: inline-size;
-  container-name: deck-agent;
-}
+   68px right-aligned, the role word at 96px, the state in the shared column. */
 .deck-agent-ref {
   width: 68px;
 }
 .deck-agent-role {
-  width: 96px;
-}
-/* AT THE FLOOR NOTHING IS DROPPED — the row takes two lines instead.
-   The old rule hid `.deck-drop-role` outright under 300px, which threw away the
-   one word saying what an agent IS on this task. A flight deck's answer to a
-   narrow column is to SPEND THE LINE AND KEEP THE FACT: name and ref on line 1,
-   role and state on line 2, indented to the name's own left edge.
-   The `order` values are unconditional — the forced wrap below them is simply
-   not displayed until the ladder needs it — so the wide row depends on nothing
-   in the query block. */
-.deck-agent-break {
-  display: none;
-  order: 1;
-}
-.deck-agent-role {
-  order: 2;
-}
-.deck-agent-state {
-  order: 3;
+  width: var(--deck-role-col);
 }
 
-/* 400px, NOT 310 (POD-1170) — the rung is the NAME's own measure, the way every
-   other ladder in this file is keyed on the text it has to hold.
-   Four rigid columns spend 244px before the name gets a pixel. The deck opens
-   at 366px, which leaves a root agent row about 334px and a row hung under a
-   task less than that, so on one line the name was down to 41px — three
-   characters of the one string on the row an operator actually reads — while
-   `COORDINATOR` sat beside it in full. A column that is only affordable on a
-   deck nobody has dragged wider is not a column, it is a squeeze.
-   A name wants ~120px to be worth printing, and one line only pays that from
-   about 400px up. Below it the row spends the line it was always allowed to
-   spend: name and ref on line 1, where the name gets ~210px, role and state on
-   line 2. UNCONDITIONALLY, even on a row whose second line carries only a
-   timestamp — a roster of rows that are sometimes 28px and sometimes 44px scans
-   worse than a roster that is honestly one height, which is the whole reason
-   these cells are columns in the first place. */
-@container deck-agent (max-width: 400px) {
-  .deck-agent {
-    flex-wrap: wrap;
-    row-gap: 2px;
-    padding-bottom: 3px;
-  }
-  .deck-agent-break {
-    display: block;
-    flex: 0 0 100%;
-    height: 0;
-  }
-  /* Line 1 ends with the ref, hard against the right edge; line 2 opens under
-     the name with the role and ends with the state. The ref and the state give
-     up their rigid width — a line they have to themselves has no column to line
-     up with — but the ROLE takes its 96px cell back, because line 2 is a column
-     of its own down the roster and that is exactly how the design draws it. */
-  .deck-agent-ref,
-  .deck-agent-state {
-    width: auto;
-  }
+/* ── THE ROSTER'S LADDER — one table, one decision per rung (POD-1226) ────────
+   THE COLUMN DECIDES, NOT THE ROW. Every rung below is keyed on `deck-rows`, the
+   scrolling list, because these cells are a MISSION-WIDE TABLE and a table's
+   columns are a property of the table. Keyed per row (POD-1170's
+   `container-name: deck-agent` on the row's own wrapper) they were a property of
+   each row's indent instead: a row hung under a task is 16px narrower than a
+   root agent row per level of nesting, so one roster came out with root rows on
+   one line and their nephews on two — three right-hand edges in a list whose
+   whole purpose is to have one. Measured on the filed case at a 440px deck: the
+   two root rows 28px tall, the three rows under POD-1213 45px tall.
+
+   THE ROW NEVER WRAPS ANY MORE, and this is the change the whole ladder is for.
+   Every other piece of the tree's geometry is built on a 28px row — the elbow
+   lands at `HUNG_MID`, the last child's rail stops there, both ticks are 15px
+   centred on it — so a row that grew to 45px left the elbow a third of the way
+   down it, the rail stopping in mid-air, and (before the ticks were unified) a
+   2px amber rule running the full height past both. The fold did not merely look
+   confusing; it broke the contract every mark in the gutter is drawn from.
+
+   What replaces it is the shed order the rest of this column already uses: the
+   ROLE column closes first, then the asking row gives up its OVERRUN, and below
+   that the name — the designated shrinker — simply shrinks. Nothing is ever
+   clipped, no cell is ever half-rendered, and everything shed is on the row's
+   own tooltip (`rowTitle` in FlightDeck.tsx).
+
+   THERE IS ONE RUNG, AND IT IS ARITHMETIC. A depth-1 row spends 24px of indent,
+   the list 8px of right padding and the row itself another 8; its cells are
+   avatar 20 + gap 6 + NAME + gap 6 + ref 68 + gap 6 + role 96 + gap 6 +
+   state 80 — and an asking row spends its role cell on the ask (above), so the
+   two row kinds have the SAME name measure:
+
+       text = W − 328
+
+   A name is worth printing at 120px, which puts the rung at a 448px deck for
+   both kinds at once. That is what makes this one decision rather than two
+   thresholds that happen to be near each other, and it is why the asking row's
+   obligation had to be built out of the role cell before the ladder could have a
+   single number in it.
+
+   Below the rung the name goes on shrinking: 120px at a 346px deck, 74px at the
+   deck's own 300px minimum, less again on a row nested two or three levels in.
+   That is the accepted floor, not an oversight — the ref and the state are the
+   two things on the row that are worthless partly rendered, the name is the one
+   that still reads as a prefix, and the whole row is on its tooltip.
+
+   A deeper row is genuinely narrower and absorbs that in the NAME, which is
+   correct and is the reason to key on the column: ref, role and state are
+   right-anchored and rigid, so they stay in one column at every depth. */
+.deck-rows {
+  container-type: inline-size;
+  container-name: deck-rows;
+}
+
+/* 448 − 8 (the list's own padding: a container query measures the CONTENT box),
+   less a pixel so the rung is the floor rather than the step onto it.
+   Two things go together here, because they are one fact — below this width the
+   row cannot seat a fourth cell:
+   · the ROLE column closes. It is the one word on the row, and for the roles that
+     matter it is already stated three other ways: a lead's branch runs in the
+     mission's accent, its own elbow is the only one drawn in that accent, and the
+     mission's coordinator is the single agent row with a fill. There is no column
+     rather than an empty 96px cell in the middle of every row — which is what cut
+     the name to `JSON pa…` at a 430px deck with a hundred pixels of nothing
+     beside it.
+   · the asking row's obligation, which was BUILT from that cell, hands it back
+     and returns to the shared 80px column. `Needs you` alone measures 76px and
+     fits; the ELAPSED is what does not, so the elapsed is what drops — the least
+     load-bearing datum on the row (staleness, not the obligation) and on the
+     row's tooltip either way. */
+@container deck-rows (max-width: 439px) {
   .deck-agent-role {
-    width: 96px;
-    margin-left: 28px;
+    display: none;
   }
-  /* A row with no role still HOLDS the cell — it just does not indent an empty
-     box, or the state beside it would start 28px further out than everyone
-     else's. */
-  .deck-agent-role:empty {
-    margin-left: 0;
+  .deck-agent-row[data-needs-you="true"] .deck-agent-state {
+    width: var(--deck-state-col);
   }
-  .deck-agent-state {
-    margin-left: auto;
-  }
-  /* THE OBLIGATION OPENS LINE 2 rather than closing it. `Needs you · 14h ago`
-     is the one thing on an agent row that must never be shortened or hunted
-     for, so at the floor it takes the name's own left edge — where the eye
-     already is — instead of parking at the right margin with the statuses. */
-  [data-needs-you='true'] .deck-agent-state {
-    margin-right: auto;
-    margin-left: 28px;
+  .deck-agent-row[data-needs-you="true"] .deck-agent-elapsed {
+    display: none;
   }
 }
 
