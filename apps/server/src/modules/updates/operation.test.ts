@@ -34,6 +34,8 @@ import {
   UPDATE_STEP_PREPARE,
   UPDATE_STEP_SERVER,
   UPDATE_STEP_WEB,
+  type UpdateErrorCode,
+  type UpdateFailure,
   type UpdateOperationContext,
   type UpdatePlanInput,
   updateOperationKind,
@@ -626,6 +628,113 @@ describe('the error taxonomy', () => {
     expect(error.message).toMatch(/podium setup/i)
     // Never the sentence the default would have produced.
     expect(error.message).not.toMatch(/stopped responding/i)
+  })
+
+  /**
+   * POD-2239. The three schema refusals, on the path a real update takes.
+   *
+   * The detail strings below are the daemon's OWN sentences, copied from
+   * `refuseSchemaRegression` and `createSchemaGate` in apps/daemon — not
+   * paraphrases. A classifier fixture that invents its input proves the
+   * classifier reads the fixture, which is not the question.
+   *
+   * The previous version of this block had no schema row at all, so all three
+   * landed in the `machine-unreachable` default and the suite ratified it.
+   * These rows exist to make that collapse impossible to reintroduce quietly.
+   */
+  const SCHEMA_ADVANCED_DETAIL =
+    "cannot converge: schema-advanced — this machine's database has applied migration " +
+    "'0042_add_operations' (and 2 more), which 0.1.3 does not define, so that build would " +
+    'refuse to open the database and the server would not come back. Nothing was fetched and ' +
+    'nothing was swapped; this machine stays on 0.1.7, which is the version that works here. ' +
+    'Going back across a migration is not something Podium can do for you — it needs a ' +
+    'database restore by hand (docs/data-and-upgrades.md), because restoring silently would ' +
+    'discard every write made since the schema advanced.'
+  const SCHEMA_UNKNOWN_DETAIL =
+    'cannot converge: schema-unknown — 0.1.5 does not declare which schema migrations it can ' +
+    'open, it is not a version this machine can prove is newer than the dev+abc1234 it runs, ' +
+    "and this machine's database has 12 applied, so nothing here can tell whether that build " +
+    'would start against it. Nothing was fetched and nothing was swapped; this machine stays ' +
+    'on dev+abc1234, which is the version that works here.'
+  const SCHEMA_UNREADABLE_DETAIL =
+    "cannot converge: schema-unreadable — this machine's database could not be read " +
+    '(SQLITE_BUSY: database is locked), so there is no way to tell whether 0.1.5 could open ' +
+    'it. Nothing was fetched and nothing was swapped; this machine stays on 0.1.7.'
+
+  it('reads the three schema refusals as three DISTINCT codes, none of them unreachable', () => {
+    const advanced = classifyMachineFailure(SCHEMA_ADVANCED_DETAIL)
+    const unknown = classifyMachineFailure(SCHEMA_UNKNOWN_DETAIL)
+    const unreadable = classifyMachineFailure(SCHEMA_UNREADABLE_DETAIL)
+
+    // The defect: all three fell through to the machine that stopped answering.
+    for (const code of [advanced, unknown, unreadable]) {
+      expect(code).not.toBe('machine-unreachable')
+    }
+    // Three states of knowledge, three codes. Asserting the SET is what the
+    // previous suite could not do: it asserted one collapsed sentence, which a
+    // single arm matching all three satisfies just as well as three arms do.
+    expect(new Set([advanced, unknown, unreadable]).size).toBe(3)
+    expect(advanced).toBe('machine-schema-advanced')
+    expect(unknown).toBe('machine-schema-unknown')
+    expect(unreadable).toBe('machine-schema-unreadable')
+  })
+
+  const schemaCopy = (code: UpdateErrorCode, detail: string) =>
+    describeUpdateOperationFailure({
+      code,
+      places: ['m_a'],
+      names: ['vmi'],
+      detail,
+    } as UpdateFailure)
+
+  it('never tells the operator a machine that answered on purpose stopped responding', () => {
+    const messages = [
+      schemaCopy('machine-schema-advanced', SCHEMA_ADVANCED_DETAIL).message,
+      schemaCopy('machine-schema-unknown', SCHEMA_UNKNOWN_DETAIL).message,
+      schemaCopy('machine-schema-unreadable', SCHEMA_UNREADABLE_DETAIL).message,
+    ]
+    for (const message of messages) {
+      expect(message).toContain('vmi')
+      // The two false claims this issue exists to delete.
+      expect(message).not.toMatch(/stopped responding/i)
+      expect(message).not.toMatch(/resume when it reconnects/i)
+      // What is true of all three, and the first thing an operator asks.
+      expect(message).toMatch(/nothing was changed/i)
+    }
+    // Three sentences, not one repeated three times.
+    expect(new Set(messages).size).toBe(3)
+  })
+
+  it('tells a schema-advanced refusal the target is older and names the one way back', () => {
+    const { message } = schemaCopy('machine-schema-advanced', SCHEMA_ADVANCED_DETAIL)
+    expect(message).toMatch(/older version/i)
+    expect(message).toMatch(/cannot open the data it already has/i)
+    expect(message).toMatch(/at least as new/i)
+    expect(message).toMatch(/restore/i)
+  })
+
+  /**
+   * The arm that must assert LESS than the others. A coordinator on a source
+   * build reports `dev+<sha>`, which orders against nothing published — so
+   * "pick something newer" names a version that does not exist and every
+   * choice returns here. The action that exists belongs to the release.
+   */
+  it('asserts nothing about age for a schema-unknown refusal', () => {
+    const { message } = schemaCopy('machine-schema-unknown', SCHEMA_UNKNOWN_DETAIL)
+    expect(message).toMatch(/does not say which data it can open/i)
+    expect(message).not.toMatch(/older/i)
+    expect(message).not.toMatch(/at least as new/i)
+    expect(message).toMatch(/ask the server operator/i)
+    expect(message).toMatch(/declares which data it can open/i)
+  })
+
+  it('sends a schema-unreadable refusal to the database file, and only there', () => {
+    const { message } = schemaCopy('machine-schema-unreadable', SCHEMA_UNREADABLE_DETAIL)
+    expect(message).toMatch(/could not read its own database/i)
+    // It knows nothing about the target, so it must claim nothing about it.
+    expect(message).not.toMatch(/older/i)
+    expect(message).not.toMatch(/at least as new/i)
+    expect(message).toMatch(/try again/i)
   })
 
   it('quotes the publisher‘s public reason for a preparation failure', () => {

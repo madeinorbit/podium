@@ -114,6 +114,22 @@ export const UPDATE_ERROR_CODES = [
    * is running perfectly and answered them clearly.
    */
   'machine-cannot-restart',
+  /**
+   * THE REFUSAL THAT KEPT A MACHINE ALIVE, IN ITS THREE KINDS (POD-2239).
+   *
+   * Migrations are forward-only, so a build older than the database it is
+   * pointed at would refuse to start, and the thing that would put the newer
+   * build back is the server that will not start. The daemon declines the
+   * downgrade before swapping anything and says which of three things it knows.
+   *
+   * THREE CODES, NOT ONE, because they are three different states of knowledge
+   * and §7 forbids a failure asserting what it has not established. POD-2233
+   * had already split them on the ActionError path; collapsing them again here
+   * would have re-created the defect one layer down, where a real update runs.
+   */
+  'machine-schema-advanced',
+  'machine-schema-unknown',
+  'machine-schema-unreadable',
   'download-failed',
   'server-did-not-reach-target',
   'web-build-failed',
@@ -126,6 +142,9 @@ export type UpdateFailure =
   | { code: 'machine-unsupported'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-unreachable'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-cannot-restart'; places: string[]; names: string[]; detail?: string }
+  | { code: 'machine-schema-advanced'; places: string[]; names: string[]; detail?: string }
+  | { code: 'machine-schema-unknown'; places: string[]; names: string[]; detail?: string }
+  | { code: 'machine-schema-unreadable'; places: string[]; names: string[]; detail?: string }
   | { code: 'download-failed'; places?: string[]; names?: string[]; detail?: string }
   | { code: 'server-did-not-reach-target'; observedVersion: string; targetVersion: string }
   | { code: 'web-build-failed'; detail?: string }
@@ -169,6 +188,65 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         // whether their checkout moved, and then the two ways out — the one that
         // takes five seconds, and the one that makes it not happen again.
         message: `${subject(failure)} is running Podium as a single foreground process, so it cannot update itself. Nothing was changed. Stop it and start it again there to pick this up, or install it as a service with \`podium setup\`.`,
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    /**
+     * The three schema refusals (POD-2239), in the order of how much each one
+     * KNOWS. Each says what is established, then that nothing was changed —
+     * the first question an operator asks — then the one action that exists.
+     * None of them says "try again" except the one where trying again can
+     * actually produce a different answer.
+     */
+    case 'machine-schema-advanced':
+      // Both halves are established here: the refusal named an applied
+      // migration the target does not define, so the target IS behind this
+      // database and WOULD refuse to open it.
+      return {
+        code: failure.code,
+        message:
+          `${subject(failure)} was asked to move to an older version that cannot open the data ` +
+          'it already has. Nothing was changed and Podium is still running there. Pick a ' +
+          'version at least as new as the one it is on — or, if you really need the older one, ' +
+          'restore a database backup from before the upgrade by hand first ' +
+          '(docs/data-and-upgrades.md).',
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-schema-unknown':
+      /**
+       * The arm that must assert LESS than the other two. Neither half is
+       * established: the target did not declare what it can open and could not
+       * be proved newer, so "older" and "cannot open" are both guesses.
+       *
+       * And no advice to pick something newer, which is not merely unproven
+       * but unachievable: a coordinator on a source build reports `dev+<sha>`,
+       * which orders against nothing published, so every choice returns here.
+       * The action that exists belongs to the release, not to the operator.
+       */
+      return {
+        code: failure.code,
+        message:
+          `${subject(failure)} was asked to move to a version that does not say which data it ` +
+          'can open, so nothing here could tell whether it would start. Nothing was changed and ' +
+          'Podium is still running there. Ask the server operator for a release that declares ' +
+          'which data it can open — that is what settles this. A machine running a development ' +
+          'build cannot order itself against published versions, so choosing a different one ' +
+          'will not.',
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-schema-unreadable':
+      // Says nothing about the target at all — the database could not be read.
+      // The only one of the three where "try again" is right, because a read
+      // that lost to a lock or a permission can win next time.
+      return {
+        code: failure.code,
+        message:
+          `${subject(failure)} could not read its own database, so nothing here could tell ` +
+          'whether that version would start against it. Nothing was changed and Podium is still ' +
+          'running there. Check that database file and its disk on that machine — the technical ' +
+          'detail below says why the read failed — then try again.',
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
@@ -219,6 +297,9 @@ export type MachineFailureCode =
   | 'machine-unsupported'
   | 'machine-unreachable'
   | 'machine-cannot-restart'
+  | 'machine-schema-advanced'
+  | 'machine-schema-unknown'
+  | 'machine-schema-unreadable'
   | 'download-failed'
 
 export function classifyMachineFailure(detail: string | undefined): MachineFailureCode {
@@ -232,6 +313,28 @@ export function classifyMachineFailure(detail: string | undefined): MachineFailu
   // send the operator to look at the healthiest thing in the picture. The token
   // is the daemon's (`FOREGROUND_ALL_IN_ONE_REFUSAL` in apps/daemon).
   if (/foreground[-_\s]all[-_\s]in[-_\s]one/i.test(normalized)) return 'machine-cannot-restart'
+  /**
+   * POD-2239. The schema refusals, for the same reason and in the same place as
+   * the foreground one above: this daemon is running, answering, and declining
+   * on purpose. Without these arms all three fell to the default below, and the
+   * panel told the operator that a machine which had just answered had stopped
+   * responding and would resume when it reconnects — two false claims about a
+   * machine that will never "resume", because nothing about it is going to
+   * change on its own.
+   *
+   * Kept THREE, and ahead of the delivery and download branches. The patterns
+   * are deliberately the same ones `describeUpdateFailure` matches in
+   * apps/web/src/features/updates/update-view.ts, so the OPERATION path and the
+   * ActionError path read one daemon sentence the same way — the divergence
+   * between them is exactly what this issue was.
+   *
+   * Before the download branch in particular: `schema-unreadable` carries the
+   * underlying read error verbatim, and an arbitrary errno string is exactly
+   * the kind of text that branch is built to catch.
+   */
+  if (/schema[-_\s]advanced/i.test(normalized)) return 'machine-schema-advanced'
+  if (/schema[-_\s]unknown/i.test(normalized)) return 'machine-schema-unknown'
+  if (/schema[-_\s]unreadable/i.test(normalized)) return 'machine-schema-unreadable'
   if (/unsupported[-_\s]delivery|unsupported[-_\s]platform|no[-_\s]artifact/i.test(normalized)) {
     return 'machine-unsupported'
   }

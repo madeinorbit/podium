@@ -530,6 +530,77 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
       expect(presented.detail).toContain('operation: op_1')
     }
   })
+
+  /**
+   * POD-2239. The panel's half of the three schema refusals.
+   *
+   * The server classifies the daemon's refusal into one of three codes; this is
+   * where each becomes what the operator reads. Asserting the three are
+   * DISTINCT is the point — an arm matching all three, or no arm at all,
+   * satisfies "every code produces a message" perfectly well, which is how the
+   * collapsed sentence survived on this path in the first place.
+   */
+  describe('the three schema refusals', () => {
+    const codes = [
+      'machine-schema-advanced',
+      'machine-schema-unknown',
+      'machine-schema-unreadable',
+    ] as const
+
+    it('never says a machine that refused on purpose stopped responding', () => {
+      const presented = codes.map((code) =>
+        presentOperationError({ code, places: ['vmi'] }, { operationId: 'op_1' }),
+      )
+      for (const layer of presented) {
+        const copy = `${layer.message} ${layer.nextAction}`
+        expect(copy).not.toMatch(/stopped responding/i)
+        expect(copy).not.toMatch(/resume when it reconnects/i)
+        expect(layer.message).toMatch(/nothing was changed/i)
+      }
+      // Three codes, three sentences, three next actions.
+      expect(new Set(presented.map((layer) => layer.message)).size).toBe(3)
+      expect(new Set(presented.map((layer) => layer.nextAction)).size).toBe(3)
+    })
+
+    it('names the machine, and the version choice, for a schema-advanced refusal', () => {
+      const { message, nextAction } = presentOperationError({
+        code: 'machine-schema-advanced',
+        places: ['vmi'],
+      })
+      expect(message).toContain('vmi')
+      expect(message).toMatch(/older version/i)
+      expect(nextAction).toMatch(/at least as new/i)
+      expect(nextAction).toMatch(/restore/i)
+    })
+
+    /**
+     * The one that must claim nothing about age. A coordinator on a source
+     * build reports `dev+<sha>`, which orders against nothing published, so
+     * "pick something newer" names a version that does not exist and every
+     * choice comes back here. The action belongs to the release.
+     */
+    it('offers no version to pick for a schema-unknown refusal', () => {
+      const { message, nextAction } = presentOperationError({
+        code: 'machine-schema-unknown',
+        places: ['vmi'],
+      })
+      expect(message).toMatch(/does not say which data it can open/i)
+      expect(`${message} ${nextAction}`).not.toMatch(/older/i)
+      expect(`${message} ${nextAction}`).not.toMatch(/at least as new/i)
+      expect(nextAction).toMatch(/ask the server operator/i)
+    })
+
+    it('sends a schema-unreadable refusal to the database file, and only there', () => {
+      const { message, nextAction } = presentOperationError({
+        code: 'machine-schema-unreadable',
+        places: ['vmi'],
+      })
+      expect(message).toMatch(/could not read its own database/i)
+      expect(`${message} ${nextAction}`).not.toMatch(/older/i)
+      // The only one of the three where trying again can change the answer.
+      expect(nextAction).toMatch(/try again/i)
+    })
+  })
 })
 
 describe('surfaces render the same operation differently', () => {

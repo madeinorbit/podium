@@ -485,6 +485,55 @@ function errorCopy(
           'Stop it in its terminal and start it again to pick this up — or run `podium setup` ' +
           'there to install it as a service, which can update itself without going down.',
       }
+    /**
+     * THE THREE SCHEMA REFUSALS ON THE OPERATION PATH (POD-2239).
+     *
+     * `describeUpdateFailure` above already says these three things when the
+     * refusal arrives as free text on an ActionError. A real update does not
+     * take that path: it fails a step on the operation, so it arrives here as
+     * a code — and until the server had arms for the three tokens they all
+     * classified as `machine-unreachable` and the operator was told a machine
+     * that had just answered had stopped responding and would resume when it
+     * reconnected. Neither was true, and the second could never become true.
+     *
+     * Three arms, matching the three codes, for the same reason the other path
+     * has three: they are three different states of knowledge, and §7 forbids
+     * a failure asserting what it has not established.
+     */
+    case 'machine-schema-advanced':
+      return {
+        message: `${placeSubject(places, 'A machine')} was asked to move to an older version that cannot open the data it already has. Nothing was changed and Podium is still running there.`,
+        nextAction:
+          'Pick a version at least as new as the one it is on — or, if you really need the ' +
+          'older one, restore a database backup from before the upgrade by hand first ' +
+          '(docs/data-and-upgrades.md).',
+      }
+    /**
+     * The arm that asserts LEAST, deliberately. The target did not declare what
+     * it can open and could not be proved newer, so "older" and "cannot open"
+     * are both guesses — and advice to pick something newer is not merely
+     * unproven but unachievable, because a coordinator on a source build
+     * reports `dev+<sha>`, which orders against nothing published. Every choice
+     * would come back here. The action that exists belongs to the release.
+     */
+    case 'machine-schema-unknown':
+      return {
+        message: `${placeSubject(places, 'A machine')} was asked to move to a version that does not say which data it can open, so nothing here could tell whether it would start. Nothing was changed and Podium is still running there.`,
+        nextAction:
+          'Ask the server operator for a release that declares which data it can open — that is ' +
+          'what settles this. A machine running a development build cannot order itself against ' +
+          'published versions, so choosing a different one will not.',
+      }
+    case 'machine-schema-unreadable':
+      // Nothing is known about the target at all here, so nothing is claimed
+      // about it. The only one of the three where "try again" is right: a read
+      // that lost to a lock or a permission can win next time.
+      return {
+        message: `${placeSubject(places, 'A machine')} could not read its own database, so nothing here could tell whether that version would start against it. Nothing was changed and Podium is still running there.`,
+        nextAction:
+          'Check that database file and its disk on that machine — the technical detail below ' +
+          'says why the read failed — then try again.',
+      }
     case 'download-failed':
       return {
         message: "The update couldn't be downloaded.",
