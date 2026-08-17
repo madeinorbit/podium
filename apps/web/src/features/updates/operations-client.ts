@@ -49,9 +49,10 @@ export function errorMessage(error: unknown): string | undefined {
  */
 export function errorCode(error: unknown): string | undefined {
   if (!error || typeof error !== 'object') return undefined
-  const value = error as { code?: unknown; data?: { podiumCode?: unknown } }
+  const value = error as { code?: unknown; data?: { code?: unknown; podiumCode?: unknown } }
   if (typeof value.code === 'string') return value.code
   if (typeof value.data?.podiumCode === 'string') return value.data.podiumCode
+  if (typeof value.data?.code === 'string') return value.data.code
   return undefined
 }
 

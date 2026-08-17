@@ -1,5 +1,6 @@
 import { parseOperation } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { errorCode, errorMessage } from './operations-client'
 import {
   cancelRefusalSentence,
   formatDuration,
@@ -567,6 +568,31 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
     expect(result.state).toBe('waiting-you')
     expect(result.primary).toMatchObject({ kind: 'reload' })
     expect(result.primary?.kind).not.toBe('retry')
+  })
+
+  it('maps a tRPC data code without rendering its transport class name', () => {
+    const serverMessage = 'Podium is already at this version everywhere.'
+    const thrown = {
+      message: serverMessage,
+      data: { code: 'PRECONDITION_FAILED', message: serverMessage },
+    }
+    const result = operationView({
+      operation: null,
+      offer: OFFER,
+      local: { ...NOT_BEHIND, behind: true, canReload: true },
+      surface: 'web',
+      now: NOW,
+      actionError: {
+        code: errorCode(thrown),
+        message: errorMessage(thrown),
+        detail: `TRPCClientError: ${serverMessage}`,
+      },
+    })
+
+    expect(errorCode(thrown)).toBe('PRECONDITION_FAILED')
+    expect(result.state).toBe('waiting-you')
+    expect(result.primary).toMatchObject({ kind: 'reload' })
+    expect(JSON.stringify(result)).not.toContain('TRPCClientError')
   })
 
   it('maps every desktop error code to three layers', () => {
