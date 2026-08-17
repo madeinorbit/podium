@@ -26,6 +26,7 @@ import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
+import { elidePathHead, looksLikePath } from '@/lib/notice-path'
 import { formatAppError } from './AppErrorPage'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 
@@ -39,7 +40,24 @@ import type { SliceDefinition } from '@podium/client-core/viewmodels'
 
 const NOTICES: StoreNotices = {
   error: (message) => toast.error(message),
-  info: (message, description) => toast(message, description ? { description } : undefined),
+  info: (message, description) =>
+    toast(message, description ? { description: describeNotice(description) } : undefined),
+}
+
+/**
+ * One notice — a session's worktree move — passes a raw absolute path where
+ * every other one passes a sentence. A path gets the mono lane, shortened at a
+ * separator with the whole thing on hover; prose is left exactly as it is
+ * (POD-1159). `bdi` keeps the string logically LTR inside the lane's RTL
+ * ellipsis trick.
+ */
+function describeNotice(description: string): ReactNode {
+  if (!looksLikePath(description)) return description
+  return (
+    <span className="cn-toast-path" title={description}>
+      <bdi>{elidePathHead(description)}</bdi>
+    </span>
+  )
 }
 
 export function StoreProvider({

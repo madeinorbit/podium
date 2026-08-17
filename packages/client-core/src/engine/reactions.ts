@@ -254,10 +254,12 @@ export class Reactions {
     for (const move of plan.moved) {
       const s = st.sessions.find((x) => x.sessionId === move.sessionId)
       const dest = move.to ?? s?.cwd
-      this.ports.notices.info(
-        `${s?.name || s?.title || 'A session'} moved to ${dest?.split('/').pop() ?? '?'}`,
-        dest,
-      )
+      // The title said the destination's last segment and the description then
+      // said the whole path, so the branch name was read twice in one notice —
+      // and when there was no destination at all it read "moved to ?". The
+      // title names WHAT happened; the path underneath is the only place the
+      // destination is stated (POD-1159).
+      this.ports.notices.info(`${s?.name || s?.title || 'A session'} moved worktree`, dest)
     }
   }
 

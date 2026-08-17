@@ -9339,3 +9339,158 @@ a.ref-link--session::before {
     display: inline;
   }
 }
+
+/* ── THE NOTICE SURFACE [POD-1159] ───────────────────────────────────────────
+   `cn-toast` was passed to sonner in components/ui/sonner.tsx and defined
+   nowhere, so every toast in the app was drawn by sonner's stock stylesheet:
+   a hard 356px box, a system font stack that beat --font-sans, a description
+   colour hardcoded BRIGHTER than its own title, and a 0 4px 12px shadow that
+   is invisible on ink. This is that class.
+
+   THE BOX IS SIZED BY THE MESSAGE. `--width` (set on the Toaster) stops being
+   the toast's width and becomes its measure: the container is 452px, and each
+   toast takes `fit-content` inside it. "Saved" is a small pill; a 186-character
+   migration summary runs to the full measure and wraps. Centering an absolutely
+   positioned toast inside that container is `left/right: 0` plus `margin-inline:
+   auto` — NOT a transform, which sonner owns outright (`--y` composes the
+   stack, the lift and the swipe into it, so a transform written here would
+   break all three).
+
+   SPECIFICITY IS DELIBERATE, NOT DECORATION. Sonner injects its stylesheet into
+   <head> at import time, so source order is not ours to rely on — every rule
+   below has to out-specify its counterpart on its own. The toast box fights
+   `[data-sonner-toast][data-styled=true]` (0,2,0) and the mobile full-bleed
+   rule (0,2,0); the description fights `[data-sonner-toaster]
+   [data-sonner-theme=dark] [data-description]` (0,3,0), which is why it is
+   reached through four attribute steps rather than one class. Do not "simplify"
+   these selectors — the shorter form silently loses. */
+
+[data-sonner-toast].cn-toast[data-styled="true"] {
+  /* Fit the message. min-width stays unset on purpose: a receipt that hugs
+     three characters is the point, not an edge case to guard against. */
+  width: fit-content;
+  max-width: 100%;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+
+  padding: 10px 12px;
+  gap: 9px;
+  align-items: flex-start;
+
+  font-family: var(--font-sans);
+  font-size: var(--shell-type-secondary);
+  line-height: 1.45;
+
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tray);
+  box-shadow: var(--shadow-popover);
+
+  /* `anywhere` breaks a line at any character even when the word would have
+     fit on the next one, which is what shredded the worktree path. `break-word`
+     wraps prose at spaces and still breaks the one token too long to fit — an
+     unbounded raw error.message is the case that needs it. */
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+
+/* The icon column sits with the first line of text, not with the box's centre —
+   a three-line failure otherwise hangs its icon halfway down the message. */
+[data-sonner-toast].cn-toast[data-styled="true"] [data-icon] {
+  margin-top: 1px;
+}
+
+[data-sonner-toast].cn-toast[data-styled="true"] [data-title] {
+  color: var(--text-strong, var(--popover-foreground));
+  font-weight: 500;
+}
+
+/* The hierarchy, the right way up. Sonner's stock description is a literal
+   hsl(0 0% 91%) on dark — brighter than --popover-foreground, which made the
+   raw path the loudest thing in the toast. */
+[data-sonner-toaster] [data-sonner-toast].cn-toast [data-description] {
+  color: var(--muted-foreground);
+  font-size: var(--shell-type-secondary);
+  line-height: 1.45;
+}
+
+/* A destination path is machine voice: one mono line, dimmer than the prose
+   tier, elided from the head at a separator (see lib/notice-path.ts). The
+   ellipsis here is only the backstop for a single segment longer than the
+   budget — normally the string arrives already cut. */
+[data-sonner-toaster] [data-sonner-toast].cn-toast [data-description] .cn-toast-path {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
+  color: var(--text-dim, var(--muted-foreground));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+[data-sonner-toaster] [data-sonner-toast].cn-toast [data-description] .cn-toast-path > bdi {
+  direction: ltr;
+}
+
+/* An error reads as an error without a red slab: the destructive rule is a
+   tint and red text, never a filled surface (DESIGN.md §5). Only the glyph is
+   coloured here — the title stays in the text ramp so the sentence itself
+   keeps full contrast. */
+[data-sonner-toast].cn-toast[data-type="error"] [data-icon] {
+  color: var(--destructive);
+}
+[data-sonner-toast].cn-toast[data-type="success"] [data-icon] {
+  color: var(--success);
+}
+[data-sonner-toast].cn-toast[data-type="warning"] [data-icon] {
+  color: var(--warning);
+}
+[data-sonner-toast].cn-toast[data-type="info"] [data-icon] {
+  color: var(--info);
+}
+
+/* Sonner's stock button is the toast's own colours inverted — a white slab on
+   ink. Neutral actions in this system are a chip fill behind a strong border. */
+[data-sonner-toast].cn-toast[data-styled="true"] [data-button] {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--shell-type-secondary);
+  font-weight: 500;
+  background: var(--chip);
+  color: var(--foreground);
+  border: 1px solid var(--border-strong);
+  align-self: center;
+  transition: background 150ms ease, color 150ms ease;
+}
+[data-sonner-toast].cn-toast[data-styled="true"] [data-button]:hover {
+  color: var(--text-strong, var(--foreground));
+  border-color: var(--label, var(--border-strong));
+}
+/* The secondary action is a ghost. Six attribute steps because the rule this
+   has to beat is sonner's own six-step dark override
+   (`[data-sonner-toaster][data-sonner-theme=dark] [data-sonner-toast][data-styled=true]
+   [data-cancel]`, which paints white at 30%); anything shorter loses on dark
+   only, which is the theme that ships. */
+[data-sonner-toaster][data-sonner-theme]
+  [data-sonner-toast].cn-toast[data-styled="true"]
+  [data-cancel] {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted-foreground);
+}
+[data-sonner-toaster][data-sonner-theme]
+  [data-sonner-toast].cn-toast[data-styled="true"]
+  [data-cancel]:hover {
+  background: var(--accent);
+  color: var(--text-strong, var(--foreground));
+}
+[data-sonner-toast].cn-toast[data-styled="true"] [data-button]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 40%, transparent);
+}

@@ -97,8 +97,14 @@ describe('update prompt', () => {
   it('the top-center Toaster offsets toasts below the iOS safe area so the prompt is tappable in standalone PWA mode', () => {
     const src = readWeb('src/app/AppShell.tsx')
     // Both desktop and mobile (<=600px) offsets must add the top inset; the
-    // mobileOffset is the one that matters on the iPhone Dynamic Island.
-    expect(src).toContain("offset={{ top: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}")
-    expect(src).toContain("mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}")
+    // mobileOffset is the one that matters on the iPhone Dynamic Island. Both
+    // also clear the command bar (POD-1159) — at the old flat 24px a two-line
+    // toast was drawn straight across the bar's own controls.
+    expect(src).toContain(
+      "offset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 10px)' }}",
+    )
+    expect(src).toContain(
+      "mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 8px)' }}",
+    )
   })
 })

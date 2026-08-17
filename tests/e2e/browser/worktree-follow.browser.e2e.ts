@@ -96,7 +96,7 @@ test('a background session move shows a toast and leaves the view alone', async 
   // The move (home → REPO_ROOT) fires while the user looks at SCRATCH_FEAT →
   // background policy: a toast announces it, the selection stays put.
   await expect
-    .poll(() => page.locator('[data-sonner-toast]').getByText(/moved to/).count(), {
+    .poll(() => page.locator('[data-sonner-toast]').getByText(/moved worktree/).count(), {
       timeout: 15_000,
     })
     .toBeGreaterThan(0)

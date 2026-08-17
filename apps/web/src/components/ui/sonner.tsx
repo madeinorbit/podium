@@ -31,6 +31,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
           '--normal-text': 'var(--popover-foreground)',
           '--normal-border': 'var(--border)',
           '--border-radius': 'var(--radius)',
+          // Sonner's 356px default is the toast's WIDTH; here it is the
+          // container's, and each toast takes fit-content inside it (POD-1159,
+          // `.cn-toast` in styles.css). 452px is the measure a 186-character
+          // migration summary needs before it reads as a paragraph.
+          '--width': '452px',
         } as React.CSSProperties
       }
       toastOptions={{

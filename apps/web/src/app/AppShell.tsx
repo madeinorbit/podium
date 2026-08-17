@@ -219,10 +219,15 @@ export function AppShell(): JSX.Element {
           </StoreProvider>
         </ErrorBoundary>
       )}
+      {/* Clear of the command bar, not through it: 24px put a two-line toast
+          straight across the bar's controls, which is where the operator is
+          working. --topbar-h plus the bar's own 10px rhythm gap (POD-1159).
+          The safe-area term stays — it is what makes the toast tappable in
+          standalone PWA mode on a notched phone. */}
       <Toaster
         position="top-center"
-        offset={{ top: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}
-        mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+        offset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 10px)' }}
+        mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 8px)' }}
       />
     </TooltipProvider>
   )
