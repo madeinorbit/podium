@@ -811,6 +811,13 @@ export async function launchServerDriverSession(
   // default: a known logout always selects the PTY login path, so probing a
   // server binary first can only delay the same answer.
   const loginState = ctx.harnessLoginState(msg.agentKind)
+  const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState)
+  const terminalLoginReason =
+    selectionAuth === 'logged-out'
+      ? loginState === 'out'
+        ? `harness '${msg.agentKind}' is logged out; its terminal path provides interactive login`
+        : `harness '${msg.agentKind}' login is not confirmed yet; its terminal path provides interactive login`
+      : undefined
   /**
    * Probe the one preferred server driver, whether the preference came from the
    * harness policy, the machine default, or this spawn. Each driver has its own
@@ -861,7 +868,7 @@ export async function launchServerDriverSession(
       codexDrivable: preferredServer === 'codex-app-server' && preferredProbe?.drivable === true,
     }),
     platform: process.platform,
-    auth: selectionAuthForLogin(loginState),
+    auth: selectionAuth,
   })
   if (!resolution.ok) {
     ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: resolution.reason })
@@ -905,8 +912,8 @@ export async function launchServerDriverSession(
     // no answer because it sends the operator to upgrade something that was
     // never asked about.
     let why: string
-    if (loginState === 'out') {
-      why = `harness '${msg.agentKind}' is logged out; its terminal path provides interactive login`
+    if (terminalLoginReason !== undefined) {
+      why = terminalLoginReason
     } else {
       const unhonouredProbe = await probeFor(unhonoured)
       why = unhonouredProbe.drivable
@@ -940,8 +947,11 @@ export async function launchServerDriverSession(
     let requestedDriverId: string | undefined
     if (dropped !== undefined) {
       let reason: string
-      if (loginState === 'out') {
-        reason = 'harness is logged out; terminal provides interactive login'
+      if (terminalLoginReason !== undefined) {
+        reason =
+          loginState === 'out'
+            ? 'harness is logged out; terminal provides interactive login'
+            : 'harness login is not confirmed yet; terminal provides interactive login'
       } else {
         const droppedProbe = await probeFor(dropped)
         reason = droppedProbe.drivable

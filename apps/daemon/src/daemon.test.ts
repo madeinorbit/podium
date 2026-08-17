@@ -44,6 +44,7 @@ import {
 } from './daemon'
 import type { DaemonContext } from './control/context'
 import { launchServerDriverSession, sessionHandlers } from './control/session'
+import { daemonHarnessLoginContext } from './host-runtime'
 import { runtimeHandlers } from './runtime/handlers'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import {
@@ -1287,6 +1288,20 @@ describe('default server-driver spawn integration', () => {
     }
   })
 
+  it('reads Codex login from the same home inventory publishes', () => {
+    const home = trackTmp('podium-codex-login-home-')
+    mkdirSync(join(home, '.codex'))
+    vi.stubEnv('CODEX_HOME', '')
+    try {
+      const loginContext = daemonHarnessLoginContext(home)
+      expect(loginContext.homeDir).toBe(home)
+      // Existing .codex plus absent auth.json is Codex's five-second grace state.
+      expect(loginContext.harnessLoginState('codex')).toBe('unknown')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('routes a bare Grok spawn through ACP and binds that driver', async () => {
     resetGrokAcpVersionProbe()
     expect((await grokAcpVersionProbe(() => ({ output: '0.2.118', ok: true }))).drivable).toBe(true)
@@ -1369,6 +1384,35 @@ describe('server-driver admission control path', () => {
 
     expect(result).toEqual({ handled: false, requestedDriverId: 'opencode-server' })
     expect(childProcesses).toBe(0)
+  })
+
+  it('degrades an unsettled Codex default to PTY but refuses an explicit server request', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    ctx.harnessLoginState = () => 'unknown'
+    const probe = cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true }))
+
+    await expect(launchServerDriverSession(ctx, spawn('grace-default'), probe)).resolves.toEqual({
+      handled: false,
+      requestedDriverId: 'codex-app-server',
+    })
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'driverSelected',
+        sessionId: 'grace-default',
+        driverId: 'generic-pty',
+      }),
+    )
+
+    await expect(
+      launchServerDriverSession(ctx, spawn('grace-explicit', 'codex-app-server'), probe),
+    ).resolves.toEqual({ handled: true })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'spawnError',
+      sessionId: 'grace-explicit',
+      message: expect.stringContaining("harness 'codex' login is not confirmed yet"),
+    })
+    expect(sent.some((msg) => msg.type === 'bind')).toBe(false)
   })
 
   it('coalesces concurrent spawns behind one probe and binds neither before it resolves', async () => {

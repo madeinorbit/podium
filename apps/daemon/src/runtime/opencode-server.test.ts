@@ -78,11 +78,43 @@ describe('driver resolution', () => {
     expect(admissionProbeDriver('opencode-server', 'in')).toBe('opencode-server')
   })
 
-  it('maps only a known inventory logout to the logged-out selection axis', () => {
-    expect(selectionAuthForLogin('out')).toBe('logged-out')
-    expect(selectionAuthForLogin('in')).toBe('unknown')
-    expect(selectionAuthForLogin('unknown')).toBe('unknown')
-    expect(selectionAuthForLogin(undefined)).toBe('unknown')
+  it('keeps an unsettled Codex login off app-server without widening other harnesses', () => {
+    expect(selectionAuthForLogin('codex', 'out')).toBe('logged-out')
+    expect(selectionAuthForLogin('codex', 'unknown')).toBe('logged-out')
+    expect(selectionAuthForLogin('codex', 'in')).toBe('unknown')
+    expect(selectionAuthForLogin('codex', undefined)).toBe('unknown')
+    expect(selectionAuthForLogin('opencode', 'unknown')).toBe('unknown')
+    expect(selectionAuthForLogin('grok', 'unknown')).toBe('unknown')
+  })
+
+  it('degrades a default Codex grace-window spawn but preserves explicit refusal', () => {
+    const auth = selectionAuthForLogin('codex', 'unknown')
+    const defaultResolution = resolveRuntimeDriver({
+      agentKind: 'codex',
+      requested: undefined,
+      machineDefault: undefined,
+      available: ['codex-app-server', 'generic-pty'],
+      platform: 'linux',
+      auth,
+    })
+    expect(defaultResolution).toEqual({ ok: true, driverId: 'generic-pty' })
+    expect(unhonouredSpawnDriver({ perSpawn: undefined, resolved: 'generic-pty' })).toBeUndefined()
+
+    const explicitResolution = resolveRuntimeDriver({
+      agentKind: 'codex',
+      requested: 'codex-app-server',
+      machineDefault: undefined,
+      available: ['codex-app-server', 'generic-pty'],
+      platform: 'linux',
+      auth,
+    })
+    expect(explicitResolution).toEqual({ ok: true, driverId: 'generic-pty' })
+    expect(
+      unhonouredSpawnDriver({
+        perSpawn: 'codex-app-server',
+        resolved: 'generic-pty',
+      }),
+    ).toBe('codex-app-server')
   })
 
   it.each([

@@ -21,6 +21,7 @@ import {
   harnessCapabilitiesFor,
   harnessDisplayName,
   harnessInterrupt,
+  harnessLoginNeedsInteractive,
   harnessResumeKind,
   harnessShowsPromptModeHints,
   harnessSupportsHandoff,
@@ -336,6 +337,16 @@ describe('agent manifest registry', () => {
     expect(agentStateProviderFor('shell')).toBeUndefined()
     expect(harnessCapabilitiesFor('shell')).toBeUndefined()
     expect(transcriptRecordMapperFor('not-a-kind')).toBeUndefined()
+  })
+
+  it('owns the Codex credential-grace interpretation at the harness boundary', () => {
+    expect(harnessLoginNeedsInteractive('codex', 'unknown')).toBe(true)
+    expect(harnessLoginNeedsInteractive('codex', 'out')).toBe(true)
+    expect(harnessLoginNeedsInteractive('codex', 'in')).toBe(false)
+    expect(harnessLoginNeedsInteractive('codex', undefined)).toBe(false)
+    expect(harnessLoginNeedsInteractive('opencode', 'unknown')).toBe(false)
+    expect(harnessLoginNeedsInteractive('grok', 'unknown')).toBe(false)
+    expect(harnessLoginNeedsInteractive('future-harness', 'unknown')).toBe(false)
   })
 
   it('derives capability answers from manifests and degrades unknown ids closed', () => {

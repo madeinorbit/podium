@@ -23,6 +23,7 @@ import {
   AGENT_MANIFESTS,
   type DriverId,
   declaredValue,
+  harnessLoginNeedsInteractive,
   harnessNeedsSubmitVerification,
   harnessUsesRawFirstTurn,
   manifestFor,
@@ -133,12 +134,17 @@ const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
 export type DriverResolution = { ok: true; driverId: DriverId } | { ok: false; reason: string }
 
 /** Map inventory's login fact onto the selection axis without guessing an auth
- * mode. `unknown` remains distinct from a known logout: only the latter proves
- * that a headless server would strand the user without the PTY login flow. */
+ * mode. Codex is the exception to the general `unknown` rule: its detector
+ * deliberately reports `unknown` while a missing auth.json is inside the
+ * credential-replacement grace window. On a machine that has never logged in,
+ * that same window is the first fact Podium sees, so admitting app-server would
+ * create a bound session that cannot answer. Keep the other harnesses' genuinely
+ * inconclusive reads distinct from a known logout. */
 export function selectionAuthForLogin(
+  agentKind: AgentKind,
   state: 'in' | 'out' | 'unknown' | undefined,
 ): SelectionContext['auth'] {
-  return state === 'out' ? 'logged-out' : 'unknown'
+  return harnessLoginNeedsInteractive(agentKind, state) ? 'logged-out' : 'unknown'
 }
 
 /**

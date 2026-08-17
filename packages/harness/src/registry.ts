@@ -337,3 +337,19 @@ export function harnessDetectLogin(
 ): HarnessLogin | undefined {
   return manifestFor(kind)?.inventory.detectLogin(homeDir)
 }
+
+/**
+ * Whether this inventory fact requires the interactive login path before a
+ * server-family session can be admitted. Most harnesses reserve `unknown` for
+ * genuinely inconclusive reads. Codex also uses it for the short replacement
+ * grace after auth.json disappears, where app-server cannot answer yet.
+ *
+ * Keep that harness variance here so generic hosts consume the adapter-owned
+ * answer without branching on a harness identity.
+ */
+export function harnessLoginNeedsInteractive(
+  kind: AgentKind | string,
+  state: HarnessLogin['state'] | undefined,
+): boolean {
+  return state === 'out' || (kind === 'codex' && state === 'unknown')
+}

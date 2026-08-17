@@ -103,6 +103,19 @@ export interface DaemonHostRuntime {
   close(opts?: { reapSessions?: boolean }): Promise<void>
 }
 
+/** Keep the synchronous spawn gate on the exact home inventory uses. */
+export function daemonHarnessLoginContext(
+  homeDir: string | undefined,
+): Pick<DaemonContext, 'homeDir' | 'harnessLoginState'> {
+  return {
+    homeDir,
+    harnessLoginState: (agentKind) =>
+      agentKind === 'shell'
+        ? undefined
+        : harnessDetectLogin(agentKind, homeDir ?? homedir())?.state,
+  }
+}
+
 /**
  * Construct the host-control runtime independently of the server connection.
  * Every handler consumes the explicit DaemonContext (including SessionBinding);
@@ -517,13 +530,12 @@ export async function createDaemonHostRuntime(args: {
     launch,
     ...(harnessRuntime ? { harnessRuntime } : {}),
     settingsDir: instance.settingsDir,
-    homeDir,
     ...(accountHome ? { accountHome } : {}),
     // Inventory publishes this detector's result; selection reads the same fact
     // synchronously so a spawn racing the asynchronous inventory report cannot
-    // start a headless server before a known logout reaches the server cache.
-    harnessLoginState: (agentKind) =>
-      agentKind === 'shell' ? undefined : harnessDetectLogin(agentKind, homeDir ?? homedir())?.state,
+    // start a headless server before a logout or Codex grace state reaches the
+    // server cache.
+    ...daemonHarnessLoginContext(homeDir),
     bridges,
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     composerEngine,
