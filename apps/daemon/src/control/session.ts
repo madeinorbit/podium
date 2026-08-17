@@ -687,6 +687,15 @@ async function adoptServerDriverSession(
 
 type ServerDriverLaunchResult = { handled: true } | { handled: false; requestedDriverId?: string }
 
+/** The only server binary admission may probe after applying the login gate. */
+export function admissionProbeDriver(
+  preferred: string | undefined,
+  loginState: ReturnType<DaemonContext['harnessLoginState']>,
+): string | undefined {
+  if (loginState === 'out') return undefined
+  return preferred && isServerDriverId(preferred) ? preferred : undefined
+}
+
 /**
  * Emit the operator-facing record for a permitted runtime-driver degradation
  * (machine-wide or manifest-default) and return the preferred id for the bind
@@ -731,39 +740,10 @@ async function launchServerDriverSession(
    * over, an instruction from THIS SPAWN may not.
    */
   const namedHere = spawnNamedServerDriver(msg.runtimeContract)
-  /**
-   * AN EXPLICIT REQUEST FOR A SERVER DRIVER IS NOT SILENTLY DOWNGRADED BECAUSE A
-   * PROBE WAS SLOW.
-   *
-   * Checked BEFORE resolution, because `resolveRuntimeDriver` cannot see the
-   * difference: it takes an availability LIST, and an unprobeable driver is
-   * absent from that list exactly like an unsupported one. The distinction lives
-   * here, where the caller's intent is still in hand.
-   */
-  let opencodeVerdict: ReturnType<typeof opencodeVersionProbe> | undefined
-  const opencodeProbe = (): ReturnType<typeof opencodeVersionProbe> =>
-    (opencodeVerdict ??= opencodeVersionProbe())
-  /**
-   * CODEX IS PROBED ONLY WHEN A CODEX DRIVER IS ACTUALLY IN PLAY (POD-2024
-   * review, finding 7).
-   *
-   * This was eager, so an explicit `opencode-server` spawn paid a `codex
-   * --version` that had nothing to do with it. A DEFINITIVE verdict memoizes and
-   * costs one fork per daemon — but an `unprobeable` one deliberately does NOT
-   * (see that constant's own argument), so on a box where codex exists and the
-   * probe keeps losing its race, every opencode spawn blocked on a 60s probe for
-   * a binary it never asked about. The 26s measurement recorded in this very
-   * file is what makes that reachable rather than theoretical.
-   *
-   * Lazy and memoized locally, because two call sites below want the same
-   * answer and neither should pay for it if the other never asks.
-   */
-  let codexVerdict: ReturnType<typeof codexAppServerVersionProbe> | undefined
-  const codexProbe = (): ReturnType<typeof codexAppServerVersionProbe> =>
-    (codexVerdict ??= codexAppServerVersionProbe())
-  let grokVerdict: ReturnType<typeof grokAcpVersionProbe> | undefined
-  const grokProbe = (): ReturnType<typeof grokAcpVersionProbe> =>
-    (grokVerdict ??= grokAcpVersionProbe())
+  // Login is cheaper and more authoritative than availability for a headless
+  // default: a known logout always selects the PTY login path, so probing a
+  // server binary first can only delay the same answer.
+  const loginState = ctx.harnessLoginState(msg.agentKind)
   /**
    * Probe the one preferred server driver, whether the preference came from the
    * harness policy, the machine default, or this spawn. Each driver has its own
@@ -773,26 +753,28 @@ async function launchServerDriverSession(
    */
   const probeFor = (driverId: string) => {
     return driverId === 'codex-app-server'
-      ? codexProbe()
+      ? codexAppServerVersionProbe()
       : driverId === 'grok-acp'
-        ? grokProbe()
-        : opencodeProbe()
+        ? grokAcpVersionProbe()
+        : opencodeVersionProbe()
   }
-  const namedProbe = namedHere ? probeFor(namedHere) : undefined
+  const preferredServer = admissionProbeDriver(preferred, loginState)
+  const preferredProbe = preferredServer === undefined ? undefined : await probeFor(preferredServer)
+  const namedProbe = namedHere ? preferredProbe : undefined
   /**
    * REFUSED ONLY WHEN *THIS SPAWN* NAMED THE DRIVER — the fix to a defect this
    * very check used to have (POD-2113, found by review).
    *
    * It read `isServerDriverId(requested)`, so a machine-wide
    * `PODIUM_RUNTIME_DRIVER` triggered it too. `ok` is false on ENOENT as well as
-   * on a timeout and an `unprobeable` verdict is deliberately NOT memoized, so
+   * on a timeout and an `unprobeable` verdict is only briefly memoized, so
    * on a daemon whose PATH lacks the binary — installed under `~/.opencode/bin`
    * while the daemon starts from a systemd unit, which is the normal case — one
-   * env var refused EVERY spawn of EVERY harness, permanently, at one process
-   * fork per spawn. That is precisely "a stale env var kills every spawn on the
-   * box", the outcome this whole function argues must never happen, and it was
-   * the docstring three lines up that was telling the truth while the code was
-   * not. W6's second driver doubled the ways in without changing the shape.
+   * env var refused every spawn of every harness. That is precisely "a stale
+   * env var kills every spawn on the box", the outcome this whole function
+   * argues must never happen, and it was the docstring three lines up that was
+   * telling the truth while the code was not. W6's second driver doubled the
+   * ways in without changing the shape.
    *
    * `namedHere === requested` whenever this fires (the per-spawn field wins in
    * `runtimeDriverFor`), so `namedProbe` is this driver's own probe.
@@ -805,8 +787,6 @@ async function launchServerDriverSession(
     })
     return { handled: true }
   }
-  const preferredServer = preferred && isServerDriverId(preferred) ? preferred : undefined
-  const loginState = ctx.harnessLoginState(msg.agentKind)
   const resolution = resolveRuntimeDriver({
     agentKind: msg.agentKind,
     requested: msg.runtimeContract,
@@ -814,9 +794,9 @@ async function launchServerDriverSession(
     // Only the preferred server is probed and admitted. An explicit terminal
     // request therefore avoids every server probe.
     available: availableDriverIds({
-      grokDrivable: preferredServer === 'grok-acp' && probeFor(preferredServer).drivable,
-      opencodeDrivable: preferredServer === 'opencode-server' && probeFor(preferredServer).drivable,
-      codexDrivable: preferredServer === 'codex-app-server' && probeFor(preferredServer).drivable,
+      grokDrivable: preferredServer === 'grok-acp' && preferredProbe?.drivable === true,
+      opencodeDrivable: preferredServer === 'opencode-server' && preferredProbe?.drivable === true,
+      codexDrivable: preferredServer === 'codex-app-server' && preferredProbe?.drivable === true,
     }),
     platform: process.platform,
     auth: selectionAuthForLogin(loginState),
@@ -853,13 +833,15 @@ async function launchServerDriverSession(
     // version diagnostic — an answer about the wrong binary, which is worse than
     // no answer because it sends the operator to upgrade something that was
     // never asked about.
-    const unhonouredProbe = probeFor(unhonoured)
-    const why =
-      loginState === 'out'
-        ? `harness '${msg.agentKind}' is logged out; its terminal path provides interactive login`
-        : unhonouredProbe.drivable
-          ? `harness '${msg.agentKind}' does not declare it (this spawn resolved to '${resolution.driverId}')`
-          : `${unhonouredProbe.diagnostic.title}: ${unhonouredProbe.diagnostic.body}`
+    let why: string
+    if (loginState === 'out') {
+      why = `harness '${msg.agentKind}' is logged out; its terminal path provides interactive login`
+    } else {
+      const unhonouredProbe = await probeFor(unhonoured)
+      why = unhonouredProbe.drivable
+        ? `harness '${msg.agentKind}' does not declare it (this spawn resolved to '${resolution.driverId}')`
+        : `${unhonouredProbe.diagnostic.title}: ${unhonouredProbe.diagnostic.body}`
+    }
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -884,22 +866,25 @@ async function launchServerDriverSession(
       preference: preferred,
       resolved: resolution.driverId,
     })
-    const requestedDriverId = (() => {
-      if (dropped === undefined) return undefined
-      const droppedProbe = probeFor(dropped)
-      return reportDriverPreferenceDegrade({
+    let requestedDriverId: string | undefined
+    if (dropped !== undefined) {
+      let reason: string
+      if (loginState === 'out') {
+        reason = 'harness is logged out; terminal provides interactive login'
+      } else {
+        const droppedProbe = await probeFor(dropped)
+        reason = droppedProbe.drivable
+          ? 'the harness does not declare it'
+          : droppedProbe.diagnostic.title
+      }
+      requestedDriverId = reportDriverPreferenceDegrade({
         sessionId: msg.sessionId,
         agentKind: msg.agentKind,
         preference: dropped,
         resolved: resolution.driverId,
-        reason:
-          loginState === 'out'
-            ? 'harness is logged out; terminal provides interactive login'
-            : droppedProbe.drivable
-              ? 'the harness does not declare it'
-              : droppedProbe.diagnostic.title,
+        reason,
       })
-    })()
+    }
     return {
       handled: false,
       ...(requestedDriverId ? { requestedDriverId } : {}),

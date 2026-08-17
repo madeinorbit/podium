@@ -5,7 +5,7 @@
  * replaces the child and `session/load` resumes the native session named by
  * the binding journal; the journal is durable, the pipe is intentionally not.
  */
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -25,6 +25,7 @@ import { asSessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
+import { createVersionProbeCache, execVersionProbe, type VersionProbe } from './version-probe'
 
 const log = createLogger('daemon:grok-acp-server')
 const PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
@@ -78,50 +79,41 @@ export type GrokAcpProbeVerdict =
   | { drivable: false; reason: 'unsupported'; diagnostic: GrokVersionDiagnostic }
   | { drivable: false; reason: 'unprobeable'; diagnostic: GrokVersionDiagnostic }
 
-let versionVerdict: GrokAcpProbeVerdict | undefined
-
-/** Three-valued gate: a timeout/ENOENT is transient and is never memoized. */
-export function grokAcpVersionProbe(
-  probe: () => { output: string; ok: boolean } = defaultVersionProbe,
-): GrokAcpProbeVerdict {
-  if (versionVerdict) return versionVerdict
-  const { output, ok } = probe()
-  if (!ok) {
-    return {
-      drivable: false,
-      reason: 'unprobeable',
-      diagnostic: {
-        code: 'grok-acp-version-unsupported',
-        title: 'Grok ACP version could not be checked',
-        body: `\`grok --version\` did not answer within ${PROBE_TIMEOUT_MS}ms; the next spawn will probe again. Observed: ${output || '(no output)'}`,
-        observedVersion: output.trim() || '(probe failed)',
-      },
+const versionProbeCache = createVersionProbeCache<GrokAcpProbeVerdict>({
+  evaluate: ({ output, ok }) => {
+    if (!ok) {
+      return {
+        drivable: false,
+        reason: 'unprobeable',
+        diagnostic: {
+          code: 'grok-acp-version-unsupported',
+          title: 'Grok ACP version could not be checked',
+          body: `\`grok --version\` did not answer within ${PROBE_TIMEOUT_MS}ms; a later spawn will probe again. Observed: ${output || '(no output)'}`,
+          observedVersion: output.trim() || '(probe failed)',
+        },
+      }
     }
-  }
-  const diagnostic = gateGrokVersion(output)
-  const verdict: GrokAcpProbeVerdict = diagnostic
-    ? { drivable: false, reason: 'unsupported', diagnostic }
-    : { drivable: true }
-  versionVerdict = verdict
-  return verdict
+    const diagnostic = gateGrokVersion(output)
+    return diagnostic ? { drivable: false, reason: 'unsupported', diagnostic } : { drivable: true }
+  },
+})
+
+/** Three-valued gate: a timeout/ENOENT is transient and cached only briefly. */
+export function grokAcpVersionProbe(
+  probe: VersionProbe = defaultVersionProbe,
+): Promise<GrokAcpProbeVerdict> {
+  return versionProbeCache.probe(probe)
 }
 
 export function resetGrokAcpVersionProbe(): void {
-  versionVerdict = undefined
+  versionProbeCache.reset()
 }
 
-function defaultVersionProbe(): { output: string; ok: boolean } {
+function defaultVersionProbe(): Promise<{ output: string; ok: boolean }> {
   // Deliberately the daemon's own env, NOT the instance composition: the probe
   // asks "what can this MACHINE run" and reads no per-user state — see
   // `serverChildEnv` for the env-class record (POD-2247).
-  const result = spawnSync('grok', ['--version'], {
-    encoding: 'utf8',
-    timeout: PROBE_TIMEOUT_MS,
-  })
-  return {
-    output: `${result.stdout ?? ''}${result.stderr ?? ''}`.trim(),
-    ok: result.error === undefined && result.status === 0,
-  }
+  return execVersionProbe('grok', PROBE_TIMEOUT_MS)
 }
 
 export interface GrokAcpHostDeps {
@@ -209,7 +201,7 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
     async launch(input) {
-      const verdict = grokAcpVersionProbe()
+      const verdict = await grokAcpVersionProbe()
       if (!verdict.drivable) {
         throw new Error(`${verdict.diagnostic.title}: ${verdict.diagnostic.body}`)
       }

@@ -27,11 +27,7 @@ import {
   createCodexHost,
   resetCodexAppServerVersionProbe,
 } from './codex-app-server'
-import {
-  createGrokAcpHost,
-  grokAcpVersionProbe,
-  resetGrokAcpVersionProbe,
-} from './grok-acp-server'
+import { createGrokAcpHost, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './grok-acp-server'
 import {
   createOpencodeHost,
   opencodeVersionProbe,
@@ -128,7 +124,9 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     // Prime the memoized verdict so `launch()`'s own parameterless probe call
     // hits the cache instead of forking the machine's real binary.
     resetOpencodeVersionProbe()
-    expect(opencodeVersionProbe(() => ({ output: '1.18.16', ok: true })).drivable).toBe(true)
+    expect((await opencodeVersionProbe(() => ({ output: '1.18.16', ok: true }))).drivable).toBe(
+      true,
+    )
 
     const landing = join(root, 'landing-opencode.json')
     const host = createOpencodeHost({ memoryBytes, homeDir: instanceHome })
@@ -152,7 +150,9 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
 
   it('codex app-server: the child itself reports the instance HOME', async () => {
     resetCodexAppServerVersionProbe()
-    expect(codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true })).drivable).toBe(true)
+    expect(
+      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+    ).toBe(true)
 
     const landing = join(root, 'landing-codex.json')
     const host = createCodexHost({ memoryBytes, homeDir: instanceHome })
@@ -173,7 +173,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
 
   it('grok agent stdio: the child itself reports the instance HOME — the live find', async () => {
     resetGrokAcpVersionProbe()
-    expect(grokAcpVersionProbe(() => ({ output: '0.2.23', ok: true })).drivable).toBe(true)
+    expect((await grokAcpVersionProbe(() => ({ output: '0.2.23', ok: true }))).drivable).toBe(true)
 
     const landing = join(root, 'landing-grok.json')
     const host = createGrokAcpHost({ memoryBytes, homeDir: instanceHome })

@@ -1144,7 +1144,9 @@ describe('default server-driver spawn integration', () => {
 
   it('routes a bare Codex spawn through app-server and binds that driver', async () => {
     resetCodexAppServerVersionProbe()
-    expect(codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true })).drivable).toBe(true)
+    expect(
+      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+    ).toBe(true)
     const sent: DaemonMessage[] = []
     const runtime = defaultCodexRuntime(sent)
     const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
@@ -1170,7 +1172,7 @@ describe('default server-driver spawn integration', () => {
 
   it('routes a bare Grok spawn through ACP and binds that driver', async () => {
     resetGrokAcpVersionProbe()
-    expect(grokAcpVersionProbe(() => ({ output: '0.2.118', ok: true })).drivable).toBe(true)
+    expect((await grokAcpVersionProbe(() => ({ output: '0.2.118', ok: true }))).drivable).toBe(true)
     const sent: DaemonMessage[] = []
     const runtime = defaultGrokRuntime(sent)
     const ctx = defaultServerSpawnContext(sent, { grokRuntime: runtime })

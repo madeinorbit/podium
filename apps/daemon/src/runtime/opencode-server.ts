@@ -67,6 +67,7 @@ import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } fr
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
 import type { OpencodeClientTerminals } from './opencode-attach'
+import { createVersionProbeCache, execVersionProbe, type VersionProbe } from './version-probe'
 
 const log = createLogger('daemon:opencode-server')
 
@@ -241,11 +242,11 @@ async function waitForReady(baseUrl: string, secret: string, deadlineMs: number)
 // ---------------------------------------------------------------------------
 
 /**
- * Probe `opencode --version` ONCE per daemon life and cache the verdict.
+ * Probe `opencode --version` asynchronously and cache the verdict.
  *
- * Memoized because the answer cannot change inside one process — the binary on
- * PATH is not going to be swapped under a running daemon — and because the probe
- * costs a process spawn that would otherwise be paid per session.
+ * Definitive answers live for the daemon lifetime. An inconclusive answer is
+ * retained only for a short retry interval: long enough that a spawn burst pays
+ * for one child, not long enough to turn load or ENOENT into a permanent refusal.
  */
 /**
  * THREE ANSWERS, NOT TWO — and the third one is why this is a union (POD-2056's
@@ -264,44 +265,41 @@ export type OpencodeProbeVerdict =
   /** The binary answered and the gate refused it. Stable; degrade is honest. */
   | { drivable: false; reason: 'unsupported'; diagnostic: OpencodeVersionDiagnostic }
   /** The binary did not answer at all — absent, or too slow under load. NOT a
-   *  statement about the version, and NOT memoized. */
+   *  statement about the version, and cached only until the retry interval. */
   | { drivable: false; reason: 'unprobeable'; diagnostic: OpencodeVersionDiagnostic }
 
 /**
- * MEMOIZED ONLY WHEN THE ANSWER IS DEFINITIVE.
+ * MEMOIZED PERMANENTLY ONLY WHEN THE ANSWER IS DEFINITIVE.
  *
  * A version the gate accepted or refused cannot change under a running daemon,
- * so caching it saves a 15-second process spawn per session. A probe that TIMED
- * OUT is a fact about how loaded the box was in that moment — caching it would
- * disable the server driver for the daemon's entire life because one spawn was
- * unlucky, which is exactly the failure this whole change is about.
+ * so caching it saves a process spawn per session. A probe that timed out is a
+ * fact about load in that moment, so it uses the shared expiring cache instead.
  */
-let versionVerdict: OpencodeProbeVerdict | undefined
+const versionProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
+  evaluate: ({ output, ok }) => {
+    if (!ok) {
+      const diagnostic: OpencodeVersionDiagnostic = {
+        code: 'opencode-version-unsupported',
+        title: 'opencode server driver needs review',
+        body: `\`opencode --version\` did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms. That is a statement about this machine's load or PATH, NOT about the version — the server driver is not disabled, and a later spawn will probe again. Observed: ${output || '(no output)'}`,
+        observedVersion: output.trim() || '(probe failed)',
+      }
+      log.warn('could not probe the opencode version', { output })
+      return { drivable: false, reason: 'unprobeable', diagnostic }
+    }
+    const diagnostic = gateOpencodeVersion(output)
+    const verdict: OpencodeProbeVerdict = diagnostic
+      ? { drivable: false, reason: 'unsupported', diagnostic }
+      : { drivable: true }
+    if (diagnostic) log.warn('opencode is outside the server driver range', { diagnostic })
+    return verdict
+  },
+})
 
 export function opencodeVersionProbe(
-  probe: () => { output: string; ok: boolean } = defaultVersionProbe,
-): OpencodeProbeVerdict {
-  if (versionVerdict) return versionVerdict
-  const { output, ok } = probe()
-  if (!ok) {
-    // Deliberately NOT cached. Retried on the next spawn, which on a quieter box
-    // is the one that succeeds.
-    const diagnostic: OpencodeVersionDiagnostic = {
-      code: 'opencode-version-unsupported',
-      title: 'opencode server driver needs review',
-      body: `\`opencode --version\` did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms. That is a statement about this machine's load or PATH, NOT about the version — the server driver is not disabled, and the next spawn probes again. Observed: ${output || '(no output)'}`,
-      observedVersion: output.trim() || '(probe failed)',
-    }
-    log.warn('could not probe the opencode version', { output })
-    return { drivable: false, reason: 'unprobeable', diagnostic }
-  }
-  const diagnostic = gateOpencodeVersion(output)
-  const verdict: OpencodeProbeVerdict = diagnostic
-    ? { drivable: false, reason: 'unsupported', diagnostic }
-    : { drivable: true }
-  versionVerdict = verdict
-  if (diagnostic) log.warn('opencode is outside the server driver range', { diagnostic })
-  return verdict
+  probe: VersionProbe = defaultVersionProbe,
+): Promise<OpencodeProbeVerdict> {
+  return versionProbeCache.probe(probe)
 }
 
 /** The old shape, kept for the callers that only ask "may I drive it". A probe
@@ -309,47 +307,27 @@ export function opencodeVersionProbe(
  *  LIST — the distinction that matters is at the spawn site, which asks the
  *  verdict directly. */
 export function opencodeVersionDiagnostic(
-  probe?: () => { output: string; ok: boolean },
-): OpencodeVersionDiagnostic | null {
-  const verdict = probe ? opencodeVersionProbe(probe) : opencodeVersionProbe()
-  return verdict.drivable ? null : verdict.diagnostic
+  probe?: VersionProbe,
+): Promise<OpencodeVersionDiagnostic | null> {
+  return (probe ? opencodeVersionProbe(probe) : opencodeVersionProbe()).then((verdict) =>
+    verdict.drivable ? null : verdict.diagnostic,
+  )
 }
 
 /** Reset the memo. Tests only — a daemon never needs it. */
 export function resetOpencodeVersionProbe(): void {
-  versionVerdict = undefined
+  versionProbeCache.reset()
 }
 
 /** The shared probe budget — see `OPENCODE_VERSION_PROBE_TIMEOUT_MS` for the
  *  measurement behind it and for why all three probe sites read one constant. */
 const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
 
-function defaultVersionProbe(): { output: string; ok: boolean } {
-  const result = spawnSyncVersion()
-  const output = `${result.stdout}${result.stderr}`.trim()
-  return { output, ok: result.ok }
-}
-
-function spawnSyncVersion(): { stdout: string; stderr: string; ok: boolean } {
+function defaultVersionProbe(): Promise<{ output: string; ok: boolean }> {
   // Deliberately the daemon's own env, NOT the instance composition: the probe
   // asks "what can this MACHINE run" and reads no per-user state — see
   // `serverChildEnv` for the env-class record (POD-2247).
-  // Imported lazily so a daemon that never spawns an opencode session never
-  // pays for the module.
-  const { spawnSync } = require('node:child_process') as typeof import('node:child_process')
-  const result = spawnSync('opencode', ['--version'], {
-    encoding: 'utf8',
-    timeout: VERSION_PROBE_TIMEOUT_MS,
-  })
-  return {
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-    // `ok` IS ABOUT THE SPAWN, not the version. A timeout sets `error` (ETIMEDOUT)
-    // and a missing binary sets it to ENOENT; both mean we learned nothing about
-    // the version, and only the CALLER can decide whether that should degrade a
-    // session or refuse it.
-    ok: result.error === undefined && result.status === 0,
-  }
+  return execVersionProbe('opencode', VERSION_PROBE_TIMEOUT_MS)
 }
 
 // ---------------------------------------------------------------------------
@@ -466,7 +444,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
     async launch(input) {
-      const diagnostic = opencodeVersionDiagnostic()
+      const diagnostic = await opencodeVersionDiagnostic()
       if (diagnostic) {
         // REFUSED, NOT DEGRADED. A driver written against shapes this binary may
         // not speak would fail somewhere deep in a mapping, and the operator

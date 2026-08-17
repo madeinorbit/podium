@@ -63,6 +63,7 @@ import { asSessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
+import { createVersionProbeCache, execVersionProbe, type VersionProbe } from './version-probe'
 
 const log = createLogger('daemon:codex-app-server')
 
@@ -103,9 +104,7 @@ export function createCodexJournal(): CodexJournal {
       const cached = cache.get(sessionId)
       if (cached) return cached
       try {
-        const parsed = JSON.parse(
-          readFileSync(journalPath(sessionId), 'utf8'),
-        ) as CodexJournalEntry
+        const parsed = JSON.parse(readFileSync(journalPath(sessionId), 'utf8')) as CodexJournalEntry
         cache.set(sessionId, parsed)
         return parsed
       } catch {
@@ -188,76 +187,53 @@ export type CodexProbeVerdict =
   /** The binary answered and the gate refused it. Stable; degrade is honest. */
   | { drivable: false; reason: 'unsupported'; diagnostic: CodexVersionDiagnostic }
   /** The binary did not answer at all — absent, or too slow under load. NOT a
-   *  statement about the version, and NOT memoized. */
+   *  statement about the version, and cached only until the retry interval. */
   | { drivable: false; reason: 'unprobeable'; diagnostic: CodexVersionDiagnostic }
 
 /**
- * MEMOIZED ONLY WHEN THE ANSWER IS DEFINITIVE.
+ * MEMOIZED PERMANENTLY ONLY WHEN THE ANSWER IS DEFINITIVE.
  *
  * A version the gate accepted or refused cannot change under a running daemon,
- * so caching it saves a fork of a 250MB executable per session. A probe that
- * TIMED OUT is a fact about how loaded the box was in that moment — caching it
- * would disable the driver for the daemon's entire life because one spawn was
- * unlucky.
+ * so caching it saves a fork of a 250MB executable per session. A timeout is a
+ * transient load fact and therefore uses the shared expiring cache instead.
  */
-let versionVerdict: CodexProbeVerdict | undefined
+const versionProbeCache = createVersionProbeCache<CodexProbeVerdict>({
+  evaluate: ({ output, ok }) => {
+    if (!ok) {
+      const diagnostic: CodexVersionDiagnostic = {
+        code: 'codex-app-server-version-unsupported',
+        title: 'codex app-server driver needs review',
+        body: `\`codex --version\` did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms. That is a statement about this machine's load or PATH, NOT about the version — the app-server driver is not disabled, and a later spawn will probe again. Observed: ${output || '(no output)'}`,
+        observedVersion: output.trim() || '(probe failed)',
+      }
+      log.warn('could not probe the codex version', { output })
+      return { drivable: false, reason: 'unprobeable', diagnostic }
+    }
+    const diagnostic = gateCodexVersion(output)
+    const verdict: CodexProbeVerdict = diagnostic
+      ? { drivable: false, reason: 'unsupported', diagnostic }
+      : { drivable: true }
+    if (diagnostic) log.warn('codex is outside the app-server driver range', { diagnostic })
+    return verdict
+  },
+})
 
 export function codexAppServerVersionProbe(
-  probe: () => { output: string; ok: boolean } = defaultVersionProbe,
-): CodexProbeVerdict {
-  if (versionVerdict) return versionVerdict
-  const { output, ok } = probe()
-  if (!ok) {
-    // Deliberately NOT cached. Retried on the next spawn, which on a quieter box
-    // is the one that succeeds.
-    const diagnostic: CodexVersionDiagnostic = {
-      code: 'codex-app-server-version-unsupported',
-      title: 'codex app-server driver needs review',
-      body: `\`codex --version\` did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms. That is a statement about this machine's load or PATH, NOT about the version — the app-server driver is not disabled, and the next spawn probes again. Observed: ${output || '(no output)'}`,
-      observedVersion: output.trim() || '(probe failed)',
-    }
-    log.warn('could not probe the codex version', { output })
-    return { drivable: false, reason: 'unprobeable', diagnostic }
-  }
-  const diagnostic = gateCodexVersion(output)
-  const verdict: CodexProbeVerdict = diagnostic
-    ? { drivable: false, reason: 'unsupported', diagnostic }
-    : { drivable: true }
-  versionVerdict = verdict
-  if (diagnostic) log.warn('codex is outside the app-server driver range', { diagnostic })
-  return verdict
+  probe: VersionProbe = defaultVersionProbe,
+): Promise<CodexProbeVerdict> {
+  return versionProbeCache.probe(probe)
 }
 
 /** Reset the memo. Tests only — a daemon never needs it. */
 export function resetCodexAppServerVersionProbe(): void {
-  versionVerdict = undefined
+  versionProbeCache.reset()
 }
 
-function defaultVersionProbe(): { output: string; ok: boolean } {
-  const result = spawnSyncVersion()
-  return { output: `${result.stdout}${result.stderr}`.trim(), ok: result.ok }
-}
-
-function spawnSyncVersion(): { stdout: string; stderr: string; ok: boolean } {
+function defaultVersionProbe(): Promise<{ output: string; ok: boolean }> {
   // Deliberately the daemon's own env, NOT the instance composition: the probe
   // asks "what can this MACHINE run" and reads no per-user state — see
   // `serverChildEnv` for the env-class record (POD-2247).
-  // Imported lazily so a daemon that never spawns a codex session never pays for
-  // the module.
-  const { spawnSync } = require('node:child_process') as typeof import('node:child_process')
-  const result = spawnSync('codex', ['--version'], {
-    encoding: 'utf8',
-    timeout: VERSION_PROBE_TIMEOUT_MS,
-  })
-  return {
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-    // `ok` IS ABOUT THE SPAWN, not the version. A timeout sets `error`
-    // (ETIMEDOUT) and a missing binary sets it to ENOENT; both mean we learned
-    // nothing about the version, and only the CALLER can decide whether that
-    // should degrade a session or refuse it.
-    ok: result.error === undefined && result.status === 0,
-  }
+  return execVersionProbe('codex', VERSION_PROBE_TIMEOUT_MS)
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +450,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
     async launch(input) {
-      const verdict = codexAppServerVersionProbe()
+      const verdict = await codexAppServerVersionProbe()
       if (!verdict.drivable) {
         // REFUSED, NOT DEGRADED. A driver written against methods this binary
         // may not speak fails by never receiving an approval — the session
@@ -651,10 +627,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
  * and a client that assumed one chunk was one line would corrupt every large
  * payload — which for this protocol means every turn carrying a real transcript.
  */
-function childTransport(
-  child: ReturnType<typeof spawn>,
-  banner: () => string,
-): CodexTransport {
+function childTransport(child: ReturnType<typeof spawn>, banner: () => string): CodexTransport {
   let buffer = ''
   let closed = false
   return {

@@ -17,7 +17,7 @@ import { addSink, type LogRecord } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { reportDriverPreferenceDegrade } from '../control/session'
+import { admissionProbeDriver, reportDriverPreferenceDegrade } from '../control/session'
 import { runtimeContractEnabledFor, runtimeDriverFor } from './flag'
 import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
 import {
@@ -71,6 +71,13 @@ describe('the per-spawn driver override', () => {
 
 describe('driver resolution', () => {
   const available = ['claude-pty', 'generic-pty', 'opencode-server'] as const
+  it('applies a known logout before deciding whether to probe a server binary', () => {
+    expect(admissionProbeDriver('opencode-server', 'out')).toBeUndefined()
+    expect(admissionProbeDriver('codex-app-server', 'out')).toBeUndefined()
+    expect(admissionProbeDriver('grok-acp', 'out')).toBeUndefined()
+    expect(admissionProbeDriver('opencode-server', 'in')).toBe('opencode-server')
+  })
+
   it('maps only a known inventory logout to the logged-out selection axis', () => {
     expect(selectionAuthForLogin('out')).toBe('logged-out')
     expect(selectionAuthForLogin('in')).toBe('unknown')
@@ -278,11 +285,11 @@ describe('driver resolution', () => {
      * already folded in.
      *
      * That is not a cosmetic asymmetry. A probe reports `unprobeable` on ENOENT,
-     * not just on a timeout, and that verdict is deliberately never memoized —
+     * not just on a timeout, and that verdict is deliberately not permanent —
      * so on a daemon whose PATH lacks the binary (installed under `~/.opencode/bin`,
      * daemon started from a systemd unit) a single `PODIUM_RUNTIME_DRIVER` made
-     * EVERY spawn of EVERY harness refuse, permanently, forking a probe each
-     * time. The machine-wide value is exactly the one that must degrade.
+     * EVERY spawn of EVERY harness refuse. The machine-wide value is exactly
+     * the one that must degrade.
      */
     expect(spawnNamedServerDriver('opencode-server')).toBe('opencode-server')
     // W6'S SECOND SERVER DRIVER, which doubled the ways into the defect without
@@ -415,28 +422,28 @@ describe('the version gate, as the daemon reads it', () => {
     (output = '') =>
     () => ({ output, ok: false })
 
-  it('admits a version in range and refuses one outside it', () => {
-    expect(opencodeVersionProbe(answered('1.18.16'))).toEqual({ drivable: true })
+  it('admits a version in range and refuses one outside it', async () => {
+    await expect(opencodeVersionProbe(answered('1.18.16'))).resolves.toEqual({ drivable: true })
     resetOpencodeVersionProbe()
-    const verdict = opencodeVersionProbe(answered('2.0.0'))
+    const verdict = await opencodeVersionProbe(answered('2.0.0'))
     expect(verdict.drivable).toBe(false)
     if (!verdict.drivable) expect(verdict.reason).toBe('unsupported')
   })
 
-  it('MEMOIZES a DEFINITIVE answer, because the binary does not change under a daemon', () => {
+  it('MEMOIZES a DEFINITIVE answer, because the binary does not change under a daemon', async () => {
     let calls = 0
     const probe = (): { output: string; ok: boolean } => {
       calls += 1
       return { output: '1.18.16', ok: true }
     }
-    opencodeVersionProbe(probe)
-    opencodeVersionProbe(probe)
-    opencodeVersionProbe(probe)
+    await opencodeVersionProbe(probe)
+    await opencodeVersionProbe(probe)
+    await opencodeVersionProbe(probe)
     // One fork of a 180MB binary per daemon, not one per session.
     expect(calls).toBe(1)
   })
 
-  it('does NOT memoize a probe that could not answer — the regression', () => {
+  it('temporarily memoizes a probe that could not answer', async () => {
     /**
      * POD-2056 MEASURED `opencode --version` AT 11–15s on the build host, against
      * what was then a 15s budget. Caching that miss would disable the server
@@ -448,19 +455,20 @@ describe('the version gate, as the daemon reads it', () => {
       calls += 1
       return calls === 1 ? { output: 'ETIMEDOUT', ok: false } : { output: '1.18.16', ok: true }
     }
-    expect(opencodeVersionProbe(probe).drivable).toBe(false)
-    // The next spawn asks again, and on a quieter box it succeeds.
-    expect(opencodeVersionProbe(probe)).toEqual({ drivable: true })
-    expect(calls).toBe(2)
+    expect((await opencodeVersionProbe(probe)).drivable).toBe(false)
+    // A spawn burst reuses the inconclusive result instead of repeating the
+    // expensive process. Expiry behavior is pinned by version-probe.test.ts.
+    expect((await opencodeVersionProbe(probe)).drivable).toBe(false)
+    expect(calls).toBe(1)
   })
 
-  it('separates "too old" from "could not find out"', () => {
+  it('separates "too old" from "could not find out"', async () => {
     // The distinction the spawn path branches on: one is a stable fact about the
     // machine and safe to degrade on, the other is a fact about load.
-    const unsupported = opencodeVersionProbe(answered('2.0.0'))
+    const unsupported = await opencodeVersionProbe(answered('2.0.0'))
     expect(unsupported.drivable === false && unsupported.reason).toBe('unsupported')
     resetOpencodeVersionProbe()
-    const unprobeable = opencodeVersionProbe(silent('spawnSync opencode ETIMEDOUT'))
+    const unprobeable = await opencodeVersionProbe(silent('opencode ETIMEDOUT'))
     expect(unprobeable.drivable === false && unprobeable.reason).toBe('unprobeable')
     // …and it says so in terms an operator can act on, rather than blaming the
     // version it never read.
@@ -469,13 +477,13 @@ describe('the version gate, as the daemon reads it', () => {
     }
   })
 
-  it('reports "no" through the old boolean surface either way', () => {
+  it('reports "no" through the old boolean surface either way', async () => {
     // `availableDriverIds` only asks "may I drive it", and for an availability
     // LIST an unprobeable driver is correctly absent. The distinction lives at
     // the spawn site, which asks the verdict directly.
-    expect(opencodeVersionDiagnostic(answered('1.18.16'))).toBeNull()
+    await expect(opencodeVersionDiagnostic(answered('1.18.16'))).resolves.toBeNull()
     resetOpencodeVersionProbe()
-    expect(opencodeVersionDiagnostic(silent('ENOENT'))).not.toBeNull()
+    await expect(opencodeVersionDiagnostic(silent('ENOENT'))).resolves.not.toBeNull()
   })
 })
 

@@ -157,12 +157,14 @@ describe('the version gate', () => {
     (output = '') =>
     () => ({ output, ok: false })
 
-  it('admits the version the fixtures were recorded from', () => {
+  it('admits the version the fixtures were recorded from', async () => {
     resetCodexAppServerVersionProbe()
-    expect(codexAppServerVersionProbe(answered('codex-cli 0.147.0'))).toEqual({ drivable: true })
+    await expect(codexAppServerVersionProbe(answered('codex-cli 0.147.0'))).resolves.toEqual({
+      drivable: true,
+    })
   })
 
-  it('REFUSES an out-of-range codex with a machine-readable diagnostic', () => {
+  it('REFUSES an out-of-range codex with a machine-readable diagnostic', async () => {
     /**
      * The acceptance item, and the reason the gate is worth its cost: a driver
      * whose approval method name is wrong does not error — it never receives an
@@ -170,7 +172,7 @@ describe('the version gate', () => {
      * anywhere saying why.
      */
     resetCodexAppServerVersionProbe()
-    const verdict = codexAppServerVersionProbe(answered('codex-cli 0.130.0'))
+    const verdict = await codexAppServerVersionProbe(answered('codex-cli 0.130.0'))
     expect(verdict.drivable).toBe(false)
     if (verdict.drivable) return
     expect(verdict.reason).toBe('unsupported')
@@ -178,14 +180,14 @@ describe('the version gate', () => {
     expect(verdict.diagnostic.observedVersion).toBe('codex-cli 0.130.0')
   })
 
-  it('REFUSES a codex whose output it cannot parse', () => {
+  it('REFUSES a codex whose output it cannot parse', async () => {
     resetCodexAppServerVersionProbe()
-    const verdict = codexAppServerVersionProbe(answered('some unrelated banner'))
+    const verdict = await codexAppServerVersionProbe(answered('some unrelated banner'))
     expect(verdict.drivable).toBe(false)
     if (!verdict.drivable) expect(verdict.reason).toBe('unsupported')
   })
 
-  it('distinguishes "too old" from "I could not find out"', () => {
+  it('distinguishes "too old" from "I could not find out"', async () => {
     /**
      * THREE ANSWERS, NOT TWO — adopted from POD-2023's review round after
      * POD-2056 measured why it matters, and sharper here because this binary is
@@ -195,51 +197,38 @@ describe('the version gate', () => {
      * silently converts a deliberate request into a different kind of session.
      */
     resetCodexAppServerVersionProbe()
-    const verdict = codexAppServerVersionProbe(unanswered('codex: command not found'))
+    const verdict = await codexAppServerVersionProbe(unanswered('codex: command not found'))
     expect(verdict.drivable).toBe(false)
     if (verdict.drivable) return
     expect(verdict.reason).toBe('unprobeable')
     expect(verdict.diagnostic.body).toContain('NOT about the version')
   })
 
-  it('memoizes a DEFINITIVE verdict, so the probe is one fork per daemon life', () => {
+  it('memoizes a DEFINITIVE verdict, so the probe is one fork per daemon life', async () => {
     resetCodexAppServerVersionProbe()
     let calls = 0
     const probe = () => {
       calls += 1
       return { output: 'codex-cli 0.147.0', ok: true }
     }
-    codexAppServerVersionProbe(probe)
-    codexAppServerVersionProbe(probe)
-    codexAppServerVersionProbe(probe)
+    await codexAppServerVersionProbe(probe)
+    await codexAppServerVersionProbe(probe)
+    await codexAppServerVersionProbe(probe)
     // The binary on PATH does not change under a running daemon, and the probe
     // costs a fork of a 250MB executable.
     expect(calls).toBe(1)
   })
 
-  it('does NOT memoize an unprobeable one, so one unlucky spawn is not permanent', () => {
-    // Caching a timeout would disable the driver for the daemon's ENTIRE life
-    // because a box was busy for fifteen seconds once.
+  it('temporarily memoizes an unprobeable one so a spawn burst probes once', async () => {
     resetCodexAppServerVersionProbe()
     let calls = 0
     const probe = () => {
       calls += 1
       return { output: '', ok: false }
     }
-    codexAppServerVersionProbe(probe)
-    codexAppServerVersionProbe(probe)
-    expect(calls).toBe(2)
-  })
-
-  it('lets a later, quieter probe succeed after an unprobeable one', () => {
-    resetCodexAppServerVersionProbe()
-    let attempt = 0
-    const probe = () => {
-      attempt += 1
-      return attempt === 1 ? { output: '', ok: false } : { output: 'codex-cli 0.147.0', ok: true }
-    }
-    expect(codexAppServerVersionProbe(probe).drivable).toBe(false)
-    expect(codexAppServerVersionProbe(probe).drivable).toBe(true)
+    await codexAppServerVersionProbe(probe)
+    await codexAppServerVersionProbe(probe)
+    expect(calls).toBe(1)
   })
 })
 

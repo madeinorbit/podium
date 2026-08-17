@@ -140,8 +140,8 @@ describe('Grok ACP daemon restart adoption', () => {
 })
 
 describe('Grok ACP daemon gate', () => {
-  it('admits a supported binary into driver selection', () => {
-    expect(grokAcpVersionProbe(() => ({ ok: true, output: 'grok 1.0.3' }))).toEqual({
+  it('admits a supported binary into driver selection', async () => {
+    await expect(grokAcpVersionProbe(() => ({ ok: true, output: 'grok 1.0.3' }))).resolves.toEqual({
       drivable: true,
     })
     expect(availableDriverIds({ opencodeDrivable: false, grokDrivable: true })).toContain(
@@ -149,32 +149,32 @@ describe('Grok ACP daemon gate', () => {
     )
   })
 
-  it('does not memoize an unprobeable result', () => {
+  it('temporarily memoizes an unprobeable result', async () => {
     let calls = 0
-    const first = grokAcpVersionProbe(() => {
+    const first = await grokAcpVersionProbe(() => {
       calls += 1
       return { ok: false, output: 'timed out' }
     })
-    const second = grokAcpVersionProbe(() => {
+    const second = await grokAcpVersionProbe(() => {
       calls += 1
       return { ok: true, output: 'grok 0.2.118' }
     })
     expect(first).toMatchObject({ drivable: false, reason: 'unprobeable' })
-    expect(second).toEqual({ drivable: true })
-    expect(calls).toBe(2)
+    expect(second).toMatchObject({ drivable: false, reason: 'unprobeable' })
+    expect(calls).toBe(1)
   })
 
-  it('memoizes a definitive unsupported version', () => {
+  it('memoizes a definitive unsupported version', async () => {
     let calls = 0
     const probe = () => {
       calls += 1
       return { ok: true, output: 'grok 0.2.22' }
     }
-    expect(grokAcpVersionProbe(probe)).toMatchObject({
+    await expect(grokAcpVersionProbe(probe)).resolves.toMatchObject({
       drivable: false,
       reason: 'unsupported',
     })
-    expect(grokAcpVersionProbe(probe)).toMatchObject({ reason: 'unsupported' })
+    await expect(grokAcpVersionProbe(probe)).resolves.toMatchObject({ reason: 'unsupported' })
     expect(calls).toBe(1)
   })
 })
