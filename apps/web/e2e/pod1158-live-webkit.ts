@@ -128,13 +128,22 @@ const url = `${ORIGIN}/workspace?wt=${encodeURIComponent(worktree)}`
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 // `pane` wants a pane id, not a session id, so the transcript is opened the way
 // a reader opens it: click the work row, then the session under it.
-await page.waitForTimeout(2500)
-try {
-  await page.getByText(sessionId).first().click({ timeout: 2000 })
-} catch {
-  await page.getByText(process.env.PODIUM_ROW_LABEL ?? 'Chat feed motion').first().click({ timeout: 8000 })
-}
-await page.waitForTimeout(2500)
+await page.waitForTimeout(3000)
+// Playwright's WebKit will not complete a click action against this shell —
+// the same class of thing POD-1160 records for wheel input. Dispatching the
+// DOM event directly sidesteps its actionability layer entirely, and a real
+// `click()` is what the app's own handler listens for anyway.
+const label = JSON.stringify(process.env.PODIUM_ROW_LABEL ?? 'Chat feed motion')
+const opened = await page.evaluate(`(() => {
+  const hit = Array.from(document.querySelectorAll('.shell-work-row-title'))
+    .find((el) => (el.textContent || '').includes(${label}))
+  if (!hit) return false
+  const row = hit.closest('[role="button"], button, [data-pressable], li, div')
+  ;(row || hit).click()
+  return true
+})()`)
+console.log(`opened work row ${label}: ${opened}`)
+await page.waitForTimeout(4000)
 
 let armed = false
 for (let i = 0; i < 60 && !armed; i++) {
@@ -168,7 +177,8 @@ console.log(
 for (const [i, u] of r.unrolls.entries()) {
   const grew = u.heights.length > 1 && u.heights[0]! < u.heights[u.heights.length - 1]!
   console.log(
-    `  #${i + 1} heights ${u.heights.slice(0, 8).join(' → ')}${u.heights.length > 8 ? ' …' : ''}` +
+    `  #${i + 1} --arrive-h=${u.arriveH || '(unset)'} anim=${u.animName}/${u.animDur} display=${u.display}\n` +
+      `     heights ${u.heights.slice(0, 8).join(' → ')}${u.heights.length > 8 ? ' …' : ''}` +
       `  released=${u.released} gapAtEnd=${u.gapAtEnd}px writes=${u.writesDuring}` +
       `  ${grew ? 'GREW ✓' : 'DID NOT GROW ✗'}`,
   )
