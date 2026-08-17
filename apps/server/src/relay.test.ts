@@ -4681,6 +4681,59 @@ describe('listDir routing', () => {
   })
 })
 
+describe('runtime queue abandonment composition [POD-2202]', () => {
+  it('carries a teardown report from the daemon frame into the durable terminal row', () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/repo',
+      })
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
+
+      const sent = registry.modules.messages.send(
+        {
+          kind: 'superagent',
+          attribution: {
+            actor: actorAgent(asAgentIdentityId('superagent')),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+          delegationRef: 'superagent',
+        },
+        {
+          to: { kind: 'session', id: sessionId },
+          body: 'lost during daemon restart',
+          urgency: 'next-turn',
+        },
+      )
+      expect(sent.message.status).toBe('queued')
+      expect(daemon).toContainEqual(
+        expect.objectContaining({ type: 'input', sessionId, turnId: sent.message.id }),
+      )
+
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeQueueDrainAbandoned',
+        sessionId,
+        turnIds: [sent.message.id],
+        reason: 'teardown',
+      })
+
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'dead_letter',
+        deliveredTo: sessionId,
+        deliveryDeferredReason: 'teardown',
+        deadLetteredAt: expect.any(String),
+      })
+    } finally {
+      registry.dispose()
+    }
+  })
+})
+
 describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
   it('delivers once when bind/live metadata makes queued issue mail eligible', () => {
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
