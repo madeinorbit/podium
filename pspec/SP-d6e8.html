@@ -1,0 +1,7 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-d6e8] -->
+<section data-spec="SP-d6e8" data-title="Managed sessions find Podium CLI" data-parent="SP-7f2c" data-order="2" data-status="active" data-updated="1787003000000">
+<p>Every interactive harness, headless harness, and shell session started by the local macOS desktop backend must be able to run the <code>podium</code> command from that same desktop distribution.</p>
+<p>The macOS app passes the exact path of its bundled, signed <code>podium</code> executable to its backend as a Podium-owned environment value. One shared daemon environment builder, used by both interactive and headless launches, unconditionally places that executable's directory first in each managed process's command search path. The Podium-owned entry is above recovered user paths and harness- or account-provided environment values, is never derived from them, and cannot be overridden by them.</p>
+<p>This is global session-launch behavior, not behavior in individual harness adapters. Commands started by a harness inherit the managed environment. The bundled executable remains inside the signed app; it is not copied out of the app bundle.</p>
+<p>The managed path is private to processes Podium starts. Installing or launching the desktop app does not change the user's shell profiles or terminal command path; exposing <code>podium</code> in the user's own terminal requires a separate, explicit installation action.</p>
+</section>

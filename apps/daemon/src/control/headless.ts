@@ -14,7 +14,7 @@ import {
   runHeadlessTurn,
 } from '../headless-drivers.js'
 import type { ControlHandlers, DaemonContext } from './context'
-import { sessionRelayEnv } from './session'
+import { sessionRelayEnv, spawnEnv } from './session'
 
 const log = createLogger('daemon:headless')
 
@@ -167,24 +167,27 @@ async function runHeadlessTurnRequest(
       ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
       ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
       ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
-      env: {
-        ...snapshot.commandEnvironment.env,
-        // A headless turn is always a harness (HarnessKind = AgentKind minus 'shell'),
-        // so it takes the agent-identity relay [POD-1375].
-        ...sessionRelayEnv(
-          msg.sessionId,
-          ctx.agentRelayEndpointFor(msg.sessionId),
-          ctx.instanceId,
-          msg.agent,
-        ),
-        ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-        ...(msg.toolPolicy === 'none' && ctx.accountHome
-          ? {
-              HOME: ctx.accountHome.path,
-              CLAUDE_CONFIG_DIR: join(ctx.accountHome.path, '.claude'),
-            }
-          : {}),
-      },
+      // Headless and PTY sessions share one managed-environment contract. [spec:SP-d6e8]
+      env: spawnEnv({
+        sessionEnv: snapshot.commandEnvironment.env,
+        podiumEnv: {
+          // A headless turn is always a harness (HarnessKind = AgentKind minus 'shell'),
+          // so it takes the agent-identity relay [POD-1375].
+          ...sessionRelayEnv(
+            msg.sessionId,
+            ctx.agentRelayEndpointFor(msg.sessionId),
+            ctx.instanceId,
+            msg.agent,
+          ),
+          ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+          ...(msg.toolPolicy === 'none' && ctx.accountHome
+            ? {
+                HOME: ctx.accountHome.path,
+                CLAUDE_CONFIG_DIR: join(ctx.accountHome.path, '.claude'),
+              }
+            : {}),
+        },
+      }),
       durableLabel: ctx.durableLabelFor(msg.sessionId),
     }
     const emit = (event: HeadlessTurnEvent) => {

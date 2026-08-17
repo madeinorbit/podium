@@ -24,6 +24,7 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use updater::{check_update, claim_update_ownership, install_update, set_update_channel};
 
 const DESKTOP_SUPERVISED_ENV: &str = "PODIUM_DESKTOP_SUPERVISED";
+const PODIUM_CLI_PATH_ENV: &str = "PODIUM_CLI_PATH";
 /// This shell's own PID, handed to every backend we spawn so the backend can tie its
 /// lifetime to ours (POD-1228). The reap below only runs on a deliberate quit — a GUI
 /// crash, a SIGKILL, or a plain SIGTERM executes none of our exit code at all, and the
@@ -54,6 +55,9 @@ fn local_host_sidecar_command(
     let mut command = Command::new(runnable);
     command
         .args(sidecar_args)
+        // The daemon makes this exact signed CLI authoritative for every managed session.
+        // It remains inside the app bundle on macOS. [spec:SP-d6e8]
+        .env(PODIUM_CLI_PATH_ENV, runnable)
         .env("PODIUM_PORT", port.to_string())
         .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
         .env(DESKTOP_SUPERVISED_ENV, "1")
@@ -65,6 +69,7 @@ fn replacement_daemon_command(runnable: &Path, server_url: &str) -> Command {
     let mut command = Command::new(runnable);
     command
         .args(["daemon", "--server", server_url, "--takeover"])
+        .env(PODIUM_CLI_PATH_ENV, runnable)
         .env(DESKTOP_SUPERVISED_ENV, "1")
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string());
     command
@@ -1238,6 +1243,11 @@ mod tests {
                 command_env(command, DESKTOP_SUPERVISED_ENV).as_deref(),
                 Some("1"),
                 "{label} must announce that the desktop app supervises it"
+            );
+            assert_eq!(
+                command_env(command, PODIUM_CLI_PATH_ENV).as_deref(),
+                Some("podium"),
+                "{label} must expose the exact bundled CLI to managed sessions"
             );
         }
 

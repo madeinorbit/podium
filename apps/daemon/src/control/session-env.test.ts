@@ -5,35 +5,44 @@ import { expect, it } from 'vitest'
 import { materializeLaunchFiles, spawnEnv } from './session'
 
 it('passes a managed credential through to the spawn env', () => {
-  const env = spawnEnv({
-    sessionEnv: { ANTHROPIC_API_KEY: 'sk-1' },
-    podiumEnv: { PODIUM_SESSION_ID: 's1' },
-  })
+  const env = spawnEnv(
+    {
+      sessionEnv: { ANTHROPIC_API_KEY: 'sk-1' },
+      podiumEnv: { PODIUM_SESSION_ID: 's1' },
+    },
+    {},
+  )
   expect(env.ANTHROPIC_API_KEY).toBe('sk-1')
   expect(env.PODIUM_SESSION_ID).toBe('s1')
 })
 
 it('is a no-op when the server sends no env', () => {
-  expect(spawnEnv({ podiumEnv: { PODIUM_SESSION_ID: 's1' } })).toEqual({
+  expect(spawnEnv({ podiumEnv: { PODIUM_SESSION_ID: 's1' } }, {})).toEqual({
     PODIUM_SESSION_ID: 's1',
   })
 })
 
 it("podium's own bindings win a collision — a credential cannot shadow the relay", () => {
-  const env = spawnEnv({
-    sessionEnv: { PODIUM_SESSION_ID: 'evil' },
-    podiumEnv: { PODIUM_SESSION_ID: 's1' },
-  })
+  const env = spawnEnv(
+    {
+      sessionEnv: { PODIUM_SESSION_ID: 'evil' },
+      podiumEnv: { PODIUM_SESSION_ID: 's1' },
+    },
+    {},
+  )
   expect(env.PODIUM_SESSION_ID).toBe('s1')
 })
 
 it('layers harness env over managed env while preserving Podium-owned bindings', () => {
   expect(
-    spawnEnv({
-      sessionEnv: { ACCOUNT: 'managed', SHARED: 'managed' },
-      harnessEnv: { OPENCODE_CONFIG_CONTENT: '{}', SHARED: 'harness' },
-      podiumEnv: { PODIUM_SESSION_ID: 's1', SHARED: 'podium' },
-    }),
+    spawnEnv(
+      {
+        sessionEnv: { ACCOUNT: 'managed', SHARED: 'managed' },
+        harnessEnv: { OPENCODE_CONFIG_CONTENT: '{}', SHARED: 'harness' },
+        podiumEnv: { PODIUM_SESSION_ID: 's1', SHARED: 'podium' },
+      },
+      {},
+    ),
   ).toEqual({
     ACCOUNT: 'managed',
     OPENCODE_CONFIG_CONTENT: '{}',
@@ -43,18 +52,48 @@ it('layers harness env over managed env while preserving Podium-owned bindings',
 })
 
 it('preserves the command environment supplied by the centralized runtime', () => {
-  const env = spawnEnv({
-    sessionEnv: { PATH: '/managed/bin:/usr/bin' },
-    podiumEnv: { HOME: '/root', PODIUM_SESSION_ID: 's1' },
-  })
+  const env = spawnEnv(
+    {
+      sessionEnv: { PATH: '/managed/bin:/usr/bin' },
+      podiumEnv: { HOME: '/root', PODIUM_SESSION_ID: 's1' },
+    },
+    {},
+  )
   expect(env.PATH).toBe('/managed/bin:/usr/bin')
 })
 
 it('does not reinterpret PATH from a credential HOME', () => {
-  const env = spawnEnv({
-    podiumEnv: { HOME: '/home/tester', PATH: '/home/tester/.local/bin:/usr/bin' },
-  })
+  const env = spawnEnv(
+    {
+      podiumEnv: { HOME: '/home/tester', PATH: '/home/tester/.local/bin:/usr/bin' },
+    },
+    {},
+  )
   expect(env.PATH).toBe('/home/tester/.local/bin:/usr/bin')
+})
+
+it('makes the desktop CLI authoritative without requiring a HOME override', () => {
+  const env = spawnEnv(
+    {
+      sessionEnv: {
+        PATH:
+          '/home/tester/.local/bin:/Applications/Podium.app/Contents/Resources/resources:/usr/bin',
+        PODIUM_CLI_PATH: '/stale/session/podium',
+      },
+      harnessEnv: { PODIUM_CLI_PATH: '/stale/harness/podium' },
+      podiumEnv: { PODIUM_SESSION_ID: 's1' },
+    },
+    {
+      PATH: '/usr/bin',
+      PODIUM_CLI_PATH: '/Applications/Podium.app/Contents/Resources/resources/podium',
+    },
+  )
+  expect(env.PODIUM_CLI_PATH).toBe(
+    '/Applications/Podium.app/Contents/Resources/resources/podium',
+  )
+  expect(env.PATH).toBe(
+    '/Applications/Podium.app/Contents/Resources/resources:/home/tester/.local/bin:/usr/bin',
+  )
 })
 
 it('materializes nested ephemeral launch files with owner-only permissions', () => {
