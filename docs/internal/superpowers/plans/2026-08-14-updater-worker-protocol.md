@@ -127,10 +127,13 @@ resolved into main is worse than no green at all.
   direct suites for anything web.
 - No fixed sleeps in tests — inject clocks. A `setTimeout` before an assertion is a bug in
   this repo's unit lane.
-- **Gate on the comparison when a shared lane is red.** Known: `apps/web` typecheck is red
-  at the integration base itself (POD-2109, pre-existing on main), and the broad test lane
-  carries pre-existing failures. A bare green is therefore not achievable repo-wide. The
-  gate for landing is: your owned-scope tests green, plus the shared lane's failure set on
+- **`apps/web` typecheck is GREEN now — demand a real green there.** This rule used to say it
+  was red at the base; POD-2208 fixed it and POD-2240 caught the line still standing. A stale
+  "it's red anyway" is worse than no rule, because it waves a genuine failure through. If a
+  lane you rely on has been fixed, say so here rather than leaving the excuse in place.
+- **Gate on the comparison only where a lane is *still* red.** The broad test lane
+  carries pre-existing failures, so a bare green is not achievable across it. The
+  gate for landing is: your owned-scope tests green, plus that lane's failure set on
   your branch **byte-identical** to the failure set at your fork point (A/B against a
   detached worktree at that SHA — no `bun install` there, `--root` is the repo root). Any
   delta that plausibly touches your files must be resolved before merging; record the
