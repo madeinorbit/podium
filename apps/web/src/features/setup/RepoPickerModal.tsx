@@ -1,4 +1,4 @@
-import { asMachineId, type MachineWire, type MachineId } from '@podium/model/browser'
+import { asMachineId, type MachineId, type MachineWire } from '@podium/model/browser'
 import {
   Check,
   ChevronLeft,
@@ -198,6 +198,13 @@ export function RepoPickerModal({
   const busy = loading || saving || scanning
   const writing = saving || scanning
 
+  // Standing INSIDE a repo, the per-entry "Use repository" buttons are all below you
+  // and the typed-path row was the only way out — empty, so its button was dead
+  // (POD-1236). Offer the browsed repo as the field's placeholder: the button acts on
+  // it, and anything you type takes over, button state and all.
+  const browsedRepoPath = listing?.isRepo === true ? listing.path : null
+  const manualTarget = manualPath.trim() || browsedRepoPath || ''
+
   async function pickPath(path: string): Promise<void> {
     setSaving(true)
     setError(null)
@@ -222,7 +229,7 @@ export function RepoPickerModal({
   }
 
   async function pickManual(): Promise<void> {
-    const path = manualPath.trim()
+    const path = manualTarget
     if (!selectedMachine) {
       setError('Choose an online machine')
       return
@@ -582,15 +589,22 @@ export function RepoPickerModal({
               </div>
               <div className="border-t border-[#2b2f37] bg-[#1f2329] px-6 pt-[18px] pb-[22px]">
                 <p className="text-[12.5px] leading-none font-semibold text-[#a8adb6]">
-                  Or use a repository path
+                  {browsedRepoPath
+                    ? 'Use this folder, or another path'
+                    : 'Or use a repository path'}
                 </p>
                 <div className="mt-[11px] flex gap-3 max-sm:flex-col">
                   <Input
                     id="repo-machine-path"
                     aria-label={machinePathLabel}
-                    className="h-[38px] rounded-[9px] border-0 bg-[#15171b] px-[13px] font-mono text-[13px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
+                    className={cn(
+                      'h-[38px] rounded-[9px] border-0 bg-[#15171b] px-[13px] font-mono text-[13px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]',
+                      // The offered path is what the button will act on, so it reads as
+                      // content rather than as the usual dim hint.
+                      browsedRepoPath && 'placeholder:text-[#9ba1ab]',
+                    )}
                     value={manualPath}
-                    placeholder="/home/user/project"
+                    placeholder={browsedRepoPath ?? '/home/user/project'}
                     disabled={writing || !machineReady}
                     onChange={(e) => setManualPath(e.currentTarget.value)}
                     onKeyDown={(e) => {
@@ -599,7 +613,7 @@ export function RepoPickerModal({
                   />
                   <Button
                     className="h-[38px] rounded-[9px] border-0 bg-[#e3ba52] px-[15px] text-[12.5px] font-semibold text-[#1a1408] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37] max-sm:w-full"
-                    disabled={writing || !machineReady || manualPath.trim() === ''}
+                    disabled={writing || !machineReady || manualTarget === ''}
                     onClick={() => void pickManual()}
                   >
                     <Check size={16} />

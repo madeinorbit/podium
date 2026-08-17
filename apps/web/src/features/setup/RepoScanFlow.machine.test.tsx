@@ -209,6 +209,33 @@ describe('RepoScanFlow machine selection', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  it('offers the browsed folder itself once you have navigated INTO a repo (POD-1236)', async () => {
+    const onDone = vi.fn()
+    render(<RepoScanFlow onClose={() => {}} onDone={onDone} />)
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+
+    const use = screen.getByRole('button', { name: 'Use repository' }) as HTMLButtonElement
+    expect(use.disabled).toBe(true) // home listing is not a repo — nothing to offer
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open folder myrepo' }))
+    const field = (await screen.findByLabelText('Repo path on vmi34')) as HTMLInputElement
+    await waitFor(() => expect(field.placeholder).toBe('/home/vmi34/myrepo'))
+    expect(use.disabled).toBe(false)
+
+    // Typing takes over the offer, and clearing hands it back.
+    fireEvent.change(field, { target: { value: 'relative/path' } })
+    fireEvent.click(use)
+    expect(await screen.findByText('Repo path must be absolute')).toBeTruthy()
+    fireEvent.change(field, { target: { value: '' } })
+    expect(use.disabled).toBe(false)
+
+    fireEvent.click(use)
+    await waitFor(() =>
+      expect(addRepo).toHaveBeenCalledWith({ path: '/home/vmi34/myrepo', machineId: 'vmi34' }),
+    )
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith(1))
+  })
+
   it('restores the onboarding machine and browsed folder after unmount', async () => {
     const first = render(<RepoScanFlow onboarding onClose={() => {}} onDone={() => {}} />)
     fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
