@@ -24,7 +24,11 @@
  * socket confers exactly what a remote pairing confers and nothing more.
  */
 
-import { type DaemonHandshakeReply, type MachinePrincipal, type PeerHelloReply } from '@podium/protocol'
+import {
+  type DaemonHandshakeReply,
+  type MachinePrincipal,
+  type PeerHelloReply,
+} from '@podium/protocol'
 import {
   type ControlMessage,
   encodeDaemonMessage,
@@ -92,6 +96,13 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   })
   ws.on('message', (raw) => {
     if (principal === undefined) {
+      if (registry.recoveryOnly) {
+        try {
+          if ((JSON.parse(raw.toString()) as { type?: string }).type === 'pair') return
+        } catch {
+          return
+        }
+      }
       const outcome = receiveDaemonFrame(acceptor, raw.toString())
       // A pre-auth frame that is not a handshake is dropped on the floor: it never
       // reaches a port and no principal exists (unchanged behaviour).
@@ -106,11 +117,13 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       }
       if (outcome.kind !== 'established') return
       principal = outcome.principal
-      recordHelloBuild(registry.modules.machines, outcome.machineId, {
-        build: outcome.build,
-        caps: outcome.offeredCaps,
-        at: new Date().toISOString(),
-      })
+      if (!registry.recoveryOnly) {
+        recordHelloBuild(registry.modules.machines, outcome.machineId, {
+          build: outcome.build,
+          caps: outcome.offeredCaps,
+          at: new Date().toISOString(),
+        })
+      }
       // A fresh pair hands the minted token back exactly once (the daemon persists
       // it). `paired` is itself the successful handshake reply; sending a second
       // `helloOk` would arrive after the daemon has entered its control-message loop.
@@ -125,17 +138,22 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // The plane applies its own budget (POD-391): this file never names a byte
       // count, so it cannot name the client plane's.
       send = DAEMON_PLANE_LIVENESS.sink(ws).send
-      registry.gateway.attachDaemon(principal, send)
+      if (registry.recoveryOnly) {
+        registry.modules.machines.attach(principal.machine, send)
+        registry.modules.machines.flushQueued(principal.machine)
+      } else {
+        registry.gateway.attachDaemon(principal, send)
+      }
       // A machine that just paired reports an EMPTY agent list: `install.sh` pairs
       // FIRST and installs Codex/Claude/Grok after, while the daemon's own inventory
       // loop only re-reports once a minute. Everything that gates on capability reads
       // that stale list — the handoff picker says "no Claude" for up to a minute after
       // the CLI is already installed and logged in. Poll the fresh daemon briefly so
       // it fills in seconds after each install lands, then fall back to its own loop.
-      const settle = setInterval(
-        () => send?.({ type: 'inventoryRequest' }),
-        INVENTORY_SETTLE_INTERVAL_MS,
-      )
+      const settle = setInterval(() => {
+        if (registry.recoveryOnly) return
+        send?.({ type: 'inventoryRequest' })
+      }, INVENTORY_SETTLE_INTERVAL_MS)
       settle.unref?.()
       const stopSettle = setTimeout(() => clearInterval(settle), INVENTORY_SETTLE_WINDOW_MS)
       stopSettle.unref?.()
@@ -145,7 +163,10 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       })
       // The pairing grant rides back as the directory's opaque context: the
       // handshake carries it and never interprets it (see `directoryContext`).
-      if ((outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials) {
+      if (
+        !registry.recoveryOnly &&
+        (outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials
+      ) {
         for (const agentKind of ['claude-code', 'codex'] as const) {
           registry.modules.loginPropagation.trigger({
             targetMachineId: outcome.principal.machine,
@@ -169,7 +190,9 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // is this socket's authenticated one — a machine id in the payload (there
       // is no such field today, and an injected one is inert) can never become
       // the routing identity.
-      registry.gateway.routeDaemonFrame(principal, parseDaemonMessage(raw.toString()))
+      const message = parseDaemonMessage(raw.toString())
+      if (registry.recoveryOnly && message.type !== 'serverTransferResult') return
+      registry.gateway.routeDaemonFrame(principal, message)
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.
@@ -179,6 +202,9 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   ws.on('close', () => {
     // Pass THIS socket's send fn: if the daemon already reconnected, the registry
     // holds the new socket and this close must not evict it.
-    if (principal && send) registry.gateway.detachDaemon(principal, send)
+    if (principal && send) {
+      if (registry.recoveryOnly) registry.modules.machines.detach(principal.machine, send)
+      else registry.gateway.detachDaemon(principal, send)
+    }
   })
 }

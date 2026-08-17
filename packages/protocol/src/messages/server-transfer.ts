@@ -22,6 +22,7 @@ export const SERVER_TRANSFER_MAX_CHUNK_BYTES = 512 * 1024
 export const SERVER_TRANSFER_CAPACITY_MARGIN = 0.1
 
 export const SERVER_TRANSFER_FORMAT_VERSION = 1
+export const SERVER_MOVE_CAPABILITY = 'server-move.v1'
 
 /** Identity-bound portable package. Its canonical digest covers every field. */
 export const ServerTransferManifest = z.object({
@@ -90,6 +91,7 @@ export type ServerTransferProof = z.infer<typeof ServerTransferProof>
 /** Proof created only after the promoted server has passed its serving callback. */
 export const ServerTransferServingProof = ServerTransferProof.extend({
   publicUrl: z.string().min(1).max(2048),
+  port: z.number().int().positive().max(65_535),
   health: z.literal('serving'),
 })
 export type ServerTransferServingProof = z.infer<typeof ServerTransferServingProof>
@@ -100,6 +102,8 @@ export const ServerTransferPrepareRequestMessage = z.object({
   transferId,
   manifest: ServerTransferManifest,
   manifestDigest: digest,
+  publicUrl: z.string().min(1).max(2048),
+  port: z.number().int().positive().max(65_535),
 })
 export type ServerTransferPrepareRequestMessage = z.infer<
   typeof ServerTransferPrepareRequestMessage
@@ -137,7 +141,7 @@ export const ServerTransferPromoteRequestMessage = z.object({
   transferId,
   manifestDigest: digest,
   publicUrl: z.string().min(1).max(2048),
-  port: z.number().int().positive().max(65_535).optional(),
+  port: z.number().int().positive().max(65_535),
   targetMode: z.literal('server'),
   idempotencyKey: z.string().min(1).max(200),
 })
@@ -154,13 +158,15 @@ export const ServerTransferAbortRequestMessage = z.object({
 })
 export type ServerTransferAbortRequestMessage = z.infer<typeof ServerTransferAbortRequestMessage>
 
-export const ServerTransferStatusRequestMessage = z.object({
-  type: z.literal('serverTransferStatusRequest'),
+export const ServerTransferInspectRequestMessage = z.object({
+  type: z.literal('serverTransferInspectRequest'),
   requestId,
   transferId: transferId.optional(),
   manifestDigest: digest.optional(),
 })
-export type ServerTransferStatusRequestMessage = z.infer<typeof ServerTransferStatusRequestMessage>
+export type ServerTransferInspectRequestMessage = z.infer<
+  typeof ServerTransferInspectRequestMessage
+>
 export const ServerTransferAcknowledgeRequestMessage = z.object({
   type: z.literal('serverTransferAcknowledgeRequest'),
   requestId,
@@ -205,6 +211,7 @@ export const ServerTransferResultMessage = z.object({
   manifestDigest: digest.optional(),
   sourceMachineId: machineId.optional(),
   publicUrl: z.string().min(1).max(2048).optional(),
+  port: z.number().int().positive().max(65_535).optional(),
   path: z.string().optional(),
   offset: z.number().int().nonnegative().optional(),
   receivedBytes: z.number().int().nonnegative().optional(),

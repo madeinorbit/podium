@@ -14,12 +14,8 @@ import { GitHubCliResultMessage } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { browseDirectories } from '../../repo-registry'
-import type { Context } from '../../trpc'
-import { mods } from '../../trpc'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
-import { visibleMachinesFor } from '../sessions/command-ctx'
-import { fleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
 
 const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
@@ -95,35 +91,6 @@ export const REPO_QUERIES = {
     return GitHubCliResultMessage.omit({ type: true, requestId: true }).parse(result)
   }),
 } as const
-
-/**
- * The legacy transfer status read is the exception to the ordinary fleet reads
- * above: it reveals whether each visible machine may receive the server, so it
- * must enforce the same admin floor and per-machine manage decision as the
- * mutation whose availability it projects.
- */
-export const serverTransferStatusQuery = (ctx: Context) => {
-  const authz = fleetAuthzDeps(ctx)
-  if (authz.principal.kind !== 'system' && !roleSatisfiesFloor(authz.role, 'admin')) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: 'machines.transferServer requires an admin account',
-    })
-  }
-  const authorized = visibleMachinesFor(mods(ctx), ctx.capability).filter(
-    ({ id }) =>
-      fleetAuthzFailure(
-        'machines.transferServer',
-        {
-          targetMachineId: id,
-          publicUrl: 'https://status.invalid',
-          confirmation: 'TRANSFER SERVER',
-        },
-        authz,
-      ) === undefined,
-  )
-  return mods(ctx).serverTransfer.publicStatus(authorized)
-}
 
 export const DISCOVERY_QUERIES = {
   /** Most recent finished discovery for a machine (e.g. the automatic connect

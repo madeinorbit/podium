@@ -1217,7 +1217,13 @@ export class DaemonRpcService {
   /** Stage a portable server snapshot on a named target daemon. */
   serverTransferPrepare(
     input:
-      | { transferId: string; manifest: ServerTransferManifest; manifestDigest: string }
+      | {
+          transferId: string
+          manifest: ServerTransferManifest
+          manifestDigest: string
+          publicUrl: string
+          port: number
+        }
       | {
           transferId: string
           sourceMachineId?: MachineId
@@ -1270,6 +1276,8 @@ export class DaemonRpcService {
         transferId: input.transferId,
         manifest,
         manifestDigest: input.manifestDigest,
+        publicUrl: input.publicUrl,
+        port: input.port,
       }),
       machineId,
     )
@@ -1371,7 +1379,7 @@ export class DaemonRpcService {
     manifestDigest: string,
     publicUrl: string,
     machineId: MachineId,
-    port?: number,
+    port: number,
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return this.request(
@@ -1391,7 +1399,7 @@ export class DaemonRpcService {
         transferId,
         manifestDigest,
         publicUrl,
-        ...(port === undefined ? {} : { port }),
+        port,
         targetMode: 'server',
         idempotencyKey: transferId,
       }),
@@ -1468,7 +1476,7 @@ export class DaemonRpcService {
   }
 
   /** Read target-side recovery state through the same authenticated machine broker. */
-  serverTransferStatus(
+  inspectServerTransfer(
     transferId: string | undefined,
     machineId: MachineId,
     manifestDigest?: string,
@@ -1486,7 +1494,7 @@ export class DaemonRpcService {
         error: 'target status timed out',
       }),
       (requestId) => ({
-        type: 'serverTransferStatusRequest',
+        type: 'serverTransferInspectRequest',
         requestId,
         ...(transferId ? { transferId } : {}),
         ...(manifestDigest ? { manifestDigest } : {}),

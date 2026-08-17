@@ -256,6 +256,8 @@ describe('server transfer RPC', () => {
           files: [],
         },
         manifestDigest: 'a'.repeat(64),
+        publicUrl: 'https://target.example.test',
+        port: 443,
       },
       asMachineId('target-machine'),
     )

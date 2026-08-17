@@ -36,6 +36,7 @@ export function createOperations(deps: {
   clock?: OperationClock
   onChanged?: (row: OperationRow) => void
   cleanupContextFor?: (row: OperationRow) => unknown | Promise<unknown>
+  startCleanupJanitor?: boolean
 }): OperationsModule {
   const kinds = new OperationKindRegistry()
   const clock = deps.clock ?? systemOperationClock
@@ -50,6 +51,6 @@ export function createOperations(deps: {
     clock,
     contextFor: deps.cleanupContextFor ?? (() => undefined),
   })
-  cleanupJanitor.start()
+  if (deps.startCleanupJanitor ?? true) cleanupJanitor.start()
   return { kinds, engine, cleanupJanitor }
 }

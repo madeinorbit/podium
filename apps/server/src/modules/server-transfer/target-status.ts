@@ -16,6 +16,7 @@ function proof(
   digest: string,
   targetMachineId: MachineId,
   publicUrl: string,
+  port: number,
 ): TargetHealthProof | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const candidate = value as Partial<TargetHealthProof>
@@ -25,6 +26,7 @@ function proof(
     candidate.targetMachineId !== targetMachineId ||
     candidate.health !== 'serving' ||
     candidate.publicUrl !== publicUrl ||
+    candidate.port !== port ||
     !string(candidate.feedId) ||
     !string(candidate.feedEpoch) ||
     !string(candidate.schemaVersion) ||
@@ -45,7 +47,11 @@ function parse(raw: string): PromotedTargetMetadata | undefined {
     !string(candidate.sourceMachineId) ||
     !string(candidate.targetMachineId) ||
     !string(candidate.publicUrl) ||
-    !string(candidate.manifestDigest)
+    !string(candidate.manifestDigest) ||
+    typeof candidate.port !== 'number' ||
+    !Number.isInteger(candidate.port) ||
+    candidate.port <= 0 ||
+    candidate.port > 65_535
   ) {
     return undefined
   }
@@ -55,6 +61,7 @@ function parse(raw: string): PromotedTargetMetadata | undefined {
     candidate.manifestDigest,
     asMachineId(candidate.targetMachineId),
     candidate.publicUrl,
+    candidate.port,
   )
   if (!validated) return undefined
   return {
@@ -63,6 +70,7 @@ function parse(raw: string): PromotedTargetMetadata | undefined {
     targetMachineId: asMachineId(candidate.targetMachineId),
     publicUrl: candidate.publicUrl,
     manifestDigest: candidate.manifestDigest,
+    port: candidate.port,
     state: 'promoted',
     proof: validated,
   }

@@ -51,3 +51,12 @@ export function retireSourceAfterTransfer(
     schedule(() => exit(0), 50)
   }, deps.flushDelayMs ?? 250)
 }
+
+/** Restart after recovery changed the journal back to a writable boot posture. */
+export function restartSourceAfterRecovery(
+  deps: Pick<SourceRetirementDeps, 'schedule' | 'exit' | 'flushDelayMs'> = {},
+): void {
+  const schedule = deps.schedule ?? ((callback, delayMs) => void setTimeout(callback, delayMs))
+  const exit = deps.exit ?? process.exit
+  schedule(() => exit(0), deps.flushDelayMs ?? 250)
+}

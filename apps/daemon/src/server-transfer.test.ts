@@ -12,7 +12,11 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ServerTransferManifest, ServerTransferManifestEntry, ServerTransferServingProof } from '@podium/protocol'
+import type {
+  ServerTransferManifest,
+  ServerTransferManifestEntry,
+  ServerTransferServingProof,
+} from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { canonicalServerTransferManifest } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -90,7 +94,7 @@ async function invoke(
     | 'serverTransferValidateRequest'
     | 'serverTransferPromoteRequest'
     | 'serverTransferAbortRequest'
-    | 'serverTransferStatusRequest'
+    | 'serverTransferInspectRequest'
     | 'serverTransferAcknowledgeRequest',
   message: Record<string, unknown>,
   restartAfterTransfer?: (
@@ -109,7 +113,12 @@ async function invoke(
       ...(serverTransferCrashPoint ? { serverTransferCrashPoint } : {}),
       ...(retireAfterTransfer ? { retireAfterTransfer } : {}),
     } as unknown as DaemonContext
-    handlers[type](ctx, message as never)
+    handlers[type](
+      ctx,
+      (type === 'serverTransferPrepareRequest'
+        ? { publicUrl: 'https://podium.example.com', port: 24_444, ...message }
+        : message) as never,
+    )
   })
 }
 
@@ -169,6 +178,7 @@ async function prepareAndValidateCandidate(): Promise<{
       transferId,
       manifestDigest,
       publicUrl: 'https://podium.example.com',
+      port: 24_444,
       targetMode: 'server',
       idempotencyKey: `promote-${transferId}`,
     },
@@ -216,6 +226,30 @@ describe('server transfer target daemon', () => {
     expect(
       await stat(join(stateRoot, '.server-transfer', transferId)).catch(() => undefined),
     ).toBeUndefined()
+  })
+
+  it('refuses prepare while a legacy source transfer journal is active', async () => {
+    await mkdir(join(stateRoot, '.server-transfer'), { recursive: true })
+    await writeFile(
+      join(stateRoot, '.server-transfer', 'journal.json'),
+      JSON.stringify({ state: 'validated' }),
+    )
+    const transferId = randomUUID()
+    const manifest = transferManifest(transferId, [])
+
+    const response = await invoke('serverTransferPrepareRequest', {
+      type: 'serverTransferPrepareRequest',
+      requestId: 'prepare-legacy-journal',
+      transferId,
+      manifest,
+      manifestDigest: digest(manifest),
+    })
+
+    expect(response).toMatchObject({
+      ok: false,
+      errorCode: 'refused',
+      error: 'finish or clear the previous transfer, then update this machine',
+    })
   })
 
   it('durably validates, proves, promotes, and recovers idempotently without replacing target identity', async () => {
@@ -348,8 +382,8 @@ describe('server transfer target daemon', () => {
     })
     expect(retryPromote).toMatchObject({ ok: true, state: 'promoted', idempotent: true })
 
-    const status = await invoke('serverTransferStatusRequest', {
-      type: 'serverTransferStatusRequest',
+    const status = await invoke('serverTransferInspectRequest', {
+      type: 'serverTransferInspectRequest',
       requestId: 'status',
       transferId,
       manifestDigest,
@@ -580,8 +614,8 @@ describe('server transfer target daemon', () => {
     })
     expect(validate).toMatchObject({ ok: false, errorCode: 'candidate-invalid' })
 
-    const conflictingStatus = await invoke('serverTransferStatusRequest', {
-      type: 'serverTransferStatusRequest',
+    const conflictingStatus = await invoke('serverTransferInspectRequest', {
+      type: 'serverTransferInspectRequest',
       requestId: 'status-conflicting-digest',
       transferId,
       manifestDigest: 'f'.repeat(64),
@@ -678,8 +712,8 @@ describe('server transfer target daemon', () => {
         })
       }
 
-      const status = await invoke('serverTransferStatusRequest', {
-        type: 'serverTransferStatusRequest',
+      const status = await invoke('serverTransferInspectRequest', {
+        type: 'serverTransferInspectRequest',
         requestId: `status-crashed-${point}`,
         transferId,
         manifestDigest,
@@ -835,8 +869,8 @@ describe('server transfer target daemon', () => {
     expect(events).toEqual(['reply', 'retire', 'retire-retry'])
 
     expect(
-      await invoke('serverTransferStatusRequest', {
-        type: 'serverTransferStatusRequest',
+      await invoke('serverTransferInspectRequest', {
+        type: 'serverTransferInspectRequest',
         requestId: 'status-acknowledged',
         transferId,
         manifestDigest,

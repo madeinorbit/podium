@@ -1,3 +1,4 @@
+import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import {
   type AccountId,
@@ -75,6 +76,23 @@ export type MachineListing = MachineWire
 
 /** The machine's position relative to the version this server says it should run. */
 export type MachineVersionState = 'unreported' | 'current' | 'behind' | 'ahead'
+
+export function deriveServerMoveEligibility(input: {
+  currentServer: boolean
+  online: boolean
+  reportedWireSchemaDigest: string | null
+  deliveryCaps: readonly string[]
+}): NonNullable<MachineWire['serverMoveEligibility']> {
+  if (input.currentServer) return { eligible: false, reason: 'current-server' }
+  if (!input.online) return { eligible: false, reason: 'offline' }
+  if (
+    input.reportedWireSchemaDigest !== wireSchemaDigest() ||
+    !input.deliveryCaps.includes(SERVER_MOVE_CAPABILITY)
+  ) {
+    return { eligible: false, reason: 'unsupported' }
+  }
+  return { eligible: true }
+}
 
 /**
  * DERIVED, NEVER STORED. The server target may move independently of the last
@@ -762,6 +780,13 @@ export class MachinesService {
       } catch {
         target = undefined
       }
+      const online = this.daemons.has(m.id)
+      const serverMoveEligibility = deriveServerMoveEligibility({
+        currentServer: m.id === this.deps.hostMachineId,
+        online,
+        reportedWireSchemaDigest: m.wireSchemaDigest,
+        deliveryCaps: m.deliveryCaps,
+      })
       return {
         ...(use ? { use: use(m.id) } : {}),
         // POD-1495: same contract as `use` one line up — supplied means evaluated,
@@ -780,6 +805,7 @@ export class MachinesService {
         wireSchemaDigest: m.wireSchemaDigest,
         installKind: m.installKind,
         deliveryCaps: m.deliveryCaps,
+        serverMoveEligibility,
         // Present only when true, so the wire stays quiet for the fleet's
         // ordinary machines and a supervised one is unmistakable (POD-2099).
         ...(m.supervised ? { supervised: true } : {}),

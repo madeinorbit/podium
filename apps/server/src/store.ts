@@ -173,6 +173,7 @@ export class SessionStore {
   constructor(
     private readonly path: string = defaultDbPath(),
     hostMachineId: MachineId = asMachineId(randomUUID()),
+    options: { queryOnly?: boolean } = {},
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
@@ -185,21 +186,23 @@ export class SessionStore {
     // chain below still runs either way — on a pre-migrated database it simply finds
     // nothing pending, which is exactly what a second boot of a real install does.
     this.db = openStoreDatabase(path)
-    this.db.exec('PRAGMA journal_mode = WAL')
+    if (!options.queryOnly) this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
     // node:sqlite enables foreign keys on a fresh connection. Migrations use
     // SQLite's table-rebuild pattern (create/copy/drop/rename), where dropping a
     // parent with enforcement on would cascade-delete child rows. The chain owns
     // this window; enforcement is restored immediately after it succeeds.
-    this.db.exec('PRAGMA foreign_keys = OFF')
+    if (!options.queryOnly) this.db.exec('PRAGMA foreign_keys = OFF')
     // Schema migration [spec:SP-4428]. drizzle-kit AUTHORS migrations; this boot
     // APPLIES them with drizzle-orm's own bun:sqlite migrator, on THIS connection
     // (so the foreign_keys = OFF window covers it). Schema DDL lives ONLY in
     // src/migrations/. A fresh file is built by the baseline; an existing drizzle
     // database advances by any pending migrations.
-    const applied = runDrizzleMigrations(this.db, DRIZZLE_MIGRATIONS, {
-      dbPath: path === ':memory:' ? undefined : path,
-    })
+    const applied = options.queryOnly
+      ? []
+      : runDrizzleMigrations(this.db, DRIZZLE_MIGRATIONS, {
+          dbPath: path === ':memory:' ? undefined : path,
+        })
     // Say what the schema actually did — a silently-skipped migration (#472)
     // survived for so long precisely because it was invisible.
     if (applied.length > 0) {
@@ -208,6 +211,7 @@ export class SessionStore {
     // Foreign-key enforcement is per-connection in SQLite; restored now that the
     // migrator (which runs table rebuilds with enforcement off) is done.
     this.db.exec('PRAGMA foreign_keys = ON')
+    if (options.queryOnly) this.db.exec('PRAGMA query_only = ON')
 
     // Compose the per-aggregate repositories. The two cross-aggregate edges are
     // injected as late-bound lambdas: issues resolve their stable repo_id via
@@ -248,6 +252,11 @@ export class SessionStore {
     this.shipping = new ShippingRepository(this.db)
     this.operations = new OperationStore(this.db)
     this.messagingTopics = new MessagingTopicsRepository(this.db)
+
+    if (options.queryOnly) {
+      this.transferFenceHeld = true
+      return
+    }
 
     // Per-boot runtime steps (environment-conditional FTS objects, one-time
     // upgrades and the two remaining data heals) — never schema DDL.

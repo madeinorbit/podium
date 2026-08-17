@@ -1225,7 +1225,7 @@ async function runInProcess(
       console.log('  → …or run: podium setup   (configure here in the terminal)')
     }
   }
-  if (roles.daemon && host) {
+  if (roles.daemon && host && !recoveryOnly) {
     let daemonOptions: DaemonStartOptions
     if (plan.daemonAuth === 'local-split') {
       // `podium daemon --local` — see DaemonAuthKind: authenticate as the LOCAL machine

@@ -111,7 +111,7 @@ export const FLEET_TARGETS = {
   // the person it is being adopted FOR.
   'machines.adopt': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.revoke': (input: unknown) => named((input as { id: MachineId }).id),
-  'machines.transferServer': (input: unknown) =>
+  'machines.moveServer': (input: unknown) =>
     named((input as { targetMachineId: MachineId }).targetMachineId),
   // No machine exists yet, so there is no owner column that could admit anyone —
   // the `admin` floor is the only gate, exactly as POD-384's rationale says.

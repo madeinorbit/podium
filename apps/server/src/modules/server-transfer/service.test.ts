@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertWritableServerBoot } from './journal'
 import { ServerTransferService } from './service'
-import { readPromotedTargetMetadata } from './target-status'
 import {
   SERVER_TRANSFER_CONFIRMATION,
   type ServerTransferManifest,
@@ -30,7 +29,7 @@ function fakeRpc(
   options: {
     onFirstChunk?: () => Promise<void>
     validateOk?: boolean
-    promote?: 'ok' | 'throw' | 'throw-once'
+    promote?: 'ok' | 'throw' | 'throw-once' | 'throw-before-once'
     acknowledge?: 'ok' | 'throw'
     onAcknowledge?: () => void | Promise<void>
   } = {},
@@ -39,7 +38,9 @@ function fakeRpc(
   const manifests = new Map<string, ServerTransferManifest>()
   const chunks = new Map<string, Map<number, Buffer>>()
   let firstChunk = true
-  let promotion: { transferId: string; targetMachineId: string; publicUrl: string } | undefined
+  let promotion:
+    | { transferId: string; targetMachineId: string; publicUrl: string; port: number }
+    | undefined
   let promoteReplyLost = false
   const rpc: ServerTransferRpc = {
     serverTransferPrepare: vi.fn(async (input, targetMachineId) => {
@@ -54,6 +55,7 @@ function fakeRpc(
         targetCapability: 'server-only' as const,
         buildVersion: 'test',
         wireSchemaDigest: 'wire-1',
+        receivedBytes: 0,
         space: { availableBytes: 2_000_000_000, requiredBytes: 1, sufficient: true },
       }
     }),
@@ -104,9 +106,18 @@ function fakeRpc(
     serverTransferPromote: vi.fn(async (input, targetMachineId) => {
       operations.push(`promote:${input.transferId}`)
       if (options.promote === 'throw') throw new Error('promotion reply lost')
+      if (options.promote === 'throw-before-once' && !promoteReplyLost) {
+        promoteReplyLost = true
+        throw new Error('promotion request dropped')
+      }
       const manifest = manifests.get(input.transferId)
       if (!manifest) throw new Error('promotion before prepare')
-      promotion = { transferId: input.transferId, targetMachineId, publicUrl: input.publicUrl }
+      promotion = {
+        transferId: input.transferId,
+        targetMachineId,
+        publicUrl: input.publicUrl,
+        port: input.port,
+      }
       if (options.promote === 'throw-once' && !promoteReplyLost) {
         promoteReplyLost = true
         throw new Error('promotion reply lost')
@@ -124,6 +135,7 @@ function fakeRpc(
           buildVersion: 'test',
           health: 'serving' as const,
           publicUrl: input.publicUrl,
+          port: input.port,
         },
       }
     }),
@@ -149,13 +161,24 @@ function fakeRpc(
         cleanup: 'cleaned' as const,
       }
     }),
-    serverTransferStatus: vi.fn(async (statusInput) => {
+    inspectServerTransfer: vi.fn(async (statusInput) => {
       const manifest = statusInput.transferId ? manifests.get(statusInput.transferId) : undefined
-      if (!manifest || !promotion || promotion.transferId !== statusInput.transferId) {
+      if (!manifest) {
         return {
           ok: false as const,
           state: 'uncertain' as const,
           error: { code: 'unknown', detail: 'no proof' },
+        }
+      }
+      if (!promotion || promotion.transferId !== statusInput.transferId) {
+        return {
+          ok: true as const,
+          state: 'validated' as const,
+          transferId: statusInput.transferId,
+          manifestDigest: manifest.digest,
+          publicUrl: 'https://target.example.test',
+          port: 443,
+          sourceConnected: true,
         }
       }
       return {
@@ -173,6 +196,7 @@ function fakeRpc(
           buildVersion: 'test',
           health: 'serving' as const,
           publicUrl: promotion.publicUrl,
+          port: promotion.port,
         },
         sourceConnected: true,
       }
@@ -375,10 +399,27 @@ describe('ServerTransferService final-fence flow', () => {
     const second = await service.transfer(input, allow)
     expect(second).toMatchObject({ ok: true, state: 'committed' })
     expect(fake.rpc.serverTransferPromote).toHaveBeenCalledOnce()
-    expect(fake.rpc.serverTransferStatus).toHaveBeenCalledOnce()
+    expect(fake.rpc.inspectServerTransfer).toHaveBeenCalledOnce()
     expect(demoteSource).toHaveBeenCalledOnce()
     expect(service.status()?.state).toBe('committed')
     expect(afterCommitted).toHaveBeenCalledOnce()
+  })
+
+  it('replays the same idempotent promotion after a dropped request', async () => {
+    const fake = fakeRpc({ promote: 'throw-before-once' })
+    const demoteSource = vi.fn()
+    const service = makeService(fake.rpc, { demoteSource })
+
+    const first = await service.transfer(input, allow)
+    expect(first.state).toBe('commit-uncertain')
+    expect(demoteSource).not.toHaveBeenCalled()
+
+    const second = await service.transfer(input, allow)
+    expect(second).toMatchObject({ ok: true, state: 'committed' })
+    expect(fake.rpc.serverTransferPromote).toHaveBeenCalledTimes(2)
+    const promoteCalls = vi.mocked(fake.rpc.serverTransferPromote).mock.calls
+    expect(promoteCalls[1]?.[0]).toEqual(promoteCalls[0]?.[0])
+    expect(demoteSource).toHaveBeenCalledOnce()
   })
 
   it('aborts target staging without fencing when candidate validation fails', async () => {
@@ -395,79 +436,4 @@ describe('ServerTransferService final-fence flow', () => {
     expect(fence).not.toHaveBeenCalled()
   })
 
-  it('reports committed on the source without claiming reconnect continuity', async () => {
-    const fake = fakeRpc()
-    const service = makeService(fake.rpc)
-
-    await service.transfer(input, allow)
-    const status = await service.publicStatus([{ id: 'source-1' }, { id: 'target-1' }])
-
-    expect(status.transfer).toMatchObject({
-      state: 'committed',
-      phase: 'switching',
-      targetProof: true,
-      sourceConnected: false,
-    })
-    expect(status.transfer).toHaveProperty('bytesCopied')
-    if (!status.transfer || !('bytesCopied' in status.transfer))
-      throw new Error('missing transfer progress')
-    expect(status.transfer.bytesCopied).toBe(status.transfer.totalBytes)
-    expect(fake.rpc.serverTransferStatus).not.toHaveBeenCalled()
-  })
-
-  it('projects promoted target metadata and observes source reconnect locally', async () => {
-    const fake = fakeRpc()
-    let sourceOnline = false
-    const promoted = {
-      transferId: '00000000-0000-4000-8000-000000000001',
-      sourceMachineId: 'source-1',
-      targetMachineId: 'target-1',
-      publicUrl: 'https://podium.example.com',
-      manifestDigest: 'digest-1',
-      state: 'promoted' as const,
-      servingProof: {
-        transferId: '00000000-0000-4000-8000-000000000001',
-        manifestDigest: 'digest-1',
-        targetMachineId: 'target-1',
-        feedId: 'feed-1',
-        feedEpoch: 'epoch-1',
-        schemaVersion: 'schema-1',
-        buildVersion: 'test',
-        health: 'serving',
-        publicUrl: 'https://podium.example.com',
-      },
-    }
-    const stageDir = join(root, '.server-transfer', promoted.transferId)
-    await mkdir(stageDir, { recursive: true })
-    await writeFile(join(stageDir, 'state.json'), JSON.stringify(promoted))
-    const service = makeService(fake.rpc, {
-      sourceMachineId: asMachineId('target-1'),
-      localPromotedTransfer: () => readPromotedTargetMetadata(root),
-      targetState: (machineId) => ({
-        exists: true,
-        online: machineId === 'source-1' ? sourceOnline : true,
-        capable: true,
-        hasDaemon: true,
-      }),
-    })
-
-    const before = await service.publicStatus([{ id: 'source-1' }, { id: 'target-1' }])
-    expect(before).toMatchObject({
-      sourceMachineId: 'source-1',
-      targetEligibility: [
-        { targetMachineId: 'source-1', eligible: false, reason: 'offline' },
-        { targetMachineId: 'target-1', eligible: false, reason: 'current-server' },
-      ],
-      transfer: { state: 'committed', phase: 'switching', sourceConnected: false },
-    })
-
-    sourceOnline = true
-    const after = await service.publicStatus([{ id: 'source-1' }, { id: 'target-1' }])
-    expect(after.transfer).toMatchObject({
-      state: 'committed',
-      phase: 'connected',
-      targetProof: true,
-      sourceConnected: true,
-    })
-  })
 })

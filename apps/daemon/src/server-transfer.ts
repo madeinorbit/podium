@@ -15,7 +15,19 @@ import {
   statfs,
 } from 'node:fs/promises'
 import { basename, dirname, join, normalize, resolve } from 'node:path'
-import { SERVER_TRANSFER_CAPACITY_MARGIN, SERVER_TRANSFER_MAX_CHUNK_BYTES, canonicalServerTransferManifest, type ServerTransferErrorCode, type ServerTransferManifest, type ServerTransferManifestEntry, type ServerTransferOperation, type ServerTransferProof, type ServerTransferResultMessage, ServerTransferServingProof, wireSchemaDigest } from '@podium/protocol'
+import {
+  SERVER_TRANSFER_CAPACITY_MARGIN,
+  SERVER_TRANSFER_MAX_CHUNK_BYTES,
+  canonicalServerTransferManifest,
+  type ServerTransferErrorCode,
+  type ServerTransferManifest,
+  type ServerTransferManifestEntry,
+  type ServerTransferOperation,
+  type ServerTransferProof,
+  type ServerTransferResultMessage,
+  ServerTransferServingProof,
+  wireSchemaDigest,
+} from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 import { configPath, stateDir } from '@podium/runtime/config'
 import { applySetup, validatePublicUrl } from '@podium/runtime/setup'
@@ -52,10 +64,11 @@ interface StageMeta {
   promotion?: {
     idempotencyKey: string
     publicUrl: string
-    port?: number
+    port: number
     targetMode: 'server'
   }
   publicUrl?: string
+  port?: number
   acknowledged?: boolean
 }
 
@@ -88,7 +101,7 @@ function operationFor(type: ServerTransferRequest['type']): ServerTransferOperat
       return 'promote'
     case 'serverTransferAbortRequest':
       return 'abort'
-    case 'serverTransferStatusRequest':
+    case 'serverTransferInspectRequest':
       return 'status'
     case 'serverTransferAcknowledgeRequest':
       return 'acknowledge'
@@ -427,11 +440,26 @@ function validateManifest(
     fail('digest-mismatch', 'manifest digest mismatch')
 }
 
+async function refuseLegacySourceJournal(): Promise<void> {
+  const path = join(stateDir(), TRANSFER_DIR, 'journal.json')
+  let state: unknown
+  try {
+    state = (JSON.parse(await readFile(path, 'utf8')) as { state?: unknown }).state
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    fail('refused', 'finish or clear the previous transfer, then update this machine')
+  }
+  if (state !== 'aborted' && state !== 'committed') {
+    fail('refused', 'finish or clear the previous transfer, then update this machine')
+  }
+}
+
 async function prepare(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'serverTransferPrepareRequest' }>,
 ): Promise<ServerTransferResultMessage> {
   validateManifest(msg.manifest, msg.manifestDigest, msg.transferId, ctx.machineId)
+  await refuseLegacySourceJournal()
   await acquireLock(msg.transferId)
   try {
     const space = await capacityProof(msg.manifest.packageBytes, msg.manifest.files)
@@ -440,7 +468,9 @@ async function prepare(
     if (existing) {
       if (
         existing.manifestDigest !== msg.manifestDigest ||
-        existing.totalBytes !== msg.manifest.packageBytes
+        existing.totalBytes !== msg.manifest.packageBytes ||
+        existing.publicUrl !== msg.publicUrl ||
+        existing.port !== msg.port
       )
         fail('conflicting-digest', 'transfer id is already used for a different manifest')
       if (existing.targetMachineId !== ctx.machineId)
@@ -486,6 +516,8 @@ async function prepare(
       state: 'staging',
       targetMachineId: ctx.machineId,
       sourceMachineId: asMachineId(msg.manifest.sourceMachineId),
+      publicUrl: msg.publicUrl,
+      port: msg.port,
     }
     await writeJson(metaPath(msg.transferId), meta)
     return result(msg.requestId, msg.transferId, 'prepare', {
@@ -831,8 +863,8 @@ async function installPortableFile(
   await syncDirectory(dirname(destination))
 }
 
-async function persistTargetConfig(publicUrl: string, port?: number): Promise<void> {
-  applySetup({ mode: 'server', publicUrl, ...(port === undefined ? {} : { port }) })
+async function persistTargetConfig(publicUrl: string, port: number): Promise<void> {
+  applySetup({ mode: 'server', publicUrl, port })
   const path = configPath()
   const handle = await open(path, 'r')
   try {
@@ -866,7 +898,7 @@ async function promote(
   const promotion = {
     idempotencyKey: msg.idempotencyKey,
     publicUrl: checked.normalized,
-    ...(msg.port === undefined ? {} : { port: msg.port }),
+    port: msg.port,
     targetMode: msg.targetMode,
   } as const
 
@@ -906,6 +938,7 @@ async function promote(
 
   meta.promotion = promotion
   meta.publicUrl = checked.normalized
+  meta.port = msg.port
   meta.promotionPlan ??= await buildPromotionInventory(meta)
   await writeJson(metaPath(msg.transferId), meta)
 
@@ -920,6 +953,7 @@ async function promote(
     const expected: ServerTransferServingProof = {
       ...meta.proof,
       publicUrl: checked.normalized,
+      port: msg.port,
       health: 'serving',
     }
     if (!ctx.restartAfterTransfer) fail('uncertain-commit', 'target has no serving health callback')
@@ -1036,7 +1070,7 @@ async function acknowledge(
 
 async function status(
   ctx: DaemonContext,
-  msg: Extract<ControlMessage, { type: 'serverTransferStatusRequest' }>,
+  msg: Extract<ControlMessage, { type: 'serverTransferInspectRequest' }>,
 ): Promise<ServerTransferResultMessage> {
   let id = msg.transferId
   if (!id) {
@@ -1082,6 +1116,7 @@ async function status(
     servingProof: meta.servingProof,
     sourceMachineId: meta.sourceMachineId,
     publicUrl: meta.publicUrl,
+    port: meta.port,
     acknowledged: meta.acknowledged,
     ...(meta.state === 'uncertain' || meta.state === 'promoting'
       ? { errorCode: 'uncertain-commit' as const, error: 'transfer requires recovery' }
@@ -1151,7 +1186,7 @@ export const serverTransferHandlers: Pick<
   | 'serverTransferValidateRequest'
   | 'serverTransferPromoteRequest'
   | 'serverTransferAbortRequest'
-  | 'serverTransferStatusRequest'
+  | 'serverTransferInspectRequest'
   | 'serverTransferAcknowledgeRequest'
 > = {
   serverTransferPrepareRequest: (ctx, msg) => {
@@ -1172,7 +1207,7 @@ export const serverTransferHandlers: Pick<
   serverTransferAcknowledgeRequest: (ctx, msg) => {
     void handle(ctx, msg)
   },
-  serverTransferStatusRequest: (ctx, msg) => {
+  serverTransferInspectRequest: (ctx, msg) => {
     void handle(ctx, msg)
   },
 }

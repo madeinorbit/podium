@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
@@ -35,6 +36,7 @@ import {
   formatIssueRef,
   isTerminalOperationState,
   platformTargetFor,
+  SERVER_MOVE_CAPABILITY,
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -118,9 +120,13 @@ import {
 import { createOperations, type OperationsModule } from './modules/operations'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { ReadPositionService } from './modules/read-position/service'
-import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
+import {
+  restartSourceAfterRecovery,
+  retireSourceAfterTransfer,
+} from './modules/server-transfer/lifecycle'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
+import { serverMoveOperationKind } from './modules/server-transfer/operation'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
@@ -220,6 +226,8 @@ interface SessionRegistryOptions {
    *  (POD-1470). Whatever is passed goes through the same totality check the
    *  registry does — a widened system writeScope fails construction. */
   reactions?: readonly unknown[]
+  /** Compose read/recovery surfaces without running ordinary boot writers. */
+  recoveryOnly?: boolean
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -335,6 +343,7 @@ function noticeInfo(session: Session): SessionNoticeInfo {
  * (or the store's aggregate repositories) directly.
  */
 export class SessionRegistry {
+  readonly recoveryOnly: boolean
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
@@ -396,6 +405,8 @@ export class SessionRegistry {
     this.store = store ?? new SessionStore(':memory:')
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
+    const recoveryOnly = options.recoveryOnly === true
+    this.recoveryOnly = recoveryOnly
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
     // Resolve feature state once, then keep it atomic with settings changes. This also
@@ -512,7 +523,7 @@ export class SessionRegistry {
     // composition gets to forget. The composition root calls `ensureHostMachine`
     // again with the real hostname and the loopback bootstrap secret; that call is
     // an idempotent UPDATE of this row, not a rival insert.
-    machines.ensureHostMachine(hostname())
+    if (!recoveryOnly) machines.ensureHostMachine(hostname())
     const updatesService = new UpdatesService({
       machines: () =>
         machines.listMachines().map((machine) => ({
@@ -861,6 +872,16 @@ export class SessionRegistry {
       sourceApplicationVersion: options.targetVersion?.() ?? 'dev',
       sourceSchemaVersion: () => this.store.schemaVersionForTransfer(),
       sourceWireSchemaDigest: wireSchemaDigest(),
+      sourceCapable: () => {
+        const source = machines
+          .listMachines()
+          .find((machine) => machine.id === this.store.hostMachineId)
+        return (
+          source?.online === true &&
+          source.wireSchemaDigest === wireSchemaDigest() &&
+          source.deliveryCaps?.includes(SERVER_MOVE_CAPABILITY) === true
+        )
+      },
       rpc: serverTransferRpcAdapter(rpc),
       localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
       targetState: (machineId) => {
@@ -868,11 +889,13 @@ export class SessionRegistry {
         return {
           exists: machine !== undefined,
           online: machines.hasDaemon(machineId),
-          capable: machine?.wireSchemaDigest === wireSchemaDigest(),
-          // POD-2700. `undefined` components mean NOT RECORDED, which must not
-          // refuse — same reading as everywhere else — so only an evaluated row
-          // that lacks the component answers `false`.
+          capable:
+            machine?.wireSchemaDigest === wireSchemaDigest() &&
+            machine.serverMoveEligibility?.eligible === true,
+          // POD-2700. `undefined` components mean NOT RECORDED, so only an
+          // evaluated row that lacks the daemon component is refused.
           hasDaemon: machine?.components === undefined || machine.components.includes('daemon'),
+
         }
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),
@@ -906,7 +929,12 @@ export class SessionRegistry {
       },
       // The service fsyncs committed before this callback. Desktop continuity
       // therefore sees matching daemon config + committed journal before exit.
+      afterJournalCommitted: () => {
+        const evidence = process.env.PODIUM_SERVER_MOVE_COMMIT_EVIDENCE_FILE
+        if (evidence) writeFileSync(evidence, 'after-commit\n')
+      },
       afterCommitted: ({ serverUrl }) => retireSourceAfterTransfer(serverUrl),
+      afterRecoveredAbort: () => restartSourceAfterRecovery(),
     })
     const loginPropagation = new LoginPropagationService({
       store: this.store,
@@ -2308,6 +2336,7 @@ export class SessionRegistry {
     let updatesReconciler: UpdateReconciler | undefined
     const operationsModule = createOperations({
       store: this.store.operations,
+      startCleanupJanitor: !recoveryOnly,
       onChanged: (row) => {
         if (!isTerminalOperationState(row.state)) {
           // An operation is live, so whatever background convergence did before
@@ -2352,6 +2381,7 @@ export class SessionRegistry {
       },
     })
     operationsModule.kinds.register(updateOperationKind())
+    operationsModule.kinds.register(serverMoveOperationKind(serverTransfer))
     operations = operationsModule
     /**
      * The wave's own events are the operation's heartbeat (§3.3). Wired to the
@@ -2470,20 +2500,25 @@ export class SessionRegistry {
     })
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
     // store's row-level guard, so boot proceeds minus that row instead of
-    // crash-looping) and the issue ledger boot reconcile.
-    issues.boot(systemPrincipal('boot-reconcile'))
-    shipping.start()
-    void shipping
-      .reconcile()
-      .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))
+    // crash-looping) and the issue ledger boot reconcile. Recovery-only transfer
+    // boot must not write through either module.
+    if (!recoveryOnly) {
+      issues.boot(systemPrincipal('boot-reconcile'))
+      shipping.start()
+      void shipping
+        .reconcile()
+        .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))
+    }
     // One durable queued-row pass repairs events missed while the server was down
     // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
-    try {
-      messagesSvc.reconcileQueued()
-    } catch (error) {
-      log.warn('queued message startup recovery failed — the retry backstop remains active', {
-        err: error,
-      })
+    if (!recoveryOnly) {
+      try {
+        messagesSvc.reconcileQueued()
+      } catch (error) {
+        log.warn('queued message startup recovery failed — the retry backstop remains active', {
+          err: error,
+        })
+      }
     }
     this.steward = new StewardService({
       principal: systemPrincipal('steward'),
@@ -2558,15 +2593,16 @@ export class SessionRegistry {
     this.bus.on('transcript.delta', ({ sessionId, items }) => {
       messagesSvc.onTranscriptDelta(sessionId, items)
     })
-    this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
+    this.messageSweep = setInterval(() => {
+      if (!recoveryOnly) messagesSvc.sweep()
+    }, DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
     // An approved op whose daemon takes the frame and never answers must not sit
     // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
     // daemon in the fleet is one that drops it.
-    this.approvalStallSweep = setInterval(
-      () => approvals.sweepStalledExecutions(),
-      APPROVAL_STALL_SWEEP_MS,
-    )
+    this.approvalStallSweep = setInterval(() => {
+      if (!recoveryOnly) approvals.sweepStalledExecutions()
+    }, APPROVAL_STALL_SWEEP_MS)
     this.approvalStallSweep.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
     // jobs now run on the fenced janitor surface (parity-proven in unit tests).
@@ -2582,7 +2618,7 @@ export class SessionRegistry {
     // the ephemeral in-memory git-state cache, so there is no durable write for
     // the janitor's fence to protect — see IssueGitWatch.
     this.issueGitWatch = new IssueGitWatch(issues)
-    this.issueGitWatch.start()
+    if (!recoveryOnly) this.issueGitWatch.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()

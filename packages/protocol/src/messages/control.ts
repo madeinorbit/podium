@@ -46,7 +46,7 @@ import {
   ServerTransferChunkRequestMessage,
   ServerTransferPrepareRequestMessage,
   ServerTransferPromoteRequestMessage,
-  ServerTransferStatusRequestMessage,
+  ServerTransferInspectRequestMessage,
   ServerTransferValidateRequestMessage,
 } from './server-transfer'
 import {
@@ -136,7 +136,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ServerTransferPromoteRequestMessage,
   ServerTransferAbortRequestMessage,
   ServerTransferAcknowledgeRequestMessage,
-  ServerTransferStatusRequestMessage,
+  ServerTransferInspectRequestMessage,
   ShippingJobRequestMessage,
   ShippingEvidenceRequestMessage,
   ShippingRepairApplyRequestMessage,

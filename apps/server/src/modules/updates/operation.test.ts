@@ -1203,6 +1203,7 @@ interface HarnessOptions {
   prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
   latestDatabaseSnapshot?: () => string | undefined
+  legacyTransferActive?: () => boolean
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
   hostMachineId?: string
   /** POD-2101: how often a watched step says it is still there. */
@@ -1278,6 +1279,7 @@ function harness(options: HarnessOptions = {}) {
       options.createDatabaseSnapshot ??
       (() => '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-test'),
     latestDatabaseSnapshot: options.latestDatabaseSnapshot ?? (() => undefined),
+    ...(options.legacyTransferActive ? { legacyTransferActive: options.legacyTransferActive } : {}),
     recordOperationDetails: (id, patch) => {
       driver().recordDetails(id, patch)
     },
@@ -1570,6 +1572,27 @@ describe('the step runners', () => {
     expect(operation.error?.code).toBe('preparation-failed')
     expect(operation.error?.message).toContain('The website has not been built for HEAD')
     expect(operation.error?.message).not.toContain('internal diagnostic')
+  })
+
+  it('prepare: refuses a legacy transfer before packaging or machine delivery', async () => {
+    const requestDestBundle = vi.fn(() => Promise.resolve())
+    const h = harness({
+      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+      requestDestBundle,
+      legacyTransferActive: () => true,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read()).toMatchObject({
+      state: 'failed',
+      error: { code: 'legacy-transfer-in-progress' },
+    })
+    expect(requestDestBundle).not.toHaveBeenCalled()
+    expect(h.sent).toEqual([])
   })
 
   it('server: records a durable snapshot path BEFORE the restart is requested', async () => {

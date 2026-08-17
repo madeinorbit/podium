@@ -211,7 +211,7 @@ describe('machine scope and the writer class', () => {
   it('hands EVERY rpc-owned reply to the one correlator, answerer first', () => {
     // Twenty-three `onXResult(msg)` methods collapsed into one
     // `settleDaemonReply` (POD-318), plus `modelProbeResult` (POD-1466) and
-    // `serverTransferStatusResult`, plus the shipping job, evidence and repair
+    // `inspectServerTransferResult`, plus the shipping job, evidence and repair
     // RPC replies, plus the picker's `dirOpResult` (POD-1295). The count was
     // one BEHIND the table when this was bumped — `githubCliResult` had been
     // routed without moving the ratchet — so it is corrected here as well. This

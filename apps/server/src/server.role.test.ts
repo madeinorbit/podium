@@ -88,7 +88,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
         }),
       () => trpc.machines.revoke.mutate({ id: handle.registry.modules.machines.hostMachineId }),
       () =>
-        trpc.machines.transferServer.mutate({
+        trpc.machines.moveServer.mutate({
           targetMachineId: handle.registry.modules.machines.hostMachineId,
           publicUrl: 'https://podium.example.com',
           confirmation: 'TRANSFER SERVER',
@@ -155,7 +155,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
       'machines.setUpdateChannel',
       'machines.share',
       'machines.transferOwnership',
-      'machines.transferServer',
+      'machines.moveServer',
       'machines.unshare',
     ])
     // Non-vacuity: the filter must actually be filtering. If every contract were

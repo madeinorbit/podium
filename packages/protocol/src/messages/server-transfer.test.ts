@@ -68,6 +68,8 @@ describe('server transfer protocol', () => {
         type: 'serverTransferPrepareRequest',
         ...common,
         manifest: { ...manifest, packageBytes: 3 },
+        publicUrl: 'https://podium.example.com',
+        port: 24_444,
       },
       {
         type: 'serverTransferChunkRequest',
@@ -87,7 +89,7 @@ describe('server transfer protocol', () => {
         idempotencyKey: 'promote-once',
       },
       { type: 'serverTransferAbortRequest', ...common, reason: 'cleanup' },
-      { type: 'serverTransferStatusRequest', ...common },
+      { type: 'serverTransferInspectRequest', ...common },
     ]
 
     for (const request of requests) {
@@ -102,7 +104,7 @@ describe('server transfer protocol', () => {
       'serverTransferValidateRequest',
       'serverTransferPromoteRequest',
       'serverTransferAbortRequest',
-      'serverTransferStatusRequest',
+      'serverTransferInspectRequest',
     ])
     expect(DAEMON_PLANE_CLASS.serverTransferResult).toBe('control.command')
   })
@@ -141,6 +143,7 @@ describe('server transfer protocol', () => {
         schemaVersion: 'schema-1',
         buildVersion: '2026.8.10',
         publicUrl: 'https://podium.example.com',
+        port: 24_444,
         health: 'serving',
       },
     } as const

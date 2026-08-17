@@ -266,24 +266,22 @@ describe('the machine verb is read from the contract, per command', () => {
       publicUrl: 'https://podium.example.com',
       confirmation: 'TRANSFER SERVER' as const,
     }
-    expect(fleetAuthzFailure('machines.transferServer', input, deps(user(OWNER)))).toBeUndefined()
+    expect(fleetAuthzFailure('machines.moveServer', input, deps(user(OWNER)))).toBeUndefined()
 
     const memberManage = deps(user(COLLEAGUE), {
       role: 'member',
       grants: [{ subject: COLLEAGUE, verb: 'manage' }],
     })
-    expect(fleetAuthzFailure('machines.transferServer', input, memberManage)?.code).toBe(
-      'FORBIDDEN',
-    )
+    expect(fleetAuthzFailure('machines.moveServer', input, memberManage)?.code).toBe('FORBIDDEN')
 
     const adminManage = deps(user(COLLEAGUE), {
       role: 'admin',
       grants: [{ subject: COLLEAGUE, verb: 'manage' }],
     })
-    expect(fleetAuthzFailure('machines.transferServer', input, adminManage)).toBeUndefined()
+    expect(fleetAuthzFailure('machines.moveServer', input, adminManage)).toBeUndefined()
 
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
-    expect(fleetAuthzFailure('machines.transferServer', input, admin)?.code).toBe('NOT_FOUND')
+    expect(fleetAuthzFailure('machines.moveServer', input, admin)?.code).toBe('NOT_FOUND')
   })
 
   it('naming yourself as the recipient does not make you the owner', () => {

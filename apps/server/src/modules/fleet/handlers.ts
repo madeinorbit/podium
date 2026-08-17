@@ -17,11 +17,16 @@
  */
 
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import type { MachineId, UpdateChannel, UserId } from '@podium/model'
 import { asMachineId, HOST_REPOS, resolveMachineChannel } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { normalizeRepoPath } from '../../store'
+import { encodeOperationActor } from '../operations/actor'
+import { serverMoveAuthorization } from '../server-transfer/authorization'
+import { SERVER_MOVE_OPERATION_KIND, serverMoveFaultHook } from '../server-transfer/operation'
+import { normalizedPublicUrl, resolvedTransferPort } from '../server-transfer/service'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
@@ -197,7 +202,7 @@ export const machineRevokeHandler = ({ ctx, input }: FleetArgs<{ id: string }>) 
 }
 
 /** Move authority only after the target reports a durable promotion. */
-export const machineTransferServerHandler = ({
+export const machineMoveServerHandler = async ({
   ctx,
   input,
 }: FleetArgs<{
@@ -205,13 +210,44 @@ export const machineTransferServerHandler = ({
   publicUrl: string
   port?: number
   confirmation: 'TRANSFER SERVER'
-}>) =>
-  mods(ctx).serverTransfer.transfer(input, {
-    reauthorize: () => {
-      const refusal = fleetAuthzFailure('machines.transferServer', input, fleetAuthzDeps(ctx))
-      if (refusal) throw refusal
+}>) => {
+  const modules = mods(ctx)
+  const publicUrl = normalizedPublicUrl(input)
+  const port = resolvedTransferPort(input, publicUrl)
+  const authorizedBy = encodeOperationActor(ctx.principal)
+  const durableUsers = ctx.registry.sessionStore.users
+  const crash = serverMoveFaultHook()
+  const retryOf = modules.operations.engine
+    .history(SERVER_MOVE_OPERATION_KIND, 1)
+    .find((row) => row.state === 'failed' || row.state === 'canceled')?.id
+  const result = await modules.operations.engine.start(
+    SERVER_MOVE_OPERATION_KIND,
+    {
+      service: modules.serverTransfer,
+      engine: modules.operations.engine,
+      input: { ...input, publicUrl, port },
+      authorization: serverMoveAuthorization({
+        authorizedBy,
+        targetMachineId: input.targetMachineId,
+        machines: modules.machines,
+        roleOf: (userId) => durableUsers.roleOf(userId),
+      }),
+      authorizedBy,
+      transferId: randomUUID(),
+      sourceMachineId: modules.serverTransfer.sourceMachineId(),
+      publicUrl,
+      port,
+      ...(retryOf ? { retryOf } : {}),
+      ...(crash ? { crash } : {}),
     },
-  })
+    { createdBy: authorizedBy },
+  )
+  if (result.started) return { started: true as const, operationId: result.operation.id }
+  if ('alreadyRunning' in result) {
+    return { started: false as const, alreadyRunning: result.alreadyRunning }
+  }
+  throw new Error('server-move operation kind is unavailable')
+}
 
 export const machinePairingCodeHandler = ({
   ctx,

@@ -52,7 +52,7 @@ describe('buildReport', () => {
     )
     expect(boot.installDir).toBe('/home/u/.local/share/podium')
     expect(boot.build).toMatchObject({ appVersion: '0.4.2', installKind: 'installed' })
-    expect(deliveryCaps(boot.build)).toEqual(['update.delivery.feed', 'update.probe.artifact', 'shipping.train.v2'])
+    expect(deliveryCaps(boot.build)).toEqual(['update.delivery.feed', 'update.probe.artifact', 'shipping.train.v2', 'server-move.v1'])
   })
 
   it('matches the server source identity for the same checkout', () => {
@@ -90,19 +90,19 @@ describe('desktop-supervised build report', () => {
       '/Users/u/Library/Application Support/app.podium.desktop/payload',
     )
     expect(r).toMatchObject({ installKind: 'installed', supervised: true })
-    expect(deliveryCaps(r)).toEqual(['update.delivery.feed', 'update.probe.artifact', 'shipping.train.v2'])
+    expect(deliveryCaps(r)).toEqual(['update.delivery.feed', 'update.probe.artifact', 'shipping.train.v2', 'server-move.v1'])
   })
 
   it('does not invent feed delivery for a supervised source daemon', () => {
     const r = buildReport(supervisedEnv, undefined)
     expect(r).toMatchObject({ installKind: 'source', supervised: true })
-    expect(deliveryCaps(r)).toEqual(['shipping.train.v2'])
+    expect(deliveryCaps(r)).toEqual(['shipping.train.v2', 'server-move.v1'])
   })
 
   it('leaves a standalone installed daemon on the same machine untouched', () => {
     const r = buildReport({ PODIUM_APP_VERSION: '0.4.2' }, '/home/u/.local/share/podium')
     expect(r.supervised).toBeUndefined()
-    expect(deliveryCaps(r)).toEqual(['update.delivery.feed', 'update.probe.artifact', 'shipping.train.v2'])
+    expect(deliveryCaps(r)).toEqual(['update.delivery.feed', 'update.probe.artifact', 'shipping.train.v2', 'server-move.v1'])
   })
 
   it('reads only the exact flag, never a truthy-looking value', () => {
@@ -124,7 +124,7 @@ describe('deliveryCaps', () => {
     expect(deliveryCaps({ installKind: 'installed' })).toEqual([
       'update.delivery.feed',
       'update.probe.artifact',
-      'shipping.train.v2',
+      'shipping.train.v2', 'server-move.v1',
     ])
   })
 
@@ -140,15 +140,15 @@ describe('deliveryCaps', () => {
    * It keeps the shipping-train capability, which is not about delivery.
    */
   it('offers no delivery for a source run, which has nowhere to install one', () => {
-    expect(deliveryCaps({ installKind: 'source' })).toEqual(['shipping.train.v2'])
+    expect(deliveryCaps({ installKind: 'source' })).toEqual(['shipping.train.v2', 'server-move.v1'])
   })
 
   it('treats desktop supervision as process ownership, not delivery ownership', () => {
     expect(deliveryCaps({ installKind: 'installed', supervised: true })).toEqual([
       'update.delivery.feed',
       'update.probe.artifact',
-      'shipping.train.v2',
+      'shipping.train.v2', 'server-move.v1',
     ])
-    expect(deliveryCaps({ installKind: 'source', supervised: true })).toEqual(['shipping.train.v2'])
+    expect(deliveryCaps({ installKind: 'source', supervised: true })).toEqual(['shipping.train.v2', 'server-move.v1'])
   })
 })

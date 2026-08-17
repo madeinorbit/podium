@@ -239,7 +239,7 @@ export const CONTROL_PLANE_CLASS = {
   serverTransferValidateRequest: 'control.command',
   serverTransferPromoteRequest: 'control.command',
   serverTransferAbortRequest: 'control.command',
-  serverTransferStatusRequest: 'control.command',
+  serverTransferInspectRequest: 'control.command',
   serverTransferAcknowledgeRequest: 'control.command',
   shippingJobRequest: 'control.command',
   shippingEvidenceRequest: 'control.command',

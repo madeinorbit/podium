@@ -1316,6 +1316,8 @@ export const WIRE_FIXTURES: WireFixture[] = [
         files: [{ path: 'podium.db', size: 1, mode: 0o600, sha256: 'a'.repeat(64) }],
       },
       manifestDigest: 'b'.repeat(64),
+      publicUrl: 'https://podium.example.com',
+      port: 24_444,
     },
   },
   {
@@ -1368,10 +1370,10 @@ export const WIRE_FIXTURES: WireFixture[] = [
     },
   },
   {
-    name: 'frame.serverTransferStatusRequest',
+    name: 'frame.serverTransferInspectRequest',
     schema: ControlMessage,
     value: {
-      type: 'serverTransferStatusRequest',
+      type: 'serverTransferInspectRequest',
       requestId: 'st-status-1',
       transferId: '00000000-0000-4000-8000-000000000001',
       manifestDigest: 'b'.repeat(64),
@@ -1390,6 +1392,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
       manifestDigest: 'b'.repeat(64),
       sourceMachineId: 'source-machine',
       publicUrl: 'https://podium.example.com',
+      port: 24_444,
       path: 'podium.db',
       offset: 0,
       receivedBytes: 1,
@@ -1417,6 +1420,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
         schemaVersion: 'schema-1',
         buildVersion: '2026.8.10',
         publicUrl: 'https://podium.example.com',
+        port: 24_444,
         health: 'serving',
       },
       errorCode: 'uncertain-commit',

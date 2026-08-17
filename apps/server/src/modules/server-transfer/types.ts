@@ -14,6 +14,7 @@ export type TransferJournalState =
   | 'preparing'
   | 'staged'
   | 'validated'
+  | 'fence-pending'
   | 'source-fenced'
   | 'committing'
   | 'committed'
@@ -42,7 +43,7 @@ export interface TransferRecord {
   transferId: string
   targetMachineId: MachineId
   publicUrl: string
-  port?: number
+  port: number
   sourceMachineId: MachineId
   sourceInstanceId: string
   packageDir: string
@@ -96,6 +97,7 @@ export interface PromotedTargetMetadata {
   targetMachineId: MachineId
   publicUrl: string
   manifestDigest: string
+  port: number
   state: 'promoted'
   proof: TargetHealthProof
 }
@@ -116,6 +118,8 @@ export interface ServerTransferRpc {
       transferId: string
       sourceMachineId: MachineId
       manifest: ServerTransferManifest
+      publicUrl: string
+      port: number
       packageLimits: { totalBytes: number; maxChunkBytes: number }
     },
     targetMachineId: MachineId,
@@ -127,6 +131,7 @@ export interface ServerTransferRpc {
       targetCapability: 'server-only'
       buildVersion: string
       wireSchemaDigest: string
+      receivedBytes: number
       space: { availableBytes: number; requiredBytes: number; sufficient: boolean }
     }>
   >
@@ -158,7 +163,7 @@ export interface ServerTransferRpc {
       transferId: string
       manifestDigest: string
       publicUrl: string
-      port?: number
+      port: number
       targetMode: 'server'
       idempotencyKey: string
     },
@@ -191,7 +196,7 @@ export interface ServerTransferRpc {
       cleanup: 'cleaned' | 'pending'
     }>
   >
-  serverTransferStatus(
+  inspectServerTransfer(
     input: { transferId: string; manifestDigest: string },
     targetMachineId: MachineId,
   ): Promise<
@@ -200,6 +205,8 @@ export interface ServerTransferRpc {
       transferId?: string
       manifestDigest?: string
       proof?: TargetHealthProof
+      publicUrl?: string
+      port?: number
       sourceConnected: boolean
     }>
   >
@@ -220,11 +227,16 @@ export const TRANSFER_FAILURE_CODES = {
   DISK_FULL: 'disk-full',
   SNAPSHOT_FAILED: 'snapshot-failed',
   SOURCE_CHANGED: 'source-changed',
-  REAUTHORIZED_DENIED: 'reauthorization-denied',
+  REAUTHORIZATION_DENIED: 'reauthorization-denied',
   TARGET_REJECTED: 'target-rejected',
   TARGET_PROOF_MISSING: 'target-proof-missing',
   SOURCE_CONFIG_FAILED: 'source-config-failed',
   COMMIT_UNCERTAIN: 'commit-uncertain',
+  HANDOFF_ORPHANED: 'handoff-orphaned',
+  HANDOFF_UNSEALED: 'handoff-unsealed',
+  BOOT_RECOVERY: 'boot-recovery',
+  RECOVERY_REFUSED: 'recovery-refused',
+  LEGACY_TRANSFER_IN_PROGRESS: 'legacy-transfer-in-progress',
   INTERNAL: 'internal',
 } as const
 

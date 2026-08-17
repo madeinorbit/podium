@@ -114,6 +114,32 @@
       "encoded": "\"unknown-transfer\""
     },
     {
+      "schema": "ServerTransferInspectRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serverTransferInspectRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferInspectRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "ServerTransferInspectRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serverTransferInspectRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferInspectRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
       "schema": "ServerTransferManifest",
       "variant": "minimal",
       "wire": {
@@ -228,12 +254,14 @@
           "packageBytes": 1,
           "files": []
         },
-        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "publicUrl": "publicUrl",
+        "port": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferPrepareRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifest\":{\"formatVersion\":1,\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"sourceInstanceId\":\"manifest.sourceInstanceId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"targetMachineId\":\"manifest.targetMachineId\",\"sourceFeedId\":\"manifest.sourceFeedId\",\"sourceFeedEpoch\":\"manifest.sourceFeedEpoch\",\"appVersion\":\"manifest.appVersion\",\"schemaVersion\":\"manifest.schemaVersion\",\"packageBytes\":1,\"files\":[]},\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+      "encoded": "{\"type\":\"serverTransferPrepareRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifest\":{\"formatVersion\":1,\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"sourceInstanceId\":\"manifest.sourceInstanceId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"targetMachineId\":\"manifest.targetMachineId\",\"sourceFeedId\":\"manifest.sourceFeedId\",\"sourceFeedEpoch\":\"manifest.sourceFeedEpoch\",\"appVersion\":\"manifest.appVersion\",\"schemaVersion\":\"manifest.schemaVersion\",\"packageBytes\":1,\"files\":[]},\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"port\":1}"
     },
     {
       "schema": "ServerTransferPrepareRequestMessage",
@@ -262,12 +290,14 @@
             }
           ]
         },
-        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "publicUrl": "publicUrl",
+        "port": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferPrepareRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifest\":{\"formatVersion\":1,\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"sourceInstanceId\":\"manifest.sourceInstanceId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"targetMachineId\":\"manifest.targetMachineId\",\"sourceFeedId\":\"manifest.sourceFeedId\",\"sourceFeedEpoch\":\"manifest.sourceFeedEpoch\",\"appVersion\":\"manifest.appVersion\",\"schemaVersion\":\"manifest.schemaVersion\",\"packageBytes\":1,\"files\":[{\"path\":\"manifest.files[0].path\",\"size\":1,\"mode\":1,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+      "encoded": "{\"type\":\"serverTransferPrepareRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifest\":{\"formatVersion\":1,\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"sourceInstanceId\":\"manifest.sourceInstanceId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"targetMachineId\":\"manifest.targetMachineId\",\"sourceFeedId\":\"manifest.sourceFeedId\",\"sourceFeedEpoch\":\"manifest.sourceFeedEpoch\",\"appVersion\":\"manifest.appVersion\",\"schemaVersion\":\"manifest.schemaVersion\",\"packageBytes\":1,\"files\":[{\"path\":\"manifest.files[0].path\",\"size\":1,\"mode\":1,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"port\":1}"
     },
     {
       "schema": "ServerTransferPromoteRequestMessage",
@@ -278,13 +308,14 @@
         "transferId": "00000000-0000-4000-8000-000000000000",
         "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "publicUrl": "publicUrl",
+        "port": 1,
         "targetMode": "server",
         "idempotencyKey": "idempotencyKey"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\"}"
+      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"port\":1,\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\"}"
     },
     {
       "schema": "ServerTransferPromoteRequestMessage",
@@ -366,6 +397,7 @@
         "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "sourceMachineId": "sourceMachineId",
         "publicUrl": "publicUrl",
+        "port": 1,
         "path": "path",
         "offset": 1,
         "receivedBytes": 1,
@@ -398,6 +430,7 @@
           "schemaVersion": "servingProof.schemaVersion",
           "buildVersion": "servingProof.buildVersion",
           "publicUrl": "servingProof.publicUrl",
+          "port": 1,
           "health": "serving"
         },
         "errorCode": "unknown-transfer",
@@ -406,7 +439,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferResult\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"operation\":\"prepare\",\"ok\":true,\"state\":\"prepared\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceMachineId\":\"sourceMachineId\",\"publicUrl\":\"publicUrl\",\"path\":\"path\",\"offset\":1,\"receivedBytes\":1,\"idempotent\":true,\"cleaned\":true,\"acknowledged\":true,\"targetCapability\":\"server-only\",\"buildVersion\":\"buildVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"space\":{\"availableBytes\":1,\"requiredBytes\":1,\"sufficient\":true},\"proof\":{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"proof.targetMachineId\",\"feedId\":\"proof.feedId\",\"feedEpoch\":\"proof.feedEpoch\",\"schemaVersion\":\"proof.schemaVersion\",\"buildVersion\":\"proof.buildVersion\"},\"servingProof\":{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"servingProof.targetMachineId\",\"feedId\":\"servingProof.feedId\",\"feedEpoch\":\"servingProof.feedEpoch\",\"schemaVersion\":\"servingProof.schemaVersion\",\"buildVersion\":\"servingProof.buildVersion\",\"publicUrl\":\"servingProof.publicUrl\",\"health\":\"serving\"},\"errorCode\":\"unknown-transfer\",\"error\":\"error\"}"
+      "encoded": "{\"type\":\"serverTransferResult\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"operation\":\"prepare\",\"ok\":true,\"state\":\"prepared\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceMachineId\":\"sourceMachineId\",\"publicUrl\":\"publicUrl\",\"port\":1,\"path\":\"path\",\"offset\":1,\"receivedBytes\":1,\"idempotent\":true,\"cleaned\":true,\"acknowledged\":true,\"targetCapability\":\"server-only\",\"buildVersion\":\"buildVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"space\":{\"availableBytes\":1,\"requiredBytes\":1,\"sufficient\":true},\"proof\":{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"proof.targetMachineId\",\"feedId\":\"proof.feedId\",\"feedEpoch\":\"proof.feedEpoch\",\"schemaVersion\":\"proof.schemaVersion\",\"buildVersion\":\"proof.buildVersion\"},\"servingProof\":{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"servingProof.targetMachineId\",\"feedId\":\"servingProof.feedId\",\"feedEpoch\":\"servingProof.feedEpoch\",\"schemaVersion\":\"servingProof.schemaVersion\",\"buildVersion\":\"servingProof.buildVersion\",\"publicUrl\":\"servingProof.publicUrl\",\"port\":1,\"health\":\"serving\"},\"errorCode\":\"unknown-transfer\",\"error\":\"error\"}"
     },
     {
       "schema": "ServerTransferServingProof",
@@ -420,12 +453,13 @@
         "schemaVersion": "schemaVersion",
         "buildVersion": "buildVersion",
         "publicUrl": "publicUrl",
+        "port": 1,
         "health": "serving"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"health\":\"serving\"}"
+      "encoded": "{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"port\":1,\"health\":\"serving\"}"
     },
     {
       "schema": "ServerTransferServingProof",
@@ -439,12 +473,13 @@
         "schemaVersion": "schemaVersion",
         "buildVersion": "buildVersion",
         "publicUrl": "publicUrl",
+        "port": 1,
         "health": "serving"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"health\":\"serving\"}"
+      "encoded": "{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"port\":1,\"health\":\"serving\"}"
     },
     {
       "schema": "ServerTransferSpaceProof",
@@ -489,32 +524,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"prepared\""
-    },
-    {
-      "schema": "ServerTransferStatusRequestMessage",
-      "variant": "minimal",
-      "wire": {
-        "type": "serverTransferStatusRequest",
-        "requestId": "requestId"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferStatusRequest\",\"requestId\":\"requestId\"}"
-    },
-    {
-      "schema": "ServerTransferStatusRequestMessage",
-      "variant": "full",
-      "wire": {
-        "type": "serverTransferStatusRequest",
-        "requestId": "requestId",
-        "transferId": "00000000-0000-4000-8000-000000000000",
-        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"serverTransferStatusRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
     },
     {
       "schema": "ServerTransferTargetCapability",

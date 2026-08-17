@@ -62,6 +62,10 @@ export interface CancelCleanupResult {
 export type OperationActionMode = 'engine' | 'sealed'
 export type OperationActionResult = Record<string, unknown>
 
+export interface HandoffProjectionContext {
+  inFlightDrive: boolean
+}
+
 /**
  * A step executor. THE CONTRACT IS IDEMPOTENCE, REALITY FIRST: `ensure()` looks
  * at the world before it acts, does only the delta, and may be called again at
@@ -124,7 +128,10 @@ export interface OperationKindDefinition<Ctx = unknown, Reality = unknown> {
   reconcile(operation: Operation, reality: Reality): Operation | Promise<Operation>
   runners: Record<string, StepRunner<Ctx>>
   deadlines?: Record<string, StepDeadlines>
-  projectSealed?(operation: Operation): Operation | Promise<Operation>
+  projectSealed?(
+    operation: Operation,
+    context: HandoffProjectionContext,
+  ): Operation | Promise<Operation>
   onAction?(input: {
     operation: Operation
     actionId: string

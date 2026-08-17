@@ -75,8 +75,13 @@ import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
 import {
   assertWritableServerBoot,
+  legacyTransferInProgress,
   reconcileSafeServerTransferBoot,
+  serverTransferBootMode,
 } from './modules/server-transfer/journal'
+import { serverMoveAuthorization } from './modules/server-transfer/authorization'
+import { serverMoveFaultHook } from './modules/server-transfer/operation'
+import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
@@ -166,6 +171,8 @@ export interface ServerHandle {
   instanceId: string
   port: number
   registry: SessionRegistry
+  /** True when this process exposes only durable server-move recovery APIs. */
+  recoveryOnly: boolean
   /**
    * The persistent same-host shared secret the bundled local daemon presents (as its
    * `hello` token) to authenticate as the local machine. Exposed so the in-process
@@ -439,17 +446,25 @@ export async function startServer(
   const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
     allowCreate: !hasEnrollmentHistory(stateDir()),
   })
-  reconcileSafeServerTransferBoot(stateDir())
-  assertWritableServerBoot(stateDir())
+  const transferBootMode = serverTransferBootMode(stateDir())
+  const recoveryOnly = transferBootMode === 'recovery-only'
+  if (!recoveryOnly) assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
-  const store = new SessionStore(undefined, asMachineId(hostMachineId))
+  if (recoveryOnly) await portableStateFence.acquire()
+  const store = new SessionStore(undefined, asMachineId(hostMachineId), { queryOnly: recoveryOnly })
+  const activeServerMove = store.operations
+    .active()
+    .find((row) => row.kind === 'server-move')?.operation
+  reconcileSafeServerTransferBoot(stateDir(), activeServerMove)
   // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
   // before the open-exposure check below. Order matters between these two: the legacy
   // hash in auth.json is the operator's REAL password and wins, so it is moved into the
   // first admin's credential first; the PODIUM_PASSWORD seam then finds a credential and
   // stays the no-op it has always been on an instance that already has one.
-  await retireInstancePassword({ users: store.users })
-  await applyEnvFirstAdminPassword({ users: store.users })
+  if (!recoveryOnly) {
+    await retireInstancePassword({ users: store.users })
+    await applyEnvFirstAdminPassword({ users: store.users })
+  }
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
   const credentialsRequired = (): boolean =>
@@ -458,23 +473,28 @@ export async function startServer(
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
   // folds/reconciles the retained rows. The server does not listen meanwhile.
-  const bootPrune = await prepareLedgerBoot({
-    repo: store.sync,
-    now: Date.now,
-    onPruneMetrics: (metrics) => {
-      perf.record('phase', 'changeLogPrune.boot.total', metrics.totalDurationMs, DEPLOYMENT)
-      perf.record(
-        'phase',
-        'changeLogPrune.boot.maxSlice',
-        metrics.maxUninterruptedSliceMs,
-        DEPLOYMENT,
-      )
-    },
-  })
-  if (bootPrune.metrics.exceededPlacementThreshold) {
-    log.warn('boot retention exceeded the placement threshold — candidate for janitor placement', {
-      durationMs: bootPrune.metrics.totalDurationMs,
+  if (!recoveryOnly) {
+    const bootPrune = await prepareLedgerBoot({
+      repo: store.sync,
+      now: Date.now,
+      onPruneMetrics: (metrics) => {
+        perf.record('phase', 'changeLogPrune.boot.total', metrics.totalDurationMs, DEPLOYMENT)
+        perf.record(
+          'phase',
+          'changeLogPrune.boot.maxSlice',
+          metrics.maxUninterruptedSliceMs,
+          DEPLOYMENT,
+        )
+      },
     })
+    if (bootPrune.metrics.exceededPlacementThreshold) {
+      log.warn(
+        'boot retention exceeded the placement threshold — candidate for janitor placement',
+        {
+          durationMs: bootPrune.metrics.totalDurationMs,
+        },
+      )
+    }
   }
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
@@ -493,6 +513,7 @@ export async function startServer(
   const registry = new SessionRegistry(store, undefined, {
     instanceId,
     devChannelFeed: () => devChannelFeed?.(),
+    recoveryOnly,
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
@@ -501,7 +522,7 @@ export async function startServer(
     // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
     // owner and revocation at the state-root tier, outside podium.db. Opened
     // before service construction so pair/hello/revoke share one durability domain.
-    enrollment: openEnrollmentLedger(stateDir(), portableStateFence),
+    ...(!recoveryOnly ? { enrollment: openEnrollmentLedger(stateDir(), portableStateFence) } : {}),
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
@@ -541,7 +562,7 @@ export async function startServer(
   // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)
   // and presents it as its `hello` token — so the local daemon authenticates with no
   // pairing step and no per-boot token race.
-  const bootstrapToken = readOrCreateDaemonSecret()
+  const bootstrapToken = recoveryOnly ? '' : readOrCreateDaemonSecret()
   // Provision THIS HOST as a machine NOW, at startup: register it under the id read
   // above with the server-owned credential (sha256 of the shared secret), and fold any
   // pre-POD-318 rows onto that id in one transaction. Rows are therefore attributed
@@ -549,7 +570,7 @@ export async function startServer(
   // structural guard against the regression where data vanished because no daemon ever
   // registered. The same-host daemon then authenticates through the normal hello path
   // (wsServer) presenting this same id.
-  registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken)
+  if (!recoveryOnly) registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken)
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
@@ -560,7 +581,7 @@ export async function startServer(
   // Anything an operator had QUEUED in `upstream_outbox` when this build lands is
   // parked, not discarded: `reportParkedUpstreamMutations` is the operator-visible
   // half of that (ADR 5 D8: "silent discard of poison/pending work is forbidden").
-  reportParkedUpstreamMutations(store.sync, store.events)
+  if (!recoveryOnly) reportParkedUpstreamMutations(store.sync, store.events)
   // Opt-in telemetry [spec:SP-f933]. The server is the sole emitter (D10).
   // Wiring is unconditional and consent is read fresh per record/flush (D4/D9),
   // so this collects NOTHING until a tier is explicitly on — and takes effect
@@ -624,7 +645,7 @@ export async function startServer(
     // user that bound it, or to nobody and is refused (ADR 3 Amendment 1 D22).
     telegramBindings: store.telegramBindings,
   })
-  messaging.configure()
+  if (!recoveryOnly) messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = readOrCreateDevArtifactToken()
   let boundPort = opts.port ?? 0
@@ -801,6 +822,7 @@ export async function startServer(
         registry.sessionStore.snapshotBeforeUpdate(from, target),
       latestDatabaseSnapshot: () => registry.sessionStore.latestDatabaseSnapshot(),
       ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
+      legacyTransferActive: () => legacyTransferInProgress(stateDir()),
       ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
       ...(devPublisher.requestWebRebuild
         ? { requestWebRebuild: devPublisher.requestWebRebuild }
@@ -817,35 +839,79 @@ export async function startServer(
   // bare await here is safe by the engine's own contract rather than by a catch
   // at this call site. The server that cannot boot is the one that has to apply
   // the update that fixes it.
-  //
-  // THE PARENT'S NOTE, READ ONCE (POD-2505). A rollback leaves this server on
-  // the version the update was meant to replace, so adoption is about to fail
-  // the `server` step for coming back on the wrong version — which is true, and
-  // on its own reads as an unexplained failure. The parent's own sentence is
-  // what turns it into a report the user can act on, and decision 4 requires it
-  // when rollback was refused. Cleared afterwards: the note is about THIS boot.
+  // Preserve the parent supervisor's rollback/refusal context for update adoption.
   const parentReport = readParentOutcome()?.why
-  await registry.modules.operations.engine.adoptOnBoot(
-    () => ({
-      appVersion,
-      servedWebDigest: websiteDigestReader(
-        () => servedWebSourceDigest(desktopWebDir()),
-        () => servedWebIdentity(phoneWebDir()),
-      )?.(),
-      machineDirectory: registry.modules.updates.fleet(),
-      ...(parentReport ? { parentReport } : {}),
-      now: Date.now(),
-    }),
-    updateOperationBoot,
-  )
-  if (parentReport) clearParentOutcome()
+  const durableUsers = registry.sessionStore.users
+  const serverMoveCrash = serverMoveFaultHook()
+  if (!recoveryOnly)
+    await registry.modules.operations.engine.adoptOnBoot(
+      (row) =>
+        row.kind === 'server-move'
+          ? {
+              promoted: readPromotedTargetMetadata(stateDir()) ?? null,
+              journal: registry.modules.serverTransfer.status(),
+              machineId: hostMachineId,
+              now: Date.now(),
+            }
+          : {
+              appVersion,
+              servedWebDigest: websiteDigestReader(
+                () => servedWebSourceDigest(desktopWebDir()),
+                () => servedWebIdentity(phoneWebDir()),
+              )?.(),
+              machineDirectory: registry.modules.updates.fleet(),
+              ...(parentReport ? { parentReport } : {}),
+              now: Date.now(),
+            },
+      (row) => {
+        if (row.kind !== 'server-move') return updateOperationBoot()
+        const details = row.operation?.details
+        if (!details || typeof details !== 'object') return undefined
+        const targetMachineId = details.targetMachineId
+        const publicUrl = details.publicUrl
+        const port = details.port
+        const transferId = details.transferId
+        const authorizedBy = details.authorizedBy
+        if (
+          typeof targetMachineId !== 'string' ||
+          typeof publicUrl !== 'string' ||
+          typeof port !== 'number' ||
+          typeof transferId !== 'string' ||
+          typeof authorizedBy !== 'string'
+        )
+          return undefined
+        return {
+          service: registry.modules.serverTransfer,
+          engine: registry.modules.operations.engine,
+          input: {
+            targetMachineId: asMachineId(targetMachineId),
+            publicUrl,
+            port,
+            confirmation: 'TRANSFER SERVER' as const,
+          },
+          authorization: serverMoveAuthorization({
+            authorizedBy,
+            targetMachineId,
+            machines: registry.modules.machines,
+            roleOf: (userId) => durableUsers.roleOf(userId),
+          }),
+          authorizedBy,
+          transferId,
+          sourceMachineId: registry.modules.serverTransfer.sourceMachineId(),
+          publicUrl,
+          port,
+          ...(serverMoveCrash ? { crash: serverMoveCrash } : {}),
+        }
+      },
+    )
+  if (!recoveryOnly && parentReport) clearParentOutcome()
 
   const requestPeerAddresses = new WeakMap<Request, string>()
   const readiness = createServerReadiness({
     bootConfig: config,
     hasLiveAgentMachine: () => registry.modules.machines.onlineMachineIds().length > 0,
   })
-  let targetsResolvedOnBoot = false
+  let targetsResolvedOnBoot = recoveryOnly
   const app = new Hono()
   // The dev resolver pulls this server's own feed. The listener must therefore
   // exist before the boot resolve, but it must not report healthy in that narrow
@@ -854,6 +920,20 @@ export async function startServer(
   app.get('/health', (c) =>
     targetsResolvedOnBoot ? c.text('ok') : c.text('resolving update targets', 503),
   )
+  if (recoveryOnly) {
+    const allowedRecoveryProcedures = new Set([
+      '/health',
+      '/trpc/operations.active',
+      '/trpc/operations.history',
+      '/trpc/operations.settleAsk',
+      '/trpc/operations.action',
+    ])
+    app.use('*', async (c, next) => {
+      if (allowedRecoveryProcedures.has(c.req.path)) return next()
+      return c.notFound()
+    })
+  }
+
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let janitorHostClosing = false
@@ -1229,7 +1309,10 @@ export async function startServer(
         async fetch(request, nativeServer) {
           const peerAddress = nativeServer.requestIP?.(request)?.address
           if (peerAddress) requestPeerAddresses.set(request, peerAddress)
-          const upgrade = ws.handleRequest(request, nativeServer as never)
+          const upgrade =
+            recoveryOnly && new URL(request.url).pathname !== '/daemon'
+              ? null
+              : ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
           const headers = new Headers(request.headers)
           if (peerAddress) headers.set('x-podium-peer-address', peerAddress)
@@ -1410,22 +1493,28 @@ export async function startServer(
         }
       },
     }
-    void refreshTargetsOnBoot({
-      refresh: (channel) => registry.modules.updates.refreshTarget(channel),
-    }).then(() => {
+    void (recoveryOnly
+      ? Promise.resolve()
+      : refreshTargetsOnBoot({
+          refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+        })
+    ).then(() => {
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
-      const targetRefresh = startTargetRefresh({
-        refresh: (channel) => registry.modules.updates.refreshTarget(channel),
-        operationActive: (channel) => registry.modules.updates.operationActive(channel),
-        schedule: timerSchedule,
-      })
+      const targetRefresh = recoveryOnly
+        ? { stop: () => {} }
+        : startTargetRefresh({
+            refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+            operationActive: (channel) => registry.modules.updates.operationActive(channel),
+            schedule: timerSchedule,
+          })
       targetsResolvedOnBoot = true
       resolve({
         port: server.port,
         instanceId,
         registry,
+        recoveryOnly,
         bootstrapToken,
         localDaemonLink,
         // Deterministic fast shutdown (POD-611): terminate WS intake, persist

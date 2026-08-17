@@ -343,12 +343,7 @@ export class OperationEngine {
     const at = this.now()
     const details =
       operation.details && typeof operation.details === 'object' ? operation.details : {}
-    const withStep = this.applyPatch(
-      operation,
-      stepId,
-      { ...patch.step, state: 'running' },
-      at,
-    )
+    const withStep = this.applyPatch(operation, stepId, { ...patch.step, state: 'running' }, at)
     const sealed: PersistedOperation = {
       ...withStep,
       details: {
@@ -568,8 +563,7 @@ export class OperationEngine {
     for (const [stepId, patch] of Object.entries(cleanup.stepPatches ?? {})) {
       canceled = this.applyPatch(canceled, stepId, patch, finishedAt)
     }
-    const details =
-      canceled.details && typeof canceled.details === 'object' ? canceled.details : {}
+    const details = canceled.details && typeof canceled.details === 'object' ? canceled.details : {}
     canceled = {
       ...canceled,
       details: {
@@ -726,7 +720,10 @@ export class OperationEngine {
     if (!operation) return null
     const def = this.deps.registry.get(operation.kind)
     if (!def?.projectSealed || !this.hasPersistedHandoff(operation)) return operation
-    return def.projectSealed(operation)
+    const handoff = this.handoffs.get(operation.id)
+    return def.projectSealed(operation, {
+      inFlightDrive: handoff?.phase === 'sealed' || handoff?.phase === 'reclaiming',
+    })
   }
 
   async dispatchAction(
@@ -1003,11 +1000,7 @@ export class OperationEngine {
         if (outcome.state !== 'failed') {
           throw new Error('a reclaimed handoff runner must return failed')
         }
-        this.finishReclaimed(
-          current,
-          step.id,
-          outcome.error ?? { code: 'step-failed' },
-        )
+        this.finishReclaimed(current, step.id, outcome.error ?? { code: 'step-failed' })
         return
       }
       if (handoff) return
@@ -1126,8 +1119,7 @@ export class OperationEngine {
     // Read BEFORE the patch: `extra` is handed the step with `running` already
     // written onto it, so asking there whether this is an entry or a re-entry
     // can only ever answer "re-entry".
-    const entering =
-      (operation.steps ?? []).find((step) => step.id === stepId)?.state !== 'running'
+    const entering = (operation.steps ?? []).find((step) => step.id === stepId)?.state !== 'running'
     const next = this.applyPatch(operation, stepId, { state: 'running' }, at, (step) => ({
       ...step,
       startedAt: step.startedAt ?? at,
@@ -1170,11 +1162,7 @@ export class OperationEngine {
     this.contexts.delete(operation.id)
   }
 
-  private finishReclaimed(
-    operation: Operation,
-    stepId: string,
-    error: OperationError,
-  ): Operation {
+  private finishReclaimed(operation: Operation, stepId: string, error: OperationError): Operation {
     const at = this.now()
     const marked = this.applyPatch(operation, stepId, { state: 'failed', error }, at)
     const details =
@@ -1204,12 +1192,15 @@ export class OperationEngine {
   ): Promise<CancelCleanupResult> {
     return new Promise<CancelCleanupResult>((resolve, reject) => {
       let settled = false
-      const timer = this.deps.clock.setTimeout(() => {
-        this.budgetTimers.delete(timer)
-        if (settled) return
-        settled = true
-        reject(new Error('operation cleanup exceeded its deadline'))
-      }, Math.max(0, budgetMs))
+      const timer = this.deps.clock.setTimeout(
+        () => {
+          this.budgetTimers.delete(timer)
+          if (settled) return
+          settled = true
+          reject(new Error('operation cleanup exceeded its deadline'))
+        },
+        Math.max(0, budgetMs),
+      )
       this.budgetTimers.set(timer, operationId)
       void cleanup().then(
         (result) => {
@@ -1237,10 +1228,7 @@ export class OperationEngine {
     const actions = Array.isArray(details.actions) ? details.actions : []
     return actions.some(
       (action) =>
-        typeof action === 'object' &&
-        action !== null &&
-        'id' in action &&
-        action.id === actionId,
+        typeof action === 'object' && action !== null && 'id' in action && action.id === actionId,
     )
   }
 
@@ -1616,11 +1604,7 @@ export class OperationEngine {
       if (outcome.state !== 'failed') {
         throw new Error('a reclaimed handoff runner must return failed')
       }
-      this.finishReclaimed(
-        after,
-        step.id,
-        outcome.error ?? { code: 'step-failed' },
-      )
+      this.finishReclaimed(after, step.id, outcome.error ?? { code: 'step-failed' })
       return
     }
     if (handoff) return
