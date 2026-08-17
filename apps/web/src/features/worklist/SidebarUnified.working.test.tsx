@@ -211,7 +211,7 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(workingRow.querySelector('[data-phase="working"]')).toBeTruthy()
     const meta = workingRow.querySelector('[data-testid="row-meta-column"]') as HTMLElement
     // The spinner rides the clock, and both are in the meta column.
-    expect(meta.querySelector('.spb')).toBeTruthy()
+    expect(meta.querySelector('.pod-mark')).toBeTruthy()
     expect(meta.textContent).toMatch(/\d+:\d\d/)
     const workingStatus = workingRow.querySelector('[data-testid="row-lifecycle-status"]')
     expect(workingStatus?.textContent).toContain('working')
@@ -246,10 +246,10 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     // Amber keeps line 2 (The Signal Rule): the meta column shows how long the
     // ask has been sitting there, not a second running clock …
     const meta = waitingRow.querySelector('[data-testid="row-meta-column"]') as HTMLElement
-    expect(meta.querySelector('.spb')).toBeNull()
+    expect(meta.querySelector('.pod-mark')).toBeNull()
     // … and the spinner sits in line 2's status lockup, where it is the row's
     // only "an agent is computing" mark rather than a second one.
-    expect(waitingRow.querySelector('.spb')).toBeTruthy()
+    expect(waitingRow.querySelector('.pod-mark')).toBeTruthy()
     const status = waitingRow.querySelector('[data-testid="row-lifecycle-status"]')
     // Both facts, and no head-count eating the width they need.
     expect(status?.textContent).toContain('working · needs answer')
@@ -259,7 +259,7 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .getByText('Reviewable issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(merge.querySelector('[data-phase="waiting"]')).toBeTruthy()
-    expect(merge.querySelector('.spb')).toBeNull()
+    expect(merge.querySelector('.pod-mark')).toBeNull()
   })
 
   // POD-516 §1.1: agents are a fleet stack and nothing else in this column.

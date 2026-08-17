@@ -103,7 +103,7 @@ describe('AskUserQuestionCard', () => {
       await Promise.resolve()
     })
     expect(container.textContent).toContain('sending')
-    expect(container.querySelector('.spb')).toBeNull()
+    expect(container.querySelector('.pod-mark')).toBeNull()
   })
 
   it('opens one question at a time and steps to the next unanswered one', async () => {

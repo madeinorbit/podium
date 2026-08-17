@@ -27,7 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { copyToClipboard } from '@/lib/clipboard'
-import { BrailleSpinner } from '@/lib/motion'
+import { WorkingMark } from '@/lib/motion'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
 import {
@@ -133,7 +133,7 @@ export function IssueDetailHeader({
           )}
           {working > 0 && (
             <span className="flex flex-none items-center gap-1.5 font-mono shell-type-micro text-live tabular-nums">
-              <BrailleSpinner size={9} />
+              <WorkingMark size={12} />
               {working} working
             </span>
           )}

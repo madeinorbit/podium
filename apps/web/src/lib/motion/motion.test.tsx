@@ -2,7 +2,7 @@
  * The load-bearing guarantees of the motion primitives:
  *  - one-shot morphs NEVER fire on mount (a fresh sidebar must not replay
  *    thirty flashes) and fire exactly once per real phase transition;
- *  - the spinner/timer render only for the working phase;
+ *  - the mark/timer render only for the working phase;
  *  - the timer freezes into the amber "ago" stamp on the waiting transition.
  * The keyframes themselves are CSS (motion.css) — geometry and browser timing
  * are driven through the real app by the Playwright motion-demo spec.
@@ -10,10 +10,10 @@
 import { cleanup, render } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { BrailleSpinner } from './BrailleSpinner'
 import { PhaseTimer } from './PhaseTimer'
 import { StatusBadge } from './StatusBadge'
 import { usePhaseMorph } from './usePhaseMorph'
+import { WorkingMark } from './WorkingMark'
 
 afterEach(cleanup)
 
@@ -47,13 +47,24 @@ describe('usePhaseMorph — one-shot transition latch', () => {
   })
 })
 
-describe('BrailleSpinner', () => {
-  it('renders the .spb span (pure-CSS animation), decorative', () => {
-    const { container } = render(<BrailleSpinner size={10} />)
-    const el = container.querySelector('span.spb') as HTMLElement
+describe('WorkingMark', () => {
+  it('renders the eight-dot cell (pure-CSS animation), decorative', () => {
+    const { container } = render(<WorkingMark size={12} />)
+    const el = container.querySelector('svg.pod-mark') as SVGElement
     expect(el).toBeTruthy()
     expect(el.getAttribute('aria-hidden')).toBe('true')
-    expect(el.style.fontSize).toBe('10px')
+    expect(el.querySelectorAll('circle')).toHaveLength(8)
+    // The cell is 66×100, so the box the row reserves follows the height.
+    expect(el.getAttribute('height')).toBe('12')
+    expect(el.getAttribute('width')).toBe('8')
+  })
+
+  it('fattens the dots in a small cell so the wave has something to cross', () => {
+    const { container } = render(<WorkingMark size={22} />)
+    const big = container.querySelector('circle')?.getAttribute('r')
+    cleanup()
+    const { container: small } = render(<WorkingMark size={11} />)
+    expect(Number(small.querySelector('circle')?.getAttribute('r'))).toBeGreaterThan(Number(big))
   })
 })
 
@@ -63,7 +74,7 @@ describe('PhaseTimer', () => {
   it('working: spinner + counting m:ss, no tick-in morph on fresh mount', () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW)
     const { container } = render(<PhaseTimer phase="working" sinceMs={NOW - 390_000} />)
-    expect(container.querySelector('.spb')).toBeTruthy()
+    expect(container.querySelector('.pod-mark')).toBeTruthy()
     expect(container.textContent).toContain('6:30')
     expect(container.querySelector('.morph-tick-in')).toBeNull()
     vi.restoreAllMocks()
@@ -82,7 +93,7 @@ describe('PhaseTimer', () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW)
     const { container, rerender } = render(<PhaseTimer phase="working" sinceMs={NOW - 5_000} />)
     rerender(<PhaseTimer phase="waiting" sinceMs={NOW - 5_000} />)
-    expect(container.querySelector('.spb')).toBeNull()
+    expect(container.querySelector('.pod-mark')).toBeNull()
     expect(container.textContent).toBe('just now')
     expect(container.querySelector('.morph-flip-ago')).toBeTruthy()
     vi.restoreAllMocks()
@@ -116,7 +127,7 @@ describe('PhaseTimer', () => {
         leadingSeparator
       />,
     )
-    expect(container.querySelector('.spb')).toBeNull()
+    expect(container.querySelector('.pod-mark')).toBeNull()
     expect(container.textContent).toBe('·6:30')
     rerender(
       <PhaseTimer
@@ -143,7 +154,7 @@ describe('StatusBadge', () => {
     const { container, rerender } = render(<StatusBadge kind={null} />)
     expect(container.firstChild).toBeNull()
     rerender(<StatusBadge kind="spinner" />)
-    expect(container.querySelector('.spb')).toBeTruthy()
+    expect(container.querySelector('.pod-mark')).toBeTruthy()
     expect(container.querySelector('.morph-tick-in')).toBeTruthy()
   })
 
@@ -163,11 +174,11 @@ describe('StatusBadge', () => {
 
   it('spinner ↔ check transitions morph one-shot', () => {
     const { container, rerender } = render(<StatusBadge kind="spinner" />)
-    expect(container.querySelector('.spb')).toBeTruthy()
+    expect(container.querySelector('.pod-mark')).toBeTruthy()
     expect(container.querySelector('.morph-tick-in')).toBeNull()
     rerender(<StatusBadge kind="check" />)
     expect(container.textContent).toBe('✓')
     expect(container.querySelector('.morph-pop-soft')).toBeTruthy()
-    expect(container.querySelector('.spb')).toBeNull()
+    expect(container.querySelector('.pod-mark')).toBeNull()
   })
 })

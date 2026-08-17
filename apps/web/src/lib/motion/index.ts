@@ -1,5 +1,5 @@
 /**
- * Motion grammar primitives (.design/specs/motion.md): the braille spinner and
+ * Motion grammar primitives (.design/specs/motion.md): the working mark and
  * the counting timer are the only permanent motion (only while an agent
  * computes); every phase change is a one-shot morph; stillness = "needs you".
  * CSS lives alongside these primitives in `src/lib/motion/motion.css`; the
@@ -7,8 +7,6 @@
  * @podium/client-core viewmodels.
  */
 export { AgentStatusGlyph } from './AgentStatusGlyph'
-export { BrailleSpinner } from './BrailleSpinner'
-export { BreathingMark } from './BreathingMark'
 export { PhaseTimer } from './PhaseTimer'
 export { StatusBadge, type StatusBadgeKind } from './StatusBadge'
 export { useArrivals } from './useArrivals'
@@ -18,3 +16,4 @@ export {
   type RowTransitionTarget,
   useRowTransitions,
 } from './useRowTransitions'
+export { WorkingMark } from './WorkingMark'

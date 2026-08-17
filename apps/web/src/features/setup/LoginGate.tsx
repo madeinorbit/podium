@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useEffect,
@@ -8,6 +9,7 @@ import {
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { setTextIfChanged, startAsciiAnimation } from '@/lib/ascii-animation'
+import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { ASCII_COVERAGE } from './podium-ascii'
 
 type GatePhase = 'loading' | 'login' | 'success' | 'reveal' | 'ready'
@@ -36,7 +38,6 @@ const GLOW = {
   success: 'rgba(16,185,129,.13)',
 } as const
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const MONO = "'Geist Mono Variable', ui-monospace, Menlo, monospace"
 
 /**
@@ -160,20 +161,12 @@ export function LoginView({
   const [error, setError] = useState<string | null>(null)
   const [shaking, setShaking] = useState(false)
   const [caps, setCaps] = useState(false)
-  const [spinFrame, setSpinFrame] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Focus the field on mount (login is the only thing on screen), lint-cleanly (no autoFocus).
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
-
-  // Braille spinner in the submit button while verifying: 80ms per frame.
-  useEffect(() => {
-    if (!busy) return
-    const id = setInterval(() => setSpinFrame((f) => (f + 1) % SPINNER_FRAMES.length), 80)
-    return () => clearInterval(id)
-  }, [busy])
 
   const submit = async (): Promise<void> => {
     if (!password || busy || ok) return
@@ -249,7 +242,18 @@ export function LoginView({
           : state === 'typing'
             ? 'press ⏎ to sign in'
             : 'waiting on you — enter your password'
-  const btnGlyph = state === 'busy' ? SPINNER_FRAMES[spinFrame] : state === 'ok' ? '✓' : '→'
+  // Verifying wears the app's working mark, in the button's own ink — the gate
+  // is the first thing anyone sees, and it should already speak the language.
+  const btnGlyph =
+    state === 'busy' ? (
+      <span style={{ display: 'flex', '--mark-color': C.accentText } as CSSProperties}>
+        <WorkingMark size={18} />
+      </span>
+    ) : state === 'ok' ? (
+      '✓'
+    ) : (
+      '→'
+    )
 
   const host = originHost(httpOrigin)
   const reduced = prefersReducedMotion()

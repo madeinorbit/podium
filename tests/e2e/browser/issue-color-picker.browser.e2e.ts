@@ -66,7 +66,7 @@ test('ID square state language and picker persist a colour and clear it again', 
   await expect(square).toHaveAttribute('data-state', 'working')
   // #41: the wide row carries the spinner in its line-2 meta, not on the square.
   await expect(square).toHaveAttribute('data-badge', 'none')
-  await expect(row.locator('.spb')).toBeVisible()
+  await expect(row.locator('.pod-mark')).toBeVisible()
   await expect(square).toHaveCSS('width', '26px')
   await expect(square).toHaveCSS('height', '26px')
   await expect(square).toHaveCSS('border-radius', '7px')
@@ -93,7 +93,7 @@ test('ID square state language and picker persist a colour and clear it again', 
   await expect(square).toHaveCSS('background-color', 'rgb(139, 92, 246)')
   await expect(square).toHaveCSS('border-style', 'solid')
   await expect(square).toHaveCSS('opacity', '1')
-  await expect(row.locator('.spb')).toBeVisible()
+  await expect(row.locator('.pod-mark')).toBeVisible()
   await expect(square).toHaveAttribute('aria-busy', 'false', { timeout: 15_000 })
 
   // Reload from the isolated harness database: violet must come back from the

@@ -184,7 +184,7 @@ test('done branch delta becomes still yellow ready-to-merge attention', async ({
   await expect(chip).toHaveText('ready to merge · 1')
   await expect(chip.locator('svg')).toBeVisible()
   await expect(row.getByTestId('git-stamp')).toHaveCount(0)
-  await expect(row.locator('.spb')).toHaveCount(0)
+  await expect(row.locator('.pod-mark')).toHaveCount(0)
   const paint = await chip.evaluate((element) => {
     const style = getComputedStyle(element)
     return { color: style.color, background: style.backgroundColor, animation: style.animationName }

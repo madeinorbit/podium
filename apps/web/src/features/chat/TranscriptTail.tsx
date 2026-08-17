@@ -6,7 +6,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { SessionMeta, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
-import { BreathingMark } from '@/lib/motion/BreathingMark'
+import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { useNow } from '@/lib/useNow'
 
 /**
@@ -271,7 +271,7 @@ export function TranscriptTail({
       <span className="feed-tail-body">
         <span className="feed-tail-mark" aria-hidden="true">
           {working || kind === 'sending' ? (
-            <BreathingMark size={22} />
+            <WorkingMark size={22} />
           ) : waitingOnDependency ? (
             <span className="feed-tail-wait">◇</span>
           ) : kind === 'interrupted' ? (

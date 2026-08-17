@@ -41,6 +41,7 @@ import {
 import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
 import { NetworkStep } from '@/features/setup/network-step'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
+import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -305,7 +306,7 @@ export function MachinesPanel({
           )}
           {pairing.loading && (
             <p className="settings-prose flex items-center gap-2">
-              <span className="spb" aria-hidden="true" />
+              <WorkingMark size={13} />
               Generating pairing code…
             </p>
           )}
@@ -739,7 +740,7 @@ function PairingCodeDisplay({
       ) : (
         joinCommand && (
           <p className="settings-prose flex items-center gap-2" role="status">
-            <span className="spb" aria-hidden="true" />
+            <WorkingMark size={13} />
             Waiting for the machine to run the command…
           </p>
         )
@@ -1585,7 +1586,7 @@ function MachineUpdateControls({
           role="status"
           data-machine-update-progress={machine.id}
         >
-          <span className="spb" aria-hidden="true" />
+          <WorkingMark size={13} />
           {progressLabel}
         </span>
       )}

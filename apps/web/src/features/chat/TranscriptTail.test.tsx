@@ -65,13 +65,12 @@ describe('TranscriptTail', () => {
     expect(host.textContent).toContain('Working')
     // A live timer is the one figure that earns second precision.
     expect(figure()).toBe('0:42')
-    // …and it is the one state licensed to move. At the END of the feed that
-    // motion is the breath rather than the braille spinner (POD-993): the
-    // spinner stays inside work lines and machine-voice rows.
-    expect(host.querySelector('[data-testid="breathing-mark"]')).not.toBeNull()
+    // …and it is the one state licensed to move: the working mark, in the
+    // larger cell the end of the feed gets.
+    expect(host.querySelector('svg.pod-mark')).not.toBeNull()
   })
 
-  it('breathes for just-sent transport, timerless even with an old session clock', () => {
+  it('marks just-sent transport, timerless even with an old session clock', () => {
     mount(
       { label: 'Sending', tone: 'idle', transient: 'just-sent' },
       '2024-01-01T00:00:00.000Z',
@@ -87,8 +86,7 @@ describe('TranscriptTail', () => {
     expect(tail()?.dataset.tail).toBe('sending')
     expect(host.textContent).toContain('Sending')
     expect(host.querySelector('.feed-tail-figure')).toBeNull()
-    expect(host.querySelector('.spb')).toBeNull()
-    expect(host.querySelector('[data-testid="breathing-mark"]')).not.toBeNull()
+    expect(host.querySelector('svg.pod-mark')).not.toBeNull()
   })
 
   it('addresses the reader when the agent is waiting on them, and stays still', () => {
@@ -97,7 +95,7 @@ describe('TranscriptTail', () => {
     // The session-state phrase is rewritten for the person being asked.
     expect(host.textContent).toContain('Waiting for your answer')
     expect(figure()).toBe('2m')
-    expect(host.querySelector('.spb')).toBeNull()
+    expect(host.querySelector('.pod-mark')).toBeNull()
     // Not dimmed: a question waiting on the human must not recede.
     expect(tail()?.dataset.stale).toBeUndefined()
   })
@@ -127,7 +125,7 @@ describe('TranscriptTail', () => {
     expect(host.textContent).toContain('Waiting on shell')
     expect(host.textContent).toContain('tests')
     expect(figure()).toBe('1:32')
-    expect(host.querySelector('.spb')).toBeNull()
+    expect(host.querySelector('.pod-mark')).toBeNull()
     expect(host.querySelector('.feed-tail-wait')).not.toBeNull()
   })
 

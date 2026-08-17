@@ -109,7 +109,7 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
   await expect(rowSurface).toHaveAttribute('data-phase', 'working', { timeout: 15_000 })
   const lifecycle = row.getByTestId('row-lifecycle-status')
   await expect(lifecycle).toHaveAttribute('data-phase', 'working')
-  await expect(lifecycle.locator('.spb')).toBeVisible()
+  await expect(lifecycle.locator('.pod-mark')).toBeVisible()
   await expect(lifecycle).toContainText(/working.*·\s*\d+:\d\d/i)
   const fleet = row.getByTestId('issue-fleet-summary')
   await expect(fleet).toBeVisible()
@@ -130,7 +130,7 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
   expect(asking.ok).toBe(true)
   await expect(rowSurface).toHaveAttribute('data-phase', 'waiting', { timeout: 15_000 })
   await expect(row.getByRole('img', { name: '1 waiting on you' })).toBeVisible()
-  await expect(row.locator('.spb')).toHaveCount(0)
+  await expect(row.locator('.pod-mark')).toHaveCount(0)
   // The square carries the amber waiting corner dot on wide rows.
   const square = row.getByTestId('issue-id-square')
   await expect(square).toHaveAttribute('data-badge', 'dot')
@@ -175,7 +175,7 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
   await expect(lifecycle).toHaveAttribute('data-phase', 'done')
   await expect(lifecycle).toContainText(/done/i)
   await expect(lifecycle.locator('svg')).toBeVisible()
-  await expect(lifecycle.locator('.spb')).toHaveCount(0)
+  await expect(lifecycle.locator('.pod-mark')).toHaveCount(0)
   await expect(fleet.locator('.rounded-full')).toHaveCount(0)
   if (process.env.SIDEBAR_DONE_SHOT) {
     await row.screenshot({ path: process.env.SIDEBAR_DONE_SHOT })

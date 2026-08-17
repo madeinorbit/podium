@@ -302,7 +302,7 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
   const justSentTail = page.getByTestId('feed-tail').locator('visible=true')
   await expect(justSentTail).toContainText('Sending')
   await expect(justSentTail.locator('figure')).toHaveCount(0)
-  await expect(justSentTail.locator('.spb')).toHaveCount(0)
+  await expect(justSentTail.locator('.pod-mark')).toHaveCount(1)
   await page.screenshot({
     path: join(EVIDENCE_DIR, 'transcript-chat-just-sent.png'),
     fullPage: false,

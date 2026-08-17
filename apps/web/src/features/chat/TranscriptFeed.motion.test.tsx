@@ -213,7 +213,7 @@ describe('TranscriptFeed — boundary states', () => {
     // Never the empty state's object, and never a spinner.
     expect(host.querySelector('[data-testid="transcript-empty-state"]')).toBeNull()
     expect(host.querySelector('.transcript-standby-ask')).toBeNull()
-    expect(host.querySelector('.spb')).toBeNull()
+    expect(host.querySelector('.pod-mark')).toBeNull()
     // Bottom-anchored like the conversation it stands in for: the scrollport
     // takes the same auto-margin spacer `ready` uses, and does not centre.
     expect(host.querySelector('.mt-auto')).not.toBeNull()
@@ -228,7 +228,7 @@ describe('TranscriptFeed — boundary states', () => {
     // The question is asked ON the composer, not centred in the void above it.
     expect(host.querySelector('.mt-auto')).not.toBeNull()
     expect(host.querySelector('.justify-center')).toBeNull()
-    expect(host.querySelector('.spb')).toBeNull()
+    expect(host.querySelector('.pod-mark')).toBeNull()
   })
 
   // The shape carries the state visually; assistive tech is told in words, and
@@ -267,6 +267,6 @@ describe('TranscriptFeed — boundary states', () => {
 
     render([say('a', 'one')], null, { moreAbove: true, loadingOlder: true })
     expect(host.querySelector('.transcript-pager')?.textContent).toContain('loading')
-    expect(host.querySelector('.transcript-pager .spb')).toBeNull()
+    expect(host.querySelector('.transcript-pager .pod-mark')).toBeNull()
   })
 })

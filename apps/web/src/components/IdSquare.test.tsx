@@ -196,7 +196,7 @@ describe('IdSquare square language', () => {
       />,
     )
     expect(square().getAttribute('data-badge')).toBe('spinner')
-    expect(container.querySelector('.spb')).toBeTruthy()
+    expect(container.querySelector('.pod-mark')).toBeTruthy()
     expect(screen.getByRole('img', { name: 'working' })).toBeTruthy()
 
     rerender(

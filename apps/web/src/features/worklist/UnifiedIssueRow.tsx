@@ -30,7 +30,7 @@ import { idSquareLabel } from '@/components/IdSquare'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { issueColorHex } from '@/lib/issueColors'
-import { BrailleSpinner, PhaseTimer } from '@/lib/motion'
+import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { RowProgressMeter } from './row-progress'
@@ -246,9 +246,9 @@ export function UnifiedIssueRow({
                 waiting row's meta column holds the ask's stamp, so a spinner for
                 an agent still computing comes back here. */}
             {working && phase !== 'working' && (
-              // `.spb` already paints itself `--motion-working`, so the glyph
-              // stays calm blue inside an ochre waiting lockup without a prop.
-              <BrailleSpinner size={9} className="mr-1" />
+              // The mark already paints itself `--motion-working`, so it stays
+              // calm blue inside an ochre waiting lockup without a prop.
+              <WorkingMark size={12} className="mr-1" />
             )}
             {/* THE PILL'S WORDS, WITHOUT THE PILL (3a): the count was the part
                 worth keeping, so it leads the sentence line 2 was already

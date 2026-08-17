@@ -1,13 +1,13 @@
 import { relativeTime } from '@podium/client-core/focus'
 import {
   MobileClientSession as MobileClientSessionSchema,
-  MobilePairStartResponse,
-  MobilePairStatusResponse,
-  RevokeMobileClientSessionRequest,
-  type MobileClientSession as MobileSessionView,
   type MobilePairStartResponse as MobilePairStart,
+  MobilePairStartResponse,
   type MobilePairStatusResponse as MobilePairStatus,
+  MobilePairStatusResponse,
+  type MobileClientSession as MobileSessionView,
   type MobileTransportReadiness,
+  RevokeMobileClientSessionRequest,
 } from '@podium/protocol'
 import {
   CheckCircle2,
@@ -23,6 +23,7 @@ import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { serverConfig, type Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { Section, Subsection } from './shared'
 
 /**
@@ -394,7 +395,7 @@ function ClaimRequest({
         className="mt-4 flex items-center gap-2 rounded-lg border border-hairline-soft bg-muted/20 p-3.5"
         role="status"
       >
-        <span className="spb" aria-hidden="true" />
+        <WorkingMark size={13} />
         <p className="settings-prose">Waiting for a phone to scan this code…</p>
       </div>
     )
@@ -968,7 +969,7 @@ export function ConnectedDevicesSection({
 
           {flow.kind === 'starting' && (
             <div className="mt-4 flex items-center gap-2" role="status">
-              <span className="spb" aria-hidden="true" />
+              <WorkingMark size={13} />
               <p className="settings-prose">Creating a one-time code…</p>
             </div>
           )}

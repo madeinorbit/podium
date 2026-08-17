@@ -5529,12 +5529,12 @@ html[data-density="compact"] .brief-shelf {
   gap: 11px;
   min-width: 0;
 }
-/* THE MARK IS 22px NOW (POD-993 round 2). The breath used to sit in a 13px cell,
-   which is the size of a glyph in a mono line — and it is not a glyph, it is the
-   one object in the window a reader watches while waiting. At 22px the ring's
-   three lanes are actually separable and the whole thing reads as a thing
-   breathing rather than as a smudge that might be a spinner. The other marks
-   keep the cell they had; only the breath needed the room. */
+/* THE MARK IS BIG HERE (POD-993 round 2). It used to sit in a 13px cell, which
+   is the size of a glyph in a mono line — and it is not a glyph, it is the one
+   object in the window a reader watches while waiting. At a 22px cell the wave
+   travelling down the dots is actually separable and the whole thing reads as
+   the system thinking rather than as a smudge. The other marks keep the cell
+   they had; only the tail needed the room. */
 .feed-tail-mark {
   display: flex;
   flex: none;
@@ -5545,7 +5545,7 @@ html[data-density="compact"] .brief-shelf {
 }
 .feed-tail[data-tail="working"] .feed-tail-mark,
 .feed-tail[data-tail="sending"] .feed-tail-mark {
-  width: 22px;
+  width: 16px;
 }
 .feed-tail-dot {
   width: 5px;

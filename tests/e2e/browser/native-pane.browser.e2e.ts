@@ -271,7 +271,7 @@ test('tab strip, chrome and terminal are context-tinted; tabs carry the status g
     hook_event_name: 'UserPromptSubmit',
     prompt: 'e2e working',
   })
-  await expect(activeTab.locator('.spb')).toBeVisible({ timeout: 15_000 })
+  await expect(activeTab.locator('.pod-mark')).toBeVisible({ timeout: 15_000 })
   await expect(activeTab.locator('[aria-label="waiting on you"]')).toHaveCount(0)
 
   await fireHook(hookUrl as string, {
@@ -282,7 +282,7 @@ test('tab strip, chrome and terminal are context-tinted; tabs carry the status g
   await expect(activeTab.locator('[aria-label="waiting on you"]')).toBeVisible({
     timeout: 15_000,
   })
-  await expect(activeTab.locator('.spb')).toHaveCount(0)
+  await expect(activeTab.locator('.pod-mark')).toHaveCount(0)
   const amber = await activeTab
     .locator('[aria-label="waiting on you"]')
     .evaluate((el) => getComputedStyle(el).backgroundColor)
@@ -292,7 +292,7 @@ test('tab strip, chrome and terminal are context-tinted; tabs carry the status g
   await expect(activeTab.locator('[aria-label="waiting on you"]')).toHaveCount(0, {
     timeout: 15_000,
   })
-  await expect(activeTab.locator('.spb')).toHaveCount(0)
+  await expect(activeTab.locator('.pod-mark')).toHaveCount(0)
 
   // ── Header (§2.3) and model strip (§2.4) heights + content. Warm-mounted
   // hidden panels keep their DOM, so scope to the currently VISIBLE panel's

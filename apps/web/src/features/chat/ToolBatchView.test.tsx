@@ -134,7 +134,7 @@ describe('ToolBatchView — the work line', () => {
     const line = host.querySelector('[data-testid="work-line"]')!
     expect(line.getAttribute('data-state')).toBe('wait')
     expect(line.querySelector('.work-line-phrase')?.textContent).toBe('Waiting on shell · tests')
-    expect(line.querySelector('.spb')).toBeNull()
+    expect(line.querySelector('.pod-mark')).toBeNull()
     expect(line.querySelector('.work-line-glyph')?.textContent).toBe('◇')
   })
 

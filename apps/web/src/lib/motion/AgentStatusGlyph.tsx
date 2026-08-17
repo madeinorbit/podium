@@ -3,7 +3,7 @@
  * §2.8): one component so the desktop tab strip, the mobile panel-menu rows
  * and any future surface render the exact same signal —
  *
- *   working        → braille spinner (the only ongoing motion; reserved green)
+ *   working        → the working mark (the only ongoing motion; reserved blue)
  *   waiting on you → amber stillness: a plain 6px dot on desktop tabs, a
  *                    13px (optionally numbered) amber pill on menu rows
  *   idle / done    → nothing — stillness is the signal
@@ -16,8 +16,7 @@ import { motionPhase } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
-import { BrailleSpinner } from './BrailleSpinner'
-import { BreathingMark } from './BreathingMark'
+import { WorkingMark } from './WorkingMark'
 
 export function AgentStatusGlyph({
   session,
@@ -26,8 +25,8 @@ export function AgentStatusGlyph({
   className,
 }: {
   session: SessionMeta
-  /** 'tab' = desktop tab strip (dot, 9px spinner) · 'row' = menu/list rows
-   *  (numbered pill, 10px spinner). */
+  /** 'tab' = desktop tab strip (dot, 15px mark) · 'row' = menu/list rows
+   *  (numbered pill, 13px mark). */
   variant?: 'tab' | 'row'
   /** Optional waiting count for the row pill; absent renders the pill unnumbered. */
   count?: number
@@ -35,13 +34,10 @@ export function AgentStatusGlyph({
 }): JSX.Element | null {
   const phase = motionPhase(session)
   if (phase === 'working') {
-    // THE TAB BREATHES (POD-993). The chat's own tail and the tab that leads to
-    // it are one signal seen from two places, so they move the same way: a tab
-    // whose session is working carries the breath, not a second, differently
-    // shaped spinner. List and menu rows keep the braille glyph — they are dense
-    // mono lines, and the breath is a mark for a place the eye rests on.
-    if (variant === 'tab') return <BreathingMark size={14} className={cn('flex-none', className)} />
-    return <BrailleSpinner size={10} className={cn('flex-none', className)} />
+    // One mark, two surfaces. A tab and the transcript it leads to are one
+    // signal seen from two places; rows are the same signal in a denser line.
+    // The only difference left between them is the size of the cell.
+    return <WorkingMark size={variant === 'tab' ? 15 : 13} className={cn('flex-none', className)} />
   }
   if (phase !== 'waiting') return null
   if (variant === 'row') {

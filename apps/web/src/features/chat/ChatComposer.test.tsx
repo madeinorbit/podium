@@ -272,7 +272,7 @@ describe('ChatComposer, non-compact (the main chat)', () => {
     expect(well().querySelector('[data-testid="attachment-strip"]')?.textContent).toContain(
       'uploading.png· 2 KBUploading',
     )
-    expect(well().querySelector('[data-testid="attachment-strip"] .spb')).toBeNull()
+    expect(well().querySelector('[data-testid="attachment-strip"] .pod-mark')).toBeNull()
   })
 })
 

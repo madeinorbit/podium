@@ -2,6 +2,7 @@ import { Button as ButtonPrimitive } from '@base-ui/react/button'
 import { cva, type VariantProps } from 'class-variance-authority'
 import type { ReactNode } from 'react'
 
+import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
@@ -91,13 +92,13 @@ function Button({
               !pending && 'invisible',
             )}
           >
-            <span className="spb" aria-hidden="true" />
+            <WorkingMark size={13} />
             {pendingLabel}
           </span>
         </span>
       ) : pending ? (
         <span className="inline-flex items-center gap-1.5">
-          <span className="spb" aria-hidden="true" />
+          <WorkingMark size={13} />
           Working…
         </span>
       ) : (

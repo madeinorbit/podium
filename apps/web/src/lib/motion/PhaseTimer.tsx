@@ -2,8 +2,8 @@
  * The timer/ago stamp of the motion grammar — the anchor of every phase morph
  * (.design/specs/motion.md §2.3):
  *
- *   working — braille spinner + green mono `m:ss` counting up (the only other
- *             permanent motion besides the spinner itself); enters with a
+ *   working — working mark + green mono `m:ss` counting up (the only other
+ *             permanent motion besides the mark itself); enters with a
  *             one-shot tick-in when the phase changes under an already-mounted
  *             row.
  *   waiting — the counter freezes and flips into an amber "just now"/"Nm ago"
@@ -23,8 +23,8 @@ import { formatClock, type MotionPhase } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
-import { BrailleSpinner } from './BrailleSpinner'
 import { usePhaseMorph } from './usePhaseMorph'
+import { WorkingMark } from './WorkingMark'
 
 const HOUR_MS = 3_600_000
 
@@ -79,7 +79,10 @@ export function PhaseTimer({
         style={{ fontSize: size, color: 'var(--motion-working)' }}
         title={`Working since ${new Date(sinceMs).toLocaleString()}`}
       >
-        {showSpinner && <BrailleSpinner size={size} />}
+        {/* The mark's cell is taller than the digits beside it — the design
+            pairs a 12px cell with 9px mono — so it scales off the type size
+            rather than matching it. */}
+        {showSpinner && <WorkingMark size={Math.round(size * 1.33)} />}
         {leadingSeparator && <span aria-hidden="true">·</span>}
         {formatClock(baseMs + (now - sinceMs))}
       </span>

@@ -38,7 +38,7 @@ import type { IssueViewModel } from '@/app/store'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { UnreadDot } from '@/components/UnreadMark'
 import { issueColorHex } from '@/lib/issueColors'
-import { BrailleSpinner } from '@/lib/motion'
+import { WorkingMark } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import {
   type CardStateSlot,
@@ -93,7 +93,7 @@ function StateSlot({ slot }: { slot: CardStateSlot }): JSX.Element | null {
           title={`${slot.count} agent${slot.count === 1 ? '' : 's'} working`}
           data-testid="epic-live-agents"
         >
-          <BrailleSpinner size={9} />
+          <WorkingMark size={12} />
           {slot.count} working
         </span>
       )

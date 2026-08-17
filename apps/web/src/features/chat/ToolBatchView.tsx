@@ -3,7 +3,7 @@ import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { BrailleSpinner } from '@/lib/motion/BrailleSpinner'
+import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { type TurnPosition, turnClass } from './ChatBlockView'
@@ -275,7 +275,7 @@ export function ToolBatchView({
         className={cn('work-line-glyph', failed > 0 && !live && 'work-line-glyph--err')}
         aria-hidden="true"
       >
-        {computing ? <BrailleSpinner size={11} /> : waiting ? '◇' : failed > 0 ? '✕' : '✓'}
+        {computing ? <WorkingMark size={15} /> : waiting ? '◇' : failed > 0 ? '✕' : '✓'}
       </span>
       <span className="work-line-phrase">
         {waiting

@@ -92,7 +92,7 @@ import {
   candidateFromAvailability,
 } from '@/lib/agent-capability'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
-import { BrailleSpinner, PhaseTimer, useArrivals } from '@/lib/motion'
+import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
@@ -534,7 +534,7 @@ function StateMark({ state }: { state: DeckState }): JSX.Element | null {
   //
   // The spinner carries its own reserved working blue (`--motion-working`);
   // nothing here retints it.
-  return state === 'working' ? <BrailleSpinner size={9} className="flex-none" /> : null
+  return state === 'working' ? <WorkingMark size={12} className="flex-none" /> : null
 }
 
 /**

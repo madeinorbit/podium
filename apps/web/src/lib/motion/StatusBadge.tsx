@@ -3,7 +3,7 @@
  * sits on an ID square / rail icon (parent must be `position: relative`) and
  * carries the phase signal onto collapsed surfaces —
  *
- *   spinner — 13px dark-green circle with an 8px braille spinner (computing);
+ *   spinner — 13px dark-green circle carrying the working mark (computing);
  *             enters with a one-shot tick-in.
  *   count   — amber numbered pill (waiting on you); pops in one-shot, and pops
  *             again when the count increases (keyed by the number).
@@ -11,13 +11,13 @@
  *   dot     — plain 10px amber dot, the wide-sidebar variant where the numbered
  *             pill lives in the row meta instead.
  *
- * All variants are perfectly still after their entry morph — the spinner glyph
+ * All variants are perfectly still after their entry morph — the working mark
  * is the only ongoing motion, and only while the agent computes.
  */
 import type { CSSProperties, JSX } from 'react'
 import { cn } from '@/lib/utils'
-import { BrailleSpinner } from './BrailleSpinner'
 import { usePhaseMorph } from './usePhaseMorph'
+import { WorkingMark } from './WorkingMark'
 
 export type StatusBadgeKind = 'spinner' | 'count' | 'check' | 'dot'
 
@@ -94,12 +94,12 @@ export function StatusBadge({
           background: 'var(--motion-badge-bg)',
           border: '1px solid var(--motion-working)',
           color: 'var(--motion-working-bright)',
-          '--spb-color': 'var(--motion-working-bright)',
+          '--mark-color': 'var(--motion-working-bright)',
           fontSize: 8,
         } as CSSProperties
       }
     >
-      {kind === 'check' ? '✓' : <BrailleSpinner size={8} />}
+      {kind === 'check' ? '✓' : <WorkingMark size={10} />}
     </span>
   )
 }

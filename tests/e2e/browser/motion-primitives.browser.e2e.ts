@@ -1,5 +1,9 @@
 import { expect, type Page, test } from '@playwright/test'
 
+/** Two marks in the demo row, eight dots each: the whole cell animating and
+ *  nothing else looping beside it. */
+const MARK_WAVES = Array.from({ length: 16 }, () => 'podium-mark-wave')
+
 async function animationNames(page: Page): Promise<string[]> {
   return page
     .getByTestId('motion-row')
@@ -22,25 +26,25 @@ test('real app: spinner persists while one-shot morphs settle and timer flips to
 
   await page.getByRole('button', { name: 'Start work' }).click()
   await expect(page.getByTestId('phase-label')).toHaveText('WORKING')
-  await expect(page.locator('.motion-demo-timer .spb')).toBeVisible()
+  await expect(page.locator('.motion-demo-timer .pod-mark')).toBeVisible()
   await expect
     .poll(() => animationNames(page))
-    .toEqual(expect.arrayContaining(['podium-spb', 'podium-ignite', 'podium-tick-in']))
+    .toEqual(expect.arrayContaining(['podium-mark-wave', 'podium-ignite', 'podium-tick-in']))
 
   const timer = page.locator('.motion-demo-timer')
   const firstClock = await timer.textContent()
   await expect.poll(() => timer.textContent(), { timeout: 3_000 }).not.toBe(firstClock)
 
   await page.waitForTimeout(1_100)
-  await expect.poll(() => animationNames(page)).toEqual(['podium-spb', 'podium-spb'])
+  await expect.poll(() => animationNames(page)).toEqual(MARK_WAVES)
 
   await page.getByRole('button', { name: 'Unrelated rerender' }).click()
   await expect(page.getByTestId('revision')).toHaveText('1')
-  await expect.poll(() => animationNames(page)).toEqual(['podium-spb', 'podium-spb'])
+  await expect.poll(() => animationNames(page)).toEqual(MARK_WAVES)
 
   await page.getByRole('button', { name: 'Needs input' }).click()
   await expect(page.getByTestId('phase-label')).toHaveText('WAITING ON YOU')
-  await expect(page.locator('.spb')).toHaveCount(0)
+  await expect(page.locator('.pod-mark')).toHaveCount(0)
   await expect(timer).toHaveText('just now')
   await expect
     .poll(() => animationNames(page))
@@ -66,10 +70,10 @@ test('real app: reduced motion freezes the spinner and removes morphs', async ({
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/?e2e=1&motion-demo=1')
   await page.getByRole('button', { name: 'Start work' }).click()
-  await expect(page.locator('.motion-demo-timer .spb')).toBeVisible()
+  await expect(page.locator('.motion-demo-timer .pod-mark')).toBeVisible()
   await expect.poll(() => animationNames(page)).toEqual([])
   await page.getByRole('button', { name: 'Needs input' }).click()
-  await expect(page.locator('.spb')).toHaveCount(0)
+  await expect(page.locator('.pod-mark')).toHaveCount(0)
   await expect(page.locator('.motion-demo-timer')).toHaveText('just now')
   await expect.poll(() => animationNames(page)).toEqual([])
 })

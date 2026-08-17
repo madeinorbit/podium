@@ -54,7 +54,7 @@ import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { AgentStatusGlyph, BrailleSpinner } from '@/lib/motion'
+import { AgentStatusGlyph, WorkingMark } from '@/lib/motion'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
@@ -845,7 +845,7 @@ function PaletteDialog({
               onKeyDown={onInputKeyDown}
               className="cmdk-input"
             />
-            {searching && <BrailleSpinner size={11} className="cmdk-field-spinner" />}
+            {searching && <WorkingMark size={15} className="cmdk-field-spinner" />}
           </div>
           <div
             ref={listRef}
