@@ -28,6 +28,7 @@
     "./logging": "./src/logging.ts",
     "./process-safety": "./src/process-safety.ts",
     "./sd-notify": "./src/sd-notify.ts",
+    "./supervisor": "./src/supervisor.ts",
     "./boot": "./src/boot.ts",
     "./migration-ledger": "./src/migration-ledger.ts",
     "./update-delivery": "./src/update-delivery.ts",

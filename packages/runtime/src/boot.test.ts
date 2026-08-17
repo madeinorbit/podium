@@ -5,6 +5,9 @@ import { type BootHandle, type BootProc, bootProcess } from './boot'
 function makeProc() {
   const handlers = new Map<string, () => void>()
   const stopWatchdog = vi.fn()
+  const stopSupervisorWatch = vi.fn()
+  /** Captured so a test can fire supervisor death without a real parent process. */
+  let orphan: (() => void) | undefined
   // A fake sink handle. The real one registers a file sink under ~/.podium/logs;
   // a unit test must not write there, which is why configureLogging is a seam.
   const logging = {
@@ -22,12 +25,23 @@ function makeProc() {
     configureLogging: vi.fn(() => logging),
     installSafetyNet: vi.fn(),
     startWatchdog: vi.fn(() => stopWatchdog),
+    watchSupervisor: vi.fn((onOrphaned: () => void) => {
+      orphan = onOrphaned
+      return stopSupervisorWatch
+    }),
     log: vi.fn(),
     error: vi.fn(),
     // Resolves immediately so bootProcess returns in tests (prod never resolves).
     stayAlive: () => Promise.resolve(),
   }
-  return { proc, handlers, stopWatchdog, logging }
+  return {
+    proc,
+    handlers,
+    stopWatchdog,
+    stopSupervisorWatch,
+    logging,
+    orphanProcess: () => orphan?.(),
+  }
 }
 
 describe('bootProcess', () => {
@@ -162,6 +176,28 @@ describe('bootProcess', () => {
     expect(stopWatchdog).toHaveBeenCalledTimes(1)
   })
 
+  it('a dead supervisor shuts down exactly like a SIGTERM: close(), then exit 0', async () => {
+    const { proc, stopWatchdog, stopSupervisorWatch, orphanProcess } = makeProc()
+    const close = vi.fn()
+    await bootProcess({ name: 'server', bootTimeoutMs: null, start: async () => ({ close }) }, proc)
+    orphanProcess()
+    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(stopWatchdog).toHaveBeenCalledTimes(1)
+    expect(stopSupervisorWatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('supervisor death and a SIGTERM together shut down once, not twice', async () => {
+    const { proc, handlers, orphanProcess } = makeProc()
+    const close = vi.fn()
+    await bootProcess({ name: 'server', bootTimeoutMs: null, start: async () => ({ close }) }, proc)
+    orphanProcess()
+    handlers.get('SIGTERM')?.()
+    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(proc.exit).toHaveBeenCalledTimes(1)
+  })
+
   it('shutdown is idempotent: a second signal neither re-closes nor re-exits', async () => {
     const { proc, handlers } = makeProc()
     const close = vi.fn()
@@ -286,6 +322,7 @@ describe('shutdown hardening (Codex round-2)', () => {
       startWatchdog: vi.fn(() => () => {
         throw new Error('cleanup boom')
       }),
+      watchSupervisor: vi.fn(() => undefined),
       log: vi.fn(),
       error: vi.fn(),
       stayAlive: () => Promise.resolve(),

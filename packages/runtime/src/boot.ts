@@ -25,6 +25,10 @@
  *    WatchdogSec on the unit, a wedged event loop stops petting and systemd
  *    restarts us — the only thing that catches a wedged-but-alive process (the
  *    documented big-paste msg-loop wedge). No-op outside notify units (dev/tests).
+ *  - Supervisor watchdog (watchSupervisor, POD-1228): when a GUI shell spawned us
+ *    and exports its PID, its death is our shutdown signal. The shell's own exit
+ *    handlers cannot cover a crash or a SIGKILL — nothing of the shell runs then —
+ *    so the orphan has to notice on its own or it keeps the ports and sessions.
  *  - Bounded close on SIGINT/SIGTERM: Bun's node:http `close()` can wait on
  *    lingering keep-alive sockets that Node drains promptly, which would stall
  *    SIGTERM until systemd SIGKILLs. Racing `close()` against `closeTimeoutMs`
@@ -37,6 +41,7 @@ import { createLogger } from '@podium/logger'
 import { configureProcessLogging, type ProcessLogging } from './logging'
 import { installProcessSafetyNet } from './process-safety'
 import { startWatchdog } from './sd-notify'
+import { watchSupervisor } from './supervisor'
 
 export interface BootHandle {
   close: () => Promise<void> | void
@@ -77,6 +82,11 @@ export interface BootProc {
   installSafetyNet: (name: string) => void
   startWatchdog: () => (() => void) | undefined
   /**
+   * Start the parent-death watch, calling `onOrphaned` if the supervising shell
+   * dies. Returns undefined (nothing to stop) when this process is unsupervised.
+   */
+  watchSupervisor: (onOrphaned: () => void) => (() => void) | undefined
+  /**
    * Boot's own diagnostics. `fields` is structured context, NOT interpolation:
    * the message stays a constant so it can be grouped, and the varying parts
    * (role, timeout, the error) are queryable columns.
@@ -97,6 +107,7 @@ const realProc: BootProc = {
   configureLogging: (role) => configureProcessLogging({ role }),
   installSafetyNet: installProcessSafetyNet,
   startWatchdog,
+  watchSupervisor: (onOrphaned) => watchSupervisor(onOrphaned),
   log: (msg, fields) => bootLog.info(msg, fields),
   error: (msg, fields) => bootLog.error(msg, fields),
   stayAlive: () => new Promise<void>(() => {}),
@@ -171,6 +182,11 @@ export async function bootProcess<H extends BootHandle>(
 
   const closeTimeoutMs = spec.closeTimeoutMs ?? 4000
   let shuttingDown = false
+  // Assigned below, after `shutdown` exists — the watch's first check runs
+  // synchronously, so a shell that died during our boot may call shutdown before
+  // this binding is set. That is safe: the watch clears its own timer when it
+  // fires, so the `?.()` in shutdown has nothing left to do.
+  let stopSupervisorWatch: (() => void) | undefined
   const shutdown = async (): Promise<void> => {
     if (shuttingDown) return
     shuttingDown = true
@@ -182,6 +198,7 @@ export async function bootProcess<H extends BootHandle>(
     let closeTimer: ReturnType<typeof setTimeout> | undefined
     try {
       stopWatchdog?.()
+      stopSupervisorWatch?.()
       await Promise.race([
         (async () => handle.close())(),
         new Promise((r) => {
@@ -211,6 +228,9 @@ export async function bootProcess<H extends BootHandle>(
   }
   proc.onSignal('SIGINT', () => void shutdown())
   proc.onSignal('SIGTERM', () => void shutdown())
+  // A dead supervising shell means the same thing a SIGTERM does, and takes the
+  // same route out — the point is that the orphan leaves, not that it dies harder.
+  stopSupervisorWatch = proc.watchSupervisor(() => void shutdown())
 
   // Stay alive until a signal arrives.
   await proc.stayAlive()

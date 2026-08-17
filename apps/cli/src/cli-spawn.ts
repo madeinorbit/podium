@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { localServerUrl, type PodiumConfig } from '@podium/runtime/config'
 import { liveRecord, logDir, type RunRole } from '@podium/runtime/run-registry'
+import { unsupervisedEnv } from '@podium/runtime/supervisor'
 import { rolesForMode } from '@podium/runtime/transfer-lifecycle'
 
 /** True when running inside a `bun build --compile` binary (execPath IS `podium`). */
@@ -50,7 +51,10 @@ export function spawnDetached(
     '--takeover',
   ]
   const { cmd, args } = selfInvocation(sub, extra)
-  const env: NodeJS.ProcessEnv = { ...process.env, PODIUM_RUN_MODE: 'detached' }
+  // `unsupervisedEnv`: this spawn is detached ON PURPOSE — it must outlive the launcher, so it
+  // must not inherit the launcher's supervisor pid and take itself down with a desktop shell
+  // that has nothing to do with it (POD-1228).
+  const env: NodeJS.ProcessEnv = { ...unsupervisedEnv(process.env), PODIUM_RUN_MODE: 'detached' }
   // Not under systemd — make sure a stray NOTIFY_SOCKET (inherited from a parent unit) doesn't
   // mislabel the run mode or try to talk to a watchdog that isn't there.
   delete env.NOTIFY_SOCKET

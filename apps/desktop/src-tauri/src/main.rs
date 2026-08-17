@@ -24,6 +24,13 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use updater::{check_update, claim_update_ownership, install_update};
 
 const DESKTOP_SUPERVISED_ENV: &str = "PODIUM_DESKTOP_SUPERVISED";
+/// This shell's own PID, handed to every backend we spawn so the backend can tie its
+/// lifetime to ours (POD-1228). The reap below only runs on a deliberate quit — a GUI
+/// crash, a SIGKILL, or a plain SIGTERM executes none of our exit code at all, and the
+/// sidecar is simply reparented and keeps holding the fixed hook-ingest port. Nothing we
+/// can put in an exit handler covers "the exit handler never ran", so the backend polls
+/// for our death instead (packages/runtime/src/supervisor.ts).
+const SUPERVISOR_PID_ENV: &str = "PODIUM_SUPERVISOR_PID";
 const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize",
@@ -48,7 +55,8 @@ fn local_host_sidecar_command(
         .args(sidecar_args)
         .env("PODIUM_PORT", port.to_string())
         .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
-        .env(DESKTOP_SUPERVISED_ENV, "1");
+        .env(DESKTOP_SUPERVISED_ENV, "1")
+        .env(SUPERVISOR_PID_ENV, std::process::id().to_string());
     command
 }
 
@@ -56,7 +64,8 @@ fn replacement_daemon_command(runnable: &Path, server_url: &str) -> Command {
     let mut command = Command::new(runnable);
     command
         .args(["daemon", "--server", server_url, "--takeover"])
-        .env(DESKTOP_SUPERVISED_ENV, "1");
+        .env(DESKTOP_SUPERVISED_ENV, "1")
+        .env(SUPERVISOR_PID_ENV, std::process::id().to_string());
     command
 }
 
@@ -123,6 +132,54 @@ fn retarget_existing_window(
 /// How often supervision checks whether the backend child is still alive. Cheap enough to be
 /// invisible and far below the 500ms floor of the respawn backoff, so it costs no reaction time.
 const SUPERVISION_POLL: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// How long a reaped backend gets to exit on SIGTERM before we SIGKILL it. The backend's own
+/// shutdown is a log drain and a pidfile removal — sub-second work — and this budget sits on the
+/// quit path a human is watching, so it is deliberately short.
+#[cfg(unix)]
+const REAP_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+#[cfg(unix)]
+const REAP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Ask the backend to exit, and make sure it does.
+///
+/// `Child::kill` is SIGKILL, which is the wrong first move for a process that owns a pidfile and a
+/// log sink: killed outright it leaves a live-looking run-registry record behind, and the NEXT
+/// launch has to decide whether that record's PID is a real holder or a recycled one. SIGTERM
+/// first lets the backend remove its own record and drain its logs; SIGKILL stays as the backstop
+/// for a backend that will not go, so quitting can never hang on it.
+///
+/// Unix only for the signal — `std::process` has no portable "terminate politely", and a raw
+/// `kill(2)` declaration is cheaper than a `libc` dependency for one call. Elsewhere (and if the
+/// grace runs out) this is exactly the old behavior.
+fn reap_backend(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // SIGTERM. Declared here rather than pulled in via `libc`: this is the crate's only FFI,
+        // and the signature (`int kill(pid_t, int)`, `pid_t` = i32) is fixed by POSIX.
+        unsafe extern "C" {
+            fn kill(pid: i32, sig: i32) -> i32;
+        }
+        const SIGTERM: i32 = 15;
+        let pid = child.id() as i32;
+        if pid > 1 {
+            unsafe {
+                kill(pid, SIGTERM);
+            }
+            let deadline = std::time::Instant::now() + REAP_GRACE;
+            while std::time::Instant::now() < deadline {
+                match child.try_wait() {
+                    // Exited on its own terms, or is already unwaitable — either way, done.
+                    Ok(Some(_)) | Err(_) => return,
+                    Ok(None) => std::thread::sleep(REAP_POLL),
+                }
+            }
+            log::warn!("backend did not exit within the SIGTERM grace; killing");
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
 
 /// Wait for the supervised child to exit **without holding the child slot's lock while it runs**.
 ///
@@ -259,8 +316,7 @@ fn spawn_respawn_monitor<F, S, D>(
                     // the handlers use, and reap rather than store.
                     let mut guard = child_state.lock().unwrap();
                     if shutting_down.load(Ordering::Acquire) {
-                        let _ = new_child.kill();
-                        let _ = new_child.wait();
+                        reap_backend(&mut new_child);
                         break;
                     }
                     *guard = Some(new_child);
@@ -1044,8 +1100,7 @@ fn main() {
                     if let Some(state) = app.try_state::<Arc<Mutex<Option<std::process::Child>>>>() {
                         if let Ok(mut guard) = state.lock() {
                             if let Some(mut child) = guard.take() {
-                                let _ = child.kill();
-                                let _ = child.wait();
+                                reap_backend(&mut child);
                             }
                         }
                     }
@@ -1074,8 +1129,7 @@ fn main() {
             if let Some(state) = app_handle.try_state::<Arc<Mutex<Option<std::process::Child>>>>() {
                 if let Ok(mut guard) = state.lock() {
                     if let Some(mut child) = guard.take() {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        reap_backend(&mut child);
                     }
                 }
             }
@@ -1138,8 +1192,7 @@ mod tests {
             }
         };
         let mut child = guard.take().expect("the quit path finds the child to reap");
-        let _ = child.kill();
-        let _ = child.wait();
+        reap_backend(&mut child);
         drop(guard);
 
         assert!(
@@ -1191,6 +1244,30 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["daemon", "--server", "wss://new.example", "--takeover"]
         );
+    }
+
+    /// POD-1228. The reap below only runs when the shell exits through Tauri; a crash or a
+    /// SIGKILL runs none of it and the backend is left holding its ports. Every backend we
+    /// start therefore has to know which PID's death is its own cue to leave, so a missing
+    /// variable on either spawn path is a silent return of the orphan.
+    #[test]
+    fn every_backend_the_desktop_starts_knows_whose_death_to_exit_on() {
+        let host = local_host_sidecar_command(
+            Path::new("podium"),
+            &["--takeover".to_string()],
+            18787,
+            Path::new("web"),
+        );
+        let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
+        let expected = std::process::id().to_string();
+
+        for (label, command) in [("local host sidecar", &host), ("replacement daemon", &daemon)] {
+            assert_eq!(
+                command_env(command, SUPERVISOR_PID_ENV),
+                Some(expected.clone()),
+                "{label} must carry this shell's pid as the one to die with"
+            );
+        }
     }
 
     #[test]

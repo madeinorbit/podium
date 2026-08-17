@@ -174,6 +174,8 @@ describe('closeServerFast', () => {
       configureLogging: vi.fn(() => undefined),
       installSafetyNet: vi.fn(),
       startWatchdog: vi.fn(() => () => {}),
+      // Unsupervised: this test is about the close path, not about a parent shell.
+      watchSupervisor: vi.fn(() => undefined),
       log: vi.fn(),
       error: vi.fn(),
       stayAlive: () => Promise.resolve(),

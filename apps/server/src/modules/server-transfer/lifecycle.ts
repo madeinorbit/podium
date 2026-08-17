@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { unsupervisedEnv } from '@podium/runtime/supervisor'
 
 interface SourceRetirementDeps {
   env?: Readonly<Record<string, string | undefined>>
@@ -39,9 +40,11 @@ export function retireSourceAfterTransfer(
           '--takeover',
         ]
     const child: ChildProcess = spawnProcess(process.execPath, args, {
+      // Detached ON PURPOSE, so `unsupervisedEnv`: the takeover daemon is meant to outlive this
+      // process and must not inherit a supervisor pid to die with (POD-1228).
       detached: true,
       stdio: 'ignore',
-      env: { ...process.env, PODIUM_RUN_MODE: 'detached' },
+      env: { ...unsupervisedEnv(process.env), PODIUM_RUN_MODE: 'detached' },
     })
     child.unref()
     child.once('error', () => {})

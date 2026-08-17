@@ -1063,8 +1063,10 @@ async function runInProcess(
   // Watchdog pet (no-op off a Type=notify unit) — mirror scripts/daemon.ts.
   const { startWatchdog } = await import('@podium/runtime/sd-notify')
   const stopWatchdog = startWatchdog()
+  let stopSupervisorWatch: (() => void) | undefined
   const shutdown = (): void => {
     stopWatchdog?.()
+    stopSupervisorWatch?.()
     // Drain the log sink before exiting; best-effort, never a reason to hang.
     void (componentLogging?.close() ?? Promise.resolve())
       .catch(() => {})
@@ -1072,6 +1074,12 @@ async function runInProcess(
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
+  // Parent-death watch (POD-1228). This is the process Podium Desktop spawns as
+  // its sidecar, and the shell's own exit handlers only run on a deliberate quit:
+  // a GUI crash or SIGKILL leaves us reparented and still holding the fixed
+  // hook-ingest port, which is what breaks the NEXT launch. No-op unsupervised.
+  const { watchSupervisor } = await import('@podium/runtime/supervisor')
+  stopSupervisorWatch = watchSupervisor(shutdown)
   await new Promise(() => {})
 }
 
