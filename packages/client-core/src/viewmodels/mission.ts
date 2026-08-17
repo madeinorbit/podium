@@ -67,6 +67,19 @@ export interface FlightDeckRow {
    * motion in the app must never do.
    */
   workingAgentCount: number
+  /**
+   * Did this row match the view's filter ITSELF, or is it only here as the path
+   * to something that did (POD-1245)?
+   *
+   * The filters keep a match's ancestors so an exception never loses its
+   * context, and until now the row carried no record of which it was — so
+   * `Needs you` rendered a done parent exactly like the task that was actually
+   * asking, and the whole chain read as five things demanding a decision.
+   * A context row is scaffolding: it draws the tree and nothing else.
+   *
+   * Always `true` in `full`, where every row matches by definition.
+   */
+  matched: boolean
   collapsedSummary: CollapsedSummary
 }
 
@@ -97,6 +110,7 @@ function sameFlightDeckRow(a: FlightDeckRow, b: FlightDeckRow): boolean {
     a.actionableCount === b.actionableCount &&
     a.liveAgentCount === b.liveAgentCount &&
     a.workingAgentCount === b.workingAgentCount &&
+    a.matched === b.matched &&
     sameCollapsedSummary(a.collapsedSummary, b.collapsedSummary)
   )
 }
@@ -153,6 +167,28 @@ const openSession = sessionPresentOnTask
  */
 export function sessionSettled(session: SessionMeta): boolean {
   return !openSession(session) || motionPhase(session) === 'done'
+}
+
+/**
+ * AN AGENT GENUINELY COMPUTING RIGHT NOW — the only thing that may keep a
+ * FINISHED task on the `Active` view (POD-1245).
+ *
+ * `Active` used to ask {@link openSession} here, and presence is far too weak a
+ * question: it means "not archived and not exited", which a PARKED agent
+ * satisfies — and parking is how an agent normally ends. So four closed tasks in
+ * five kept a hibernated session and were re-admitted to a view whose whole job
+ * is hiding finished work, cancelled and duplicate ones included.
+ *
+ * The escape hatch is still needed — an agent really can still be running on a
+ * task somebody already closed, and hiding that would lose it — but it has to
+ * ask whether the agent is WORKING, not whether it exists. `motionPhase` is the
+ * same verdict the green dot and the braille spinner read, and it demotes a
+ * hibernated session to `ready` (session-status.ts), so a parked agent can never
+ * answer yes here. Deliberately the same predicate as `workingAgentCount` below:
+ * the row's own spinner and this filter must never disagree about who is busy.
+ */
+function sessionWorking(session: SessionMeta): boolean {
+  return openSession(session) && motionPhase(session) === 'working'
 }
 
 /** The census behind a fold: deduplicated, ordered working → present → settled,
@@ -926,9 +962,7 @@ export function buildFlightDeckRows(
   const selfMatches = (issue: IssueNavigationModel): boolean => {
     const ownSessions = sessionsByIssue.get(issue.id) ?? []
     if (mode === 'needs-you') return issueNeedsHuman(issue, ownSessions)
-    if (mode === 'active') {
-      return (issue.stage !== 'done' && !issue.closedReason) || ownSessions.some(openSession)
-    }
+    if (mode === 'active') return !issueClosed(issue) || ownSessions.some(sessionWorking)
     return true
   }
   // Walk up the RENDERED tree, not raw parentId edges: a grafted agent-started
@@ -978,9 +1012,8 @@ export function buildFlightDeckRows(
       descendantIds,
       actionableCount,
       liveAgentCount: subtreeSessions.filter(openSession).length,
-      workingAgentCount: subtreeSessions.filter(
-        (session) => openSession(session) && motionPhase(session) === 'working',
-      ).length,
+      workingAgentCount: subtreeSessions.filter(sessionWorking).length,
+      matched: selfMatches(issue),
       collapsedSummary: {
         tasks: hidden.length,
         // The fold's own two-colour meter, and the same rule the mission gauge
@@ -1184,16 +1217,25 @@ export function deckIssueState(
  * Which sessions a row shows in the given view.
  *
  * `Needs you` is a filter over SESSIONS shown with their task path, so a matched
- * task lists only the agents that actually stopped. When nothing on the row is
- * asking — the row is pure path, or the TASK is the exception (review, an
- * explicit `needsHuman`) — every session stays, because hiding them would leave
- * the row claiming to be unattended when it is not.
+ * task lists only the agents that actually stopped. When the TASK itself is the
+ * exception (review, an explicit `needsHuman`) and no session is asking, every
+ * session stays: that row IS the thing needing a decision, and hiding its crew
+ * would leave it claiming to be unattended when it is not.
+ *
+ * A CONTEXT ROW SHOWS NO AGENTS AT ALL (POD-1245). The rule above used to run on
+ * every row, and a row kept purely as the PATH to a match has nothing asking on
+ * it — so it fell through to "every session stays" and arrived carrying its full
+ * crew. On a three-deep mission `Needs you` was one stopped agent underneath a
+ * parade of busy ones, which reads as the filter having done nothing. The path
+ * still draws — {@link FlightDeckRow.matched} is what separates the two — but it
+ * draws as scaffolding.
  */
 export function deckSessions(
-  row: Pick<FlightDeckRow, 'issue' | 'sessions'>,
+  row: Pick<FlightDeckRow, 'issue' | 'sessions' | 'matched'>,
   mode: FlightDeckMode,
 ): SessionMeta[] {
   if (mode !== 'needs-you') return row.sessions
+  if (!row.matched) return []
   const asking = row.sessions.filter((session) => sessionAsksOnIssue(row.issue, session))
   return asking.length > 0 ? asking : row.sessions
 }

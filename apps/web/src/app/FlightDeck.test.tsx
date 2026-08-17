@@ -1176,3 +1176,93 @@ describe('flight deck without a mission', () => {
     expect(screen.queryByTestId('flight-settling')).toBeNull()
   })
 })
+
+/**
+ * THE VIEW BAR ACTUALLY NARROWS THE COLUMN (POD-1245).
+ *
+ * `Active` and `Needs you` both looked broken in the field — an operator with
+ * `Active` on was reading a spine of finished and cancelled tasks. Two separate
+ * causes, and the tests below hold each at the level it is fixed: the viewmodel
+ * decides WHICH rows survive (mission.test.ts), and this file decides what a row
+ * that survived only as somebody else's path is allowed to draw.
+ */
+describe('flight deck view filters (POD-1245)', () => {
+  const strip = (id: string): HTMLElement => {
+    const row = document.querySelector(`[data-flight-issue="${id}"]`)
+    if (!row) throw new Error(`no strip ${id}`)
+    return row as HTMLElement
+  }
+  const band = (id: string): HTMLElement => {
+    const el = strip(id).querySelector('.deck-strip')
+    if (!el) throw new Error(`no band ${id}`)
+    return el as HTMLElement
+  }
+
+  // root ── mid (done, quiet) ── leaf (in review — the one thing asking)
+  beforeEach(() => {
+    harness.issues = [
+      issue('root', { title: 'Mission' }),
+      issue('mid', {
+        parentId: 'root',
+        title: 'Finished parent',
+        stage: 'done',
+        memberSessionIds: ['busy', 'busy2'],
+      }),
+      issue('leaf', { parentId: 'mid', title: 'Wants a decision', stage: 'review' }),
+    ]
+    harness.sessions = [session('busy', { issueId: 'mid' }), session('busy2', { issueId: 'mid' })]
+  })
+
+  it('drops a finished task whose only agent is parked, in Active', () => {
+    harness.issues = [
+      issue('root', { title: 'Mission' }),
+      issue('parked', {
+        parentId: 'root',
+        title: 'Parked',
+        stage: 'done',
+        memberSessionIds: ['p'],
+      }),
+      issue('running', { parentId: 'root', title: 'Running', stage: 'in_progress' }),
+    ]
+    harness.sessions = [session('p', { issueId: 'parked', status: 'hibernated' })]
+    harness.ui.set('podium.flightDeck.mode', 'active')
+    deck()
+    expect(document.querySelector('[data-flight-issue="parked"]')).toBeNull()
+    expect(document.querySelector('[data-flight-issue="running"]')).not.toBeNull()
+  })
+
+  it('still draws the tree down to the match in Needs you', () => {
+    harness.ui.set('podium.flightDeck.mode', 'needs-you')
+    deck()
+    // The path survives — an exception you cannot place is not useful.
+    expect(strip('mid')).toBeTruthy()
+    expect(strip('leaf')).toBeTruthy()
+  })
+
+  // The heart of it: a path row is scaffolding, and scaffolding does not carry a
+  // fill, a state word, or a crew of agents that are not asking for anything.
+  it('renders a path-only row as scaffolding, not as a second thing needing you', () => {
+    harness.ui.set('podium.flightDeck.mode', 'needs-you')
+    deck()
+    const context = band('mid')
+    expect(context.className).toContain('bg-transparent')
+    expect(context.className).not.toContain('bg-tabstrip')
+    // Its two agents came with it before; now neither renders.
+    expect(strip('mid').textContent).not.toContain('busy')
+    expect(strip('mid').textContent).not.toContain('busy2')
+    // And it no longer reports a state of its own.
+    expect(strip('mid').textContent).not.toContain('done')
+    // The match itself is still a full strip.
+    expect(band('leaf').className).toContain('bg-tabstrip')
+  })
+
+  it('leaves every row a full strip in the other views', () => {
+    for (const mode of ['full', 'active'] as const) {
+      cleanup()
+      harness.ui.set('podium.flightDeck.mode', mode)
+      deck()
+      expect(band('mid').className).toContain('bg-tabstrip')
+      expect(strip('mid').textContent).toContain('busy')
+    }
+  })
+})

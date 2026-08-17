@@ -226,7 +226,9 @@ export function MissionDeck({
     })
   }, [])
 
-  const rootSessions = rootRow ? deckSessions(rootRow, mode) : []
+  // `matched: true` for the same reason the web deck does it: the root is the
+  // mission's own header, not one of the rows the view filters (POD-1245).
+  const rootSessions = rootRow ? deckSessions({ ...rootRow, matched: true }, mode) : []
 
   return (
     <View style={styles.panel}>

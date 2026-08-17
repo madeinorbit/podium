@@ -1529,6 +1529,23 @@ const TaskRow = memo(
     const ownRailX = SPINE_PAD + (row.depth - 1) * DEPTH_STEP + RAIL_INSET
     const state = deckIssueState(row.issue, row.sessions, byId)
     const sessions = deckSessions(row, mode)
+    /**
+     * A ROW THAT IS ONLY THE PATH TO A MATCH (POD-1245).
+     *
+     * The filters keep a match's ancestors so an exception never loses its
+     * context, and this row used to be indistinguishable from the task that
+     * actually matched: same fill, same outline, same state word, same crew. On
+     * `Needs you` that turned one stopped agent into a column of rows all
+     * looking like they wanted something.
+     *
+     * So a context row stops being a strip and becomes what it is — the tree
+     * getting to the match. No fill, no outline, no seat, no note, no state
+     * word, and (via `deckSessions`) no agents. What survives is the rail, the
+     * ref and the title, one tier down: enough to place the match, not enough to
+     * compete with it. `Active` is left alone — everything it keeps is live work
+     * the operator is meant to read.
+     */
+    const context = mode === 'needs-you' && !row.matched
     // A PROPOSAL IS A DIFFERENT KIND OF ROW (round 3 §7b): nobody has accepted it,
     // so it holds no seat for an agent and takes the shorter band. Only one with
     // sub-tasks reaches this component — the childless ones leave the tree
@@ -1610,9 +1627,17 @@ const TaskRow = memo(
           into its full strip rather than snapping (§7c). */}
         <div
           className={cn(
-            'deck-strip group/task relative flex items-center gap-1 rounded-row border bg-tabstrip pr-1.5 transition-[border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
-            state.state === 'blocked' && 'deck-hatch',
-            selected ? 'border-border-strong' : 'border-hairline-soft hover:border-hairline-bar',
+            'deck-strip group/task relative flex items-center gap-1 rounded-row border pr-1.5 transition-[border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
+            context ? 'bg-transparent' : 'bg-tabstrip',
+            state.state === 'blocked' && !context && 'deck-hatch',
+            // Selection still outlines a context row: the operator can click one
+            // to go and look at it, and a click with no answer is worse than a
+            // quiet row.
+            selected
+              ? 'border-border-strong'
+              : context
+                ? 'border-transparent hover:border-hairline-soft'
+                : 'border-hairline-soft hover:border-hairline-bar',
           )}
           style={{ marginLeft: bandLeft, minHeight: bandHeight }}
           // A TASK ANSWERS THE SAME GESTURE ITS AGENTS DO (POD-771). Right-click
@@ -1689,7 +1714,8 @@ const TaskRow = memo(
               read right-to-left. */}
               <span
                 className={cn(
-                  'shell-type-secondary min-w-0 flex-1 truncate text-text-strong',
+                  'shell-type-secondary min-w-0 flex-1 truncate',
+                  context ? 'text-text-dim' : 'text-text-strong',
                   selected || unread ? 'font-semibold' : 'font-medium',
                 )}
               >
@@ -1704,13 +1730,17 @@ const TaskRow = memo(
                   <span className="sr-only">unread</span>
                 </>
               ) : null}
-              {note && <IssueNoteChip note={note} />}
-              {seat && <SeatChip note={seat} />}
+              {/* Everything below is the row REPORTING on itself, and a context
+                row has nothing to report — it is here to be walked past. The
+                fold's payload survives, because a folded context row still has
+                to say how much tree it is hiding. */}
+              {note && !context && <IssueNoteChip note={note} />}
+              {seat && !context && <SeatChip note={seat} />}
               {folded && <CollapsedPayload summary={row.collapsedSummary} />}
-              {folded && row.collapsedSummary.crew.length > 0 && (
+              {folded && !context && row.collapsedSummary.crew.length > 0 && (
                 <CrewCensus crew={row.collapsedSummary.crew} />
               )}
-              <StateLabel value={state} label={liveWord} />
+              {!context && <StateLabel value={state} label={liveWord} />}
             </button>
           )}
           {/* The same pairing the agent rows use: right-click is the fast path,
@@ -2581,7 +2611,21 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const continuationState =
     allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
   const rootNote = root ? issueNote(root, byId, sessions) : null
-  const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
+  /**
+   * The mission header's roster — and it is the HEADER's, not a filtered row's.
+   *
+   * The root never renders as a strip (`visibleRows` drops depth 0), so it is
+   * not one of the rows POD-1245 quietened: it is the column's statement of
+   * which mission is on screen, and that statement is the same in every view.
+   * Passing `matched: true` says so out loud, rather than letting the root
+   * happen to fall on the context side of `deckSessions` and empty the header —
+   * which also drives the "no sessions or sub-tasks" line below, a sentence that
+   * would then be printed about a mission that is fully staffed.
+   */
+  const rootSessions = useMemo(
+    () => (rootRow ? deckSessions({ ...rootRow, matched: true }, mode) : []),
+    [rootRow, mode],
+  )
   // The whole slice as the fourth argument — the root's OWN sessions cannot see
   // a spin-off its agent hopped to (see `staffedSpinOff`).
   const rootSeat = rootRow

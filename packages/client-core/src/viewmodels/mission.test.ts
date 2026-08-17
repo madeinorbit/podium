@@ -867,16 +867,106 @@ describe('buildFlightDeckRows', () => {
       expect(shape(buildFlightDeckRows(quiet, [], 'root', 'needs-you'))).toEqual(['root@0'])
     })
 
-    it('in active mode keeps unfinished work plus finished work that still has an agent', () => {
+    it('in active mode keeps unfinished work plus finished work an agent is still WORKING on', () => {
       const withRevival = [...issues, issue('c3', { parentId: 'root', seq: 3, stage: 'done' })]
-      const revived = [...sessions, sess('s-c3', { issueId: 'c3' })]
-      // g2 and c2 are done and agent-less → dropped. c3 is done but still has a
-      // live session → kept. c1 is unfinished and matches on its own.
+      const revived = [...sessions, sess('s-c3', { issueId: 'c3', agentState: workingState })]
+      // g2 and c2 are done and agent-less → dropped. c3 is done but an agent is
+      // mid-turn on it → kept. c1 is unfinished and matches on its own.
       expect(shape(buildFlightDeckRows(withRevival, revived, 'root', 'active'))).toEqual([
         'root@0',
         'c1@1',
         'g1@2',
         'c3@1',
+      ])
+    })
+
+    /**
+     * POD-1245. `Active` asked whether a finished task still had a session
+     * PRESENT — not archived, not exited — and parking is how an agent normally
+     * ends, so four closed tasks in five kept a hibernated session and came
+     * straight back into the one view whose job is hiding them. The question is
+     * now whether an agent is WORKING, which a parked one never is.
+     */
+    it.each([
+      ['parked mid-turn', { status: 'hibernated' as const, agentState: workingState }],
+      [
+        'parked after a finished turn',
+        { status: 'hibernated' as const, agentState: finishedState },
+      ],
+      ['awake but finished its turn', { agentState: finishedState }],
+      ['awake and uninstrumented', {}],
+    ])('in active mode drops a done task whose agent is only %s', (_label, over) => {
+      const withParked = [...issues, issue('c3', { parentId: 'root', seq: 3, stage: 'done' })]
+      const parked = [...sessions, sess('s-c3', { issueId: 'c3', ...over })]
+      expect(shape(buildFlightDeckRows(withParked, parked, 'root', 'active'))).not.toContain('c3@1')
+    })
+
+    // Same mechanism, and deliberately so: `issueClosed` already treats every
+    // ending alike, so cancelling a task hides it on exactly the terms finishing
+    // one does. No second rule to drift.
+    it.each([
+      'cancelled',
+      'duplicate',
+      'superseded',
+    ] as const)('in active mode drops a %s task whose agent is merely parked', (closedReason) => {
+      const withCancelled = [
+        ...issues,
+        issue('c3', { parentId: 'root', seq: 3, stage: 'done', closedReason }),
+      ]
+      const parked = [...sessions, sess('s-c3', { issueId: 'c3', status: 'hibernated' })]
+      const rows = buildFlightDeckRows(withCancelled, parked, 'root', 'active')
+      expect(shape(rows)).not.toContain('c3@1')
+    })
+
+    // The escape hatch still exists — an agent really can be running on a task
+    // somebody already closed, and losing sight of that is the thing the hatch
+    // was for.
+    it.each([
+      'cancelled',
+      'duplicate',
+      'superseded',
+    ] as const)('in active mode KEEPS a %s task an agent is still working on', (closedReason) => {
+      const withCancelled = [
+        ...issues,
+        issue('c3', { parentId: 'root', seq: 3, stage: 'done', closedReason }),
+      ]
+      const working = [...sessions, sess('s-c3', { issueId: 'c3', agentState: workingState })]
+      expect(shape(buildFlightDeckRows(withCancelled, working, 'root', 'active'))).toContain('c3@1')
+    })
+
+    /**
+     * POD-1245. The ancestor path is kept on purpose — an exception that loses
+     * its path is one you cannot place — but until now the row carried no record
+     * of WHY it was there, so `Needs you` drew a done parent exactly like the
+     * task that was actually asking. `matched` is what the deck reads to render
+     * one as a strip and the other as scaffolding.
+     */
+    it('marks path-only rows as unmatched so the deck can quieten them', () => {
+      const rows = buildFlightDeckRows(issues, sessions, 'root', 'needs-you')
+      expect(rows.map((row) => [row.issue.id, row.matched])).toEqual([
+        ['root', false],
+        ['c1', false],
+        ['g1', true],
+      ])
+    })
+
+    it('marks every row matched in full mode', () => {
+      const rows = buildFlightDeckRows(issues, sessions, 'root', 'full')
+      expect(rows.every((row) => row.matched)).toBe(true)
+    })
+
+    it('marks a done row kept only as an ancestor as unmatched in active mode', () => {
+      // `mid` is done and agent-less, so it survives only as `leaf`'s path.
+      const tree = [
+        issue('root'),
+        issue('mid', { parentId: 'root', seq: 1, stage: 'done', closedReason: 'done' }),
+        issue('leaf', { parentId: 'mid', seq: 1 }),
+      ]
+      const rows = buildFlightDeckRows(tree, [], 'root', 'active')
+      expect(rows.map((row) => [row.issue.id, row.matched])).toEqual([
+        ['root', true],
+        ['mid', false],
+        ['leaf', true],
       ])
     })
 
@@ -1523,8 +1613,11 @@ describe('sessionAsksOnIssue', () => {
 })
 
 describe('deckSessions', () => {
-  const row = (over: Parameters<typeof issue>[1], sessions: SessionMeta[]) =>
-    ({ issue: issue('i', over), sessions }) as Pick<FlightDeckRow, 'issue' | 'sessions'>
+  const row = (over: Parameters<typeof issue>[1], sessions: SessionMeta[], matched = true) =>
+    ({ issue: issue('i', over), sessions, matched }) as Pick<
+      FlightDeckRow,
+      'issue' | 'sessions' | 'matched'
+    >
 
   it('narrows an open task to the agents that asked', () => {
     const quiet = sess('quiet', { agentState: workingState })
@@ -1542,6 +1635,19 @@ describe('deckSessions', () => {
       quiet,
       stale,
     ])
+  })
+
+  // POD-1245. A row kept only as the PATH to a match has nothing asking on it,
+  // so it used to fall through to "keep every session" and arrive carrying its
+  // whole crew — which is what made `Needs you` read as a list of busy agents
+  // rather than of stopped ones.
+  it('shows no agents at all on a row that is only context', () => {
+    const busy = sess('busy', { agentState: workingState })
+    const asking = sess('asking', { offer })
+    expect(deckSessions(row({}, [busy, asking], false), 'needs-you')).toEqual([])
+    // Only `Needs you` quietens a path row; the other views show the mission.
+    expect(deckSessions(row({}, [busy, asking], false), 'full')).toEqual([busy, asking])
+    expect(deckSessions(row({}, [busy, asking], false), 'active')).toEqual([busy, asking])
   })
 })
 
