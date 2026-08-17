@@ -51,6 +51,11 @@ serde_json = "1"
 # contract and every off-the-shelf backend wants to own the line format.
 log = "0.4"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Detect whether the installed bundle lives on a read-only volume before download.
+# Darwin exposes the mount flag through statfs.
+libc = "0.2"
+
 [dev-dependencies]
 # Integration tests (tests/) see only the crate and its DEV dependencies, never
 # its ordinary ones — so the panic-hook runtime check needs its own serde_json

@@ -1,4 +1,6 @@
 use crate::bootstrap::{build_update_channel, write_update_channel, UpdateChannel};
+#[cfg(any(target_os = "macos", test))]
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -42,6 +44,9 @@ pub enum UpdateErrorCode {
     UpdateCheckFailed,
     DownloadFailed,
     SignatureInvalid,
+    RunningFromDiskImage,
+    CrossDeviceInstall,
+    ReadOnlyInstallLocation,
     InstallFailed,
     NoUpdateAvailable,
 }
@@ -129,6 +134,28 @@ impl UpdateError {
         Self::new(
             UpdateErrorCode::SignatureInvalid,
             "The desktop update could not be verified.",
+        )
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    fn running_from_disk_image() -> Self {
+        Self::new(
+            UpdateErrorCode::RunningFromDiskImage,
+            "Podium is running from its disk image. Move Podium to your Applications folder, open it from there, and try again.",
+        )
+    }
+
+    fn cross_device_install() -> Self {
+        Self::new(
+            UpdateErrorCode::CrossDeviceInstall,
+            "Podium cannot update from its current location because the replacement is on another volume. Move Podium to your Applications folder, open it from there, and try again.",
+        )
+    }
+
+    fn read_only_install_location() -> Self {
+        Self::new(
+            UpdateErrorCode::ReadOnlyInstallLocation,
+            "Podium cannot update from its current read-only location. Move Podium to your Applications folder, open it from there, and try again.",
         )
     }
 
@@ -295,18 +322,101 @@ fn check_error(
     public
 }
 
-fn update_error(error: &tauri_plugin_updater::Error) -> UpdateError {
-    let public = match error {
+fn classify_update_error(error: &tauri_plugin_updater::Error) -> UpdateError {
+    match error {
         tauri_plugin_updater::Error::Minisign(_)
         | tauri_plugin_updater::Error::Base64(_)
         | tauri_plugin_updater::Error::SignatureUtf8(_) => UpdateError::signature_invalid(),
         tauri_plugin_updater::Error::Reqwest(_) | tauri_plugin_updater::Error::Network(_) => {
             UpdateError::download_failed()
         }
+        tauri_plugin_updater::Error::Io(error)
+            if error.kind() == std::io::ErrorKind::CrossesDevices =>
+        {
+            UpdateError::cross_device_install()
+        }
+        tauri_plugin_updater::Error::Io(error)
+            if error.kind() == std::io::ErrorKind::ReadOnlyFilesystem =>
+        {
+            UpdateError::read_only_install_location()
+        }
         _ => UpdateError::install_failed(),
-    };
-    log::error!("desktop update failed: {error}");
+    }
+}
+
+fn update_error_diagnostic(error: &tauri_plugin_updater::Error) -> String {
+    format!("desktop update failed: {error}")
+}
+
+fn update_error(error: &tauri_plugin_updater::Error) -> UpdateError {
+    let public = classify_update_error(error);
+    log::error!("{}", update_error_diagnostic(error));
     public
+}
+
+/// Refuse a location that cannot be replaced before updater I/O begins. The volume probe is
+/// injected so the read-only case remains hermetic on non-macOS CI.
+#[cfg(any(target_os = "macos", test))]
+fn begin_install_from_location<T>(
+    bundle_path: &Path,
+    volume_is_read_only: impl FnOnce(&Path) -> std::io::Result<bool>,
+    begin_download: impl FnOnce() -> T,
+) -> Result<T, UpdateError> {
+    let read_only = match volume_is_read_only(bundle_path) {
+        Ok(read_only) => read_only,
+        Err(error) => {
+            log::warn!(
+                "could not inspect desktop install volume at {}: {error}",
+                bundle_path.display()
+            );
+            false
+        }
+    };
+    if bundle_path.starts_with("/Volumes") || read_only {
+        return Err(UpdateError::running_from_disk_image());
+    }
+    Ok(begin_download())
+}
+
+#[cfg(target_os = "macos")]
+fn volume_is_read_only(path: &Path) -> std::io::Result<bool> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "install path contains a null byte",
+        )
+    })?;
+    let mut filesystem = std::mem::MaybeUninit::<libc::statfs>::uninit();
+    // SAFETY: path is a live C string and filesystem has enough writable memory.
+    if unsafe { libc::statfs(path.as_ptr(), filesystem.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: statfs returned success and initialized the output structure.
+    let filesystem = unsafe { filesystem.assume_init() };
+    Ok(filesystem.f_flags & libc::MNT_RDONLY as u32 != 0)
+}
+
+#[cfg(target_os = "macos")]
+fn begin_install_for_app<T>(
+    app: &AppHandle,
+    begin_download: impl FnOnce() -> T,
+) -> Result<T, UpdateError> {
+    let bundle_path = app.path().resource_dir().map_err(|error| {
+        log::error!("could not resolve desktop bundle path before updating: {error}");
+        UpdateError::install_failed()
+    })?;
+    begin_install_from_location(&bundle_path, volume_is_read_only, begin_download)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn begin_install_for_app<T>(
+    _app: &AppHandle,
+    begin_download: impl FnOnce() -> T,
+) -> Result<T, UpdateError> {
+    Ok(begin_download())
 }
 
 fn progress_after_chunk(
@@ -337,6 +447,7 @@ fn progress_after_chunk(
 }
 
 async fn download_and_install_with_progress<F>(
+    app: &AppHandle,
     update: &Update,
     report: F,
 ) -> Result<(), UpdateError>
@@ -348,8 +459,8 @@ where
     let chunk_state = state.clone();
     let chunk_report = report.clone();
     let finish_state = state;
-    update
-        .download_and_install(
+    let install = begin_install_for_app(app, || {
+        update.download_and_install(
             move |chunk, total| {
                 let now_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
                 let progress = chunk_state.lock().ok().and_then(|mut state| {
@@ -371,8 +482,8 @@ where
                 }
             },
         )
-        .await
-        .map_err(|error| update_error(&error))
+    })?;
+    install.await.map_err(|error| update_error(&error))
 }
 
 fn emit_update_progress(app: &AppHandle, progress: UpdateProgress) {
@@ -491,6 +602,8 @@ pub async fn check_update(
         return Err(UpdateError::debug_build());
     }
 
+    begin_install_for_app(&app, || ())?;
+
     let channel = channel_from_name(&channel)?;
     let updater = updater_for_channel(&app, channel)?;
     let update = updater
@@ -524,6 +637,8 @@ pub async fn install_update(
         return Err(UpdateError::debug_build());
     }
 
+    begin_install_for_app(&app, || ())?;
+
     let argument_channel = channel
         .as_deref()
         .map(channel_from_name)
@@ -554,7 +669,7 @@ pub async fn install_update(
     };
 
     let progress_app = app.clone();
-    download_and_install_with_progress(&update, move |progress| {
+    download_and_install_with_progress(&app, &update, move |progress| {
         emit_update_progress(&progress_app, progress);
     })
     .await?;
@@ -573,6 +688,11 @@ pub async fn check_and_prompt_update(
 ) {
     if !production_auto_update_enabled(cfg!(debug_assertions)) {
         log::info!("production auto-update disabled in debug builds");
+        return;
+    }
+
+    if let Err(error) = begin_install_for_app(&app, || ()) {
+        log::warn!("native desktop update unavailable: {}", error.message);
         return;
     }
 
@@ -618,7 +738,7 @@ pub async fn check_and_prompt_update(
     }
 
     let title_app = app.clone();
-    if let Err(error) = download_and_install_with_progress(&update, move |progress| {
+    if let Err(error) = download_and_install_with_progress(&app, &update, move |progress| {
         set_native_progress_title(&title_app, progress);
     })
     .await
@@ -767,6 +887,9 @@ mod tests {
             UpdateError::update_check_failed(UpdateChannel::Stable),
             UpdateError::download_failed(),
             UpdateError::signature_invalid(),
+            UpdateError::running_from_disk_image(),
+            UpdateError::cross_device_install(),
+            UpdateError::read_only_install_location(),
             UpdateError::install_failed(),
             UpdateError::no_update_available(),
         ];
@@ -780,6 +903,9 @@ mod tests {
             "update-check-failed",
             "download-failed",
             "signature-invalid",
+            "running-from-disk-image",
+            "cross-device-install",
+            "read-only-install-location",
             "install-failed",
             "no-update-available",
         ];
@@ -852,6 +978,60 @@ mod tests {
         );
         let install = tauri_plugin_updater::Error::PackageInstallFailed;
         assert_eq!(update_error(&install).code, UpdateErrorCode::InstallFailed);
+    }
+
+    #[test]
+    fn a_read_only_bundle_refuses_before_download_with_move_guidance() {
+        let mut download_started = false;
+        let result = begin_install_from_location(
+            Path::new("/Applications/Podium.app/Contents/Resources"),
+            |_| Ok(true),
+            || download_started = true,
+        );
+
+        assert_eq!(result, Err(UpdateError::running_from_disk_image()));
+        assert!(!download_started, "the updater must refuse before download");
+        assert_eq!(
+            result.expect_err("read-only bundle must be refused").message,
+            "Podium is running from its disk image. Move Podium to your Applications folder, open it from there, and try again."
+        );
+    }
+
+    #[test]
+    fn a_bundle_under_volumes_is_treated_as_a_disk_image() {
+        let result = begin_install_from_location(
+            Path::new("/Volumes/Podium/Podium.app/Contents/Resources"),
+            |_| Ok(false),
+            || (),
+        );
+        assert_eq!(result, Err(UpdateError::running_from_disk_image()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cross_device_install_has_an_actionable_code_and_keeps_the_raw_log() {
+        let error = tauri_plugin_updater::Error::Io(std::io::Error::from_raw_os_error(18));
+        let public = classify_update_error(&error);
+        let diagnostic = update_error_diagnostic(&error);
+
+        assert_eq!(public, UpdateError::cross_device_install());
+        assert_ne!(public.code, UpdateErrorCode::InstallFailed);
+        assert!(public
+            .message
+            .contains("Move Podium to your Applications folder"));
+        assert!(diagnostic.starts_with("desktop update failed: "));
+        assert!(diagnostic.contains(&error.to_string()));
+        assert!(diagnostic.contains("os error 18"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_only_install_has_an_actionable_code() {
+        let error = tauri_plugin_updater::Error::Io(std::io::Error::from_raw_os_error(30));
+        assert_eq!(
+            classify_update_error(&error),
+            UpdateError::read_only_install_location()
+        );
     }
 
     #[test]
