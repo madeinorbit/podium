@@ -186,7 +186,18 @@ primary = Bun.spawn(args, {
   stderr: 'inherit',
 })
 
+let restartRequested = false
+const restartTimer = setInterval(() => {
+  if (role === 'source' && !restartRequested && existsSync(join(coordRoot, 'restart-source'))) {
+    restartRequested = true
+    writeFileSync(join(coordRoot, 'restart-source-ack'), String(Date.now()) + '\n')
+    primary?.kill('SIGKILL')
+  }
+}, 25)
+restartTimer.unref()
+
 const terminate = (): void => {
+  clearInterval(restartTimer)
   clearInterval(evidenceTimer)
   try {
     primary?.kill('SIGTERM')
@@ -199,9 +210,40 @@ process.on('SIGINT', terminate)
 process.on('SIGTERM', terminate)
 
 const exitCode = await primary.exited
+clearInterval(restartTimer)
 primaryExited = true
 await writeEvidence()
 console.log(`[transfer-fixture:${role}] primary exited ${exitCode}`)
+
+const interruptedJournal = readJson(join(stateRoot, '.server-transfer', 'journal.json'))
+const interruptedState = interruptedJournal?.state
+if (
+  role === 'source' &&
+  typeof interruptedState === 'string' &&
+  [
+    'preparing',
+    'staged',
+    'validated',
+    'fence-pending',
+    'source-fenced',
+    'committing',
+    'commit-uncertain',
+  ].includes(interruptedState)
+) {
+  primary = Bun.spawn([process.execPath, '--conditions=@podium/source', cli, 'all'], {
+    cwd: repoRoot,
+    env: process.env,
+    stdin: 'ignore',
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
+  await writeEvidence()
+  console.log(`[transfer-fixture:${role}] relaunched all-in-one for ${interruptedState} recovery`)
+  const recoveryExitCode = await primary.exited
+  primaryExited = true
+  await writeEvidence()
+  console.log(`[transfer-fixture:${role}] recovery process exited ${recoveryExitCode}`)
+}
 
 if (role === 'source' || role === 'target') {
   const config = readJson(join(stateRoot, 'config.json'))

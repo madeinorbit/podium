@@ -32,6 +32,10 @@ services:
       PODIUM_NO_SCOPE: "1"
       PODIUM_NO_RELAY: "1"
       PODIUM_APP_VERSION: docker-transfer-acceptance
+      PODIUM_SERVER_MOVE_CRASH_POINT: ${PODIUM_SERVER_MOVE_CRASH_POINT:-}
+      PODIUM_SERVER_MOVE_FAIL_POINT: ${PODIUM_SERVER_MOVE_FAIL_POINT:-}
+      PODIUM_SERVER_MOVE_FAULT_ONCE_FILE: /coord/source-fault-once
+      PODIUM_SERVER_MOVE_COMMIT_EVIDENCE_FILE: /coord/source-commit-before-ack
       PODIUM_WEB_DIR: /fixture-web
     volumes:
       - source-state:/state

@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 
 type WireData = string | Buffer | ArrayBuffer | Uint8Array
 
@@ -9,10 +9,38 @@ interface ProxyPeer {
 
 const scenario = process.env.PODIUM_TRANSFER_SCENARIO
 if (!scenario) throw new Error('PODIUM_TRANSFER_SCENARIO is required')
-let heldFirstSuccessChunk = false
 
 const textOf = (value: WireData): string =>
   typeof value === 'string' ? value : Buffer.from(value as ArrayBuffer).toString('utf8')
+
+const mark = (name: string, body = `${Date.now()}\n`): void => {
+  writeFileSync(`/coord/${name}`, body)
+}
+
+async function waitFor(name: string): Promise<void> {
+  while (!existsSync(`/coord/${name}`)) await Bun.sleep(25)
+}
+
+function json(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+function comparablePromote(frame: Record<string, unknown>): string {
+  const { requestId: _requestId, ...identity } = frame
+  return JSON.stringify(identity)
+}
+
+let heldFirstChunk = false
+let corruptedValidation = false
+let droppedPromoteRequest = false
+let droppedPromoteReply = false
+let firstPromote: string | undefined
+let heldMidstageReply = false
+let sawRestartPrepare = false
 
 const server = Bun.serve<ProxyPeer>({
   hostname: '0.0.0.0',
@@ -30,27 +58,62 @@ const server = Bun.serve<ProxyPeer>({
       })
       upstream.addEventListener('message', (event) => {
         const raw = textOf(event.data as WireData)
-        let frame: { type?: string; manifestDigest?: string } = {}
-        try {
-          frame = JSON.parse(raw) as typeof frame
-        } catch {
-          // Non-JSON frames are forwarded byte-for-byte below.
+        const frame = json(raw)
+        const type = frame.type
+
+        if (type === 'serverTransferPrepareRequest' && heldMidstageReply) {
+          sawRestartPrepare = true
         }
         if (
-          scenario === 'success' &&
-          frame.type === 'serverTransferChunkRequest' &&
-          !heldFirstSuccessChunk
+          type === 'serverTransferChunkRequest' &&
+          !heldFirstChunk &&
+          (scenario === 'g1' || scenario === 'g2' || scenario === 'g6' || scenario === 'g9')
         ) {
-          heldFirstSuccessChunk = true
-          writeFileSync('/coord/first-success-chunk-held', `${Date.now()}\n`)
-          setTimeout(() => downstream.send(raw), 250)
+          heldFirstChunk = true
+          mark('first-success-chunk-held')
+          void waitFor('release-stage-chunk').then(() => downstream.send(raw))
           return
         }
-        if (scenario === 'precommit-abort' && frame.type === 'serverTransferValidateRequest') {
+        if (scenario === 'g7' && type === 'serverTransferValidateRequest' && !corruptedValidation) {
+          corruptedValidation = true
           frame.manifestDigest = '0'.repeat(64)
-          writeFileSync('/coord/validation-digest-corrupted', `${Date.now()}\n`)
+          mark('validation-digest-corrupted')
           downstream.send(JSON.stringify(frame))
           return
+        }
+        if (type === 'serverTransferAcknowledgeRequest' && scenario === 'g5') {
+          if (existsSync('/coord/source-commit-before-ack')) mark('ack-after-commit')
+        }
+        if (type === 'serverTransferPromoteRequest') {
+          if (scenario === 'g10') mark('promote-observed')
+          if (scenario === 'g3' && !existsSync('/coord/release-promote')) {
+            mark('promote-request-held')
+            void waitFor('release-promote').then(() => downstream.send(raw))
+            return
+          }
+          if (scenario === 'g4b') {
+            const comparable = comparablePromote(frame)
+            if (!droppedPromoteRequest) {
+              droppedPromoteRequest = true
+              firstPromote = comparable
+              mark('promote-request-dropped', `${comparable}\n`)
+              upstream.send(
+                JSON.stringify({
+                  type: 'serverTransferResult',
+                  requestId: frame.requestId,
+                  transferId: frame.transferId,
+                  operation: 'promote',
+                  ok: false,
+                  state: 'uncertain',
+                  manifestDigest: frame.manifestDigest,
+                  error: 'promotion request dropped by acceptance proxy',
+                  errorCode: 'uncertain-commit',
+                }),
+              )
+              return
+            }
+            if (firstPromote === comparable) mark('promote-replay-identical')
+          }
         }
         downstream.send(raw)
       })
@@ -59,19 +122,36 @@ const server = Bun.serve<ProxyPeer>({
     },
     message(downstream, message) {
       const raw = textOf(message as WireData)
-      let frame: { type?: string; operation?: string } = {}
-      try {
-        frame = JSON.parse(raw) as typeof frame
-      } catch {
-        // Non-JSON frames are forwarded byte-for-byte below.
+      const frame = json(raw)
+      if (
+        scenario === 'g4a' &&
+        frame.type === 'serverTransferResult' &&
+        frame.operation === 'promote' &&
+        !droppedPromoteReply
+      ) {
+        droppedPromoteReply = true
+        mark('promote-reply-dropped')
+        return
       }
       if (
-        scenario === 'lost-commit-reply' &&
+        scenario === 'g8' &&
         frame.type === 'serverTransferResult' &&
-        frame.operation === 'promote'
+        frame.operation === 'chunk' &&
+        !heldMidstageReply
       ) {
-        writeFileSync('/coord/promote-reply-dropped', `${Date.now()}\n`)
+        heldMidstageReply = true
+        mark('midstage-reply-held')
         return
+      }
+      if (
+        scenario === 'g8' &&
+        sawRestartPrepare &&
+        frame.type === 'serverTransferResult' &&
+        frame.operation === 'prepare' &&
+        typeof frame.receivedBytes === 'number' &&
+        frame.receivedBytes > 0
+      ) {
+        mark('resume-received-bytes', `${frame.receivedBytes}\n`)
       }
       const upstream = downstream.data.upstream
       if (upstream?.readyState === WebSocket.OPEN) upstream.send(raw)

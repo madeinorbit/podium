@@ -5,7 +5,7 @@ import { asSessionId } from '@podium/model'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import type { AppRouter } from '../../../apps/server/src/router'
 
-type Scenario = 'success' | 'precommit-abort' | 'lost-commit-reply'
+type Scenario = 'g1' | 'g2' | 'g3' | 'g4a' | 'g4b' | 'g5' | 'g6' | 'g7' | 'g8' | 'g9' | 'g10'
 
 interface MachineEvidence {
   primaryExited: boolean
@@ -25,7 +25,10 @@ interface MachineEvidence {
 }
 
 const scenario = process.env.PODIUM_TRANSFER_SCENARIO as Scenario | undefined
-if (!scenario || !['success', 'precommit-abort', 'lost-commit-reply'].includes(scenario)) {
+if (
+  !scenario ||
+  !['g1', 'g2', 'g3', 'g4a', 'g4b', 'g5', 'g6', 'g7', 'g8', 'g9', 'g10'].includes(scenario)
+) {
   throw new Error(`unknown PODIUM_TRANSFER_SCENARIO: ${scenario ?? '(missing)'}`)
 }
 
@@ -160,7 +163,7 @@ async function successCase(
     (count) => count >= 1,
     'native client initial attach',
   )
-  const transfer = source.machines.transferServer.mutate({
+  const transfer = source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
     confirmation: 'TRANSFER SERVER',
@@ -191,10 +194,20 @@ async function successCase(
     ),
   ])
 
-  const outcome = await transfer
+  const started = await transfer
+  const activeDuringCopy = await source.operations.active.query({ group: 'lifecycle' })
+  assert(activeDuringCopy?.id === started.operationId, 'active operation id changed during copy')
   assert(
-    outcome.ok && outcome.state === 'committed',
-    `transfer did not commit: ${JSON.stringify(outcome)}`,
+    activeDuringCopy.steps?.some((step) => step.id === 'stage' && step.state === 'running'),
+    'generic operation did not expose the running copy step',
+  )
+  writeCoord('release-stage-chunk', String(Date.now()))
+  assert(started.started, `server move did not start: ${JSON.stringify(started)}`)
+  const completed = await eventually(
+    () => api(targetUrl).operations.history.query({ kind: 'server-move', limit: 20 }),
+    (history) =>
+      history.some((entry) => entry.id === started.operationId && entry.state === 'done'),
+    'target operation history completion',
   )
   await eventually(() => health(targetUrl), Boolean, 'promoted target health')
   const targetEvidence = await eventually(
@@ -208,6 +221,9 @@ async function successCase(
       value.issueTitles.includes(preCopyIssueTitle),
     'target promotion and imported portable files',
   )
+  if (scenario === 'g1') {
+    assert(targetEvidence.config?.port === 18_787, 'target did not persist the explicit proof port')
+  }
   const sourceEvidence = await eventually(
     () => evidence('source'),
     (value) =>
@@ -216,6 +232,10 @@ async function successCase(
       value.connectivity?.state === 'connected',
     'source daemon reconnection',
   )
+  if (scenario === 'g2') {
+    const record = sourceEvidence.sourceJournal?.record as Record<string, unknown> | undefined
+    assert(record?.probe, 'concurrent pre-copy write did not force a final restage')
+  }
   const targetApi = api(targetUrl)
   const importedSessions = await targetApi.sessions.list.query()
   assert(
@@ -258,88 +278,17 @@ async function successCase(
   )
   hub.dispose()
   return {
-    outcome,
+    started,
+    completed,
     agentSessionId,
     sessionId,
     nativeClientAttaches: attaches,
     sourceMachineId: sourceMachine.id,
     targetMachineId: targetMachine.id,
     importedConcurrentWrite: preCopyIssueTitle,
+    activeDuringCopy,
     sourceEvidence,
     targetEvidence,
-  }
-}
-
-async function precommitAbortCase(
-  source: ReturnType<typeof api>,
-  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
-): Promise<Record<string, unknown>> {
-  const { agentSessionId, sessionId } = await createLiveFixture(source)
-  const outcome = await source.machines.transferServer.mutate({
-    targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
-    confirmation: 'TRANSFER SERVER',
-  })
-  assert(existsSync('/coord/validation-digest-corrupted'), 'validation fault was not injected')
-  assert(
-    !outcome.ok && outcome.state === 'aborted',
-    `corrupted target validation did not abort: ${JSON.stringify(outcome)}`,
-  )
-  const sourceEvidence = await eventually(
-    () => evidence('source'),
-    (value) => value.sourceJournal?.state === 'aborted',
-    'source aborted journal after target validation failure',
-  )
-  const targetEvidence = await eventually(
-    () => evidence('target'),
-    (value) => value.transferStages.length === 0,
-    'target staging cleanup after digest failure',
-  )
-  assert(await health(sourceUrl), 'source stopped serving after a pre-commit abort')
-  assert(!(await health(targetUrl)), 'target became a server during a pre-commit abort')
-  assert(targetEvidence.config?.mode !== 'server', 'target config switched during abort')
-  await source.issues.create.mutate({
-    repoPath,
-    title: 'Source writable after abort',
-    startNow: false,
-  })
-  let attaches = 0
-  const hub = new SocketHub({
-    url: 'ws://source:18787/client',
-    viewport: { cols: 80, rows: 24, dpr: 1 },
-    onError: (message) => console.error(`[transfer-fixture:abort-client] ${message}`),
-  })
-  const connection = hub.attach(sessionId, {
-    onFrame: () => {},
-    onAttached: () => {
-      attaches += 1
-    },
-  })
-  hub.connect()
-  await eventually(
-    () => attaches,
-    (count) => count >= 1,
-    'shell reattach after safe abort',
-  )
-  connection.sendInput(`printf abort-live > "$PODIUM_STATE_DIR/agent-after-transfer.txt"\n`)
-  await eventually(
-    () => evidence('source'),
-    (value) => value.sentinels.agentAfterTransfer,
-    'active shell writable after safe abort',
-  )
-  await eventually(
-    () => source.sessions.list.query(),
-    (sessions) =>
-      sessions.some((session) => session.sessionId === agentSessionId && session.status === 'live'),
-    'deterministic agent live after safe abort',
-  )
-  hub.dispose()
-  return {
-    injectedFault: 'validation manifest digest mismatch',
-    outcome,
-    sourceEvidence,
-    targetEvidence,
-    targetMachineId: targetMachine.id,
   }
 }
 
@@ -348,36 +297,37 @@ async function lostReplyCase(
   targetMachine: Awaited<ReturnType<typeof pairTarget>>,
 ): Promise<Record<string, unknown>> {
   const { agentSessionId, sessionId } = await createLiveFixture(source)
-  const outcome = await source.machines.transferServer.mutate({
+  const started = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
     confirmation: 'TRANSFER SERVER',
   })
-  assert(existsSync('/coord/promote-reply-dropped'), 'commit reply fault was not injected')
-  assert(
-    !outcome.ok && outcome.state === 'commit-uncertain',
-    `lost commit reply was not fenced uncertain: ${JSON.stringify(outcome)}`,
+  assert(started.started, `server move did not start: ${JSON.stringify(started)}`)
+  const injectedMarker =
+    scenario === 'g4a'
+      ? 'promote-reply-dropped'
+      : scenario === 'g4b'
+        ? 'promote-request-dropped'
+        : 'source-fault-once'
+  await eventually(
+    () => existsSync(`/coord/${injectedMarker}`),
+    Boolean,
+    'promotion uncertainty fault injection',
+  )
+  const uncertain = await eventually(
+    () => source.operations.active.query({ group: 'lifecycle' }),
+    (operation) =>
+      operation?.id === started.operationId &&
+      operation.state === 'waiting' &&
+      operation.awaiting?.some((ask) => ask.id === 'server-move-recovery')
+        ? operation
+        : undefined,
+    'generic uncertain operation projection',
   )
   const sourceEvidence = await eventually(
     () => evidence('source'),
     (value) => value.sourceJournal?.state === 'commit-uncertain',
     'source commit-uncertain journal',
-  )
-  const targetEvidence = await eventually(
-    () => evidence('target'),
-    (value) => value.health && value.config?.mode === 'server',
-    'promoted target after lost reply',
-  )
-  const targetApi = api(targetUrl)
-  assert(
-    (await targetApi.sessions.list.query()).some((session) => session.sessionId === sessionId),
-    'promoted target lost the durable session during commit uncertainty',
-  )
-  assert(
-    (await targetApi.sessions.list.query()).some(
-      (session) => session.sessionId === agentSessionId && session.agentKind === 'codex',
-    ),
-    'promoted target lost the active agent row during commit uncertainty',
   )
   let sourceWriteRejected = false
   try {
@@ -391,22 +341,22 @@ async function lostReplyCase(
   }
   assert(sourceWriteRejected, 'source accepted a write after a lost commit reply')
   assert(await health(sourceUrl), 'fenced source lost its recovery/read surface')
-  assert(await health(targetUrl), 'target did not remain healthy after promotion')
+  if (scenario !== 'g4b')
+    assert(await health(targetUrl), 'target did not remain healthy after promotion')
   assert(sourceEvidence.config?.mode !== 'daemon', 'uncertain source silently switched to daemon')
 
   await eventually(
-    () => source.machines.list.query(),
-    (machines) => machines.some((machine) => machine.id === targetMachine.id && machine.online),
+    () => evidence('target'),
+    (value) => value.connectivity?.state === 'connected',
     'target control channel reconnect for recovery',
   )
-  const recoveredOutcome = await source.machines.transferServer.mutate({
-    targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
-    confirmation: 'TRANSFER SERVER',
+  const recoveredOutcome = await source.operations.settleAsk.mutate({
+    id: started.operationId,
+    actionId: 'server-move-recovery',
   })
   assert(
-    recoveredOutcome.ok && recoveredOutcome.state === 'committed',
-    `lost-reply recovery did not commit: ${JSON.stringify(recoveredOutcome)}`,
+    recoveredOutcome.handled,
+    `generic recovery was refused: ${JSON.stringify(recoveredOutcome)}`,
   )
   const recoveredSourceEvidence = await eventually(
     () => evidence('source'),
@@ -416,6 +366,26 @@ async function lostReplyCase(
       value.connectivity?.state === 'connected',
     'source daemon reconnection after lost-reply recovery',
   )
+  const targetEvidence = await eventually(
+    () => evidence('target'),
+    (value) => value.health && value.config?.mode === 'server',
+    'promoted target after uncertainty recovery',
+  )
+  const targetApi = api(targetUrl)
+  assert(
+    (await targetApi.sessions.list.query()).some((session) => session.sessionId === sessionId),
+    'promoted target lost the durable session during commit uncertainty',
+  )
+  assert(
+    (await targetApi.sessions.list.query()).some(
+      (session) => session.sessionId === agentSessionId && session.agentKind === 'codex',
+    ),
+    'promoted target lost the active agent row during commit uncertainty',
+  )
+  if (scenario === 'g4b')
+    assert(existsSync('/coord/promote-replay-identical'), 'recovery did not replay exact promote')
+  if (scenario === 'g5')
+    assert(existsSync('/coord/ack-after-commit'), 'target acknowledgement preceded journal commit')
   await eventually(
     () => targetApi.sessions.list.query(),
     (sessions) =>
@@ -425,7 +395,8 @@ async function lostReplyCase(
     'deterministic agent and durable shell live after lost-reply recovery',
   )
   return {
-    outcome,
+    started,
+    uncertain,
     recoveredOutcome,
     sessionId,
     sourceEvidence,
@@ -435,15 +406,246 @@ async function lostReplyCase(
   }
 }
 
+async function waitForTargetDone(operationId: string) {
+  return eventually(
+    () => api(targetUrl).operations.history.query({ kind: 'server-move', limit: 20 }),
+    (history) => history.find((entry) => entry.id === operationId && entry.state === 'done'),
+    'target operation completion',
+  )
+}
+
+async function waitForSourceDaemon() {
+  return eventually(
+    () => evidence('source'),
+    (value) =>
+      value.primaryExited &&
+      value.config?.mode === 'daemon' &&
+      value.connectivity?.state === 'connected',
+    'source daemon handoff',
+  )
+}
+
+async function fenceWriteCase(
+  source: ReturnType<typeof api>,
+  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+): Promise<Record<string, unknown>> {
+  await createLiveFixture(source)
+  const started = await source.machines.moveServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
+  })
+  assert(started.started, `server move did not start: ${JSON.stringify(started)}`)
+  await eventually(
+    () => existsSync('/coord/promote-request-held'),
+    Boolean,
+    'held promote request after source fence',
+  )
+  const projected = await source.operations.active.query({ group: 'lifecycle' })
+  assert(projected?.id === started.operationId, 'projected operation id changed during fence')
+  assert(
+    projected.steps?.some((step) => step.id === 'fence' && step.state === 'done'),
+    'source-fenced projection did not advance the fence step',
+  )
+  assert(
+    projected.steps?.some((step) => step.id === 'cutover' && step.state === 'running'),
+    'committing projection did not expose the running cutover step',
+  )
+  assert(
+    !projected.awaiting?.some((ask) => ask.id === 'server-move-recovery'),
+    'live fence runner incorrectly offered recovery',
+  )
+  let writeRejected = false
+  try {
+    await source.issues.create.mutate({
+      repoPath,
+      title: 'Must not land after source fence',
+      startNow: false,
+    })
+  } catch {
+    writeRejected = true
+  }
+  assert(writeRejected, 'a durable write landed after source-fenced')
+  writeCoord('release-promote', String(Date.now()))
+  const done = await waitForTargetDone(started.operationId)
+  return {
+    started,
+    projected,
+    done,
+    sourceEvidence: await waitForSourceDaemon(),
+    targetEvidence: await eventually(
+      () => evidence('target'),
+      (value) => value.health && value.config?.mode === 'server',
+      'target serving the fenced snapshot',
+    ),
+  }
+}
+
+async function cancelCase(
+  source: ReturnType<typeof api>,
+  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+): Promise<Record<string, unknown>> {
+  const { sessionId } = await createLiveFixture(source)
+  const started = await source.machines.moveServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
+  })
+  assert(started.started, `server move did not start: ${JSON.stringify(started)}`)
+  await eventually(
+    () => existsSync('/coord/first-success-chunk-held'),
+    Boolean,
+    'held stage chunk for cancellation',
+  )
+  const active = await source.operations.active.query({ group: 'lifecycle' })
+  assert(
+    active?.steps?.some((step) => step.id === 'stage' && step.state === 'running'),
+    'cancel did not land during the reversible stage step',
+  )
+  const canceling = source.operations.cancel.mutate({ id: started.operationId })
+  writeCoord('release-stage-chunk', String(Date.now()))
+  const canceled = await canceling
+  assert(canceled.canceled, `generic cancel was refused: ${JSON.stringify(canceled)}`)
+  const history = await eventually(
+    () => source.operations.history.query({ kind: 'server-move', limit: 20 }),
+    (rows) => rows.find((entry) => entry.id === started.operationId && entry.state === 'canceled'),
+    'canceled server move history',
+  )
+  const sourceEvidence = await eventually(
+    () => evidence('source'),
+    (value) => value.sourceJournal?.state === 'aborted',
+    'aborted journal after stage cancellation',
+  )
+  await eventually(
+    () => evidence('target'),
+    (value) => value.transferStages.length === 0,
+    'target cleanup after cancellation',
+  )
+  assert(
+    (await source.sessions.list.query()).some(
+      (session) => session.sessionId === sessionId && session.status === 'live',
+    ),
+    'live shell did not survive pre-fence cancellation',
+  )
+  return { started, active, canceled, history, sourceEvidence, sessionId }
+}
+
+async function retryCase(
+  source: ReturnType<typeof api>,
+  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+): Promise<Record<string, unknown>> {
+  await createLiveFixture(source)
+  const first = await source.machines.moveServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
+  })
+  assert(first.started, `first server move did not start: ${JSON.stringify(first)}`)
+  const failed = await eventually(
+    () => source.operations.history.query({ kind: 'server-move', limit: 20 }),
+    (rows) => rows.find((entry) => entry.id === first.operationId && entry.state === 'failed'),
+    'first move validation failure',
+  )
+  const second = await source.machines.moveServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
+  })
+  assert(second.started, `retry server move did not start: ${JSON.stringify(second)}`)
+  const done = await waitForTargetDone(second.operationId)
+  assert(done.retryOf === first.operationId, 'fresh retry did not link to the failed operation')
+  return { first, failed, second, done, sourceEvidence: await waitForSourceDaemon() }
+}
+
+async function restartResumeCase(
+  source: ReturnType<typeof api>,
+  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+): Promise<Record<string, unknown>> {
+  await createLiveFixture(source)
+  const started = await source.machines.moveServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
+  })
+  assert(started.started, `server move did not start: ${JSON.stringify(started)}`)
+  await eventually(
+    () => existsSync('/coord/midstage-reply-held'),
+    Boolean,
+    'target accepted a chunk before source restart',
+  )
+  writeCoord('restart-source', String(Date.now()))
+  await eventually(
+    () => existsSync('/coord/restart-source-ack'),
+    Boolean,
+    'source supervisor restart acknowledgement',
+  )
+  await eventually(() => health(sourceUrl), Boolean, 'source health after mid-stage restart')
+  await eventually(
+    () => existsSync('/coord/resume-received-bytes'),
+    Boolean,
+    'target received-byte resume proof',
+  )
+  const done = await waitForTargetDone(started.operationId)
+  return {
+    started,
+    done,
+    resumedBytes: readFileSync('/coord/resume-received-bytes', 'utf8').trim(),
+    sourceEvidence: await waitForSourceDaemon(),
+  }
+}
+
+async function reclaimCase(
+  source: ReturnType<typeof api>,
+  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+): Promise<Record<string, unknown>> {
+  await createLiveFixture(source)
+  const first = await source.machines.moveServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
+  })
+  assert(first.started, `server move did not start: ${JSON.stringify(first)}`)
+  const failed = await eventually(
+    () => source.operations.history.query({ kind: 'server-move', limit: 20 }),
+    (rows) => rows.find((entry) => entry.id === first.operationId && entry.state === 'failed'),
+    'post-seal reclaimed failure',
+  )
+  const sourceEvidence = await eventually(
+    () => evidence('source'),
+    (value) => value.sourceJournal?.state === 'aborted',
+    'writable aborted source after reclaim',
+  )
+  assert(await health(sourceUrl), 'source was not writable after reclaimed handoff')
+  assert(!existsSync('/coord/promote-observed'), 'failed move sent a promote request')
+  assert(
+    (await evidence('target')).transferStages.length === 0,
+    'reclaim left the failed target stage behind',
+  )
+  const second = await source.machines.moveServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
+  })
+  assert(second.started, `fresh move after reclaim did not start: ${JSON.stringify(second)}`)
+  const done = await waitForTargetDone(second.operationId)
+  assert(done.retryOf === first.operationId, 'post-reclaim retry did not link history')
+  return { first, failed, sourceEvidence, second, done }
+}
+
 await eventually(() => health(sourceUrl), Boolean, 'source all-in-one health')
 await eventually(() => health(edgeUrl), Boolean, 'stable edge health')
 const source = api(sourceUrl)
 const targetMachine = await pairTarget(source)
-const result =
-  scenario === 'success'
-    ? await successCase(source, targetMachine)
-    : scenario === 'precommit-abort'
-      ? await precommitAbortCase(source, targetMachine)
-      : await lostReplyCase(source, targetMachine)
+const result = await (async () => {
+  if (scenario === 'g1' || scenario === 'g2' || scenario === 'g9')
+    return successCase(source, targetMachine)
+  if (scenario === 'g3') return fenceWriteCase(source, targetMachine)
+  if (scenario === 'g4a' || scenario === 'g4b' || scenario === 'g5')
+    return lostReplyCase(source, targetMachine)
+  if (scenario === 'g6') return cancelCase(source, targetMachine)
+  if (scenario === 'g7') return retryCase(source, targetMachine)
+  if (scenario === 'g8') return restartResumeCase(source, targetMachine)
+  return reclaimCase(source, targetMachine)
+})()
 
 console.log(`TRANSFER_EVIDENCE ${JSON.stringify({ scenario, ...result })}`)
