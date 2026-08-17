@@ -120,6 +120,23 @@ describe('Grok ACP daemon restart adoption', () => {
     expect(world.runtime.has(sessionId)).toBe(true)
     world.runtime.dispose()
   })
+
+  it('`has` follows the handle map, so a lifecycle kill drops the bind fact (POD-2249)', async () => {
+    // Pins the removal of the parallel `live` Set, which survived the lifecycle
+    // verbs and kept reporting a parked session as behind the contract.
+    const world = adoptionWorld()
+    const sessionId = 'grok-parked' as SessionId
+    world.entries.set(sessionId, journalEntry(sessionId))
+
+    const handle = await world.runtime.adoptFromJournal(sessionId)
+    expect(handle).toBeDefined()
+    expect(world.runtime.has(sessionId)).toBe(true)
+
+    await handle?.kill()
+    expect(world.runtime.has(sessionId)).toBe(false)
+    expect(world.runtime.handleFor(sessionId)).toBeUndefined()
+    world.runtime.dispose()
+  })
 })
 
 describe('Grok ACP daemon gate', () => {

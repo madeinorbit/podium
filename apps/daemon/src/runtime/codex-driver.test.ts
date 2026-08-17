@@ -163,6 +163,33 @@ describe('restart-adoption, at the layer that was missing it', () => {
     expect(w.runtime.has(sessionId)).toBe(true)
   })
 
+  it('`has` follows the handle map, so a lifecycle kill drops the bind fact (POD-2249)', async () => {
+    /**
+     * The parallel `live` Set this pins the removal of was cleared only on a
+     * `process: exited` event — the lifecycle verbs drop the handle without one,
+     * so a parked session's bind fact kept routing verbs onto a contract path
+     * that answers `not_running`.
+     */
+    const w = world()
+    const sessionId = 'cx-parked' as SessionId
+    w.entries.set(sessionId, {
+      sessionId,
+      threadId: '019fff94-7326-7032-b90b-3cc7e1805181',
+      workdir: '/work/project',
+      process: { key: `podium-cx-${sessionId}` },
+      seq: 1,
+      turnEpoch: 1,
+      bindingVersion: 1,
+    })
+    const handle = await w.runtime.adoptFromJournal(sessionId)
+    expect(handle).toBeDefined()
+    expect(w.runtime.has(sessionId)).toBe(true)
+
+    await handle?.kill()
+    expect(w.runtime.has(sessionId)).toBe(false)
+    expect(w.runtime.handleFor(sessionId)).toBeUndefined()
+  })
+
   it('carries the turn epoch across the restart rather than restarting it', async () => {
     // Resetting it is how a replayed stream looks like new work — the one thing
     // the causal envelope's monotonicity rule forbids.

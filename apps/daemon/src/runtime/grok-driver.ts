@@ -36,7 +36,6 @@ export function createDaemonGrokRuntime(deps: {
   host: GrokAcpRuntimeHost
 }): DaemonGrokRuntime {
   const runtime = createGrokAcpRuntime(deps.host)
-  const live = new Set<SessionId>()
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
     deps.send({ type: 'runtimeEvent', sessionId, event })
@@ -63,7 +62,6 @@ export function createDaemonGrokRuntime(deps: {
       }
       case 'process':
         if (event.ev.ev !== 'exited') return
-        live.delete(sessionId)
         deps.send({ type: 'agentExit', sessionId, code: event.ev.code ?? 0 })
         return
       default:
@@ -95,7 +93,11 @@ export function createDaemonGrokRuntime(deps: {
 
   return {
     ...runtime,
-    has: (sessionId) => live.has(sessionId),
+    // STRAIGHT FROM THE RUNTIME'S HANDLE MAP, never a parallel Set (POD-2249;
+    // the same repair `opencode-driver.ts` documents at its own `has`): the Set
+    // this replaced survived the lifecycle verbs, so a parked session's bind
+    // fact kept routing verbs onto a contract path answering `not_running`.
+    has: (sessionId) => runtime.has(sessionId),
     journal: deps.host.journal,
 
     async adoptFromJournal(sessionId) {
@@ -118,7 +120,6 @@ export function createDaemonGrokRuntime(deps: {
           process: { key: processKey },
           bindingVersion: entry.bindingVersion,
         })
-        live.add(sessionId)
         pump(sessionId)
         reportResumeRef(sessionId, handle)
         return handle
@@ -154,7 +155,6 @@ export function createDaemonGrokRuntime(deps: {
         ...(input.env ? { env: input.env } : {}),
         ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       })
-      live.add(input.sessionId)
       pump(input.sessionId)
       reportResumeRef(input.sessionId, handle)
       deps.send({

@@ -30,6 +30,7 @@
  * they are keyed to an env var this spawn never sets.
  */
 
+import type { AgentSessionHandle } from '@podium/agent-runtime'
 import {
   CODEX_APP_SERVER_DRIVER_ID,
   type CodexJournal,
@@ -39,7 +40,6 @@ import {
   type PendingInteraction,
   type RuntimeEvent,
 } from '@podium/agent-runtime'
-import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol'
@@ -111,7 +111,6 @@ export interface DaemonCodexRuntime extends CodexRuntime {
 
 export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRuntime {
   const runtime = createCodexRuntime(deps.host)
-  const live = new Set<SessionId>()
 
   /**
    * Fan one session's contract events out onto the daemon's frame stream.
@@ -181,7 +180,6 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
       case 'process': {
         if (event.ev.ev !== 'exited') return
         deps.send({ type: 'agentExit', sessionId, code: event.ev.code ?? 0 })
-        live.delete(sessionId)
         return
       }
       default:
@@ -203,7 +201,15 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
   return {
     ...runtime,
 
-    has: (sessionId) => live.has(sessionId),
+    /**
+     * STRAIGHT FROM THE RUNTIME'S HANDLE MAP, never a parallel Set (POD-2249;
+     * the same repair `opencode-driver.ts` documents at its own `has`). The Set
+     * this replaced was cleared only on a `process: exited` event, and the
+     * lifecycle verbs — which drop the handle without one — left it saying
+     * `true` for a session with nobody home, so a parked session's bind fact
+     * routed every verb onto a contract path that answers `not_running`.
+     */
+    has: (sessionId) => runtime.handleFor(sessionId) !== undefined,
 
     journal: deps.host.journal,
 
@@ -230,7 +236,6 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
         // through to a PTY path that would go looking for an abduco socket.
         return undefined
       }
-      live.add(sessionId)
       pump(sessionId)
       reportResumeRef(sessionId, handle)
       return handle
@@ -275,7 +280,6 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
         ...(input.env ? { env: input.env } : {}),
         ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       })
-      live.add(input.sessionId)
       pump(input.sessionId)
       reportResumeRef(input.sessionId, handle)
       /**

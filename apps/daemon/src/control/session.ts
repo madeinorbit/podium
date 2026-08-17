@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path'
 import {
   bindHarnessLaunch,
   agentStateProviderFor,
-  declaredValue,
   type DriverId,
+  declaredValue,
   harnessCapabilitiesFor,
   type LaunchFile,
   manifestFor,
@@ -44,6 +44,7 @@ import {
   terminalProfileFor,
   unhonouredSpawnDriver,
 } from '../runtime/registry'
+import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -1241,6 +1242,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
 export function stopSessionProcess(
   ctx: DaemonContext,
   msg: { sessionId: SessionId; durableLabel?: string },
+  opts: { retire?: boolean } = {},
 ): void {
   const session = ctx.bridges.get(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
@@ -1251,10 +1253,22 @@ export function stopSessionProcess(
     ctx.bridges.delete(msg.sessionId)
     ctx.outputScheduler.remove(msg.sessionId)
   }
+  // A server-family session has no bridge and no durable host — its process is
+  // behind a runtime handle (or, post-restart, a binding-journal entry), and
+  // before POD-2249 this function reaped neither: stop parked the row while
+  // `opencode serve` ran on, kill deleted the row and left a credentialed
+  // child. The reap owns its own measured `sessionKillResult`, so the durable
+  // reap below is skipped for a session it claims UNLESS this daemon also holds
+  // a PTY identity for it (a driver switch across a resume) — then both
+  // incarnations are reaped and both receipts are honest.
+  const serverOwned = beginServerDriverReap(ctx, msg.sessionId, {
+    retire: opts.retire === true,
+  })
+  const ptyIdentity = session !== undefined || ctx.durableLabels.has(msg.sessionId)
   // Reap the durable host unconditionally — NOT only when a bridge exists.
   // Generic kill is process policy (hibernate, stop, handoff); retirement is a
   // separate server-authored binding transition.
-  if (ctx.backend !== 'none') {
+  if (ctx.backend !== 'none' && (!serverOwned || ptyIdentity)) {
     const durableLabel =
       msg.durableLabel ?? ctx.durableLabels.get(msg.sessionId) ?? ctx.durableLabelFor(msg.sessionId)
     void reapDurableHost(ctx, msg.sessionId, durableLabel)
@@ -1354,11 +1368,11 @@ export const sessionHandlers: Pick<
         if (failure) {
           log.warn('could not retire the binding', { sessionId: msg.sessionId, reason: failure })
         }
-        stopSessionProcess(ctx, msg)
+        stopSessionProcess(ctx, msg, { retire: true })
       })
       .catch((err) => {
         log.warn('could not retire the binding', { err, sessionId: msg.sessionId })
-        stopSessionProcess(ctx, msg)
+        stopSessionProcess(ctx, msg, { retire: true })
       })
   },
   sessionResumeRefConflict: (ctx, msg) => {
