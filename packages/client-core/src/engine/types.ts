@@ -397,6 +397,14 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   closeAutoContinuePrompt: () => void
   /** [spec:SP-a1c0] Central navigate-to-session (#411): accepts a UUID or birth ref and is the ONLY way UI surfaces jump to a session. */
   navigateToSession: (sessionIdOrRef: string) => void
+  /**
+   * Select an issue and land on the session it is running, waiting for that
+   * session to reach this client if it has not yet (POD-1202) — what a launch
+   * owes the operator, since `issues.start` resolves before the session row
+   * arrives. Resolves with the session it opened, or `null` when none showed up
+   * in time or the operator selected something else while it waited.
+   */
+  focusIssueSession: (issueId: IssueId, opts?: { timeoutMs?: number }) => Promise<SessionId | null>
   renameSession: (sessionId: SessionId, name: string) => Promise<void>
   hibernateSession: (sessionId: SessionId) => Promise<void>
   /** Clean end [spec:SP-9904]: stop the process and free the issue worktree,

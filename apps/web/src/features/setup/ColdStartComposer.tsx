@@ -34,13 +34,13 @@ function promptTitle(prompt: string): string {
 }
 
 export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
-  const { trpc, repos, machines, uiState, setSelectedIssueId } = useStoreSelector(
+  const { trpc, repos, machines, uiState, focusIssueSession } = useStoreSelector(
     (store) => ({
       trpc: store.trpc,
       repos: store.repos,
       machines: store.machines,
       uiState: store.uiState,
-      setSelectedIssueId: store.setSelectedIssueId,
+      focusIssueSession: store.focusIssueSession,
     }),
     shallowEqual,
   )
@@ -192,7 +192,15 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       })
       await trpc.issues.start.mutate({ id: created.id, mutationId: startMutationId })
       clearFirstTaskDraft(uiState)
-      setSelectedIssueId(created.id)
+      // SENDING A PROMPT LANDS ON THE TRANSCRIPT IT STARTED (POD-1202).
+      //
+      // Selecting the issue was all this used to do, and at that moment the
+      // issue has no session: the mission came on screen with an empty tab area
+      // and the launch read as having done nothing. `focusIssueSession` holds
+      // for the session row and opens its tab, so the operator arrives on the
+      // agent that is already working. The overlay above stays up for that wait
+      // — this composer unmounts the moment the workspace has the tab.
+      await focusIssueSession(created.id)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
       setBusy(false)

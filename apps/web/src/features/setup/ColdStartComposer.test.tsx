@@ -10,7 +10,7 @@ const styles = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'u
 
 const create = vi.fn()
 const start = vi.fn()
-const setSelectedIssueId = vi.fn()
+const focusIssueSession = vi.fn(async () => null)
 const uiValues = new Map<string, string>()
 const machineId = asMachineId('machine-a')
 
@@ -40,7 +40,7 @@ const store = {
       else uiValues.set(key, value)
     },
   },
-  setSelectedIssueId,
+  focusIssueSession,
   trpc: {
     settings: {
       get: {
@@ -76,7 +76,8 @@ afterEach(() => {
   uiValues.clear()
   create.mockReset()
   start.mockReset()
-  setSelectedIssueId.mockClear()
+  focusIssueSession.mockReset()
+  focusIssueSession.mockResolvedValue(null)
 })
 
 /* The headline's accessible name is the SENTENCE, not the sentence with the
@@ -117,7 +118,35 @@ describe('ColdStartComposer', () => {
       }),
     )
     expect(start).toHaveBeenCalledWith({ id: issueId, mutationId: expect.any(String) })
-    expect(setSelectedIssueId).toHaveBeenCalledWith(issueId)
+  })
+
+  /* POD-1202. A launch that only selected the issue left the operator on the
+   * empty tab area — the mission was on screen with nothing open in it, so
+   * sending the prompt looked like it had done nothing. The composer hands the
+   * landing to `focusIssueSession`, which waits for the session row and opens
+   * its tab; the start must have gone out FIRST, or there is no session to
+   * wait for. */
+  it('lands on the session the launch started, after the start goes out', async () => {
+    const issueId = asIssueId('issue-first')
+    const calls: string[] = []
+    create.mockResolvedValue({ id: issueId })
+    start.mockImplementation(async () => {
+      calls.push('start')
+      return { id: issueId }
+    })
+    focusIssueSession.mockImplementation(async () => {
+      calls.push('focus')
+      return null
+    })
+    render(<ColdStartComposer first={false} />)
+
+    fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+      target: { value: 'Ship the new onboarding' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+
+    await waitFor(() => expect(focusIssueSession).toHaveBeenCalledWith(issueId))
+    expect(calls).toEqual(['start', 'focus'])
   })
 
   it('switches to reusable workspace wording when tasks already exist', () => {

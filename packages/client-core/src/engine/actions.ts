@@ -95,6 +95,7 @@ export const UI_LOCAL_ACTIONS = [
   'focusWorkspacePane',
   'resizeWorkspaceSplit',
   'navigateToSession',
+  'focusIssueSession',
   'setDockShell',
   'setDockVisibleSession',
   'toggleSplit',
@@ -209,6 +210,12 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
   /**
+   * Every published snapshot, for the actions that must WAIT for replicated
+   * state rather than read it once. The runtime publishes on any state change,
+   * so a listener that re-reads `state()` sees each delta as it lands.
+   */
+  subscribe(listener: () => void): () => void
+  /**
    * Queue a write and repaint from it (#263). RESOLVES WHEN THE OVERLAY IS
    * PUBLISHED, not when the call is made (POD-781): the durable enqueue is a real
    * await, and a caller that has to hand a gesture over to the repainted list —
@@ -309,6 +316,54 @@ function forgottenPanes(
   }
 }
 
+/**
+ * How long {@link Store.focusIssueSession} waits for a started issue's session
+ * to reach this client before giving up.
+ *
+ * The server has already spawned the session by the time `issues.start`
+ * resolves, so what is being waited on is the replica delta — milliseconds on a
+ * live socket. The window is long enough to cover a reconnect and short enough
+ * that a launch which genuinely produced nothing stops holding a navigation
+ * that would land on a session the operator never asked for.
+ */
+export const ISSUE_SESSION_WAIT_MS = 15_000
+
+/**
+ * Read state until it answers, or give up.
+ *
+ * `read` returns `undefined` for "not yet"; anything else resolves the wait.
+ * The re-read after subscribing closes the gap between the first read and the
+ * subscription — a delta landing in that window would otherwise be missed and
+ * the wait would sit out its whole timeout with the answer already in state.
+ */
+function waitForState<T>(
+  subscribe: (listener: () => void) => () => void,
+  read: () => T | undefined,
+  timeoutMs: number,
+): Promise<T | undefined> {
+  const first = read()
+  if (first !== undefined) return Promise.resolve(first)
+  return new Promise<T | undefined>((resolve) => {
+    let settled = false
+    let off: () => void = () => {}
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (value: T | undefined): void => {
+      if (settled) return
+      settled = true
+      if (timer !== undefined) clearTimeout(timer)
+      off()
+      resolve(value)
+    }
+    const attempt = (): void => {
+      const value = read()
+      if (value !== undefined) finish(value)
+    }
+    timer = setTimeout(() => finish(undefined), timeoutMs)
+    off = subscribe(attempt)
+    attempt()
+  })
+}
+
 export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
 ): EngineActions<TApi> {
@@ -347,6 +402,47 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         ...(opts?.paneId !== undefined ? { paneId: opts.paneId } : {}),
       }),
     )
+  }
+
+  /**
+   * [spec:SP-a1c0] The one jump-to-a-session path (#411), hoisted out of the
+   * action table so `focusIssueSession` can land on it once its session exists
+   * rather than spelling the same navigation a second time.
+   */
+  const navigateToSession = (sessionIdOrRef: string): void => {
+    const state = rt.state()
+    const meta = resolveSessionIdentifier(sessionIdOrRef, state.sessions)
+    if (!meta) return
+    const worktree =
+      reposToViews(state.repos)
+        .flatMap((repo) => repo.worktrees)
+        .map((candidate) => candidate.path)
+        .filter((path) => meta.cwd === path || meta.cwd.startsWith(`${path}/`))
+        .sort((a, b) => b.length - a.length)[0] ?? state.selectedWorktree
+    const selection = {
+      ...(meta.issueId ? { selectedIssueId: meta.issueId } : {}),
+      ...(worktree ? { selectedWorktree: worktree } : {}),
+    }
+    rt.apply({
+      ...selection,
+      // Landing on a session opens it as a real tab in the workspace it
+      // belongs to — otherwise the pane would show a session the strip has no
+      // tab for, and the next layout write would mirror it away. The mirror
+      // that comes back sets the pane scalars: forcing `paneA` on top of it
+      // put the session in BOTH panes of a split layout (the tab opened in
+      // the focused pane B, and the literal repeated it in A), blanking the
+      // other half.
+      ...workspaceEdit(
+        { ...state, ...selection },
+        (ws) => openTab(ws, meta.sessionId, { permanent: true }),
+        selection,
+      ),
+    })
+    rt.router.navigate({
+      ...routeDefaults('workspace'),
+      ...(worktree ? { worktree } : {}),
+      pane: meta.sessionId,
+    })
   }
 
   return {
@@ -498,40 +594,41 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // Explicit and typed on purpose: the engine never reads a feature flag, and
     // "every leaf is on screen" is an assumption it is not entitled to make.
     setSplitEnabled: (splitEnabled) => rt.apply({ splitEnabled }),
-    navigateToSession: (sessionIdOrRef) => {
-      const state = rt.state()
-      const meta = resolveSessionIdentifier(sessionIdOrRef, state.sessions)
-      if (!meta) return
-      const worktree =
-        reposToViews(state.repos)
-          .flatMap((repo) => repo.worktrees)
-          .map((candidate) => candidate.path)
-          .filter((path) => meta.cwd === path || meta.cwd.startsWith(`${path}/`))
-          .sort((a, b) => b.length - a.length)[0] ?? state.selectedWorktree
-      const selection = {
-        ...(meta.issueId ? { selectedIssueId: meta.issueId } : {}),
-        ...(worktree ? { selectedWorktree: worktree } : {}),
-      }
-      rt.apply({
-        ...selection,
-        // Landing on a session opens it as a real tab in the workspace it
-        // belongs to — otherwise the pane would show a session the strip has no
-        // tab for, and the next layout write would mirror it away. The mirror
-        // that comes back sets the pane scalars: forcing `paneA` on top of it
-        // put the session in BOTH panes of a split layout (the tab opened in
-        // the focused pane B, and the literal repeated it in A), blanking the
-        // other half.
-        ...workspaceEdit(
-          { ...state, ...selection },
-          (ws) => openTab(ws, meta.sessionId, { permanent: true }),
-          selection,
-        ),
-      })
-      rt.router.navigate({
-        ...routeDefaults('workspace'),
-        ...(worktree ? { worktree } : {}),
-        pane: meta.sessionId,
-      })
+    navigateToSession,
+    /**
+     * LAND ON THE SESSION A LAUNCH JUST STARTED (POD-1202).
+     *
+     * `issues.start` resolves the moment the server has spawned; the session
+     * row reaches this client a delta later. Selecting the issue alone left the
+     * operator on an empty tab area — the mission was on screen with nothing
+     * open in it — so the launch looked like it had done nothing at all.
+     *
+     * THE ISSUE IS PART OF THE WAIT, not just the session. A tab is written
+     * into the workspace keyed by the issue's MISSION, and that key is only
+     * `mission:<id>` once the issue is in the replica; opening a beat early
+     * writes the tab under `issue:<id>` instead and the arriving row moves the
+     * workspace out from under it.
+     *
+     * IT ALSO STOPS BEING WANTED. The operator can click another task while the
+     * spawn is in flight, so a selection that has moved on is not overruled —
+     * the wait resolves to `null` and nothing navigates.
+     */
+    focusIssueSession: async (issueId, opts) => {
+      rt.apply({ selectedIssueId: issueId })
+      const session = await waitForState(
+        (listener) => rt.subscribe(listener),
+        () => {
+          const st = rt.state()
+          if (!st.issues.some((issue) => issue.id === issueId)) return undefined
+          return st.sessions.find(
+            (candidate) => candidate.issueId === issueId && !candidate.archived,
+          )
+        },
+        opts?.timeoutMs ?? ISSUE_SESSION_WAIT_MS,
+      )
+      if (!session || rt.state().selectedIssueId !== issueId) return null
+      navigateToSession(session.sessionId)
+      return session.sessionId
     },
     setPanelMode: (sessionId, mode) => {
       const panelMode = rt.state().panelMode

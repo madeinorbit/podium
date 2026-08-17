@@ -1231,6 +1231,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       onLayoutBaseInstalled: (snapshot) => this.persistLayoutBase(snapshot),
       state: () => this.state,
       apply: (patch) => this.apply(patch),
+      subscribe: (listener) => this.subscribe(listener),
       enqueueOverlayed: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
         this.optimism.enqueueOverlayed(kind, input),
       revealFileTab: (args) => this.revealFileTab(args),

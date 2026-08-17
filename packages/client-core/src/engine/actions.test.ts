@@ -1,4 +1,4 @@
-import type { LayoutSnapshot, SessionMeta } from '@podium/model'
+import type { IssueWire, LayoutSnapshot, SessionMeta } from '@podium/model'
 import { asIssueId, asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -33,6 +33,12 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
   const awaiting: OutboxEntry[] = []
   const errors: string[] = []
   const navigated: unknown[] = []
+  // The runtime publishes a snapshot on every state change; the actions that
+  // WAIT on replicated state (focusIssueSession) subscribe to that.
+  const listeners = new Set<() => void>()
+  const publish = (): void => {
+    for (const listener of [...listeners]) listener()
+  }
   let state = {
     pins: { panels: [], worktrees: [], repos: [] },
     tabOrders: {},
@@ -108,6 +114,11 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
     state: () => state,
     apply: (patch: Partial<typeof state>) => {
       state = { ...state, ...patch }
+      publish()
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
     },
     enqueueOverlayed: (kind: keyof OutboxKinds, input: unknown) => queued.push({ kind, input }),
     revealFileTab: vi.fn(),
@@ -132,6 +143,7 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
     /** Seed action state directly — the runtime's `apply`, in miniature. */
     seed: (patch: Record<string, unknown>) => {
       state = { ...state, ...patch } as typeof state
+      publish()
     },
   }
 }
@@ -517,5 +529,80 @@ describe('ask superagent (BTW) attaches a session to the next turn (POD-1069)', 
     h.actions.clearAttachedSession()
 
     expect(h.state().attachedSessionId).toBeNull()
+  })
+})
+
+/**
+ * LANDING ON A LAUNCH (POD-1202). `issues.start` resolves when the SERVER has
+ * spawned; the session row arrives a replica delta later, so a launch that only
+ * selected the issue put the operator on an empty tab area and read as having
+ * done nothing.
+ */
+describe('focusIssueSession waits for the session a launch started', () => {
+  const issueId = asIssueId('issue-1')
+  const issue = (id: string) => ({ id: asIssueId(id) }) as unknown as IssueWire
+  const meta = (id: string, ownedBy: string): SessionMeta =>
+    ({
+      sessionId: asSessionId(id),
+      cwd: '/wt',
+      archived: false,
+      issueId: asIssueId(ownedBy),
+    }) as unknown as SessionMeta
+
+  it('opens the tab for a session that arrives AFTER the start resolved', async () => {
+    const h = harness()
+    h.seed({ issues: [issue('issue-1')] })
+
+    const landed = h.actions.focusIssueSession(issueId)
+    // Nothing to open yet — this is the window the old code navigated in.
+    expect(h.state().paneA).toBeNull()
+    h.seed({ sessions: [meta('session-1', 'issue-1')] })
+
+    expect(await landed).toBe('session-1')
+    expect(h.state().paneA).toBe('session-1')
+    expect(h.state().selectedIssueId).toBe(issueId)
+    expect(h.navigated.at(-1)).toMatchObject({ view: 'workspace', pane: 'session-1' })
+  })
+
+  it('holds for the ISSUE too, so the tab is not written under the wrong workspace key', async () => {
+    // A tab lands in the workspace keyed by the issue's MISSION, and that key
+    // is only `mission:<id>` once the issue is in the replica. Opening a beat
+    // early files the tab under `issue:<id>` and the arriving row moves the
+    // workspace out from under it.
+    const h = harness()
+
+    const landed = h.actions.focusIssueSession(issueId)
+    h.seed({ sessions: [meta('session-1', 'issue-1')] })
+    // A full turn of the loop: enough for a wait that had already resolved to
+    // have opened its tab. Nothing may have been written yet.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(h.state().paneA).toBeNull()
+    expect(h.state().workspaces).toEqual({})
+
+    h.seed({ issues: [issue('issue-1')] })
+    expect(await landed).toBe('session-1')
+    expect(Object.keys(h.state().workspaces)).toEqual(['mission:issue-1'])
+  })
+
+  it('does not overrule an operator who selected another task while it waited', async () => {
+    const h = harness()
+    h.seed({ issues: [issue('issue-1'), issue('issue-2')] })
+
+    const landed = h.actions.focusIssueSession(issueId)
+    h.actions.setSelectedIssueId(asIssueId('issue-2'))
+    h.seed({ sessions: [meta('session-1', 'issue-1')] })
+
+    expect(await landed).toBeNull()
+    expect(h.state().selectedIssueId).toBe('issue-2')
+    expect(h.state().paneA).toBeNull()
+  })
+
+  it('gives up when no session ever arrives, leaving the selection it made', async () => {
+    const h = harness()
+    h.seed({ issues: [issue('issue-1')] })
+
+    expect(await h.actions.focusIssueSession(issueId, { timeoutMs: 1 })).toBeNull()
+    expect(h.state().selectedIssueId).toBe(issueId)
+    expect(h.navigated).toEqual([])
   })
 })
