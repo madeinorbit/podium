@@ -6,8 +6,23 @@
  * see where the update lands and what they will notice there, not implementation
  * details about how those places are connected.
  */
-import type { MachineFailureCode, ServerVersion, SkewVerdict, UpdateNotes } from '@podium/protocol'
-import { CODE_FOR_UPDATE_FAILURE_TOKEN, matchUpdateFailureToken } from '@podium/protocol'
+import type { ServerVersion, SkewVerdict, UpdateNotes } from '@podium/protocol'
+/**
+ * THE SUBPATH IS LOAD-BEARING (POD-2241, POD-2190).
+ *
+ * Everything else this file needs from the protocol is a TYPE, which costs a
+ * bundle nothing. The refusal table is a value, and reaching it through the
+ * barrel pulls the entire wire schema into the update chunk — the chunk that
+ * was deliberately split out to keep 99 KB off the first paint. Measured: the
+ * chunk's cold import went from ~250 ms to ~3 s, and `updates-context.test.tsx`
+ * timed out waiting for the panel to appear. The table imports nothing, so
+ * through its own entrypoint it costs one module.
+ */
+import type { MachineFailureCode } from '@podium/protocol/update-refusal'
+import {
+  CODE_FOR_UPDATE_FAILURE_TOKEN,
+  matchUpdateFailureToken,
+} from '@podium/protocol/update-refusal'
 
 /**
  * `phone` is the Expo website at /mobile. It is always ANOTHER device from the

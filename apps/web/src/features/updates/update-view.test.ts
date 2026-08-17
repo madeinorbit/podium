@@ -2,7 +2,7 @@ import {
   CODE_FOR_UPDATE_FAILURE_TOKEN,
   UPDATE_FAILURE_EXAMPLES,
   UPDATE_FAILURE_TOKENS,
-} from '@podium/protocol'
+} from '@podium/protocol/update-refusal'
 import { describe, expect, it } from 'vitest'
 import {
   describeUpdate,

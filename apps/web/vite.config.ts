@@ -221,6 +221,19 @@ export default defineConfig(({ mode }) => {
         '@podium/model': fileURLToPath(
           new URL('../../packages/model/src/index.ts', import.meta.url),
         ),
+        /**
+         * BEFORE the barrel, because these are matched in order and the barrel
+         * would swallow it.
+         *
+         * The refusal table is the one thing the LAZY update chunk needs from
+         * the protocol at runtime (POD-2241), and it imports nothing. Reaching
+         * it through the barrel pulled the whole wire schema into the chunk
+         * POD-2190 split out to keep 99 KB off the first paint, taking its cold
+         * import from ~250 ms to ~3 s.
+         */
+        '@podium/protocol/update-refusal': fileURLToPath(
+          new URL('../../packages/protocol/src/update/refusal.ts', import.meta.url),
+        ),
         '@podium/protocol': fileURLToPath(
           new URL('../../packages/protocol/src/index.ts', import.meta.url),
         ),
