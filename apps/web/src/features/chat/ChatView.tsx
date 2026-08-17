@@ -363,6 +363,8 @@ export function ChatView({
         {!compact && (
           <ChatRail
             rows={chat.visibleRows}
+            baseIndex={chat.renderStart}
+            isOperatorPromptRow={chat.isOperatorPromptRow}
             scrollerRef={chat.scrollerRef}
             matches={chat.search.matches}
             activeMatch={chat.search.activeMatch}

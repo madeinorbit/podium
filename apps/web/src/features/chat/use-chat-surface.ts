@@ -92,6 +92,9 @@ export interface ChatSurface {
   blocks: ReturnType<typeof useTranscriptWindow>['blocks']
   rows: ChatRow[]
   rowsToRender: readonly RenderableRow[]
+  /** First windowed-in row: the base every rendered `[data-block]` index is
+   *  absolute against, and what `visibleRows[0]` actually is. */
+  renderStart: number
   /** Unsafe worker HTML keyed by source Markdown; TranscriptFeed sanitizes it. */
   markdownHtml: ReadonlyMap<string, string>
   phase: TranscriptPhase
@@ -614,6 +617,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     blocks,
     rows,
     rowsToRender,
+    renderStart,
     markdownHtml,
     phase,
     moreAbove,

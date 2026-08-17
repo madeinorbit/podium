@@ -46,18 +46,32 @@ const BAND_WORD: Record<BandKind, string> = {
   work: 'Work',
 }
 
+/** The two bands a reader scrubs FOR, as against the field they stand out of.
+ *  They paint last and they get a bigger floor — see the tick loop below. */
+const LANDMARK: ReadonlySet<BandKind> = new Set<BandKind>(['you', 'answer'])
+
 interface Band {
   kind: BandKind
   /** The row's own words — a prompt, an answer, or the named work line. */
   text: string
 }
 
-/** One row's band: its kind (which colour) and the text the flyout shows. */
-function rowBand(row: ChatRow): Band {
+/**
+ * One row's band: its kind (which colour) and the text the flyout shows.
+ *
+ * `isPrompt` is the feed's OWN "the human typed this" predicate, injected rather
+ * than re-derived (POD-1218). Every delivered message reaches the harness as a
+ * `role: 'user'` turn — agent mail, superagent traffic, a headless thread's
+ * machine-context seed, an interrupt — and testing the role alone spent the map's
+ * one hue, its widest band and its highest rung on all of it. On a session with
+ * any traffic the bands the reader is hunting for were a minority of the bands
+ * that looked like them. Machine traffic is machine traffic: it reads as Work.
+ */
+function rowBand(row: ChatRow, isPrompt: (row: ChatRow) => boolean): Band {
   if (row.kind === 'tools') return { kind: 'work', text: row.title }
   const { item } = row.block
   const text = (item.text ?? '').replace(/\s+/g, ' ').trim()
-  if (item.role === 'user') return { kind: 'you', text }
+  if (item.role === 'user') return { kind: isPrompt(row) ? 'you' : 'work', text }
   if (item.answer === true) return { kind: 'answer', text }
   if (item.role === 'assistant') return { kind: 'agent', text }
   return { kind: 'work', text }
@@ -73,11 +87,19 @@ function snippet(text: string, max = 68): string {
 
 export function Minimap({
   rows,
+  baseIndex,
+  isOperatorPromptRow,
   scrollerRef,
   matches = [],
   activeMatch,
 }: {
   rows: ChatRow[]
+  /** The ABSOLUTE row index of `rows[0]` — the feed's `renderStart`. Needed to
+   *  read the DOM, because `[data-block]` carries absolute indices. No default:
+   *  a wrong base misplaces every band silently, so the caller states it. */
+  baseIndex: number
+  /** "The human typed this row" — the feed's predicate, not the `user` role. */
+  isOperatorPromptRow: (row: ChatRow) => boolean
   scrollerRef: React.RefObject<HTMLDivElement | null>
   /** Matching BLOCK indices from the search slice — marked on the map so the
    *  spread of hits stays visible with the find bar closed. */
@@ -103,16 +125,28 @@ export function Minimap({
       setViewport({ top: el.scrollTop / total, height: el.clientHeight / total })
       // The rendered [data-block] indices are ABSOLUTE into the full row list
       // (renderStart + ri) so scroll-to-match can target a row by its absolute
-      // index. The minimap, though, only sees the windowed `rows` (0-based), so
-      // rebase the measured offsets to the smallest rendered index before zipping
-      // them with `rows.map(rowTickMeta)` — otherwise nothing lines up once the
-      // window is scrolled past the start of the transcript (renderStart > 0).
+      // index. The minimap only sees the windowed `rows` (0-based), so rebase the
+      // measured offsets by the window's base before zipping them with
+      // `rows.map(rowTickMeta)`.
+      //
+      // THE BASE IS TOLD TO US, NOT GUESSED (POD-1218). This used to rebase by the
+      // SMALLEST measured index, on the assumption that the mounted blocks are the
+      // window. They are not: past RENDER_WINDOW rows the feed also mounts the
+      // nearest operator prompt from ABOVE the window as a one-row sticky
+      // continuation, carrying its own (smaller) absolute index — so the whole map
+      // was rebased by that row's index instead of renderStart. When the prompt sat
+      // just above, every band was shifted one row and described the row after
+      // itself; when it sat far above, the rebased indices landed past the end of
+      // `rows`, matched nothing, and the map drew a single tick for an entire
+      // transcript. Either way the bands stopped being where their rows are.
+      //
+      // Blocks below the base are dropped rather than rebased: the continuation is
+      // a REPEAT of a row the map already covers further down, and giving it a band
+      // would draw the same prompt twice.
       const offsets = measureBlockOffsets(el)
-      const base = offsets.reduce((m, o) => Math.min(m, o.index), Infinity)
-      const rebased = Number.isFinite(base)
-        ? offsets.map((o) => ({ ...o, index: o.index - base }))
-        : offsets
-      setTicks(ticksFromOffsets(rows.map(rowTickMeta), rebased))
+        .filter((o) => o.index >= baseIndex)
+        .map((o) => ({ ...o, index: o.index - baseIndex }))
+      setTicks(ticksFromOffsets(rows.map(rowTickMeta), offsets))
     }
 
     const schedMeasure = () => {
@@ -129,7 +163,7 @@ export function Minimap({
       el.removeEventListener('scroll', schedMeasure)
       ro.disconnect()
     }
-  }, [scrollerRef, rows])
+  }, [scrollerRef, rows, baseIndex])
 
   // Ticks are STATE measured from the DOM a frame behind the rows they describe,
   // so a commit that SHORTENS `rows` renders the new list against the old, longer
@@ -186,7 +220,31 @@ export function Minimap({
   }
 
   const hoveredBand = hover ? rows[hover.row] : undefined
-  const band = hoveredBand ? rowBand(hoveredBand) : null
+  const band = hoveredBand ? rowBand(hoveredBand, isOperatorPromptRow) : null
+
+  /** A tick's rung, or null for a tick whose row went away this frame. */
+  const kindOf = (tick: MinimapTick): BandKind | null => {
+    const row = rows[tick.index]
+    return row ? rowBand(row, isOperatorPromptRow).kind : null
+  }
+  const isLandmark = (tick: MinimapTick): boolean => {
+    const kind = kindOf(tick)
+    return kind !== null && LANDMARK.has(kind)
+  }
+
+  // THE FIELD PAINTS FIRST, THE LANDMARKS PAINT OVER IT (POD-1218). Ticks are
+  // absolutely positioned siblings with no z-index, so wherever two overlap the
+  // later one wins — and they DO overlap, because a band shorter than the floor is
+  // drawn at the floor. That is precisely the prompt's case: a typed line is the
+  // shortest row in a long transcript, the run of work under it is the longest,
+  // and drawing in row order let that work repaint all but a sliver of the very
+  // band the reader was scrubbing for. Ordering by rung instead of by position
+  // costs nothing (the ticks carry their own `top`) and makes the guarantee
+  // structural: a landmark cannot be painted over by the field it stands out of.
+  const drawOrder = [
+    ...liveTicks.filter((t) => !isLandmark(t)),
+    ...liveTicks.filter((t) => isLandmark(t)),
+  ]
 
   return (
     <div className="minimap">
@@ -216,10 +274,9 @@ export function Minimap({
           setHover(null)
         }}
       >
-        {liveTicks.map((tick) => {
-          const row = rows[tick.index]
-          if (!row) return null
-          const kind = rowBand(row).kind
+        {drawOrder.map((tick) => {
+          const kind = kindOf(tick)
+          if (kind === null) return null
           return (
             <div
               key={tick.index}

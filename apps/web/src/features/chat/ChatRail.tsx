@@ -34,6 +34,8 @@ import { Minimap } from './Minimap'
  */
 export function ChatRail({
   rows,
+  baseIndex,
+  isOperatorPromptRow,
   scrollerRef,
   matches,
   activeMatch,
@@ -43,6 +45,10 @@ export function ChatRail({
   onTldr,
 }: {
   rows: ChatRow[]
+  /** Absolute index of `rows[0]` — the feed's `renderStart`, which is what the
+   *  map's [data-block] readings are relative to. */
+  baseIndex: number
+  isOperatorPromptRow: (row: ChatRow) => boolean
   scrollerRef: React.RefObject<HTMLDivElement | null>
   matches: readonly number[]
   activeMatch: number | undefined
@@ -80,7 +86,14 @@ export function ChatRail({
           <ScrollText size={12} aria-hidden="true" />
         </button>
       </div>
-      <Minimap rows={rows} scrollerRef={scrollerRef} matches={matches} activeMatch={activeMatch} />
+      <Minimap
+        rows={rows}
+        baseIndex={baseIndex}
+        isOperatorPromptRow={isOperatorPromptRow}
+        scrollerRef={scrollerRef}
+        matches={matches}
+        activeMatch={activeMatch}
+      />
     </div>
   )
 }

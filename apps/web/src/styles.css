@@ -3550,6 +3550,17 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   inset-inline: 0;
   background: color-mix(in oklab, var(--text-strong, var(--foreground)) 78%, transparent);
 }
+/* A LANDMARK NEEDS A DASH, NOT A HAIRLINE (POD-1218). Height is a ratio of
+   scrollHeight, and the two rows a reader scrubs for are the SHORTEST in a long
+   transcript: a typed line inside forty screens of work is a fraction of a
+   percent, which at the shared 2px floor is a mark you can only find if you
+   already know where it is. 4px on a 7px track is a legible dash and still an
+   annotation. The floor is what makes overlap possible at all, which is why the
+   component paints these two last (Minimap.tsx). */
+.minimap-tick--you,
+.minimap-tick--answer {
+  min-height: 4px;
+}
 .minimap-tick--agent {
   inset-inline: 0 2px;
   background: color-mix(in oklab, var(--text-faint) 82%, transparent);
