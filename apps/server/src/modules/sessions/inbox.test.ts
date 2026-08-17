@@ -1046,6 +1046,37 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_4', sessionId: SID })
   })
 
+  it('keeps the row visibly queued on an unverified receipt (the RPC timeout answer)', async () => {
+    vi.useFakeTimers()
+    // This receipt is byte-for-byte what machines/rpc.ts synthesizes when the
+    // runtimeSendRequest window closes with no daemon reply — the frame may
+    // never have reached any daemon. Server drivers never legitimately emit
+    // `unverified` (conformance pins it terminal-only), so confirming here
+    // would delete a row nobody delivered: the original vanish, back through
+    // a different door.
+    const h = harness({
+      serverDriven: true,
+      contractReceipts: [
+        {
+          outcome: 'unverified',
+          deliveredAs: 'when-ready',
+          verificationWindowMs: 12_000,
+          at: new Date().toISOString(),
+        },
+      ],
+    })
+
+    expect(queueOne(h, 'srv-6', 'msg_srv_6')).toEqual({ ok: true, queued: true })
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    // One attempt, then stop — the row REMAINS queued and unconfirmed, and no
+    // retry storms out of this drain (the next bind/reconnect re-drains it).
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.rows).toHaveLength(1)
+    expect(h.sent).toEqual([])
+  })
+
   it('leaves the row queued when no contract port is wired, rather than typing into the void', async () => {
     vi.useFakeTimers()
     const h = harness({ serverDriven: true })

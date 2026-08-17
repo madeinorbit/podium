@@ -805,11 +805,20 @@ export class SessionInbox {
               } else stop()
               return
             }
-            // `accepted` (protocol-acked), `queued` (the driver's own FIFO now
-            // holds it) or `unverified` (the RPC window closed first — the
-            // optimistic posture the `now` path already takes, and the one that
-            // can never double-deliver). The row crossed to the driver: confirm
-            // it and move on.
+            if (receipt.outcome === 'unverified') {
+              // Server drivers never legitimately emit `unverified` (the
+              // conformance suite pins it terminal-only) — here it is the
+              // RPC layer's synthesized answer for a send whose 12s window
+              // closed with no daemon reply. That frame may never have
+              // reached any daemon, so confirming would be the vanish-shape
+              // again through a different door. The row STAYS visibly
+              // queued; the next bind, reconnect or enqueue re-drains it.
+              stop()
+              return
+            }
+            // `accepted` (protocol-acked) or `queued` (the driver's own FIFO
+            // now holds it). The row crossed to the driver: confirm it and
+            // move on.
             if (head.sourceMessageId) {
               // A retraction that raced the in-flight send is a no-op here:
               // `onQueuedInputApplied` only moves rows still `queued`.
