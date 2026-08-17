@@ -98,6 +98,18 @@ interface UpdateFailureMatcher {
   readonly token: string
   readonly pattern: RegExp
   readonly code: MachineFailureCode
+  /**
+   * A sentence a real producer really writes for this token — trimmed where a
+   * refusal runs to a paragraph, but never paraphrased.
+   *
+   * This is what lets the two CONSUMERS be tested without importing an app they
+   * are not allowed to import: apps/server and apps/web drive their coverage
+   * off these, and `apps/daemon/src/refusal-tokens.test.ts` drives the real
+   * constructors and asserts they land on the same token. So the examples are
+   * pinned to what the system produces rather than to what anyone imagined it
+   * produces — which is how POD-2238 and POD-2240 were both found.
+   */
+  readonly example: string
 }
 
 /**
@@ -122,18 +134,59 @@ interface UpdateFailureMatcher {
  * written for without anything going red.
  */
 const UPDATE_FAILURE_MATCHERS = [
+  // --- what the SERVER said about a machine --------------------------------
+  {
+    /**
+     * FIRST, AND ANCHORED, because this is the one detail that WRAPS ARBITRARY
+     * PROSE: `setTargetUnavailable` composes its reason from the development
+     * publisher, and a real one reads "The source checkout has 2 uncommitted
+     * changes." Left further down the list, the word `uncommitted` in the
+     * SERVER's checkout was read as the MACHINE's dirty working tree, and the
+     * operator was told to go and commit files on a machine that had none.
+     *
+     * A prefix rather than a substring for the same reason: anything after the
+     * colon is someone else's sentence and must not be able to claim a token.
+     */
+    token: 'update-withdrawn',
+    pattern: /^update-withdrawn:/i,
+    code: 'update-withdrawn',
+    example: 'update-withdrawn: The source checkout has 2 uncommitted changes.',
+  },
+
   // --- a daemon that is alive and declining on purpose ----------------------
   {
     token: 'foreground-all-in-one',
     pattern: /foreground[-_\s]all[-_\s]in[-_\s]one/i,
     code: 'machine-cannot-restart',
+    example:
+      'cannot converge: foreground-all-in-one — this daemon shares its process with the ' +
+      'Podium server and nothing would start that process again, so updating it here would ' +
+      'stop the server and it would not come back',
   },
-  { token: 'schema-advanced', pattern: /schema[-_\s]advanced/i, code: 'machine-schema-advanced' },
-  { token: 'schema-unknown', pattern: /schema[-_\s]unknown/i, code: 'machine-schema-unknown' },
+  {
+    token: 'schema-advanced',
+    pattern: /schema[-_\s]advanced/i,
+    code: 'machine-schema-advanced',
+    example:
+      "cannot converge: schema-advanced — this machine's database has applied migration " +
+      "'0042_add_operations' (and 2 more), which 0.1.3 does not define, so that build would " +
+      'refuse to open the database and the server would not come back.',
+  },
+  {
+    token: 'schema-unknown',
+    pattern: /schema[-_\s]unknown/i,
+    code: 'machine-schema-unknown',
+    example:
+      'cannot converge: schema-unknown — 0.1.5 does not declare which schema migrations it can ' +
+      'open, it is not a version this machine can prove is newer than the dev+abc1234 it runs.',
+  },
   {
     token: 'schema-unreadable',
     pattern: /schema[-_\s]unreadable/i,
     code: 'machine-schema-unreadable',
+    example:
+      "cannot converge: schema-unreadable — this machine's database could not be read " +
+      '(SQLITE_BUSY: database is locked), so there is no way to tell whether 0.1.5 could open it.',
   },
 
   // --- what the machine's own checkout said ---------------------------------
@@ -141,19 +194,27 @@ const UPDATE_FAILURE_MATCHERS = [
     token: 'dirty-working-tree',
     pattern: /dirty[-_\s]working[-_\s]tree|local (?:files|edits)|uncommitted/i,
     code: 'machine-dirty-checkout',
+    example: 'git delivery failed: dirty-working-tree',
   },
 
   // --- what the convergence planner refused --------------------------------
-  { token: 'no-artifact', pattern: /no[-_\s]artifact/i, code: 'machine-unsupported' },
+  {
+    token: 'no-artifact',
+    pattern: /no[-_\s]artifact/i,
+    code: 'machine-unsupported',
+    example: 'cannot converge: no-artifact',
+  },
   {
     token: 'unsupported-delivery',
     pattern: /unsupported[-_\s]delivery/i,
     code: 'machine-unsupported',
+    example: 'cannot converge: unsupported-delivery',
   },
   {
     token: 'unsupported-platform',
     pattern: /unsupported[-_\s]platform/i,
     code: 'machine-unsupported',
+    example: 'cannot converge: unsupported-platform',
   },
 
   // --- what a git delivery step said ---------------------------------------
@@ -161,37 +222,44 @@ const UPDATE_FAILURE_MATCHERS = [
     token: 'invalid-git-reference',
     pattern: /invalid[-_\s]git[-_\s]reference/i,
     code: 'machine-delivery-unavailable',
+    example: 'git delivery failed: invalid-git-reference',
   },
   {
     token: 'git-status-failed',
     pattern: /git delivery failed:\s*status[-_\s]failed/i,
     code: 'machine-delivery-failed',
+    example: 'git delivery failed: status-failed',
   },
   {
     token: 'git-fetch-failed',
     pattern: /git delivery failed:\s*fetch[-_\s]failed/i,
     code: 'machine-delivery-failed',
+    example: 'git delivery failed: fetch-failed',
   },
   {
     token: 'git-checkout-failed',
     pattern: /git delivery failed:\s*checkout[-_\s]failed/i,
     code: 'machine-delivery-failed',
+    example: 'git delivery failed: checkout-failed',
   },
   {
     token: 'git-timed-out',
     pattern: /git delivery failed:\s*timed[-_\s]out/i,
     code: 'machine-delivery-failed',
+    example: 'git delivery failed: timed-out',
   },
   {
     /**
      * Belt and braces. `applyGrant` returns without reporting when its own
-     * signal is aborted, so today this sentence cannot reach an operator — see
-     * the test that pins that. It is here anyway because "unreportable" is a
-     * property of one call site, and the cost of covering it is one row.
+     * signal is aborted, so today this sentence cannot reach an operator — the
+     * daemon's token test pins that too. It is here anyway because
+     * "unreportable" is a property of one call site, and the cost of covering
+     * it is one row.
      */
     token: 'git-cancelled',
     pattern: /git delivery failed:\s*cancelled/i,
     code: 'machine-delivery-failed',
+    example: 'git delivery failed: cancelled',
   },
 
   // --- what the artifact fetch said ----------------------------------------
@@ -205,35 +273,33 @@ const UPDATE_FAILURE_MATCHERS = [
     token: 'artifact-unverified',
     pattern: /(?:digest|signature) verification FAILED/i,
     code: 'machine-artifact-rejected',
+    example: 'digest verification FAILED — refusing to install the artifact',
   },
   {
     token: 'delivery-misconfigured',
     pattern:
       /(?:git delivery requires a configured checkout runner|platform delivery requires an artifact URL|bundle delivery requires the server update key)/i,
     code: 'machine-delivery-unavailable',
+    example: 'git delivery requires a configured checkout runner',
   },
   {
     token: 'download-http-status',
     pattern: /artifact download returned \d+/i,
     code: 'download-failed',
+    example: 'artifact download returned 404',
   },
   {
     token: 'download-timed-out',
     pattern: /download timed out|artifact download timed out/i,
     code: 'download-failed',
+    example: 'artifact download timed out after 300s',
   },
   {
     token: 'download-unreachable',
     pattern:
       /unable to connect|access the url|failed to fetch|fetch failed|download failed|network(?:error| request failed)|econn(?:refused|reset)|etimedout|enotfound/i,
     code: 'download-failed',
-  },
-
-  // --- what the SERVER said about a machine --------------------------------
-  {
-    token: 'update-withdrawn',
-    pattern: /update[-_\s]withdrawn/i,
-    code: 'update-withdrawn',
+    example: 'fetch failed',
   },
 
   // --- what the machine said after it restarted ----------------------------
@@ -247,11 +313,13 @@ const UPDATE_FAILURE_MATCHERS = [
     token: 'convergence-attempts-exhausted',
     pattern: /pinned to last[-_\s]known[-_\s]good/i,
     code: 'machine-update-not-confirmed',
+    example: 'did not reach 0.1.5 after 2 attempt(s); running 0.1.3, pinned to last-known-good',
   },
   {
     token: 'convergence-retry-pending',
     pattern: /applying again will retry it/i,
     code: 'machine-update-not-confirmed',
+    example: 'attempt 1 of 2 did not reach 0.1.5 (running 0.1.3); applying again will retry it',
   },
 
   // --- the one sentence that really does mean "not answering" ---------------
@@ -259,6 +327,7 @@ const UPDATE_FAILURE_MATCHERS = [
     token: 'stopped-reporting-progress',
     pattern: /stopped reporting progress/i,
     code: 'machine-unreachable',
+    example: 'The machine stopped reporting progress while updating.',
   },
 ] as const satisfies readonly UpdateFailureMatcher[]
 
@@ -274,6 +343,19 @@ export const UPDATE_FAILURE_TOKENS: readonly UpdateFailureToken[] = UPDATE_FAILU
 export const CODE_FOR_UPDATE_FAILURE_TOKEN = Object.fromEntries(
   UPDATE_FAILURE_MATCHERS.map((matcher) => [matcher.token, matcher.code]),
 ) as Record<UpdateFailureToken, MachineFailureCode>
+
+/**
+ * One real sentence per token, for the consumers that cannot import the app
+ * that writes it (apps/server and apps/web may not import apps/daemon).
+ *
+ * These are not fixtures in the usual sense: `apps/daemon/src/refusal-tokens.test.ts`
+ * drives the actual constructors and asserts each one lands on the token whose
+ * example is quoted here, so a producer that rewords its refusal reds the
+ * daemon suite rather than quietly leaving a pattern matching nothing.
+ */
+export const UPDATE_FAILURE_EXAMPLES = Object.fromEntries(
+  UPDATE_FAILURE_MATCHERS.map((matcher) => [matcher.token, matcher.example]),
+) as Record<UpdateFailureToken, string>
 
 /**
  * Which token a `detail` sentence carries, or `undefined` when it carries none.

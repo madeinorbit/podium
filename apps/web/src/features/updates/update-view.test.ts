@@ -1,5 +1,15 @@
+import {
+  CODE_FOR_UPDATE_FAILURE_TOKEN,
+  UPDATE_FAILURE_EXAMPLES,
+  UPDATE_FAILURE_TOKENS,
+} from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { describeUpdate, describeUpdateFailure } from './update-view'
+import {
+  describeUpdate,
+  describeUpdateFailure,
+  machineFailureCopy,
+  UNTRANSLATED_FAILURE_MESSAGE,
+} from './update-view'
 
 const base = {
   localVersion: '0.4.1',
@@ -452,6 +462,72 @@ describe('describeUpdateFailure', () => {
     expect(v.state).toBe('failed')
     expect(v.message).toBe('A machine stopped responding while updating.')
     expect(v.guidance).toMatch(/apply the update again/i)
+  })
+})
+
+/**
+ * THE GATE THAT MAKES A HALF-FIX IMPOSSIBLE ON THIS SIDE (POD-2241).
+ *
+ * The defect this closes: two readers classified the same daemon sentence, so
+ * an arm added to one was half a fix and the missing half produced a CONFIDENT
+ * WRONG ANSWER — "it stopped responding and will resume when it reconnects" —
+ * rather than a blank. POD-2210 hit it once and POD-2239 hit it again, three
+ * tokens at a time.
+ *
+ * There is one classifier now (`@podium/protocol`) and one copy table (this
+ * file), and this block drives BOTH of this side's entry points off the shared
+ * token list. Add a token to the table and this fails until somebody has said
+ * what an operator should read; the mirror of it in apps/server's
+ * `operation.test.ts` fails until the server has a §7 sentence for the code.
+ * Between them, a token cannot exist on one side only — and it is a build
+ * error, not a convention, because `MACHINE_FAILURE_COPY` is a
+ * `Record<MachineFailureCode, …>`.
+ */
+describe('every token the daemon can produce reaches copy, on both entry points', () => {
+  it('has a non-generic sentence for every token, identical on both paths', () => {
+    expect(UPDATE_FAILURE_TOKENS.length).toBeGreaterThan(0)
+    for (const token of UPDATE_FAILURE_TOKENS) {
+      const detail = UPDATE_FAILURE_EXAMPLES[token]
+
+      // Entry point one: the raw sentence, as an ActionError carries it.
+      const described = describeUpdateFailure(detail, 'ludovico')
+      expect(described.message, token).not.toBe(UNTRANSLATED_FAILURE_MESSAGE)
+      expect(described.guidance.length, token).toBeGreaterThan(20)
+
+      // Entry point two: the code, as the operation carries it. Same table, so
+      // the two can no longer drift into two answers for one refusal.
+      const copy = machineFailureCopy(CODE_FOR_UPDATE_FAILURE_TOKEN[token], 'ludovico')
+      expect(copy, token).toBeDefined()
+      expect(copy?.message, token).toBe(described.message)
+      expect(copy?.nextAction, token).toBe(described.guidance)
+    }
+  })
+
+  /**
+   * The harm, stated directly. Only the machine that actually went quiet may be
+   * described as having stopped responding, and only it may be promised a
+   * recovery — everything else here is a machine that is running and answering,
+   * for which both halves of that sentence are false and the second can never
+   * become true.
+   */
+  it('never tells the operator a machine that answered on purpose stopped responding', () => {
+    for (const token of UPDATE_FAILURE_TOKENS) {
+      if (token === 'stopped-reporting-progress') continue
+      const v = describeUpdateFailure(UPDATE_FAILURE_EXAMPLES[token], 'ludovico')
+      const said = `${v.message} ${v.guidance}`
+      expect(said, token).not.toMatch(/stopped responding/i)
+      expect(said, token).not.toMatch(/resume when it reconnects/i)
+    }
+  })
+
+  /** §7's layers stay separated: vocabulary in the diagnostic, never in the copy. */
+  it('keeps the raw token out of the two layers a person reads', () => {
+    for (const token of UPDATE_FAILURE_TOKENS) {
+      const detail = UPDATE_FAILURE_EXAMPLES[token]
+      const v = describeUpdateFailure(detail, 'ludovico')
+      expect(`${v.message} ${v.guidance}`, token).not.toContain(token)
+      expect(v.diagnostic, token).toBe(detail)
+    }
   })
 })
 

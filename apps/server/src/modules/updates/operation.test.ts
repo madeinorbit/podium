@@ -1,5 +1,6 @@
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { Operation, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
+import { CODE_FOR_UPDATE_FAILURE_TOKEN, UPDATE_FAILURE_TOKENS } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
@@ -34,6 +35,7 @@ import {
   UPDATE_STEP_PREPARE,
   UPDATE_STEP_SERVER,
   UPDATE_STEP_WEB,
+  UPDATE_ERROR_CODES,
   type UpdateErrorCode,
   type UpdateFailure,
   type UpdateOperationContext,
@@ -735,6 +737,56 @@ describe('the error taxonomy', () => {
     expect(message).not.toMatch(/older/i)
     expect(message).not.toMatch(/at least as new/i)
     expect(message).toMatch(/try again/i)
+  })
+
+  /**
+   * THE GATE THAT MAKES A HALF-FIX IMPOSSIBLE ON THIS SIDE (POD-2241).
+   *
+   * The class this issue closes is "an arm added to one reader and not the
+   * other". The classification now happens once, in `@podium/protocol`, so what
+   * this side still has to prove is that every code that table can produce has
+   * a §7 sentence here. Without this, a token added to the protocol would
+   * classify fine and then render as a code with no copy — the same silence in
+   * a new costume.
+   *
+   * Driven off `UPDATE_FAILURE_TOKENS` rather than a list written here, so
+   * adding a row to the table is what makes it fail. apps/web has the mirror of
+   * this test over the same list; between them, a token cannot exist on one
+   * side only.
+   */
+  it('answers every token the shared table can produce with a sentence and a code', () => {
+    expect(UPDATE_FAILURE_TOKENS.length).toBeGreaterThan(0)
+    for (const token of UPDATE_FAILURE_TOKENS) {
+      const code = CODE_FOR_UPDATE_FAILURE_TOKEN[token]
+      // In this kind's taxonomy, so `UpdateErrorCode` consumers can switch on it.
+      expect(UPDATE_ERROR_CODES).toContain(code)
+
+      const error = describeUpdateOperationFailure({
+        code,
+        places: ['m_a'],
+        names: ['vmi'],
+        detail: `synthetic ${token}`,
+      } as UpdateFailure)
+      expect(error.code).toBe(code)
+      // A typed error whose message is its own code is the failure mode the
+      // taxonomy exists to prevent.
+      expect(error.message.length).toBeGreaterThan(20)
+      expect(error.message).not.toContain(code)
+    }
+  })
+
+  /**
+   * The unreachable default is now for ONE input: a machine that said nothing.
+   * Every token in the table names something more specific, and reading any of
+   * them as "stopped responding, it will resume when it reconnects" is the
+   * exact harm POD-2210 and POD-2240 both were.
+   */
+  it('reserves the unreachable default for the machine that actually went quiet', () => {
+    const unreachable = UPDATE_FAILURE_TOKENS.filter(
+      (token) => CODE_FOR_UPDATE_FAILURE_TOKEN[token] === 'machine-unreachable',
+    )
+    expect(unreachable).toEqual(['stopped-reporting-progress'])
+    expect(classifyMachineFailure(undefined)).toBe('machine-unreachable')
   })
 
   it('quotes the publisher‘s public reason for a preparation failure', () => {

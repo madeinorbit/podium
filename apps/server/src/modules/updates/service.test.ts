@@ -6,6 +6,7 @@ import {
 } from '@podium/model'
 import { resolveUpdateChannel } from '@podium/runtime/config'
 import { describe, expect, it, vi } from 'vitest'
+import { classifyMachineFailure } from './operation'
 import { UpdatesService } from './service'
 
 /**
@@ -664,7 +665,21 @@ describe('setTargetUnavailable', () => {
     // is gone, so nothing can ever age it and no status report is accepted.
     const row = svc.fleet().find((machine) => machine.id === 'a')
     expect(row?.state).toBe('stuck')
-    expect(row?.detail).toBe('The source checkout has 2 uncommitted changes.')
+    /**
+     * TOKENIZED, AND THIS FIXTURE IS WHY (POD-2241). The reason is free prose
+     * from the development publisher, and this real one says "uncommitted" —
+     * about the SERVER's checkout. Untokenized, both readers matched their
+     * dirty-working-tree pattern and told the operator to go and commit files
+     * on a machine that had none. The prefix is what makes the withdrawal
+     * classifiable before anyone's sentence can claim a token.
+     */
+    expect(row?.detail).toBe('update-withdrawn: The source checkout has 2 uncommitted changes.')
+    expect(classifyMachineFailure(row?.detail)).toBe('update-withdrawn')
+    // The CHANNEL's reason stays bare: there it is the whole answer, not one
+    // machine's verdict.
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
+      'The source checkout has 2 uncommitted changes.',
+    )
   })
 
   it('is cleared by the next successful publication', () => {
