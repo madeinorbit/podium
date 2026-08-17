@@ -302,6 +302,7 @@ export function reconcileSafeServerTransferBoot(
     activeOperation.state !== 'done' &&
     activeOperation.state !== 'failed' &&
     activeOperation.state !== 'canceled' &&
+    activeOperation.id === entry.record.operationId &&
     details.transferId === entry.record.transferId &&
     details.targetMachineId === entry.record.targetMachineId &&
     details.publicUrl === entry.record.publicUrl &&

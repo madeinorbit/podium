@@ -158,9 +158,7 @@ export function manifestWithDigest(
   const normalized = { ...body, files }
   return {
     ...normalized,
-    digest: createHash('sha256')
-      .update(canonicalServerTransferManifest(normalized))
-      .digest('hex'),
+    digest: createHash('sha256').update(canonicalServerTransferManifest(normalized)).digest('hex'),
   }
 }
 
@@ -193,6 +191,7 @@ export async function assertSnapshotCapacity(
 export async function createPortableSnapshot(input: {
   stateRoot: string
   packageDir: string
+  operationId: string
   transferId: string
   sourceInstanceId: string
   sourceMachineId: MachineId
@@ -216,6 +215,7 @@ export async function createPortableSnapshot(input: {
   await syncDirectory(input.packageDir)
   return manifestWithDigest({
     formatVersion: SERVER_TRANSFER_FORMAT_VERSION,
+    operationId: input.operationId,
     transferId: input.transferId,
     sourceInstanceId: input.sourceInstanceId,
     sourceMachineId: input.sourceMachineId,

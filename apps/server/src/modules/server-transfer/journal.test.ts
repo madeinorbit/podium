@@ -149,6 +149,7 @@ describe('TransferJournal', () => {
     const { root, journal, record } = await fixture()
     record.manifest = {
       formatVersion: 1,
+      operationId: record.operationId,
       transferId: record.transferId,
       sourceInstanceId: record.sourceInstanceId,
       sourceMachineId: record.sourceMachineId,
@@ -180,6 +181,19 @@ describe('TransferJournal', () => {
     journal.begin(record)
     const operation = activeMove(record)
     operation.details = { ...operation.details, [field]: value }
+
+    expect(reconcileSafeServerTransferBoot(root, operation)).toMatchObject({
+      state: 'aborted',
+      error: { code: 'boot-recovery' },
+    })
+  })
+
+  it('orphan-aborts a pre-fence journal when the operation id differs', async () => {
+    const { root, journal, record } = await fixture()
+    record.manifest = { digest: 'a'.repeat(64) } as TransferRecord['manifest']
+    journal.begin(record)
+    const operation = activeMove(record)
+    operation.id = 'operation-other'
 
     expect(reconcileSafeServerTransferBoot(root, operation)).toMatchObject({
       state: 'aborted',

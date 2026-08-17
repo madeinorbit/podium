@@ -35,6 +35,7 @@ const transferManifest = (
   files: ServerTransferManifestEntry[],
 ): ServerTransferManifest => ({
   formatVersion: 1,
+  operationId: 'operation-1',
   transferId,
   sourceInstanceId: 'source-instance',
   sourceMachineId: 'source-machine',
@@ -328,6 +329,7 @@ describe('server transfer target daemon', () => {
       ok: true,
       state: 'validated',
       proof: {
+        operationId: 'operation-1',
         transferId,
         manifestDigest,
         targetMachineId,
@@ -368,6 +370,7 @@ describe('server transfer target daemon', () => {
       state: 'promoted',
       idempotent: false,
       servingProof: {
+        operationId: 'operation-1',
         transferId,
         manifestDigest,
         targetMachineId,
@@ -392,9 +395,10 @@ describe('server transfer target daemon', () => {
       ok: true,
       state: 'promoted',
       publicUrl: 'https://podium.example.com',
-      proof: { transferId, manifestDigest, targetMachineId },
+      proof: { operationId: 'operation-1', transferId, manifestDigest, targetMachineId },
       servingProof: {
         transferId,
+        operationId: 'operation-1',
         manifestDigest,
         targetMachineId,
         publicUrl: 'https://podium.example.com',
@@ -424,10 +428,11 @@ describe('server transfer target daemon', () => {
       manifestDigest,
       publicUrl: 'https://podium.example.com',
       state: 'promoted',
-      proof: { transferId, manifestDigest, targetMachineId },
+      proof: { operationId: 'operation-1', transferId, manifestDigest, targetMachineId },
       servingProof: {
         transferId,
         manifestDigest,
+        operationId: 'operation-1',
         targetMachineId,
         publicUrl: 'https://podium.example.com',
         health: 'serving',

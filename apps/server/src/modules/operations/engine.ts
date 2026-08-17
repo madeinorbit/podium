@@ -9,10 +9,10 @@ import {
 import type { CommandPrincipal } from '../../command-principal'
 import type {
   AnyOperationKindDefinition,
-  type CancelCleanupResult,
-  type HandoffSealPatch,
+  CancelCleanupResult,
+  HandoffSealPatch,
   OperationKindRegistry,
-  type OperationActionResult,
+  OperationActionResult,
   OperationPlan,
   StepDeadlines,
   StepOutcome,

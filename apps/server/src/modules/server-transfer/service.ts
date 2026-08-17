@@ -110,6 +110,7 @@ function proofMatches(
 ): proof is TransferProof {
   return (
     proof !== undefined &&
+    proof.operationId === manifest.operationId &&
     proof.transferId === manifest.transferId &&
     proof.manifestDigest === manifest.digest &&
     proof.targetMachineId === targetMachineId &&
@@ -586,6 +587,7 @@ export class ServerTransferService {
     return createPortableSnapshot({
       stateRoot: this.deps.stateRoot,
       packageDir,
+      operationId: record.operationId,
       transferId: record.transferId,
       sourceInstanceId: this.deps.sourceInstanceId,
       sourceMachineId: this.deps.sourceMachineId,

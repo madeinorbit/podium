@@ -93,6 +93,7 @@ function fakeRpc(
         ok: true as const,
         state: 'validated' as const,
         proof: {
+          operationId: manifest.operationId,
           transferId: input.transferId,
           manifestDigest: input.manifestDigest,
           targetMachineId,
@@ -126,6 +127,7 @@ function fakeRpc(
         ok: true as const,
         state: 'promoted' as const,
         proof: {
+          operationId: manifest.operationId,
           transferId: input.transferId,
           manifestDigest: input.manifestDigest,
           targetMachineId,
@@ -187,6 +189,7 @@ function fakeRpc(
         transferId: promotion.transferId,
         manifestDigest: manifest.digest,
         proof: {
+          operationId: manifest.operationId,
           transferId: promotion.transferId,
           manifestDigest: manifest.digest,
           targetMachineId: promotion.targetMachineId,

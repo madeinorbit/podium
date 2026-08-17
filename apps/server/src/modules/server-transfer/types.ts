@@ -92,6 +92,7 @@ export type TargetHealthProof = ServerTransferServingProof
 
 /** Safe projection of target-owned durable promotion metadata. */
 export interface PromotedTargetMetadata {
+  operationId: string
   transferId: string
   sourceMachineId: MachineId
   targetMachineId: MachineId

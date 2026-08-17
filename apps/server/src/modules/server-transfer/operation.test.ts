@@ -62,6 +62,7 @@ function journal(state: TransferJournalEntry['state']): TransferJournalEntry {
     packageDir: '/state/.server-transfer/snapshot',
     manifest: {
       formatVersion: 1,
+      operationId: 'operation-1',
       transferId: 'transfer-1',
       sourceInstanceId: 'instance-1',
       sourceMachineId: 'source-1',
@@ -143,6 +144,7 @@ describe('server-move operation', () => {
 
   it('adopts an exact promoted proof as done and rejects every mismatched identity', () => {
     const promoted = {
+      operationId: 'operation-1',
       transferId: 'transfer-1',
       sourceMachineId: 'source-1',
       targetMachineId: 'target-1',
@@ -158,11 +160,20 @@ describe('server-move operation', () => {
     expect(done).toMatchObject({ state: 'done', finishedAt: 100 })
     expect(done.steps?.map((step) => [step.id, step.state])).toContainEqual(['cutover', 'done'])
 
+    const driftedFinalProof = reconcileServerMoveOperation(operation(), {
+      promoted: {
+        ...promoted,
+        transferId: 'transfer-final',
+        manifestDigest: 'b'.repeat(64),
+      },
+      now: 100,
+    })
+    expect(driftedFinalProof).toMatchObject({ state: 'done', finishedAt: 100 })
+
     for (const mismatch of [
-      { ...promoted, transferId: 'other' },
+      { ...promoted, operationId: 'operation-other' },
       { ...promoted, sourceMachineId: 'source-other' },
       { ...promoted, targetMachineId: 'target-other' },
-      { ...promoted, manifestDigest: 'b'.repeat(64) },
       { ...promoted, publicUrl: 'https://other.example.com' },
       { ...promoted, port: 8443 },
     ]) {

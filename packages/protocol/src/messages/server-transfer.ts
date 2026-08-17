@@ -14,6 +14,7 @@ export const ServerTransferManifestEntry = z.object({
 export type ServerTransferManifestEntry = z.infer<typeof ServerTransferManifestEntry>
 
 const transferId = z.string().uuid()
+const operationId = z.string().min(1).max(200)
 const requestId = z.string().min(1).max(200)
 const digest = z.string().regex(/^[a-f0-9]{64}$/)
 const machineId = z.string().min(1).max(200)
@@ -27,6 +28,7 @@ export const SERVER_MOVE_CAPABILITY = 'server-move.v1'
 /** Identity-bound portable package. Its canonical digest covers every field. */
 export const ServerTransferManifest = z.object({
   formatVersion: z.literal(SERVER_TRANSFER_FORMAT_VERSION),
+  operationId,
   transferId,
   sourceInstanceId: z.string().min(1).max(200),
   sourceMachineId: machineId,
@@ -79,6 +81,7 @@ export type ServerTransferTargetCapability = z.infer<typeof ServerTransferTarget
 
 /** Read-only evidence that the staged/imported instance matches the requested transfer. */
 export const ServerTransferProof = z.object({
+  operationId,
   transferId,
   manifestDigest: digest,
   targetMachineId: machineId,
@@ -237,6 +240,7 @@ export function canonicalServerTransferManifest(
     throw new TypeError('full identity-bound server transfer manifest is required')
   return JSON.stringify({
     formatVersion: manifest.formatVersion,
+    operationId: manifest.operationId,
     transferId: manifest.transferId,
     sourceInstanceId: manifest.sourceInstanceId,
     sourceMachineId: manifest.sourceMachineId,

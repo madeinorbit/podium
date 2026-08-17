@@ -12,6 +12,7 @@ function string(value: unknown): value is string {
 
 function proof(
   value: unknown,
+  operationId: string,
   transferId: string,
   digest: string,
   targetMachineId: MachineId,
@@ -21,6 +22,7 @@ function proof(
   if (typeof value !== 'object' || value === null) return undefined
   const candidate = value as Partial<TargetHealthProof>
   if (
+    candidate.operationId !== operationId ||
     candidate.transferId !== transferId ||
     candidate.manifestDigest !== digest ||
     candidate.targetMachineId !== targetMachineId ||
@@ -43,6 +45,7 @@ function parse(raw: string): PromotedTargetMetadata | undefined {
   const candidate = value as Record<string, unknown>
   if (
     candidate.state !== 'promoted' ||
+    !string(candidate.operationId) ||
     !string(candidate.transferId) ||
     !string(candidate.sourceMachineId) ||
     !string(candidate.targetMachineId) ||
@@ -57,6 +60,7 @@ function parse(raw: string): PromotedTargetMetadata | undefined {
   }
   const validated = proof(
     candidate.servingProof,
+    candidate.operationId,
     candidate.transferId,
     candidate.manifestDigest,
     asMachineId(candidate.targetMachineId),
@@ -65,6 +69,7 @@ function parse(raw: string): PromotedTargetMetadata | undefined {
   )
   if (!validated) return undefined
   return {
+    operationId: candidate.operationId,
     transferId: candidate.transferId,
     sourceMachineId: asMachineId(candidate.sourceMachineId),
     targetMachineId: asMachineId(candidate.targetMachineId),

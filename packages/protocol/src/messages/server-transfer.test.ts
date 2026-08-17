@@ -10,9 +10,11 @@ import { ControlMessage, DaemonMessage } from '../daemon'
 import { CONTROL_PLANE_CLASS, DAEMON_PLANE_CLASS } from './message-class'
 
 const transferId = '00000000-0000-4000-8000-000000000001'
+const operationId = 'operation-1'
 const manifestDigest = 'a'.repeat(64)
 const manifest = {
   formatVersion: 1 as const,
+  operationId,
   transferId,
   sourceInstanceId: 'source-instance',
   sourceMachineId: 'source-machine',
@@ -39,6 +41,7 @@ describe('server transfer protocol', () => {
   it('binds every manifest identity and version field into the canonical digest input', () => {
     const variants = [
       { ...manifest, formatVersion: 2 },
+      { ...manifest, operationId: 'operation-2' },
       { ...manifest, transferId: '00000000-0000-4000-8000-000000000002' },
       { ...manifest, sourceInstanceId: 'other-instance' },
       { ...manifest, sourceMachineId: 'other-source' },
@@ -126,6 +129,7 @@ describe('server transfer protocol', () => {
       wireSchemaDigest: 'wire-v1',
       space: { availableBytes: 20, requiredBytes: 10, sufficient: true },
       proof: {
+        operationId,
         transferId,
         manifestDigest,
         targetMachineId: 'target-machine',
@@ -135,6 +139,7 @@ describe('server transfer protocol', () => {
         buildVersion: '2026.8.10',
       },
       servingProof: {
+        operationId,
         transferId,
         manifestDigest,
         targetMachineId: 'target-machine',

@@ -244,6 +244,7 @@ describe('server transfer RPC', () => {
         transferId: 'transfer-1',
         manifest: {
           formatVersion: 1,
+          operationId: 'operation-1',
           transferId: 'transfer-1',
           sourceInstanceId: 'source-instance',
           sourceMachineId: 'source-machine',

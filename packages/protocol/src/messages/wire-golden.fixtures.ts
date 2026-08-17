@@ -1304,6 +1304,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
       transferId: '00000000-0000-4000-8000-000000000001',
       manifest: {
         formatVersion: 1,
+        operationId: 'operation-1',
         transferId: '00000000-0000-4000-8000-000000000001',
         sourceInstanceId: 'source-instance',
         sourceMachineId: 'source-machine',

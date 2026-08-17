@@ -35,6 +35,7 @@ export interface ServerMoveContext {
 
 export interface ServerMoveReality {
   promoted?: {
+    operationId: string
     transferId: string
     sourceMachineId: string
     targetMachineId: string
@@ -229,11 +230,10 @@ export function reconcileServerMoveOperation(
   const promoted = reality.promoted
   if (
     promoted &&
-    promoted.transferId === details.transferId &&
+    promoted.operationId === operation.id &&
     promoted.sourceMachineId === details.sourceMachineId &&
     promoted.targetMachineId === details.targetMachineId &&
     (reality.machineId === undefined || reality.machineId === details.targetMachineId) &&
-    promoted.manifestDigest === details.manifestDigest &&
     promoted.publicUrl === details.publicUrl &&
     promoted.port === details.port
   ) {

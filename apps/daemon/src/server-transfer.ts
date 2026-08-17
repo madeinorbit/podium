@@ -50,6 +50,7 @@ interface PromotionInventoryEntry {
 }
 interface StageMeta {
   version: 1
+  operationId: string
   transferId: string
   manifest: ServerTransferManifest
   manifestDigest: string
@@ -382,6 +383,7 @@ async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
     if (schema.name !== meta.manifest.schemaVersion)
       fail('candidate-invalid', 'candidate schema does not match transfer manifest')
     return {
+      operationId: meta.operationId,
       transferId: meta.transferId,
       manifestDigest: meta.manifestDigest,
       targetMachineId: meta.targetMachineId,
@@ -508,6 +510,7 @@ async function prepare(
     }
     const meta: StageMeta = {
       version: 1,
+      operationId: msg.manifest.operationId,
       transferId: msg.transferId,
       manifest: msg.manifest,
       manifestDigest: msg.manifestDigest,
