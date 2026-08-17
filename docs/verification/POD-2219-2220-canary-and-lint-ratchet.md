@@ -83,8 +83,26 @@ passes both before and after; the first is the regression.
 | branch, before this issue | 1 | **9** |
 | branch, after this issue | 1 | **8** |
 
-The lane is red in all three columns, and every violation left is one `main` already had. The
-epic's net contribution to the count is now **zero**.
+The lane is red in all three columns, and the epic's net contribution to the **count** is now
+**zero**.
+
+**Corrected (POD-2236, from the merge-gate review's D4).** This line, and `fd0124de2`'s message,
+originally went on to say *"every violation left is one `main` already had"*. That is false, by
+exactly one entry. The count is identical; the **set** is not. Re-measured here by running
+`bun scripts/check-boundaries.ts --manifest-only` on both sides — the branch, and a detached
+in-place checkout of `main` at `38b423ff7` — the symmetric difference is two entries:
+
+| direction | violation |
+| --- | --- |
+| on `main`, **gone** from the branch | `[manifest-platform] apps/web/src/features/settings/sections/shared.tsx` |
+| on the branch, **absent** from `main` | `[ui-storage-ownership] apps/web/src/features/updates/use-update-state.ts` |
+
+Eight equals eight because the epic removed one violation `main` has and added one it does not —
+which is what the attribution table below already said, two paragraphs later. Count-identity is a
+ratchet argument and it holds; set-identity is the stronger claim the sentence made, and this
+branch does not have it. The distinction is not pedantic: an auditor reading this lane for the
+epic's own line is looking for exactly the entry the old sentence told them was not there. It is
+`ui-storage-ownership` on `use-update-state.ts`, it is ours, and it is recorded below.
 
 ### Which ones were ours — the review found one, there were two
 

@@ -330,11 +330,76 @@ describe('describeUpdateFailure', () => {
     expect(v.diagnostic).toContain('transcript-segment-incarnations')
   })
 
-  it('uses the same copy when the target would not say what schema it opens', () => {
-    const v = describeUpdateFailure('cannot converge: schema-unknown — 0.1.3 does not declare …')
+  /**
+   * POD-2233. The three schema tokens are NOT one failure, and this test used to
+   * assert that they were — it pinned `schema-unknown` to the `schema-advanced`
+   * sentence and so ratified the defect it should have caught.
+   *
+   * `schema-advanced` KNOWS two things: the target is behind this database, and
+   * it would refuse to open it. `schema-unknown` knows NEITHER — the daemon
+   * refuses precisely because nothing here can tell, and says so carefully. The
+   * panel must not launder that care into a fact (§7: never assert what has not
+   * been established).
+   */
+  it('does not claim the target is older when the daemon said it could not tell', () => {
+    const v = describeUpdateFailure(
+      'cannot converge: schema-unknown — 0.1.5 does not declare which schema migrations it ' +
+        'can open, it is not a version this machine can prove is newer than the dev+03a2892 ' +
+        'it runs',
+      'ludovico',
+    )
+
     expect(v.state).toBe('failed')
-    expect(v.message).toMatch(/older/i)
+    expect(v.message).toMatch(/ludovico/)
     expect(v.guidance).toMatch(/still running/i)
+    // Neither half of the schema-advanced sentence is known here.
+    expect(v.message).not.toMatch(/older/i)
+    expect(v.message).not.toMatch(/cannot open|can't open/i)
+    // What IS known: the target did not declare what it can open.
+    expect(v.message).toMatch(/does not say which data it can open/i)
+    expect(`${v.message} ${v.guidance}`).not.toContain('schema-unknown')
+    expect(v.diagnostic).toContain('dev+03a2892')
+  })
+
+  /**
+   * POD-2233. The impossible next action. A coordinator running from source
+   * reports `dev+<sha>`, which `isProvablyNewer` orders against NOTHING — so
+   * every published release refuses with `schema-unknown` and "pick a version at
+   * least as new as the one it is on" names a version that does not exist. §7
+   * requires the one next action to be one that works.
+   */
+  it('never tells a machine that cannot order itself to pick something newer', () => {
+    const v = describeUpdateFailure(
+      'cannot converge: schema-unknown — 0.1.5 does not declare which schema migrations it can open',
+    )
+
+    expect(v.guidance).not.toMatch(/at least as new/i)
+    expect(v.guidance).not.toMatch(/pick a (?:version|newer)/i)
+    // The action that does exist is on the release, not on the operator's choice.
+    expect(v.guidance).toMatch(/declares which data it can open/i)
+  })
+
+  /**
+   * POD-2233. `schema-unreadable` is a third thing again: the database could not
+   * be READ, so this says nothing about the target at all. It is also the only
+   * one of the three where "try again" is the right next action, because a read
+   * that failed on a lock or a permission can succeed on the next attempt.
+   */
+  it('sends an unreadable database at the machine, not at the version', () => {
+    const v = describeUpdateFailure(
+      "cannot converge: schema-unreadable — this machine's database could not be read " +
+        '(SQLITE_CANTOPEN: unable to open database file), so there is no way to tell whether ' +
+        '0.1.5 could open it',
+      'ludovico',
+    )
+
+    expect(v.state).toBe('failed')
+    expect(v.message).toMatch(/could not read/i)
+    expect(v.message).not.toMatch(/older/i)
+    expect(v.guidance).toMatch(/still running/i)
+    expect(v.guidance).toMatch(/try again/i)
+    expect(`${v.message} ${v.guidance}`).not.toContain('schema-unreadable')
+    expect(v.diagnostic).toContain('SQLITE_CANTOPEN')
   })
 
   it('turns a dirty checkout into named, actionable copy', () => {

@@ -309,20 +309,40 @@ export function describeUpdateFailure(detail?: string, machineName?: string): Fa
   }
 
   /**
-   * THE REFUSAL THAT KEPT A MACHINE ALIVE (POD-2213).
+   * THE REFUSAL THAT KEPT A MACHINE ALIVE (POD-2213), IN ITS THREE KINDS
+   * (POD-2233).
    *
    * Migrations are forward-only, so an older build cannot open a database a
    * newer one has already migrated — it refuses to start, and the thing that
    * would put the newer build back is the server that will not start. The
-   * daemon therefore declines the downgrade before swapping anything, and this
-   * is the sentence that refusal becomes.
+   * daemon therefore declines the downgrade before swapping anything, and these
+   * are the sentences those refusals become.
    *
-   * Second only to the foreground refusal, and for the same reason: the generic
-   * delivery copy below would turn "your machine is fine and still running" into
-   * "one or more machines cannot use this update", which reads like a failure to
-   * retry and is the opposite of what happened.
+   * Ahead of the generic delivery copy below, and for the same reason as the
+   * foreground refusal: that copy would turn "your machine is fine and still
+   * running" into "one or more machines cannot use this update", which reads
+   * like a failure to retry and is the opposite of what happened.
+   *
+   * THREE ARMS, NOT ONE. These arrive as three distinguishable tokens because
+   * they are three different states of knowledge, and one arm matching all
+   * three made the panel assert what the daemon had deliberately refused to
+   * claim (§7: a failure never asserts what it has not established):
+   *
+   * - `schema-advanced` KNOWS both halves — it names the applied migration the
+   *   target does not define, so the target IS behind and WOULD refuse to open.
+   * - `schema-unknown` knows NEITHER. The target did not declare what it can
+   *   open and could not be proved newer, so "older" and "cannot open" are both
+   *   guesses. Its old guidance was worse than wrong, it was unachievable: a
+   *   source build reports `dev+<sha>`, which `isProvablyNewer` orders against
+   *   nothing published, so "pick a version at least as new" names a version
+   *   that does not exist and every choice returns here. The action that does
+   *   exist belongs to the release, not to the operator's choice.
+   * - `schema-unreadable` says nothing about the target at all — the database
+   *   could not be read. It is also the only one of the three where "try again"
+   *   is right, because a read that lost to a lock or a permission can win next
+   *   time.
    */
-  if (normalized && /schema[-_\s](advanced|unknown|unreadable)/i.test(normalized)) {
+  if (normalized && /schema[-_\s]advanced/i.test(normalized)) {
     const subject = machineName ? `${machineName} was` : 'This machine was'
     return {
       state: 'failed',
@@ -331,6 +351,35 @@ export function describeUpdateFailure(detail?: string, machineName?: string): Fa
         'Nothing was changed and Podium is still running there. Pick a version at least as ' +
         'new as the one it is on — or, if you really need the older one, restore a database ' +
         'backup from before the upgrade by hand first (docs/data-and-upgrades.md).',
+      diagnostic: normalized,
+    }
+  }
+
+  if (normalized && /schema[-_\s]unknown/i.test(normalized)) {
+    const subject = machineName ? `${machineName} was` : 'This machine was'
+    return {
+      state: 'failed',
+      message:
+        `${subject} asked to move to a version that does not say which data it can open, ` +
+        'so nothing here could tell whether it would start.',
+      guidance:
+        'Nothing was changed and Podium is still running there. Ask the server operator for a ' +
+        'release that declares which data it can open — that is what settles this. A machine ' +
+        'running a development build cannot order itself against published versions, so ' +
+        'choosing a different one will not.',
+      diagnostic: normalized,
+    }
+  }
+
+  if (normalized && /schema[-_\s]unreadable/i.test(normalized)) {
+    const subject = machineName ?? 'This machine'
+    return {
+      state: 'failed',
+      message: `${subject} could not read its own database, so nothing here could tell whether that version would start against it.`,
+      guidance:
+        'Nothing was changed and Podium is still running there. Check that database file and ' +
+        'its disk on that machine — the technical detail below says why the read failed — ' +
+        'then try again.',
       diagnostic: normalized,
     }
   }
