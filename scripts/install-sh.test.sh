@@ -229,7 +229,7 @@ PODIUM_EXPECT_DAEMON_MARKER="$ORDER_MARKER" \
 PODIUM_CODEX_INSTALL_URL="file://$AGENT_REL/codex.sh" \
 PODIUM_CLAUDE_INSTALL_URL="file://$AGENT_REL/claude.sh" \
 PODIUM_GROK_INSTALL_URL="file://$AGENT_REL/grok.sh" \
-  sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update --agents codex,claude-code,grok
+  sh "$ROOT/install.sh" --join TESTTOKEN --agents codex,claude-code,grok
 test -e "$ORDER_MARKER" || { echo FAIL: join did not start before agents; exit 1; }
 rm -f "$ORDER_MARKER"
 
@@ -259,7 +259,7 @@ echo "== join starts the daemon unattended without a usable user systemd =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$PODIUM_STATE_DIR"
 DAEMON_MARKER="$WORK/daemon-running"
 PODIUM_DISABLE_SYSTEMD=1 PODIUM_STUB_DAEMON_MARKER="$DAEMON_MARKER" \
-  sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update
+  sh "$ROOT/install.sh" --join TESTTOKEN
 test -e "$DAEMON_MARKER" || { echo FAIL: no-systemd join did not start daemon; exit 1; }
 rm -f "$DAEMON_MARKER"
 
@@ -283,7 +283,7 @@ printf '#!/bin/sh\nexit 1\n' > "$NOBUS/sudo"
 chmod +x "$NOBUS/systemctl" "$NOBUS/loginctl" "$NOBUS/sudo"
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$WORK/stub.log"
 nobus_output="$(env PATH="$NOBUS:$PATH" PODIUM_STUB_LOG="$WORK/stub.log" \
-  sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update 2>&1)"
+  sh "$ROOT/install.sh" --join TESTTOKEN 2>&1)"
 grep -F 'stub-setup setup --join TESTTOKEN --persist detached' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: no-user-bus host still asked for systemd persistence"; exit 1; }
 if printf '%s\n' "$nobus_output" | grep -F 'No medium found' >/dev/null; then
@@ -333,8 +333,6 @@ named_join_output="$(env -u PODIUM_STATE_DIR -u PODIUM_DISABLE_SYSTEMD -u XDG_CO
 grep -F 'stub-instance blue setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: named join did not route through named command"; exit 1; }
 test -f "$UNIT/podium-blue-daemon.service" || { echo FAIL: named join did not write named daemon unit; exit 1; }
-printf '%s\n' "$named_join_output" | grep -F 'server, which manages updates in canary waves' >/dev/null \
-  || { echo "FAIL: named join did not explain server-managed updates"; exit 1; }
 test ! -e "$UNIT/podium-blue-update.service" || { echo "FAIL: attached named join wrote update service"; exit 1; }
 test ! -e "$UNIT/podium-blue-update.timer" || { echo "FAIL: attached named join wrote update timer"; exit 1; }
 test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: named join wrote default update timer"; exit 1; }
@@ -345,8 +343,6 @@ default_join_output="$(env -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME PODIUM_S
 grep -F 'stub-setup setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: join did not delegate to podium setup --join --persist systemd"; exit 1; }
 test -f "$UNIT/podium-daemon.service"       || { echo FAIL: join did not write daemon unit; exit 1; }
-printf '%s\n' "$default_join_output" | grep -F 'server, which manages updates in canary waves' >/dev/null \
-  || { echo "FAIL: default join did not explain server-managed updates"; exit 1; }
 test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: attached join wrote update service"; exit 1; }
 test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: attached join wrote update timer"; exit 1; }
 
@@ -364,13 +360,6 @@ grep -F 'RestartPreventExitStatus=78' "$UNIT/podium-daemon.service" >/dev/null \
 # (POD-327's second half). Without it, agent CLIs in %h/.local/bin are unreachable from the daemon.
 grep -F 'Environment=PATH=%h/.local/bin:' "$UNIT/podium-daemon.service" >/dev/null \
   || { echo "FAIL: fallback unit has no Environment=PATH covering %h/.local/bin"; exit 1; }
-
-echo "== --no-auto-update skips the timer =="
-rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"
-env -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update
-test -f "$UNIT/podium-daemon.service"       || { echo FAIL: join did not write daemon unit; exit 1; }
-test ! -e "$UNIT/podium-update-user.timer"  || { echo "FAIL: --no-auto-update wrote the timer anyway"; exit 1; }
-test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: --no-auto-update wrote the update service anyway"; exit 1; }
 
 echo "== tamper rejection =="
 printf 'x' >> "$REL/podium-headless-linux-x64.tar.gz"   # corrupt after signing

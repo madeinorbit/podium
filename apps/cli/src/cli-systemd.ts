@@ -3,7 +3,7 @@
 // one source (including the CPU/IO tiers from e4660620 and the health backstop from 54d60a8b).
 // Design: docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumConfig } from '@podium/runtime/config'
@@ -12,6 +12,7 @@ import {
   defaultInstancePorts,
   instanceCommandName,
   instanceServiceName,
+  instanceUpdateTimerName,
   resolveInstanceId,
 } from '@podium/runtime/instance'
 
@@ -71,18 +72,12 @@ interface RenderContext {
   serverUnit: string
   janitorUnit: string
   daemonUnit: string
-  updateUnit: string
-  updateTimer: string
   redeployUnit: string
   redeployPath: string
   healthUnit: string
   healthTimer: string
   backendUnit: string
   systemDaemonUnit: string
-}
-
-function updateTimerName(instanceId: string): string {
-  return instanceId === 'default' ? 'podium-update-user.timer' : `podium-${instanceId}-update.timer`
 }
 
 function healthTimerName(instanceId: string): string {
@@ -103,8 +98,6 @@ function context(opts: SystemdRenderOptions = {}): RenderContext {
     serverUnit: instanceServiceName('server', instanceId),
     janitorUnit: instanceServiceName('janitor', instanceId),
     daemonUnit: instanceServiceName('daemon', instanceId),
-    updateUnit: instanceServiceName('update', instanceId),
-    updateTimer: updateTimerName(instanceId),
     redeployUnit: instanceServiceName('redeploy', instanceId),
     redeployPath:
       instanceId === 'default' ? 'podium-redeploy.path' : `podium-${instanceId}-redeploy.path`,
@@ -318,33 +311,6 @@ export function renderJanitorUnit(opts: { port: number; instanceId?: string }): 
   return generatedUnit(renderPackagedJanitor(c))
 }
 
-function renderUpdateService(c: RenderContext): string {
-  return `[Unit]
-Description=Podium headless self-update
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-Environment=PODIUM_INSTANCE=${c.instanceId}
-ExecStart=/usr/bin/env sh -c '%h/.local/bin/${c.command} update; ec=$?; [ "$ec" = 10 ] && systemctl --user try-restart ${c.daemonUnit}; exit 0'
-`
-}
-
-function renderUpdateTimer(c: RenderContext): string {
-  return `[Unit]
-Description=Podium headless self-update (daily)
-
-[Timer]
-OnCalendar=daily
-Persistent=true
-Unit=${c.updateUnit}
-
-[Install]
-WantedBy=default.target
-`
-}
-
 // There is no web-build unit any more (POD-1985). `podium-web.service` ran the two vite
 // builds at boot, on every redeploy, and on request — at the systemd default CPUWeight=100,
 // which outranked every agent scope 2:1 on a host that is oversubscribed by them. The server
@@ -530,8 +496,6 @@ export function renderSystemdFiles(opts: SystemdRenderOptions = {}): RenderedSys
         [c.serverUnit]: renderServerUnit({ profile: 'packaged', instanceId: c.instanceId }),
         [c.janitorUnit]: renderJanitorUnit({ port: c.port, instanceId: c.instanceId }),
         [c.daemonUnit]: renderDaemonUnit({ profile: 'packaged', instanceId: c.instanceId }),
-        [c.updateUnit]: generatedUnit(renderUpdateService(c)),
-        [c.updateTimer]: generatedUnit(renderUpdateTimer(c)),
       },
     }
   }
@@ -543,8 +507,6 @@ export function renderSystemdFiles(opts: SystemdRenderOptions = {}): RenderedSys
       [c.redeployPath]: generatedUnit(renderDevRedeployPath(c)),
       [c.healthUnit]: generatedUnit(renderDevHealthService(c)),
       [c.healthTimer]: generatedUnit(renderDevHealthTimer(c)),
-      [c.updateUnit]: generatedUnit(renderUpdateService(c)),
-      [c.updateTimer]: generatedUnit(renderUpdateTimer(c)),
       [c.backendUnit]: generatedUnit(renderDevBackend(c)),
       [c.systemDaemonUnit]: generatedUnit(renderDevSystemDaemon(c)),
     },
@@ -634,6 +596,32 @@ export interface InstallResult {
   remedy?: string
 }
 
+export interface InstallSystemdDeps {
+  hasSystemctl?: () => boolean
+  hasUserSystemd?: () => boolean
+  unitDir?: () => string
+  run?: (cmd: string, args: string[]) => void
+}
+
+/**
+ * Retire the daily updater from installs created by older Podium releases. Disabling before
+ * unlinking removes systemd's enablement symlink and stops the timer; the caller's daemon-reload
+ * then makes the removed definitions disappear from the user manager as part of normal setup.
+ */
+function removeLegacyUpdateTimer(
+  dir: string,
+  instanceId: string,
+  runCommand: (cmd: string, args: string[]) => void,
+): void {
+  const timer = instanceUpdateTimerName(instanceId)
+  const service = instanceServiceName('update', instanceId)
+  if (existsSync(join(dir, timer))) {
+    runCommand('systemctl', ['--user', 'disable', '--now', timer])
+  }
+  rmSync(join(dir, timer), { force: true })
+  rmSync(join(dir, service), { force: true })
+}
+
 /**
  * Render + install the `--user` units for `mode` and enable+start them. Host modes install the
  * server + janitor (and local daemon for all-in-one); `daemon` (a joined worker) installs
@@ -644,15 +632,15 @@ export function installSystemd(
   mode: PodiumConfig['mode'],
   port: number,
   instanceId: string = resolveInstanceId(),
-  serverUrl?: string,
+  deps: InstallSystemdDeps = {},
 ): InstallResult {
-  if (!hasSystemctl())
+  if (!(deps.hasSystemctl ?? hasSystemctl)())
     return {
       ok: false,
       reason: 'systemd is not installed on this host',
       remedy: 'To start it at boot, add an "@reboot" entry with `crontab -e`.',
     }
-  if (!hasUserSystemd())
+  if (!(deps.hasUserSystemd ?? hasUserSystemd)())
     return {
       ok: false,
       reason: 'this host has no systemd user session (nothing is listening on the user D-Bus)',
@@ -660,13 +648,15 @@ export function installSystemd(
         `If the host does run systemd, \`sudo loginctl enable-linger ${userInfo().username}\`, ` +
         'reconnect over SSH, then re-run `podium setup` to convert this into a service.',
     }
-  const dir = userUnitDir()
+  const dir = (deps.unitDir ?? userUnitDir)()
+  const runCommand = deps.run ?? run
   const serverUnit = instanceServiceName('server', instanceId)
   const janitorUnit = instanceServiceName('janitor', instanceId)
   const daemonUnit = instanceServiceName('daemon', instanceId)
   const units: string[] = []
   try {
     mkdirSync(dir, { recursive: true })
+    removeLegacyUpdateTimer(dir, instanceId, runCommand)
     if (mode === 'daemon') {
       // Joined worker: only the daemon unit, dialing the remote server from config.
       writeFileSync(join(dir, daemonUnit), renderDaemonUnit({ instanceId }))
@@ -684,38 +674,18 @@ export function installSystemd(
         units.push(daemonUnit)
       }
     }
-    if (shouldInstallUpdateTimer({ mode, serverUrl })) {
-      const c = context({ instanceId, port })
-      writeFileSync(join(dir, c.updateUnit), generatedUnit(renderUpdateService(c)))
-      writeFileSync(join(dir, c.updateTimer), generatedUnit(renderUpdateTimer(c)))
-      units.push(c.updateTimer)
-    }
-    run('systemctl', ['--user', 'daemon-reload'])
+    runCommand('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).
     try {
-      run('loginctl', ['enable-linger', userInfo().username])
+      runCommand('loginctl', ['enable-linger', userInfo().username])
     } catch {
       // non-fatal: on some hosts linger is already on or loginctl is restricted
     }
-    run('systemctl', ['--user', 'enable', '--now', ...units])
+    runCommand('systemctl', ['--user', 'enable', '--now', ...units])
     return { ok: true }
   } catch (e) {
     return { ok: false, reason: (e as Error).message }
   }
-}
-
-/**
- * Daily channel updates are for standalone installs only. A daemon or client
- * with a configured server is attached to an authority that coordinates updates
- * in waves; letting the timer run would race the canary and concurrency cap.
- */
-export function shouldInstallUpdateTimer(ctx: {
-  mode: PodiumConfig['mode']
-  serverUrl?: string
-}): boolean {
-  if (!ctx.mode) return false
-  const attached = typeof ctx.serverUrl === 'string' && ctx.serverUrl.length > 0
-  return !(attached && (ctx.mode === 'daemon' || ctx.mode === 'client'))
 }
 
 /**

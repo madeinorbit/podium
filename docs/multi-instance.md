@@ -51,7 +51,6 @@ Duplicate selectors and invalid IDs are rejected.
 | Server unit | `podium-server.service` | `podium-blue-server.service` | none |
 | Janitor unit | `podium-janitor.service` | `podium-blue-janitor.service` | none |
 | Daemon unit | `podium-daemon.service` | `podium-blue-daemon.service` | none |
-| Update timer | `podium-update-user.timer` | `podium-blue-update.timer` | none |
 
 Named endpoint triplets are deterministic and non-overlapping for ordinary IDs. A rare hash
 collision, or any explicit collision, fails during bind; Podium does not silently move to an

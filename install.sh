@@ -11,7 +11,6 @@ CHANNEL="stable"
 JOIN=""
 INSTALL_AGENTS=""
 PODIUM_MANAGED="1"
-AUTO_UPDATE="1"
 INSTANCE="default"
 # Ed25519 pubkey (SPKI/DER, base64). Commit the SAME value as PODIUM_UPDATE_PUBKEY in
 # packages/runtime/src/update-delivery.ts — the lockstep test in Step 5 enforces they match. (A test
@@ -26,28 +25,11 @@ while [ $# -gt 0 ]; do
     --shared) PODIUM_MANAGED=""; shift ;;
     --agents) INSTALL_AGENTS="${2:?--agents requires a comma-separated value}"; shift 2 ;;
     --channel) CHANNEL="${2:?--channel requires a value}"; shift 2 ;;
-    --no-auto-update) AUTO_UPDATE=""; shift ;;
     --instance) INSTANCE="${2:?--instance requires an ID}"; shift 2 ;;
     --instance=*) INSTANCE="${1#--instance=}"; shift ;;
     *) echo "podium install: unknown arg '$1'" >&2; exit 2 ;;
   esac
 done
-
-config_path_for_instance() {
-  if [ -n "${PODIUM_STATE_DIR:-}" ]; then
-    printf '%s/config.json\n' "$PODIUM_STATE_DIR"
-  elif [ "$INSTANCE" = "default" ]; then
-    printf '%s/.podium/config.json\n' "$HOME"
-  else
-    printf '%s/podium/%s/config.json\n' "${XDG_STATE_HOME:-$HOME/.local/state}" "$INSTANCE"
-  fi
-}
-
-config_is_attached() {
-  config_path="$(config_path_for_instance)"
-  [ -f "$config_path" ] || return 1
-  grep -Eq '"serverUrl"[[:space:]]*:[[:space:]]*"[^"]+"' "$config_path"
-}
 
 # --- presentation ----------------------------------------------------------------
 # Colour only when stdout is a real terminal (under `curl … | sh` stdin is the pipe, stdout is
@@ -288,14 +270,10 @@ if [ "$INSTANCE" = "default" ]; then
   DEST="$DATA_HOME/podium"
   COMMAND="podium"
   DAEMON_UNIT="podium-daemon.service"
-  UPDATE_UNIT="podium-update-user.service"
-  UPDATE_TIMER="podium-update-user.timer"
 else
   DEST="$DATA_HOME/podium-instances/$INSTANCE"
   COMMAND="podium-$INSTANCE"
   DAEMON_UNIT="podium-$INSTANCE-daemon.service"
-  UPDATE_UNIT="podium-$INSTANCE-update.service"
-  UPDATE_TIMER="podium-$INSTANCE-update.timer"
 fi
 BIN="$HOME/.local/bin"
 mkdir -p "$BIN" "$(dirname "$DEST")"
@@ -525,11 +503,10 @@ if [ -z "$JOIN" ]; then
 fi
 
 # `podium setup --join` above owns config + lifecycle setup through the same engine
-# as interactive setup. What remains here is copying the generated unit artifacts and enabling
-# the update timer. The release tarball contains the bytes rendered from cli-systemd.ts; this
+# as interactive setup. What remains here is copying the generated daemon unit artifact when the
+# compatibility fallback was needed. The release tarball contains bytes rendered from cli-systemd.ts; this
 # installer deliberately carries no unit body of its own.
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UNIT_DIR"
-UPDATE_TIMER_INSTALLED=""
 copy_generated_unit() { # copy_generated_unit <default-artifact-name> <installed-name>
   source="$DEST/systemd/$1"
   target="$UNIT_DIR/$2"
@@ -545,27 +522,12 @@ copy_generated_unit() { # copy_generated_unit <default-artifact-name> <installed
     sed -e "s/Environment=PODIUM_INSTANCE=default/Environment=PODIUM_INSTANCE=$INSTANCE/g" \
       -e "s#%h/.local/bin/podium#%h/.local/bin/$COMMAND#g" \
       -e "s/podium-daemon.service/$DAEMON_UNIT/g" \
-      -e "s/podium-update-user.service/$UPDATE_UNIT/g" \
       "$source" > "$target"
   fi
 }
 if [ -n "$JOIN_FALLBACK" ]; then
   copy_generated_unit podium-daemon.service "$DAEMON_UNIT"
 fi
-# --- auto-update timer: `podium update` on a daily cadence, restart the daemon only when it
-#     actually swapped in a new bundle (exit 10). Opt out with --no-auto-update. ---
-if [ -n "$AUTO_UPDATE" ]; then
-  if config_is_attached; then
-    note "Daily self-update timer not installed: this daemon is attached to a server, which manages updates in canary waves."
-  elif [ -n "$JOIN" ]; then
-    note "Daily self-update timer not installed: the joined daemon's server authority could not be verified."
-  else
-    copy_generated_unit podium-update-user.service "$UPDATE_UNIT"
-    copy_generated_unit podium-update-user.timer "$UPDATE_TIMER"
-    UPDATE_TIMER_INSTALLED=1
-  fi
-fi
-
 SUPERVISION="The daemon is running detached."
 if [ -n "$HAVE_USER_SYSTEMD" ]; then
   SUPERVISION="The daemon runs as a systemd user service, so it survives reboots."
@@ -576,10 +538,6 @@ if [ -n "$HAVE_USER_SYSTEMD" ]; then
   if [ -n "$JOIN_FALLBACK" ]; then
     systemctl --user enable --now "$DAEMON_UNIT" || \
       echo "Could not start the user service automatically; run: systemctl --user enable --now $DAEMON_UNIT"
-  fi
-  if [ -n "$UPDATE_TIMER_INSTALLED" ]; then
-    systemctl --user enable --now "$UPDATE_TIMER" || \
-      echo "Could not enable auto-update; run: systemctl --user enable --now $UPDATE_TIMER"
   fi
 else
   # `podium setup --join` owns lifecycle setup. When user systemd is unavailable

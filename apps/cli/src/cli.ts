@@ -1477,7 +1477,7 @@ export async function main(
       }
       if (!started) {
         const { installSystemd } = await import('./cli-systemd')
-        const res = installSystemd(plan.mode, plan.port, resolveInstanceId(), config.serverUrl)
+        const res = installSystemd(plan.mode, plan.port, resolveInstanceId())
         if (res.ok) {
           console.log('Installed + started the systemd units for this instance.')
         } else {

@@ -21,7 +21,7 @@ curl -fsSL https://github.com/madeinorbit/podium/releases/download/edge/install.
 
 Then run `podium` and finish setup in the browser at the printed URL (or `podium setup` for the terminal flow). To reach the instance from other devices and pair extra machines, see **[docs/adding-a-machine.md](docs/adding-a-machine.md)**. To run two or more independent deployments on one machine, see **[docs/multi-instance.md](docs/multi-instance.md)**.
 
-Release artifacts ship with a `SHA256SUMS` file — verify a manual download with `sha256sum -c SHA256SUMS --ignore-missing`. Updates are applied by `podium update` (or the bundled auto-update timer) and are signature-checked before the install is swapped. Podium is pre-1.0: the `edge` channel tracks `main`; tagged stable releases will follow.
+Release artifacts ship with a `SHA256SUMS` file — verify a manual download with `sha256sum -c SHA256SUMS --ignore-missing`. Updates are applied on request with `podium update` and are signature-checked before the install is swapped. Podium is pre-1.0: the `edge` channel tracks `main`; tagged stable releases will follow.
 
 ## Run from source
 
