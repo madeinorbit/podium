@@ -321,3 +321,11 @@ the terminal driver wrap flag-gated with zero default-path regressions, the inte
 backbone, receipt-migrated write paths behind the flag, and an opencode session running on
 the server driver end-to-end — ready for the operator to test the branch. Nothing merged
 to main.
+
+### Lesson: heavy gates are a machine-wide resource (POD-2304 outage)
+Every worker brief that mandates a whole-graph typecheck or full test lane MUST also
+mandate `podium lock acquire test:heavy --wait --ttl 30m --repo-path /home/mgw/src/podium`
+around it. On 2026-08-17 three concurrent heavy gates from this epic's workers drove the
+6-CPU/11-GiB host past load 100 and 22 GiB of swap, watchdog-crashed the dev daemon, and
+killed two worker sessions mid-landing. Omitting the lock from a brief is how it happens:
+workers comply with exactly what the brief says. One heavy gate machine-wide, always.
