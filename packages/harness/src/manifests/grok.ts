@@ -218,9 +218,15 @@ export const grokManifest: AgentManifest = {
     }),
     embedded: unsupported('grok ships no library to host in-process'),
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    // ACP is the preferred Grok mechanism: it preserves subscription auth while
-    // providing receipts, permission asks, interrupt, resume and durable cursors.
-    select: (ctx) => selectRuntimeDriver(ctx, ['grok-acp', 'generic-pty']),
+    // ACP is the preferred Grok mechanism for a logged-in harness: it preserves
+    // subscription auth while providing receipts, permission asks, interrupt,
+    // resume and durable cursors. Logged-out sessions stay on the PTY because
+    // that path owns the interactive login affordance.
+    select: (ctx) =>
+      selectRuntimeDriver(
+        ctx,
+        ctx.auth === 'logged-out' ? ['generic-pty'] : ['grok-acp', 'generic-pty'],
+      ),
   },
   headless: supported({
     driver: 'resume-exec',

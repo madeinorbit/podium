@@ -1,4 +1,4 @@
-import type { agentLaunchCommand } from '@podium/harness'
+import type { agentLaunchCommand, HarnessLogin } from '@podium/harness'
 import type { MachineId, SessionId, UsageBucketWire } from '@podium/model'
 import type { ServerTransferServingProof } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -62,6 +62,8 @@ export interface DaemonContext {
   /** Separately provisioned native-account HOME. Ambient/default HOME is never
    * sufficient for tool-less repair execution. */
   accountHome?: ProvisionedAccountHome
+  /** The same per-harness login fact published in machine inventory. */
+  harnessLoginState(agentKind: AgentKind): HarnessLogin['state'] | undefined
 
   // -- per-session runtime state ---------------------------------------------
   /** Live PTY bridges by Podium session id. */

@@ -587,7 +587,7 @@ export type DriverId = (typeof DRIVER_IDS)[number]
  *  Claude on a subscription is terminal (the compliant path) and on an API key
  *  is embedded. */
 export interface SelectionContext {
-  auth: 'subscription' | 'api-key' | 'bedrock' | 'vertex' | 'unknown'
+  auth: 'subscription' | 'api-key' | 'bedrock' | 'vertex' | 'logged-out' | 'unknown'
   platform: NodeJS.Platform
   /** Driver ids this machine can actually run right now: binary present,
    *  version in the pinned range. May be EMPTY on a machine that has not been

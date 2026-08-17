@@ -180,10 +180,15 @@ export const opencodeManifest: AgentManifest = {
     }),
     embedded: unsupported('opencode ships a server, not a library to host in-process'),
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    // The server is the default whenever its version probe admits this machine.
-    // Terminal remains the permanent fallback for an absent, unsupported or
-    // temporarily unprobeable server, and an explicit terminal preference wins.
-    select: (ctx) => selectRuntimeDriver(ctx, ['opencode-server', 'generic-pty']),
+    // The server is the default whenever its version probe admits this machine
+    // AND inventory says the harness is logged in. The PTY owns interactive
+    // login, so a logged-out default must land there instead of starting a
+    // headless server that has no login affordance.
+    select: (ctx) =>
+      selectRuntimeDriver(
+        ctx,
+        ctx.auth === 'logged-out' ? ['generic-pty'] : ['opencode-server', 'generic-pty'],
+      ),
   },
   headless: supported({
     driver: 'resume-exec',

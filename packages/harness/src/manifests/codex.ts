@@ -356,10 +356,15 @@ export const codexManifest: AgentManifest = {
     // The permanent fallback: a protocol break degrades Codex sessions to the
     // terminal driver instead of stranding them (spec §3, churn stance).
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    // App-server is the default for every Codex auth mode when the version probe
-    // admits it. The terminal driver remains the permanent protocol-churn
-    // fallback, and an explicit terminal preference still wins.
-    select: (ctx) => selectRuntimeDriver(ctx, ['codex-app-server', 'generic-pty']),
+    // App-server is the default for every LOGGED-IN Codex auth mode when the
+    // version probe admits it. A logged-out session needs the PTY's interactive
+    // login affordance; the terminal driver also remains the permanent
+    // protocol-churn fallback.
+    select: (ctx) =>
+      selectRuntimeDriver(
+        ctx,
+        ctx.auth === 'logged-out' ? ['generic-pty'] : ['codex-app-server', 'generic-pty'],
+      ),
   },
   headless: supported({
     driver: 'codex-json',

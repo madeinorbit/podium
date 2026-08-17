@@ -33,6 +33,7 @@ import {
   isServerDriver,
   resolveRuntimeDriver,
   runtimeDriverIntentForSpawn,
+  selectionAuthForLogin,
   spawnNamedServerDriver,
   unhonouredSpawnDriver,
 } from './registry'
@@ -70,6 +71,13 @@ describe('the per-spawn driver override', () => {
 
 describe('driver resolution', () => {
   const available = ['claude-pty', 'generic-pty', 'opencode-server'] as const
+  it('maps only a known inventory logout to the logged-out selection axis', () => {
+    expect(selectionAuthForLogin('out')).toBe('logged-out')
+    expect(selectionAuthForLogin('in')).toBe('unknown')
+    expect(selectionAuthForLogin('unknown')).toBe('unknown')
+    expect(selectionAuthForLogin(undefined)).toBe('unknown')
+  })
+
   it.each([
     ['opencode', 'opencode-server'],
     ['codex', 'codex-app-server'],
@@ -91,6 +99,31 @@ describe('driver resolution', () => {
       platform: 'linux',
     })
     expect(supported).toEqual({ ok: true, driverId: serverDriver })
+
+    const loggedOut = resolveRuntimeDriver({
+      agentKind,
+      requested: undefined,
+      machineDefault: undefined,
+      available: [serverDriver, 'generic-pty'],
+      platform: 'linux',
+      auth: 'logged-out',
+    })
+    expect(loggedOut).toEqual({ ok: true, driverId: 'generic-pty' })
+    const explicitLoggedOut = resolveRuntimeDriver({
+      agentKind,
+      requested: serverDriver,
+      machineDefault: undefined,
+      available: [serverDriver, 'generic-pty'],
+      platform: 'linux',
+      auth: 'logged-out',
+    })
+    expect(explicitLoggedOut).toEqual({ ok: true, driverId: 'generic-pty' })
+    expect(
+      unhonouredSpawnDriver({
+        perSpawn: serverDriver,
+        resolved: 'generic-pty',
+      }),
+    ).toBe(serverDriver)
 
     const fallback = resolveRuntimeDriver({
       agentKind,
@@ -155,6 +188,17 @@ describe('driver resolution', () => {
     })
     expect(resolved).toEqual({ ok: true, driverId: 'opencode-server' })
     expect(isServerDriver('opencode', 'opencode-server')).toBe(true)
+  })
+
+  it('lets runtimeContract:true choose the manifest default, now opencode-server', () => {
+    const resolved = resolveRuntimeDriver({
+      agentKind: 'opencode',
+      requested: true,
+      machineDefault: undefined,
+      available: [...available],
+      platform: 'linux',
+    })
+    expect(resolved).toEqual({ ok: true, driverId: 'opencode-server' })
   })
 
   it('honours an explicit opt-in', () => {

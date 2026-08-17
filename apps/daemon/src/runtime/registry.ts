@@ -132,6 +132,15 @@ const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
 
 export type DriverResolution = { ok: true; driverId: DriverId } | { ok: false; reason: string }
 
+/** Map inventory's login fact onto the selection axis without guessing an auth
+ * mode. `unknown` remains distinct from a known logout: only the latter proves
+ * that a headless server would strand the user without the PTY login flow. */
+export function selectionAuthForLogin(
+  state: 'in' | 'out' | 'unknown' | undefined,
+): SelectionContext['auth'] {
+  return state === 'out' ? 'logged-out' : 'unknown'
+}
+
 /**
  * Resolve the driver for one spawn: the explicit override if there is one, the
  * manifest's policy otherwise.

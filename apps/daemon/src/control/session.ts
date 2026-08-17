@@ -42,6 +42,7 @@ import {
   isServerDriverId,
   resolveRuntimeDriver,
   runtimeDriverIntentForSpawn,
+  selectionAuthForLogin,
   spawnNamedServerDriver,
   terminalProfileFor,
   unhonouredSpawnDriver,
@@ -805,6 +806,7 @@ async function launchServerDriverSession(
     return { handled: true }
   }
   const preferredServer = preferred && isServerDriverId(preferred) ? preferred : undefined
+  const loginState = ctx.harnessLoginState(msg.agentKind)
   const resolution = resolveRuntimeDriver({
     agentKind: msg.agentKind,
     requested: msg.runtimeContract,
@@ -817,6 +819,7 @@ async function launchServerDriverSession(
       codexDrivable: preferredServer === 'codex-app-server' && probeFor(preferredServer).drivable,
     }),
     platform: process.platform,
+    auth: selectionAuthForLogin(loginState),
   })
   if (!resolution.ok) {
     ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: resolution.reason })
@@ -851,9 +854,12 @@ async function launchServerDriverSession(
     // no answer because it sends the operator to upgrade something that was
     // never asked about.
     const unhonouredProbe = probeFor(unhonoured)
-    const why = unhonouredProbe.drivable
-      ? `harness '${msg.agentKind}' does not declare it (this spawn resolved to '${resolution.driverId}')`
-      : `${unhonouredProbe.diagnostic.title}: ${unhonouredProbe.diagnostic.body}`
+    const why =
+      loginState === 'out'
+        ? `harness '${msg.agentKind}' is logged out; its terminal path provides interactive login`
+        : unhonouredProbe.drivable
+          ? `harness '${msg.agentKind}' does not declare it (this spawn resolved to '${resolution.driverId}')`
+          : `${unhonouredProbe.diagnostic.title}: ${unhonouredProbe.diagnostic.body}`
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -886,9 +892,12 @@ async function launchServerDriverSession(
         agentKind: msg.agentKind,
         preference: dropped,
         resolved: resolution.driverId,
-        reason: droppedProbe.drivable
-          ? 'the harness does not declare it'
-          : droppedProbe.diagnostic.title,
+        reason:
+          loginState === 'out'
+            ? 'harness is logged out; terminal provides interactive login'
+            : droppedProbe.drivable
+              ? 'the harness does not declare it'
+              : droppedProbe.diagnostic.title,
       })
     })()
     return {

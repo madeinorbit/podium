@@ -1,7 +1,7 @@
 import { mkdir, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { agentLaunchCommand, declaredValue } from '@podium/harness'
+import { agentLaunchCommand, declaredValue, harnessDetectLogin } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
@@ -519,6 +519,10 @@ export async function createDaemonHostRuntime(args: {
     settingsDir: instance.settingsDir,
     homeDir,
     ...(accountHome ? { accountHome } : {}),
+    // Inventory publishes this detector's result; selection reads the same fact
+    // synchronously so a spawn racing the asynchronous inventory report cannot
+    // start a headless server before a known logout reaches the server cache.
+    harnessLoginState: (agentKind) => harnessDetectLogin(agentKind, homeDir ?? homedir())?.state,
     bridges,
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     composerEngine,

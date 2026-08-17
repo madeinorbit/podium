@@ -4,6 +4,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type {
+  CodexRuntimeHost,
+  CodexTransport,
+  GrokAcpRuntimeHost,
+  GrokAcpTransport,
+} from '@podium/agent-runtime'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
@@ -36,7 +42,16 @@ import {
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
+import type { DaemonContext } from './control/context'
+import { sessionHandlers } from './control/session'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
+import {
+  codexAppServerVersionProbe,
+  resetCodexAppServerVersionProbe,
+} from './runtime/codex-app-server'
+import { createDaemonCodexRuntime } from './runtime/codex-driver'
+import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/grok-acp-server'
+import { createDaemonGrokRuntime } from './runtime/grok-driver'
 import { createSessionObservers, type ReattachControl } from './session-observers'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
@@ -320,7 +335,14 @@ describe('daemon multi-bridge', () => {
   // names the session at spawn, which both makes grok create it at boot and lets
   // the observer bind it without waiting for the user to type. [POD-386]
   it('mints a native session id for a fresh grok spawn and binds it immediately', async () => {
-    send({ type: 'spawn', sessionId: 'g1', agentKind: 'grok', cwd: '/tmp', geometry: G })
+    send({
+      type: 'spawn',
+      sessionId: 'g1',
+      agentKind: 'grok',
+      cwd: '/tmp',
+      geometry: G,
+      runtimeContract: 'generic-pty',
+    })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'g1'))
 
     const minted = launchOpts.at(-1)?.newSessionId
@@ -977,6 +999,199 @@ describe('daemon multi-bridge', () => {
     // and (with the fix) removeSessionUploads is called before agentExit.
     await waitFor(() => received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId))
     expect(existsSync(uploadDir)).toBe(false)
+  })
+})
+
+type DefaultServerTransport = CodexTransport | GrokAcpTransport
+
+function defaultServerTransport(kind: 'codex' | 'grok'): DefaultServerTransport {
+  let handler: { line(line: string): void; closed(): void } | undefined
+  const reply = (id: string | number, result: unknown): void => {
+    const frame = kind === 'codex' ? { id, result } : { jsonrpc: '2.0', id, result }
+    handler?.line(JSON.stringify(frame))
+  }
+  return {
+    write(line) {
+      const frame = JSON.parse(line) as { id?: string | number; method?: string }
+      if (frame.id === undefined || frame.method === undefined) return
+      if (kind === 'codex') {
+        const result =
+          frame.method === 'initialize'
+            ? { userAgent: 'fixture', codexHome: '/fixture/.codex' }
+            : frame.method === 'thread/start'
+              ? { thread: { id: 'fixture-codex-thread', path: null } }
+              : frame.method === 'getAuthStatus'
+                ? { authMethod: 'chatgpt' }
+                : {}
+        reply(frame.id, result)
+        return
+      }
+      const result =
+        frame.method === 'initialize'
+          ? { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+          : frame.method === 'session/new'
+            ? { sessionId: 'fixture-grok-session' }
+            : {}
+      reply(frame.id, result)
+    },
+    onLine(next) {
+      handler = next
+    },
+    close() {
+      handler?.closed()
+    },
+  }
+}
+
+function defaultCodexRuntime(sent: DaemonMessage[]) {
+  const entries = new Map<SessionId, Parameters<CodexRuntimeHost['journal']['write']>[0]>()
+  const host: CodexRuntimeHost = {
+    journal: {
+      read: (id) => entries.get(id),
+      write: (entry) => void entries.set(entry.sessionId, entry),
+      clear: (id) => void entries.delete(id),
+    },
+    now: () => 1_786_700_000_000,
+    mintSessionId: () => asSessionId('fixture-codex-session'),
+    async launch(input) {
+      const transport = defaultServerTransport('codex') as CodexTransport
+      return {
+        transport,
+        process: { key: `podium-cx-${input.sessionId}` },
+        stop: async () => transport.close(),
+        kill: async () => transport.close(),
+        memoryBytes: () => undefined,
+      }
+    },
+  }
+  return createDaemonCodexRuntime({ send: (msg) => void sent.push(msg), host })
+}
+
+function defaultGrokRuntime(sent: DaemonMessage[]) {
+  const entries = new Map<SessionId, Parameters<GrokAcpRuntimeHost['journal']['write']>[0]>()
+  const host: GrokAcpRuntimeHost = {
+    journal: {
+      read: (id) => entries.get(id),
+      write: (entry) => void entries.set(entry.sessionId, entry),
+      clear: (id) => void entries.delete(id),
+    },
+    now: () => 1_786_700_000_000,
+    mintSessionId: () => asSessionId('fixture-grok-session'),
+    async launch(input) {
+      const transport = defaultServerTransport('grok') as GrokAcpTransport
+      let alive = true
+      return {
+        transport,
+        process: { key: `podium-gk-${input.sessionId}` },
+        stop: async () => {
+          alive = false
+          transport.close()
+        },
+        kill: async () => {
+          alive = false
+          transport.close()
+        },
+        memoryBytes: () => undefined,
+        alive: () => alive,
+      }
+    },
+  }
+  return createDaemonGrokRuntime({ send: (msg) => void sent.push(msg), host })
+}
+
+function defaultServerSpawnContext(
+  sent: DaemonMessage[],
+  runtimes: {
+    codexRuntime?: ReturnType<typeof defaultCodexRuntime>
+    grokRuntime?: ReturnType<typeof defaultGrokRuntime>
+  },
+): DaemonContext {
+  return {
+    send: (msg) => void sent.push(msg),
+    machineId: 'default-server-machine',
+    durableLabelFor: (id) => `default-server-${id}`,
+    sessionBinding: {
+      transition: async () => ({ status: 'applied' }),
+    },
+    sessionCwdTracker: {
+      setLaunchCwd: async () => {},
+    },
+    harnessLoginState: () => 'in',
+    ...runtimes,
+  } as unknown as DaemonContext
+}
+
+async function waitForDefaultServerBind(
+  sent: DaemonMessage[],
+  sessionId: string,
+): Promise<Extract<DaemonMessage, { type: 'bind' }>> {
+  await vi.waitFor(() =>
+    expect(sent.some((msg) => msg.type === 'bind' && msg.sessionId === sessionId)).toBe(true),
+  )
+  const bind = sent.find(
+    (msg): msg is Extract<DaemonMessage, { type: 'bind' }> =>
+      msg.type === 'bind' && msg.sessionId === sessionId,
+  )
+  if (!bind) throw new Error(`missing bind for ${sessionId}`)
+  return bind
+}
+
+describe('default server-driver spawn integration', () => {
+  afterEach(() => {
+    resetCodexAppServerVersionProbe()
+    resetGrokAcpVersionProbe()
+  })
+
+  it('routes a bare Codex spawn through app-server and binds that driver', async () => {
+    resetCodexAppServerVersionProbe()
+    expect(codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true })).drivable).toBe(true)
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'default-codex',
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      await expect(waitForDefaultServerBind(sent, 'default-codex')).resolves.toMatchObject({
+        runtimeContract: true,
+        driverId: 'codex-app-server',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('routes a bare Grok spawn through ACP and binds that driver', async () => {
+    resetGrokAcpVersionProbe()
+    expect(grokAcpVersionProbe(() => ({ output: '0.2.118', ok: true })).drivable).toBe(true)
+    const sent: DaemonMessage[] = []
+    const runtime = defaultGrokRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { grokRuntime: runtime })
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'default-grok',
+        agentKind: 'grok',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      await expect(waitForDefaultServerBind(sent, 'default-grok')).resolves.toMatchObject({
+        runtimeContract: true,
+        driverId: 'grok-acp',
+      })
+    } finally {
+      runtime.dispose()
+    }
   })
 })
 
@@ -2158,7 +2373,14 @@ describe('agent state instrumentation', () => {
   })
 
   it('native Grok hook POSTs drive normalized live state', async () => {
-    send({ type: 'spawn', sessionId: 'gHook', agentKind: 'grok', cwd: '/tmp', geometry: G })
+    send({
+      type: 'spawn',
+      sessionId: 'gHook',
+      agentKind: 'grok',
+      cwd: '/tmp',
+      geometry: G,
+      runtimeContract: 'generic-pty',
+    })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'gHook'))
     const post = (payload: unknown) =>
       fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/gHook`, {

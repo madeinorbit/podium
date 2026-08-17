@@ -156,6 +156,15 @@ describe('per-harness selection (spec §2 matrix)', () => {
         preference: terminal,
       }),
     ).toBe(terminal)
+    // A known logout is different from an inconclusive inventory read: the
+    // terminal path owns interactive login, while the server has no affordance.
+    expect(
+      runtime.select({
+        auth: 'logged-out',
+        platform: 'linux',
+        available: [server, terminal],
+      }),
+    ).toBe(terminal)
   })
 
   it('leaves cursor terminal-only', () => {
