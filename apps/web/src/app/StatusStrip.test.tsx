@@ -196,7 +196,8 @@ describe('StatusStrip burn and ship rates', () => {
       screen.getByLabelText('Share token burn on X').getAttribute('href') ?? '',
     )
     expect(burnShare).toContain('x.com/intent/post')
-    expect(burnShare).toContain('@podium_ade is burning $0.10/hr in tokens')
+    // $0.10/hr is under the flex threshold, so it takes the small-burn closer.
+    expect(burnShare).toContain('I am running @podium_ade on $0.10/hr in tokens')
   })
 
   /** The verdict this used to require (`gitState.merged`) is probed live and

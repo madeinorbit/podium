@@ -3,7 +3,7 @@ import type { IssueWire, UsageBucketWire } from '@podium/model/browser'
 import { type JSX, useMemo } from 'react'
 import { useUsageFeed } from '@/features/usage/useUsageFeed'
 import { StatusMetric, type StatusMetricBucket } from './StatusMetric'
-import { shareShipRate, shareTokenBurn } from './status-share'
+import { money, shareShipRate, shareTokenBurn } from './status-share'
 import { useReplicaIssues } from './store'
 import type { Trpc } from './trpc'
 
@@ -12,11 +12,6 @@ const BURN_HOURS = 12
 /** Ships are counted per DAY, so the window IS the day: the headline number is
  *  the trailing-24h count itself, not a 12-hour count multiplied out. */
 const SHIP_HOURS = 24
-
-function money(value: number): string {
-  const digits = value >= 10 ? 1 : value >= 0.1 ? 2 : value > 0 ? 3 : 0
-  return `$${value.toFixed(digits)}`
-}
 
 function hourStarts(nowMs: number, hours: number): number[] {
   const currentHour = Math.floor(nowMs / HOUR_MS) * HOUR_MS
@@ -91,7 +86,7 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
   const shipPeak = Math.max(0, ...shipBuckets.map((bucket) => bucket.value))
   const shipNoun = shipped === 1 ? 'ship' : 'ships'
   const burnValue = feed.buckets === null ? '—/h' : `${money(burnPerHour)}/h`
-  const burnShare = feed.buckets === null ? undefined : shareTokenBurn(money(burnPerHour))
+  const burnShare = feed.buckets === null ? undefined : shareTokenBurn(burnPerHour)
 
   return (
     <>

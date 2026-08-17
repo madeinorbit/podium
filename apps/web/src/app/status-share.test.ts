@@ -7,7 +7,9 @@ describe('status-strip X share copy', () => {
       shareAgentConcurrency(0),
       shareAgentConcurrency(1),
       shareAgentConcurrency(4),
-      shareTokenBurn('$12.40'),
+      shareTokenBurn(0),
+      shareTokenBurn(4.99),
+      shareTokenBurn(12.4),
       shareShipRate(0),
       shareShipRate(1),
       shareShipRate(12),
@@ -25,10 +27,20 @@ describe('status-strip X share copy', () => {
     expect(shareAgentConcurrency(0)).toContain('rare quiet')
   })
 
-  it('leads the burn with the number and the account', () => {
-    expect(shareTokenBurn('$12.40')).toBe(
-      '@podium_ade is burning $12.40/hr in tokens.\n\nI used to think that number would scare me.',
+  it('puts the operator, not the product, on the burning end', () => {
+    expect(shareTokenBurn(12.4)).toBe(
+      'I am burning $12.4/hr in tokens with @podium_ade.\n\nI used to think that number would scare me.',
     )
+  })
+
+  it('swaps the closer when the hourly burn is small', () => {
+    expect(shareTokenBurn(4.99)).toBe(
+      'I am running @podium_ade on $4.99/hr in tokens.\n\na rounding error with commit access.',
+    )
+    expect(shareTokenBurn(0)).toContain('$0/hr')
+    expect(shareTokenBurn(0)).toContain('rounding error')
+    // The boundary is the flex: $5.00 is a burn, $4.99 is a rounding error.
+    expect(shareTokenBurn(5)).toContain('I am burning')
   })
 
   it('flexes the day of ships and has a dry empty runway', () => {
