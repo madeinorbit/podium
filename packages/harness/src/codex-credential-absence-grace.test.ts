@@ -20,6 +20,55 @@ describe('Codex credential absence grace', () => {
     expect(grace.missing(path, true)).toEqual({ state: 'out' })
   })
 
+  it('stays out across later reads once the grace has lapsed', () => {
+    let now = 100
+    const grace = new CodexCredentialAbsenceGrace(() => now)
+    const path = '/fixture/.codex/auth.json'
+    const login = { state: 'in' as const, account: 'ChatGPT' }
+
+    grace.present(path, login)
+    expect(grace.missing(path, true)).toEqual(login)
+    now = 5_100
+    expect(grace.missing(path, true)).toEqual({ state: 'out' })
+    for (const step of [10_200, 15_300, 20_400]) {
+      now = step
+      expect(grace.missing(path, true)).toEqual({ state: 'out' })
+    }
+  })
+
+  it('settles out for an installed Codex that was never signed in', () => {
+    // ~/.codex exists, auth.json never does. The first read is unknown while
+    // the grace runs; every read after it must stay out rather than reopening
+    // the window and flapping onboarding between Ready and Setup needed.
+    let now = 100
+    const grace = new CodexCredentialAbsenceGrace(() => now)
+    const path = '/fixture/.codex/auth.json'
+
+    expect(grace.missing(path, true)).toEqual({ state: 'unknown' })
+    for (const step of [5_100, 10_200, 15_300, 20_400, 25_500]) {
+      now = step
+      expect(grace.missing(path, true)).toEqual({ state: 'out' })
+    }
+  })
+
+  it('graces a rotation again after auth.json reappears', () => {
+    let now = 100
+    const grace = new CodexCredentialAbsenceGrace(() => now)
+    const path = '/fixture/.codex/auth.json'
+    const login = { state: 'in' as const, account: 'ChatGPT' }
+
+    now = 10_000
+    expect(grace.missing(path, true)).toEqual({ state: 'unknown' })
+    now = 20_000
+    expect(grace.missing(path, true)).toEqual({ state: 'out' })
+
+    expect(grace.present(path, login)).toEqual(login)
+    now = 20_001
+    expect(grace.missing(path, true)).toEqual(login)
+    now = 25_001
+    expect(grace.missing(path, true)).toEqual({ state: 'out' })
+  })
+
   it('does not grace a missing parent directory', () => {
     let now = 100
     const grace = new CodexCredentialAbsenceGrace(() => now)
