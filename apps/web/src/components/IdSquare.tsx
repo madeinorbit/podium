@@ -50,8 +50,10 @@ export function idSquareLabel(
 /**
  * The issue identity square shared by every shell surface.
  *
- * Geometry and type are deliberately fixed: all desktop locations render this
- * exact 26px component. It also owns the #38 colour-picker interaction so a new
+ * Geometry and type are deliberately CENTRAL rather than free: a location picks
+ * a size (and, since POD-1178, a tile's width and a number-only setting) but
+ * every ratio inside — type against box, radius, badge ring, the colour tint —
+ * is derived here. It also owns the #38 colour-picker interaction so a new
  * location cannot accidentally copy either the square language or the picker.
  */
 export function IdSquare({
@@ -65,6 +67,9 @@ export function IdSquare({
   primaryOnly = false,
   onColorChange,
   size = 26,
+  width,
+  radius,
+  numberOnly = false,
 }: {
   issue: Pick<IssueWire, 'linearIdentifier' | 'seq' | 'color' | 'title' | 'parentId'>
   state: IdSquareState
@@ -72,12 +77,30 @@ export function IdSquare({
   /** Square edge in px. Desktop rows run 30 for a readable prefix/number
    *  (POD-293); the rail and mobile header pass their own smaller size. */
   size?: number
+  /** THE MARK IS NOT ALWAYS A SQUARE (POD-1178, the collapsed rail's 3b
+   *  design). A 58px column has width to spend and no height to spare, so the
+   *  rail draws the identity mark as a 36×32 TILE. `size` stays the height —
+   *  every ratio below (type, radius floor, badge ring) is derived from it —
+   *  and this widens the box. Defaults to `size`, i.e. a square. */
+  width?: number
+  /** Corner radius override. The square's own ramp holds 7px from 26px up
+   *  (see below); the rail's wider tile takes the design's 9px, which reads as
+   *  the same corner once the box is no longer square. */
+  radius?: number
+  /** Drop the prefix line and set the number alone (POD-1178). A 32px-tall
+   *  tile has one line of room, and the rail is a column of ONE project's
+   *  worth of work where the prefix is the same on every mark — so it is the
+   *  half that can go. `aria-label` and the tooltip still carry the full ref. */
+  numberOnly?: boolean
   /** Corner status badge (waiting dot/count, working spinner, done check). */
   badge?: IdSquareBadge | null
   /** The surface the corner badge punches out of (sidebar vs rail background). */
   ringColor?: string
-  /** Tooltip override — the rail packs the row's lost text in here. */
-  titleHint?: string
+  /** Tooltip override. `null` suppresses the native tooltip entirely, for a
+   *  host that draws its own hover card over the same mark (POD-1178): two
+   *  tooltips for one gesture is one too many, and the OS one always wins the
+   *  race by arriving a second late and covering the card. */
+  titleHint?: string | null
   /** Rail semantics (#41): when set, clicking an UNSELECTED square calls this
    *  (select the issue) and only a click on the already-selected square opens
    *  the colour picker. Without it every click opens the picker (wide rows). */
@@ -218,17 +241,20 @@ export function IdSquare({
   // legibly render and well under the 8.1px POD-446 already called unreadable.
   // Both marks now sit on the shell's 10.5px micro floor and the prefix is told
   // apart by prefixColor alone. Smaller rail/mobile squares stay proportional.
-  const numberSize = size >= 30 ? 10.5 : Math.round((size / 30) * 105) / 10
+  // A number-only mark spends the prefix's line on the number instead: 11.5px
+  // is the row-title size from the mocks, and it is what makes three digits
+  // read as this tile's whole identity rather than as a shrunken square.
+  const numberSize = numberOnly ? 11.5 : size >= 30 ? 10.5 : Math.round((size / 30) * 105) / 10
   const prefixSize = numberSize
   // Written as longhands, not a `border` shorthand: a `var()` inside a shorthand
   // is only resolved at computed-value time, so the shorthand can't be read back.
   const squareStyle: CSSProperties = {
-    width: size,
+    width: width ?? size,
     height: size,
     // 7px is a constant from 26px up — the design draws the same corner on the
     // 26px rail square and the 30px row square, and a proportional radius made
     // the bigger one read as an 8px pill. Smaller (mobile) squares scale down.
-    borderRadius: size >= 26 ? 7 : Math.round((size / 26) * 7),
+    borderRadius: radius ?? (size >= 26 ? 7 : Math.round((size / 26) * 7)),
     fontSize: numberSize,
     borderWidth: 1,
     borderStyle: !hex && resting ? 'dashed' : 'solid',
@@ -249,9 +275,7 @@ export function IdSquare({
     boxShadow: open ? '0 0 0 2px var(--text-strong)' : undefined,
     opacity: resting && !selected ? 0.65 : 1,
   }
-  const prefixColor = hex
-    ? `color-mix(in srgb, ${hex} 45%, var(--text-dim))`
-    : 'var(--text-faint)'
+  const prefixColor = hex ? `color-mix(in srgb, ${hex} 45%, var(--text-dim))` : 'var(--text-faint)'
 
   return (
     <>
@@ -281,10 +305,12 @@ export function IdSquare({
         aria-expanded={opensPicker ? open : undefined}
         aria-busy={saving}
         title={
-          titleHint ??
-          (colorable
-            ? `${label.full} · ${issue.title} · ${displayColor ? issueColorName(displayColor) : 'No colour'}`
-            : `${label.full} · ${issue.title}`)
+          titleHint === null
+            ? undefined
+            : (titleHint ??
+              (colorable
+                ? `${label.full} · ${issue.title} · ${displayColor ? issueColorName(displayColor) : 'No colour'}`
+                : `${label.full} · ${issue.title}`))
         }
         onClick={(event) => {
           event.stopPropagation()
@@ -300,9 +326,11 @@ export function IdSquare({
             It recedes by INK rather than a blanket opacity: on a tinted ground an
             opacity fade greys the hue out, and the design wants a MUTED tint of
             the colour over the number's strong one. */}
-        <span style={{ fontSize: prefixSize, lineHeight: 1, color: prefixColor }}>
-          {label.prefix}
-        </span>
+        {!numberOnly && (
+          <span style={{ fontSize: prefixSize, lineHeight: 1, color: prefixColor }}>
+            {label.prefix}
+          </span>
+        )}
         <span className="tracking-[.02em]">{label.number}</span>
         {badge && <StatusBadge kind={badge.kind} count={badge.count} ringColor={ringColor} />}
       </button>

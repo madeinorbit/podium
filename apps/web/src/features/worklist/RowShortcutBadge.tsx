@@ -16,13 +16,17 @@ import type { CSSProperties, JSX } from 'react'
 export function RowShortcutBadge({
   digit,
   size = 30,
+  radius,
 }: {
   digit: number
-  /** Square edge in px, matched to the square underneath (30 wide rows, 26 rail). */
+  /** Square edge in px, matched to the mark underneath (30 wide rows, 32 rail). */
   size?: number
+  /** Corner override, matched to the mark underneath — the rail's tile takes a
+   *  9px corner, and a badge that covers it exactly must take the same one. */
+  radius?: number
 }): JSX.Element {
   const style: CSSProperties = {
-    borderRadius: size >= 26 ? 7 : Math.round((size / 26) * 7),
+    borderRadius: radius ?? (size >= 26 ? 7 : Math.round((size / 26) * 7)),
     // The digit runs a step larger than the square's own number: it is a single
     // glyph on an empty ground, and it has to be legible at a glance in the
     // moment before the operator commits to a keystroke.

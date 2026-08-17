@@ -2092,18 +2092,26 @@ html[data-density="balanced"] .header-quota-pools {
   background: var(--accent);
   color: var(--text-strong);
 }
+/* 58px, not 52px (POD-1178, design 3b). The extra six pixels are what turn a
+   strip of stamps into a readable column: they buy the 36px identity TILE, and
+   with it the room for a project label, an inset progress rule and a selection
+   spine that stops at the column's own edge instead of reaching across it.
+   BANDS, NOT A STACK. The column used to be one centred flex stack with a 10px
+   gap and 10px of padding, so the expand control, the spawn block and the
+   footer tools were all just items in a list. The design gives the column three
+   parts — a header rule, the scrolling tiles, a footer rule — and each owns its
+   own padding, which is why there is no gap or padding here any more. */
 .collapsed-sidebar {
   position: relative;
-  /* Above the engraved sibling so the selected square's bridge notch can paint
-     across the border into it (#41). */
+  /* Its own stacking context, above the engraved sibling: the selected spine
+     sits ON this column's right edge, and the neighbouring column's seam must
+     not paint over it (#41, POD-1178). */
   z-index: 10;
   display: flex;
-  flex: 0 0 52px;
+  flex: 0 0 58px;
   min-height: 0;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 0;
+  align-items: stretch;
   /* The column's own tone, not --card: collapsing changes the sidebar's width,
      not its material (POD-725, same rule the folded flight deck now follows).
      On paper --card is pure white, so the old value turned a collapsed sidebar
@@ -2111,7 +2119,21 @@ html[data-density="balanced"] .header-quota-pools {
      dock and rail lost theirs — tone separates. */
   background: var(--sidebar);
 }
-.collapsed-sidebar-expand,
+/* The rail's header band: the ⟩ control is the full width of the column and
+   the rule under it is the top of the work list, exactly as the wide sidebar's
+   header sits over its own. It is no longer a 24px pill floating in padding. */
+.collapsed-sidebar-expand {
+  display: flex;
+  height: 38px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-dim);
+}
 .folded-superagent-control {
   display: flex;
   min-width: 24px;

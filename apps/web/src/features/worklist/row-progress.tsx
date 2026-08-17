@@ -195,3 +195,49 @@ export function RowProgressMeter({
     </span>
   )
 }
+
+/**
+ * THE SAME INSTRUMENT, INSIDE THE RAIL'S TILE (POD-1178, design 3b).
+ *
+ * The collapsed column has no text block to hang a baseline rule under, so the
+ * meter moves ONTO the mark: a 2px rule inset into the foot of the 36×32 tile,
+ * which is the only free surface a 58px column has. Everything that makes the
+ * wide meter honest is shared rather than restated — the same `MissionProgress`,
+ * the same {@link ROW_PROGRESS_MIN_TASKS} threshold, the same
+ * {@link rowProgressLabel} reading, the same two tones (settled `--text-dim`,
+ * live `--live`) over the same trough.
+ *
+ * TWO SEGMENTS, NOT THREE. The wide rule spends ~180px and can afford to split
+ * `review` out in amber; this one has ~26px, where a third band is a smudge —
+ * and amber inside a tile the operator scans for the corner badge would compete
+ * with the one mark in this column that is allowed to ask for something. Review
+ * work reads as not-yet-done here, and the tooltip still names the count.
+ *
+ * NO SWEEP EITHER: a travelling sheen needs length to be seen travelling, and
+ * the rail already says "an agent is computing" on this tile through the badge
+ * the wide row shows in the same place.
+ */
+export function RailProgressMeter({ progress }: { progress: MissionProgress }): JSX.Element | null {
+  if (progress.total < ROW_PROGRESS_MIN_TASKS) return null
+  const pct = (n: number): string => `${(n / progress.total) * 100}%`
+  return (
+    <span
+      data-testid="rail-progress"
+      data-total={progress.total}
+      role="img"
+      aria-label={rowProgressLabel(progress)}
+      className="pointer-events-none absolute right-[5px] bottom-[4px] left-[5px] z-[1] flex h-[2px] overflow-hidden rounded-[1px] bg-border-strong"
+    >
+      <span
+        data-segment="done"
+        className="h-full bg-text-dim transition-[width] duration-[450ms] ease-out motion-reduce:transition-none"
+        style={{ width: pct(progress.done) }}
+      />
+      <span
+        data-segment="run"
+        className="h-full bg-live transition-[width] duration-[450ms] ease-out motion-reduce:transition-none"
+        style={{ width: pct(progress.run) }}
+      />
+    </span>
+  )
+}

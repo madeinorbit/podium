@@ -675,7 +675,10 @@ function AppBody(): JSX.Element {
                   title="Expand sidebar"
                   onClick={() => setSidebarCollapsed(false)}
                 >
-                  <ChevronRight size={13} aria-hidden="true" />
+                  {/* 15px, not 13: the control is the column's whole header
+                      band now (POD-1178), and a 13px glyph read as a speck
+                      parked in the middle of it. */}
+                  <ChevronRight size={15} aria-hidden="true" />
                 </button>
                 <SidebarRail />
               </aside>

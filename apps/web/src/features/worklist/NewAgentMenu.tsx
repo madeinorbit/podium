@@ -175,7 +175,10 @@ export function NewAgentMenu({
   onPersistDefaultAgent,
   onNewIssue,
 }: {
-  anchorRef: RefObject<HTMLDivElement | null>
+  /** The box the popup measures itself against. Optional: the collapsed rail
+   *  opens this menu off a 34px tile, where anchoring to the trigger and
+   *  letting `min-w-32` set the width is the only sane reading (POD-1178). */
+  anchorRef?: RefObject<HTMLDivElement | null>
   menuRepos: RepoNavView[]
   machineViews: readonly MachineView<MachineWire>[]
   defaultRepo: RepoNavView | undefined

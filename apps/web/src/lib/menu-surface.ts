@@ -25,6 +25,13 @@ export const MENU_PANEL = `${PANEL} p-[6px]`
  *  geometry so the swatch grid keeps identical cell sizes wherever it opens. */
 export const MENU_PICKER_PANEL = `${PANEL} w-[196px] px-[11px] py-[10px]`
 
+/** A READ-ONLY overlay on the same shell: the collapsed rail's hover card
+ *  (POD-1178). It is not a menu — nothing in it is clickable — but it opens
+ *  from the same gesture, one pixel off the same column, so it has to be the
+ *  same object. Its own padding, because the card holds two stacked lines of
+ *  text rather than a grid or a list of rows. */
+export const MENU_HOVER_CARD = `${PANEL} px-[11px] py-[8px]`
+
 /** The picker's header line — a mono micro-caps label with the issue ref
  *  pushed to the right edge. `MENU_HEADER_REF` goes on that trailing span.
  *  Carries no horizontal padding: the picker sits flush with its swatch grid,
