@@ -3,10 +3,20 @@ import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { currentSkew, resetSkewNotice } from '@/app/skew-notice'
 import { reloadBudgetSpent } from '@/lib/reload-budget'
-import { checkServerVersion, forceReload } from './version-guard'
+import {
+  checkServerVersion,
+  forceReload,
+  recoverFromWireSkew,
+  resetWireSkewRecovery,
+} from './version-guard'
 
 const ORIGIN = 'https://relay.test'
 const COUNTER_KEY = 'podium.vreload'
+
+/** The budget as the guard writes it: attempts, and the served build they were spent against. */
+const budgetFor = (target: string, spent: number) => JSON.stringify({ n: spent, t: target })
+/** The key the guard derives from a `/version` body — `wireVersion/wireSchemaDigest`. */
+const targetOf = (wire: number, digest?: string) => `${wire}/${digest ?? '?'}`
 
 let reload: ReturnType<typeof vi.fn>
 let unregister: ReturnType<typeof vi.fn>
@@ -23,6 +33,7 @@ function versionResponse(body: unknown): {
 }
 
 beforeEach(() => {
+  resetWireSkewRecovery()
   reload = vi.fn()
   unregister = vi.fn().mockResolvedValue(true)
   cacheDelete = vi.fn().mockResolvedValue(true)
@@ -103,7 +114,9 @@ describe('checkServerVersion', () => {
     expect(unregister).toHaveBeenCalledTimes(1)
     expect(cacheDelete).toHaveBeenCalledTimes(2)
     expect(reload).toHaveBeenCalledTimes(1)
-    expect(store.get(COUNTER_KEY)).toBe('1') // first reload recorded
+    // First reload recorded — AGAINST the build it is aimed at, which is what lets a later,
+    // different build start over instead of inheriting this attempt (POD-2253).
+    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(WIRE_VERSION + 1), 1))
   })
 
   it('does not reload when this client is ahead of its server', async () => {
@@ -173,8 +186,9 @@ describe('checkServerVersion', () => {
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
-  it('blocks (no further reload) after two reloads in a session, surfacing an error', async () => {
-    store.set(COUNTER_KEY, '2') // already reloaded twice this session
+  it('blocks (no further reload) after two reloads at the same build, surfacing an error', async () => {
+    // Already reloaded twice this session AT THIS BUILD — the loop the budget exists to stop.
+    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION + 1), 2))
     // A REAL sink with no pinned level, per the epic's testing note: the
     // diagnostic moved from the console to the logger, and a capture pinned at
     // `trace` would observe records a deployment never emits.
@@ -270,7 +284,7 @@ describe('checkServerVersion — schema digest', () => {
   })
 
   it('raises a VISIBLE notice once reloading has failed twice', async () => {
-    store.set(COUNTER_KEY, '2')
+    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION, 'deadbeefdeadbeef'), 2))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal(
       'fetch',
@@ -291,8 +305,68 @@ describe('checkServerVersion — schema digest', () => {
     expect(notice?.message).not.toContain('bun run build')
   })
 
-  it('records the spent reload budget so the panel can explain it afterwards', async () => {
+  /**
+   * THE BUDGET IS SPENT AGAINST A BUILD, NOT INTO THE AIR (POD-2253).
+   *
+   * The first real update on a live instance changed the wire digest, which is the moment the
+   * guard exists for — and it met a budget already emptied against an earlier, unrelated
+   * mismatch, so the tab never reloaded and stayed dead until the service worker was cleared by
+   * hand. These cases pin BOTH halves: a new digest earns a fresh attempt, and a repeat against
+   * the same digest still stops, because the second is the loop the budget is actually for.
+   */
+  const spentDigest = 'deadbeefdeadbeef'
+  const nextDigest = 'feedfacefeedface'
+
+  const serveDigest = (digest: string) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(versionResponse({ ...matched, wireSchemaDigest: digest })),
+    )
+
+  it('a budget spent against an EARLIER build does not strand the tab on a new one', async () => {
+    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION, spentDigest), 2))
+    serveDigest(nextDigest)
+    expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
+    expect(reload).toHaveBeenCalledTimes(1)
+    // And the fresh attempt is booked against the NEW build, not added to the old tally.
+    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(WIRE_VERSION, nextDigest), 1))
+  })
+
+  it('CAN SAY NO: two reloads at the SAME digest still stop the loop', async () => {
+    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION, spentDigest), 2))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    serveDigest(spentDigest)
+    expect(await checkServerVersion(ORIGIN)).toBe('blocked')
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('a pre-POD-2253 bare counter reads as unspent and is replaced by the keyed form', async () => {
+    // The old spelling records attempts against a build it cannot name, so it can never match a
+    // target — the tabs holding one are exactly the tabs this stranded, and they get another
+    // attempt. The second assertion is the one with teeth: the value it leaves behind must be
+    // the keyed form, or the next check would read this same unnameable counter again forever.
     store.set(COUNTER_KEY, '2')
+    serveDigest(nextDigest)
+    expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(WIRE_VERSION, nextDigest), 1))
+  })
+
+  it('a server that advertises no digest is ONE target, not a new one every poll', async () => {
+    // Otherwise silence would look like perpetual change and the budget would never bind.
+    const { wireSchemaDigest: _omitted, ...noDigest } = matched
+    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION + 1), 2))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(versionResponse({ ...noDigest, wireVersion: WIRE_VERSION + 1 })),
+    )
+    expect(await checkServerVersion(ORIGIN)).toBe('blocked')
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('records the spent reload budget so the panel can explain it afterwards', async () => {
+    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION, 'deadbeefdeadbeef'), 2))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal(
       'fetch',
@@ -302,5 +376,57 @@ describe('checkServerVersion — schema digest', () => {
     )
     expect(await checkServerVersion(ORIGIN)).toBe('blocked')
     expect(reloadBudgetSpent()).toBe(true)
+  })
+})
+
+/**
+ * THE TAB THAT WAS ALREADY OPEN (POD-2253).
+ *
+ * The boot check saves the tab you open after an update. The tab that was open THROUGH the
+ * update is the one this issue is about: a wire-schema change breaks its ability to decode, and
+ * therefore its ability to be clicked, and the only thing it got was a banner asking it to press
+ * a button that no longer works. Refused frames are the transport saying so out loud.
+ */
+describe('recoverFromWireSkew', () => {
+  const matched = {
+    wireVersion: WIRE_VERSION,
+    minSupportedVersion: WIRE_VERSION,
+    appVersion: 'test',
+    wireSchemaDigest: wireSchemaDigest(),
+  }
+
+  it('forces the takeover when the server is genuinely serving a different build', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(versionResponse({ ...matched, wireSchemaDigest: 'deadbeef' })),
+    )
+    expect(await recoverFromWireSkew(ORIGIN, { refusedFrames: 3 })).toBe('reloaded')
+    expect(unregister).toHaveBeenCalledTimes(1)
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('CAN SAY NO: a matching digest means the skew is not a stale shell, so it does nothing', async () => {
+    // A reload here would be a guess dressed as a remedy — the served build is the one we have.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(matched)))
+    expect(await recoverFromWireSkew(ORIGIN, { refusedFrames: 3 })).toBe('ok')
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('CAN SAY NO: quarantined rows alone are not grounds to take a tab away from its user', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await recoverFromWireSkew(ORIGIN, { refusedFrames: 0 })).toBe('ignored')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('acts once per page load, however many frames the transport refuses', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(versionResponse({ ...matched, wireSchemaDigest: 'deadbeef' })),
+    )
+    expect(await recoverFromWireSkew(ORIGIN, { refusedFrames: 1 })).toBe('reloaded')
+    expect(await recoverFromWireSkew(ORIGIN, { refusedFrames: 1 })).toBe('ignored')
+    expect(reload).toHaveBeenCalledTimes(1)
   })
 })

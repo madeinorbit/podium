@@ -166,6 +166,25 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          /**
+           * CLAIM ON ACTIVATION, BUT STILL WAIT TO ACTIVATE (POD-2253).
+           *
+           * These two switches are usually spoken of as a pair and they are not
+           * the same decision. `skipWaiting` stays FALSE, which is what
+           * `registerType: 'prompt'` is for: a new worker installs and waits, so
+           * a running tab keeps the precache its already-loaded bundle will ask
+           * for lazy chunks from. Activating under it would purge that precache
+           * and 404 the next chunk the user navigates to.
+           *
+           * `clientsClaim` decides something else — what happens ONCE the swap
+           * has been authorised. Without it the freshly activated worker
+           * controls nothing until the next navigation, so `controllerchange`
+           * never fires and the panel's Reload falls through to its 2 s timeout;
+           * the takeover needs a second navigation to actually take. With it the
+           * swap completes in one, which is the difference between an update
+           * that lands and an update that half-lands.
+           */
+          clientsClaim: true,
           // Precache the built shell so an installed app cold-starts instantly.
           globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
           // The main app chunk has grown past workbox's 2 MiB default; without a

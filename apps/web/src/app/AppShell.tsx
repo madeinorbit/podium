@@ -9,6 +9,7 @@ import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
+import { recoverFromWireSkew } from '@/features/setup/version-guard'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import {
   hasActivationState,
@@ -125,7 +126,13 @@ function SheetFallback({
  * the hub is built by the engine FROM the assembly, so it cannot be handed over
  * at construction. This runs inside the provider, where the hub exists.
  */
-function KernelHubAttach({ assembly }: { assembly: KernelAssembly }): null {
+function KernelHubAttach({
+  assembly,
+  httpOrigin,
+}: {
+  assembly: KernelAssembly
+  httpOrigin: string
+}): null {
   const hub = useStoreSelector((s) => s.hub)
   useEffect(() => {
     assembly.attachHub(hub)
@@ -134,7 +141,20 @@ function KernelHubAttach({ assembly }: { assembly: KernelAssembly }): null {
   // frames this build could not read. Routed to the module-level notice rather
   // than to local state so the banner can live OUTSIDE this subtree — the failure
   // it reports is one where this subtree is the thing that did not come up.
-  useEffect(() => hub.onWireSkew((skew) => reportSkew(describeWireSkew(skew))), [hub])
+  //
+  // AND, since POD-2253, it is more than a report. A banner asks the tab to
+  // reload; refused frames mean the tab may no longer be able to do anything it
+  // is asked. So the same evidence re-runs the version handshake, which forces
+  // the takeover when the server really is serving a different build — and does
+  // nothing at all when it is not.
+  useEffect(
+    () =>
+      hub.onWireSkew((skew) => {
+        reportSkew(describeWireSkew(skew))
+        void recoverFromWireSkew(httpOrigin, skew)
+      }),
+    [hub, httpOrigin],
+  )
   return null
 }
 
@@ -200,7 +220,7 @@ export function AppShell(): JSX.Element {
               feed={kernel.assembly.feed}
               createOutboxFn={kernel.assembly.createOutboxFn}
             >
-              <KernelHubAttach assembly={kernel.assembly} />
+              <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
               <RoutedDensityProvider>
                 <ThemeUiStateMirror />
                 <BrowserOpenOverlay />

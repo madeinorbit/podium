@@ -1,6 +1,12 @@
 import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
-import { classifySkew, parseServerVersion, WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import {
+  classifySkew,
+  parseServerVersion,
+  type ServerVersion,
+  WIRE_VERSION,
+  wireSchemaDigest,
+} from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
 import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budget'
 
@@ -11,7 +17,8 @@ import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budge
  * evicting the service worker + all caches so the browser fetches the fresh shell.
  */
 
-/** sessionStorage key holding how many hard-reloads this tab has already forced this session.
+/** sessionStorage key holding this tab's reload budget: how many hard-reloads it has forced,
+ *  and — since POD-2253 — WHICH served build it forced them against.
  *  DELIBERATELY not in the replica's ui-state collection: this loop guard must work exactly
  *  when everything else is broken (stale shell, poisoned replica, wedged storage collections)
  *  — it runs before the store exists and must never depend on it.
@@ -19,7 +26,7 @@ import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budge
 const RELOAD_COUNTER_KEY = WIRE_RELOAD_COUNTER_KEY
 
 const log = createLogger('web:version-guard')
-/** After this many reloads without resolving the mismatch, stop looping and surface an error. */
+/** After this many reloads AGAINST THE SAME SERVED BUILD, stop looping and surface an error. */
 const MAX_RELOADS = 2
 
 /** Result of a version check: matched, a hard-reload was triggered, or the loop guard tripped. */
@@ -47,19 +54,50 @@ export async function forceReload(): Promise<void> {
   location.reload()
 }
 
-function readReloadCounter(): number {
+/**
+ * WHICH SERVED BUILD A RELOAD IS AIMED AT (POD-2253).
+ *
+ * The schema digest is the precise half and the wire version is the coarse one; together they
+ * are everything `/version` tells us about the build on the other end. Absent fields collapse
+ * to `?`, so a server that advertises nothing is one stable target rather than a new one on
+ * every poll — otherwise silence would look like perpetual change and reset the budget forever.
+ */
+function serverBuildKey(server: ServerVersion): string {
+  return `${server.wireVersion ?? '?'}/${server.wireSchemaDigest ?? '?'}`
+}
+
+/** How many hard-reloads this tab has spent, and the build they were spent against. */
+interface ReloadBudget {
+  spent: number
+  target: string | null
+}
+
+function readReloadBudget(): ReloadBudget {
+  const none: ReloadBudget = { spent: 0, target: null }
   try {
     const raw = globalThis.sessionStorage?.getItem(RELOAD_COUNTER_KEY)
-    const n = raw ? Number.parseInt(raw, 10) : 0
-    return Number.isFinite(n) && n > 0 ? n : 0
+    if (!raw) return none
+    // A bare integer is the PRE-POD-2253 spelling. It records attempts against a build we can
+    // no longer name, and an unnameable target can never match — so it reads as an unspent
+    // budget. That is the intended reading, not a tolerated one: the tabs holding one are
+    // exactly the tabs this issue stranded, and the first thing a new bundle owes them is
+    // another attempt.
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return none
+    const { n, t } = parsed as { n?: unknown; t?: unknown }
+    const spent = typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+    return { spent, target: typeof t === 'string' ? t : null }
   } catch {
-    return 0
+    return none
   }
 }
 
-function writeReloadCounter(n: number): void {
+function writeReloadBudget(budget: ReloadBudget): void {
   try {
-    globalThis.sessionStorage?.setItem(RELOAD_COUNTER_KEY, String(n))
+    globalThis.sessionStorage?.setItem(
+      RELOAD_COUNTER_KEY,
+      JSON.stringify({ n: budget.spent, t: budget.target }),
+    )
   } catch {
     // sessionStorage may be unavailable (private mode) — the loop guard degrades gracefully
   }
@@ -79,8 +117,9 @@ function clearReloadCounter(): void {
  *
  * - Matched → `'ok'`, clears the loop counter.
  * - Mismatch → `forceReload()`, returns `'reloaded'` (the page is now reloading).
- * - Mismatch persisting after `MAX_RELOADS` reloads this session → `'blocked'` (logged), no reload,
- *   so a broken deploy can't spin the tab in an endless reload loop.
+ * - Mismatch persisting after `MAX_RELOADS` reloads AT THE SAME SERVED BUILD → `'blocked'`
+ *   (logged), no reload, so a broken deploy can't spin the tab in an endless reload loop. A
+ *   server that starts serving a different build resets the budget (POD-2253).
  * - Network / parse error → `'ok'` (never block the app on a flaky `/version`).
  */
 export async function checkServerVersion(httpOrigin: string): Promise<VersionCheck> {
@@ -122,10 +161,27 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
   const serverWire = server.wireVersion
   const serverMin = server.minSupportedVersion
 
-  const reloads = readReloadCounter()
+  /**
+   * A RELOAD BUDGET IS SPENT AGAINST ONE SERVED BUILD (POD-2253).
+   *
+   * The loop this budget exists to stop is a tab reloading over and over at a server that keeps
+   * handing back the SAME stale build — two attempts prove the served bytes are the problem and
+   * a third would prove nothing. A build the tab has never seen before is the opposite: it is
+   * new evidence, and the eviction that failed against the old one has never been tried against
+   * this one. So the budget is keyed to the target, and a genuinely different digest earns a
+   * full budget rather than inheriting a spent one.
+   *
+   * That distinction is the whole of this issue. The first update onto the operation design
+   * changed the wire digest, which is exactly when the old bundle most needs the guard — and it
+   * met a budget already emptied by an earlier, unrelated mismatch, so the tab stayed dead.
+   */
+  const target = serverBuildKey(server)
+  const budget = readReloadBudget()
+  const reloads = budget.target === target ? budget.spent : 0
   if (reloads >= MAX_RELOADS) {
     log.error('wire-version mismatch persists; not reloading again', {
       reloads,
+      target,
       bundleWire: WIRE_VERSION,
       serverWire,
       serverMin,
@@ -149,7 +205,45 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
     })
     return 'blocked'
   }
-  writeReloadCounter(reloads + 1)
+  writeReloadBudget({ spent: reloads + 1, target })
   await forceReload()
   return 'reloaded'
+}
+
+/**
+ * THE TAB THAT CANNOT PRESS ITS OWN BUTTON (POD-2253).
+ *
+ * `checkServerVersion` runs at boot, which covers the tab that is opened after an update. It
+ * does nothing for the tab that was ALREADY open when the server swapped build underneath it —
+ * and that tab is the bad case, because the first thing a wire-schema change breaks is the
+ * app's ability to decode anything, which is to say its ability to be clicked. Today all it
+ * gets is a banner telling it to reload: a sentence addressed to a surface that no longer works.
+ *
+ * The transport's refused frames are proof, not suspicion — this bundle could not read what
+ * this server sent. So re-run the handshake, and if `/version` agrees the build genuinely
+ * changed, force the takeover rather than asking. When the digests MATCH, the skew is something
+ * other than a stale shell (a broken build, a bad frame) and a reload would be a guess, so this
+ * stays out of the way and leaves the banner to say so.
+ *
+ * `refusedFrames === 0` is deliberately not enough. A quarantined row means one item did not
+ * decode; whole refused frames mean the bundle is the wrong one. Only the second justifies
+ * taking a running tab away from its user.
+ *
+ * Once per page load: the transport reports skew per frame, and the reload is already in flight
+ * by the second one.
+ */
+let recoveryAttempted = false
+
+export async function recoverFromWireSkew(
+  httpOrigin: string,
+  skew: { refusedFrames: number },
+): Promise<VersionCheck | 'ignored'> {
+  if (skew.refusedFrames <= 0 || recoveryAttempted) return 'ignored'
+  recoveryAttempted = true
+  return await checkServerVersion(httpOrigin)
+}
+
+/** Test-only: the once-per-page latch outlives a test file's cases. */
+export function resetWireSkewRecovery(): void {
+  recoveryAttempted = false
 }
