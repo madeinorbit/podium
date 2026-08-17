@@ -194,6 +194,7 @@ export function VpsFirstActivation({
               </span>
               <button
                 type="button"
+                data-pressable
                 onClick={copyCommand}
                 className="inline-flex h-7 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-semibold text-[#e3ba52] hover:bg-[#e3ba52]/10"
               >

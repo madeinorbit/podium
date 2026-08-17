@@ -129,6 +129,7 @@ export function ActivationChoice({
       <span className="min-h-[18px] flex-1" aria-hidden="true" />
       <button
         type="button"
+        data-pressable
         onClick={onSelect}
         className={cn(
           'mt-[18px] inline-flex h-[34px] self-start items-center gap-2 rounded-[9px] px-[15px] text-[13px] leading-none font-semibold transition-colors after:absolute after:inset-0 after:rounded-[13px] after:content-[""] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]',
@@ -138,7 +139,11 @@ export function ActivationChoice({
         )}
       >
         {action}
-        <ArrowRight size={16} className={primary ? undefined : 'text-[#9ba1ab]'} aria-hidden="true" />
+        <ArrowRight
+          size={16}
+          className={primary ? undefined : 'text-[#9ba1ab]'}
+          aria-hidden="true"
+        />
       </button>
     </article>
   )
@@ -166,6 +171,7 @@ export function ActivationBack({
   return (
     <button
       type="button"
+      data-pressable
       onClick={onBack}
       disabled={disabled}
       className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] transition-colors hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52] disabled:opacity-50"

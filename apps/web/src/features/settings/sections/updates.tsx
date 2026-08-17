@@ -475,6 +475,7 @@ export function UpdatesSection(): JSX.Element {
                     <div className="mt-1">
                       <button
                         type="button"
+                        data-pressable
                         className="settings-micro underline"
                         aria-expanded={openRow === row.id}
                         onClick={() => setOpenRow(openRow === row.id ? null : row.id)}
