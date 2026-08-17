@@ -1406,6 +1406,40 @@ describe('the step runners', () => {
     expect(operation.error?.message).toContain('vmi3407763')
   })
 
+  it('machines: carries the recorded snapshot into schema-advanced failure copy', async () => {
+    const snapshotPath =
+      '/state/podium.db.backup-vupdate-0.4.1-to-0.4.2-2026-08-17'
+    const h = harness({
+      machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+      latestDatabaseSnapshot: () => snapshotPath,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      state: 'rejected',
+      version: '0.4.1',
+      detail: 'cannot converge: schema-advanced — target missing an applied migration',
+    })
+    createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    }).onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.details?.databaseSnapshotPath).toBe(snapshotPath)
+    expect(operation.state).toBe('failed')
+    expect(operation.error?.code).toBe('machine-schema-advanced')
+    expect(operation.error?.message).toContain(snapshotPath)
+  })
+
   /**
    * TRY AGAIN HAS TO BE ABLE TO CLEAR A REFUSAL (POD-2201, spec §6.2 "the
    * failure is never a dead end", §7's retry semantics).
