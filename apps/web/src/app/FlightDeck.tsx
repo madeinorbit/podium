@@ -2,6 +2,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
+  agentLabel,
   archivedSessionsForIssue,
   blockingCloseConcerns,
   buildFlightDeckRows,
@@ -36,6 +37,8 @@ import {
   selectedMissionRoot,
   sessionAsksOnIssue,
   sessionNeedsHuman,
+  sessionParked,
+  sessionPresentOnTask,
   sessionRole,
   sessionSettled,
   sessionUnreadEmphasized,
@@ -1975,6 +1978,7 @@ export function WhereTheWorkWent({
   continuation,
   continuationState = null,
   continuationFinished = true,
+  continuationSessions = [],
   departures,
   onOpen,
   onTuck,
@@ -1983,6 +1987,9 @@ export function WhereTheWorkWent({
   continuation: IssueContinuation | null
   /** Folded in off the tick this row replaces, so nothing is lost with it. */
   continuationState?: DeckIssueState | null
+  /** The vacated task's OWN sessions, so the card can check "vacated" rather
+   *  than assume it (POD-1233). */
+  continuationSessions?: readonly SessionMeta[]
   /** Whether the vacated task itself is already recorded as finished — the card
    *  names a different filing action when it is not (see {@link ContinuationCard}). */
   continuationFinished?: boolean
@@ -2003,6 +2010,7 @@ export function WhereTheWorkWent({
           continuation={continuation}
           state={continuationState}
           finished={continuationFinished}
+          sessions={continuationSessions}
           onOpen={onOpen}
           onTuck={onTuck}
         />
@@ -2039,6 +2047,51 @@ export function WhereTheWorkWent({
 }
 
 /**
+ * The signpost's SECOND line — the only part of the card that says anything
+ * about sessions, and therefore the only part that has to look at them.
+ *
+ * WHY THE FIX IS HERE AND NOT IN THE VIEWMODEL (POD-1233). The obvious repair
+ * for "No session remains" appearing over a live agent is to hoist
+ * `issueContinuation`'s live-session guard above its `supersededBy ??
+ * duplicateOf` branch. That is wrong: four surfaces read that one function, and
+ * three of them want the lineage even while somebody is still here — the
+ * sidebar's `duplicate · POD-1160` line (`slices/worklist/rows.ts`), the deck
+ * header's "continued in" chip (`issueNote`), and `row-attention`'s suppression
+ * of a review ask nobody is waiting on. Returning `null` deletes the trail to
+ * the canonical task from all of them. The headline is a LINEAGE fact and stays
+ * true whoever is in the room; only this sentence was ever a session claim.
+ *
+ * PARKED IS PRESENT. `sessionPresentOnTask` is `!archived && status !==
+ * 'exited'`, so a hibernated agent still holds the task — the roster draws it
+ * ghosted, not gone. That is not a detail: sessions here park far more often
+ * than they exit, so "wait for it to end" is a state most tasks never reach,
+ * and a guard written against it would suppress the signpost forever.
+ *
+ * ALL THREE KINDS, deliberately. A duplicate is what surfaced this, but the
+ * sentence is equally unchecked on `superseded`, and `spinoff` only escapes it
+ * because its own guard fires upstream. Nothing here changes WHICH cards
+ * appear — a superseded task with an agent on it still gets its signpost, and
+ * still gets to say so honestly.
+ */
+export function continuationPresenceLine(
+  kind: IssueContinuation['kind'],
+  sessions: readonly SessionMeta[],
+): string {
+  const present = sessions.filter(sessionPresentOnTask)
+  if (present.length === 0) {
+    return kind === 'spinoff'
+      ? 'No session remains here.'
+      : 'No session remains on this closed task.'
+  }
+  if (present.length > 1) return `${present.length} sessions are still on this task.`
+  // Named, not counted: one agent is a WHO, and the roster row right below this
+  // card already says which harness it is.
+  const only = present[0] as SessionMeta
+  const who = agentLabel(only.agentKind)
+  return sessionParked(only) ? `${who} is parked on this task.` : `${who} is still on this task.`
+}
+
+/**
  * A resolved empty task is not an empty mission. It is a signpost.
  *
  * This stays in the spine instead of becoming a toast: the destination must
@@ -2060,11 +2113,19 @@ export function WhereTheWorkWent({
  * task is offered the ending as well as the fold, in one label — never a "Tuck
  * away" that quietly closes, because the tuck chip's own tooltip promises the
  * opposite ("Nothing is killed or closed").
+ *
+ * IT MUST NOT CLAIM THE TASK IS EMPTY WITHOUT LOOKING (POD-1233). The second
+ * line used to be the constant "No session remains on this closed task", and on
+ * a DUPLICATE that is a sentence nobody checked: `issueContinuation` reaches its
+ * live-session guard only on the hopscotch path, so a task marked
+ * `duplicateOf` drew this card with its agent still sitting in the roster
+ * directly below. See {@link continuationPresenceLine}.
  */
 export function ContinuationCard({
   continuation,
   state = null,
   finished = true,
+  sessions = [],
   onOpen,
   onTuck,
 }: {
@@ -2073,6 +2134,10 @@ export function ContinuationCard({
   state?: DeckIssueState | null
   /** Whether THIS task is already closed or done. */
   finished?: boolean
+  /** THIS task's own sessions — the only thing that can answer whether anyone
+   *  is still here. Unfiltered: the view bar narrows what the spine DRAWS, and
+   *  a sentence of fact must not change with a display toggle. */
+  sessions?: readonly SessionMeta[]
   onOpen: (issue: IssueNavigationModel) => void
   /** File this signpost away — which on an unfinished task also records the
    *  ending, because tucking alone cannot fold it (see above). */
@@ -2096,9 +2161,7 @@ export function ContinuationCard({
             {state && <DepartedState state={state} />}
           </div>
           <p className="shell-type-micro mt-1 text-text-dim">
-            {continuation.kind === 'spinoff'
-              ? 'No session remains here.'
-              : 'No session remains on this closed task.'}
+            {continuationPresenceLine(continuation.kind, sessions)}
             {target ? ` ${target.title} is where it carried on.` : ''}
           </p>
         </div>
@@ -3396,6 +3459,11 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               continuation={rootContinuation}
               continuationState={continuationState}
               continuationFinished={rootFinished}
+              // `rootRow.sessions`, NOT `rootSessions`: the latter is
+              // `deckSessions(row, mode)`, which the view bar narrows. A card
+              // that said "nobody is here" because you filtered the spine down
+              // to working agents would be the same bug in a new costume.
+              continuationSessions={rootRow?.sessions ?? []}
               departures={departures}
               onOpen={openDeparture}
               onTuck={tuckResolvedRoot}

@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import {
+  continuationPresenceLine,
   deckTaskUnread,
   defaultFolded,
   FlightDeck,
@@ -632,6 +633,111 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open POD-963' }))
     expect(harness.setSelectedIssueId).toHaveBeenCalledWith('tip')
+  })
+
+  /**
+   * POD-1233 — the signpost drawn over an agent that never left.
+   *
+   * `issueContinuation` reaches its live-session guard only on the hopscotch
+   * path, so a task closed as a DUPLICATE produced a card whatever the roster
+   * said. POD-1217 sat like this for hours: closed onto POD-1160, its codex
+   * session still in the list below the card announcing its absence.
+   */
+  const duplicateRoot = (members: string[] = []): unknown[] => [
+    issue('root', {
+      seq: 1217,
+      displayRef: 'POD-1217',
+      title: 'Safari scroll issue in chat view',
+      stage: 'done',
+      closedReason: 'duplicate',
+      duplicateOf: 'canon',
+      memberSessionIds: members,
+    }),
+    issue('canon', {
+      seq: 1160,
+      displayRef: 'POD-1160',
+      title: 'Safari transcript scroll position',
+    }),
+  ]
+
+  it('names the agent still on a task closed as a duplicate', () => {
+    harness.issues = duplicateRoot(['s-dupe'])
+    harness.sessions = [session('s-dupe', { issueId: 'root', agentKind: 'codex' })]
+
+    deck()
+
+    const card = screen.getByTestId('flight-continuation')
+    // The lineage half is a fact about issues and survives untouched — this is
+    // the trail that guarding `issueContinuation` would have deleted.
+    expect(card.textContent).toContain('The same work is tracked in POD-1160')
+    expect(card.textContent).toContain('Codex is still on this task.')
+    expect(card.textContent).not.toContain('No session remains')
+  })
+
+  it('counts a parked agent as present, because parking is not leaving', () => {
+    harness.issues = duplicateRoot(['s-dupe'])
+    harness.sessions = [
+      session('s-dupe', { issueId: 'root', agentKind: 'codex', status: 'hibernated' }),
+    ]
+
+    deck()
+
+    // `sessionPresentOnTask` is `!archived && status !== 'exited'`, and sessions
+    // here park far more often than they exit. A fix that waited for the session
+    // to END would have stayed wrong on POD-1217 indefinitely.
+    expect(screen.getByTestId('flight-continuation').textContent).toContain(
+      'Codex is parked on this task.',
+    )
+  })
+
+  it('keeps the empty-task wording when the task really is empty', () => {
+    harness.issues = duplicateRoot()
+    harness.sessions = []
+
+    deck()
+
+    const card = screen.getByTestId('flight-continuation')
+    expect(card.textContent).toContain('No session remains on this closed task.')
+    expect(card.textContent).toContain('Safari transcript scroll position is where it carried on.')
+  })
+
+  describe('continuationPresenceLine', () => {
+    it('leaves both empty-task sentences exactly as they were', () => {
+      expect(continuationPresenceLine('duplicate', [])).toBe(
+        'No session remains on this closed task.',
+      )
+      expect(continuationPresenceLine('superseded', [])).toBe(
+        'No session remains on this closed task.',
+      )
+      expect(continuationPresenceLine('spinoff', [])).toBe('No session remains here.')
+    })
+
+    it('reads sessions on every kind, not just the duplicate that surfaced it', () => {
+      const live = [session('s', { agentKind: 'claude-code' })]
+      expect(continuationPresenceLine('duplicate', live)).toBe('Claude Code is still on this task.')
+      expect(continuationPresenceLine('superseded', live)).toBe(
+        'Claude Code is still on this task.',
+      )
+      expect(continuationPresenceLine('spinoff', live)).toBe('Claude Code is still on this task.')
+    })
+
+    it('ignores sessions that genuinely left', () => {
+      expect(
+        continuationPresenceLine('duplicate', [
+          session('gone', { status: 'exited' }),
+          session('retired', { archived: true }),
+        ]),
+      ).toBe('No session remains on this closed task.')
+    })
+
+    it('counts rather than names once there is more than one', () => {
+      expect(
+        continuationPresenceLine('duplicate', [
+          session('a'),
+          session('b', { status: 'hibernated' }),
+        ]),
+      ).toBe('2 sessions are still on this task.')
+    })
   })
 
   it('sinks proposals into their own tail, with no tree guide', () => {
