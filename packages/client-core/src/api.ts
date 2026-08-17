@@ -35,7 +35,7 @@ import type {
   WorkState,
 } from '@podium/model'
 import type { LockWire, SyncChangesSinceResult } from '@podium/protocol'
-import type { HarnessAgent, PodiumSettings } from '@podium/runtime'
+import type { PodiumSettings } from '@podium/runtime'
 import type { SuperThreadView } from './viewmodels/slices/superagent'
 import type { PinKind, PinState } from './viewmodels/types'
 
