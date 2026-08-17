@@ -27,7 +27,7 @@ import { chromium, webkit } from 'playwright'
 
 const [scenario = 'explore', engineArg = 'webkit', rowText = 'Node usage in Podium'] =
   process.argv.slice(2)
-const ORIGIN = 'http://127.0.0.1:18787'
+const ORIGIN = process.env.P1160_ORIGIN ?? 'http://127.0.0.1:18787'
 const WT = '/home/podium/podium'
 const COOKIE = process.env.PODIUM_SESSION_COOKIE ?? ''
 const OUT = `apps/web/e2e/pod1160-${scenario}-${engineArg}`
