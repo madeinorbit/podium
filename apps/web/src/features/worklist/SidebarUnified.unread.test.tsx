@@ -210,17 +210,19 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
     expect(markIssueRead).toHaveBeenCalledWith('u1')
   })
 
-  it('right-clicking a READ issue offers "Mark as unread" and calls markIssueUnread (#138)', () => {
+  // `findByText`, not `getByText`: the row's menu is fetched on the right-click
+  // rather than carried by the first paint (POD-1239).
+  it('right-clicking a READ issue offers "Mark as unread" and calls markIssueUnread (#138)', async () => {
     render(<SidebarUnified />)
     fireEvent.contextMenu(screen.getByText('Read issue'))
-    fireEvent.click(screen.getByText('Mark as unread'))
+    fireEvent.click(await screen.findByText('Mark as unread'))
     expect(markIssueUnread).toHaveBeenCalledWith('r1')
   })
 
-  it('right-clicking an UNREAD issue offers "Mark as read" and calls markIssueRead (#138)', () => {
+  it('right-clicking an UNREAD issue offers "Mark as read" and calls markIssueRead (#138)', async () => {
     render(<SidebarUnified />)
     fireEvent.contextMenu(screen.getByText('Unread issue'))
-    fireEvent.click(screen.getByText('Mark as read'))
+    fireEvent.click(await screen.findByText('Mark as read'))
     expect(markIssueRead).toHaveBeenCalledWith('u1')
   })
 

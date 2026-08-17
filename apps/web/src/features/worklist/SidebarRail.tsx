@@ -68,12 +68,11 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { GitBranch, Plus, Search } from 'lucide-react'
-import { Fragment, type JSX, useMemo, useState } from 'react'
+import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { agentBrandText } from '@/lib/agent-tone'
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'
 import { useFeature } from '@/lib/use-feature'
@@ -85,6 +84,14 @@ import { RailProgressMeter } from './row-progress'
 import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
 import { useDefaultSpawn } from './spawn-row'
 import { useUnifiedWork } from './use-unified-work'
+
+// Deferred here for the same reason as in `spawn-row`: the rail's `+` opens it,
+// and nothing before that click needs it.
+const NewIssueDialog = lazy(() =>
+  import('@/features/issues/NewIssueDialog').then((module) => ({
+    default: module.NewIssueDialog,
+  })),
+)
 
 /** The rail sits on the collapsed aside's surface — corner badges punch out of
  *  this colour, so it must track the theme's sidebar surface, not a literal. */
@@ -436,7 +443,11 @@ export function SidebarRail(): JSX.Element {
           />
         </DropdownMenu>
       </div>
-      {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
+      {newIssueOpen && (
+        <Suspense fallback={null}>
+          <NewIssueDialog onClose={() => setNewIssueOpen(false)} />
+        </Suspense>
+      )}
       {/* The tiles column. No negative-margin overflow trick any more: the
           selected spine now stops exactly at the column's right edge and the
           corner badges sit well inside it, so nothing needs to escape. */}

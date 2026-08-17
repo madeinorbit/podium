@@ -15,11 +15,10 @@ import { type AgentKind, asMachineId, type MachineId } from '@podium/model/brows
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, FolderPlus, Search } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import {
   type AgentRowStatus,
   agentFleetStatus,
@@ -31,6 +30,15 @@ import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { NewAgentMenu } from './NewAgentMenu'
+
+// The dialog opens on a click and is mounted only while open, so nothing about
+// it — its form, its stage vocabulary, its repo picker — is needed to paint the
+// row that opens it. Same trade as the deferred context menus.
+const NewIssueDialog = lazy(() =>
+  import('@/features/issues/NewIssueDialog').then((module) => ({
+    default: module.NewIssueDialog,
+  })),
+)
 
 /**
  * The redesigned work sidebar (#41, .design/specs/sidebar.md): the
@@ -410,7 +418,11 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           />
         </DropdownMenu>
       </div>
-      {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
+      {newIssueOpen && (
+        <Suspense fallback={null}>
+          <NewIssueDialog onClose={() => setNewIssueOpen(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }

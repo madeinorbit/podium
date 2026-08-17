@@ -74,6 +74,27 @@ const UPDATE_ENGINE_MODULES = [
 ] as const
 
 /**
+ * SURFACES THAT ONLY EXIST AFTER A GESTURE (POD-1239).
+ *
+ * A right-click menu cannot be needed before a right-click, and a dialog cannot
+ * be needed before the button that opens it. All three of these were eager
+ * anyway — the work list's row imported the issue menu, the sidebar rail and the
+ * spawn row imported the new-issue dialog — so every first paint carried the
+ * whole issue-lifecycle vocabulary for a gesture nobody had made yet. Moving the
+ * three behind `lazy()` is the paydown recorded at the source budget below.
+ *
+ * Named rather than left to the byte ceilings for the reason the update engine
+ * is: the ceiling would fire on a number, and the fix is a specific import edge.
+ * If this fires, some eager module imported one of these directly instead of
+ * through `lazy(() => import(...))`.
+ */
+const INTERACTION_ONLY_MODULES = [
+  'IssueContextMenu.tsx',
+  'NewIssueDialog.tsx',
+  'SessionContextMenu.tsx',
+] as const
+
+/**
  * MODULES A BROWSER CANNOT EVALUATE (POD-2206), as opposed to merely large ones.
  *
  * The byte ceilings below are a judgement about cost. This is not: every source
@@ -195,6 +216,9 @@ const report = {
     updateEngineSources: UPDATE_ENGINE_MODULES.flatMap((module) =>
       matchingSources(eagerChunks, `src/features/updates/${module}`),
     ),
+    interactionOnlySources: INTERACTION_ONLY_MODULES.flatMap((module) =>
+      matchingSources(eagerChunks, module),
+    ),
   },
   settings: {
     file: basename(settings.file),
@@ -254,9 +278,48 @@ if (checkBudget) {
   atMost('eager gzip bytes', report.eager.gzip, 680_000)
   atMost('eager Brotli bytes', report.eager.brotli, 566_000)
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000
-  // (2026-08-16; see the measured split above). This one counts
+  // (2026-08-16; see the measured split above) → 7_600_000 (2026-08-17, DOWN —
+  // the paydown every note here said had to come next). This one counts
   // `sourcesContent`, i.e. ORIGINAL source text with comments, so it prices the
   // house style rather than anything the browser downloads.
+  //
+  // THE PAYDOWN (POD-1239). Drift took the eager graph to 7,694,486 and the gate
+  // went red on `main` for every build, whatever the change. That is also how
+  // the release line came to raise this ceiling to 7_700_000 (44ca44874, to get
+  // the first 0.1.0-edge bundle out) — a deadline making the call the note
+  // below refused to make on the merits. The graph now sits under both numbers,
+  // so that raise has nothing left to buy when the two lines meet.
+  //
+  // Nothing was reverted here and no prose was deleted: three surfaces that
+  // cannot be reached without a gesture stopped being eager — the issue
+  // right-click menu (the work list's row imported it for every row), and the
+  // new-issue dialog (the sidebar rail and the spawn row each imported it). See
+  // INTERACTION_ONLY_MODULES, which now fails the build by name if any of them
+  // comes back, and note that `SessionContextMenu` was already deferred this
+  // exact way: this is the established shape, applied to the two it had missed.
+  //
+  // Measured at fcbfb2d5c with and without the three deferrals:
+  //
+  //                    before        after         paid down
+  //     source         7,694,486     7,560,932     -133,554
+  //     raw            2,192,060     2,152,070      -39,990
+  //     gzip             657,037       646,516      -10,521
+  //     Brotli           545,626       537,763       -7,863
+  //
+  // The three payload ceilings are deliberately left where the 2026-08-16 raise
+  // put them rather than tightened to the new numbers. Source is the gate that
+  // bites first — it went red while all three of those still passed — so it stays
+  // the sentinel, and re-cutting three budgets to the bone in the same commit
+  // that fixes a red build just moves the redness to another line.
+  //
+  // 7_600_000 leaves ~39k of room, and is the first move DOWN in this ratchet's
+  // history — a real reduction, not the same ceiling renamed. At the drift this
+  // file has measured, 39k is days rather than weeks, which means the next move
+  // is a paydown too. It does not have to start from a blank page: measured in
+  // the same graph, all still eager — xterm plus its WebGL addon 390k (the
+  // terminal renderer, evaluated before any pane has shown a terminal),
+  // dompurify + marked 144k, @dnd-kit 124k (a drag cannot precede a pointer
+  // down). Each is a bigger cut than this whole commit.
   //
   // The 2026-08-14 raise bought a specific trade: replacing the workspace-
   // membership fan-out (one index rebuilt per session per publish: ~849k
@@ -272,7 +335,7 @@ if (checkBudget) {
   // next feature of any size turns one of those red, and a payload budget going
   // red means shipping more to the browser. That is not this argument, and it does
   // not get this raise.
-  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_650_000)
+  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_600_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)
   atMost('settings Brotli bytes', report.settings.brotli, 26_000)
@@ -303,6 +366,12 @@ if (checkBudget) {
   if (report.eager.updateEngineSources.length > 0)
     errors.push(
       `update engine is eager, so the panel is back on the first paint: ${report.eager.updateEngineSources.join(', ')}`,
+    )
+
+  if (report.eager.interactionOnlySources.length > 0)
+    errors.push(
+      `first paint pays for a gesture nobody has made yet — import these through ` +
+        `lazy(() => import(...)) as their other call sites do: ${report.eager.interactionOnlySources.join(', ')}`,
     )
 
   const allowedSettingsCommandSources = new Set([

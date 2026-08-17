@@ -194,7 +194,9 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
   it('writes a picked colour through the outboxed updateIssue action', async () => {
     render(<SidebarUnified />)
     fireEvent.contextMenu(screen.getByText('Original title'))
-    fireEvent.click(screen.getByRole('menuitem', { name: /Set colour/ }))
+    // The menu is fetched on the right-click, not before it (POD-1239), so the
+    // first query after the gesture has to wait for the chunk.
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Set colour/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Violet' }))
 
     // The row repaints on the press (POD-781 group 2): the colour is one more

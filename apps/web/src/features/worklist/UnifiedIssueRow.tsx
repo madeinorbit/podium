@@ -24,11 +24,10 @@ import {
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { idSquareLabel } from '@/components/IdSquare'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
-import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { issueColorHex } from '@/lib/issueColors'
 import { BrailleSpinner, PhaseTimer } from '@/lib/motion'
@@ -37,6 +36,17 @@ import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { RowProgressMeter } from './row-progress'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
+
+// Deferred for the same reason `SessionContextMenu` is (sidebar-common): the
+// menu exists only after a right-click, and it drags the whole issue-lifecycle
+// vocabulary — stage moves, dependency edits, spin-off — behind it. Every row in
+// the work list rendered it eagerly, so the first paint paid for a gesture no
+// one had made yet.
+const IssueContextMenu = lazy(() =>
+  import('@/features/issues/IssueContextMenu').then((module) => ({
+    default: module.IssueContextMenu,
+  })),
+)
 
 /** Lineage flash (POD-85): briefly outline another issue's row — provenance as
  *  a gesture when a spin-off is selected, not persistent chrome. DOM-level on
@@ -176,24 +186,26 @@ export function UnifiedIssueRow({
   // The right-click menu (mirrors the board / SessionContextMenu pattern):
   // cursor-anchored portal, acts on this one issue, rendered alongside the row.
   const menu = menuAnchor ? (
-    <IssueContextMenu
-      issues={[{ ...issue, memberSessionIds: issue.memberSessionIds?.map(asSessionId) }]}
-      allIssues={issues.map((candidate) => ({
-        ...candidate,
-        memberSessionIds: candidate.memberSessionIds?.map(asSessionId),
-      }))}
-      surface="sidebar"
-      anchor={menuAnchor}
-      onClose={() => setMenuAnchor(null)}
-      onOpen={(id) => {
-        setMenuAnchor(null)
-        onOpenIssue(id)
-      }}
-      onRename={() => {
-        setMenuAnchor(null)
-        rename.begin()
-      }}
-    />
+    <Suspense fallback={null}>
+      <IssueContextMenu
+        issues={[{ ...issue, memberSessionIds: issue.memberSessionIds?.map(asSessionId) }]}
+        allIssues={issues.map((candidate) => ({
+          ...candidate,
+          memberSessionIds: candidate.memberSessionIds?.map(asSessionId),
+        }))}
+        surface="sidebar"
+        anchor={menuAnchor}
+        onClose={() => setMenuAnchor(null)}
+        onOpen={(id) => {
+          setMenuAnchor(null)
+          onOpenIssue(id)
+        }}
+        onRename={() => {
+          setMenuAnchor(null)
+          rename.begin()
+        }}
+      />
+    </Suspense>
   ) : null
   // WHERE THE LIFECYCLE STAMP GOES, BY PHASE (3a). A working row's clock and a
   // waiting row's "how long has this sat there" belong in line 1's meta column,
