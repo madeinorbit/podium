@@ -17,8 +17,13 @@ import { SidebarUnified } from './SidebarUnified'
 const setIssueTucked = vi.hoisted(() => vi.fn(async () => {}))
 const uiStateGet = vi.hoisted(() => vi.fn((_key: string) => null))
 const uiStateSet = vi.hoisted(() => vi.fn())
-/** Flipped per-test before render: the server's view of the tuck stamp. */
-const state = vi.hoisted(() => ({ tuckedAt: null as string | null }))
+/** Flipped per-test before render: the server's view of the row's ending. */
+const state = vi.hoisted(() => ({
+  tuckedAt: null as string | null,
+  closedReason: 'done' as string,
+  branch: null as string | null,
+  gitState: null as Record<string, unknown> | null,
+}))
 /** Keys the tuck flag USED to live under — nothing may touch them any more. */
 const tuckKeys = (calls: unknown[][]) => calls.filter(([k]) => String(k).includes('tucked'))
 
@@ -80,6 +85,9 @@ vi.mock('@/app/store', () => {
         displayRef: 'POD-42',
         title: 'Settled issue',
         tuckedAt: state.tuckedAt,
+        closedReason: state.closedReason,
+        branch: state.branch,
+        gitState: state.gitState,
       },
     ],
     trpc: {
@@ -132,6 +140,9 @@ afterEach(() => {
   uiStateGet.mockClear()
   uiStateSet.mockClear()
   state.tuckedAt = null
+  state.closedReason = 'done'
+  state.branch = null
+  state.gitState = null
 })
 
 describe('tuck-away persistence (POD-333)', () => {
@@ -147,6 +158,32 @@ describe('tuck-away persistence (POD-333)', () => {
     // `podium:sidebar:tucked:*` key only this browser can see.
     expect(setIssueTucked).toHaveBeenCalledWith('finished', true)
     expect(tuckKeys(uiStateSet.mock.calls)).toEqual([])
+  })
+
+  it.each([
+    'cancelled',
+    'duplicate',
+  ] as const)('offers Tuck away on a %s ending whose branch never landed (POD-1263)', (closedReason) => {
+    // The row the operator was stuck with: work abandoned, three commits still
+    // sitting on its private branch. That used to read as a pending merge, and
+    // a row with a merge outstanding is neither foldable nor dismissable — so
+    // it stayed in the live list with nothing to press.
+    state.closedReason = closedReason
+    state.branch = 'issue/42-abandoned'
+    state.gitState = {
+      updatedAt: new Date(Date.now() - 60_000).toISOString(),
+      branch: 'issue/42-abandoned',
+      shared: false,
+      merged: false,
+      ahead: 3,
+      dirtyFiles: 0,
+    }
+
+    render(<SidebarUnified />)
+
+    expect(screen.queryByTestId('closed-issue-fold')).toBeNull()
+    fireEvent.click(screen.getByTestId('tuck-away'))
+    expect(setIssueTucked).toHaveBeenCalledWith('finished', true)
   })
 
   it('hydrates the fold from the wire, so a fresh browser sees the same tuck', () => {
