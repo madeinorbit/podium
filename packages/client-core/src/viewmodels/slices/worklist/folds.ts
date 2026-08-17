@@ -7,12 +7,8 @@
  * changes sibling order — the incoming order is preserved in every bucket
  * except the closed fold, which is history ordered by the moment of closing.
  */
-import { isIssueDeferred, type IssueWire, type IssueId } from '@podium/model'
-import {
-  isClosedTopLevelIssue,
-  issueAwaitingMerge,
-  issueFinishedAt,
-} from '../issues'
+import { type IssueId, type IssueWire, isIssueDeferred } from '@podium/model'
+import { isClosedTopLevelIssue, issueAwaitingMerge, issueFinishedAt } from '../issues'
 import { rowWaitingCount } from './row-attention'
 import type { UnifiedIssueRow, UnifiedWorkRow } from './row-types'
 import { SIDEBAR_FINISHED_GRACE_MS } from './visibility'
@@ -135,6 +131,25 @@ export function rowAwaitsTuck(
 ): row is UnifiedIssueRow {
   if (!finishedIssueSettled(row)) return false
   return !issueTucked(row.issue) && now - issueFinishedAt(row.issue) <= SIDEBAR_FINISHED_GRACE_MS
+}
+
+/** A tucked row the operator can still take BACK OUT of the fold (POD-1188) —
+ *  the mirror of `rowAwaitsTuck`, and for a settled finished row inside the grace
+ *  window exactly one of the two holds: it is either waiting to be tucked away
+ *  or waiting to be brought back.
+ *
+ *  THE GRACE WINDOW IS THE WHOLE GATE, and it is not a formality. Clearing
+ *  `tuckedAt` on an older closure changes nothing the operator can see: the
+ *  backstop above folds any settled finished row past the window whether it was
+ *  ever tucked or not, so an "untuck" there would leave the row exactly where it
+ *  was and read as a broken control. Inside the window the tuck is the ONLY
+ *  reason the row is folded, which is precisely where undoing it lands. */
+export function rowCanBringBack(
+  row: UnifiedWorkRow,
+  now: number = Date.now(),
+): row is UnifiedIssueRow {
+  if (!finishedIssueSettled(row)) return false
+  return issueTucked(row.issue) && now - issueFinishedAt(row.issue) <= SIDEBAR_FINISHED_GRACE_MS
 }
 
 /**

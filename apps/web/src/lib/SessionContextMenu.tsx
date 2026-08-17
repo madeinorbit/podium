@@ -23,7 +23,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react'
-import { type JSX, useEffect, useRef, useState } from 'react'
+import { type JSX, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -42,14 +42,15 @@ import {
   MENU_SECTION,
   MENU_SUBTEXT,
 } from './menu-surface'
-import { useNow } from './useNow'
-import { sessionDisplayName } from './WorkerLabel'
 import {
   type ContextMenuAnchor,
   handoffBlockerText,
   handoffRejectionText,
   sessionMenuEligibility,
 } from './session-context-menu'
+import { useCursorMenu } from './use-cursor-menu'
+import { useNow } from './useNow'
+import { sessionDisplayName } from './WorkerLabel'
 
 /**
  * Right-click context menu for a session — the same actions the panel/agent
@@ -110,40 +111,10 @@ export function SessionContextMenu({
   // onto the main checkout is still eligible via the issue's worktree (SP-3f7a).
   const issue = issues.find((i) => i.id === session.issueId)
   const { blocker, candidates } = handoffAvailability(session, reposToViews(repos), machines, issue)
-  const ref = useRef<HTMLDivElement | null>(null)
-  const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
+  // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two
+  // other cursor-anchored panels (`use-cursor-menu.ts`).
+  const { ref, pos } = useCursorMenu(anchor, onClose)
   const [handoffTop, setHandoffTop] = useState<number | null>(null)
-
-  // Clamp into the viewport once the menu has measured its real size, so a
-  // right-click near the bottom/right edge doesn't open a clipped menu.
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    setPos({
-      x: Math.max(8, Math.min(anchor.x, window.innerWidth - r.width - 8)),
-      y: Math.max(8, Math.min(anchor.y, window.innerHeight - r.height - 8)),
-    })
-  }, [anchor])
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) onClose()
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('mousedown', onDown, true)
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('scroll', onClose, true)
-    window.addEventListener('resize', onClose)
-    return () => {
-      window.removeEventListener('mousedown', onDown, true)
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('scroll', onClose, true)
-      window.removeEventListener('resize', onClose)
-    }
-  }, [onClose])
 
   const id = session.sessionId
   const snoozed = isSnoozed(session, now)

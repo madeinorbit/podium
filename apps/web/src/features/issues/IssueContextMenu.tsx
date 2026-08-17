@@ -19,12 +19,13 @@ import {
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Check, ChevronRight } from 'lucide-react'
-import { Fragment, type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
+import { Fragment, type JSX, type ReactNode, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
 import { IssueColorSwatches } from '@/components/IssueColorSwatches'
+import { useConfirm } from '@/lib/hooks/use-confirm'
 import { issueAgentIcon } from '@/lib/issue-agents'
 import {
   MENU_EMPTY,
@@ -46,7 +47,7 @@ import {
   handoffRejectionText,
   issueHandoffBlockerText,
 } from '@/lib/session-context-menu'
-import { useConfirm } from '@/lib/hooks/use-confirm'
+import { useCursorMenu } from '@/lib/use-cursor-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
@@ -156,46 +157,18 @@ export function IssueContextMenu({
   // surface is, and — the reason it actually mattered here — blocks the whole
   // renderer, so the menu it was launched from stayed painted underneath it.
   const confirm = useConfirm()
-  const ref = useRef<HTMLDivElement | null>(null)
-  const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
   const [sub, setSub] = useState<{ kind: IssueMenuSubmenu; top: number } | null>(null)
   // The close guard the menu mounts for itself when the host has no dialog of
   // its own. Non-null means the panel has handed over to the dialog.
   const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
 
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    setPos({
-      x: Math.max(8, Math.min(anchor.x, window.innerWidth - r.width - 8)),
-      y: Math.max(8, Math.min(anchor.y, window.innerHeight - r.height - 8)),
-    })
-  }, [anchor])
-
-  useEffect(() => {
-    // While the close dialog stands in for the panel these would fight it: a
-    // press inside the dialog lands outside `ref`, and Escape is the dialog's
-    // own dismissal. Unmounting the menu here would take the dialog with it.
-    if (pendingClose) return
-    const onDown = (e: MouseEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) onClose()
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('mousedown', onDown, true)
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('scroll', onClose, true)
-    window.addEventListener('resize', onClose)
-    return () => {
-      window.removeEventListener('mousedown', onDown, true)
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('scroll', onClose, true)
-      window.removeEventListener('resize', onClose)
-    }
-  }, [onClose, pendingClose])
+  // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two
+  // other cursor-anchored panels (`use-cursor-menu.ts`). Dismissal is suspended
+  // while the close dialog stands in for this panel: a press inside the dialog
+  // lands outside the ref and Escape is the dialog's own, so unmounting the menu
+  // here would take the dialog with it.
+  const { ref, pos } = useCursorMenu(anchor, onClose, { dismiss: !pendingClose })
 
   const first = issues[0]
   if (!first) return null

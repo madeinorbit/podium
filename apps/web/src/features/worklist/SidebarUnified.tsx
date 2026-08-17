@@ -4,18 +4,26 @@ import {
   planReorderKeys,
   reuseUnifiedWorkRows,
   rowAwaitsTuck,
+  rowCanBringBack,
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, type IssueId, isIssueDeferred } from '@podium/model/browser'
 import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
-import type { CSSProperties, JSX, PointerEvent as ReactPointerEvent } from 'react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import type {
+  CSSProperties,
+  JSX,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
+import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
+import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
 import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
 import { useCollapsedKeys } from './sidebar-common'
@@ -186,6 +194,29 @@ export function WorkSections({
   // (outbox overlay) — the row folds on the press, before the round-trip.
   const tuck = (id: string) => {
     void setIssueTucked(id, true)
+  }
+  // And back out again (POD-1188). Same store action with the flag flipped, so
+  // the row leaves the fold on the press through the same outbox overlay that
+  // put it there — nothing here is a second mechanism.
+  const bringBack = (id: string) => {
+    void setIssueTucked(id, false)
+  }
+  /**
+   * WHICH FOLDED ROW IS RIGHT-CLICKED. Column state, not row state: the folded
+   * rows are rendered by `renderWorkRow`, which is a function rather than a
+   * component and so has nowhere to keep a `useState` of its own — the same
+   * reason the Flight Deck hosts one menu for its whole spine. The row is
+   * addressed by id and looked up at render, so an untuck (or an archive, or a
+   * reopen from anywhere else) cannot leave the panel describing a stale row.
+   */
+  const [foldedMenu, setFoldedMenu] = useState<{
+    issueId: string
+    anchor: ContextMenuAnchor
+  } | null>(null)
+  const closeFoldedMenu = useCallback(() => setFoldedMenu(null), [])
+  const openFoldedMenu = (issueId: string, event: ReactMouseEvent): void => {
+    event.preventDefault()
+    setFoldedMenu({ issueId, anchor: { x: event.clientX, y: event.clientY } })
   }
   const selectedWasFolded =
     selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded
@@ -500,6 +531,12 @@ export function WorkSections({
             setSelectedClosedPlacement({ issueId: row.issue.id, folded })
             selectIssue(row.issue)
           }}
+          // Only the CLOSED lane (POD-1188): the one thing this menu offers is
+          // the inverse of Tuck, and a snoozed row was never tucked — its own
+          // inverse is Unsnooze, which the live row's menu already carries.
+          onContextMenu={
+            lane === 'closed' ? (event) => openFoldedMenu(row.issue.id, event) : undefined
+          }
         />
       ) : row.kind === 'issue' ? (
         <UnifiedIssueRow
@@ -653,6 +690,10 @@ export function WorkSections({
     // filter is a row of chrome claiming a group that has nothing to show.
     .filter((group) => !filtering || group.rows.length > 0)
   const filteredPinned = renderedPinned.filter(survives)
+  // The folded menu's subject, looked up rather than carried in the state above.
+  const foldedMenuRow = foldedMenu
+    ? work.find((row) => row.kind === 'issue' && row.issue.id === foldedMenu.issueId)
+    : undefined
 
   // Zero work, and not a loading frame: the ghost preview (POD-1058) shows the
   // shape of the list this column is about to become, under a label that names
@@ -755,6 +796,17 @@ export function WorkSections({
         {/* How big the haystack was, under the last hit — the answer to the
             question a suddenly-short column raises. */}
         {filtering && <WorkFilterFootnote total={filterTotal} />}
+        {/* One menu for the whole column, portalled to the cursor — see the
+            `foldedMenu` state for why it is not per row. */}
+        {foldedMenu && foldedMenuRow?.kind === 'issue' && (
+          <FoldedRowMenu
+            issue={foldedMenuRow.issue}
+            canBringBack={rowCanBringBack(foldedMenuRow, now)}
+            anchor={foldedMenu.anchor}
+            onClose={closeFoldedMenu}
+            onBringBack={() => bringBack(foldedMenuRow.issue.id)}
+          />
+        )}
       </LayoutGroup>
     </MotionConfig>
   )

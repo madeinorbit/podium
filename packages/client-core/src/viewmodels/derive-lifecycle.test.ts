@@ -2,10 +2,11 @@ import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   groupUnifiedWorkRows,
+  type IssueNavigationModel,
   rowAwaitsTuck,
+  rowCanBringBack,
   rowInClosedFold,
   rowInSnoozedFold,
-  type IssueNavigationModel,
   type SidebarSections,
   type UnifiedIssueRow,
   unifiedWorkList,
@@ -168,6 +169,31 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     expect(rowInClosedFold(tucked, null, false, NOW)).toBe(true)
     expect(rowAwaitsTuck(tucked, done.id, false, NOW)).toBe(false)
     expect(rowAwaitsTuck(tucked, null, false, NOW)).toBe(false)
+    // And the tuck is undoable while the grace window still holds the row down
+    // for no other reason (POD-1188) — the mirror of the two lines above.
+    expect(rowCanBringBack(tucked, NOW)).toBe(true)
+    expect(rowCanBringBack(row(done), NOW)).toBe(false)
+  })
+
+  it('stops offering the bring-back once the grace backstop owns the row (POD-1188)', () => {
+    // Tucked, but closed two days ago: `rowInClosedFold` folds it on the backstop
+    // alone now, so clearing the tuck would move nothing and the gesture is not
+    // offered. The pair is exhaustive over a settled closure — outside the window
+    // neither tucking nor bringing back is on the table.
+    const stale = row(
+      issue({
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: '2026-07-21T11:30:00.000Z',
+        tuckedAt: '2026-07-21T11:45:00.000Z',
+      }),
+    )
+    expect(rowInClosedFold(stale, null, false, NOW)).toBe(true)
+    expect(rowCanBringBack(stale, NOW)).toBe(false)
+    expect(rowAwaitsTuck(stale, null, false, NOW)).toBe(false)
+    // An OPEN row is neither, whatever a stray stamp says.
+    const open = row(issue({ stage: 'in_progress', tuckedAt: '2026-07-23T11:45:00.000Z' }))
+    expect(rowCanBringBack(open, NOW)).toBe(false)
   })
 
   it('keeps open review work with a live offer out of the closed fold', () => {
