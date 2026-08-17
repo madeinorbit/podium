@@ -202,7 +202,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto bg-card px-5 py-12 font-sans sm:px-10 lg:px-24 lg:py-20">
       <div className="w-full max-w-[1060px]">
-        <h2 className="flex flex-wrap items-center gap-[13px] text-[clamp(26px,3vw,33px)] leading-[1.15] font-semibold tracking-[-0.022em] text-[#f2f3f5]">
+        <h2 className="flex flex-wrap items-center gap-[13px] text-[clamp(26px,3vw,33px)] leading-[1.15] font-semibold tracking-[-0.022em] text-text-strong">
           <span>{first ? 'Give' : 'What do you want to work on in'}</span>
           <PropertyMenu
             trigger={
@@ -212,13 +212,13 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 aria-label={
                   selectedRepo ? `Project: ${repoLabel(selectedRepo)}` : 'Choose a project'
                 }
-                className="inline-flex h-12 items-center gap-[11px] rounded-[11px] bg-[#1b1d21] px-[13px] text-[#f2f3f5] shadow-[inset_0_0_0_1px_#2c2f35] transition-colors hover:bg-[#202227] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8b83ff]"
+                className="inline-flex h-12 items-center gap-[11px] rounded-[11px] bg-bar px-[13px] text-text-strong shadow-[inset_0_0_0_1px_var(--border-strong)] transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
-                <span className="size-[13px] rounded-[4px] bg-[#d97757]" aria-hidden="true" />
+                <span className="size-[13px] rounded-[4px] bg-claude" aria-hidden="true" />
                 <span className="text-[28px] leading-none font-semibold tracking-[-0.02em]">
                   {selectedRepo ? repoLabel(selectedRepo) : 'a project'}
                 </span>
-                <ChevronDown size={20} className="text-[#949aa4]" aria-hidden="true" />
+                <ChevronDown size={20} className="text-label" aria-hidden="true" />
               </button>
             }
             options={repoChoices.map((repo) => ({ value: repo.path, label: repoLabel(repo) }))}
@@ -230,7 +230,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         </h2>
 
         <div
-          className="relative mt-[30px] overflow-hidden rounded-[14px] bg-[#1b1d21] shadow-[inset_0_0_0_1px_#2c2f35,0_20px_50px_-30px_rgba(0,0,0,.9)]"
+          className="relative mt-[30px] overflow-hidden rounded-[14px] bg-bar shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
@@ -245,20 +245,26 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             disabled={busy || Boolean(draft.pendingIssueId)}
             onChange={(event) => setDraft({ ...draft, title: event.currentTarget.value })}
             placeholder="Describe the mission — an outcome, a bug, a question about the codebase…"
-            className="block min-h-[132px] w-full resize-none bg-transparent px-[22px] pt-5 pb-2.5 text-[14.5px] leading-[1.6] text-[#f2f3f5] outline-none placeholder:text-[#5e646e] disabled:opacity-60"
+            className="block min-h-[132px] w-full resize-none bg-transparent px-[22px] pt-5 pb-2.5 text-[14.5px] leading-[1.6] text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
           />
-          <div className="flex flex-wrap items-center gap-2 border-t border-[#23262b] px-3.5 py-2.5 lg:flex-nowrap">
-            <div className="inline-flex h-7 items-stretch overflow-hidden rounded-lg bg-[#16171a] shadow-[inset_0_0_0_1px_#26292f]">
+          <div className="flex flex-wrap items-center gap-2 border-t border-hairline-soft px-3.5 py-2.5 lg:flex-nowrap">
+            {/* The instrument strip is a WELL cut into the composer's bar. The
+                floor is --well-floor rather than a flat tone because the well
+                inks are an ALPHA over whatever surface they land on, which is
+                the only way one value stays a recess in both modes: over the
+                dark bar it lands on the mock's #16171a, over paper it darkens
+                the stone by the same fraction. The rim is the bar seam. */}
+            <div className="inline-flex h-7 items-stretch overflow-hidden rounded-lg bg-[var(--well-floor)] shadow-[inset_0_0_0_1px_var(--hairline-bar)]">
               <PropertyMenu
                 trigger={
                   <button
                     type="button"
                     aria-label="Agent"
-                    className="inline-flex h-7 items-center gap-1.5 px-2.5 text-[11px] leading-none font-semibold text-[#f2f3f5] hover:bg-white/[0.035] focus-visible:outline-2 focus-visible:outline-[#8b83ff]"
+                    className="inline-flex h-7 items-center gap-1.5 px-2.5 text-[11px] leading-none font-semibold text-text-strong hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
                   >
-                    <span className="size-[7px] rounded-[2px] bg-[#d97757]" aria-hidden="true" />
+                    <span className="size-[7px] rounded-[2px] bg-claude" aria-hidden="true" />
                     {issueAgentLabel(agent)}
-                    <ChevronDown size={13} className="text-[#6f7580]" aria-hidden="true" />
+                    <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                   </button>
                 }
                 options={ISSUE_AGENT_KINDS.map((candidate) => ({
@@ -277,14 +283,14 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   })
                 }
               />
-              <span className="w-px bg-[#26292f]" aria-hidden="true" />
+              <span className="w-px bg-hairline-bar" aria-hidden="true" />
               <ModelPicker
                 variant="composer"
                 agentKind={agent}
                 value={draft.model}
                 onChange={(model) => setDraft({ ...draft, model, effort: AUTO })}
               />
-              <span className="w-px bg-[#26292f]" aria-hidden="true" />
+              <span className="w-px bg-hairline-bar" aria-hidden="true" />
               <EffortPicker
                 variant="composer"
                 agentKind={agent}
@@ -297,11 +303,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               trigger={
                 <button
                   type="button"
-                  className="inline-flex h-7 items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#26292f] hover:bg-white/[0.035] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#8b83ff]"
+                  className="inline-flex h-7 items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                 >
-                  <Monitor size={13} className="text-[#6f7580]" aria-hidden="true" />
+                  <Monitor size={13} className="text-text-faint" aria-hidden="true" />
                   {selectedMachine?.name ?? 'Choose machine'}
-                  <ChevronDown size={13} className="text-[#6f7580]" aria-hidden="true" />
+                  <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                 </button>
               }
               options={targetMachines.map((machine) => ({
@@ -313,7 +319,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               onSelect={selectMachine}
             />
             <span
-              className="ml-auto hidden font-mono text-[14px] leading-none text-[#6f7580] sm:inline"
+              className="ml-auto hidden font-mono text-[14px] leading-none text-text-faint sm:inline"
               aria-label="Command Enter"
               title="Command Enter"
             >
@@ -321,7 +327,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             </span>
             <button
               type="button"
-              className="inline-flex h-[30px] items-center gap-[7px] rounded-[9px] bg-[#e3ba52] px-3.5 text-[12px] leading-none font-semibold text-[#1a1408] transition-colors hover:bg-[#efc95f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:cursor-not-allowed disabled:opacity-40"
+              className="btn-primary-rim inline-flex h-[30px] items-center gap-[7px] rounded-[9px] border border-transparent bg-primary px-3.5 text-[12px] leading-none font-semibold text-primary-foreground transition-colors hover:bg-primary/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-text-strong disabled:cursor-not-allowed disabled:opacity-40"
               disabled={
                 busy ||
                 !selectedRepo ||
@@ -345,15 +351,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
 
           {busy && (
             <div
-              className="absolute inset-0 flex items-center justify-center bg-[#131417]/75 backdrop-blur-[2px]"
+              className="absolute inset-0 flex items-center justify-center bg-background/75 backdrop-blur-[2px]"
               role="status"
             >
-              <div className="inline-flex items-center gap-2.5 rounded-lg bg-[#1b1d21] px-4 py-3 font-mono text-[11px] text-[#d7dae0] shadow-[inset_0_0_0_1px_#2c2f35,0_12px_30px_rgba(0,0,0,.45)]">
-                <LoaderCircle
-                  size={15}
-                  className="animate-spin text-[#e3ba52]"
-                  aria-hidden="true"
-                />
+              <div className="inline-flex items-center gap-2.5 rounded-lg bg-bar px-4 py-3 font-mono text-[11px] text-foreground shadow-[inset_0_0_0_1px_var(--border-strong),0_12px_30px_var(--carve-popover-near)]">
+                <LoaderCircle size={15} className="animate-spin text-primary" aria-hidden="true" />
                 Starting your mission…
               </div>
             </div>
@@ -361,13 +363,13 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         </div>
 
         {!ready && (
-          <p className="mt-3 font-mono text-[10.5px] leading-5 text-[#6f7580]">
+          <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
             The selected agent is not ready on this machine yet. Open Settings → Agents to finish
             setup.
           </p>
         )}
         {draft.pendingIssueId && !error && (
-          <p className="mt-3 font-mono text-[10.5px] leading-5 text-[#6f7580]">
+          <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
             The task is saved. Podium is retrying the same task, so it cannot create a duplicate.
           </p>
         )}

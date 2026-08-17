@@ -65,13 +65,13 @@ const PickerTrigger = forwardRef<
       variant="ghost"
       size="sm"
       className={cn(
-        'h-7 gap-1 rounded-none px-2.5 font-mono text-[11px] font-normal text-[#a8adb6] hover:bg-white/[0.035] hover:text-[#f2f3f5]',
+        'h-7 gap-1 rounded-none px-2.5 font-mono text-[11px] font-normal text-text-dim hover:bg-accent hover:text-text-strong',
         className,
       )}
       {...props}
     >
       {label}
-      <ChevronDown size={13} aria-hidden="true" className="text-[#6f7580]" />
+      <ChevronDown size={13} aria-hidden="true" className="text-text-faint" />
     </Button>
   ) : (
     <Button
