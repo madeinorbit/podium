@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { Hono } from 'hono'
 import { afterAll, describe, expect, it } from 'vitest'
 import { registerDevArtifactRoute } from './artifact-route'
-import type { BuiltDevBundle } from './dev-bundle'
+import { type BuiltDevBundle, DevBundleUnavailableError } from './dev-bundle'
 import {
   developmentArtifactUrl,
   selectDevelopmentArtifactOrigin,
@@ -143,6 +143,76 @@ describe('development artifact route', () => {
         hasRemoteManagedMachines: true,
       }),
     ).toThrow(/requires PODIUM_DEV_ARTIFACT_BASE_URL/)
+  })
+
+  /**
+   * A DEAD END IS THE ONE OUTCOME §6.2 AND §7 FORBID (POD-2227).
+   *
+   * This refusal was measured live: an installed machine paired to a source
+   * coordinator sat on "Waiting for the update package." for over ten minutes
+   * with nothing to click and no explanation, while the only statement of the
+   * cause was a single server-log line. The guard itself is right — a loopback
+   * URL handed to a remote daemon sends it back to itself — so what has to
+   * change is that it says so, in a sentence naming the one next action.
+   */
+  it('refuses with the configuration remedy, not just a log line', () => {
+    let thrown: unknown
+    try {
+      selectDevelopmentArtifactOrigin({
+        externalOrigin: undefined,
+        localOrigin: 'http://127.0.0.1:18787',
+        hasRemoteManagedMachines: true,
+      })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(DevBundleUnavailableError)
+    const reason = (thrown as DevBundleUnavailableError).publicReason
+    // The remedy is IN the sentence a client is shown, not in the console half.
+    expect(reason).toMatch(/Public URL/)
+    expect(reason).toMatch(/PODIUM_DEV_ARTIFACT_BASE_URL/)
+    // …and the console half keeps naming the condition for whoever reads a log.
+    expect((thrown as Error).message).toMatch(/remote managed machines are registered/)
+  })
+
+  it('gives up before the build rather than packing what it cannot hand out', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wiring-origin-'))
+    try {
+      mkdirSync(join(root, '.git', 'refs', 'heads'), { recursive: true })
+      writeFileSync(join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+      writeFileSync(join(root, '.git', 'refs', 'heads', 'main'), `${'a'.repeat(40)}\n`)
+      const wiring = wireDevBundlePublisher({
+        sourceRoot: root,
+        artifactOrigin: undefined,
+        localArtifactOrigin: () => 'http://127.0.0.1:18787',
+        hasRemoteManagedMachines: () => true,
+        artifactToken: 'random-token',
+        signingKey: 'unused-until-build',
+        setTarget: () => {},
+        locks: {
+          acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
+          cancel: () => {},
+          renew: () => {},
+          release: () => {},
+        },
+        readHeadSha: async () => 'aaaaaaa',
+      })
+
+      // Thirty-five seconds of compile to arrive at the same dead end is the
+      // wrong shape of honest: the answer is knowable before the first byte.
+      await expect(wiring.requestBuild(true)).rejects.toSatisfy(
+        (error: unknown) =>
+          error instanceof DevBundleUnavailableError && /Public URL/.test(error.publicReason),
+      )
+      // And the read model stops claiming the package is on its way. `fleet`
+      // reported `bundleReady: true` throughout the live drive, which reads as
+      // the package being ready while the target could not carry it at all.
+      const preparation = wiring.preparation()
+      expect(preparation.bundleReady).toBe(false)
+      expect(preparation.failureDetail).toMatch(/Public URL/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('puts dest identity into the shared read model without a public origin', () => {

@@ -38,6 +38,8 @@ import {
   type UpdatePlanInput,
   updateOperationKind,
 } from './operation'
+import { DevBundleUnavailableError } from './dev-bundle'
+import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
 import { UpdatesService } from './service'
 import { offeredDeliveries, type WaveMachine } from './wave'
 
@@ -1618,6 +1620,44 @@ describe('surviving the coordinator restart', () => {
     expect(h.sent.length).toBeGreaterThan(sentBefore)
     expect(h.sent.at(-1)?.machineId).toBe('vmi')
     expect(h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.stalls ?? 0).toBe(0)
+  })
+
+  /**
+   * THE OTHER HALF OF POD-2227, WHERE A PERSON CAN SEE IT.
+   *
+   * A source coordinator with a paired machine and no configured address knows
+   * exactly what is wrong. It wrote it to its own log, packed the tarball
+   * anyway, reported "The update package is ready." and left the `machines`
+   * step on "Waiting for the update package." with nothing to click. §6.2 says
+   * a failure is never a dead end; §7 says it names itself and the next action.
+   */
+  it('fails the update with the configuration remedy instead of waiting for a package', async () => {
+    const h = harness({
+      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
+      servedWebDigest: () => WEB_DIGEST,
+      appVersion: 'dev+abc1234',
+      requestDestBundle: () =>
+        Promise.reject(
+          new DevBundleUnavailableError(
+            'development artifact publishing requires PODIUM_DEV_ARTIFACT_BASE_URL or ' +
+              'config.publicUrl while remote managed machines are registered',
+            ARTIFACT_ORIGIN_UNCONFIGURED_REASON,
+          ),
+        ),
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    await h.drain()
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(stepState(operation, UPDATE_STEP_PREPARE)).toBe('failed')
+    expect(operation.state).toBe('failed')
+    // The remedy is in the sentence the panel shows, not only in the log.
+    expect(operation.error?.message).toMatch(/Public URL/)
+    expect(operation.error?.message).toMatch(/PODIUM_DEV_ARTIFACT_BASE_URL/)
+    // It gave up rather than granting anything it could not deliver.
+    expect(h.sent).toHaveLength(0)
   })
 
   /**

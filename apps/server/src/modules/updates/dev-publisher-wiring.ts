@@ -80,6 +80,21 @@ export function developmentArtifactUrl(
   return `${origin}/updates/dev-bundle/${encodeURIComponent(version)}?token=${encodeURIComponent(artifactToken)}`
 }
 
+/**
+ * The sentence an operator is shown when this server cannot name an address its
+ * fleet could fetch from — spec §6.2 and §7: a failure names itself, says the
+ * one next action, and is recoverable by taking it.
+ *
+ * It is written as the remedy rather than as the condition because that is what
+ * the reader can act on. The condition (which env var, which machines) stays in
+ * the console half of {@link DevBundleUnavailableError}, where a log reader
+ * wants it.
+ */
+export const ARTIFACT_ORIGIN_UNCONFIGURED_REASON =
+  'This server has no address your other machines can reach, so it cannot hand out the ' +
+  'update package. Set Public URL in Settings — or PODIUM_DEV_ARTIFACT_BASE_URL — to an ' +
+  'address they can reach, then start the update again.'
+
 export function selectDevelopmentArtifactOrigin(input: {
   externalOrigin: string | undefined
   localOrigin: string
@@ -87,9 +102,14 @@ export function selectDevelopmentArtifactOrigin(input: {
 }): string {
   if (input.externalOrigin) return input.externalOrigin
   if (input.hasRemoteManagedMachines) {
-    throw new Error(
+    // TYPED, so the refusal can travel (POD-2227). It used to be a bare Error
+    // whose only reader was `publishTarget`'s catch, which logged it and
+    // returned undefined — the operator was left watching a step that waited
+    // for a package this server had already decided it would never hand over.
+    throw new DevBundleUnavailableError(
       'development artifact publishing requires PODIUM_DEV_ARTIFACT_BASE_URL or ' +
         'config.publicUrl while remote managed machines are registered',
+      ARTIFACT_ORIGIN_UNCONFIGURED_REASON,
     )
   }
   return input.localOrigin
@@ -238,6 +258,45 @@ export function wireDevBundlePublisher(deps: {
   let publishedVersion: string | undefined
   let bundleReady = false
   let bundleFailureDetail: string | undefined
+  /**
+   * A refusal that belongs to PUBLICATION rather than to the build — the server
+   * has bytes, or could make them, and no way to tell anyone where to get them
+   * (POD-2227). Held separately from `bundleFailureDetail` because
+   * `observeBundleReadiness` recomputes that one from the builder, which is
+   * perfectly happy: the tarball really was packed and signed.
+   */
+  let publishFailureDetail: string | undefined
+
+  /**
+   * CAN THIS SERVER NAME AN ADDRESS THE FLEET COULD FETCH FROM?
+   *
+   * Asked BEFORE the pack as well as at publication. The live drive spent
+   * thirty-five seconds building a bundle, reported "The update package is
+   * ready.", and then waited for a package this server had already decided it
+   * would never hand over — the answer was knowable before the first byte.
+   */
+  const artifactOriginFailure = (): DevBundleUnavailableError | undefined => {
+    if (!publisher) return undefined
+    try {
+      selectDevelopmentArtifactOrigin({
+        externalOrigin: artifactOrigin,
+        localOrigin: deps.localArtifactOrigin(),
+        hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+      })
+      return undefined
+    } catch (error) {
+      if (error instanceof DevBundleUnavailableError) return error
+      throw error
+    }
+  }
+
+  /** Log the console half once per distinct reason; keep the public half for the panel. */
+  const recordPublishFailure = (error: DevBundleUnavailableError): void => {
+    publishFailureDetail = error.publicReason
+    if (error.message === unavailableDiagnostic) return
+    unavailableDiagnostic = error.message
+    log.warn('development bundle target unavailable', { diagnostic: error.message })
+  }
 
   /** Cache publisher readiness at lifecycle transitions; fleet polling must not spawn git. */
   const observeBundleReadiness = async () => {
@@ -296,8 +355,15 @@ export function wireDevBundlePublisher(deps: {
         await publishReadiness()
       }
       unavailableDiagnostic = undefined
+      publishFailureDetail = undefined
       return target
     } catch (error) {
+      // A TYPED refusal reaches the read model; an untyped one is a diagnostic
+      // whose text may name paths, and stays in the log (POD-2227).
+      if (error instanceof DevBundleUnavailableError) {
+        recordPublishFailure(error)
+        return undefined
+      }
       const diagnostic = error instanceof Error ? error.message : String(error)
       if (diagnostic !== unavailableDiagnostic) {
         log.warn('development bundle target unavailable', { diagnostic })
@@ -322,18 +388,33 @@ export function wireDevBundlePublisher(deps: {
     preparation: () => {
       const web = webBuilder?.state()
       const failureDetail =
-        web?.state === 'failed' && publishedVersion === `dev+${web.headSha}`
+        // First, because it is the one that decides whether ANY of this can be
+        // delivered: a website rebuilt for a package nobody can fetch is not
+        // the sentence to lead with.
+        publishFailureDetail ??
+        (web?.state === 'failed' && publishedVersion === `dev+${web.headSha}`
           ? `The website could not be rebuilt for dev+${web.headSha}. See the server log.`
-          : bundleFailureDetail
+          : bundleFailureDetail)
       return {
         webReady: web?.state === 'ready',
-        bundleReady,
+        // A packed tarball with no address to fetch it from is not a ready
+        // package. `fleet` reported `bundleReady: true` right through the live
+        // stall, which read as the package being on its way (POD-2227).
+        bundleReady: bundleReady && publishFailureDetail === undefined,
         ...(failureDetail ? { failureDetail } : {}),
       }
     },
     publishTarget,
     requestBuild: (explicit) => {
       if (!publisher) return Promise.resolve()
+      // Refuse before the compile, with the remedy in the sentence, rather than
+      // pack for thirty-five seconds and leave the step waiting (POD-2227).
+      const blocked = artifactOriginFailure()
+      if (blocked) {
+        recordPublishFailure(blocked)
+        return Promise.reject(blocked)
+      }
+      publishFailureDetail = undefined
       // A human pressed Update. Whatever the stamp says, ask git — the one
       // interaction where someone is watching is not the place to save 8ms,
       // and it is the escape hatch if this cache is ever wrong about a
