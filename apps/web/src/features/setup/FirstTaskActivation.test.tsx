@@ -112,7 +112,10 @@ describe('FirstTaskActivation', () => {
 
     await screen.findByText('Ready')
     expect(screen.getByText(/Install OpenCode.*opencode auth login/)).toBeTruthy()
-    expect(screen.getByText(/Install the Cursor CLI.*cursor-agent login/)).toBeTruthy()
+    // Cursor states its install step as prose around a copyable command chip,
+    // so the sentence is spread across elements; assert on the row that holds it.
+    const cursorHint = screen.getByText('Install the CLI, then run').closest('p')
+    expect(cursorHint?.textContent).toContain('cursor-agent login')
     expect(screen.getByRole('heading', { name: 'Set up your agents.' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Choose a project/ })).toBeNull()
 
