@@ -31,9 +31,12 @@
  * globalThis so a second evaluation (or an explicit remint) does not nest containers or
  * stack exit listeners.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { type ChildProcess, spawn } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { reapStaleTestRunProcesses } from './scripts/reap-stale-test-runs'
 import { assertHermeticStateDir } from './test-hermetic-state-guard'
 
 // PODIUM_CODEX_HOOK_* (the codex hook ingest locator — PODIUM_CODEX_HOOK_URL today, plus any
@@ -118,6 +121,7 @@ interface HermeticTmpState {
   /** Last bun-test file key (Bun.main) this process minted for — detects file boundaries. */
   activeFileKey?: string
   exitHandlersInstalled?: boolean
+  guardians: Map<string, ChildProcess>
 }
 const HERMETIC_TMP_STATE = Symbol.for('podium.test.hermeticTmpState')
 const withState = globalThis as typeof globalThis & { [HERMETIC_TMP_STATE]?: HermeticTmpState }
@@ -137,9 +141,61 @@ if (!withState[HERMETIC_TMP_STATE]) {
     containers: [],
     hostTmpdir: tmpdir(),
     assignedStateDir: process.env.PODIUM_STATE_DIR,
+    guardians: new Map(),
   }
+  // Lane-start self-healing. The oracle is deliberately narrower than this run's guardian:
+  // only a cwd below a deleted `podium-test-run-*` root is eligible.
+  reapStaleTestRunProcesses()
 }
 const tmpState = withState[HERMETIC_TMP_STATE]
+
+const GUARDIAN_ENTRY = fileURLToPath(new URL('./scripts/test-run-guardian.mjs', import.meta.url))
+
+function procStartTime(pid: number): string | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    return stat
+      .slice(stat.lastIndexOf(') ') + 2)
+      .trim()
+      .split(/\s+/)[19]
+  } catch {
+    return undefined
+  }
+}
+
+function liveLaneRequested(): boolean {
+  return Object.entries(process.env).some(
+    ([key, value]) =>
+      value === '1' &&
+      (/^PODIUM_[A-Z0-9_]+_LIVE$/.test(key) ||
+        key === 'PODIUM_E2E_REAL_AGENTS' ||
+        key === 'PODIUM_REAL_CLI'),
+  )
+}
+
+function guardRun(containerDir: string): void {
+  if (!liveLaneRequested() || process.platform !== 'linux') return
+  const startTime = procStartTime(process.pid)
+  if (!startTime) return
+  const guardian = spawn(
+    process.execPath,
+    [GUARDIAN_ENTRY, String(process.pid), startTime, containerDir],
+    {
+      cwd: resolve(fileURLToPath(new URL('.', import.meta.url))),
+      env: process.env,
+      stdio: 'ignore',
+      detached: true,
+    },
+  )
+  guardian.unref()
+  tmpState.guardians.set(containerDir, guardian)
+}
+
+function releaseGuardian(containerDir: string): void {
+  const guardian = tmpState.guardians.get(containerDir)
+  tmpState.guardians.delete(containerDir)
+  guardian?.kill('SIGTERM')
+}
 
 const removeDir = (dir: string) => {
   try {
@@ -149,7 +205,10 @@ const removeDir = (dir: string) => {
   }
 }
 const removeAll = () => {
-  for (const dir of tmpState.containers.splice(0)) removeDir(dir)
+  for (const dir of tmpState.containers.splice(0)) {
+    releaseGuardian(dir)
+    removeDir(dir)
+  }
   tmpState.activeContainer = undefined
 }
 // Register exit handlers once per process — re-evaluating this module (vitest) or reminting
@@ -185,6 +244,7 @@ export function mintHermeticFileScope(): void {
   // determinism across processes + abduco's sun_path budget). [spec:SP-0be7]
   process.env.PODIUM_TEST_HOST_TMPDIR = tmpState.hostTmpdir
   process.env.TMPDIR = containerDir
+  guardRun(containerDir)
 
   // Remint when unset OR when the value is still one this module assigned (including the
   // ambient value seeded at process start — see DECISION above). A suite that set its own
@@ -239,13 +299,17 @@ export function releaseHermeticTmpContainer(): void {
   if (process.env.TMPDIR === containerDir) {
     process.env.TMPDIR = tmpState.hostTmpdir
   }
-  if (tmpState.assignedStateDir?.startsWith(containerDir + sep) || tmpState.assignedStateDir === containerDir) {
+  if (
+    tmpState.assignedStateDir?.startsWith(containerDir + sep) ||
+    tmpState.assignedStateDir === containerDir
+  ) {
     if (process.env.PODIUM_STATE_DIR === tmpState.assignedStateDir) {
       delete process.env.PODIUM_STATE_DIR
     }
     tmpState.assignedStateDir = undefined
   }
   tmpState.activeContainer = undefined
+  releaseGuardian(containerDir)
   removeDir(containerDir)
 }
 

@@ -67,6 +67,7 @@
     "test:acceptance:server-transfer": "bun scripts/test-heavy.ts -- bash tests/acceptance/server-transfer/run.sh",
     "test:smoke:agents": "PODIUM_REAL_CLI=1 bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.agent-smoke.config.ts",
     "test:e2e": "bun run build && NODE_OPTIONS=--conditions=@podium/source bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts --maxWorkers=1 tests/e2e",
+    "test:sweep-stale-runs": "bun scripts/reap-stale-test-runs.ts",
     "test:multi-instance": "bun scripts/test-heavy.ts -- bash -c \"bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts && bun --bun node_modules/vitest/vitest.mjs run scripts/managed-account-spawn.integration.test.ts && bash scripts/install-sh.test.sh\"",
     "test:browser": "bun scripts/browser-lane.ts",
     "oracle": "bun scripts/oracle.ts",

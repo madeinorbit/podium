@@ -36,6 +36,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it } from 'vitest'
 import authMatrix from './__fixtures__/auth-matrix.json'
 import { createOpencodeClient } from './client.js'
@@ -51,7 +52,9 @@ describe('spec §6 — the recorded refusal matrix from a real opencode', () => 
   })
 
   it('refuses every request that is not correct Basic — including the health check', () => {
-    const byCase = new Map(authMatrix.probes.map((probe) => [`${probe.case}|${probe.route}`, probe]))
+    const byCase = new Map(
+      authMatrix.probes.map((probe) => [`${probe.case}|${probe.route}`, probe]),
+    )
     // The case spec §6 is written about.
     expect(byCase.get('no credentials|GET /global/health')?.status).toBe(401)
     expect(byCase.get('no credentials|GET /session')?.status).toBe(401)
@@ -149,6 +152,9 @@ describe.skipIf(!live)('spec §6 — LIVE re-proof against a real opencode serve
     const secret = `podium-live-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
     const port = 39_000 + Math.floor(Math.random() * 2000)
     const child = spawn('opencode', ['serve', '--port', String(port), '--hostname', '127.0.0.1'], {
+      // Keep every live-lane child inside the hermetic run root so the run guardian can
+      // prove ownership and reap it even when the test itself is SIGKILLed.
+      cwd: tmpdir(),
       env: {
         ...process.env,
         OPENCODE_SERVER_USERNAME: 'podium',
@@ -180,7 +186,8 @@ describe.skipIf(!live)('spec §6 — LIVE re-proof against a real opencode serve
     expect(ready, 'opencode serve did not become ready').toBe(true)
 
     const status = async (init?: RequestInit): Promise<number> =>
-      (await fetch(`${baseUrl}/global/health`, { ...init, signal: AbortSignal.timeout(5000) })).status
+      (await fetch(`${baseUrl}/global/health`, { ...init, signal: AbortSignal.timeout(5000) }))
+        .status
 
     expect(await status()).toBe(401)
     expect(await status({ headers: { authorization: `Bearer ${secret}` } })).toBe(401)

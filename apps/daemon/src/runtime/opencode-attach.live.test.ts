@@ -54,6 +54,7 @@
 
 import { execFileSync, spawn } from 'node:child_process'
 import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
 import { asSessionId, type SessionId } from '@podium/model'
 import { abducoHasSession } from '@podium/pty'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -96,14 +97,15 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
   let server: ReturnType<typeof spawn>
   let url = ''
   let conversationId = ''
-  const home = process.env.HOME ?? '/tmp'
+  const workdir = tmpdir()
 
   beforeAll(async () => {
     const port = await freePort()
     url = `http://127.0.0.1:${port}`
     const auth = `Basic ${Buffer.from(`${USERNAME}:${SECRET}`).toString('base64')}`
     server = spawn('opencode', ['serve', '--port', String(port), '--hostname', '127.0.0.1'], {
-      cwd: home,
+      // The test-run guardian owns this exact hermetic root even if Vitest is SIGKILLed.
+      cwd: workdir,
       env: {
         ...process.env,
         OPENCODE_SERVER_USERNAME: USERNAME,
@@ -162,7 +164,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
         username: USERNAME,
         secret,
         opencodeSessionId: conversationId,
-        workdir: home,
+        workdir,
       },
     })
     const deadline = Date.now() + HANDSHAKE_WINDOW_MS
@@ -278,15 +280,11 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
  *  from, so a version bump cannot leave this file quietly describing an older
  *  one. */
 describe.skipIf(!LIVE)('the version the live re-proof was recorded against', () => {
-  it(
-    'is the one this machine would run',
-    () => {
-      // Spawning a ~180MB binary on the shared box this epic runs on has been
-      // measured past 20 seconds, which the default per-test timeout would
-      // report as a version mismatch.
-      const version = execFileSync('opencode', ['--version'], { encoding: 'utf8' }).trim()
-      expect(version).toBe('1.18.16')
-    },
-    90_000,
-  )
+  it('is the one this machine would run', () => {
+    // Spawning a ~180MB binary on the shared box this epic runs on has been
+    // measured past 20 seconds, which the default per-test timeout would
+    // report as a version mismatch.
+    const version = execFileSync('opencode', ['--version'], { encoding: 'utf8' }).trim()
+    expect(version).toBe('1.18.16')
+  }, 90_000)
 })
