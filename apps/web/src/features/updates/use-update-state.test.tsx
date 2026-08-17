@@ -34,16 +34,19 @@ function Probe({
   onResult,
   withReload = false,
   behind = 1,
+  pollFleet = false,
 }: {
   onResult: (result: UpdateStateResult) => void
   withReload?: boolean
   /** How many fleet machines are behind — the offer's only reason to exist here. */
   behind?: number
+  /** Exercise the production fleet read instead of supplying an established fact. */
+  pollFleet?: boolean
 }) {
   const result = useUpdateState({
     httpOrigin: 'http://podium.test',
     needRefresh: false,
-    fleet: { total: 1, behind, converging: 0, failed: 0 },
+    ...(pollFleet ? {} : { fleet: { total: 1, behind, converging: 0, failed: 0 } }),
     reload: withReload ? reloadAction : undefined,
   })
   useEffect(() => {
@@ -69,6 +72,8 @@ function notFound(path: string): Error & { data: { code: string } } {
 function setupTransport(
   version: { appVersion: string; target?: typeof target } = { appVersion: '0.4.1', target },
 ): void {
+  mocks.history.mockResolvedValue([])
+  mocks.fleet.mockResolvedValue({ total: 1, behind: 1, converging: 0, failed: 0 })
   mocks.makeTrpc.mockReturnValue({
     setup: { channel: { query: vi.fn(async () => 'stable') } },
     operations: {
@@ -91,6 +96,20 @@ function setupTransport(
       json: async () => (url.endsWith('/version') ? version : { appVersion: '0.4.1' }),
     })),
   )
+}
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason: unknown) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }
 
 /**
@@ -136,20 +155,27 @@ afterEach(() => {
 })
 
 describe('useUpdateState — reading the operation', () => {
-  it('renders the offer while the server has no operation', async () => {
+  it('waits for a genuine no-operation answer before rendering the offer', async () => {
     setupTransport()
-    mocks.active.mockResolvedValue(null)
+    const active = deferred<null>()
+    mocks.active.mockReturnValue(active.promise)
     const results: UpdateStateResult[] = []
 
-    render(<Probe onResult={(result) => results.push(result)} />)
+    render(<Probe onResult={(result) => results.push(result)} pollFleet />)
+
+    expect(screen.getByTestId('view-state').textContent).toBe('none')
+
+    await act(async () => active.resolve(null))
 
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
     expect(results.at(-1)?.view.primary?.kind).toBe('start')
   })
 
-  it('renders the server’s operation instead of the offer, verbatim', async () => {
+  it('stays silent until the first poll reveals the running operation, never offering', async () => {
     setupTransport()
-    mocks.active.mockResolvedValue({
+    const active = deferred<unknown>()
+    mocks.active.mockReturnValue(active.promise)
+    const running = {
       id: 'op_7',
       kind: 'update',
       state: 'running',
@@ -158,16 +184,55 @@ describe('useUpdateState — reading the operation', () => {
         { id: 'prepare', title: 'Preparing the update', state: 'done' },
         { id: 'machines', title: 'Updating your machines', state: 'running' },
       ],
-    })
+    }
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
 
+    expect(screen.getByTestId('view-state').textContent).toBe('none')
+    expect(results.map((result) => result.view.state)).not.toContain('offer')
+
+    await act(async () => active.resolve(running))
+
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('running'))
+    expect(results.map((result) => result.view.state)).not.toContain('offer')
     expect(results.at(-1)?.view.stepPosition).toEqual({ current: 2, total: 2 })
     expect(results.at(-1)?.operation?.id).toBe('op_7')
     // The fleet snapshot is not a second opinion while an operation exists.
     expect(mocks.fleet).not.toHaveBeenCalled()
+  })
+
+  it('keeps an unread operation unknown when the first poll fails', async () => {
+    setupTransport()
+    const active = deferred<never>()
+    mocks.active.mockReturnValue(active.promise)
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    expect(screen.getByTestId('view-state').textContent).toBe('none')
+
+    await act(async () => {
+      active.reject(new Error('server restarted'))
+      await active.promise.catch(() => {})
+    })
+
+    expect(results.every((result) => result.view.state === 'none')).toBe(true)
+    expect(results.at(-1)?.operation).toBeUndefined()
+    expect(mocks.history).not.toHaveBeenCalled()
+  })
+
+  it('does not turn an unread fleet snapshot into an empty fleet offer', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.fleet.mockRejectedValue(new Error('server restarted'))
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} pollFleet />)
+
+    await waitFor(() => expect(mocks.fleet).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(results.at(-1)?.operation).toBeNull())
+    expect(results.at(-1)?.view.state).toBe('none')
+    expect(results.map((result) => result.view.state)).not.toContain('offer')
   })
 
   it('drops a payload that is not an operation rather than rendering a blank', async () => {
