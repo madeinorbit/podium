@@ -102,4 +102,32 @@ describe('WhereTheWorkWent', () => {
     fireEvent.click(screen.getByRole('button', { name: /Tuck away/ }))
     expect(onTuck).toHaveBeenCalled()
   })
+
+  /**
+   * POD-1212 — the filing action names WHICH filing it is.
+   *
+   * "Tuck away" is only truthful on a task already recorded as finished: the
+   * fold is for finished work, so the server refuses to tuck an open one. An
+   * unfinished signpost therefore offers the ending together with the fold,
+   * rather than a button that silently closes behind a word that promises not to.
+   */
+  it('offers the ending as well as the fold while the task is still open', () => {
+    const continuation: IssueContinuation = {
+      kind: 'spinoff',
+      target: makeIssue({ id: 'spin', seq: 1192, title: 'Safari scroll and flicker' }),
+      short: '#1192',
+      full: 'Work continued in #1192',
+      line: 'continued · #1192',
+    }
+    const onTuck = vi.fn()
+    region({ continuation, continuationFinished: false, onTuck })
+
+    expect(screen.queryByRole('button', { name: /^Tuck away/ })).toBeNull()
+    const file = screen.getByRole('button', { name: /Done & tuck/ })
+    // The tooltip carries both effects and the destination that justifies them.
+    expect(file.getAttribute('title')).toContain('done')
+    expect(file.getAttribute('title')).toContain('#1192')
+    fireEvent.click(file)
+    expect(onTuck).toHaveBeenCalled()
+  })
 })

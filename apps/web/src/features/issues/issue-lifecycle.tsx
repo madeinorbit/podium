@@ -42,8 +42,12 @@ export { type IssueCloseConcern, issueCloseConcerns }
  * `session.issueId`. Here in one place so the single dialog and the batch
  * summary cannot answer it two different ways — passing the WHOLE roster as
  * members reads every session in the world as attached to every issue.
+ *
+ * Exported for the one caller that needs the concerns WITHOUT the dialog: the
+ * flight deck's signpost card asks whether a close would raise anything before
+ * deciding to interrupt at all (POD-1212).
  */
-function issueMemberSessions(
+export function issueMemberSessions(
   issue: IssueViewModel,
   sessions: readonly SessionMeta[],
 ): SessionMeta[] {

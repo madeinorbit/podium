@@ -37,6 +37,7 @@ const harness = vi.hoisted(() => ({
   setPanelMode: vi.fn(),
   setSelectedIssueId: vi.fn(),
   setIssueTucked: vi.fn(async () => undefined),
+  closeIssue: vi.fn(async (_id: string, _reason?: string) => undefined),
   ui: new Map<string, string>(),
   listeners: new Set<() => void>(),
   setPlacement: vi.fn(async (_input: unknown) => undefined),
@@ -88,7 +89,7 @@ vi.mock('./store', () => ({
       markIssueUnread: vi.fn(async () => undefined),
       updateIssue: vi.fn(async () => undefined),
       deleteIssue: vi.fn(async () => undefined),
-      closeIssue: vi.fn(async () => undefined),
+      closeIssue: harness.closeIssue,
       deferIssue: vi.fn(async () => undefined),
       undeferIssue: vi.fn(async () => undefined),
       setIssueLabels: vi.fn(async () => undefined),
@@ -177,6 +178,7 @@ beforeEach(() => {
   harness.setPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
   harness.setIssueTucked.mockClear()
+  harness.closeIssue.mockClear()
   harness.startIssue.mockClear()
   harness.addSession.mockClear()
   harness.setPlacement.mockClear()
@@ -510,6 +512,80 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Tuck away/ }))
     expect(harness.setIssueTucked).toHaveBeenCalledWith('root', true)
+    // Already finished: the fold is the whole decision, so nothing is closed.
+    expect(harness.closeIssue).not.toHaveBeenCalled()
+  })
+
+  /**
+   * POD-1212 — a signpost on a task that is still OPEN.
+   *
+   * `issues.setTucked` refuses an unfinished issue and the sidebar's fold reads
+   * the same predicate, so the lone "Tuck away" here painted a fold the server
+   * threw out. The ending is recorded first, and the tuck is enqueued behind it
+   * in the same `issue:<id>` partition.
+   */
+  it('records the ending before folding a signpost the task never closed', async () => {
+    harness.issues = [
+      issue('root', {
+        seq: 1158,
+        displayRef: 'POD-1158',
+        title: 'Chat feed motion',
+        stage: 'review',
+        dependents: [{ id: 'spin', type: 'discovered-from' }],
+      }),
+      issue('spin', {
+        seq: 1192,
+        displayRef: 'POD-1192',
+        title: 'Safari scroll and flicker',
+        deps: [{ id: 'root', type: 'discovered-from' }],
+      }),
+    ]
+    harness.sessions = [session('s-spin', { issueId: 'spin', name: 'Scroll fix' })]
+
+    deck()
+
+    // The word "tuck" alone is never offered on an open task — it cannot work.
+    expect(screen.queryByRole('button', { name: /^Tuck away/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Done & tuck/ }))
+
+    // Nothing was at stake, so the guard did not interrupt: the close went
+    // straight out, and the fold follows it.
+    expect(harness.closeIssue).toHaveBeenCalledWith('root', 'done')
+    await waitFor(() => expect(harness.setIssueTucked).toHaveBeenCalledWith('root', true))
+  })
+
+  /** …but a close that would strand work still raises the shared guard first
+   *  (POD-1129) — the deck does not get its own, quieter close. */
+  it('raises the close guard before folding away stranded delivery', async () => {
+    harness.issues = [
+      issue('root', {
+        seq: 1158,
+        displayRef: 'POD-1158',
+        title: 'Chat feed motion',
+        stage: 'review',
+        dependents: [{ id: 'spin', type: 'discovered-from' }],
+        parentBranch: 'main',
+        gitState: { shared: false, ahead: 2, merged: false, dirtyFiles: 0, dirtyOwn: 0 },
+      }),
+      issue('spin', {
+        seq: 1192,
+        displayRef: 'POD-1192',
+        title: 'Safari scroll and flicker',
+        deps: [{ id: 'root', type: 'discovered-from' }],
+      }),
+    ]
+    harness.sessions = [session('s-spin', { issueId: 'spin', name: 'Scroll fix' })]
+
+    deck()
+    fireEvent.click(screen.getByRole('button', { name: /Done & tuck/ }))
+
+    expect(harness.closeIssue).not.toHaveBeenCalled()
+    const concerns = await screen.findByTestId('issue-close-concerns')
+    expect(concerns.textContent).toContain('2 commits awaiting delivery')
+
+    fireEvent.click(screen.getByRole('button', { name: /Close anyway/ }))
+    expect(harness.closeIssue).toHaveBeenCalledWith('root', 'done')
+    await waitFor(() => expect(harness.setIssueTucked).toHaveBeenCalledWith('root', true))
   })
 
   it('turns a hopscotch-empty origin into a signpost to the live tip', () => {

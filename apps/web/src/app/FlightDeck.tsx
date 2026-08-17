@@ -3,6 +3,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   archivedSessionsForIssue,
+  blockingCloseConcerns,
   buildFlightDeckRows,
   type CollapsedSummary,
   type DeckIssueState,
@@ -15,6 +16,7 @@ import {
   type IssueNavigationModel,
   type IssueNote,
   isCoordinatorSession,
+  issueCloseConcerns,
   issueContinuation,
   issueNote,
   issueOwnContentUnread,
@@ -82,6 +84,7 @@ import {
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph, StatusGlyph } from '@/features/issues/issue-glyphs'
+import { IssueCloseDialog, issueMemberSessions } from '@/features/issues/issue-lifecycle'
 import {
   type AgentRowStatus,
   agentFleetStatus,
@@ -1912,6 +1915,7 @@ function DepartedState({ state }: { state: DeckIssueState }): JSX.Element {
 export function WhereTheWorkWent({
   continuation,
   continuationState = null,
+  continuationFinished = true,
   departures,
   onOpen,
   onTuck,
@@ -1920,6 +1924,9 @@ export function WhereTheWorkWent({
   continuation: IssueContinuation | null
   /** Folded in off the tick this row replaces, so nothing is lost with it. */
   continuationState?: DeckIssueState | null
+  /** Whether the vacated task itself is already recorded as finished — the card
+   *  names a different filing action when it is not (see {@link ContinuationCard}). */
+  continuationFinished?: boolean
   /** Everything else that left — already filtered of the continuation target. */
   departures: readonly MissionDeparture[]
   onOpen: (issue: IssueNavigationModel) => void
@@ -1936,6 +1943,7 @@ export function WhereTheWorkWent({
         <ContinuationCard
           continuation={continuation}
           state={continuationState}
+          finished={continuationFinished}
           onOpen={onOpen}
           onTuck={onTuck}
         />
@@ -1983,17 +1991,32 @@ export function WhereTheWorkWent({
  * It is the FIRST ROW of the departures region rather than a card of its own
  * (see {@link WhereTheWorkWent}), and it carries the state word its departure
  * tick used to carry — so the destination is stated exactly once.
+ *
+ * THE FILING ACTION SAYS WHICH ONE IT IS (POD-1212). "Tuck away" is only
+ * truthful on a task that is already finished: the fold is for finished work, so
+ * `issues.setTucked` REFUSES an open one and the sidebar's own fold predicate
+ * reads the same `closedReason`. A hopscotch origin left standing at `review`
+ * with its work carried on elsewhere is exactly the case this card exists for,
+ * and there the one button drew a promise the server threw out. So an unfinished
+ * task is offered the ending as well as the fold, in one label — never a "Tuck
+ * away" that quietly closes, because the tuck chip's own tooltip promises the
+ * opposite ("Nothing is killed or closed").
  */
 export function ContinuationCard({
   continuation,
   state = null,
+  finished = true,
   onOpen,
   onTuck,
 }: {
   continuation: IssueContinuation
   /** What the destination is doing now, folded in off its own tick. */
   state?: DeckIssueState | null
+  /** Whether THIS task is already closed or done. */
+  finished?: boolean
   onOpen: (issue: IssueNavigationModel) => void
+  /** File this signpost away — which on an unfinished task also records the
+   *  ending, because tucking alone cannot fold it (see above). */
   onTuck: () => void
 }): JSX.Element {
   const target = continuation.target
@@ -2021,15 +2044,32 @@ export function ContinuationCard({
           </p>
         </div>
       </div>
-      <div className="mt-2.5 flex items-center gap-2 pl-[30px]">
+      {/* WRAPPING, because this column resizes down to 300px and the two labels
+          together do not fit there. A clipped action is worse than a stacked one. */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-[30px]">
         {target && (
           <Button type="button" size="sm" className="h-[26px]" onClick={() => onOpen(target)}>
             Open {issueDisplayRef(target)}
           </Button>
         )}
-        <Button type="button" variant="outline" size="sm" className="h-[26px]" onClick={onTuck}>
-          <ArrowDown size={12} aria-hidden="true" /> Tuck away
-        </Button>
+        {finished ? (
+          <Button type="button" variant="outline" size="sm" className="h-[26px]" onClick={onTuck}>
+            <ArrowDown size={12} aria-hidden="true" /> Tuck away
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-[26px]"
+            title={`Record this task as done — the work carried on in ${
+              target ? issueDisplayRef(target) : 'another task'
+            } — and tuck it down into Closed.`}
+            onClick={onTuck}
+          >
+            <Check size={12} aria-hidden="true" /> Done &amp; tuck
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -2253,6 +2293,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     markIssueRead,
     markSessionRead,
     setIssueTucked,
+    closeIssue,
     updateIssue,
     trpc,
     coarseNow,
@@ -2279,6 +2320,9 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       markIssueRead: store.markIssueRead,
       markSessionRead: store.markSessionRead,
       setIssueTucked: store.setIssueTucked,
+      // The signpost card's own filing action closes an unfinished task before
+      // it can be tucked (POD-1212) — the fold is for finished work.
+      closeIssue: store.closeIssue,
       updateIssue: store.updateIssue,
       trpc: store.trpc,
       // The shared coarse clock, not one interval per row: the "N ago" stamp on
@@ -2749,10 +2793,57 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     [issues, updateIssue],
   )
 
+  /**
+   * FILING THE SIGNPOST AWAY — recording the ending first when there is one
+   * still to record (POD-1212).
+   *
+   * `issues.setTucked` REFUSES an unfinished issue ("issue … is not finished"),
+   * and the sidebar's fold predicate reads the same `closedReason`. So on the
+   * mission this card exists for — a hopscotch origin standing at `review`, its
+   * work carried on in a spin-off, no session left here — the lone "Tuck away"
+   * painted a fold the server threw out and the row came straight back. The
+   * unfinished task is therefore closed as `done` and THEN tucked.
+   *
+   * TWO WRITES, ONE PARTITION. Both are queued outbox kinds routed on
+   * `issue:<id>` (wiring.ts), which is what makes the pair safe rather than
+   * racy: the close is applied before the tuck reaches the guard that reads it.
+   * The `.then` chain is the enqueue order, not a round-trip wait.
+   *
+   * The guard interrupts only when a close would actually raise something —
+   * stranded commits, an open sub-task, a standing decision. POD-1129's rule is
+   * that every surface must name the SAME concerns, not that every surface must
+   * stop to report none: this button already says what it will do, and a dialog
+   * that rises to answer "nothing found" is a tax on the ordinary case.
+   */
+  const rootFinished = Boolean(root && (root.closedReason || root.stage === 'done'))
+  const [signpostClosing, setSignpostClosing] = useState(false)
+  const closeAndTuckRoot = (): void => {
+    if (!root) return
+    const id = root.id
+    setSignpostClosing(false)
+    void closeIssue(id, 'done')
+      .then(() => setIssueTucked(id, true))
+      .catch((error: unknown) =>
+        toast.error(error instanceof Error ? error.message : String(error)),
+      )
+  }
   const tuckResolvedRoot = (): void => {
     if (!root) return
-    if (!rootContinuation && !root.closedReason && root.stage !== 'done') return
-    void setIssueTucked(root.id, true)
+    if (!rootContinuation && !rootFinished) return
+    if (rootFinished) {
+      void setIssueTucked(root.id, true)
+      return
+    }
+    const blockers = rootIssue
+      ? blockingCloseConcerns(
+          issueCloseConcerns(rootIssue, issueMemberSessions(rootIssue, sessions)),
+        )
+      : []
+    if (blockers.length > 0) {
+      setSignpostClosing(true)
+      return
+    }
+    closeAndTuckRoot()
   }
   const addMissionAgent = (agentKind?: IssueAgentKind): Promise<unknown> => {
     if (!rootIssue) return Promise.resolve()
@@ -3239,6 +3330,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             <WhereTheWorkWent
               continuation={rootContinuation}
               continuationState={continuationState}
+              continuationFinished={rootFinished}
               departures={departures}
               onOpen={openDeparture}
               onTuck={tuckResolvedRoot}
@@ -3283,6 +3375,18 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             // Open is the strip's own double click — the permanent one.
             if (row) selectIssue(row, true)
           }}
+        />
+      )}
+      {/* The SAME guard every other close path raises (POD-1129), mounted for the
+          one close this column can start: the signpost card's "Done & tuck". It
+          appears only when that close would strand something — see
+          `tuckResolvedRoot`. */}
+      {rootIssue && (
+        <IssueCloseDialog
+          issue={rootIssue}
+          reason={signpostClosing ? 'done' : null}
+          onOpenChange={(open) => setSignpostClosing(open)}
+          onConfirm={closeAndTuckRoot}
         />
       )}
     </aside>
