@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-edge.1] - 2026-08-17
+
+### Added
+
+- Initial public prerelease.
+
 ### Fixed
 
 - Desktop (local all-in-one): the app failed at launch with "Podium could not
@@ -15,10 +21,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the desktop webview is answered by the bundled UI instead of the server; it
   now asks the server directly, and a non-JSON answer fails closed with a
   clear message.
-
-## [0.1.4-edge.5] - 2026-08-17
-
-### Added
-
-- Initial public release.
 
