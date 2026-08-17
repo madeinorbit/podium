@@ -1,10 +1,15 @@
 /**
  * THE WORK LIST WITH NOTHING IN IT (POD-1058, "ADE Empty States" 2a/2b).
  *
- * Four ghost rows under a section band, then one line of live copy. What it
- * replaced was a single grey sentence ("Nothing yet — start an agent or create
- * an issue above"), which told the operator the list was empty — a fact they
- * could already see — and nothing about what a filled one looks like.
+ * Four ghost rows under a section band, and nothing else. What it replaced was
+ * a single grey sentence ("Nothing yet — start an agent or create an issue
+ * above"), which told the operator the list was empty — a fact they could
+ * already see — and nothing about what a filled one looks like.
+ *
+ * NO CAPTION EITHER. The ghosts carried a line under them ("One row per task,
+ * newest first") until POD-1225. A drawing of the list does not need a sentence
+ * explaining that it is a list; the shape already says it, and the caption only
+ * held the reader on a surface whose whole job is to be left.
  *
  * NO SPAWN OF ITS OWN. The surface carried a "New Claude" button repeating the
  * spawn row directly above it and the ⌘N chord; a third delivery of one action,
@@ -129,15 +134,6 @@ export function WorkListEmpty(): JSX.Element {
         <GhostWorkRow tier={3} title="46%" status="52%" />
         <GhostWorkRow tier={4} title="64%" status="30%" />
       </GhostPreview>
-
-      {/* Left-aligned to the list's own text column, not centred: this column is
-          read as a list, and a centred block in it reads as a different kind of
-          surface. */}
-      <div className="flex min-h-0 flex-1 flex-col px-[13px] pt-4 pb-14">
-        <p className="text-[12.5px] leading-[1.5] text-text-dim text-pretty">
-          One row per task, newest first.
-        </p>
-      </div>
     </>
   )
 }

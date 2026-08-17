@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   CircleAlert,
   Clock3,
-  Copy,
   LoaderCircle,
 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -296,14 +295,6 @@ export function FirstTaskActivation({
                     Exactly what one usage report contains
                   </p>
                   <span className="h-px flex-1 bg-[#272b33]" aria-hidden="true" />
-                  <button
-                    type="button"
-                    data-pressable
-                    onClick={() => void navigator.clipboard?.writeText(TELEMETRY_EXAMPLE)}
-                    className="inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-2.5 text-[11.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04]"
-                  >
-                    <Copy size={14} aria-hidden="true" /> Copy
-                  </button>
                 </div>
                 <pre className="mt-3 max-w-full overflow-x-auto rounded-[10px] bg-[#121417] px-[18px] py-4 font-mono text-[12.5px] leading-[1.85] text-[#b9bec6] shadow-[inset_0_0_0_1px_#272b33]">
                   {TELEMETRY_EXAMPLE}
@@ -499,33 +490,36 @@ export function FirstTaskActivation({
       title="Set up your agents."
       description={
         <>
-          Ready agents on{' '}
+          Podium runs whichever coding agents are installed on{' '}
           <code className="font-mono text-[13.5px] text-[#c3c8d0]">
             {selectedMachine?.hostname ?? selectedMachine?.name ?? 'this machine'}
-          </code>{' '}
-          can start work now. The others show exactly what is still needed.
+          </code>
+          . Start with the ready ones — the rest take one step each, whenever you want them.
         </>
       }
       contentClassName="mt-7"
     >
-      <div className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
+      {/* TWO CARDS, ONE LABEL (POD-1225). The not-ready group lost its "Needs
+          one step" band and its count: every row in it already names its own
+          status and the step it is waiting on, so the header was a number put on
+          work nobody has to do yet. With both groups in one card the surviving
+          "Ready to use" band would then appear to head the whole list — so the
+          groups separate by card instead, which says the same thing without a
+          second row of chrome. */}
+      <div className="flex flex-col gap-3">
         {readyAgents.length > 0 && (
-          <>
+          <div className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
             <div className="flex items-center gap-2.5 border-b border-[#272b33] bg-[#1f2329] px-5 py-2.5 text-[12px] leading-none font-semibold text-[#a8adb6]">
               <span className="flex-1">Ready to use</span>
               <span className="text-[#69c48a]">{readyAgents.length}</span>
             </div>
             {renderAgentRows(readyAgents)}
-          </>
+          </div>
         )}
         {blockedAgents.length > 0 && (
-          <>
-            <div className="flex items-center gap-2.5 border-y border-[#272b33] bg-[#1f2329] px-5 py-2.5 text-[12px] leading-none font-semibold text-[#a8adb6] first:border-t-0">
-              <span className="flex-1">Needs one step</span>
-              <span className="text-[#e3ba52]">{blockedAgents.length}</span>
-            </div>
+          <div className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
             {renderAgentRows(blockedAgents)}
-          </>
+          </div>
         )}
       </div>
 
@@ -546,12 +540,6 @@ export function FirstTaskActivation({
           Change project
         </button>
         <span className="flex-1" />
-        <span className="text-[12.5px] leading-none text-[#6f757f]">
-          {readyAgents.length === 3
-            ? 'Three ready is plenty'
-            : `${readyAgents.length} ready is enough`}{' '}
-          — the rest can wait.
-        </span>
         <button
           type="button"
           data-pressable

@@ -153,9 +153,6 @@ export function OnboardingWizard({
           onSelect={() => onRouteChange('vps-choice')}
         />
       </div>
-      <p className="mt-4 text-[12.5px] leading-none text-[#6f757f]">
-        You can add machines later — this isn’t a one-way door.
-      </p>
     </ActivationShell>
   )
 }
