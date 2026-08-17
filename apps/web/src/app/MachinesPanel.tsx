@@ -38,9 +38,9 @@ import {
   useServerTransfer,
   useServerTransferStatus,
 } from '@/features/machines/server-transfer'
+import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
 import { NetworkStep } from '@/features/setup/network-step'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
-import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
