@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop (local all-in-one): the app failed at launch with "Podium could not
+  open its private replica — The string did not match the expected pattern."
+  The replica boot gate fetched `/auth/status` relative to the page, which in
+  the desktop webview is answered by the bundled UI instead of the server; it
+  now asks the server directly, and a non-JSON answer fails closed with a
+  clear message.
+
+## [0.1.4-edge.5] - 2026-08-17
+
 ### Added
 
 - Initial public release.
+
