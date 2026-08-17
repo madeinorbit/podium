@@ -81,6 +81,11 @@ Every production session read must be classified as one of these:
 | Trusted internal fact | existence, worktree use, parent id, lifecycle/machine eligibility | a named fact read owned by the sessions module |
 | Intentional full reader projection | full client bootstrap/list, explicit “list all sessions” tool | `listSessions` with an allowlisted reason |
 
+Naming: `sessionById` / `listSessionsForIssue` / `sessionsById` are the sessions-module
+facade operations; `byId` / `listForIssue` / `byIds` are the underlying `SessionView`
+methods they delegate to. Migration tables use the facade names because that is what call
+sites import.
+
 The distinction matters. A reader-scoped result must still run `canReadSession` and
 `SessionView.wire`. A trusted policy path should not allocate public wire rows merely to read
 an internal field, but it must not expose its unscoped facts to a client response.
@@ -221,15 +226,20 @@ observable and testable; they are not user configuration in this bridge.
 
 ### 7.3 One slice
 
-For each selected pending entry:
+Per selected pending entry:
 
 1. record `(sessionId, version, preserve, issueRelevant)`;
 2. read the resident session;
-3. if resident, build its current wire row through `SessionView.wire`;
-4. add the row to this slice's capture specs;
-5. capture the slice through the existing ledger/Authority path;
-6. only after successful capture, update `capturedSessionStates` and remove the pending entry
-   if its current version still equals the recorded version.
+3. if resident, build its current wire row through `SessionView.wire` and add it to this
+   slice's capture specs.
+
+Then, once per slice:
+
+4. capture the accumulated specs through the existing ledger/Authority path, with
+   `issueRelevant` computed over this slice's entries (today it is computed over the whole
+   batch; per-slice is strictly more precise);
+5. only after successful capture, update `capturedSessionStates` and remove each pending
+   entry whose current version still equals its recorded version.
 
 If a session disappeared, preserve current behavior: it produces no upsert and its matching
 pending entry is cleared after the successful no-op slice.
@@ -257,11 +267,21 @@ fields are per-session final-state updates, so separate batches are legal. Any o
 a real multi-row atomic-visibility requirement must bypass this queue and remain one explicit
 Authority commit.
 
+One accepted semantic change: A→B→A churn that today lands in a single drain dedupes to no
+durable change, but if the two mutations straddle a slice boundary the intermediate value B
+is durably captured before A is captured again. The client-visible final state is identical;
+only the durable change count differs. Tests must assert final-state equality, not
+durable-change counts, across slice boundaries.
+
 ### 7.5 Flush barrier and shutdown
 
 `flushBroadcasts()` retains its current barrier semantics for deterministic tests and graceful
 shutdown: it drains all pending slices synchronously, then flushes deltas. The scheduled timer
-must call a new one-slice entry point rather than this barrier.
+must call a new one-slice entry point rather than this barrier. Concretely: today
+`SessionRepository.scheduleVolatileSessionCapture` fires `ports.flushBroadcasts()`, whose
+flush chain runs the full `flushVolatileSessionCaptures()` drain. The timer callback switches
+to `drainVolatileCaptureSlice` + delta flush; the barrier path (`lifecycle.dispose` and test
+harnesses) keeps the full drain.
 
 Production request, daemon-frame, and timer-driven publication must never call the full
 barrier. The source audit records the small allowlist: shutdown/dispose and test harnesses.
