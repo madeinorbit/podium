@@ -195,6 +195,25 @@ function offersAlwaysAllow(suggestions: unknown): boolean {
   return Array.isArray(suggestions) && suggestions.length > 0
 }
 
+/** The interview tool. Claude Code routes it through the permission channel too. */
+const ASK_USER_QUESTION = 'AskUserQuestion'
+
+/** The first question of an AskUserQuestion call — the subject of the interview. */
+function askedQuestion(toolInput: unknown): string | undefined {
+  if (typeof toolInput !== 'object' || toolInput === null) return undefined
+  const { questions } = toolInput as { questions?: unknown }
+  if (!Array.isArray(questions)) return undefined
+  const first = questions[0]
+  if (typeof first !== 'object' || first === null) return undefined
+  return str((first as { question?: unknown }).question)
+}
+
+/** An interview is a question whichever channel announced it. */
+function interviewEvent(toolInput: unknown): AgentStateEvent[] {
+  const question = askedQuestion(toolInput)
+  return [{ kind: 'needs_user', need: 'question', ...(question ? { summary: question } : {}) }]
+}
+
 export async function translateClaudeHookPayload(payload: unknown): Promise<AgentStateEvent[]> {
   if (typeof payload !== 'object' || payload === null) return []
   const p = payload as Record<string, unknown>
@@ -204,11 +223,7 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
     case 'UserPromptSubmit':
       return [{ kind: 'prompt_submitted' }]
     case 'PreToolUse': {
-      if (p.tool_name === 'AskUserQuestion') {
-        const input = p.tool_input as { questions?: { question?: unknown }[] } | undefined
-        const q = str(input?.questions?.[0]?.question)
-        return [{ kind: 'needs_user', need: 'question', ...(q ? { summary: q } : {}) }]
-      }
+      if (p.tool_name === ASK_USER_QUESTION) return interviewEvent(p.tool_input)
       return [{ kind: 'activity' }]
     }
     case 'PostToolUse':
@@ -219,6 +234,17 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
       // schema: hook_event_name / tool_name / tool_input /
       // permission_suggestions?) and used to be dropped here, which is why the
       // web chat could only ever render "needs permission" with no subject.
+      //
+      // An interview is not a consent step. Claude Code gates AskUserQuestion
+      // through this SAME channel as Bash or Write — the "permission" being
+      // granted IS the answer — so reporting it verbatim told the user a tool
+      // wanted approval when the agent was only asking them a question.
+      //
+      // An interview is not a consent step. Claude Code gates AskUserQuestion
+      // through this SAME channel as Bash or Write — the "permission" being
+      // granted IS the answer — so reporting it verbatim told the user a tool
+      // wanted approval when the agent was only asking them a question.
+      if (p.tool_name === ASK_USER_QUESTION) return interviewEvent(p.tool_input)
       const summary = str(p.tool_name)
       const detail = permissionDetail(p.tool_input)
       const ask = summary
@@ -241,8 +267,21 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
       // Settings subscribe matcher=permission_prompt only, so anything arriving is one.
       // No `ask`: this channel carries a rendered message, not the tool call, so
       // there is nothing here to build a faithful subject from.
+      //
+      // `subjectless`: the CLI's dialog host notifies for EVERY modal it opens,
+      // and roughly ten of those kinds share the one title "Claude needs your
+      // permission" — the message names no tool, no question, nothing. It may
+      // open a wait (a plan approval or a paused session announces itself
+      // nowhere else) but it may never overwrite a wait already described.
       const summary = str(p.message)
-      return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
+      return [
+        {
+          kind: 'needs_user',
+          need: 'permission',
+          subjectless: true,
+          ...(summary ? { summary } : {}),
+        },
+      ]
     }
     case 'Stop':
       return await stopEvents(p)

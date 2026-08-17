@@ -22,12 +22,19 @@ export type AgentStateEvent = (
   | { kind: 'activity' }
   /** `ask` is the permission subject (tool + what it would do), carried only by a
    *  provider whose permission channel reports it — Claude Code's
-   *  `PermissionRequest` hook does; its `Notification` fallback does not. */
+   *  `PermissionRequest` hook does; its `Notification` fallback does not.
+   *
+   *  `subjectless` marks an event that proves the agent is waiting but names
+   *  nothing it is waiting ON — Claude Code's dialog-host Notification fires for
+   *  every modal kind under one boilerplate title. The reducer lets such an event
+   *  OPEN a wait (some dialogs announce themselves nowhere else) but never
+   *  REPLACE one a better-informed channel already described. */
   | {
       kind: 'needs_user'
       need: 'question' | 'permission'
       summary?: string
       ask?: AgentPermissionAsk
+      subjectless?: true
     }
   /** Turn ended cleanly. The verdict is the PROVIDER's — only an adapter that
    *  actually observed the agent's task list may report 'open_todos' (Claude

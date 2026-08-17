@@ -1,5 +1,22 @@
-import type { AgentRuntimeState } from '@podium/model'
+import type { AgentNeed, AgentRuntimeState } from '@podium/model'
 import type { AgentStateEvent } from './types.js'
+
+/**
+ * Is this the same wait, restated? A harness may announce one wait on several
+ * channels (Claude Code names an interview on PreToolUse AND again on
+ * PermissionRequest), and a restatement must not restamp `since` — the user is
+ * shown how long the agent has been waiting, and that clock starts at the first
+ * announcement, not the last echo of it.
+ */
+function sameNeed(a: AgentNeed, b: AgentNeed): boolean {
+  return (
+    a.kind === b.kind &&
+    a.summary === b.summary &&
+    a.ask?.toolName === b.ask?.toolName &&
+    a.ask?.detail === b.ask?.detail &&
+    a.ask?.canAlwaysAllow === b.ask?.canAlwaysAllow
+  )
+}
 
 /** Stronger observations suppress lower-confidence reports for one live-transition window. */
 export const STATE_CHANNEL_STALENESS_MS = 5_000
@@ -207,16 +224,29 @@ export function reduceAgentState(
         return prev
       }
       return { phase: 'working', ...base }
-    case 'needs_user':
-      return {
-        phase: 'needs_user',
-        ...base,
-        need: {
-          kind: event.need,
-          ...(event.summary !== undefined ? { summary: event.summary } : {}),
-          ...(event.ask !== undefined ? { ask: event.ask } : {}),
-        },
+    case 'needs_user': {
+      // A subjectless event names nothing it waits on, so it must not overwrite a
+      // need a better-informed channel already described. Claude Code announces
+      // one interview three times — PreToolUse (the question), PermissionRequest
+      // (the tool), then a boilerplate "Claude needs your permission" dialog
+      // Notification — and last-write-wins let the emptiest of the three decide,
+      // which is what turned every interview into a permission prompt.
+      // It still OPENS a wait: dialogs that touch no tool arrive only here.
+      if (event.subjectless && prev.phase === 'needs_user' && prev.need) return prev
+      const need: AgentNeed = {
+        kind: event.need,
+        ...(event.summary !== undefined ? { summary: event.summary } : {}),
+        ...(event.ask !== undefined ? { ask: event.ask } : {}),
       }
+      // Same wait restated on a second channel — hold the original `since`.
+      if (prev.phase === 'needs_user' && prev.need && sameNeed(prev.need, need)) {
+        if (event.confidence !== undefined && event.confidence > (prev.stateConfidence ?? -1)) {
+          return { ...prev, ...stateProvenance(event, now) }
+        }
+        return prev
+      }
+      return { phase: 'needs_user', ...base, need }
+    }
     case 'turn_completed': {
       // nativeSubagentCount is the live native-subagent count (Task hooks),
       // NOT open todos — the reducer has no openTodoCount. A positive count

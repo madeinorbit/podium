@@ -236,6 +236,98 @@ describe('translateClaudeHookPayload', () => {
     ])
   })
 
+  it('one interview announced three times stays a question, not a permission prompt', async () => {
+    // Captured from Claude Code 2.1.233 — byte-identical behaviour on 2.1.232 and
+    // 2.1.231, and unaffected by permission mode. ONE AskUserQuestion produces:
+    // PreToolUse (carries the question), PermissionRequest (the CLI gates the
+    // interview through the same channel as Bash — the "permission" granted IS
+    // the answer), and ~6s later a dialog-host Notification whose message names
+    // nothing at all. Last-write-wins let the emptiest of the three decide, so
+    // every interview reached the sidebar as "needs permission".
+    const questions = [
+      {
+        question: 'Do you prefer tabs or spaces for indentation?',
+        header: 'Indentation',
+        options: [{ label: 'Spaces' }, { label: 'Tabs' }],
+        multiSelect: false,
+      },
+    ]
+    const interview = [
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'AskUserQuestion',
+        tool_input: { questions },
+        tool_use_id: 'toolu_01T52TtebrpJUWzk2CtVLe1r',
+      },
+      // No tool_use_id on this one — the permission channel does not carry it.
+      {
+        hook_event_name: 'PermissionRequest',
+        tool_name: 'AskUserQuestion',
+        tool_input: { questions },
+      },
+      {
+        hook_event_name: 'Notification',
+        message: 'Claude needs your permission',
+        notification_type: 'permission_prompt',
+      },
+    ]
+
+    let state = reduceAgentState(
+      initialAgentState('2026-08-17T14:55:30.000Z'),
+      { kind: 'prompt_submitted' },
+      '2026-08-17T14:55:30.000Z',
+    )
+    const afterEachHook: (typeof state.need)[] = []
+    for (const [index, payload] of interview.entries()) {
+      for (const event of await translateClaudeHookPayload(payload)) {
+        state = reduceAgentState(state, event, `2026-08-17T14:55:3${index + 1}.000Z`)
+      }
+      afterEachHook.push(state.need)
+    }
+
+    const asked = { kind: 'question', summary: 'Do you prefer tabs or spaces for indentation?' }
+    expect(afterEachHook).toEqual([asked, asked, asked])
+    // The wait is dated from the hook that opened it, not from the last echo.
+    expect(state).toMatchObject({ phase: 'needs_user', since: '2026-08-17T14:55:31.000Z' })
+  })
+
+  it('a subjectless Notification opens a wait but never overwrites a described one', async () => {
+    const notification = {
+      hook_event_name: 'Notification',
+      message: 'Claude needs your permission',
+      notification_type: 'permission_prompt',
+    }
+    const fold = async (state: ReturnType<typeof initialAgentState>, payload: unknown) => {
+      for (const event of await translateClaudeHookPayload(payload)) {
+        state = reduceAgentState(state, event, '2026-08-17T14:55:32.000Z')
+      }
+      return state
+    }
+
+    // Nothing pending: dialogs that touch no tool (plan approval, a paused
+    // session) announce themselves ONLY here, so this must still open the wait.
+    const working = reduceAgentState(
+      initialAgentState('2026-08-17T14:55:30.000Z'),
+      { kind: 'prompt_submitted' },
+      '2026-08-17T14:55:30.000Z',
+    )
+    expect(await fold(working, notification)).toMatchObject({
+      phase: 'needs_user',
+      need: { kind: 'permission', summary: 'Claude needs your permission' },
+    })
+
+    // A described permission ask keeps its subject — the boilerplate must not
+    // flatten "Bash: git push" back down to "Claude needs your permission".
+    const described = await fold(working, {
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'git push' },
+    })
+    expect(await fold(described, notification)).toMatchObject({
+      need: { kind: 'permission', summary: 'Bash', ask: { toolName: 'Bash', detail: 'git push' } },
+    })
+  })
+
   it('non-question PreToolUse is just activity', async () => {
     expect(await t({ hook_event_name: 'PreToolUse', tool_name: 'Bash' })).toEqual([
       { kind: 'activity' },
@@ -257,6 +349,9 @@ describe('translateClaudeHookPayload', () => {
       {
         kind: 'needs_user',
         need: 'permission',
+        // Subjectless even when the message happens to name a tool: the wording
+        // is the CLI's to change, and the reducer must not weigh prose.
+        subjectless: true,
         summary: 'Claude needs your permission to use Bash',
       },
     ])
