@@ -4,7 +4,7 @@
  * The server's whole teardown vocabulary toward a daemon is two frames — the
  * generic `kill` (hibernate, stop, archive-park, shell-park, stale-park) and
  * `sessionBindingRetire` (row deleted) — and both land in `stopSessionProcess`,
- * which reaps the PTY family's identities: the bridge and the abduco/tmux
+ * which reaped the PTY family's identities: the bridge and the abduco/tmux
  * durable host. A server-driver session has neither. Its process lives behind a
  * handle in `ctx.opencodeRuntime`/`ctx.codexRuntime`/`ctx.grokRuntime`, and
  * before this module nothing on the teardown path ever asked those registries —
@@ -26,19 +26,44 @@
  *     rebind shape), so adopt-then-kill would spawn a process in order to kill
  *     it. The journal already records the exact process identity — pid and
  *     scope unit — and killing by identity needs no handle.
+ *   - It never signals a journalled pid on the pid's word alone. The journal
+ *     survives parks, crashes and reboots (only `kill()` clears it), so a
+ *     journalled pid can belong to an unrelated process by the time a queued
+ *     kill arrives. See CORROBORATION below.
  *   - It does not touch the drivers' DEATH_PROBES machinery (POD-2114). The
  *     handle verbs set `disposed` before signalling, which is exactly what keeps
- *     a real kill from being mistaken for a false exit; nothing here probes a
- *     driver's health endpoint.
+ *     a real kill from being mistaken for a false exit; nothing here weakens the
+ *     multi-probe corroboration on the false-exit side.
+ *
+ * CORROBORATION — the per-driver identity proof, chosen and recorded here:
+ *
+ *   - opencode: the journalled `baseUrl` + `secret` health probe — the exact-
+ *     identity guard the launch path already documents ("Stopping a live server
+ *     here would kill a session we were about to adopt") — with cgroup
+ *     membership of the journalled scope unit as the fallback for a wedged
+ *     server that holds the credential but no longer answers.
+ *   - codex, grok: cgroup membership of the journalled scope unit. Their
+ *     transports are the child's stdio, so a daemon restart takes every child
+ *     with it and there is no credentialed probe to ask; the scope unit is the
+ *     one identity that survives into `/proc/<pid>/cgroup`. Unscoped (macOS)
+ *     they cannot be corroborated — and cannot have survived either.
+ *
+ *   A pid that fails corroboration is NEVER signalled, and it also does not
+ *   count as "alive" in the receipt: an unreadable or foreign `/proc` entry
+ *   (the EPERM case) is a recycled pid, not this session's survivor, so
+ *   reporting `killed:false` on it would make `reviveParkedButAlive` resurrect
+ *   a session whose process died long ago.
  */
 
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs } from '@podium/pty'
 import type { DaemonContext } from '../control/context'
+import { probeHealth } from './opencode-server'
 
 const log = createLogger('daemon:server-reap')
 
@@ -67,6 +92,11 @@ interface ServerProcessIdentity {
 export interface ServerReapIo {
   pidAlive(pid: number): boolean
   signal(pid: number, signal: 'SIGTERM' | 'SIGKILL'): void
+  /** Is this pid a member of this systemd scope unit's cgroup? The journal
+   *  path's identity proof for codex/grok (and opencode's fallback). */
+  pidInUnit(pid: number, scopeUnit: string): boolean
+  /** The opencode credentialed health probe — exact identity via the secret. */
+  probeOpencode(input: { baseUrl: string; secret: string }): Promise<boolean>
   runSystemctl(args: readonly string[]): Promise<void>
   sleep(ms: number): Promise<void>
   canScope(): boolean
@@ -79,7 +109,9 @@ const defaultIo: ServerReapIo = {
       return true
     } catch (err) {
       // EPERM means the pid exists under another uid — alive. Only ESRCH (and
-      // the paranoid default for anything else) reads as gone.
+      // the paranoid default for anything else) reads as gone. This is the
+      // HANDLE path's measure, where the pid was recorded from our own spawn in
+      // this daemon life; the journal path measures by corroboration instead.
       return (err as NodeJS.ErrnoException).code === 'EPERM'
     }
   },
@@ -90,9 +122,23 @@ const defaultIo: ServerReapIo = {
       // Gone between the caller's probe and this signal — the state we wanted.
     }
   },
+  pidInUnit(pid, scopeUnit) {
+    try {
+      // `/proc/<pid>/cgroup` names the unit path of every controller the pid
+      // sits in; a scope member's line ends in `/<unit>`. Unreadable — ESRCH,
+      // ENOENT, or EPERM for a foreign uid — is NOT membership: a pid this
+      // daemon cannot even inspect is a recycled pid, never our child.
+      return readFileSync(`/proc/${pid}/cgroup`, 'utf8').includes(scopeUnit)
+    } catch {
+      return false
+    }
+  },
+  probeOpencode: ({ baseUrl, secret }) => probeHealth(baseUrl, secret),
   async runSystemctl(args) {
     await new Promise<void>((resolve) => {
-      const child = spawn('systemctl', [...args], { stdio: 'ignore' })
+      // The live env map, per SP-3f93 — scope management runs with the
+      // daemon's own env, the same rule POD-2247 records for its exec classes.
+      const child = spawn('systemctl', [...args], { stdio: 'ignore', env: process.env })
       const done = (): void => resolve()
       child.once('exit', done)
       child.once('error', done)
@@ -119,19 +165,45 @@ export function serverRuntimeHandleFor(
   )
 }
 
-/** The journalled process identity for a session no registry holds — what a
- *  queued kill flushed after a daemon restart has to work from. */
+/** What a queued kill flushed after a daemon restart has to work from: the
+ *  journalled process identity, the driver that wrote it (each driver's
+ *  corroboration differs — see the module header), and opencode's credentialed
+ *  probe material. */
+interface JournalledReap {
+  driver: 'opencode' | 'codex' | 'grok'
+  identity: ServerProcessIdentity
+  /** opencode only: the exact-identity liveness probe from its journal. */
+  probe?: { baseUrl: string; secret: string }
+  clearJournal: () => void
+}
+
 function journalledServerProcess(
   ctx: DaemonContext,
   sessionId: SessionId,
-): { identity: ServerProcessIdentity; clearJournal: () => void } | undefined {
-  for (const runtime of [ctx.opencodeRuntime, ctx.codexRuntime, ctx.grokRuntime]) {
-    const entry = runtime?.journal.read(sessionId)
-    if (entry) {
-      return {
-        identity: entry.process,
-        clearJournal: () => runtime?.journal.clear(sessionId),
-      }
+): JournalledReap | undefined {
+  const opencode = ctx.opencodeRuntime?.journal.read(sessionId)
+  if (opencode) {
+    return {
+      driver: 'opencode',
+      identity: opencode.process,
+      probe: { baseUrl: opencode.baseUrl, secret: opencode.secret },
+      clearJournal: () => ctx.opencodeRuntime?.journal.clear(sessionId),
+    }
+  }
+  const codex = ctx.codexRuntime?.journal.read(sessionId)
+  if (codex) {
+    return {
+      driver: 'codex',
+      identity: codex.process,
+      clearJournal: () => ctx.codexRuntime?.journal.clear(sessionId),
+    }
+  }
+  const grok = ctx.grokRuntime?.journal.read(sessionId)
+  if (grok) {
+    return {
+      driver: 'grok',
+      identity: grok.process,
+      clearJournal: () => ctx.grokRuntime?.journal.clear(sessionId),
     }
   }
   return undefined
@@ -141,10 +213,9 @@ function journalledServerProcess(
  * Reap a server-family session's process, if the server family owns it.
  *
  * SYNCHRONOUS OWNERSHIP, ASYNC REAP — the same shape as `reapDurableHost`'s
- * call site: the caller needs "is this mine?" before it decides whether to also
- * reap a durable host, and the process work is fire-and-forget behind that
- * answer. Returns false untouched for a session the server family never held,
- * so the PTY path stays byte-for-byte what it was.
+ * call site: the caller learns "is this mine?" and the process work is
+ * fire-and-forget behind that answer. Returns false untouched for a session
+ * the server family never held.
  *
  * `retire` is `sessionBindingRetire`'s arm — the row is deleted, so the binding
  * journal must go with the process (a deleted session must never leave a
@@ -165,29 +236,40 @@ export function beginServerDriverReap(
   }
   const journalled = journalledServerProcess(ctx, sessionId)
   if (journalled) {
-    void reapByIdentity(ctx, sessionId, journalled.identity, opts, io, journalled.clearJournal)
+    void reapByIdentity(ctx, sessionId, journalled, opts, io)
     return true
   }
   return false
 }
 
-/** Poll until the pid is gone or the window closes. An unrecorded pid cannot be
- *  measured; `undefined` says so, and the reporter treats it as "the verbs ran
- *  and nothing contradicted them" rather than a measurement. Attempt-counted
- *  rather than wall-clocked, so an injected instant `sleep` bounds a test the
- *  same way the real one bounds production. */
+/** Poll until the check says gone or the window closes. Attempt-counted rather
+ *  than wall-clocked, so an injected instant `sleep` bounds a test the same way
+ *  the real one bounds production. */
+async function pollGone(
+  stillThere: () => boolean | Promise<boolean>,
+  windowMs: number,
+  io: ServerReapIo,
+): Promise<boolean> {
+  const attempts = Math.max(1, Math.ceil(windowMs / POLL_GAP_MS))
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (!(await stillThere())) return true
+    if (attempt < attempts - 1) await io.sleep(POLL_GAP_MS)
+  }
+  return false
+}
+
+/** The handle path's measure: the pid, recorded from our own spawn in THIS
+ *  daemon life — no recycling window while we hold the child. `undefined` when
+ *  no pid was ever recorded: the verbs ran and nothing contradicted them, which
+ *  the reporter states as killed-with-caveat rather than as a measurement. */
 async function pollDead(
   identity: ServerProcessIdentity,
   windowMs: number,
   io: ServerReapIo,
 ): Promise<boolean | undefined> {
   if (identity.pid === undefined) return undefined
-  const attempts = Math.max(1, Math.ceil(windowMs / POLL_GAP_MS))
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    if (!io.pidAlive(identity.pid)) return true
-    if (attempt < attempts - 1) await io.sleep(POLL_GAP_MS)
-  }
-  return false
+  const pid = identity.pid
+  return pollGone(() => io.pidAlive(pid), windowMs, io)
 }
 
 async function reapViaHandle(
@@ -209,14 +291,17 @@ async function reapViaHandle(
         sessionId,
         processKey: identity.key,
       })
-      // `kill()` re-runs the scope stop and clears the journal, but an UNSCOPED
-      // opencode child is out of its reach (the host's child map entry was
-      // consumed by the first verb), so the recorded pid gets the SIGKILL
-      // directly as well.
-      await handle.kill()
+      // THE RAW SIGKILL GOES FIRST. It is the escalation's last resort — the
+      // path for an unscoped opencode child the driver verbs can no longer
+      // reach (the host's child map entry was consumed by the first verb) —
+      // and the only reason this branch runs is that the verbs are already
+      // misbehaving, so it must not sit behind an await that can throw.
       if (identity.pid !== undefined && io.pidAlive(identity.pid)) {
         io.signal(identity.pid, 'SIGKILL')
       }
+      // `kill()` re-runs the scope stop, clears the journal, and closes the
+      // client terminal — the parts a raw signal cannot do.
+      await handle.kill()
       dead = await pollDead(identity, KILL_GRACE_MS, io)
     }
     sendKillResult(ctx, sessionId, identity.key, dead)
@@ -235,51 +320,77 @@ async function reapViaHandle(
   }
 }
 
+/** Is the journalled process still THIS session's process, and alive? The
+ *  per-driver corroboration recorded in the module header, and the ONLY
+ *  liveness measure the journal path uses — a bare `pidAlive` here is exactly
+ *  the recycled-pid kill the review caught. */
+async function corroboratedAlive(reap: JournalledReap, io: ServerReapIo): Promise<boolean> {
+  if (reap.probe && (await io.probeOpencode(reap.probe))) return true
+  const { pid, scopeUnit } = reap.identity
+  if (pid !== undefined && scopeUnit !== undefined && io.pidInUnit(pid, scopeUnit)) return true
+  return false
+}
+
 /**
- * Kill a journalled process no handle reaches: signal the recorded pid, stop
- * the recorded scope, measure. This is the post-daemon-restart arm — the kill
- * frame was queued while the daemon was down and flushed on attach, before any
- * adoption ran. The scope stop covers grandchildren the pid signal cannot; the
- * pid signal covers the unscoped platforms the scope stop cannot.
+ * Kill a journalled process no handle reaches — the post-daemon-restart arm:
+ * the kill frame was queued while the daemon was down and flushed on attach,
+ * before any adoption ran.
+ *
+ * The pid is signalled ONLY when corroboration proves it is still this
+ * session's process. The scope stop needs no such gate — the unit name carries
+ * the session id, so `systemctl stop` cannot hit a bystander — and it covers
+ * grandchildren the pid signal cannot, so it runs in both arms: an
+ * uncorroborated pid with a lingering scope still gets its cgroup cleared.
  */
 async function reapByIdentity(
   ctx: DaemonContext,
   sessionId: SessionId,
-  identity: ServerProcessIdentity,
+  reap: JournalledReap,
   opts: { retire: boolean },
   io: ServerReapIo,
-  clearJournal: () => void,
 ): Promise<void> {
+  const identity = reap.identity
+  const reclaimScope = async (): Promise<void> => {
+    if (!identity.scopeUnit || !io.canScope()) return
+    for (const args of scopeReclaimArgvs(identity.scopeUnit)) await io.runSystemctl(args)
+  }
   try {
-    if (identity.pid !== undefined && io.pidAlive(identity.pid)) {
-      io.signal(identity.pid, 'SIGTERM')
-    }
-    if (identity.scopeUnit && io.canScope()) {
-      for (const args of scopeReclaimArgvs(identity.scopeUnit)) await io.runSystemctl(args)
-    }
-    let dead = await pollDead(identity, TERM_GRACE_MS, io)
-    if (dead === false && identity.pid !== undefined) {
-      log.warn('the journalled server-driver process survived SIGTERM — escalating', {
-        sessionId,
-        processKey: identity.key,
-      })
-      io.signal(identity.pid, 'SIGKILL')
-      dead = await pollDead(identity, KILL_GRACE_MS, io)
+    const ours = await corroboratedAlive(reap, io)
+    let dead = true
+    if (ours) {
+      if (identity.pid !== undefined) io.signal(identity.pid, 'SIGTERM')
+      await reclaimScope()
+      dead = await pollGone(() => corroboratedAlive(reap, io), TERM_GRACE_MS, io)
+      if (!dead) {
+        log.warn('the journalled server-driver process survived SIGTERM — escalating', {
+          sessionId,
+          driver: reap.driver,
+          processKey: identity.key,
+        })
+        if (identity.pid !== undefined) io.signal(identity.pid, 'SIGKILL')
+        dead = await pollGone(() => corroboratedAlive(reap, io), KILL_GRACE_MS, io)
+      }
+    } else {
+      // Nothing corroborates a survivor: the process is gone, or the pid now
+      // belongs to someone else (a reboot, a recycle, another uid). Either way
+      // this session has no live process — which is also why this arm reports
+      // killed rather than inverting into the permanent `killed:false` that
+      // would make `reviveParkedButAlive` resurrect a long-dead session.
+      await reclaimScope()
     }
     // The journal is the adoption path's map to a credentialed endpoint. A
     // retired session must not stay on that map; a parked one keeps its entry
     // (a dead process fails the adopt probe, so a stale entry only costs a
     // refused rebind — the same trade the handle verbs make).
-    if (opts.retire) clearJournal()
+    if (opts.retire) reap.clearJournal()
     sendKillResult(ctx, sessionId, identity.key, dead)
   } catch (err) {
     log.warn('could not reap the journalled server-driver session', { err, sessionId })
-    const alive = identity.pid !== undefined && io.pidAlive(identity.pid)
     ctx.send({
       type: 'sessionKillResult',
       sessionId,
       durableLabel: identity.key,
-      killed: !alive,
+      killed: !(await corroboratedAlive(reap, io).catch(() => false)),
       reason: err instanceof Error ? err.message : String(err),
     })
   }

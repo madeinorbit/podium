@@ -1257,18 +1257,17 @@ export function stopSessionProcess(
   // behind a runtime handle (or, post-restart, a binding-journal entry), and
   // before POD-2249 this function reaped neither: stop parked the row while
   // `opencode serve` ran on, kill deleted the row and left a credentialed
-  // child. The reap owns its own measured `sessionKillResult`, so the durable
-  // reap below is skipped for a session it claims UNLESS this daemon also holds
-  // a PTY identity for it (a driver switch across a resume) — then both
-  // incarnations are reaped and both receipts are honest.
-  const serverOwned = beginServerDriverReap(ctx, msg.sessionId, {
-    retire: opts.retire === true,
-  })
-  const ptyIdentity = session !== undefined || ctx.durableLabels.has(msg.sessionId)
+  // child. The reap runs IN ADDITION to the durable reap below, never instead
+  // of it: a session with both a stale server journal and a genuine durable
+  // host (a driver switch across a resume) has both incarnations reaped. Two
+  // receipts for one session are harmless — the server acts only on
+  // `killed:false`, and a receipt for an identity that was never there is a
+  // truthful "nothing to kill".
+  beginServerDriverReap(ctx, msg.sessionId, { retire: opts.retire === true })
   // Reap the durable host unconditionally — NOT only when a bridge exists.
   // Generic kill is process policy (hibernate, stop, handoff); retirement is a
   // separate server-authored binding transition.
-  if (ctx.backend !== 'none' && (!serverOwned || ptyIdentity)) {
+  if (ctx.backend !== 'none') {
     const durableLabel =
       msg.durableLabel ?? ctx.durableLabels.get(msg.sessionId) ?? ctx.durableLabelFor(msg.sessionId)
     void reapDurableHost(ctx, msg.sessionId, durableLabel)

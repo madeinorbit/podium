@@ -137,7 +137,9 @@ export function createOpencodeJournal(): OpencodeJournal {
       const cached = cache.get(sessionId)
       if (cached) return cached
       try {
-        const parsed = JSON.parse(readFileSync(journalPath(sessionId), 'utf8')) as OpencodeJournalEntry
+        const parsed = JSON.parse(
+          readFileSync(journalPath(sessionId), 'utf8'),
+        ) as OpencodeJournalEntry
         cache.set(sessionId, parsed)
         return parsed
       } catch {
@@ -153,7 +155,10 @@ export function createOpencodeJournal(): OpencodeJournal {
         // A journal we cannot write costs `adopt()` after a daemon restart, and
         // nothing else — the live session is unaffected. Losing the session to
         // an ENOSPC would be the worse trade.
-        log.warn('could not persist the opencode binding journal', { err, sessionId: entry.sessionId })
+        log.warn('could not persist the opencode binding journal', {
+          err,
+          sessionId: entry.sessionId,
+        })
       }
     },
     clear(sessionId) {
@@ -202,8 +207,12 @@ const basicAuth = (secret: string): string =>
   `Basic ${Buffer.from(`${USERNAME}:${secret}`).toString('base64')}`
 
 /** One bounded health probe. `false` covers dead, not-yet-listening AND wrong
- *  secret — all three mean "not usable", which is the only question here. */
-async function probeHealth(baseUrl: string, secret: string): Promise<boolean> {
+ *  secret — all three mean "not usable", which is the only question here.
+ *  EXPORTED for the teardown reap (POD-2249): the journalled secret is the
+ *  exact-identity proof that a journalled pid is still THIS session's server —
+ *  the same guard the launch path documents below ("Stopping a live server
+ *  here would kill a session we were about to adopt"). */
+export async function probeHealth(baseUrl: string, secret: string): Promise<boolean> {
   try {
     const response = await fetch(`${baseUrl}/global/health`, {
       headers: { authorization: basicAuth(secret) },
@@ -483,9 +492,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         // what tells us. Stopping a live server here would kill a session we
         // were about to adopt.
         const previous = journal.read(input.sessionId)
-        const stillAlive = previous
-          ? await probeHealth(previous.baseUrl, previous.secret)
-          : false
+        const stillAlive = previous ? await probeHealth(previous.baseUrl, previous.secret) : false
         if (!stillAlive) {
           for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
         }
