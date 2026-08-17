@@ -616,6 +616,21 @@ function offerView(input: OperationViewInput): UpdatePanelView {
       version: offer.version,
     }
   }
+  if (offer.state === 'local-stale') {
+    const primary = localAction(input)
+    return {
+      state: 'waiting-you',
+      title: `Podium ${offer.version} is ready here`,
+      subtitle: 'Everything else is updated. This page is still on the previous build.',
+      version: offer.version,
+      steps: [],
+      ...(primary ? { primary } : {}),
+      awaitingElsewhere: [],
+      indicator: 'attention',
+      indicatorLabel:
+        primary?.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish',
+    }
+  }
   if (offer.state !== 'available' && offer.state !== 'required') return noneView()
   const primary: PrimaryAction = {
     kind: 'start',

@@ -107,6 +107,24 @@ describe('operationView — the seven states', () => {
     expect(result.indicatorLabel).toBe('Podium 0.4.3 is available')
   })
 
+  it('offers a reload when only this page is stale and no operation exists', () => {
+    const result = operationView({
+      operation: null,
+      offer: { state: 'local-stale', version: '0.4.3' },
+      local: { ...NOT_BEHIND, behind: true, canReload: true },
+      surface: 'web',
+      now: NOW,
+    })
+
+    expect(result.state).toBe('waiting-you')
+    expect(result.title).toBe('Podium 0.4.3 is ready here')
+    expect(result.subtitle).toBe(
+      'Everything else is updated. This page is still on the previous build.',
+    )
+    expect(result.primary).toMatchObject({ kind: 'reload', label: 'Reload' })
+    expect(result.indicatorLabel).toBe('Reload to finish')
+  })
+
   it('marks a required offer as attention', () => {
     const result = operationView({
       operation: null,
