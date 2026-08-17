@@ -140,6 +140,9 @@ export const grokManifest: AgentManifest = {
     loginCommand: supported({ cmd: 'grok', args: ['login'] }),
     loginIdentity: supported((homeDir) => grokIdentity(grokHome(homeDir))),
     portableCredential: supported({ files: ['.grok/auth.json'], compareFreshness: () => null }),
+    // Its presence flips grok from the OIDC session in `auth.json` to
+    // API-key/custom-endpoint auth.
+    foreignCredentialEnv: ['XAI_API_KEY'],
     detectLogin(homeDir) {
       const path = grokHome(homeDir)
       try {

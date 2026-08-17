@@ -51,7 +51,7 @@ import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
-import { spawnEnv } from './session-env'
+import { foreignCredentialEnv, spawnEnv } from './session-env'
 import { sourceForRead } from './transcripts'
 
 const log = createLogger('daemon:session')
@@ -353,6 +353,19 @@ export async function launchSpawn(
           ...harnessCompatEnv(msg.agentKind),
         },
       }),
+      // The session's account is the one its HOME is logged into — which is only
+      // true if this harness's own credential vars cannot reach it by inheritance
+      // from the daemon (POD-2296). `env` above cannot express that: unsetting a
+      // credential is a delete, not an empty string.
+      //
+      // `loginHarness` FIRST, and it is not a nicety: a native login pane is filed
+      // as agentKind 'shell' (it runs `<cli> login`, not the agent), and 'shell' is
+      // exactly the kind this rule exempts. Read the other way round, the one pane
+      // whose whole purpose is to establish an account would be the one pane that
+      // let an inherited key outrank it — `claude login` under a stray
+      // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
+      // environment" instead.
+      stripEnv: foreignCredentialEnv(msg.loginHarness ?? msg.agentKind, msg.env),
     }
     const session =
       ctx.backend === 'abduco'

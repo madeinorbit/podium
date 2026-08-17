@@ -13,6 +13,12 @@ export interface SpawnOptions {
   rows: number
   cwd?: string
   env?: Record<string, string>
+  /** Variables to REMOVE from what the child inherits. `env` cannot express this:
+   *  an empty `ANTHROPIC_API_KEY` is still a set one to a CLI that tests presence.
+   *  Same contract as {@link spawnAbducoAgent}'s option of the same name — all
+   *  three backends must honour it or the guarantee depends on which one a
+   *  machine happens to run. */
+  stripEnv?: readonly string[]
 }
 
 export interface AgentFrame {
@@ -63,6 +69,15 @@ export function spawnAgent(
   opts: SpawnOptions,
   backend: PtyBackend = defaultPtyBackend(),
 ): AgentSession {
+  const childEnv = {
+    ...process.env,
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    ...opts.env,
+  } as Record<string, string>
+  // After the merge, so a caller cannot strip a variable it also set — the same
+  // ordering rule (and reason) as the abduco path.
+  for (const key of opts.stripEnv ?? []) delete childEnv[key]
   const proc = backend.spawn({
     file: opts.cmd,
     args: opts.args ?? [],
@@ -75,10 +90,7 @@ export function spawnAgent(
     // without it agents like Claude Code degrade to a 256-color approximation. We assert
     // both after process.env (the frontend's capability doesn't depend on how the daemon
     // was launched) but before opts.env so callers/tests can still override.
-    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ...opts.env } as Record<
-      string,
-      string
-    >,
+    env: childEnv,
   })
   return wrapPty(proc, { cols: opts.cols, rows: opts.rows })
 }

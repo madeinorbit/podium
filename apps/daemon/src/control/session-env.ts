@@ -8,6 +8,48 @@
  */
 
 import { delimiter, dirname, join } from 'node:path'
+import { manifestFor } from '@podium/harness'
+import type { AgentKind } from '@podium/model'
+
+/**
+ * The credential vars this spawn must DELETE, not merely leave unset (POD-2296).
+ *
+ * A session's account is whatever its agent home is logged into. That holds only
+ * if the harness never finds a competing credential in its environment — and the
+ * daemon hands every child its own environment, so anything the daemon carries
+ * (a developer's `ANTHROPIC_API_KEY` exported before `podium daemon`, a systemd
+ * unit with an `-E` line, an inherited login shell) reaches the agent and wins.
+ * The result bills an account nobody chose, on a machine whose Podium readout
+ * still names the account on disk. The manifest declares which vars can do that
+ * to which CLI; this only decides WHICH of them to drop for one spawn.
+ *
+ * TWO KINDS OF KEY, AND ONLY ONE IS A LEAK. A key the server put on the spawn
+ * frame IS the account Podium resolved for this session (a managed account,
+ * #216) — deliberate, and preserved by the `key in sessionEnv` exemption. What
+ * is dropped is only what the child would have inherited. The removal must
+ * happen after the merge (`stripEnv`, `delete`) rather than by blanking: an
+ * empty `ANTHROPIC_API_KEY` is still a set one to a CLI that tests presence.
+ *
+ * Unknown harness ids and `shell` declare nothing and so strip nothing. For a
+ * shell that is the decision, not an oversight: a shell session is the operator
+ * at their own prompt (the same line POD-1375 draws for agent identity), and
+ * silently removing their key from their terminal would break work they meant
+ * to do.
+ *
+ * THE OTHER HALF OF THIS RULE ALREADY EXISTED, which is how the gap survived:
+ * every SERVER-DRIVER host strips its own credentials at its own spawn
+ * (`STRIPPED_CODEX_CREDENTIALS`, `STRIPPED_PROVIDER_KEYS`, grok's `XAI_API_KEY`),
+ * and those lists stay theirs — codex's is deliberately wider than a manifest
+ * declaration, reaching org and base-url too. What had no equivalent was the
+ * TERMINAL family, where `claude` runs.
+ */
+export function foreignCredentialEnv(
+  agentKind: AgentKind | string | undefined,
+  sessionEnv?: Readonly<Record<string, string>>,
+): string[] {
+  const declared = agentKind ? manifestFor(agentKind)?.inventory.foreignCredentialEnv : undefined
+  return (declared ?? []).filter((key) => !(sessionEnv && key in sessionEnv))
+}
 
 /** Merge the server-resolved session env (managed credentials, #216) under
  *  Podium's own per-session bindings. Podium's win a collision on purpose: an

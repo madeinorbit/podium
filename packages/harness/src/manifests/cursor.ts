@@ -71,6 +71,8 @@ export const cursorManifest: AgentManifest = {
     loginCommandProbe: unsupported('Cursor has no supported native login-status command'),
     loginIdentity: unsupported('Cursor does not expose a stable local account identity yet'),
     portableCredential: unsupported('Cursor credential portability is not supported yet'),
+    // Wins over the file-stored account in ~/.config/cursor/auth.json.
+    foreignCredentialEnv: ['CURSOR_API_KEY'],
     detectLogin: () => ({ state: 'unknown' }),
   },
 

@@ -13,6 +13,10 @@
 //   POSITIVE — a credential on the spawn frame reaches the child's environ.
 //   NEGATIVE — a spawn with no env injects no ANTHROPIC_API_KEY (the silent-re-auth
 //              regression that would change every existing native-account user's auth).
+// POD-2296 adds the third direction, which the first two cannot see because they
+// run with a clean ambient env:
+//   STRIP    — a key the DAEMON carries is deleted from an agent child's environ,
+//              kept for a shell, and never confused with the one on the frame.
 //
 // Reaps by explicit pid. Never pattern-kills — a `pkill` here could take out the
 // developer's live agent sessions.
@@ -29,6 +33,8 @@ import type { DaemonContext } from '../src/control/context'
 import { sessionHandlers } from '../src/control/session'
 
 const CREDENTIAL = 'sk-test-xyz'
+/** A key on the DAEMON, standing in for one an operator exported before starting it. */
+const INHERITED_KEY = 'sk-test-inherited-from-the-daemon'
 
 let settingsDir: string
 let home: string
@@ -80,10 +86,16 @@ async function waitFor(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
 }
 
 /** Spawn a real shell through the daemon's real spawn handler and return what its
- *  own `env` printed. `env` (not `echo $VAR`) so we read the process's actual environ. */
+ *  own `env` printed. `env` (not `echo $VAR`) so we read the process's actual environ.
+ *
+ *  `agentKind` is the kind the FRAME declares — the daemon composes the env for
+ *  that harness — while the process launched is always a shell, because a shell is
+ *  the only child that will tell us its own environ. The strip decision is made
+ *  from the frame's kind, so this substitution changes nothing it depends on. */
 async function dumpEnvOfSpawnedProcess(
   sessionId: string,
   env: Record<string, string> | undefined,
+  agentKind: 'shell' | 'claude-code' = 'shell',
 ): Promise<string> {
   let buffer = ''
   let lastFrameAt = Date.now()
@@ -93,7 +105,13 @@ async function dumpEnvOfSpawnedProcess(
     instanceId: 'default',
     homeDir: home,
     backend: 'none', // bare PTY child: no abduco/tmux master can outlive this test
-    launch: agentLaunchCommand,
+    // A harness frame still launches a shell (see above). `-c` so the harness's
+    // own instrumentation args, appended by the daemon, land as ignored
+    // positional parameters instead of confusing bash.
+    launch: (kind: string, opts: { cwd: string }) =>
+      kind === 'shell'
+        ? agentLaunchCommand(kind, opts as Parameters<typeof agentLaunchCommand>[1])
+        : { cmd: '/bin/bash', args: ['-c', 'exec /bin/bash -i'], cwd: opts.cwd },
     settingsDir,
     bridges,
     durableLabels: new Map(),
@@ -103,6 +121,13 @@ async function dumpEnvOfSpawnedProcess(
       observe: async () => ({}),
       retire: async () => ({}),
     },
+    // The spawn path refuses a frame with no server-minted binding, and applies
+    // it before composing any env. Stubbed to 'applied' so this file keeps
+    // testing the environment rather than the authority gate, which
+    // `session-binding.test.ts` owns.
+    machineId: 'bun-spawn-test-machine',
+    sessionBinding: { transition: async () => ({ status: 'applied' }) },
+    pendingResizes: new Map(),
     composerEngine: {
       attach: () => false,
       onData: () => {},
@@ -127,12 +152,22 @@ async function dumpEnvOfSpawnedProcess(
   const msg = SpawnMessage.parse({
     type: 'spawn',
     sessionId,
-    agentKind: 'shell',
+    agentKind,
     cwd: process.cwd(),
     geometry: { cols: 120, rows: 30 },
+    binding: {
+      transitionId: `transition-${sessionId}`,
+      machineAccess: 'allowed',
+      principal: { kind: 'system', job: 'managed-account-env-test' },
+    },
     ...(env ? { env } : {}),
   })
   await sessionHandlers.spawn(ctx, msg)
+  // The handler dispatches the launch and returns; the bridge appears when the
+  // PTY is up, an await or two later. Wait for it rather than racing it.
+  await waitFor(() => bridges.has(sessionId)).catch(() => {
+    throw new Error('daemon never bridged the session (spawn failed)')
+  })
 
   const session = bridges.get(sessionId)
   if (!session) throw new Error('daemon never bridged the session (spawn failed)')
@@ -170,4 +205,44 @@ it('NEGATIVE: no env on the frame injects NO ANTHROPIC_API_KEY (Bun backend)', a
   expect(dump).toContain('PODIUM_SESSION_ID=bun-native') // the dump really happened
   expect(dump).not.toContain('ANTHROPIC_API_KEY=')
   expect(dump).not.toContain(CREDENTIAL)
+})
+
+it("STRIP: the daemon's own ANTHROPIC_API_KEY never reaches a claude session", async () => {
+  // POD-2296. The daemon hands every child its own environment, so a key exported
+  // in the shell that started it — or in its unit file — is inherited by the agent
+  // and beats the subscription the agent home is logged into. Claude Code then
+  // bills that key's account and says so only in a banner nobody re-reads.
+  process.env.ANTHROPIC_API_KEY = INHERITED_KEY
+
+  const dump = await dumpEnvOfSpawnedProcess('bun-inherited', undefined, 'claude-code')
+
+  expect(dump).toContain('PODIUM_SESSION_ID=bun-inherited') // the dump really happened
+  expect(dump).not.toContain(INHERITED_KEY)
+  expect(dump).not.toContain('ANTHROPIC_API_KEY=')
+})
+
+it('STRIP: a managed credential still reaches the child that the daemon key does not', async () => {
+  // The two are the same variable and must not share a fate: one is the account
+  // Podium resolved for this session, the other is a leak from the host.
+  process.env.ANTHROPIC_API_KEY = INHERITED_KEY
+
+  const dump = await dumpEnvOfSpawnedProcess(
+    'bun-managed-over-inherited',
+    { ANTHROPIC_API_KEY: CREDENTIAL },
+    'claude-code',
+  )
+
+  expect(dump).toContain(`ANTHROPIC_API_KEY=${CREDENTIAL}`)
+  expect(dump).not.toContain(INHERITED_KEY)
+})
+
+it("STRIP: an operator's shell keeps the key they exported themselves", async () => {
+  // The line this fix draws: a shell session is the operator at their own prompt,
+  // not an agent resolving an account. Taking their key out of their own terminal
+  // would break work they meant to do.
+  process.env.ANTHROPIC_API_KEY = INHERITED_KEY
+
+  const dump = await dumpEnvOfSpawnedProcess('bun-operator-shell', undefined)
+
+  expect(dump).toContain(`ANTHROPIC_API_KEY=${INHERITED_KEY}`)
 })

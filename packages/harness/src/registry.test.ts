@@ -97,6 +97,32 @@ describe('agent manifest registry', () => {
         }
       }
       expect(typeof manifest.resumeKind).toBe('string')
+      // Which env overrides this CLI's stored login is a fact only the manifest
+      // can answer, and the spawn path deletes exactly what is declared here
+      // (POD-2296). An array is required so a new harness cannot arrive silently
+      // unguarded; empty is a legitimate answer, `undefined` is not.
+      expect(
+        Array.isArray(manifest.inventory.foreignCredentialEnv),
+        `${kind}.inventory.foreignCredentialEnv`,
+      ).toBe(true)
+    }
+  })
+
+  it('never lets a login-overriding credential var reach a session of that harness', () => {
+    // The one that matters by name: every CLI whose reference documents an
+    // Anthropic key beating its stored OAuth must say so, or a daemon carrying
+    // ANTHROPIC_API_KEY bills that key's account while Podium shows the login.
+    expect(AGENT_MANIFESTS['claude-code'].inventory.foreignCredentialEnv).toEqual([
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+    ])
+    expect(AGENT_MANIFESTS.opencode.inventory.foreignCredentialEnv).toContain('ANTHROPIC_API_KEY')
+    // And nobody declares a variable Podium itself binds — stripping one of
+    // those would cut the session off from its own relay.
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      for (const key of AGENT_MANIFESTS[kind].inventory.foreignCredentialEnv) {
+        expect(key.startsWith('PODIUM_'), `${kind} declares ${key}`).toBe(false)
+      }
     }
   })
 
@@ -415,6 +441,9 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
         loginCommand: unsupported('fictional harness'),
         loginIdentity: unsupported('fictional harness'),
         portableCredential: unsupported('fictional harness'),
+        // Declared empty, not omitted: "this CLI has no env that overrides its
+        // login" is an answer, and the type demands one.
+        foreignCredentialEnv: [],
       },
       launch: (opts) => ({ cmd: 'fictional', args: [], cwd: opts.cwd }),
       discovery: {

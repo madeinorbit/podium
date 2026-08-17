@@ -95,6 +95,23 @@ export const opencodeManifest: AgentManifest = {
     ),
     loginIdentity: unsupported('OpenCode does not expose a stable local account identity yet'),
     portableCredential: unsupported('OpenCode credential portability is not supported yet'),
+    // The longest list of the five because opencode is the multi-provider CLI:
+    // its config's `{env:VAR}` substitution and per-provider defaults prefer any
+    // inherited key over the credential `opencode auth login` stored. Hoisted
+    // here from the daemon's opencode server host, which has stripped these
+    // since POD-2059 and now reads them off the manifest like every other kind.
+    foreignCredentialEnv: [
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'OPENAI_API_KEY',
+      'OPENROUTER_API_KEY',
+      'GEMINI_API_KEY',
+      'GOOGLE_GENERATIVE_AI_API_KEY',
+      'GROQ_API_KEY',
+      'XAI_API_KEY',
+      'MISTRAL_API_KEY',
+      'DEEPSEEK_API_KEY',
+    ],
     detectLogin: detectOpencodeLogin,
   },
 

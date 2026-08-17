@@ -231,6 +231,31 @@ export interface HarnessInventory {
   loginCommand: Declared<{ cmd: string; args: readonly string[] }>
   loginIdentity: Declared<(homeDir: string) => LoginIdentity | undefined>
   portableCredential: Declared<PortableCredential>
+  /**
+   * Env vars that OVERRIDE this CLI's stored login — the ones a spawn must not
+   * let the child inherit (POD-2296).
+   *
+   * Every harness reference in `docs/agent-harness-reference/` records the same
+   * hazard in its own vocabulary: a provider credential in the environment wins
+   * over the account `<cli> login` stored on disk. Inherited, that is invisible
+   * — the session runs, answers, and bills an account the operator never chose,
+   * while Podium's own login readout still names the one on disk. Measured on
+   * Claude Code 2.1.224: the SAME home holding a `max` subscription credential
+   * reports `subscriptionType: null, apiKeySource: ANTHROPIC_API_KEY` and prints
+   * "API Usage Billing" once `ANTHROPIC_API_KEY` is in the environment.
+   *
+   * SCOPE — credentials that select a different ACCOUNT, nothing else. Not org
+   * selectors (`OPENAI_ORGANIZATION`), not endpoint or provider redirects
+   * (`CLAUDE_CODE_USE_BEDROCK`, `CODEX_API_BASE`): those change where a session
+   * runs, which an operator may set deliberately for a whole machine, and
+   * removing them would silently undo that choice. Not `CLAUDE_CODE_OAUTH_TOKEN`
+   * either — it is a SUBSCRIPTION credential, the documented way to log a
+   * headless box in at all, so stripping it would leave such a machine with no
+   * login rather than the right one.
+   *
+   * Empty array = this harness has no such variable (declare it, don't omit it).
+   */
+  foreignCredentialEnv: readonly string[]
 }
 
 /** Prefer a recognizable name + email without duplicating equal values. */

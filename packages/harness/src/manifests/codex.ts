@@ -216,6 +216,13 @@ export const codexManifest: AgentManifest = {
       files: ['.codex/auth.json'],
       compareFreshness: compareCodexAuthFreshness,
     }),
+    // Codex's own precedence, in order: OPENAI_API_KEY, CODEX_API_KEY,
+    // CODEX_ACCESS_TOKEN — each ahead of the ChatGPT login in `auth.json`.
+    // The app-server host strips a WIDER set (`STRIPPED_CODEX_CREDENTIALS`,
+    // `@podium/agent-runtime`), reaching org and base-url as well; those redirect
+    // a session rather than re-authenticate it, and this field is only about
+    // which account answers.
+    foreignCredentialEnv: ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN'],
     detectLogin(homeDir) {
       const path = codexAuthPath(homeDir)
       let contents: string

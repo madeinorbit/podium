@@ -3,7 +3,32 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { materializeLaunchFiles } from './session'
-import { serverChildEnv, spawnEnv } from './session-env'
+import { foreignCredentialEnv, serverChildEnv, spawnEnv } from './session-env'
+
+it("drops the credential vars that would outrank a claude session's own login", () => {
+  // POD-2296: measured on Claude Code 2.1.224 — with a `max` credential in the
+  // home and ANTHROPIC_API_KEY in the env, `claude auth status` reports
+  // `apiKeySource: ANTHROPIC_API_KEY` and `subscriptionType: null`.
+  expect(foreignCredentialEnv('claude-code')).toEqual(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'])
+})
+
+it('keeps a key the SERVER chose for this session — that one is not a leak', () => {
+  // A managed account (#216) is Podium resolving an account on purpose. Only what
+  // the child would have INHERITED from the daemon is dropped, so the two cannot
+  // be told apart by name alone — the spawn frame is what distinguishes them.
+  expect(foreignCredentialEnv('claude-code', { ANTHROPIC_API_KEY: 'sk-managed' })).toEqual([
+    'ANTHROPIC_AUTH_TOKEN',
+  ])
+})
+
+it("leaves an operator's shell exactly as they launched it", () => {
+  // A shell session is the operator at their own prompt, not an agent resolving
+  // an account: removing their key would break work they meant to do.
+  expect(foreignCredentialEnv('shell')).toEqual([])
+  expect(foreignCredentialEnv(undefined)).toEqual([])
+  // An unknown harness id declares nothing, so nothing is guessed for it.
+  expect(foreignCredentialEnv('some-future-cli')).toEqual([])
+})
 
 it('passes a managed credential through to the spawn env', () => {
   const env = spawnEnv(

@@ -105,6 +105,11 @@ export const claudeCodeManifest: AgentManifest = {
       files: ['.claude/.credentials.json', '.claude.json'],
       compareFreshness: compareClaudeCredentialFreshness,
     }),
+    // Either one flips Claude Code off the home's OAuth login and onto API-usage
+    // billing; an interactive session first stops at a "Detected a custom API key
+    // in your environment" modal, whose one-time approval is then remembered per
+    // key in `.claude.json` — after which the switch is permanently silent.
+    foreignCredentialEnv: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
     detectLogin(homeDir) {
       const configDir = process.env.CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')
       let contents: string

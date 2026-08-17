@@ -60,6 +60,7 @@ import {
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   type OpencodeVersionDiagnostic,
 } from '@podium/agent-runtime'
+import { AGENT_MANIFESTS } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
@@ -104,19 +105,13 @@ const journalPath = (sessionId: SessionId): string =>
  * `ANTHROPIC_API_KEY` would silently bill a different account than the one the
  * operator logged in as, and would do it invisibly. Stripping them makes the
  * session use exactly the credential `opencode auth login` stored.
+ *
+ * READ OFF THE MANIFEST since POD-2296, where the terminal spawn path needed the
+ * same fact for every harness and the honest place to answer "which vars override
+ * THIS CLI's login" turned out to be the CLI's own manifest. Same array, same
+ * name, same importers — it just has one home now.
  */
-export const STRIPPED_PROVIDER_KEYS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  'OPENAI_API_KEY',
-  'OPENROUTER_API_KEY',
-  'GEMINI_API_KEY',
-  'GOOGLE_GENERATIVE_AI_API_KEY',
-  'GROQ_API_KEY',
-  'XAI_API_KEY',
-  'MISTRAL_API_KEY',
-  'DEEPSEEK_API_KEY',
-] as const
+export const STRIPPED_PROVIDER_KEYS = AGENT_MANIFESTS.opencode.inventory.foreignCredentialEnv
 
 // ---------------------------------------------------------------------------
 // The journal
