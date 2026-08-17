@@ -62,6 +62,7 @@ export type {
   LoginIdentity,
   PortableCredential,
 } from './manifest.js'
+export type { HarnessInterrupt } from './registry.js'
 // Static per-CLI facts. Each resolves through `manifestFor`, which returns
 // `undefined` for a harness this build has never heard of rather than
 // substituting another CLI's row.
@@ -69,8 +70,8 @@ export {
   harnessCapabilitiesFor,
   harnessDetectLogin,
   harnessDisplayName,
+  harnessInterrupt,
   harnessNeedsSubmitVerification,
-  harnessUsesRawFirstTurn,
   harnessObservationProvider,
   harnessPortableCredential,
   harnessPremintsHeadlessResumeId,
@@ -84,5 +85,6 @@ export {
   harnessSupportsMcp,
   harnessSupportsNoTools,
   harnessUsesPromptTitleFallback,
+  harnessUsesRawFirstTurn,
   transcriptRecordMapperFor,
 } from './registry.js'

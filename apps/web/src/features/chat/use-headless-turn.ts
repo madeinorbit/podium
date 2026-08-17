@@ -81,8 +81,9 @@ export interface UseHeadlessTurnResult {
      *  own repo-scoped seed and no attachment affordance. */
     attachSessionId?: SessionId,
   ) => Promise<boolean>
-  /** Stop the running turn. Available only while one is running. */
-  interrupt: () => void
+  /** Stop the running turn. Available only while one is running. Rejects when the
+   *  server refuses, so the caller can show WHY the turn is still going. */
+  interrupt: () => Promise<void>
 }
 
 /** The thread's backend choice, sent with the turn that carries it (POD-782).
@@ -208,11 +209,12 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
     [trpc, model, effort, agentKind],
   )
 
-  const interrupt = useCallback(() => {
+  // REJECTS rather than reporting for itself (POD-1214): a stop that failed is
+  // not a send that failed, and the caller owns the surface it lands on — the
+  // composer prints it as "Not stopped", not under sending's "Not sent".
+  const interrupt = useCallback(async (): Promise<void> => {
     if (!superThread) return
-    trpc.superagent.interruptTurn
-      .mutate({ threadId: superThread.threadId })
-      .catch((e: unknown) => setTurnError(e instanceof Error ? e.message : String(e)))
+    await trpc.superagent.interruptTurn.mutate({ threadId: superThread.threadId })
   }, [trpc, superThread])
 
   return { turnRunning, overlay, turnError, setTurnError, sendTurn, interrupt }

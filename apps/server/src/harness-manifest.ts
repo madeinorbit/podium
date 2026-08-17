@@ -7,11 +7,12 @@
  * this projection to its final browser-safe package so the temporary package
  * boundary exception can disappear.
  */
+export type { HarnessInterrupt } from '@podium/harness/metadata'
 export {
   harnessCapabilitiesFor,
   harnessDisplayName,
+  harnessInterrupt,
   harnessNeedsSubmitVerification,
-  harnessUsesRawFirstTurn,
   harnessObservationProvider,
   harnessPremintsHeadlessResumeId,
   harnessRequiresExclusiveInteractiveResume,
@@ -23,6 +24,7 @@ export {
   harnessSupportsMcp,
   harnessSupportsNoTools,
   harnessUsesPromptTitleFallback,
+  harnessUsesRawFirstTurn,
   transcriptRecordMapperFor,
 } from '@podium/harness/metadata'
 

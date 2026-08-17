@@ -180,6 +180,12 @@ export const codexManifest: AgentManifest = {
     exclusiveInteractiveResume: true,
     promptTitleFallback: false,
     mcpConfigTransport: 'inline',
+    // Measured (0.147.0, POD-1214): Esc mid-turn does nothing at all, single or
+    // double — the stream ran on through both. Ctrl-C prints "Conversation
+    // interrupted". At an IDLE prompt that same Ctrl-C exits the process, hence
+    // the idle guard below.
+    interruptKey: 'ctrl-c',
+    interruptQuitsWhenIdle: true,
   },
   resumeKind: 'codex-thread',
 

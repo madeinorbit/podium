@@ -15,17 +15,18 @@ import type {
   AgentKind,
   AgentRuntimeState,
   Attribution,
+  MutationId,
   SessionId,
   UserId,
-  MutationId,
 } from '@podium/model'
 import {
-  asSessionId,
   actorAgent,
   actorSystem,
   actorUser,
   asAgentIdentityId,
+  asSessionId,
   asUserId,
+  isAgentComputing,
 } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
@@ -33,6 +34,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
+import type { HarnessInterrupt } from '../../harness-manifest'
 import type { Session } from './session'
 
 const SUBMIT_CR_DELAY_MS = 90
@@ -202,6 +204,11 @@ export interface SessionInboxDeps {
   broadcast(): void
   needsSubmitVerification(agentKind: AgentKind): boolean
   usesRawFirstTurn(agentKind: AgentKind): boolean
+  /** Which key aborts this harness's running turn, and whether it is safe to
+   *  press outside one — see {@link SessionInbox.abortKeyFor}. */
+  harnessInterrupt(agentKind: AgentKind): HarnessInterrupt
+  /** The harness's human-facing name, for a refusal an operator will read. */
+  harnessName(agentKind: AgentKind): string
   prepareSend(
     sessionId: SessionId,
     attribution: Attribution,
@@ -391,7 +398,14 @@ export class SessionInbox {
       return { ok: false, reason: 'session not running' }
     }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
-    this.sendInput(session, '\x1b', input.inputOrigin ?? 'controller', principal.attribution)
+    // An idle agent has no turn to cut into, so the abort key is skipped rather
+    // than refused — the message still lands, which is the point of this path.
+    // Skipping matters for a harness whose key exits when idle: an
+    // interrupt-urgency message must never be the thing that kills the session.
+    const abort = this.abortKeyFor(session)
+    if (abort) {
+      this.sendInput(session, abort, input.inputOrigin ?? 'controller', principal.attribution)
+    }
     setTimeout(() => this.typeText({ ...input, principal }, true), SUBMIT_CR_DELAY_MS).unref?.()
     return { ok: true }
   }
@@ -402,9 +416,40 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
+    const abort = this.abortKeyFor(session)
+    // REFUSED, not skipped: unlike interruptText there is nothing else this call
+    // does, so a silent `{ ok: true }` would be the lie POD-1214 set out to fix —
+    // the operator pressed stop and would be told it worked. The reason is
+    // user-facing (the chat composer prints it verbatim).
+    if (!abort) {
+      return {
+        ok: false,
+        reason: `${this.deps.harnessName(session.agentKind)} only takes an interrupt while it is working, and it is not working right now`,
+      }
+    }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
-    this.sendInput(session, '\x1b', input.inputOrigin ?? 'controller', principal.attribution)
+    this.sendInput(session, abort, input.inputOrigin ?? 'controller', principal.attribution)
     return { ok: true }
+  }
+
+  /**
+   * The bytes that abort THIS session's harness, or undefined when sending them
+   * would do more harm than nothing (POD-1214).
+   *
+   * There is no universal abort key. Esc cancels claude-code and grok and is
+   * inert at their idle prompts; codex ignores Esc entirely and cancels on
+   * Ctrl-C, which at an IDLE codex prompt exits the process. So the key comes
+   * from the harness manifest, and the manifest's `interruptQuitsWhenIdle` is
+   * what turns a stop into a refusal when the agent is not observed working.
+   *
+   * The phase read here is the SERVER's `agentState`, the authority the client's
+   * replica is a copy of — which is why the client no longer gates the chord on
+   * its own copy of it (see `use-chat-surface.ts`).
+   */
+  private abortKeyFor(session: Session): string | undefined {
+    const abort = this.deps.harnessInterrupt(session.agentKind)
+    if (abort.quitsWhenIdle && !isAgentComputing(session)) return undefined
+    return abort.bytes
   }
 
   queueText(input: InboxSendInput & { mutationId?: MutationId }): {

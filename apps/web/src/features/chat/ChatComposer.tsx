@@ -116,10 +116,10 @@ export function ChatComposer({
   onSend,
   voice,
   attachments,
-  headless,
   turnRunning,
   canInterrupt,
   onInterrupt,
+  interruptError,
   offer,
   onOfferAction,
   onOfferDismiss,
@@ -143,11 +143,17 @@ export function ChatComposer({
   onSend: () => void
   voice: ReturnType<typeof useVoiceInput>
   attachments: UseAttachmentsResult
-  headless: boolean
+  /** A turn is running — native or headless. Shows the stop control. The
+   *  composer no longer asks WHICH kind: `headless` used to be here only to gate
+   *  that control, and gating it was the bug (POD-1214). */
   turnRunning: boolean
-  /** A headless turn can be stopped only when a thread is actually driving it. */
+  /** A stop can be ATTEMPTED: a thread is driving the headless turn, or the
+   *  native session is live. Arms the double-Escape chord. */
   canInterrupt: boolean
   onInterrupt: () => void
+  /** Why the last stop did not take effect (POD-1214). Shown as its own notice:
+   *  a turn that is still running after you pressed stop must say so. */
+  interruptError?: string | null
   offer: SessionMeta['offer'] | null
   onOfferAction: (prompt: string, offerAt: string) => Promise<void>
   /** "None of these" — clears the offer without sending a turn. */
@@ -189,6 +195,7 @@ export function ChatComposer({
 
   // A session switch reuses this composer on mobile. Never let the first Esc
   // from one session arm the second Esc in another.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clear on session switch
   useEffect(() => {
     lastInterruptEscapeAt.current = null
   }, [autoFocusKey])
@@ -319,7 +326,11 @@ export function ChatComposer({
         compact ? 'gap-0.5 self-end' : 'gap-2',
       )}
     >
-      {headless && turnRunning && canInterrupt && (
+      {/* NOT headless-only (POD-1214). A native session's turn is just as
+          stoppable — the server sends its harness's abort key — and gating the
+          button on `headless` left the double-Escape chord as the ONLY way to
+          stop a claude/codex session from chat, which is a chord nobody can see. */}
+      {turnRunning && canInterrupt && (
         <Button
           type="button"
           variant="ghost"
@@ -334,6 +345,8 @@ export function ChatComposer({
               : "size-7 rounded-[8px] [&_svg:not([class*='size-'])]:size-4",
           )}
           title="Stop this turn"
+          aria-label="Stop this turn"
+          data-testid="composer-stop"
           onClick={onInterrupt}
         >
           <Square size={16} aria-hidden="true" />
@@ -455,7 +468,10 @@ export function ChatComposer({
           />
         </div>
       )}
-      {(turnError !== null || offlineAsOf !== null || attached) && (
+      {(turnError !== null ||
+        (interruptError !== null && interruptError !== undefined) ||
+        offlineAsOf !== null ||
+        attached) && (
         <div className="composer-notices" aria-live="polite">
           {/* The attachment leads: it is the only notice here that describes
               what the NEXT send will carry, and it is dismissible. */}
@@ -486,6 +502,18 @@ export function ChatComposer({
             >
               <strong>Not sent</strong>
               <span>{turnError}</span>
+            </div>
+          )}
+          {/* "Not stopped", deliberately not "Not sent": the failure being
+              reported is that the agent is STILL RUNNING. */}
+          {interruptError !== null && interruptError !== undefined && (
+            <div
+              className="composer-notice composer-notice--error"
+              data-notice="interrupt-error"
+              role="alert"
+            >
+              <strong>Not stopped</strong>
+              <span>{interruptError}</span>
             </div>
           )}
           {offlineAsOf !== null && (

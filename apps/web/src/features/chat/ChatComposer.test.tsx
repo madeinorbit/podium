@@ -58,6 +58,8 @@ async function mount(
     canInterrupt?: boolean
     onInterrupt?: () => void
     onDraftChange?: (draft: string) => void
+    turnRunning?: boolean
+    interruptError?: string | null
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const taRef = createRef<HTMLTextAreaElement>()
@@ -74,10 +76,10 @@ async function mount(
         onSend={opts.onSend ?? (() => {})}
         voice={silentVoice}
         attachments={opts.attachments ?? noopAttachments}
-        headless={false}
-        turnRunning={false}
+        turnRunning={opts.turnRunning ?? false}
         canInterrupt={opts.canInterrupt ?? false}
         onInterrupt={opts.onInterrupt ?? (() => {})}
+        interruptError={opts.interruptError ?? null}
         offer={null}
         onOfferAction={async () => {}}
         onOfferDismiss={async () => {}}
@@ -344,6 +346,37 @@ describe.each([
     expect(press(idle, { key: 'Escape' }).defaultPrevented).toBe(false)
     expect(onInterrupt).not.toHaveBeenCalled()
   })
+
+  // POD-1214: the stop control used to be headless-only, which left the chord
+  // above as the sole way to stop a native session from chat.
+  it('shows the stop control on a NATIVE running turn, not just a headless one', async () => {
+    const onInterrupt = vi.fn()
+    await mount({ compact, turnRunning: true, canInterrupt: true, onInterrupt })
+    const stop = container.querySelector('[data-testid="composer-stop"]') as HTMLButtonElement
+    expect(stop).not.toBeNull()
+    act(() => stop.click())
+    expect(onInterrupt).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the stop control when nothing is running', async () => {
+    await mount({ compact, turnRunning: false, canInterrupt: true })
+    expect(container.querySelector('[data-testid="composer-stop"]')).toBeNull()
+  })
+
+  // A stop that did not stop anything must say so — and must not borrow
+  // sending's "Not sent", which would describe the wrong failure.
+  it('reports a refused stop as its own notice', async () => {
+    await mount({
+      compact,
+      interruptError: 'Codex only takes an interrupt while it is working',
+      turnError: null,
+    })
+    const notice = container.querySelector('[data-notice="interrupt-error"]') as HTMLElement
+    expect(notice).not.toBeNull()
+    expect(notice.textContent).toContain('Not stopped')
+    expect(notice.textContent).toContain('only takes an interrupt while it is working')
+    expect(container.querySelector('[data-notice="error"]')).toBeNull()
+  })
 })
 
 describe('ChatComposer backend rail', () => {
@@ -362,7 +395,6 @@ describe('ChatComposer backend rail', () => {
           onSend={() => {}}
           voice={silentVoice}
           attachments={noopAttachments}
-          headless
           turnRunning={false}
           canInterrupt={false}
           onInterrupt={() => {}}

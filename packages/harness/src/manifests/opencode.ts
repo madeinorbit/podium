@@ -69,6 +69,12 @@ export const opencodeManifest: AgentManifest = {
     exclusiveInteractiveResume: false,
     promptTitleFallback: false,
     mcpConfigTransport: 'none',
+    // UNMEASURED (POD-1214): no provider is connected on the host this was
+    // written on, so no turn could be started to abort. Esc is the documented
+    // key and the pre-POD-1214 behaviour, so this declaration changes nothing
+    // for opencode until someone can run the probe.
+    interruptKey: 'esc',
+    interruptQuitsWhenIdle: false,
   },
   resumeKind: 'opencode-session',
 

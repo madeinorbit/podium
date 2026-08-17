@@ -251,7 +251,7 @@ const interrupt: CommandDef = {
   redaction: { fields: [] },
   conflict: 'cmd',
   decision:
-    "Sends the native CLI interrupt key to a running session without acquiring terminal keyboard control. This is an explicit operator act from transcript chat, matching sendText's controller-independent path; it is never queued because an interrupt applied after the active turn ended would target the wrong work.",
+    "Sends the native CLI interrupt key to a running session without acquiring terminal keyboard control. This is an explicit operator act from transcript chat, matching sendText's controller-independent path; it is never queued because an interrupt applied after the active turn ended would target the wrong work. WHICH key is the harness manifest's answer, not a constant (POD-1214): Esc cancels claude-code and grok, while codex ignores Esc entirely and cancels on Ctrl-C. A harness whose key exits the CLI when no turn is running (codex) is REFUSED with a reason rather than sent the key, so a stop can never be the thing that kills the session.",
 }
 
 const sendText: CommandDef = {

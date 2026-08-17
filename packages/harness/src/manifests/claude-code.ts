@@ -63,6 +63,12 @@ export const claudeCodeManifest: AgentManifest = {
     exclusiveInteractiveResume: false,
     promptTitleFallback: true,
     mcpConfigTransport: 'path',
+    // Measured (2.x, POD-1214): one Esc mid-turn prints "Interrupted" and
+    // recalls the prompt into the composer; at an idle prompt it only clears the
+    // composer. Background Task subagents keep running — the harness owns those,
+    // and no keystroke reaches them.
+    interruptKey: 'esc',
+    interruptQuitsWhenIdle: false,
   },
   resumeKind: 'claude-session',
 

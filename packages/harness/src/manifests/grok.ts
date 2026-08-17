@@ -125,6 +125,10 @@ export const grokManifest: AgentManifest = {
     exclusiveInteractiveResume: false,
     promptTitleFallback: false,
     mcpConfigTransport: 'none',
+    // Measured (1.0.3, POD-1214): the working footer advertises "Esc:cancel",
+    // and one Esc yields "Turn cancelled by user".
+    interruptKey: 'esc',
+    interruptQuitsWhenIdle: false,
   },
   resumeKind: 'grok-session',
 

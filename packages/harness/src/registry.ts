@@ -123,6 +123,44 @@ export function harnessUsesRawFirstTurn(kind: AgentKind | string): boolean {
   return harnessCapabilitiesFor(kind)?.rawFirstTurn ?? false
 }
 
+/** How to abort a running turn in one harness's TUI: the key, the bytes that key
+ *  is on a PTY, and whether pressing it outside a turn would exit the CLI. */
+export interface HarnessInterrupt {
+  key: HarnessCapabilities['interruptKey']
+  /** PTY encoding of {@link key} — what a caller actually writes. */
+  bytes: string
+  quitsWhenIdle: boolean
+}
+
+const INTERRUPT_BYTES: Record<HarnessCapabilities['interruptKey'], string> = {
+  esc: '\x1b',
+  'ctrl-c': '\x03',
+}
+
+/**
+ * The abort chord for a session of this kind (POD-1214).
+ *
+ * TWO kinds have no manifest to ask, and they want opposite things, so both are
+ * named here rather than left to a single shared default:
+ *
+ *   'shell'   Ctrl-C, because a shell's abort IS SIGINT and there is no TUI to
+ *             ask. Harmless at an idle prompt (a fresh prompt line), so no guard.
+ *   unknown   Esc, the conservative guess for a CLI this build cannot name:
+ *             wrong-and-inert beats wrong-and-fatal, and Ctrl-C into an unknown
+ *             TUI risks killing an agent mid-turn.
+ */
+export function harnessInterrupt(kind: AgentKind | string): HarnessInterrupt {
+  if (kind === 'shell')
+    return { key: 'ctrl-c', bytes: INTERRUPT_BYTES['ctrl-c'], quitsWhenIdle: false }
+  const capabilities = harnessCapabilitiesFor(kind)
+  const key = capabilities?.interruptKey ?? 'esc'
+  return {
+    key,
+    bytes: INTERRUPT_BYTES[key],
+    quitsWhenIdle: capabilities?.interruptQuitsWhenIdle ?? false,
+  }
+}
+
 export function harnessRequiresExclusiveInteractiveResume(kind: AgentKind | string): boolean {
   return harnessCapabilitiesFor(kind)?.exclusiveInteractiveResume ?? false
 }

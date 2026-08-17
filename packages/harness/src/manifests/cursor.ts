@@ -50,6 +50,11 @@ export const cursorManifest: AgentManifest = {
     exclusiveInteractiveResume: false,
     promptTitleFallback: false,
     mcpConfigTransport: 'none',
+    // UNMEASURED (POD-1214): cursor-agent is not installed on the host this was
+    // written on. Esc keeps the pre-POD-1214 behaviour, so nothing regresses
+    // while it stays unverified.
+    interruptKey: 'esc',
+    interruptQuitsWhenIdle: false,
   },
   resumeKind: 'cursor-chat',
 

@@ -118,10 +118,10 @@ function ScopedChatComposer({
       onSend={submit}
       voice={voice}
       attachments={chat.attachments}
-      headless={chat.headless}
-      turnRunning={chat.headlessTurn.turnRunning}
+      turnRunning={chat.turnActive}
       canInterrupt={chat.canInterrupt}
       onInterrupt={interrupt}
+      interruptError={chat.interruptError}
       offer={chat.offer}
       onOfferAction={chat.sendOfferPrompt}
       onOfferDismiss={chat.dismissOffer}

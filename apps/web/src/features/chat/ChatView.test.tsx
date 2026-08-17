@@ -43,7 +43,11 @@ const fakeTrpc = {
       },
     },
     sendText: { mutate: vi.fn(async () => ({ disposition: 'delivered' })) },
-    interrupt: { mutate: vi.fn(async () => ({ ok: true })) },
+    // `reason` is optional but PRESENT in the contract: a stop can be refused
+    // with one, and a fake that could not express that could not test it.
+    interrupt: {
+      mutate: vi.fn(async (): Promise<{ ok: boolean; reason?: string }> => ({ ok: true })),
+    },
     answerAskUserQuestion: { mutate: vi.fn(async () => {}) },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
@@ -216,6 +220,84 @@ describe('ChatView read-then-subscribe', () => {
 
     expect(fakeTrpc.sessions.interrupt.mutate).toHaveBeenCalledWith({ sessionId: 's1' })
     expect(storeActions.setSessionDraft).toHaveBeenCalledWith('s1', 'tighten the copy')
+  })
+
+  // POD-1214: the chord is armed by LIVENESS, not by the observed phase. The
+  // observation lags the agent, so a session that has gone quiet-but-busy (or
+  // whose observer is a beat behind) used to swallow both Escapes in silence —
+  // the exact moment the operator wants out.
+  it('interrupts a LIVE session whose observed phase is not working', async () => {
+    storeSessions = [meta({ status: 'live', agentState: undefined })]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [{ id: 'u1', cursor: 'c1', role: 'user', text: 'keep going' }],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    if (!textarea) throw new Error('chat composer missing')
+    act(() => {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+
+    expect(fakeTrpc.sessions.interrupt.mutate).toHaveBeenCalledWith({ sessionId: 's1' })
+  })
+
+  it('leaves the chord inert on a session that is not running', async () => {
+    storeSessions = [meta({ status: 'exited', agentState: undefined })]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await act(async () => {
+      reads[0]?.resolve({ items: [], hasMore: false })
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    if (!textarea) throw new Error('chat composer missing')
+    act(() => {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+
+    expect(fakeTrpc.sessions.interrupt.mutate).not.toHaveBeenCalled()
+  })
+
+  // A refusal RESOLVES `{ ok: false }` — it does not throw. Swallowing it made a
+  // stop that never reached the agent look exactly like one that worked.
+  it('shows why a refused stop did not stop anything', async () => {
+    fakeTrpc.sessions.interrupt.mutate.mockResolvedValueOnce({
+      ok: false,
+      reason: 'Codex only takes an interrupt while it is working',
+    })
+    storeSessions = [meta({ status: 'live', agentKind: 'codex', agentState: undefined })]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await act(async () => {
+      reads[0]?.resolve({ items: [], hasMore: false })
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    if (!textarea) throw new Error('chat composer missing')
+    act(() => {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    await flush()
+
+    const notice = container.querySelector('[data-notice="interrupt-error"]')
+    expect(notice?.textContent).toContain('Not stopped')
+    expect(notice?.textContent).toContain('only takes an interrupt while it is working')
   })
 
   it('renders a LIVE session transcript from the initial read even with ZERO hub deltas', async () => {

@@ -14,7 +14,7 @@
  * (activityFlushTimer stays a field initializer on SessionLifecycle).
  */
 
-import { computePriorities, asUserId, type SessionId } from '@podium/model'
+import { asUserId, computePriorities, type SessionId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import { MutationLedger, type SyncRepository } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
@@ -22,7 +22,12 @@ import { userCommandPrincipal } from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
-import { harnessNeedsSubmitVerification, harnessUsesRawFirstTurn } from '../../harness-manifest'
+import {
+  harnessDisplayName,
+  harnessInterrupt,
+  harnessNeedsSubmitVerification,
+  harnessUsesRawFirstTurn,
+} from '../../harness-manifest'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
@@ -46,17 +51,17 @@ import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
 import { SessionRepository } from './repository'
+import { SessionAuthz } from './session-authz'
 import { SessionBindingReceipts } from './session-binding'
+import { SessionClientPlane } from './session-client-plane'
+import { SessionKill } from './session-kill'
+import { SessionMetaOps } from './session-meta-ops'
 import { SessionRevival } from './session-revival'
 import { APPLIED_MUTATIONS_MAX_AGE_MS, DEFAULT_GEOMETRY } from './session-shared'
 import { SessionStart } from './session-start'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import { SessionStateService } from './session-state/service'
 import { SessionTeardown } from './session-teardown'
-import { SessionKill } from './session-kill'
-import { SessionMetaOps } from './session-meta-ops'
-import { SessionAuthz } from './session-authz'
-import { SessionClientPlane } from './session-client-plane'
 import { SessionTerminalProof } from './terminal-proof'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
@@ -345,6 +350,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcast: () => bag.broadcastSessions(),
     needsSubmitVerification: harnessNeedsSubmitVerification,
     usesRawFirstTurn: harnessUsesRawFirstTurn,
+    harnessInterrupt,
+    harnessName: harnessDisplayName,
     prepareSend: (sessionId, attribution, kind, origin) =>
       bag.prepareInboxSend(sessionId, attribution, kind, origin),
     ownerOf: (sessionId) => bag.sessionOwner(sessionId)?.owner,

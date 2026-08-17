@@ -611,6 +611,23 @@ export interface HarnessCapabilities {
   promptTitleFallback: boolean
   /** How a one-shot invocation receives Podium's MCP configuration. */
   mcpConfigTransport: 'path' | 'inline' | 'none'
+  /**
+   * The keystroke that aborts a RUNNING turn in this CLI's interactive TUI.
+   * There is no universal one: claude-code and grok cancel on Esc and ignore
+   * Ctrl-C, codex ignores Esc entirely (single AND double) and cancels on
+   * Ctrl-C. Sending the wrong one is a silent no-op, which is what
+   * `sessions.interrupt` did for every codex session before POD-1214.
+   */
+  interruptKey: 'esc' | 'ctrl-c'
+  /**
+   * Pressing {@link interruptKey} while NO turn is running exits the CLI.
+   * Measured on codex 0.147.0: one Ctrl-C at an idle prompt quits outright (not
+   * the two-press confirm its docs imply), so an abort aimed at a turn that has
+   * already ended would kill the session instead. Declared per harness rather
+   * than derived from the key, because a `shell` session's Ctrl-C is harmless at
+   * a prompt while codex's is terminal.
+   */
+  interruptQuitsWhenIdle: boolean
 }
 
 /** @deprecated Renamed to `AgentManifest` (POD-303/POD-325 vocabulary: the object

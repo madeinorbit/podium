@@ -61,6 +61,20 @@ import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
  * this composes them and hands the shell one object.
  */
 
+/** The reason inside a `{ ok: false, reason }` reply, or null for anything else.
+ *  Session writes that the substrate REFUSES resolve 200 with that shape rather
+ *  than throwing — see `assert-send-accepted.ts` for the same idiom on sends. */
+function refusalReason(result: unknown): string | null {
+  if (result === null || typeof result !== 'object') return null
+  if (!('ok' in result) || (result as { ok: unknown }).ok !== false) return null
+  const reason = (result as { reason?: unknown }).reason
+  return typeof reason === 'string' && reason !== '' ? reason : 'the agent refused the interrupt'
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 export interface UseChatSurfaceOptions {
   sessionId: SessionId
   active: boolean
@@ -144,8 +158,14 @@ export interface ChatSurface {
 
   // -- headless superagent routing -------------------------------------------
   headlessTurn: UseHeadlessTurnResult
+  /** A turn is running: show the stop control. */
+  turnActive: boolean
+  /** A stop may be attempted: arm the chord and enable the control. */
   canInterrupt: boolean
   interrupt: (draft: string) => void
+  /** Why the last stop did NOT happen, for the composer's notice row. Null once
+   *  a stop is attempted again or the view moves to another session. */
+  interruptError: string | null
   /** The thread's harness + model + effort, for the prompt box's pickers
    *  (POD-782). `agentKind` undefined = Auto (follow Settings). */
   backend: { agentKind: string | undefined; model: string; effort: string }
@@ -229,6 +249,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // A mobile AgentPanel reuses one ChatView while switching sessions.
   // Recollection is per-session; a stopped turn must never pull another
   // session's prompt into this composer.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clear on session switch
   useEffect(() => {
     lastSubmittedPromptRef.current = initialPendingText ?? null
   }, [sessionId, initialPendingText])
@@ -494,12 +515,39 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     [attachments, setDraft, send],
   )
 
+  /**
+   * Is a turn running, as far as this client can tell? Drives the VISIBLE stop
+   * control, which should not sit on the floor of an idle composer.
+   */
+  const turnActive = headless
+    ? headlessTurn.turnRunning
+    : (session !== undefined && isAgentComputing(session)) || send.justSent
+  /**
+   * May a stop be ATTEMPTED? For a native session this is LIVENESS, not the
+   * observed phase (POD-1214).
+   *
+   * `agentState.phase` is the last thing the harness was seen doing, and the
+   * observation lags the agent. Gating the chord on it meant the exact moment
+   * you want out — the agent has gone quiet-but-busy, or the observer is a beat
+   * behind — was the moment two Escapes did nothing at all, silently, because
+   * the handler did not even take the keypress. Liveness is the honest gate:
+   * whether the key can safely be delivered is the SERVER's call (it holds the
+   * authoritative phase and the harness manifest), and its refusal now arrives
+   * here as {@link interruptError} instead of being swallowed.
+   */
   const canInterrupt = headless
     ? superThread !== undefined && headlessTurn.turnRunning
-    : (session !== undefined && isAgentComputing(session)) || send.justSent
+    : session !== undefined && (session.status === 'live' || session.status === 'starting')
+  const [interruptError, setInterruptError] = useState<string | null>(null)
+  // A refusal belongs to the session it came from — the mobile panel reuses one
+  // composer across switches, and a stale "Not stopped" under another session's
+  // prompt would name the wrong agent.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clear on session switch
+  useEffect(() => setInterruptError(null), [sessionId])
   const interrupt = useCallback(
     (draft: string) => {
       if (!canInterrupt) return
+      setInterruptError(null)
       // The keyboard chord is accepted only from an empty field. Keep that same
       // safety here so the stop button never overwrites a reply already in flight.
       if (draft === '') {
@@ -508,10 +556,20 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       }
       taRef.current?.focus()
       if (headless) {
-        headlessTurn.interrupt()
+        void Promise.resolve(headlessTurn.interrupt()).catch((e: unknown) =>
+          setInterruptError(errorText(e)),
+        )
         return
       }
-      void trpc.sessions.interrupt.mutate({ sessionId }).catch(() => {})
+      // A refusal RESOLVES as `{ ok: false, reason }` (the `assertSendAccepted`
+      // shape); only a transport failure throws. Reading just the throw is how a
+      // stop that never reached the agent looked identical to one that worked.
+      void Promise.resolve(trpc.sessions.interrupt.mutate({ sessionId }))
+        .then((result) => {
+          const refused = refusalReason(result)
+          if (refused) setInterruptError(refused)
+        })
+        .catch((e: unknown) => setInterruptError(errorText(e)))
     },
     [canInterrupt, headless, headlessTurn, latestOperatorPrompt, sessionId, setDraft, trpc],
   )
@@ -657,8 +715,10 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     activity,
 
     headlessTurn,
+    turnActive,
     canInterrupt,
     interrupt,
+    interruptError,
     backend,
     setBackendModel,
     setBackendEffort,

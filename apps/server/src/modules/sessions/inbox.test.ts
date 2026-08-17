@@ -1,8 +1,8 @@
 import {
-  asMutationId,
   type Attribution,
   actorAgent,
   asAgentIdentityId,
+  asMutationId,
   asSessionId,
   asUserId,
   type SessionId,
@@ -10,6 +10,7 @@ import {
 import { asDelegationRef } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
+import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { type InboxPrincipalReference, type QueuedInboxMessage, SessionInbox } from './inbox'
 import type { Session } from './session'
@@ -32,7 +33,9 @@ function harness(
   options: {
     owner?: typeof ALICE | null
     status?: string
-    agentKind?: 'codex' | 'opencode' | 'grok'
+    agentKind?: 'codex' | 'opencode' | 'grok' | 'claude-code' | 'shell'
+    /** The harness's observed phase — what the interrupt's idle guard reads. */
+    phase?: string
     userTurns?: number
     /** Whether the transcript can WITNESS a send — production's normal state for
      *  an agent session, and what the confirmation gate keys off (POD-1100). */
@@ -60,7 +63,7 @@ function harness(
     queuedMessageCount: 0,
     transcriptAvailable: options.transcriptAvailable ?? false,
     agentState: {
-      phase: 'idle',
+      phase: options.phase ?? 'idle',
       since: '2026-08-15T00:00:00.000Z',
       ...(options.stateObservedAt ? { stateObservedAt: options.stateObservedAt } : {}),
     },
@@ -114,6 +117,10 @@ function harness(
     broadcast: vi.fn(),
     needsSubmitVerification: (agentKind) => agentKind === 'claude-code',
     usesRawFirstTurn: (agentKind) => agentKind === 'grok',
+    // The REAL manifest lookups, not stubs: which key aborts which CLI is the
+    // fact under test, and a stubbed table would let the manifests drift from it.
+    harnessInterrupt,
+    harnessName: harnessDisplayName,
     prepareSend: vi.fn(),
     ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
     resurrect: async () => ({ ok: true }),
@@ -374,8 +381,19 @@ describe('SessionInbox authorization and identity', () => {
     ])
   })
 
-  it('interrupt sends only Esc with the authenticated principal attribution', () => {
-    const h = harness()
+  // ONE keystroke, and WHICH keystroke is the harness's fact, not a constant
+  // (POD-1214). Measured on this host: claude-code and grok cancel on Esc and
+  // ignore Ctrl-C; codex ignores Esc entirely and cancels on Ctrl-C.
+  it.each([
+    { agentKind: 'claude-code' as const, key: '\x1b' },
+    { agentKind: 'grok' as const, key: '\x1b' },
+    { agentKind: 'codex' as const, key: '\x03' },
+    { agentKind: 'shell' as const, key: '\x03' },
+  ])('interrupt sends $agentKind its own abort key with the authenticated principal attribution', ({
+    agentKind,
+    key,
+  }) => {
+    const h = harness({ agentKind, phase: 'working' })
     const principal = agentPrincipal()
 
     expect(h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({ ok: true })
@@ -383,11 +401,61 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.sent).toEqual([
       expect.objectContaining({
         type: 'input',
-        data: Buffer.from('\x1b').toString('base64'),
+        data: Buffer.from(key).toString('base64'),
         attribution: principal.attribution,
       }),
     ])
     expect(h.answered).toEqual([])
+  })
+
+  // The guard that keeps the fix from becoming a worse bug: one Ctrl-C at an
+  // IDLE codex prompt exits the CLI, so a stop aimed at a turn that already
+  // ended must refuse rather than kill the session.
+  it('refuses to interrupt an idle codex instead of sending the key that would quit it', () => {
+    const h = harness({ agentKind: 'codex', phase: 'idle' })
+
+    const result = h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain('only takes an interrupt while it is working')
+    expect(h.sent).toEqual([])
+  })
+
+  // Esc is inert at an idle prompt, so it needs no guard — and gating it would
+  // reintroduce the stale-phase hole the client just stopped relying on.
+  it('interrupts an idle Esc harness anyway', () => {
+    const h = harness({ agentKind: 'claude-code', phase: 'idle' })
+
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+    })
+    expect(h.sent).toHaveLength(1)
+  })
+
+  // interruptText SKIPS the key rather than refusing: its job is to deliver the
+  // message, and an interrupt-urgency mail must never be what kills a session.
+  it('delivers interrupt-urgency text to an idle codex without the quit-when-idle key', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({ agentKind: 'codex', phase: 'idle' })
+
+      expect(
+        h.inbox.interruptText({
+          sessionId: SID,
+          text: 'stop and read this',
+          principal: agentPrincipal(),
+        }),
+      ).toEqual({ ok: true })
+      await vi.advanceTimersByTimeAsync(500)
+
+      const decoded = h.sent.map((m) =>
+        Buffer.from((m as { data: string }).data, 'base64').toString(),
+      )
+      expect(decoded.some((d) => d.includes('\x03'))).toBe(false)
+      expect(decoded.some((d) => d.includes('stop and read this'))).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('refuses to interrupt a session that is not running', () => {
