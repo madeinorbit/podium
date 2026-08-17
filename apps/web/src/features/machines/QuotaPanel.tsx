@@ -3,7 +3,6 @@ import {
   agentLabel,
   formatReset,
   groupGatingPace,
-  modelLimitNote,
   paceLabel,
   percentTone,
   type QuotaPace,
@@ -92,17 +91,14 @@ export function QuotaPanel({
               {gating.map((w) => (
                 <WindowRow key={w.key} w={w} now={now} pace={pace} />
               ))}
-              {/* Model-scoped buckets read as a separate tier — they are extra
-                capacity for one model, not a limit on the harness (POD-271). */}
-              {models.length > 0 && (
-                <div className="hp-model-limits">
-                  <div className="hp-model-label">Model limits</div>
-                  {models.map((w) => (
-                    <ModelWindowRow key={w.key} w={w} now={now} />
-                  ))}
-                  <div className="hp-model-note">{modelLimitNote(g.agent, g.windows)}</div>
-                </div>
-              )}
+              {/* A model-scoped bucket is extra capacity for one model, not a
+                  limit on the harness (POD-271) — so it hangs off the window
+                  rows as a sub-row of the week meter it lives inside, on the
+                  same grid. No section label, no repeated reset time, no prose:
+                  the ↳ and the thinner track say "subordinate" on their own. */}
+              {models.map((w) => (
+                <ModelWindowRow key={w.key} w={w} />
+              ))}
             </div>
           )
         })}
@@ -149,31 +145,28 @@ function WindowRow({
   )
 }
 
-function ModelWindowRow({ w, now }: { w: QuotaWindowWire; now: number }): JSX.Element {
-  const elapsed = windowElapsedPercent(w.resetsAt, w.windowMinutes, now)
+/**
+ * A model-scoped window, rendered as a sub-row of the harness meters above it.
+ * It carries no elapsed tick and no reset time: it resets with the window it
+ * hangs under, and printing that again in the fourth column only made the
+ * operator read the same figure twice.
+ */
+function ModelWindowRow({ w }: { w: QuotaWindowWire }): JSX.Element {
   const tone = percentTone(w.usedPercent)
   const used = Math.min(100, Math.max(0, w.usedPercent))
   return (
     <div className="hp-model-row">
+      <span className="hp-model-branch" aria-hidden="true">
+        ↳
+      </span>
       <span className="hp-model-meter">
         <span className="hp-model-name">{windowScopeModel(w) ?? w.label}</span>
-        <span
-          className="hp-bar"
-          role="presentation"
-          title={elapsed !== null ? `${Math.round(elapsed)}% of window elapsed` : undefined}
-        >
+        <span className="hp-bar" role="presentation">
           <span className={cn('hp-fill', `hp-fill-${tone}`)} style={{ width: `${used}%` }} />
-          {elapsed !== null && (
-            <span
-              className="hp-tick"
-              style={{ left: `${Math.min(99, Math.max(1, elapsed))}%` }}
-              aria-hidden="true"
-            />
-          )}
         </span>
       </span>
       <span className="hp-num">{Math.round(w.usedPercent)}%</span>
-      <span className="hp-reset">{formatReset(w.resetsAt, now).replace('resets in ', '')}</span>
+      <span />
     </div>
   )
 }

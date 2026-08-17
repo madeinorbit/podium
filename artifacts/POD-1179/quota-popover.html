@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quota popover — aligned ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* The shipped `hp-*` rules from apps/web/src/styles.css, with the Superade
+     token values inlined per theme so the panel can be read outside the app. */
+  html, body { margin: 0; background: #e9e7e1; font-family: 'Geist', sans-serif; }
+  .page { display: flex; flex-direction: column; gap: 26px; padding: 56px 56px 80px; }
+  .intro { display: flex; flex-direction: column; gap: 9px; max-width: 720px; }
+  .eyebrow { font: 500 9px/1 'Geist Mono', monospace; letter-spacing: .14em; text-transform: uppercase; color: #8f8d85; }
+  .headline { font: 600 26px/1.2 'Geist', sans-serif; color: #1d1c19; }
+  .lede, .foot { font: 13px/1.6 'Geist', sans-serif; color: #5f5d55; text-wrap: pretty; max-width: 720px; }
+  .foot { font-size: 11.5px; }
+  .decks { display: flex; align-items: flex-start; gap: 26px; flex-wrap: wrap; }
+  .deck { display: flex; flex-direction: column; gap: 11px; }
+  .ground { width: 412px; padding: 28px; border-radius: 12px; }
+
+  .theme {
+    --font-mono: 'Geist Mono', monospace;
+    --popover: #ffffff;
+    --foreground: #38362f;
+    --secondary: #eceae4;
+    --success: #1d4ed8;
+    --warning: #8a6200;
+    --destructive: #c81e2b;
+    --border-strong: #e2e0d9;
+    --hairline-soft: #eeede8;
+    --text-strong: #1d1c19;
+    --text-dim: #8f8d85;
+    --text-faint: #a3a199;
+    --muted-foreground: #5f5d55;
+    --shadow-popover: 0 14px 34px rgba(29,28,25,.18), 0 2px 8px rgba(29,28,25,.08);
+  }
+  .theme-light .ground { background: #f2f1ed; box-shadow: inset 0 0 0 1px #e2e0d9; }
+  .theme-dark {
+    --popover: #23262d;
+    --foreground: #d7dae0;
+    --secondary: #2c3038;
+    --success: #2a62f0;
+    --warning: #e3ba52;
+    --destructive: #e5303f;
+    --border-strong: #3a3f48;
+    --hairline-soft: #24272d;
+    --text-strong: #f2f3f5;
+    --text-dim: #848a94;
+    --text-faint: #6f7580;
+    --muted-foreground: #a8adb6;
+    --shadow-popover: 0 14px 34px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.35);
+  }
+  .theme-dark .ground { background: #16171a; box-shadow: inset 0 0 0 1px #26292f; }
+  .theme-dark .eyebrow { color: #848a94; }
+
+  .health-popover {
+    display: flex; flex-direction: column; width: 296px; overflow: hidden;
+    border: 1px solid var(--input, var(--border-strong)); border-radius: 8px;
+    background: var(--popover); color: var(--foreground);
+    box-shadow: var(--shadow-popover); font-size: 11px;
+  }
+  .health-popover-quota { width: 356px; border-color: var(--border-strong); border-radius: 10px; }
+  .health-popover-quota .hp-header { align-items: center; gap: 10px; padding: 10px 13px 9px; }
+  .health-popover-quota .hp-section { padding: 8px 13px 10px; border-top-color: var(--hairline-soft); }
+  .health-popover-quota .hp-title { line-height: 1; }
+  .health-popover-quota .hp-verdict { gap: 10px; font-size: 9px; line-height: 1; letter-spacing: .08em; }
+  .health-popover-quota .hp-verdict-item i { width: 5px; height: 5px; }
+
+  .hp-header { display: flex; flex: none; align-items: baseline; justify-content: space-between; gap: 8px; padding: 9px 12px 7px; }
+  .hp-title { font-size: 11.5px; font-weight: 600; color: var(--text-strong); }
+  .hp-verdict { display: inline-flex; align-items: center; gap: 11px; font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+  .hp-verdict-item { display: inline-flex; align-items: center; gap: 5px; }
+  .hp-verdict-item i { width: 6px; height: 6px; flex: none; border-radius: 50%; background: currentColor; }
+  .hp-verdict-ok { color: var(--success); }
+  .hp-verdict-warn { color: var(--warning); }
+  .hp-section { padding: 7px 12px 9px; border-top: 1px solid var(--border-strong); }
+  .hp-acct { display: flex; align-items: center; gap: 7px; min-width: 0; margin-bottom: 7px; }
+  .hp-acct-icon { width: 13px; height: 13px; flex: none; background: var(--foreground); mask-size: contain; mask-repeat: no-repeat; mask-position: center; }
+  .hp-acct-agent { flex: none; font-size: 11.5px; line-height: 1; font-weight: 600; color: var(--text-strong); }
+  .hp-acct-plan { flex: none; padding: 1.5px 5px; border-radius: 4px; background: var(--secondary); font-family: var(--font-mono); font-size: 8.5px; line-height: 1; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+  .hp-acct-sub { margin-left: auto; overflow: hidden; font-size: 9.5px; line-height: 1; color: var(--text-faint); text-overflow: ellipsis; white-space: nowrap; }
+  .hp-winrow { display: grid; grid-template-columns: 24px minmax(0,1fr) 30px 44px; align-items: center; column-gap: 10px; }
+  .hp-winrow + .hp-winrow { margin-top: 6px; }
+  .hp-winlabel { font-family: var(--font-mono); font-size: 9px; line-height: 1; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); }
+  .hp-bar { position: relative; height: 4px; border-radius: 2px; background: var(--secondary); }
+  .hp-fill { position: absolute; inset: 0 auto 0 0; border-radius: 2px; }
+  .hp-fill-ok { background: var(--success); }
+  .hp-fill-warn { background: var(--warning); }
+  .hp-fill-crit { background: var(--destructive); }
+  .hp-tick { position: absolute; top: -2.5px; bottom: -2.5px; width: 1px; background: color-mix(in srgb, var(--foreground) 45%, transparent); }
+  .hp-num { font-family: var(--font-mono); font-size: 10px; line-height: 1; color: var(--foreground); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .hp-reset { overflow: hidden; color: var(--text-faint); font-family: var(--font-mono); font-size: 10px; line-height: 1; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .hp-pace-chip { flex: none; padding: 2px 5px; border-radius: 4px; font-family: var(--font-mono); font-size: 8.5px; line-height: 1; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+  .hp-pace-ok, .hp-pace-even { color: var(--success); background: color-mix(in srgb, var(--success) 10%, transparent); }
+  .hp-pace-hot { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
+
+  .hp-model-row { display: grid; grid-template-columns: 24px minmax(0,1fr) 30px 44px; align-items: center; column-gap: 10px; margin-top: 6px; }
+  .hp-model-branch { padding-right: 1px; font-family: var(--font-mono); font-size: 9px; line-height: 1; color: color-mix(in srgb, var(--text-faint) 65%, transparent); text-align: right; }
+  .hp-model-meter { display: flex; min-width: 0; align-items: center; gap: 8px; }
+  .hp-model-meter .hp-bar { flex: 1; min-width: 0; height: 3px; }
+  .hp-model-row .hp-fill { min-width: 2px; opacity: .55; }
+  .theme-dark .hp-model-row .hp-fill { opacity: .6; }
+  .hp-model-name { flex: none; color: var(--text-dim); font-family: var(--font-mono); font-size: 9.5px; line-height: 1; }
+  .hp-model-row .hp-num { color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="intro">
+    <span class="eyebrow">Agent quota popover</span>
+    <span class="headline">Aligned ledger</span>
+    <span class="lede">356px wide. The percentage and the reset time keep their own right-aligned columns, so every number in the panel stacks and the account line never wraps. A model limit is a sub-row of the week meter it lives inside — no section label, no repeated reset time, no prose.</span>
+  </div>
+
+  <div class="decks">
+    <div class="deck theme theme-light">
+      <span class="eyebrow">Light</span>
+      <div class="ground">
+        <div class="health-popover health-popover-quota">
+
+          <div class="hp-header">
+            <span class="hp-title">Agent quota</span>
+            <span class="hp-verdict">
+              <span class="hp-verdict-item hp-verdict-warn"><i></i>1 watch</span>
+              <span class="hp-verdict-item hp-verdict-ok"><i></i>2 healthy</span>
+            </span>
+          </div>
+
+          <div class="hp-section">
+            <div class="hp-acct">
+              <span class="hp-acct-icon"></span>
+              <span class="hp-acct-agent">Claude Code</span>
+              <span class="hp-acct-plan">Max</span>
+              <span class="hp-pace-chip hp-pace-ok">Do more</span>
+              <span class="hp-acct-sub">tillmann.felippi@gmail.com</span>
+            </div>
+            <div class="hp-winrow">
+              <span class="hp-winlabel">5h</span>
+              <span class="hp-bar"><span class="hp-fill hp-fill-ok" style="width:18%"></span><span class="hp-tick" style="left:68%"></span></span>
+              <span class="hp-num">18%</span>
+              <span class="hp-reset">24m</span>
+            </div>
+            <div class="hp-winrow">
+              <span class="hp-winlabel">Wk</span>
+              <span class="hp-bar"><span class="hp-fill hp-fill-ok" style="width:25%"></span><span class="hp-tick" style="left:28%"></span></span>
+              <span class="hp-num">25%</span>
+              <span class="hp-reset">4d 8h</span>
+            </div>
+            <div class="hp-model-row">
+              <span class="hp-model-branch">↳</span>
+              <span class="hp-model-meter">
+                <span class="hp-model-name">Fable</span>
+                <span class="hp-bar"><span class="hp-fill hp-fill-ok" style="width:1%"></span></span>
+              </span>
+              <span class="hp-num">1%</span>
+              <span></span>
+            </div>
+          </div>
+
+          <div class="hp-section">
+            <div class="hp-acct">
+              <span class="hp-acct-icon"></span>
+              <span class="hp-acct-agent">Codex</span>
+              <span class="hp-acct-plan">Pro</span>
+              <span class="hp-pace-chip hp-pace-even">On pace</span>
+              <span class="hp-acct-sub">tillmann.felippi@gmail.com</span>
+            </div>
+            <div class="hp-winrow">
+              <span class="hp-winlabel">Wk</span>
+              <span class="hp-bar"><span class="hp-fill hp-fill-ok" style="width:16%"></span><span class="hp-tick" style="left:8%"></span></span>
+              <span class="hp-num">16%</span>
+              <span class="hp-reset">6d 13h</span>
+            </div>
+          </div>
+
+          <div class="hp-section">
+            <div class="hp-acct">
+              <span class="hp-acct-icon"></span>
+              <span class="hp-acct-agent">Grok</span>
+              <span class="hp-pace-chip hp-pace-hot">Won't last</span>
+              <span class="hp-acct-sub">tillmann.felippi@gmail.com</span>
+            </div>
+            <div class="hp-winrow">
+              <span class="hp-winlabel">Wk</span>
+              <span class="hp-bar"><span class="hp-fill hp-fill-warn" style="width:65%"></span><span class="hp-tick" style="left:15%"></span></span>
+              <span class="hp-num">65%</span>
+              <span class="hp-reset">5d 19h</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="deck theme theme-dark">
+      <span class="eyebrow">Dark</span>
+      <div class="ground">
+        <div class="health-popover health-popover-quota">
+
+          <div class="hp-header">
+            <span class="hp-title">Agent quota</span>
+            <span class="hp-verdict">
+              <span class="hp-verdict-item hp-verdict-warn"><i></i>1 watch</span>
+              <span class="hp-verdict-item hp-verdict-ok"><i></i>2 healthy</span>
+            </span>
+          </div>
+
+          <div class="hp-section">
+            <div class="hp-acct">
+              <span class="hp-acct-icon"></span>
+              <span class="hp-acct-agent">Claude Code</span>
+              <span class="hp-acct-plan">Max</span>
+              <span class="hp-pace-chip hp-pace-ok">Do more</span>
+              <span class="hp-acct-sub">tillmann.felippi@gmail.com</span>
+            </div>
+            <div class="hp-winrow">
+              <span class="hp-winlabel">5h</span>
+              <span class="hp-bar"><span class="hp-fill hp-fill-ok" style="width:18%"></span><span class="hp-tick" style="left:68%"></span></span>
+              <span class="hp-num">18%</span>
+              <span class="hp-reset">24m</span>
+            </div>
+            <div class="hp-winrow">
+              <span class="hp-winlabel">Wk</span>
+              <span class="hp-bar"><span class="hp-fill hp-fill-ok" style="width:25%"></span><span class="hp-tick" style="left:28%"></span></span>
+              <span class="hp-num">25%</span>
+              <span class="hp-reset">4d 8h</span>
+            </div>
+            <div class="hp-model-row">
+              <span class="hp-model-branch">↳</span>
+              <span class="hp-model-meter">
+                <span class="hp-model-name">Fable</span>
+                <span class="hp-bar"><span class="hp-fill hp-fill-ok" style="width:1%"></span></span>
+              </span>
+              <span class="hp-num">1%</span>
+              <span></span>
+            </div>
+          </div>
+
+          <div class="hp-section">
+            <div class="hp-acct">
+              <span class="hp-acct-icon"></span>
+              <span class="hp-acct-agent">Codex</span>
+              <span class="hp-acct-plan">Pro</span>
+              <span class="hp-pace-chip hp-pace-even">On pace</span>
+              <span class="hp-acct-sub">tillmann.felippi@gmail.com</span>
+            </div>
+            <div class="hp-winrow">
+              <span class="hp-winlabel">Wk</span>
+              <span class="hp-bar"><span class="hp-fill hp-fill-ok" style="width:16%"></span><span class="hp-tick" style="left:8%"></span></span>
+              <span class="hp-num">16%</span>
+              <span class="hp-reset">6d 13h</span>
+            </div>
+          </div>
+
+          <div class="hp-section">
+            <div class="hp-acct">
+              <span class="hp-acct-icon"></span>
+              <span class="hp-acct-agent">Grok</span>
+              <span class="hp-pace-chip hp-pace-hot">Won't last</span>
+              <span class="hp-acct-sub">tillmann.felippi@gmail.com</span>
+            </div>
+            <div class="hp-winrow">
+              <span class="hp-winlabel">Wk</span>
+              <span class="hp-bar"><span class="hp-fill hp-fill-warn" style="width:65%"></span><span class="hp-tick" style="left:15%"></span></span>
+              <span class="hp-num">65%</span>
+              <span class="hp-reset">5d 19h</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <span class="foot">Both themes share one geometry — only tokens change, and both columns here read the shipped rules from <code>apps/web/src/styles.css</code>. The harness icons are omitted (the app masks real SVGs into <code>.hp-acct-icon</code>); everything else is the panel as it renders. The dark column uses Podium's own Dark Ink tokens rather than the mock's raw hexes, which is why its blue is <code>#2a62f0</code> and its watch colour <code>#e3ba52</code>.</span>
+</div>
+</body>
+</html>

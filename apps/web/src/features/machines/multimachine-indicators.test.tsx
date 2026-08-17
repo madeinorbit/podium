@@ -311,10 +311,15 @@ describe('quota overlay groups by account', () => {
     expect(
       document.querySelector('.health-popover-quota')?.classList.contains('health-popover'),
     ).toBe(true)
-    expect(document.querySelector('.hp-model-limits .hp-model-row')).toBeTruthy()
+    // POD-1179: the bucket is a sub-row of the harness's own meters — same
+    // section, same grid, directly after the window rows. No section label, no
+    // reset time repeated from the window it hangs under, and no prose.
+    expect(document.querySelector('.hp-section .hp-winrow + .hp-model-row')).toBeTruthy()
+    expect(document.querySelector('.hp-model-row .hp-reset')).toBeNull()
+    expect(document.querySelector('.hp-model-limits')).toBeNull()
     expect(
-      screen.getByText(/Fable is spent — Claude Code falls back to the models the shared pool/),
-    ).toBeTruthy()
+      screen.queryByText(/Fable is spent — Claude Code falls back to the models the shared pool/),
+    ).toBeNull()
   })
 
   it('renders no fallback rail for a harness with only gating limits', async () => {
