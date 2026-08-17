@@ -120,6 +120,51 @@ fn retarget_existing_window(
     Ok(())
 }
 
+/// How often supervision checks whether the backend child is still alive. Cheap enough to be
+/// invisible and far below the 500ms floor of the respawn backoff, so it costs no reaction time.
+const SUPERVISION_POLL: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Wait for the supervised child to exit **without holding the child slot's lock while it runs**.
+///
+/// The lock is the hand-off between this thread and the quit path: `RunEvent::Exit` and
+/// `WindowEvent::Destroyed` both lock the same slot, on the main thread, to take the child and
+/// kill it. Blocking in `Child::wait()` under that lock holds it for the child's ENTIRE lifetime,
+/// so ⌘Q deadlocked — the main thread waited for a lock released only by the child dying, and the
+/// only thing that would have killed the child was the main thread. macOS force quits an app whose
+/// main thread never returns from `terminate:`, which is what "the desktop app crashes on ⌘Q" was.
+/// Polling `try_wait` costs one syscall every [`SUPERVISION_POLL`] and leaves the slot free
+/// between checks.
+///
+/// Returns `None` when there is nothing left to supervise: the slot was emptied by a shutdown
+/// handler, or shutdown began while waiting. `Some(status)` is the exit the caller must decide on
+/// — `Some(None)` when the exit happened but its status could not be read.
+fn await_child_exit(
+    child_state: &Arc<Mutex<Option<std::process::Child>>>,
+    shutting_down: &Arc<AtomicBool>,
+    poll: std::time::Duration,
+) -> Option<Option<std::process::ExitStatus>> {
+    loop {
+        {
+            let mut guard = child_state.lock().unwrap();
+            match guard.as_mut() {
+                Some(child) => match child.try_wait() {
+                    Ok(Some(status)) => return Some(Some(status)),
+                    Ok(None) => {}
+                    Err(error) => {
+                        log::warn!("cannot poll the supervised backend: {error}");
+                        return Some(None);
+                    }
+                },
+                None => return None,
+            }
+        }
+        if shutting_down.load(Ordering::Acquire) {
+            return None;
+        }
+        std::thread::sleep(poll);
+    }
+}
+
 /// Supervise the backend child. Ordinary exits retain the existing bounded-backoff respawn;
 /// only a durable, matching server-transfer transition retargets the existing webview and
 /// switches supervision to an explicit daemon child.
@@ -143,13 +188,9 @@ fn spawn_respawn_monitor<F, S, D>(
         const BACKOFF_CAP_MS: u64 = 5_000;
 
         loop {
-            let exited = {
-                let mut guard = child_state.lock().unwrap();
-                if let Some(ref mut child) = *guard {
-                    child.wait().ok()
-                } else {
-                    break;
-                }
+            let Some(exited) = await_child_exit(&child_state, &shutting_down, SUPERVISION_POLL)
+            else {
+                break;
             };
 
             if shutting_down.load(Ordering::Acquire) {
@@ -211,8 +252,18 @@ fn spawn_respawn_monitor<F, S, D>(
                 None => spawn_fn(),
             };
             match spawned {
-                Ok(new_child) => {
-                    *child_state.lock().unwrap() = Some(new_child);
+                Ok(mut new_child) => {
+                    // Shutdown can begin between the check above and this store. By then the
+                    // exit handlers have already emptied the slot, so a child parked here now
+                    // would outlive the app and keep holding its port. Re-check under the lock
+                    // the handlers use, and reap rather than store.
+                    let mut guard = child_state.lock().unwrap();
+                    if shutting_down.load(Ordering::Acquire) {
+                        let _ = new_child.kill();
+                        let _ = new_child.wait();
+                        break;
+                    }
+                    *guard = Some(new_child);
                     backoff_ms = 500;
                 }
                 Err(e) => log::error!("respawn failed: {e}"),
@@ -710,29 +761,31 @@ fn main() {
             // clipboard chords (Cmd+C/V/X/A) only work as menu accelerators.
             #[cfg(target_os = "macos")]
             {
-                let about = MenuItemBuilder::with_id("about-podium", "About Podium").build(app)?;
+                let about =
+                    MenuItemBuilder::with_id("about-podium", "About Podium ADE").build(app)?;
                 let check_updates =
                     MenuItemBuilder::with_id("check-updates", "Check for Updates…").build(app)?;
                 // Hide/Quit carry the app name explicitly. Left to their defaults, the
                 // predefined items title themselves from NSRunningApplication's
-                // localizedName, which reads CFBundleName — and `tauri dev` runs the
-                // bare cargo binary with no .app bundle, so the menu says "Quit
-                // podium-desktop". The packaged bundle gets CFBundleName "Podium" from
-                // productName and never had the problem; explicit text makes dev show
-                // the same menu the bundle ships, and is identical where it was
-                // already right. (This menu is hardcoded English throughout, so no
-                // localization is lost.)
-                let podium_menu = SubmenuBuilder::new(app, "Podium")
+                // localizedName, which reads CFBundleDisplayName/CFBundleName — and
+                // `tauri dev` runs the bare cargo binary with no .app bundle, so the
+                // menu would say "Quit Podium" (the bin target name) even after the
+                // bundle was renamed. The packaged bundle gets the product name from
+                // tauri.conf.json's `bundle.macOS.bundleName` + the merged Info.plist;
+                // explicit text is what makes dev show the same menu the bundle ships.
+                // (This menu is hardcoded English throughout, so no localization is
+                // lost.)
+                let podium_menu = SubmenuBuilder::new(app, "Podium ADE")
                     .item(&about)
                     .item(&check_updates)
                     .separator()
                     .services()
                     .separator()
-                    .hide_with_text("Hide Podium")
+                    .hide_with_text("Hide Podium ADE")
                     .hide_others()
                     .show_all()
                     .separator()
-                    .quit_with_text("Quit Podium")
+                    .quit_with_text("Quit Podium ADE")
                     .build()?;
                 // Cmd+N, same reasoning as Cmd+W below: an unclaimed accelerator
                 // never reaches the webview, so the only way the web app can own
@@ -808,7 +861,7 @@ fn main() {
             if !(cfg!(debug_assertions)
                 && std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref() == Ok("1"))
             {
-                let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
+                let open = MenuItem::with_id(app, "open", "Open Podium ADE", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&open, &quit])?;
                 let _tray = TrayIconBuilder::new()
@@ -864,7 +917,7 @@ fn main() {
                 let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
                     let window_builder = WebviewWindowBuilder::new(&handle2, "main", webview_url)
-                        .title("Podium")
+                        .title("Podium ADE")
                         .inner_size(1200.0, 800.0)
                         .initialization_script(&init);
 
@@ -964,7 +1017,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             match event {
-                // FIX 3: hide-on-close so the tray "Open Podium" is meaningful. Intercept
+                // FIX 3: hide-on-close so the tray "Open Podium ADE" is meaningful. Intercept
                 // the close button → hide the window instead of destroying it. The tray
                 // "Quit" item calls app.exit(0) which is the real exit path.
                 tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -994,7 +1047,7 @@ fn main() {
 
     app.run(|app_handle, event| {
         // Dock-icon click with the window hidden (hide-on-close): reshow it, matching
-        // normal macOS app behavior — previously only the tray "Open Podium" could.
+        // normal macOS app behavior — previously only the tray "Open Podium ADE" could.
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = event {
             if let Some(w) = app_handle.get_webview_window("main") {
@@ -1030,6 +1083,76 @@ mod tests {
             .find(|(name, _)| *name == key)
             .and_then(|(_, value)| value)
             .map(|value| value.to_string_lossy().into_owned())
+    }
+
+    /// ⌘Q. Supervision must leave the child slot lockable while the backend is alive, because
+    /// the quit path reaps the child from the MAIN thread — and a main thread that never gets
+    /// the lock never returns from `terminate:`, which macOS force quits as a crash.
+    ///
+    /// The assertion is `try_lock` against a deadline rather than a plain `lock()`: a regression
+    /// must fail this test, not hang it.
+    #[test]
+    fn the_quit_path_can_reap_the_backend_while_supervision_waits() {
+        use std::time::{Duration, Instant};
+
+        // Outlives the test by far, so the child is unambiguously still running when the quit
+        // path goes for the lock. The test kills it; only a failure leaks it, and only briefly.
+        let child = Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn a long-lived stand-in for the backend");
+        let child_state = Arc::new(Mutex::new(Some(child)));
+        let shutting_down = Arc::new(AtomicBool::new(false));
+
+        let supervised = child_state.clone();
+        let flag = shutting_down.clone();
+        let supervision = std::thread::spawn(move || {
+            await_child_exit(&supervised, &flag, Duration::from_millis(5))
+        });
+
+        // Give supervision time to settle into its wait before contending for the lock.
+        std::thread::sleep(Duration::from_millis(50));
+
+        // What RunEvent::Exit does, in its order.
+        shutting_down.store(true, Ordering::Release);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut guard = loop {
+            match child_state.try_lock() {
+                Ok(guard) => break guard,
+                Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
+                Err(_) => panic!(
+                    "the child slot stayed locked while the backend ran: ⌘Q would deadlock the \
+                     main thread"
+                ),
+            }
+        };
+        let mut child = guard.take().expect("the quit path finds the child to reap");
+        let _ = child.kill();
+        let _ = child.wait();
+        drop(guard);
+
+        assert!(
+            supervision.join().expect("supervision thread").is_none(),
+            "an emptied slot means shutdown reaped the child; supervision must stop, not respawn"
+        );
+    }
+
+    /// The other half: an exit supervision itself observes still comes back as an exit, so the
+    /// respawn path is intact and the ⌘Q fix did not turn a crashed backend into a silent one.
+    #[test]
+    fn a_backend_that_exits_on_its_own_is_reported_to_supervision() {
+        use std::time::Duration;
+
+        let child = Command::new("true").spawn().expect("spawn an immediate exit");
+        let child_state = Arc::new(Mutex::new(Some(child)));
+        let shutting_down = Arc::new(AtomicBool::new(false));
+
+        let exited = await_child_exit(&child_state, &shutting_down, Duration::from_millis(5))
+            .expect("a live slot reports the exit rather than ending supervision");
+        assert!(
+            exited.expect("exit status is readable").success(),
+            "`true` exits 0"
+        );
     }
 
     #[test]

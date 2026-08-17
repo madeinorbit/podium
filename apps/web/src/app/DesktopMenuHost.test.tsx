@@ -23,7 +23,7 @@ vi.mock('./use-desktop-close-tab', () => ({
 
 vi.mock('./AboutPodium', () => ({
   AboutPodium: ({ open }: { open: boolean }) =>
-    open ? <div role="dialog" aria-label="About Podium" /> : null,
+    open ? <div role="dialog" aria-label="About Podium ADE" /> : null,
 }))
 
 import { DesktopMenuHost } from './DesktopMenuHost'
@@ -58,7 +58,9 @@ describe('DesktopMenuHost', () => {
     }
 
     g.__PODIUM_ABOUT__?.()
-    await waitFor(() => expect(screen.getByRole('dialog', { name: 'About Podium' })).toBeTruthy())
+    await waitFor(() =>
+      expect(screen.getByRole('dialog', { name: 'About Podium ADE' })).toBeTruthy(),
+    )
 
     g.__PODIUM_ADD_PROJECT__?.()
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Add project' })).toBeTruthy())
@@ -81,9 +83,7 @@ describe('DesktopMenuHost', () => {
       />,
     )
 
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }),
-    )
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }))
     expect(mocks.toggleRight).toHaveBeenCalledOnce()
     expect(mocks.toggleLeft).not.toHaveBeenCalled()
 

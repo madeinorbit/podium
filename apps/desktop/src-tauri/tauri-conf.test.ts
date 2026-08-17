@@ -61,7 +61,7 @@ describe('tauri desktop config', () => {
   })
 
   it('owns About, updates, Add Project, and View sidebar toggles', () => {
-    expect(mainSource).toContain('MenuItemBuilder::with_id("about-podium", "About Podium")')
+    expect(mainSource).toContain('MenuItemBuilder::with_id("about-podium", "About Podium ADE")')
     expect(mainSource).toContain('MenuItemBuilder::with_id("check-updates", "Check for Updates…")')
     expect(mainSource).toContain('MenuItemBuilder::with_id("add-project", "Add Project…")')
     expect(mainSource).toContain(
@@ -90,12 +90,35 @@ describe('tauri desktop config', () => {
 
   it('names Hide and Quit after the product, not the running binary', () => {
     // The predefined items default to NSRunningApplication.localizedName, which
-    // under `tauri dev` is the bare cargo executable — "Quit podium-desktop".
-    // The bundle reads CFBundleName ("Podium", from productName) and was always
-    // right; explicit text is what keeps dev showing the shipped menu.
-    expect(mainSource).toContain('.hide_with_text("Hide Podium")')
-    expect(mainSource).toContain('.quit_with_text("Quit Podium")')
+    // under `tauri dev` is the bare cargo executable — "Quit Podium", the bin
+    // target name. The bundle reads the display name below; explicit text is
+    // what keeps dev showing the shipped menu.
+    expect(mainSource).toContain('.hide_with_text("Hide Podium ADE")')
+    expect(mainSource).toContain('.quit_with_text("Quit Podium ADE")')
     expect(mainSource).not.toContain('.quit()')
+  })
+
+  /**
+   * The app is called "Podium ADE" everywhere a person reads it, WITHOUT
+   * renaming the product. `productName` is not just a label: it names the .app,
+   * the DMG, the AppImage and the `.app.tar.gz` the updater manifest points at,
+   * and GitHub rewrites spaces in release asset names to dots — so a
+   * "Podium ADE" productName would publish `Podium.ADE.app.tar.gz` under a
+   * manifest URL claiming `Podium ADE.app.tar.gz` and break auto-update.
+   *
+   * macOS separates the two on purpose. CFBundleName (Tauri's `bundleName`)
+   * titles the menu bar, the Dock tile, ⌘-Tab and Force Quit; CFBundleDisplayName
+   * titles the item in Finder. Neither touches a filename.
+   */
+  it('shows the product name without renaming the bundle (POD-1199)', () => {
+    expect(conf.productName).toBe('Podium')
+    expect(conf.bundle.macOS.bundleName).toBe('Podium ADE')
+    expect(conf.bundle.macOS.infoPlist).toBe('Info.plist')
+    const plist = readFileSync(join(__dirname, conf.bundle.macOS.infoPlist), 'utf8')
+    expect(plist).toContain('<key>CFBundleDisplayName</key>')
+    expect(plist).toContain('<string>Podium ADE</string>')
+    // The window title is the one name that is not macOS-only.
+    expect(mainSource).toContain('.title("Podium ADE")')
   })
 
   it('names the executable after the product, for the Dock (POD-1119)', () => {
@@ -103,12 +126,45 @@ describe('tauri desktop config', () => {
     // unbundled process macOS reads ProcessInfo.processName — argv[0]'s basename
     // — so under `tauri dev` the app name IS this bin target's name, and a
     // `podium-desktop` here surfaces as a "podium-desktop" tile. Packaged builds
-    // read CFBundleName from productName and are unaffected either way.
+    // read the display name and are unaffected either way. It stays the bare
+    // product word because cargo derives the crate name from the target name,
+    // so the target cannot carry the space in "Podium ADE".
     expect(cargoSource).toMatch(/\[\[bin\]\][\s\S]*?\nname = "Podium"\n/)
     expect(cargoSource).not.toContain('name = "podium-desktop"\npath')
     // rustc derives the crate name from the target name and warns about the
     // capital; the allow is what keeps that from being a build-log surprise.
     expect(mainSource).toContain('#![allow(non_snake_case)]')
+  })
+
+  /**
+   * POD-1199. ⌘Q used to hang and then be force quit by macOS. Both exit
+   * handlers reap the backend child from the MAIN thread, and both lock the
+   * child slot to do it — while supervision sat in a blocking `Child::wait()`
+   * holding that same lock for the child's whole lifetime. The main thread
+   * waited on a lock released only by the child dying, and the only thing that
+   * would have killed the child was the main thread.
+   *
+   * The behaviour is covered by a Rust test (`the_quit_path_can_reap_the_backend
+   * _while_supervision_waits`). This pins the shape, because the deadlock is
+   * invisible at the call site: it reads as an ordinary wait.
+   */
+  it('never blocks on the backend while holding the child slot (POD-1199)', () => {
+    const between = (from: string, to: string): string => {
+      const start = mainSource.indexOf(from)
+      const end = mainSource.indexOf(to)
+      expect(start, `no ${from} in main.rs`).toBeGreaterThan(-1)
+      expect(end, `no ${to} in main.rs`).toBeGreaterThan(start)
+      return mainSource.slice(start, end)
+    }
+    const waiter = between('fn await_child_exit(', '/// Supervise the backend child.')
+    // `try_wait` + sleep, never `wait` — the whole point is that the lock is free
+    // between checks. (`child.try_wait()` does not contain `child.wait()`.)
+    expect(waiter).toContain('child.try_wait()')
+    expect(waiter).not.toContain('child.wait()')
+    expect(waiter).toContain('std::thread::sleep(poll)')
+    // And supervision goes through it rather than waiting on the child itself.
+    const monitor = between('fn spawn_respawn_monitor', '/// Best-effort, log-only read')
+    expect(monitor).toContain('await_child_exit(&child_state, &shutting_down, SUPERVISION_POLL)')
   })
 
   it('never closes the main window from Cmd+W', () => {

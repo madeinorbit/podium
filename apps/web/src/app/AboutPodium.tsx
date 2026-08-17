@@ -11,7 +11,7 @@ export interface AboutPodiumProps {
 }
 
 /**
- * The macOS About Podium screen. Quiet, compact, and the same wordmark the
+ * The macOS About Podium ADE screen. Quiet, compact, and the same wordmark the
  * splash uses — version, one line of purpose, nothing else.
  */
 export function AboutPodium({ open, onClose, version }: AboutPodiumProps): JSX.Element {
@@ -29,7 +29,7 @@ export function AboutPodium({ open, onClose, version }: AboutPodiumProps): JSX.E
       >
         <div className="flex flex-col items-center gap-4 px-2 pt-5 pb-2 text-center">
           <PodiumLogo height={22} />
-          <DialogTitle className="sr-only">About Podium</DialogTitle>
+          <DialogTitle className="sr-only">About Podium ADE</DialogTitle>
           <p className="font-mono text-[12px] tabular-nums text-muted-foreground">
             {version ?? pageBuildVersion()}
           </p>

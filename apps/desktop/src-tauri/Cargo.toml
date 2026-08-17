@@ -9,10 +9,14 @@ edition = "2021"
 # which is argv[0]'s basename. `tauri dev` runs this binary straight out of
 # target/ with no .app around it, so a `podium-desktop` here is a Dock tile
 # reading "podium-desktop". The packaged bundle was never affected — it reads
-# CFBundleName, which Tauri writes from `productName` — and tauri.conf.json's
-# `mainBinaryName` would not have helped, since that renames during `tauri
-# build` only. Naming the target after the product is the fix Tauri's own docs
-# point at, and it keeps the bundled executable's name matching productName.
+# CFBundleDisplayName/CFBundleName, which tauri.conf.json sets to "Podium ADE"
+# — and `mainBinaryName` would not have helped, since that renames during
+# `tauri build` only.
+#
+# This stays "Podium" rather than following the display name to "Podium ADE":
+# cargo derives the crate name from the target name, so the target cannot
+# contain a space, and a hyphenated "Podium-ADE" tile is a worse dev-only
+# stand-in than the plain product word. Only `tauri dev` sees it.
 name = "Podium"
 path = "src/main.rs"
 
