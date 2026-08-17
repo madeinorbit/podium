@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { setTextIfChanged, startAsciiAnimation } from '@/lib/ascii-animation'
 import { ASCII_COVERAGE } from './podium-ascii'
@@ -460,7 +461,9 @@ export function LoginGate({ children }: { children: ReactNode }): ReactNode {
     }
   }, [phase])
 
-  if (phase === 'loading') return null
+  // The splash, not nothing: this used to `return null` for a whole network
+  // round-trip — the first slice of the boot's black screen (POD-1249).
+  if (phase === 'loading') return <LoadingScreen />
   if (phase === 'ready') return <>{children}</>
 
   const reduced = prefersReducedMotion()

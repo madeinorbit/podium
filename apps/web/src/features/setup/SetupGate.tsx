@@ -1,5 +1,6 @@
 import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
 import { isServerReadiness, type ServerReadiness } from '@podium/model'
+import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { SetupUnreachable } from './SetupUnreachable'
 import { restartPodiumShell } from './restart-shell'
@@ -191,7 +192,10 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
     }
   }, [httpOrigin, attempt])
 
-  if (phase === 'loading') return null
+  // The splash, not nothing: this used to `return null` for the /setup/config
+  // round-trip — the boot's second blank phase (POD-1249). The reload-in-flight
+  // case stays on 'loading' too, and a splash beats a blank page there as well.
+  if (phase === 'loading') return <LoadingScreen />
   if (phase === 'unreachable') {
     return <SetupUnreachable httpOrigin={httpOrigin} onRetry={() => setAttempt((n) => n + 1)} />
   }

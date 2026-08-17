@@ -257,6 +257,13 @@ export class FeedServing {
         ? Math.max(world.changes.length, 1)
         : FEED_BOOTSTRAP_CHUNK_ROWS
     const chunkCount = Math.max(1, Math.ceil(world.changes.length / chunkRows))
+    // Stamped on EVERY chunk, not just the first: the client reads whichever
+    // chunk it sees first, and repeating ~a dozen small integers per frame is
+    // cheaper than making frame one special [POD-1249].
+    const countsByEntity: Record<string, number> = {}
+    for (const change of world.changes) {
+      countsByEntity[change.entity] = (countsByEntity[change.entity] ?? 0) + 1
+    }
     for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
       const start = chunkIndex * chunkRows
       const bootstrap: FeedBootstrapMessage = {
@@ -271,6 +278,8 @@ export class FeedServing {
         minAvailableSeq: this.deps.retention.minAvailableSeq() ?? 0,
         changes: world.changes.slice(start, start + chunkRows).map(toFeedChange),
         last: chunkIndex === chunkCount - 1,
+        totalRows: world.changes.length,
+        countsByEntity,
       }
       this.edge.publishTo(peer, bootstrap)
     }

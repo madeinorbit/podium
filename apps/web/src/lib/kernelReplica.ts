@@ -59,6 +59,7 @@ import {
 import type { OutboxAttribution } from '@podium/sync/outbox'
 import { Replica as KernelReplica } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
+import { SyncProgressStore } from './sync-progress'
 
 const log = createLogger('web:kernel-replica')
 
@@ -90,6 +91,10 @@ export interface KernelAssembly {
   /** Real kernel Outbox over this assembly's IndexedDB store. */
   readonly createOutboxFn: CreateEngineOutbox
   readonly store: IndexedDbSyncStore
+  /** First-sync progress, counted at this assembly's own frame relay and the
+   *  kernel's install event (POD-1249). The loading screen subscribes; nothing
+   *  else should — re-bootstraps behind a live UI are deliberately invisible. */
+  readonly progress: SyncProgressStore
   /** Call once the engine's hub exists. Idempotent. */
   attachHub(hub: SocketHub): void
   /** Fail-closed sign-out: erase this principal's IDB and side-cache namespace. */
@@ -433,6 +438,7 @@ export async function openKernelAssembly(
     exits: (entity, entityId) => kernel.exitKind(entity, entityId),
   })
 
+  const progress = new SyncProgressStore()
   const kernel = new KernelReplica({
     store: view.cache,
     authority: new FeedAuthorityClient({
@@ -440,7 +446,12 @@ export async function openKernelAssembly(
         (await trpc.sync.feedChangesSince.query({ cursor })) as never,
       bootstraps,
     }),
-    onEvent: (event) => facade.onKernelEvent(event),
+    onEvent: (event) => {
+      // The install is the ONE moment the first sync becomes durable and
+      // renderable; the loading screen keys off it (POD-1249).
+      if (event.type === 'bootstrap-installed') progress.noteInstalled()
+      facade.onKernelEvent(event)
+    },
     // ONE DRAIN PER FRAME. The kernel emits one event per change (and one
     // upserted per row on an install); unbatched, each event drained the
     // facade's listeners — and the engine's derivations behind them — once per
@@ -450,6 +461,10 @@ export async function openKernelAssembly(
   })
 
   const sink = new FeedSink({ replica: kernel, bootstraps })
+  // Cold = no persisted cursor = this launch is the machine's first sync. The
+  // posture is decided synchronously in the Replica's constructor, so reading
+  // it here (before any frame can arrive) races nothing.
+  if (kernel.posture === 'cold') progress.beginFirstSync()
   const createBroadcastChannel =
     options.broadcastChannelFactory ??
     (typeof globalThis.BroadcastChannel === 'function'
@@ -472,7 +487,10 @@ export async function openKernelAssembly(
     // convergence path: either can advance the durable cursor before another
     // tab's socket delivery reaches its in-memory replica.
     if (frame.type !== 'feedDelta' && frame.type !== 'feedRescope') {
-      if (fromSocket) sink.frame(frame)
+      if (fromSocket) {
+        if (frame.type === 'feedBootstrap') progress.noteBootstrapFrame(frame)
+        sink.frame(frame)
+      }
       return
     }
     const key = crossTabFrameKey(frame)
@@ -512,6 +530,7 @@ export async function openKernelAssembly(
     feed,
     createOutboxFn,
     store,
+    progress,
     attachHub: (attached) => {
       hub = attached
       if (freshWorldPending) {

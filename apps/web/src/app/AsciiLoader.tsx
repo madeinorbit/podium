@@ -20,6 +20,14 @@ const REVEAL_EXP = 1.6
 const SPARKLE_SECONDS = 0.2
 
 /**
+ * The reveal plays ONCE per session. The boot gates hand the loader across tree
+ * positions (LoginGate → SetupGate → AppShell → AppBody), and each hand-off
+ * remounts this component; restarting the sparkle on every gate made one boot
+ * read as four. A remount joins the animation fully revealed, shimmer running.
+ */
+let revealPlayed = false
+
+/**
  * Cold-start splash animation: the wordmark rendered as ASCII art. The logo's
  * alpha channel is sampled into a COLS-wide character grid; cells reveal in
  * random order with a brief sparkle, then a sine wave shimmers across the
@@ -91,6 +99,8 @@ export function AsciiLoader(): JSX.Element {
         return { ascii: out, label: `LOADING${'.'.repeat(1 + (Math.floor(t * 2) % 3))}` }
       }
 
+      const timeOffset = revealPlayed ? REVEAL_SECONDS + SPARKLE_SECONDS : 0
+      revealPlayed = true
       stopAnimation = startAsciiAnimation({
         renderStatic: () =>
           reduceMotion
@@ -99,8 +109,8 @@ export function AsciiLoader(): JSX.Element {
                 ...render(REVEAL_SECONDS + SPARKLE_SECONDS + 1),
                 label: 'LOADING',
               }
-            : render(0),
-        renderFrame: render,
+            : render(timeOffset),
+        renderFrame: (t) => render(t + timeOffset),
         commit: (frame) => {
           setTextIfChanged(pre, frame.ascii)
           if (label) setTextIfChanged(label, frame.label)
