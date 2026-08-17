@@ -7,9 +7,9 @@ import type {
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Archive, ChevronRight, Pin } from 'lucide-react'
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { useId } from 'react'
+import { useId, useRef, useState } from 'react'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { closedFoldKey, snoozedFoldKey } from './fold-keys'
@@ -253,6 +253,16 @@ const FOLD_OUT = {
   opacity: { duration: 0.12, ease: 'easeIn' as const },
 }
 
+/**
+ * NO `AnimatePresence` (POD-1253). The obvious spelling of this is
+ * `<AnimatePresence>{open && <motion.div exit=… />}</AnimatePresence>`, and it
+ * cost 27KB of eager source — enough to push the web bundle through its ratchet
+ * (7,613,223 against a 7,600,000 ceiling), for one component's exit. The
+ * repository's own precedent is to pay the eager bundle down rather than raise
+ * the ratchet, so the presence machinery is replaced by the two lines it is
+ * doing here: keep the subtree mounted while it plays its exit, drop it when the
+ * exit lands. `motion.div` itself is already in this bundle several times over.
+ */
 export function FoldPanel({
   open,
   id,
@@ -263,35 +273,41 @@ export function FoldPanel({
   id?: string
   testId?: string
   children: ReactNode
-}): JSX.Element {
+}): JSX.Element | null {
   const reduceMotion = useReducedMotion()
+  // Derived during render, not in an effect: an effect would mount the rows one
+  // frame after the press, and that frame is visible at the head of a gesture
+  // whose whole job is to feel immediate.
+  const [rendered, setRendered] = useState(open)
+  if (open && !rendered) setRendered(true)
+  // The first paint of a column is not a disclosure: an open fold on load must
+  // simply BE open, or every reload plays thirty rows unrolling. Only a fold
+  // that has actually been toggled animates in, which is what this ref tracks —
+  // it survives the inner element unmounting, because it lives out here.
+  const settled = useRef(false)
+  const firstPaint = !settled.current
+  settled.current = true
+  if (!rendered) return null
   return (
-    // `initial={false}`: the first paint of a column is not a disclosure. An
-    // open fold on load must simply BE open — otherwise every reload plays
-    // thirty rows unrolling, which is the one motion nobody asked for.
-    <AnimatePresence initial={false}>
-      {open && (
-        <motion.div
-          key="fold"
-          id={id}
-          data-testid={testId}
-          className="min-w-0 overflow-hidden"
-          style={{ contain: 'layout paint' }}
-          initial={{ height: 0, opacity: 0 }}
-          // The two directions carry their own transitions ON the variant, which
-          // is the only place Motion lets an exit be shaped differently from the
-          // enter it is undoing.
-          animate={{
-            height: 'auto',
-            opacity: 1,
-            transition: reduceMotion ? { duration: 0 } : FOLD_IN,
-          }}
-          exit={{ height: 0, opacity: 0, transition: reduceMotion ? { duration: 0 } : FOLD_OUT }}
-        >
-          {children}
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <motion.div
+      id={id}
+      data-testid={testId}
+      className="min-w-0 overflow-hidden"
+      style={{ contain: 'layout paint' }}
+      initial={firstPaint ? false : { height: 0, opacity: 0 }}
+      animate={
+        open
+          ? { height: 'auto', opacity: 1, transition: reduceMotion ? { duration: 0 } : FOLD_IN }
+          : { height: 0, opacity: 0, transition: reduceMotion ? { duration: 0 } : FOLD_OUT }
+      }
+      onAnimationComplete={() => {
+        // Only the CLOSING one retires the subtree; the opening animation
+        // completes too, and unmounting there would shut the fold it just opened.
+        if (!open) setRendered(false)
+      }}
+    >
+      {children}
+    </motion.div>
   )
 }
 

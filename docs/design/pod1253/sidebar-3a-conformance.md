@@ -103,12 +103,24 @@ each direction sampled frame by frame, with an idle run first as the control:
 
 | | pre-roll | animation | frames |
 |---|---|---|---|
-| collapse | 56ms | 220–270ms | 14–16 |
-| expand | 39ms | 295–360ms | 14–20 |
+| collapse | 49ms | 234–248ms | 15–16 |
+| expand | 43ms | 299–312ms | 19–20 |
 
 ~60fps through the gesture. The curve is `cubic-bezier(0.4, 0, 0.2, 1)`; the
 first cut used the shell's usual expo-out and, sampled, spent 76% of the travel
 in the first 18% of the time — a snap followed by a drift rather than one fold.
+
+**No `AnimatePresence`.** The obvious spelling of a fold that unmounts after its
+exit is `<AnimatePresence>{open && <motion.div exit=… />}</AnimatePresence>`, and
+measured, it cost **27KB of eager source** — enough on its own to push the web
+bundle from 7,586,320 through its 7,600,000 ratchet to 7,613,223. This repo's own
+precedent is to pay the eager bundle down rather than raise the ratchet
+(e39d805f3), so `FoldPanel` does the two things the presence machinery was doing
+for it — hold the subtree while the exit plays, drop it when the exit lands — in
+a `useState` and a `useRef`. The landed cost is +10,754 bytes, leaving 2,926
+under the ceiling, and the motion is unchanged: the numbers in the table above
+are the rewrite's, and they are within noise of the `AnimatePresence` version's
+(56ms/220–270ms, 39ms/295–360ms).
 
 **Do not measure this against the live instance.** An idle second of the live
 column on this host delivers 2 frames and two 1.2s long tasks with nothing
