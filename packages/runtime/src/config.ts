@@ -589,12 +589,15 @@ export function resolveUpdateFeed(
 }
 
 /**
- * Externally reachable origin used by a source server's authenticated development bundle route.
+ * The origin a source server publishes for its authenticated development bundle route.
  *
  * The dedicated env override wins over the deployment's durable `publicUrl`. There is
  * deliberately no loopback fallback: one target is advertised to every managed machine, and a
  * loopback URL would send each remote daemon back to itself. Only a bare origin is accepted so
  * appending the tokenized artifact route cannot silently discard or reinterpret a configured path.
+ *
+ * What it validates is the address as written — see {@link namesThisMachine} for what that
+ * settles and what it deliberately leaves to the operator.
  */
 export function resolveDevArtifactOrigin(
   config: Pick<PodiumConfig, 'publicUrl'> = loadConfig(),
@@ -620,18 +623,60 @@ export function resolveDevArtifactOrigin(
   }
 
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
-  const localOnly =
-    hostname === 'localhost' ||
-    hostname.endsWith('.localhost') ||
-    hostname === '0.0.0.0' ||
-    hostname === '[::]' ||
-    hostname === '[::1]' ||
-    hostname.startsWith('127.')
-  if (localOnly) {
-    throw new Error('development artifact origin must be externally reachable, not loopback')
+  if (namesThisMachine(hostname)) {
+    throw new Error(
+      'development artifact origin must not be a loopback or unspecified address; ' +
+        'it is published to other machines, which would fetch from themselves',
+    )
   }
 
   return url.origin
+}
+
+/**
+ * Does this host part name THIS machine wherever it is read — by what the
+ * address IS, never by how it is spelled (POD-2229)?
+ *
+ * WHAT THIS CAN AND CANNOT DECIDE, stated because the previous version's
+ * message promised what it never tested. It reads the address; it does not
+ * resolve anything. So it is complete for address LITERALS — every way of
+ * writing loopback or the unspecified address is caught, IPv4-mapped IPv6
+ * included, which the old `startsWith('127.')` denylist could not see — and for
+ * the one family of names where being loopback is part of what the name means
+ * (RFC 6761's `localhost` and everything under it).
+ *
+ * It cannot decide an ordinary NAME, and a resolver would not fix that: this is
+ * per-machine state, and the answer here is not the answer on the daemon's box.
+ * Measured on the host that drove POD-2215: its own public FQDN maps to
+ * 127.0.1.1 in `/etc/hosts` — the Debian convention — while being reachable
+ * from anywhere else. Refusing on a server-side lookup would therefore reject a
+ * correct configuration, which is why this guard says what it checked instead
+ * of claiming reachability it has no way to test.
+ *
+ * The old test also had a false positive to go with its false negative:
+ * `127.example.test` is an ordinary hostname that starts with three digits.
+ */
+function namesThisMachine(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true
+  if (hostname.startsWith('[') && hostname.endsWith(']')) {
+    return isLocalIpv6(hostname.slice(1, -1))
+  }
+  // WHATWG normalises every IPv4 form — `2130706433`, `0x7f000001`, `127.1` —
+  // to a dotted quad, so an all-numeric dotted quad here IS an IPv4 literal.
+  const octets = hostname.split('.')
+  if (octets.length !== 4 || !octets.every((octet) => /^\d{1,3}$/.test(octet))) return false
+  return octets[0] === '127' || hostname === '0.0.0.0'
+}
+
+/** `::1`, `::`, and the IPv4-mapped forms of both, as the URL parser writes them. */
+function isLocalIpv6(address: string): boolean {
+  if (address === '::1' || address === '::') return true
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(address)
+  if (!mapped) return false
+  const high = Number.parseInt(mapped[1] ?? '', 16)
+  const low = Number.parseInt(mapped[2] ?? '', 16)
+  // ::ffff:7f00:0/104 is 127.0.0.0/8; ::ffff:0:0 is 0.0.0.0.
+  return (high >> 8) === 0x7f || (high === 0 && low === 0)
 }
 
 /** Self-update platform target: PODIUM_UPDATE_TARGET → caller-supplied fallback

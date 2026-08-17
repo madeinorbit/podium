@@ -279,10 +279,52 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     'https://user:secret@podium.example.test',
     'file:///tmp/podium',
     'not a URL',
+    // IPv4-MAPPED IPv6, which the spelling denylist could not see: these ARE
+    // the loopback and unspecified addresses, written another way (POD-2229).
+    'http://[::ffff:127.0.0.1]:18787',
+    'http://[::ffff:7f00:1]:18787',
+    'http://[::ffff:0.0.0.0]:18787',
+    'http://[::]:18787',
   ])('resolveDevArtifactOrigin rejects a non-origin or local-only value: %s', (value) => {
     expect(() => resolveDevArtifactOrigin({}, { PODIUM_DEV_ARTIFACT_BASE_URL: value })).toThrow(
       /development artifact origin/,
     )
+  })
+
+  /**
+   * WHAT THE GUARD MAY NOT REFUSE (POD-2229).
+   *
+   * It reads the address, never a resolver, so a NAME is only refusable when
+   * being loopback is part of what the name means (RFC 6761's `localhost`).
+   * `127.example.test` is an ordinary hostname that happens to start with
+   * three digits, and the old `startsWith('127.')` test refused it.
+   */
+  it.each([
+    'https://podium.example.test',
+    'http://127.example.test:18787',
+    'http://[64:ff9b::127.0.0.1]:18787',
+  ])('resolveDevArtifactOrigin accepts an address it cannot fault: %s', (value) => {
+    expect(resolveDevArtifactOrigin({}, { PODIUM_DEV_ARTIFACT_BASE_URL: value })).toBe(
+      new URL(value).origin,
+    )
+  })
+
+  /**
+   * The guard says what it CHECKED, not what it wishes it could promise. It
+   * reads the address and nothing else, so "externally reachable" was a claim
+   * it had no way to make: measured on the box that drove POD-2215, this
+   * host's own public FQDN resolves to 127.0.1.1 through /etc/hosts and was
+   * accepted, while being perfectly reachable from anywhere else.
+   */
+  it('resolveDevArtifactOrigin does not promise reachability it never tested', () => {
+    let message = ''
+    try {
+      resolveDevArtifactOrigin({}, { PODIUM_DEV_ARTIFACT_BASE_URL: 'http://127.0.0.1:18787' })
+    } catch (error) {
+      message = (error as Error).message
+    }
+    expect(message).toMatch(/loopback/)
+    expect(message).not.toMatch(/externally reachable/)
   })
   it('resolveUpdateTarget: env > linux-x86_64', () => {
     expect(resolveUpdateTarget({ PODIUM_UPDATE_TARGET: 'darwin-arm64' })).toBe('darwin-arm64')
