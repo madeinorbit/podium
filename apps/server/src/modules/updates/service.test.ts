@@ -811,7 +811,7 @@ describe('target refresh bookkeeping', () => {
 
   it('records when a channel was checked and that it succeeded', async () => {
     const { svc } = build(async () => target)
-    await svc.refreshTarget('stable')
+    expect(await svc.refreshTarget('stable')).toBe(true)
     expect(svc.channelChecks()).toEqual([
       { channel: 'stable', checkedAt: 1_000, outcome: { status: 'ok' } },
     ])
@@ -821,7 +821,7 @@ describe('target refresh bookkeeping', () => {
     const { svc } = build(async () => {
       throw new Error('stable target unavailable: fetch failed')
     })
-    await svc.refreshTarget('stable')
+    expect(await svc.refreshTarget('stable')).toBe(false)
     expect(svc.channelChecks()).toEqual([
       {
         channel: 'stable',
