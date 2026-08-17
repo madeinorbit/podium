@@ -29,7 +29,7 @@ import {
   PANEL_MODE_DEFAULT_KEY,
   type PanelMode,
 } from '@podium/client-core/ui-state'
-import { defaultChatCapable } from '@podium/client-core/viewmodels'
+import { defaultChatCapable, sessionHasTerminal } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -74,6 +74,10 @@ export function usePanelSurface(input: {
   )
   const { sessionId, session, paneActive, spawnConfirmed, inTransit, onEnterNative } = input
   const chatCapable = panelChatCapable(session, defaultChatCapable)
+  // Does the native view have anything behind it (POD-2290)? The daemon-reported
+  // driver family, read through the shared predicate so "absent = assume a
+  // terminal" is decided once. Server- and embedded-driven sessions have no PTY.
+  const terminalCapable = sessionHasTerminal(session)
 
   // Fetch the startScreen setting once; default to 'native' while loading. This
   // drives the configurable default mode for sessions the user has never toggled.
@@ -101,6 +105,7 @@ export function usePanelSurface(input: {
     startScreen,
     chatCapable,
     isMobile,
+    terminalCapable,
     saved: savedMode,
     deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
   })
@@ -146,7 +151,7 @@ export function usePanelSurface(input: {
     chatCapable,
     mode,
   })
-  const gates = panelGates(surface, { paneActive, spawnConfirmed, chatCapable })
+  const gates = panelGates(surface, { paneActive, spawnConfirmed, chatCapable, terminalCapable })
 
   return { surface, gates, mode, chatCapable, pickMode }
 }

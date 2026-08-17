@@ -637,10 +637,22 @@ export function AgentPanel({
   // where dropping the overlay at attach is right). The per-second clock runs
   // only while such a wait is actually on screen in this pane.
   const silenceNow = useNow(1_000, gates.terminalActive && (!ready || !outputSeen))
+  // When THIS mount started waiting for its attach [POD-2290] — zero while
+  // attached, restamped on the next wait, so a re-attach is judged on its own
+  // window instead of inheriting the first one's age. A render-phase ref write,
+  // like `issuesRef`/`savedModeRef`: it derives from `ready`, holds no state the
+  // renderer can disagree with, and an effect would lag the very frame it dates.
+  const attachWaitSinceRef = useRef(0)
+  if (ready) attachWaitSinceRef.current = 0
+  else if (attachWaitSinceRef.current === 0) attachWaitSinceRef.current = Date.now()
   const overlay = startupOverlay({
     ready,
     outputSeen,
     ageMs: sessionAgeMs(session?.createdAt, silenceNow),
+    attachWaitMs:
+      attachWaitSinceRef.current === 0
+        ? null
+        : Math.max(0, silenceNow - attachWaitSinceRef.current),
   })
 
   // Native-mode dictation: transcribed speech types straight into the PTY as
@@ -1021,95 +1033,125 @@ export function AgentPanel({
         // rendered as a sibling overlay on top when in chat mode.
         <>
           {effectiveMode === 'chat' && <ChatView sessionId={sessionId} active={active} />}
-          {/* The container is pinned to the TERMINAL's background — the pane's
+          {/* …but a session with NO terminal keeps nothing warm [POD-2290]: the
+              container below never gets a PTY, and the startup overlay inside
+              it would paint a spinner over a wait that has no end. `hidden`
+              would have been enough to keep it off screen and is not enough to
+              make it honest — an animation nobody can see is still a claim the
+              panel is making. */}
+          {gates.nativePaneRendered && (
+            <>
+              {/* The container is pinned to the TERMINAL's background — the pane's
               issue tint (§2.5), or the user's custom color from the appearance
               settings — regardless of the app theme: otherwise a light theme
               shows a white container edge around the terminal, and a custom
               background a dark one. */}
-          <div
-            ref={termSurfaceRef}
-            data-testid="terminal-surface"
-            className={cn(
-              // `offer-lift-region`: the PTY is what an opened offer fold
-              // pushes up under the header. Its box never changes, so the
-              // terminal is never re-gridded and the TUI never repaints.
-              'offer-lift-region relative flex min-h-0 flex-1 flex-col',
-              effectiveMode === 'chat' && 'hidden',
-            )}
-            style={{ backgroundColor: termBg }}
-          >
-            <div ref={termRef} className="term min-h-0 flex-1" />
-            {overlay.kind !== 'hidden' && (
               <div
-                className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
+                ref={termSurfaceRef}
+                data-testid="terminal-surface"
+                className={cn(
+                  // `offer-lift-region`: the PTY is what an opened offer fold
+                  // pushes up under the header. Its box never changes, so the
+                  // terminal is never re-gridded and the TUI never repaints.
+                  'offer-lift-region relative flex min-h-0 flex-1 flex-col',
+                  effectiveMode === 'chat' && 'hidden',
+                )}
                 style={{ backgroundColor: termBg }}
-                data-testid="terminal-startup-overlay"
-                role="status"
-                aria-live="polite"
               >
-                <span
-                  className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
-                  aria-hidden="true"
-                />
-                <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
-                {/* Machine voice, mono and tabular so the digits don't jitter.
+                <div ref={termRef} className="term min-h-0 flex-1" />
+                {overlay.kind !== 'hidden' && (
+                  <div
+                    className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
+                    style={{ backgroundColor: termBg }}
+                    data-testid="terminal-startup-overlay"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {/* The spinner is a CLAIM that something is still happening, so
+                    it is dropped the moment that claim stops being credible
+                    [POD-2290] — a stalled mount says so in words instead of
+                    animating over a wait that is not going to end. */}
+                    {overlay.kind !== 'stalled' && (
+                      <span
+                        className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span data-testid="startup-headline">
+                      {overlay.kind === 'stalled'
+                        ? `${session ? panelLabel(session.agentKind) : 'This session'} hasn’t started`
+                        : `Starting ${session ? panelLabel(session.agentKind) : 'session'}…`}
+                    </span>
+                    {/* What the operator can actually do about it. Deliberately
+                    silent on the CAUSE: nothing here can tell a spawn that
+                    failed from a machine that went away, and naming the wrong
+                    one is worse than naming none. */}
+                    {overlay.kind === 'stalled' && (
+                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                        Nothing has attached to this terminal in {formatClock(overlay.elapsedMs)}.
+                        The session may have failed to start — check its status, or spawn it again.
+                      </span>
+                    )}
+                    {/* Machine voice, mono and tabular so the digits don't jitter.
                     aria-hidden: a per-second counter inside a live region would
                     re-announce itself every tick; the lines around it carry the
                     meaning a screen reader needs. */}
-                {overlay.kind === 'silent' && overlay.elapsedMs !== null && (
-                  <span
-                    className="font-mono text-[11px] text-zinc-500 tabular-nums"
-                    data-testid="startup-silence"
-                    aria-hidden="true"
+                    {overlay.kind === 'silent' && overlay.elapsedMs !== null && (
+                      <span
+                        className="font-mono text-[11px] text-zinc-500 tabular-nums"
+                        data-testid="startup-silence"
+                        aria-hidden="true"
+                      >
+                        no output yet · {formatClock(overlay.elapsedMs)}
+                      </span>
+                    )}
+                    {overlay.kind === 'silent' && overlay.hint && (
+                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                        Still attached — some CLIs update themselves or run first-time setup before
+                        printing anything.
+                      </span>
+                    )}
+                  </div>
+                )}
+                {ready && !atBottom && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="absolute bottom-3 left-1/2 z-[4] -translate-x-1/2 rounded-full bg-muted text-foreground shadow-[0_4px_14px_var(--carve-popover-near)] hover:border-primary"
+                    onClick={() => mountedRef.current?.view.scrollToBottom()}
                   >
-                    no output yet · {formatClock(overlay.elapsedMs)}
-                  </span>
+                    <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
+                  </Button>
                 )}
-                {overlay.kind === 'silent' && overlay.hint && (
-                  <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
-                    Still attached — some CLIs update themselves or run first-time setup before
-                    printing anything.
-                  </span>
-                )}
+                {echoLatencyEnabled && <EchoHud hub={hub} mountedRef={mountedRef} />}
               </div>
-            )}
-            {ready && !atBottom && (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="absolute bottom-3 left-1/2 z-[4] -translate-x-1/2 rounded-full bg-muted text-foreground shadow-[0_4px_14px_var(--carve-popover-near)] hover:border-primary"
-                onClick={() => mountedRef.current?.view.scrollToBottom()}
-              >
-                <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
-              </Button>
-            )}
-            {echoLatencyEnabled && <EchoHud hub={hub} mountedRef={mountedRef} />}
-          </div>
-          {/* Prompt-area chrome (§2.6, Q1 default): a tinted rule + mono hint
+              {/* Prompt-area chrome (§2.6, Q1 default): a tinted rule + mono hint
               row hugging the PTY's bottom edge — the composer itself is the
               CLI's own pixels, never re-drawn here. Only hints the CLI really
               honours are shown (Q2): Claude Code's shift+tab mode cycle and
               `?` shortcut help; other agents get the rule alone. */}
-          {ready && (
-            <div
-              data-testid="prompt-chrome"
-              // Rides up with the PTY it hugs, but is never clipped: it is a
-              // 20px strip, and clipping it by the lift would erase it.
-              className={cn(
-                'offer-lift-rise flex-none px-[13px] font-mono',
-                effectiveMode === 'chat' && 'hidden',
-              )}
-              style={{ backgroundColor: termBg }}
-            >
-              <div className="border-t issue-hairline-35" aria-hidden="true" />
-              {session?.harnessPromptModeHints === true && (
-                <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] shell-type-micro text-text-dim">
-                  <span>(shift+tab to cycle modes)</span>
-                  <span className="ml-auto">? for shortcuts</span>
+              {ready && (
+                <div
+                  data-testid="prompt-chrome"
+                  // Rides up with the PTY it hugs, but is never clipped: it is a
+                  // 20px strip, and clipping it by the lift would erase it.
+                  className={cn(
+                    'offer-lift-rise flex-none px-[13px] font-mono',
+                    effectiveMode === 'chat' && 'hidden',
+                  )}
+                  style={{ backgroundColor: termBg }}
+                >
+                  <div className="border-t issue-hairline-35" aria-hidden="true" />
+                  {session?.harnessPromptModeHints === true && (
+                    <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] shell-type-micro text-text-dim">
+                      <span>(shift+tab to cycle modes)</span>
+                      <span className="ml-auto">? for shortcuts</span>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
+            </>
           )}
           {/* Agent action offer bar [spec:SP-c7f1] beneath the PTY — the native
               counterpart of the chat composer's bar, so offers aren't invisible

@@ -65,12 +65,18 @@ describe('panelSurface', () => {
 
 const gatesFor = (
   surface: ReturnType<typeof panelSurface>,
-  over: { paneActive?: boolean; spawnConfirmed?: boolean; chatCapable?: boolean } = {},
+  over: {
+    paneActive?: boolean
+    spawnConfirmed?: boolean
+    chatCapable?: boolean
+    terminalCapable?: boolean
+  } = {},
 ) =>
   panelGates(surface, {
     paneActive: over.paneActive ?? true,
     spawnConfirmed: over.spawnConfirmed ?? true,
     chatCapable: over.chatCapable ?? true,
+    terminalCapable: over.terminalCapable ?? true,
   })
 
 describe('panelGates', () => {
@@ -156,5 +162,52 @@ describe('panelGates', () => {
       expect(gatesFor(s).takeControlOffered).toBe(false)
       expect(gatesFor(s).offerDockOffered).toBe(false)
     }
+  })
+
+  // POD-2290 — a server- or embedded-driven session has no PTY at all. Both
+  // gates below used to pass on the strength of `live` alone, which is how an
+  // opencode session ended up attaching to nothing and offering a switch to the
+  // spinner that produced.
+  describe('a live session with no terminal behind it', () => {
+    const noTerminal = { terminalCapable: false }
+
+    it('never mounts a PTY, however confirmed and live the session is', () => {
+      // The attach would be issued against a session no daemon will ever bind a
+      // PTY to: unanswered, `ready` false forever, and that unresolvable wait IS
+      // the "Starting <Harness>…" spinner.
+      expect(gatesFor(surfaceOf({ status: 'live' }), noTerminal).terminalMounted).toBe(false)
+    })
+
+    it('does not offer a switch to a view that cannot exist', () => {
+      expect(gatesFor(surfaceOf({ status: 'live' }), noTerminal).modeSwitchOffered).toBe(false)
+    })
+
+    it('does not put the native pane in the DOM at all', () => {
+      // Not the same gate as the mount, and `hidden` is not the same as absent:
+      // the container carries the startup overlay, so leaving it rendered would
+      // keep a spinner animating over a wait that has no end — off screen, but
+      // still a claim the panel is making.
+      expect(gatesFor(surfaceOf({ status: 'live' }), noTerminal).nativePaneRendered).toBe(false)
+    })
+
+    it('leaves every PTY-capable session exactly as it was', () => {
+      // The regression this pair is guarding against runs the other way too: a
+      // claude-pty session, a degraded fallback, and any row whose driver family
+      // has not arrived (or is unknown to this build) must be untouched.
+      const g = gatesFor(surfaceOf({ status: 'live' }), { terminalCapable: true })
+      expect(g.terminalMounted).toBe(true)
+      expect(g.modeSwitchOffered).toBe(true)
+      expect(g.nativePaneRendered).toBe(true)
+    })
+
+    it('still renders the native pane before an optimistic spawn reconciles', () => {
+      // The one case that proves `nativePaneRendered` is not just a second
+      // spelling of `terminalMounted`: the mount is held back here, and the
+      // container must be on screen anyway — the "Starting…" overlay inside it
+      // IS what covers that wait.
+      const g = gatesFor(surfaceOf({ status: undefined }), { spawnConfirmed: false })
+      expect(g.terminalMounted).toBe(false)
+      expect(g.nativePaneRendered).toBe(true)
+    })
   })
 })

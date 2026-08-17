@@ -16,6 +16,8 @@ import {
 import {
   AGENT_MANIFESTS,
   agentStateProviderFor,
+  driverFamilyForId,
+  driverIdIsServerFamily,
   harnessCapabilitiesFor,
   harnessDisplayName,
   harnessInterrupt,
@@ -385,6 +387,35 @@ describe('agent manifest registry', () => {
       bytes: '\x1b',
       quitsWhenIdle: false,
     })
+  })
+})
+
+describe('driverFamilyForId (POD-2290)', () => {
+  it('answers with the family the MANIFESTS declare, for every admitted driver id', () => {
+    // Read off the manifests, never a table — so a harness that grows a server
+    // driver, or renames one, cannot leave a second list saying otherwise.
+    expect(driverFamilyForId('opencode-server')).toBe('server')
+    expect(driverFamilyForId('codex-app-server')).toBe('server')
+    expect(driverFamilyForId('grok-acp')).toBe('server')
+    expect(driverFamilyForId('claude-pty')).toBe('terminal')
+    expect(driverFamilyForId('generic-pty')).toBe('terminal')
+  })
+
+  it('says UNKNOWN rather than guessing for an id no manifest claims', () => {
+    // The conformance driver, and anything a newer daemon might bind. Callers
+    // must have an answer for unknown; inventing a family here would hand them a
+    // confident wrong one instead (the web reads unknown as "assume a terminal").
+    expect(driverFamilyForId('fake')).toBeUndefined()
+    expect(driverFamilyForId('some-driver-from-2027')).toBeUndefined()
+  })
+
+  it('is the one implementation behind the server-family question', () => {
+    // `driverIdIsServerFamily` used to walk the manifests itself. Two walks over
+    // the same declarations is exactly where the reap guard and the view would
+    // eventually disagree about the same session.
+    for (const id of ['opencode-server', 'codex-app-server', 'grok-acp', 'claude-pty', 'fake']) {
+      expect(driverIdIsServerFamily(id), id).toBe(driverFamilyForId(id) === 'server')
+    }
   })
 })
 

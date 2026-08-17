@@ -1146,3 +1146,43 @@ describe('Session transcript cache (recent-delta window)', () => {
     expect(s.toRow().lastResumedAt).toBeNull()
   })
 })
+
+describe('driver family on the wire (POD-2290)', () => {
+  /**
+   * The web panel picks chat-vs-native from this field. Before it existed, an
+   * opencode/codex/grok session — which has no PTY at all — opened on the native
+   * pane and sat behind a "Starting <Harness>…" spinner that could never resolve,
+   * because the client had only the driver ID and no way to know what it meant.
+   */
+  it('projects the family of the driver the daemon actually bound', () => {
+    const s = makeSession()
+    s.driverId = 'opencode-server'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('server')
+
+    s.driverId = 'claude-pty'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
+  })
+
+  it('reads the BOUND driver, not the one that was asked for', () => {
+    // A degraded selection is exactly the case a `requestedDriverId`-derived
+    // family would get backwards: this session asked for a server and got a
+    // terminal, and it has the terminal.
+    const s = makeSession()
+    s.driverId = 'generic-pty'
+    s.requestedDriverId = 'grok-acp'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
+  })
+
+  it('is ABSENT rather than guessed when there is nothing to derive it from', () => {
+    // `driverId` is transient — an older daemon, a legacy session, and a row
+    // that has not bound yet all have none. Absent means unknown, and every
+    // client reads unknown as "assume a terminal", which is what keeps a PTY
+    // session behaving exactly as it did before this field existed.
+    const s = makeSession()
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
+    // …and an id from a newer build that no manifest here claims is unknown too,
+    // rather than being forced into whichever family this build defaults to.
+    s.driverId = 'some-driver-from-2027'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
+  })
+})

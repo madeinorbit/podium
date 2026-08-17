@@ -410,6 +410,32 @@ export const SessionMetaEntity = z.object({
   /** Manifest-default or machine-wide server preference that degraded to
    * driverId. Transient and daemon-reported; absent when selection was honoured. */
   requestedDriverId: z.string().min(1).optional(),
+  /**
+   * The FAMILY of the driver in `driverId` (POD-2290) — the fact a client needs
+   * to pick a surface, projected so no client has to learn driver ids.
+   *
+   * `terminal` sessions have a PTY behind the native view. `server` and
+   * `embedded` ones do NOT: their agent runs as a server child or an in-process
+   * loop, nothing ever attaches, and a panel that offers the terminal view for
+   * them shows a spinner that can never resolve.
+   *
+   * TRANSIENT, EXACTLY LIKE `driverId`, which it is derived from — absent for an
+   * older daemon, a legacy session with no runtime handle, a row that has not
+   * bound yet, and a parked row whose binding did not survive. **Absent means
+   * UNKNOWN, and every client must read unknown as "assume a terminal"**: that
+   * is what keeps a PTY session's behaviour identical to before this field
+   * existed, and it is the safe direction — a wrongly-hidden terminal strands a
+   * session the operator can drive, while a wrongly-offered one costs a pane
+   * they can switch away from.
+   *
+   * DELIBERATELY NOT DERIVED FROM `resume.kind`. That is the DURABLE
+   * server-family tell (`isServerFamilyResumeKind`) and it is a per-HARNESS
+   * fact, so it is equally true of PTY-driven codex, grok and opencode rows.
+   * The daemon's reap guard prefers it because there failing closed is cheap;
+   * for a VIEW the same guess takes the terminal away from a session that has
+   * one, so this side fails open instead.
+   */
+  driverFamily: z.enum(['server', 'embedded', 'terminal']).optional(),
   /** Number of durable server-held messages waiting to be typed into this agent
    *  once it is back (docs/spec/outbox-write-path.md §2.2). Absent = none. Like
    *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the

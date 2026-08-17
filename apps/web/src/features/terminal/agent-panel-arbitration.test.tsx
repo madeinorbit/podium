@@ -116,8 +116,7 @@ vi.mock('@/app/store', () => {
     useSessionDraft: () => '',
     // `undefined` = this session has no exit state, which is what the panel saw
     // before the hook existed. A concrete kind here would change what AgentPanel
-    // renders, so the neutral value is the one that keeps these cases about
-    // arbitration rather than about teardown.
+    // renders; ChatView also requires this scoped subscription seam.
     useSessionExitKind: () => undefined,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
@@ -340,5 +339,52 @@ describe('AgentPanel mount gating', () => {
     expect(dispose).toHaveBeenCalled()
     expect(container.querySelector('[data-testid="mode-native"]')).toBeNull()
     expect(container.querySelector('[data-testid="terminal-surface"]')).toBeNull()
+  })
+})
+
+describe('AgentPanel on a session with no terminal (POD-2290)', () => {
+  // The operator's report, as a render: an opencode/codex/grok session bound to
+  // a server driver opened on the NATIVE pane and sat behind a "Starting
+  // <Harness>…" spinner that could never resolve, because nothing will ever
+  // attach a PTY to it — while the chat view was conversing perfectly well.
+  const serverDriven = () =>
+    meta({ agentKind: 'opencode', driverId: 'opencode-server', driverFamily: 'server' })
+
+  it('opens on chat even with `native` saved for this very session', async () => {
+    // `storePanelMode` is seeded to native for s1 in beforeEach — the persisted
+    // pick that used to win. There is no second view for it to be a preference
+    // between, so it must not.
+    storeSessions = [serverDriven()]
+    await render({ active: true })
+    expect(container.querySelector('[data-testid="terminal-startup-overlay"]')).toBeNull()
+    expect(mountSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('offers no switch to a view that cannot exist', async () => {
+    storeSessions = [serverDriven()]
+    await render({ active: true })
+    expect(container.querySelector('[data-testid="mode-native"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mode-chat"]')).toBeNull()
+  })
+
+  it('leaves a PTY session with the same harness completely alone', async () => {
+    // The regression guard, and it has to be the SAME harness: opencode degraded
+    // to the terminal driver is a session with a real PTY, and the difference
+    // between the two rows is the driver that was actually bound.
+    storeSessions = [
+      meta({ agentKind: 'opencode', driverId: 'generic-pty', driverFamily: 'terminal' }),
+    ]
+    await render({ active: true })
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[data-testid="mode-native"]')).toBeTruthy()
+  })
+
+  it('leaves a row whose driver family has not arrived alone too', async () => {
+    // Transient field, absent before bind and on older daemons. Unknown reads as
+    // "assume a terminal", so nothing about today's sessions changes.
+    storeSessions = [meta({})]
+    await render({ active: true })
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[data-testid="mode-native"]')).toBeTruthy()
   })
 })

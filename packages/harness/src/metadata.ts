@@ -57,6 +57,7 @@ export { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointe
 // Types only. Erased at build, so they carry nothing at all; listed rather than
 // starred for the same reason as everything above.
 export type {
+  DriverFamily,
   HarnessCapabilities,
   HarnessLogin,
   LoginIdentity,
@@ -67,6 +68,7 @@ export type { HarnessInterrupt } from './registry.js'
 // `undefined` for a harness this build has never heard of rather than
 // substituting another CLI's row.
 export {
+  driverFamilyForId,
   driverIdIsServerFamily,
   harnessCapabilitiesFor,
   harnessDetectLogin,

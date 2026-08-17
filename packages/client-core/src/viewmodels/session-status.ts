@@ -61,6 +61,39 @@ const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
   shell: false,
 }
 
+/**
+ * IS THERE A TERMINAL BEHIND THIS SESSION'S NATIVE VIEW (POD-2290)?
+ *
+ * The chat/native pair is not a pair for every session. A `server`- or
+ * `embedded`-family session runs its agent as a server child or an in-process
+ * loop; nothing ever attaches a PTY, so the native pane's attach never confirms
+ * and its "Starting <Harness>…" spinner runs forever while the chat view
+ * converses perfectly well. Asking THIS question — rather than "is it a server
+ * driver" — is what keeps the answer right when the first embedded driver binds.
+ *
+ * ABSENT READS AS A TERMINAL, deliberately and in one place. `driverFamily` is
+ * transient (it rides `driverId`, re-established on bind), so it is legitimately
+ * missing for an older daemon, a legacy session, a row that has not bound yet,
+ * and a parked row. Unknown must therefore mean "behave exactly as before driver
+ * families existed", which for every session that has ever existed is: it has a
+ * terminal. Failing the other way would strand a PTY session on the chat view
+ * with no way back the moment a bind frame was late.
+ *
+ * A COUNTERPART EXISTS AND IS NOT THIS ONE. The daemon's reap guard prefers the
+ * durable `resume.kind` (`isServerFamilyResumeKind`) and fails CLOSED, because
+ * there a wrong guess spawns a second credentialed child. That tell is a
+ * per-HARNESS fact — true of PTY-driven codex and grok rows too — so a view that
+ * used it would take the terminal away from sessions that have one. Views fail
+ * open; reaps fail closed. The two questions have the same subject and opposite
+ * safe directions, which is why they do not share an answer.
+ */
+export function sessionHasTerminal(
+  session: Pick<SessionMeta, 'driverFamily'> | undefined,
+): boolean {
+  const family = session?.driverFamily
+  return family === undefined || family === 'terminal'
+}
+
 // The agent's `/color` identity accent (Claude's named colours) → a vivid,
 // theme-independent hex, shown as the tab/sidebar accent line. This is *identity*
 // (which agent), distinct from the status dot (what it's doing). Unknown/absent

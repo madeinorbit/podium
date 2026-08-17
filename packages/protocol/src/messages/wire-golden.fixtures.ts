@@ -151,6 +151,11 @@ const SESSION_META_FULL = {
   draftSyncEngine: true,
   driverId: 'generic-pty',
   requestedDriverId: 'opencode-server',
+  // The degraded pair, and the family that goes with the driver ACTUALLY bound
+  // (POD-2290): a session that asked for `opencode-server` and got `generic-pty`
+  // is a TERMINAL session, and a client reading the family off the request
+  // rather than the binding would hide the terminal it has.
+  driverFamily: 'terminal',
   queuedMessageCount: 2,
   offer: SESSION_OFFER_FULL,
   handoffTarget: 'machine-2',

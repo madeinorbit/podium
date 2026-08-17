@@ -22,6 +22,7 @@ import {
 } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { driverFamilyForId } from '../../harness-manifest'
 import type { SessionRow } from '../../store'
 import { SessionTerminal, type SessionTerminalState } from './terminal'
 
@@ -679,6 +680,7 @@ export class Session {
    * signature does not change.
    */
   toMeta(overlay: SessionUserOverlay): SessionMeta {
+    const driverFamily = this.driverId ? driverFamilyForId(this.driverId) : undefined
     return {
       sessionId: this.sessionId,
       agentKind: this.agentKind,
@@ -735,6 +737,20 @@ export class Session {
       ...(this.handoffTarget ? { handoffTarget: this.handoffTarget } : {}),
       ...(this.driverId ? { driverId: this.driverId } : {}),
       ...(this.requestedDriverId ? { requestedDriverId: this.requestedDriverId } : {}),
+      // The bound driver's FAMILY, so a client can pick a surface without
+      // learning driver ids (POD-2290). Resolved through the manifests — the
+      // same lookup the reap guard uses — and omitted when the id is absent or
+      // no manifest claims it, because for this field absent means UNKNOWN and
+      // every client reads unknown as "assume a terminal".
+      //
+      // THIS ASSIGNMENT IS ALSO THE ONLY THING KEEPING THE TWO SPELLINGS OF THE
+      // TAXONOMY IN SYNC. `DriverFamily` lives in `@podium/harness` beside the
+      // manifest axis that declares it; the wire field is a zod enum in
+      // `@podium/model`, which may not import harness. Nothing reconciles them
+      // except this line, where a `DriverFamily` flows into the enum's type — so
+      // a fourth family added to the manifests fails HERE, at typecheck, rather
+      // than being silently dropped from every client's view.
+      ...(driverFamily ? { driverFamily } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
       ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),

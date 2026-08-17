@@ -100,6 +100,20 @@ export interface PanelGates {
   /** The PTY may attach. True for a warm, HIDDEN panel too — that is the point
    *  of the warm set: switching back catches up instead of re-attaching. */
   readonly terminalMounted: boolean
+  /**
+   * The native pane's DOM exists at all — the terminal container, its startup
+   * overlay and the prompt chrome.
+   *
+   * SEPARATE FROM `terminalMounted` because the two answer different questions
+   * (POD-2290). The container is deliberately kept in the DOM while chat is on
+   * top (`display:none`), which is what makes the chat↔native toggle warm; and
+   * it is deliberately rendered BEFORE the PTY may attach, because the startup
+   * overlay inside it is what covers the wait for an optimistic spawn. So
+   * "mounted" cannot gate it in either direction. What it must not survive is a
+   * session that has no terminal to keep warm and no attach to wait for: there
+   * the overlay is a spinner over a wait that will never end.
+   */
+  readonly nativePaneRendered: boolean
   /** The PTY is the surface the operator is looking at — drives focus
    *  eligibility (`useTerminalSession`'s `active`) and nothing else. */
   readonly terminalActive: boolean
@@ -123,16 +137,33 @@ export function panelGates(
     /** The server has reconciled the optimistically-spawned session (#119). */
     readonly spawnConfirmed: boolean
     readonly chatCapable: boolean
+    /** There is a PTY behind the native view — `sessionHasTerminal`, false for
+     *  the server and embedded driver families (POD-2290). */
+    readonly terminalCapable: boolean
   },
 ): PanelGates {
   const live = surface.kind === 'live'
   const native = live && surface.view === 'native'
   const active = native && input.paneActive
   return {
-    terminalMounted: live && input.spawnConfirmed,
+    /**
+     * `terminalCapable` GATES THE MOUNT AS WELL AS THE SWITCH, and not merely
+     * for symmetry (POD-2290). Mounting issues a `hub.attach` for a session no
+     * daemon will ever bind a PTY to: the request is answered by nobody, `ready`
+     * stays false forever, and that unresolvable wait IS the "Starting
+     * <Harness>…" spinner the operator was stuck behind. The mode derivation
+     * already keeps such a session on chat, so this gate is unreachable through
+     * it — which is exactly why it is stated here rather than assumed. A gate
+     * that holds only because another module happens to agree is not a gate.
+     */
+    terminalMounted: live && input.spawnConfirmed && input.terminalCapable,
+    nativePaneRendered: live && input.terminalCapable,
     terminalActive: active,
     ptySizingAllowed: active,
-    modeSwitchOffered: live && input.chatCapable,
+    // Two views, or no switch. The segmented control is a choice between chat
+    // and a terminal; offering it where the terminal cannot exist advertises a
+    // destination that is a permanent spinner.
+    modeSwitchOffered: live && input.chatCapable && input.terminalCapable,
     takeControlOffered: native,
     offerDockOffered: native,
   }

@@ -9,6 +9,7 @@ import type { AgentStateProvider } from './agent-state/types.js'
 import {
   type AgentManifest,
   declaredValue,
+  type DriverFamily,
   type HarnessCapabilities,
   type HarnessLogin,
   type PortableCredential,
@@ -215,9 +216,32 @@ export function harnessDisplayName(kind: AgentKind | string): string {
  * holds. Pure metadata: names no process, reaches no host.
  */
 export function driverIdIsServerFamily(driverId: string): boolean {
-  return Object.values(AGENT_MANIFESTS).some(
-    (manifest) => declaredValue(manifest.runtime.server)?.driverId === driverId,
-  )
+  return driverFamilyForId(driverId) === 'server'
+}
+
+/**
+ * WHICH FAMILY does this driver id belong to (POD-2290)? Read off the manifests,
+ * never a table — the same rule {@link driverIdIsServerFamily} follows, and this
+ * is now its implementation.
+ *
+ * `undefined` means NOT THAT THIS BUILD HAS NO FAMILIES but that no manifest
+ * claims the id: the conformance `fake` driver, or an id from a newer daemon.
+ * Every caller must therefore have an answer for "unknown", and the honest one
+ * is whatever it would have done before driver families existed.
+ *
+ * WHY A FAMILY AND NOT A BOOLEAN. The question a client actually asks is "does
+ * this session have a terminal", and `server` is only one of the two answers
+ * that mean no — `embedded` (the SDK loop in a runtime-owned worker) has no PTY
+ * either. A `isServerFamily`-shaped flag would have to be re-derived, or gain a
+ * second flag beside it, the day the first embedded driver binds.
+ */
+export function driverFamilyForId(driverId: string): DriverFamily | undefined {
+  for (const manifest of Object.values(AGENT_MANIFESTS)) {
+    if (declaredValue(manifest.runtime.server)?.driverId === driverId) return 'server'
+    if (declaredValue(manifest.runtime.embedded)?.driverId === driverId) return 'embedded'
+    if (manifest.runtime.terminal.driverId === driverId) return 'terminal'
+  }
+  return undefined
 }
 
 /**

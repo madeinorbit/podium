@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ATTACH_STALLED_AFTER_MS,
   SILENCE_ELAPSED_AFTER_MS,
   SILENCE_HINT_AFTER_MS,
   sessionAgeMs,
@@ -13,11 +14,17 @@ import {
 // showed exactly what a dead session shows.
 // ---------------------------------------------------------------------------
 
-const overlayOf = (over: { ready?: boolean; outputSeen?: boolean; ageMs?: number | null }) =>
+const overlayOf = (over: {
+  ready?: boolean
+  outputSeen?: boolean
+  ageMs?: number | null
+  attachWaitMs?: number | null
+}) =>
   startupOverlay({
     ready: over.ready ?? true,
     outputSeen: over.outputSeen ?? false,
     ageMs: over.ageMs === undefined ? 0 : over.ageMs,
+    attachWaitMs: over.attachWaitMs === undefined ? 0 : over.attachWaitMs,
   })
 
 describe('startupOverlay', () => {
@@ -67,6 +74,47 @@ describe('startupOverlay', () => {
     // An optimistic spawn has no createdAt to date the silence by; the panel
     // says it is waiting without inventing a number.
     expect(overlayOf({ ageMs: null })).toEqual({ kind: 'silent', elapsedMs: null, hint: false })
+  })
+
+  // POD-2290 — `starting` was the one state here with no exit. A spawn that
+  // failed before its session row reconciled left it on screen forever: no
+  // elapsed line (nothing to date it by), and no view switch to escape through
+  // (no row ⇒ nothing known to be chat-capable). A spinner claims progress, so
+  // past the point where that can still be true it has to stop.
+  describe('an attach that never lands', () => {
+    it('holds Starting… while the attach could still be merely slow', () => {
+      expect(overlayOf({ ready: false, attachWaitMs: ATTACH_STALLED_AFTER_MS - 1 })).toEqual({
+        kind: 'starting',
+      })
+    })
+
+    it('names the wait once it outlasts every attach that has ever landed', () => {
+      expect(overlayOf({ ready: false, attachWaitMs: ATTACH_STALLED_AFTER_MS })).toEqual({
+        kind: 'stalled',
+        elapsedMs: ATTACH_STALLED_AFTER_MS,
+      })
+    })
+
+    it('measures the ATTACH, not the session — opening an old session starts a new wait', () => {
+      // The session has been running for an hour; this mount has been waiting
+      // for a second. Reading the session's age here would declare a perfectly
+      // healthy attach stalled before it had a chance to confirm.
+      expect(overlayOf({ ready: false, ageMs: 3_600_000, attachWaitMs: 1_000 })).toEqual({
+        kind: 'starting',
+      })
+    })
+
+    it('says nothing about a wait the caller cannot date', () => {
+      expect(overlayOf({ ready: false, attachWaitMs: null })).toEqual({ kind: 'starting' })
+    })
+
+    it('is unreachable once the attach confirms, however long it took', () => {
+      // `stalled` describes a wait in progress, not a slow one that ended: a
+      // terminal that attaches on its 90th second is a working terminal.
+      expect(overlayOf({ ready: true, outputSeen: true, attachWaitMs: 90_000 })).toEqual({
+        kind: 'hidden',
+      })
+    })
   })
 })
 
