@@ -221,8 +221,36 @@ export default defineConfig(({ mode }) => {
         '@podium/model': fileURLToPath(
           new URL('../../packages/model/src/index.ts', import.meta.url),
         ),
+        /**
+         * BEFORE the barrel, because these are matched in order and the barrel
+         * would swallow it.
+         *
+         * The refusal table is the one thing the LAZY update chunk needs from
+         * the protocol at runtime (POD-2241), and it imports nothing. Reaching
+         * it through the barrel pulled the whole wire schema into the chunk
+         * POD-2190 split out to keep 99 KB off the first paint, taking its cold
+         * import from ~250 ms to ~3 s.
+         */
+        '@podium/protocol/update-refusal': fileURLToPath(
+          new URL('../../packages/protocol/src/update/refusal.ts', import.meta.url),
+        ),
         '@podium/protocol': fileURLToPath(
           new URL('../../packages/protocol/src/index.ts', import.meta.url),
+        ),
+        // ONLY the browser half is aliased, and the omission of the others is the
+        // point (POD-2206): `@podium/harness` and `@podium/harness/metadata` both
+        // reach the manifests, whose closure holds sqlite modules that evaluate
+        // `createRequire` at module scope — bundling either is the crash that took
+        // out every /settings route (POD-2176). Left unaliased, they resolve
+        // through node_modules and are refused by `manifest-browser-reach`.
+        //
+        // This one needs the alias for the reason the model rows above give: a
+        // worktree with no local @podium symlink walks UP into another checkout's
+        // node_modules, and the source condition then faithfully resolves MAIN's
+        // src (POD-746). That is not academic here — this file's own baseline
+        // measurement was taken that way before the alias existed.
+        '@podium/harness/browser': fileURLToPath(
+          new URL('../../packages/harness/src/browser.ts', import.meta.url),
         ),
         // Subpath alias must precede the bare-package one — the bare alias also
         // prefix-matches subpath imports and would resolve them to a path INSIDE

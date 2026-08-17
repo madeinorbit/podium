@@ -19,12 +19,12 @@
  * is left untouched. (The desktop AppImage path uses a separate Tauri minisign keypair.)
  */
 import { execFileSync } from 'node:child_process'
-import { verify as cryptoVerify } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { compareVersions, isProvablyNewer } from '@podium/protocol'
 import { resolveInstallDir, resolveUpdateTarget } from '@podium/runtime/config'
 import { instanceServiceName, resolveInstanceId } from '@podium/runtime/instance'
-import { PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
+import { PODIUM_UPDATE_PUBKEY, verifyTarball } from '@podium/runtime/update-delivery'
 
 export type SystemctlExec = (command: string, args: string[]) => string
 
@@ -62,15 +62,43 @@ export function reviveCompatibilityBlockedJanitor(
   }
 }
 
+/**
+ * Precedence between two versions, or `null` when either side is not a version
+ * this can order.
+ *
+ * THE PARSER MOVED (POD-2221) to `@podium/protocol` — `update/version-order` —
+ * because the daemon's schema gate needs the same ordering to tell an
+ * unprovable step FORWARD from an unprovable step BACK, and two semver
+ * comparisons in one update system is two answers waiting to disagree. Still
+ * re-exported from here: this module's name is what the CLI's callers and tests
+ * know it by.
+ */
+export { compareVersions }
+
+/**
+ * WHETHER TO SELF-UPDATE, for the UNATTACHED path only (POD-2099).
+ *
+ * This is the one place in Podium that asks "is there something newer" rather
+ * than "am I running what I was told to run": with no server as authority,
+ * `podium update` has only the feed's manifest to compare against, so an
+ * ordering is unavoidable here. The attached daemon keeps target EQUALITY
+ * (`planConvergence`), which is what makes a deliberate downgrade possible, and
+ * this must not spread there.
+ *
+ * The old implementation was `Number()` per dot-separated segment. Podium's own
+ * versions ARE prereleases — `0.1.4-edge.4` splits to `['0','1','4-edge','4']`,
+ * `Number('4-edge')` is `NaN`, and `NaN !== NaN` is true, so the loop returned
+ * `NaN > NaN` = false at the third segment. Every edge-to-edge comparison
+ * answered "not newer", and an unattached edge install could never self-update.
+ *
+ * FAILS CLOSED. An unparseable version on either side is "not newer": the
+ * consequence of a false negative is an install that stays put and says so,
+ * while a false positive downloads and swaps an install directory on the
+ * strength of a label nobody could read. A source checkout reporting `dev+<sha>`
+ * takes this path, and staying put is the correct answer for it.
+ */
 export function isNewer(candidate: string, current: string): boolean {
-  const pa = candidate.split('.').map(Number)
-  const pb = current.split('.').map(Number)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const a = pa[i] ?? 0
-    const b = pb[i] ?? 0
-    if (a !== b) return a > b
-  }
-  return false
+  return isProvablyNewer(candidate, current)
 }
 
 /**
@@ -97,31 +125,6 @@ export function parseManifest(
   const plat = m.platforms[target]
   if (!plat?.url) throw new Error(`manifest has no ${target} artifact`)
   return { version: m.version, url: plat.url, signature: plat.signature ?? '' }
-}
-
-/**
- * Pure, testable Ed25519 verification of a downloaded tarball. Returns true iff
- * `signatureB64` is a valid Ed25519 signature of `bytes` under the base64 SPKI/DER
- * public key `pubkeyB64`. A missing/empty signature, a malformed key, or any crypto
- * error returns false (never throws) so callers can fail closed.
- */
-export function verifyTarball(
-  bytes: Uint8Array,
-  signatureB64: string,
-  pubkeyB64: string = PODIUM_UPDATE_PUBKEY,
-): boolean {
-  if (!signatureB64) return false
-  try {
-    const key = {
-      key: Buffer.from(pubkeyB64, 'base64'),
-      format: 'der' as const,
-      type: 'spki' as const,
-    }
-    // Ed25519 verify takes (algorithm=null, data, key, signature).
-    return cryptoVerify(null, bytes, key, Buffer.from(signatureB64, 'base64'))
-  } catch {
-    return false
-  }
 }
 
 function installDir(): string {

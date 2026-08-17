@@ -221,12 +221,14 @@
         "grantId": "grantId",
         "state": "current",
         "version": "version",
-        "detail": "detail"
+        "detail": "detail",
+        "percent": 1,
+        "phaseDetail": "phaseDetail"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"state\":\"current\",\"version\":\"version\",\"detail\":\"detail\"}"
+      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"state\":\"current\",\"version\":\"version\",\"detail\":\"detail\",\"percent\":1,\"phaseDetail\":\"phaseDetail\"}"
     }
   ]
 }

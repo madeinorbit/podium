@@ -33,10 +33,29 @@ export function controlFrameByteLength(raw: RawData): number {
  * requestId is already on the wire, so a reply is always possible and refusing to send
  * one is a choice. A timeout should mean the machine did not answer, and nothing else.
  *
- * Only `repoOpRequest` is answered here — that is the observed case, and the one whose
- * result frame (`ok` + `output`) can carry a refusal without inventing a shape. Adding a
- * request type is one arm; guessing at result shapes we have not seen is not worth the
- * risk of emitting a frame the server rejects.
+ * TWO request types are answered here, and the bar for adding a third is unchanged: the
+ * request must have a RESULT frame whose shape already exists in this daemon's own
+ * vocabulary, so refusing costs nothing and invents nothing. Guessing at a result shape
+ * we have not seen is still not worth the risk of emitting a frame the server rejects.
+ *
+ *   - `repoOpRequest`  → `repoOpResult`      (POD-1464, the observed case)
+ *   - `approvalExecRequest` → `approvalExecResult` (POD-2223)
+ *
+ * The approval arm exists because the approval broker's op catalog GROWS. `ApprovalOp` is
+ * a closed union with closed enums inside it, so every value a newer server adds — a new
+ * op kind, a new `channel` target — is a value an older daemon's schema rejects, and this
+ * frame carries ONE op, so the codec's per-element quarantine has nothing to quarantine.
+ * Dropped, the approval row sits `executing` on the server forever: it leaves the
+ * operator's pending list the moment they approve it, the requesting agent is told to keep
+ * waiting, and the only trace is one throttled warn in this host's journal.
+ *
+ * NOTE WHAT THIS ARM CAN AND CANNOT DO, because it is the whole reason the server also
+ * carries a deadline (`ApprovalService.sweepStalledExecutions`). This code runs on the
+ * daemon that CANNOT READ THE FRAME — which is, by construction, a daemon older than the
+ * release that adds the value. So this arm is worth nothing to the widening that ships
+ * alongside it and everything to the NEXT one: it is tolerance landed ahead of the value
+ * that will need it, which is the whole of spec P8. The server's deadline is what covers
+ * the fleet that is already out there.
  */
 export function payloadRejectionReply(rawText: string, err: unknown): DaemonMessage | undefined {
   let envelope: { type?: unknown; requestId?: unknown; op?: unknown }
@@ -48,15 +67,43 @@ export function payloadRejectionReply(rawText: string, err: unknown): DaemonMess
   }
   const type = typeof envelope?.type === 'string' ? envelope.type : undefined
   const requestId = typeof envelope?.requestId === 'string' ? envelope.requestId : undefined
-  if (!type || !requestId || type !== 'repoOpRequest') return undefined
+  if (!type || !requestId) return undefined
   const version = process.env.PODIUM_APP_VERSION ?? 'dev'
-  const op = typeof envelope?.op === 'string' ? envelope.op : undefined
-  const output = op
-    ? `repo operation '${op}' is not supported by this daemon (podium ${version}) — update the daemon on this machine`
-    : `this daemon (podium ${version}) could not read the repo operation: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-  return { type: 'repoOpResult', requestId, ok: false, output }
+  const because = err instanceof Error ? err.message : String(err)
+
+  if (type === 'repoOpRequest') {
+    const op = typeof envelope?.op === 'string' ? envelope.op : undefined
+    const output = op
+      ? `repo operation '${op}' is not supported by this daemon (podium ${version}) — update the daemon on this machine`
+      : `this daemon (podium ${version}) could not read the repo operation: ${because}`
+    return { type: 'repoOpResult', requestId, ok: false, output }
+  }
+
+  if (type === 'approvalExecRequest') {
+    // `op` is an OBJECT here, and an unparseable one — read it defensively rather than
+    // through the schema that just refused it, so the operator is told which operation
+    // their approval was for even when this build has no arm for it at all.
+    const op = describeUnreadableApprovalOp(envelope?.op)
+    const output = op
+      ? `approval operation ${op} is not supported by this daemon (podium ${version}) — update podium on this machine, then ask again`
+      : `this daemon (podium ${version}) could not read the approved operation: ${because}`
+    // `exitCode: null` is the honest value: nothing was spawned, so there is no exit code
+    // to report. The server folds `ok: false` into a `failed` row with this text.
+    return { type: 'approvalExecResult', requestId, ok: false, exitCode: null, output }
+  }
+
+  return undefined
+}
+
+/** The unparseable `op` object, rendered for a human: `'channel dev'`, `'update'`.
+ *  Returns undefined when even the discriminant is unreadable. */
+function describeUnreadableApprovalOp(op: unknown): string | undefined {
+  if (typeof op !== 'object' || op === null) return undefined
+  const bag = op as Record<string, unknown>
+  const kind = typeof bag.kind === 'string' ? bag.kind : undefined
+  if (!kind) return undefined
+  const target = typeof bag.target === 'string' ? bag.target : undefined
+  return target ? `'${kind} ${target}'` : `'${kind}'`
 }
 
 export interface FrameGuard {

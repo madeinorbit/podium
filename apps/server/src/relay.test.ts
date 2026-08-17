@@ -617,12 +617,17 @@ describe('SessionRegistry', () => {
     const spawn = daemon.find((m) => m.type === 'spawn')
     expect(spawn).toBeDefined()
     expect(spawn).not.toHaveProperty('initialPrompt')
-    // The prompt is delivered as a draft instead, broadcast to clients.
-    expect(client.sent).toContainEqual({
-      type: 'sessionDraftChanged',
-      sessionId,
-      text: 'remember this',
-    })
+    // The prompt is delivered as a draft instead, broadcast to clients. It is a
+    // sequenced document like every other draft (POD-2045) — the server seeding
+    // one is an edit at `origin: 'seed'`, not a separate unversioned lane.
+    expect(client.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'sessionDraftChanged',
+        sessionId,
+        text: 'remember this',
+        rev: 1,
+      }),
+    )
   })
 
   it('resolves the "auto" agent sentinel to a concrete kind (issue start-flow)', () => {
@@ -3576,7 +3581,10 @@ describe('reconnect identity (hello reclaim)', () => {
      */
     const seedSession = (reg: SessionRegistry): SessionId =>
       reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' }).sessionId
-    it('broadcasts setSessionDraft to other clients, not the sender', () => {
+    // POD-2045 changed the AUDIENCE: the sender is included now, because it is
+    // the only way it learns which rev its edit became. See the flag-off
+    // describe below for why that is load-bearing rather than merely tidy.
+    it('broadcasts setSessionDraft to every client, the sender included', () => {
       const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
       const sessionId = seedSession(reg)
       const a: ServerMessage[] = []
@@ -3588,12 +3596,13 @@ describe('reconnect identity (hello reclaim)', () => {
         sessionId: asSessionId(sessionId),
         text: 'half typed',
       })
-      expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
-      expect(b).toContainEqual({
+      const shape = expect.objectContaining({
         type: 'sessionDraftChanged',
         sessionId,
         text: 'half typed',
       })
+      expect(a).toContainEqual(shape)
+      expect(b).toContainEqual(shape)
     })
 
     it('REFUSES a draft for a session that does not exist, silently, like the rest of the class', () => {
@@ -3629,7 +3638,9 @@ describe('reconnect identity (hello reclaim)', () => {
       })
       const c: ServerMessage[] = []
       attachTestClient(reg.clientGateway, (m) => c.push(m))
-      expect(c).toContainEqual({ type: 'sessionDraftChanged', sessionId, text: 'wip' })
+      expect(c).toContainEqual(
+        expect.objectContaining({ type: 'sessionDraftChanged', sessionId, text: 'wip' }),
+      )
     })
 
     it('clears a draft when text is empty', () => {
@@ -3653,11 +3664,13 @@ describe('reconnect identity (hello reclaim)', () => {
         sessionId: asSessionId(sessionId),
         text: 'wip again',
       })
-      expect(watcher).toContainEqual({
-        type: 'sessionDraftChanged',
-        sessionId,
-        text: 'wip again',
-      })
+      expect(watcher).toContainEqual(
+        expect.objectContaining({
+          type: 'sessionDraftChanged',
+          sessionId,
+          text: 'wip again',
+        }),
+      )
 
       reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
@@ -3696,11 +3709,13 @@ describe('reconnect identity (hello reclaim)', () => {
         const reg2 = new SessionRegistry(store2, undefined, { instanceId: 'default' })
         const c: ServerMessage[] = []
         attachTestClient(reg2.clientGateway, (m) => c.push(m))
-        expect(c).toContainEqual({
-          type: 'sessionDraftChanged',
-          sessionId,
-          text: 'real work',
-        })
+        expect(c).toContainEqual(
+          expect.objectContaining({
+            type: 'sessionDraftChanged',
+            sessionId,
+            text: 'real work',
+          }),
+        )
         store2.close()
       } finally {
         vi.useRealTimers()
@@ -3752,7 +3767,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     return { reg: new SessionRegistry(store, undefined, { instanceId: 'default' }), store }
   }
 
-  it('draftEdit broadcasts a versioned sessionDraftChanged to others, not the sender', () => {
+  it('draftEdit broadcasts a versioned sessionDraftChanged to every client', () => {
     const { reg } = flaggedReg()
     const a: ServerMessage[] = []
     const b: ServerMessage[] = []
@@ -3764,9 +3779,11 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
       baseRev: 0,
       text: 'hi',
     })
-    expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
-    const got = b.find((m) => m.type === 'sessionDraftChanged')
-    expect(got).toMatchObject({ type: 'sessionDraftChanged', text: 'hi', rev: 1, origin: idA })
+    const shape = { type: 'sessionDraftChanged', text: 'hi', rev: 1, origin: idA }
+    // The sender is included (POD-2045): it needs the rev its edit became, and
+    // the broadcast is the only place that number exists.
+    expect(a.find((m) => m.type === 'sessionDraftChanged')).toMatchObject(shape)
+    expect(b.find((m) => m.type === 'sessionDraftChanged')).toMatchObject(shape)
   })
 
   it('assigns monotonically increasing revs', () => {
@@ -3895,24 +3912,194 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     }
   })
 
-  it('flag off (default) keeps the legacy plain broadcast with no rev', () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
-    // A real session: draft writes are gated on the session existing (POD-380) —
-    // see the note in the 'session draft sync' describe above.
+})
+
+/**
+ * VERSIONED DRAFTS ARE NOT AN EXPERIMENT ANY MORE (POD-2045).
+ *
+ * `draft-sync` used to gate two unrelated things behind one switch: the
+ * versioned draft DOCUMENT (revs, arbitration, history) and the native-PTY
+ * machinery that scrapes and injects the agent's own composer box. Only the
+ * second is an experiment. The first is the conflict model, and a client cannot
+ * be offline-first without it — a browser holding unsent text needs a rev to
+ * rebase onto, or the two sides have no way to agree on whose sentence survives.
+ *
+ * So the document is now unconditional and the INJECTION stays flagged. These
+ * tests run with the flag OFF, which is the shipped default and the state every
+ * user is in.
+ */
+describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
+  const plainReg = (store = new SessionStore(':memory:', TEST_MACHINE)) => ({
+    reg: new SessionRegistry(store, undefined, { instanceId: 'default' }),
+    store,
+  })
+
+  it('stamps a rev on a legacy setSessionDraft frame', () => {
+    const { reg } = plainReg()
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, () => {})
     attachTestClient(reg.clientGateway, (m) => b.push(m))
-    reg.clientGateway.routeClientFrame(idA, {
-      type: 'setSessionDraft',
-      sessionId,
-      text: 'legacy',
-    })
-    expect(b.find((m) => m.type === 'sessionDraftChanged')).toEqual({
+
+    reg.clientGateway.routeClientFrame(idA, { type: 'setSessionDraft', sessionId, text: 'legacy' })
+
+    expect(b.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
       type: 'sessionDraftChanged',
       sessionId,
       text: 'legacy',
+      rev: 1,
     })
+  })
+
+  // The echo is what lets a rev-aware client keep its baseRev fresh. Excluding
+  // the sender means its base goes stale the moment its own edit lands, so its
+  // NEXT edit after a typing pause is rejected as stale and costs an extra
+  // round trip — every time. The sender is told what it just wrote because that
+  // is the cheapest way for it to learn WHERE IN THE SEQUENCE it wrote it.
+  it('echoes the accepted document back to the client that sent it', () => {
+    const { reg } = plainReg()
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const a: ServerMessage[] = []
+    const idA = attachTestClient(reg.clientGateway, (m) => a.push(m))
+
+    reg.clientGateway.routeClientFrame(idA, {
+      type: 'draftEdit',
+      sessionId,
+      baseRev: 0,
+      text: 'mine',
+    })
+
+    expect(a.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
+      text: 'mine',
+      rev: 1,
+      origin: idA,
+    })
+  })
+
+  it('arbitrates a stale edit instead of taking it last-writer-wins', () => {
+    const { reg } = plainReg()
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const b: ServerMessage[] = []
+    const idA = attachTestClient(reg.clientGateway, () => {})
+    const idB = attachTestClient(reg.clientGateway, (m) => b.push(m))
+    reg.clientGateway.routeClientFrame(idA, {
+      type: 'draftEdit',
+      sessionId,
+      baseRev: 0,
+      text: 'from A',
+    })
+    b.length = 0
+
+    // B typed against rev 0, which A has already superseded, and B holds no
+    // lease. Under the legacy path this simply overwrote A.
+    reg.clientGateway.routeClientFrame(idB, {
+      type: 'draftEdit',
+      sessionId,
+      baseRev: 0,
+      text: 'from B',
+    })
+
+    expect(b).toContainEqual(
+      expect.objectContaining({ type: 'sessionDraftChanged', text: 'from A', rev: 1 }),
+    )
+  })
+
+  it('replays the versioned document to a freshly connected client', () => {
+    const { reg } = plainReg()
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const idA = attachTestClient(reg.clientGateway, () => {})
+    reg.clientGateway.routeClientFrame(idA, { type: 'setSessionDraft', sessionId, text: 'wip' })
+
+    const c: ServerMessage[] = []
+    attachTestClient(reg.clientGateway, (m) => c.push(m))
+
+    expect(c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
+      sessionId,
+      text: 'wip',
+      rev: 1,
+    })
+  })
+
+  // THE LINE THIS TASK DRAWS. Versioning the document must not switch on the
+  // half of draft-sync that types into somebody's terminal.
+  it('never drives the native composer while the experiment is off', () => {
+    vi.useFakeTimers()
+    try {
+      const { reg } = plainReg()
+      const daemonMsgs: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemonMsgs.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/p',
+      })
+      const idA = attachTestClient(reg.clientGateway, () => {})
+      daemonMsgs.length = 0
+
+      reg.clientGateway.routeClientFrame(idA, {
+        type: 'draftEdit',
+        sessionId,
+        baseRev: 0,
+        text: 'from chat',
+      })
+      vi.advanceTimersByTime(5000)
+
+      expect(daemonMsgs.filter((m) => m.type === 'draftTarget')).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // `session_drafts` is ONE row per session: the versioning columns sit beside
+  // the text the legacy reader has always used. So a server that ships this and
+  // is then rolled back still finds every draft — the downgrade reads the same
+  // row and simply ignores the columns it does not know about.
+  it('leaves a row a rolled-back server can still read', () => {
+    vi.useFakeTimers()
+    try {
+      const { reg, store } = plainReg()
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+      const idA = attachTestClient(reg.clientGateway, () => {})
+
+      reg.clientGateway.routeClientFrame(idA, {
+        type: 'setSessionDraft',
+        sessionId,
+        text: 'readable either way',
+      })
+      vi.advanceTimersByTime(1000)
+
+      expect(store.sessions.loadDrafts()[sessionId]).toBe('readable either way')
+      store.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // The upgrade's other direction: a draft written by the PREVIOUS build has the
+  // text column and nothing else. It must come back as a document, or text that
+  // was on screen before the upgrade is gone after it.
+  it('adopts a pre-upgrade draft row as a versioned document', () => {
+    const dir = trackTmp('podium-draft-migrate-')
+    const dbPath = join(dir, 'podium.db')
+    const store = new SessionStore(dbPath)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    // Exactly what the old build persisted: text and updated_at, no rev, no
+    // origin, no history.
+    store.sessions.setDraft(sessionId, 'written before the upgrade')
+    reg.dispose()
+    store.close()
+
+    const store2 = new SessionStore(dbPath)
+    const reg2 = new SessionRegistry(store2, undefined, { instanceId: 'default' })
+    const c: ServerMessage[] = []
+    attachTestClient(reg2.clientGateway, (m) => c.push(m))
+
+    expect(c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
+      sessionId,
+      text: 'written before the upgrade',
+    })
+    reg2.dispose()
+    store2.close()
   })
 })
 

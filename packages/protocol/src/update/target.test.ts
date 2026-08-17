@@ -141,3 +141,32 @@ describe('UpdateTarget', () => {
     expect(t.artifacts.headless.platforms['darwin-aarch64']).toBeUndefined()
   })
 })
+
+describe('UpdateTarget schema declaration', () => {
+  it('carries the migrations the target build can open', () => {
+    // POD-2213: what a daemon needs to know BEFORE it swaps — a build that does
+    // not define a migration this machine's database has applied refuses to
+    // start, and from there nothing inside Podium can put it back.
+    const t = UpdateTarget.parse({
+      ...feedTarget,
+      schema: { migrations: ['20260715135845_baseline', '20260816092917_operations-table'] },
+    })
+    expect(t.schema?.migrations).toEqual([
+      '20260715135845_baseline',
+      '20260816092917_operations-table',
+    ])
+  })
+
+  it('leaves the declaration absent for a target published before it existed', () => {
+    expect(UpdateTarget.parse(feedTarget).schema).toBeUndefined()
+  })
+
+  it('refuses a declaration that is not a list of migration names', () => {
+    // A malformed declaration must not reach the daemon's gate looking like a
+    // real one: the gate treats "declared" as proof and "absent" as unproven,
+    // and a string where the list belongs would be neither.
+    expect(() =>
+      UpdateTarget.parse({ ...feedTarget, schema: { migrations: 'all of them' } }),
+    ).toThrow()
+  })
+})

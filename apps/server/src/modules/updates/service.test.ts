@@ -1,7 +1,20 @@
-import { asMachineId } from '@podium/model'
+import {
+  asMachineId,
+  DEFAULT_FLEET_UPDATE_CHANNEL,
+  resolveMachineChannel,
+  type UpdateChannel,
+} from '@podium/model'
+import { resolveUpdateChannel } from '@podium/runtime/config'
 import { describe, expect, it, vi } from 'vitest'
+import { classifyMachineFailure } from './operation'
 import { UpdatesService } from './service'
 
+/**
+ * These cases are about the DEVELOPMENT wave, so they state a `dev` fleet
+ * default rather than relying on one. Before POD-2100 the service assumed `dev`
+ * for any machine with no channel while the fleet handlers assumed `stable`; the
+ * assumption is gone, so a test that wants a dev wave has to say so.
+ */
 function make(machines: unknown[]) {
   const send = vi.fn()
   let n = 0
@@ -11,6 +24,7 @@ function make(machines: unknown[]) {
     now: () => 1_000,
     nextGrantId: () => `g${++n}`,
     concurrency: 3,
+    fleetChannel: () => 'dev',
   })
   return { svc, send }
 }
@@ -111,12 +125,28 @@ describe('UpdatesService', () => {
 
   it('issues no grants when authorization is only remembered', () => {
     const { svc, send } = make([m('a')])
-    svc.setTarget({ version: 'dev+47a01e3', critical: false, artifacts: { web: { digest: '47a01e3' } } } as never)
+    svc.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    } as never)
     svc.markAuthorized()
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('ticks an authorized wave when the same version gains a headless artifact', () => {
+  /**
+   * REPLACES "ticks an authorized wave when the same version gains a headless
+   * artifact" (POD-2098).
+   *
+   * Re-publishing a descriptor used to also start granting, which made
+   * publishing a way to run a wave and made a mid-update publication mutate one
+   * (spec §3.2, §10.2). Sequencing belongs to the durable operation now: the
+   * `machines` step ticks explicitly, once, after `prepare`. What setTarget must
+   * still do — and this is the half that would silently strand an update if it
+   * were lost — is REPLACE the descriptor without resetting the proof already
+   * made for that version.
+   */
+  it('swaps a same-version descriptor in place without granting anything', () => {
     const { svc, send } = make([m('a')])
     svc.setTarget({
       version: 'dev+47a01e3',
@@ -131,11 +161,18 @@ describe('UpdatesService', () => {
       critical: false,
       artifacts: {
         web: { digest: '47a01e3' },
-        headless: { delivery: 'bundle', platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } } },
+        headless: {
+          delivery: 'bundle',
+          platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } },
+        },
       },
     } as never)
-    expect(send).toHaveBeenCalledTimes(1)
-    expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant' })
+    // The bytes the wave is about to deliver are now published…
+    expect(svc.target('dev')?.artifacts.headless).toBeDefined()
+    // …and the authorization survived the swap, so the operation's own tick
+    // will grant against the packed descriptor.
+    expect(send).not.toHaveBeenCalled()
+    expect(svc.tick('dev')).toEqual(['a'])
   })
 
   it('does not auto-grant when a same-version tarball appears without authorization', () => {
@@ -150,7 +187,10 @@ describe('UpdatesService', () => {
       critical: false,
       artifacts: {
         web: { digest: '47a01e3' },
-        headless: { delivery: 'bundle', platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } } },
+        headless: {
+          delivery: 'bundle',
+          platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } },
+        },
       },
     } as never)
     expect(send).not.toHaveBeenCalled()
@@ -193,6 +233,62 @@ describe('UpdatesService', () => {
     svc.fleet()
 
     expect(send).toHaveBeenCalledTimes(3)
+  })
+
+  /**
+   * ONE GRANT PER MACHINE, PER WIDENING STEP (POD-2180).
+   *
+   * The two ways a wave continues used to be able to run INSIDE each other.
+   * `tick()` read the fleet; `fleet()`, finding the canary proven at the target
+   * in the machine directory, ticked the channel back from inside that read. The
+   * inner tick granted b and c and returned the projection it had built BEFORE
+   * those grants — so the outer tick planned against a fleet in which nobody was
+   * in flight, and granted b and c a second time with fresh grant ids.
+   *
+   * It is not a cosmetic duplicate. The daemon's grant runner cancels the
+   * delivery in flight when a NEWER grant id arrives, so the second grant
+   * restarts every download the first one had already begun.
+   */
+  it('grants each widened machine exactly once', () => {
+    const machines = [m('a'), m('b'), m('c')]
+    const { svc, send } = make(machines)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+
+    expect(svc.authorize()).toEqual(['a'])
+    const canary = machines[0]
+    if (!canary) throw new Error('test canary missing')
+    // The canary proves the target by RECONNECTING: the directory, not a status
+    // frame, is what makes the wave widen on the next tick.
+    canary.version = '0.4.2'
+    send.mockClear()
+
+    expect(svc.tick()).toEqual(['b', 'c'])
+    expect(send.mock.calls.map(([machineId]) => machineId)).toEqual(['b', 'c'])
+  })
+
+  /**
+   * A READ THAT CONTINUES A WAVE MUST DESCRIBE THE WAVE IT CONTINUED (POD-2180).
+   *
+   * `fleet()` may still widen — that is what stops the panel reaching "1 of N"
+   * and waiting for a second Apply. What it must not do is answer with the
+   * projection it took before granting: a caller told that b is idle a
+   * microsecond after b was handed an update will plan against that, which is
+   * how the duplicate above was issued in the first place.
+   */
+  it('reports the grants it issued from inside a fleet read', () => {
+    const machines = [m('a'), m('b'), m('c')]
+    const { svc } = make(machines)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.authorize()
+
+    const canary = machines[0]
+    if (!canary) throw new Error('test canary missing')
+    canary.version = '0.4.2'
+
+    const seen = new Map(svc.fleet().map((machine) => [machine.id, machine.state]))
+    expect(seen.get('a')).toBe('current')
+    expect(seen.get('b')).toBe('granted')
+    expect(seen.get('c')).toBe('granted')
   })
 
   it('requires the raw reconnect identity instead of optimistic current status', () => {
@@ -290,8 +386,86 @@ describe('UpdatesService', () => {
       })
       expect(send).toHaveBeenCalledTimes(1)
     })
+
+    /**
+     * A WAVE ALREADY WIDE STAYS WIDE WHEN A HUMAN APPLIES ONE ROW (POD-2220).
+     *
+     * The canary proof is a statement about the BUNDLE, not about the machine
+     * that carried it: §6.2's soak is what makes a fleet-wide automatic update
+     * safe, and it is earned once, by some machine holding the target through a
+     * healthy handshake. A human clicking Apply on one refused row has decided
+     * about that row. It has not made the bundle unproven, and treating it as if
+     * it had costs every OTHER machine on the channel a soak it already paid
+     * for — the wave drops back to one machine at a time, and grants nothing at
+     * all while the applied row is still in flight.
+     *
+     * The scenario is the operator's ordinary one: canary proves, wave widens,
+     * one machine refuses on something local (a dirty checkout), the operator
+     * fixes it and clicks Apply on that row.
+     */
+    it('keeps widening after a human applies one refused machine', () => {
+      const { svc } = make([m('a'), m('b'), m('c'), m('d'), m('e'), m('f')])
+      svc.setTarget(target)
+
+      expect(svc.tick()).toEqual(['a'])
+      // The canary holds the target: the bundle is proven for this channel.
+      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      expect(svc.tick()).toEqual(['b', 'c', 'd'])
+      svc.onStatus(asMachineId('b'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      svc.onStatus(asMachineId('c'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      svc.onStatus(asMachineId('d'), {
+        type: 'updateStatus',
+        state: 'rejected',
+        version: '0.4.1',
+        detail: 'machine-dirty-checkout',
+      })
+
+      expect(svc.authorizeMachine(asMachineId('d'))).toEqual({
+        result: 'granted',
+        version: '0.4.2',
+      })
+
+      // `d` is the only machine in flight, and NOTHING has converged since the
+      // Apply — so this is the whole window the regression lives in. The two
+      // machines that have never been granted are still owed the rest of the
+      // concurrency budget.
+      expect(svc.tick()).toEqual(['e', 'f'])
+    })
+
+    /**
+     * The other half of POD-2220, so the fix cannot be read as "the canary is
+     * never re-proved". A FLEET-wide retry is a new decision about the whole
+     * channel, and §6.2 says a wave that re-opens starts by proving one machine
+     * before it moves the rest.
+     */
+    it('still re-proves a canary when the retry is fleet-wide', () => {
+      const { svc } = make([m('a'), m('b'), m('c'), m('d'), m('e'), m('f')])
+      svc.setTarget(target)
+
+      expect(svc.tick()).toEqual(['a'])
+      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      expect(svc.tick()).toEqual(['b', 'c', 'd'])
+      svc.onStatus(asMachineId('b'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      svc.onStatus(asMachineId('c'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      svc.onStatus(asMachineId('d'), {
+        type: 'updateStatus',
+        state: 'rejected',
+        version: '0.4.1',
+      })
+
+      // Same fleet, same moment — but the human pressed the channel's Apply, not
+      // one row's. Exactly one machine is granted.
+      expect(svc.authorize()).toEqual(['d'])
+    })
   })
 
+  /**
+   * WHERE THE DEADLINE WENT (POD-2101). This service used to age a silent grant
+   * into `stuck` from inside `fleet()` — which meant an update nobody was
+   * reading was an update nothing was timing. The operation's `machines` step
+   * owns that authority now, on a timer; what stays here is ENDING a grant when
+   * something with authority says so.
+   */
   describe('bounded convergence', () => {
     const target = { version: '0.4.2', critical: false, artifacts: {} } as never
     const makeClock = (machines: unknown[]) => {
@@ -304,41 +478,21 @@ describe('UpdatesService', () => {
         now: () => clock,
         nextGrantId: () => `g${++n}`,
         concurrency: 3,
-        grantDeadlineMs: 60_000,
+        fleetChannel: () => 'dev',
       })
       return { svc, send, tick: (ms: number) => (clock += ms) }
     }
 
-    it('ages a silent machine into a visible failure instead of converging forever', () => {
+    it('does not age a grant from a fleet read, however long it is left silent', () => {
       const { svc, tick } = makeClock([m('a')])
       svc.setTarget(target)
       svc.authorize()
       expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
 
-      tick(60_000)
-      expect(svc.fleet()[0]).toMatchObject({
-        state: 'stuck',
-        detail: 'The machine stopped reporting progress while updating.',
-      })
-    })
-
-    it('measures silence, not duration: progress reports keep a slow update alive', () => {
-      const { svc, tick } = makeClock([m('a')])
-      svc.setTarget(target)
-      svc.authorize()
-
-      for (let i = 0; i < 4; i++) {
-        tick(50_000)
-        svc.onStatus(asMachineId('a'), {
-          type: 'updateStatus',
-          state: 'downloading',
-          version: '0.4.1',
-        })
-        expect(svc.fleet()[0]).toMatchObject({ state: 'downloading' })
-      }
-
-      tick(60_000)
-      expect(svc.fleet()[0]).toMatchObject({ state: 'stuck' })
+      // An hour of wall clock and a dozen readers: reading is not the passage
+      // of time, and this service no longer pretends otherwise.
+      tick(60 * 60_000)
+      for (let i = 0; i < 12; i++) expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
     })
 
     it('records an abandoned wait so giving up is visible, not silent', () => {
@@ -348,6 +502,138 @@ describe('UpdatesService', () => {
 
       expect(svc.abandonWait(['a', 'b'], 'the server stopped waiting')).toEqual(['a'])
       expect(svc.fleet()[0]).toMatchObject({ state: 'stuck', detail: 'the server stopped waiting' })
+    })
+
+    it('releases every grant still in flight when the operation that owned them ends', () => {
+      // Otherwise deleting the ageing would strand the row forever: excluded
+      // from every future wave, and `operationActive` true for good.
+      const { svc } = makeClock([m('a'), m('b')])
+      svc.setTarget(target)
+      // One canary first, so exactly one machine is mid-grant here.
+      svc.authorize()
+      expect(svc.operationActive('dev')).toBe(true)
+
+      expect(svc.releaseInFlightGrants()).toEqual(['a'])
+      expect(svc.fleet()[0]).toMatchObject({
+        state: 'stuck',
+        detail: 'The machine stopped reporting progress while updating.',
+      })
+      expect(svc.operationActive('dev')).toBe(false)
+    })
+
+    it('re-issues the grant for a machine the planner would otherwise skip', () => {
+      // The one automatic retry. `tick()` cannot do this: the planner excludes
+      // a machine it believes is mid-grant, so the retry would grant nobody.
+      const { svc, send } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+      })
+      send.mockClear()
+      expect(svc.tick('dev')).toEqual([])
+
+      expect(svc.reissueGrants('dev')).toEqual(['a'])
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant', grantId: 'g2' })
+    })
+
+    it('does not re-grant a machine that is offline or already at the target', () => {
+      const { svc, send } = make([m('a', { online: false }), m('b', { version: '0.4.2' })])
+      svc.setTarget(target)
+      svc.authorize()
+      send.mockClear()
+
+      expect(svc.reissueGrants('dev')).toEqual([])
+      expect(send).not.toHaveBeenCalled()
+    })
+  })
+
+  /** The frame that makes "downloading" mean something (POD-2101, spec §3.3). */
+  describe('progress heartbeats', () => {
+    const target = { version: '0.4.2', critical: false, artifacts: {} } as never
+
+    it('carries a percentage from the daemon onto the fleet projection', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+        percent: 62,
+        phaseDetail: 'downloading',
+      })
+
+      expect(svc.fleet()[0]).toMatchObject({
+        state: 'downloading',
+        percent: 62,
+        phaseDetail: 'downloading',
+      })
+    })
+
+    it('accepts a repeat of the same state as a new report', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      for (const percent of [10, 35, 90]) {
+        svc.onStatus(asMachineId('a'), {
+          type: 'updateStatus',
+          grantId: 'g1',
+          state: 'downloading',
+          version: '0.4.1',
+          percent,
+        })
+      }
+
+      expect(svc.fleet()[0]).toMatchObject({ state: 'downloading', percent: 90 })
+    })
+
+    it('drops the percentage when the phase moves on', () => {
+      // A stale 62% sitting under `restarting` is worse than no number at all.
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+        percent: 62,
+      })
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'restarting',
+        version: '0.4.1',
+      })
+
+      expect(svc.fleet()[0]).not.toHaveProperty('percent')
+    })
+
+    it('converges a daemon that reports no percentage at all', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+      })
+      expect(svc.fleet()[0]).not.toHaveProperty('percent')
+
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'current',
+        version: '0.4.2',
+      })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
     })
   })
 
@@ -389,7 +675,21 @@ describe('setTargetUnavailable', () => {
     // is gone, so nothing can ever age it and no status report is accepted.
     const row = svc.fleet().find((machine) => machine.id === 'a')
     expect(row?.state).toBe('stuck')
-    expect(row?.detail).toBe('The source checkout has 2 uncommitted changes.')
+    /**
+     * TOKENIZED, AND THIS FIXTURE IS WHY (POD-2241). The reason is free prose
+     * from the development publisher, and this real one says "uncommitted" —
+     * about the SERVER's checkout. Untokenized, both readers matched their
+     * dirty-working-tree pattern and told the operator to go and commit files
+     * on a machine that had none. The prefix is what makes the withdrawal
+     * classifiable before anyone's sentence can claim a token.
+     */
+    expect(row?.detail).toBe('update-withdrawn: The source checkout has 2 uncommitted changes.')
+    expect(classifyMachineFailure(row?.detail)).toBe('update-withdrawn')
+    // The CHANNEL's reason stays bare: there it is the whole answer, not one
+    // machine's verdict.
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
+      'The source checkout has 2 uncommitted changes.',
+    )
   })
 
   it('is cleared by the next successful publication', () => {
@@ -399,5 +699,626 @@ describe('setTargetUnavailable', () => {
 
     expect(svc.target('dev')?.version).toBe('dev+bbbbbbb')
     expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
+  })
+})
+
+/**
+ * ONE DEFAULT (POD-2100). The shipped disagreement was structural, not a typo:
+ * `channelOf` answered `dev` for a machine with no pin while the fleet handlers
+ * answered `stable` for the same machine, so which authority a machine belonged
+ * to depended on which code path asked. Both now resolve through
+ * `resolveMachineChannel`, and the fleet default is INJECTED rather than
+ * assumed, which is what makes these four rows expressible at all.
+ */
+describe('channel resolution', () => {
+  const build = (machine: Record<string, unknown>, fleetDefault?: UpdateChannel) =>
+    new UpdatesService({
+      machines: () => [{ ...m('a'), ...machine }] as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      ...(fleetDefault ? { fleetChannel: () => fleetDefault } : {}),
+    })
+
+  const cases: {
+    name: string
+    pin?: UpdateChannel
+    fleetDefault?: UpdateChannel
+    expected: UpdateChannel
+  }[] = [
+    {
+      name: 'an explicit pin wins over the fleet default',
+      pin: 'edge',
+      fleetDefault: 'stable',
+      expected: 'edge',
+    },
+    {
+      name: 'a pin is honoured even when it matches nothing else',
+      pin: 'dev',
+      fleetDefault: 'stable',
+      expected: 'dev',
+    },
+    { name: 'no pin follows a stable fleet default', fleetDefault: 'stable', expected: 'stable' },
+    { name: 'no pin follows an edge fleet default', fleetDefault: 'edge', expected: 'edge' },
+    { name: 'no pin follows a dev fleet default', fleetDefault: 'dev', expected: 'dev' },
+    {
+      name: 'no pin and no stated fleet default falls back to the one shared constant',
+      expected: DEFAULT_FLEET_UPDATE_CHANNEL,
+    },
+  ]
+
+  for (const { name, pin, fleetDefault, expected } of cases) {
+    it(name, () => {
+      const svc = build(pin ? { channel: pin } : {}, fleetDefault)
+      expect(svc.channelOf({ ...m('a'), ...(pin ? { channel: pin } : {}) } as never)).toBe(expected)
+    })
+  }
+
+  /**
+   * @podium/model cannot import @podium/runtime (it is the lower layer), so the
+   * fallback literal is stated twice by necessity. This is the assertion that
+   * keeps the two copies one value.
+   */
+  it('the model fallback is the same channel runtime resolves with nothing configured', () => {
+    expect(resolveUpdateChannel({}, {})).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
+  })
+
+  it('the fleet default is the channel an unpinned machine lands on', () => {
+    expect(build({}, 'edge').fleetDefaultChannel()).toBe('edge')
+    expect(build({}).fleetDefaultChannel()).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
+  })
+
+  /**
+   * The acceptance criterion in prose: the handlers resolve through the same
+   * helper the service does, so "which channel is machine a on" has ONE answer.
+   * `resolveMachineChannel` is what both call; asserting the identity here is
+   * cheaper and more honest than asserting a grep.
+   */
+  it('resolves an unpinned machine identically through the service and the shared helper', () => {
+    const svc = build({}, 'edge')
+    expect(svc.channelOf(m('a') as never)).toBe(resolveMachineChannel(undefined, 'edge'))
+    expect(svc.channelOf(m('a') as never)).toBe(svc.fleetDefaultChannel())
+  })
+})
+
+/**
+ * REFRESH BOOKKEEPING AND CADENCE (POD-2100, spec §9.2). "Checked 2 h ago" is
+ * only sayable if the check is recorded, and a boot-time failure must not be
+ * pinned as the eternal truth for the life of the process.
+ */
+describe('target refresh bookkeeping', () => {
+  const target = { version: '1.0.0', critical: false, artifacts: {} } as never
+
+  const build = (
+    resolveTarget: (channel: 'edge' | 'stable') => Promise<never>,
+    opts: { fleetChannel?: UpdateChannel; machines?: unknown[] } = {},
+  ) => {
+    let clock = 1_000
+    const svc = new UpdatesService({
+      // One unpinned machine, so `targetUnavailableReasonFor` has somebody to
+      // answer about — the reason is per MACHINE, resolved through its channel.
+      machines: () => (opts.machines ?? [m('a')]) as never,
+      send: vi.fn(),
+      now: () => clock,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      resolveTarget,
+      fleetChannel: () => opts.fleetChannel ?? 'stable',
+    })
+    return { svc, advance: (ms: number) => (clock += ms) }
+  }
+
+  it('records when a channel was checked and that it succeeded', async () => {
+    const { svc } = build(async () => target)
+    await svc.refreshTarget('stable')
+    expect(svc.channelChecks()).toEqual([
+      { channel: 'stable', checkedAt: 1_000, outcome: { status: 'ok' } },
+    ])
+  })
+
+  it('records the reason a check failed, carrying the resolver message', async () => {
+    const { svc } = build(async () => {
+      throw new Error('stable target unavailable: fetch failed')
+    })
+    await svc.refreshTarget('stable')
+    expect(svc.channelChecks()).toEqual([
+      {
+        channel: 'stable',
+        checkedAt: 1_000,
+        outcome: { status: 'unavailable', reason: 'stable target unavailable: fetch failed' },
+      },
+    ])
+  })
+
+  /**
+   * The failure this whole slice exists for: a feed that was unreachable in the
+   * one second the server booted used to keep saying so forever, because nothing
+   * ever asked again.
+   */
+  it('clears a failed boot-time reason once a later refresh succeeds', async () => {
+    let fail = true
+    const { svc, advance } = build(async () => {
+      if (fail) throw new Error('stable target unavailable: fetch failed')
+      return target
+    })
+
+    await svc.refreshTarget('stable')
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
+      'stable target unavailable: fetch failed',
+    )
+
+    fail = false
+    advance(24 * 60 * 60_000)
+    await svc.refreshTarget('stable')
+
+    expect(svc.target('stable')).toBe(target)
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
+    expect(svc.channelChecks()).toEqual([
+      { channel: 'stable', checkedAt: 1_000 + 24 * 60 * 60_000, outcome: { status: 'ok' } },
+    ])
+  })
+
+  /**
+   * A resolve that fails while a good target stands describes the CHECK, not the
+   * target: clients keep the target they can still use, and the check says the
+   * feed was unreachable. Conflating the two is how a working instance would
+   * start reporting itself broken.
+   */
+  it('a failed re-check does not retract a target that already resolved', async () => {
+    let fail = false
+    const { svc, advance } = build(async () => {
+      if (fail) throw new Error('stable target unavailable: fetch failed')
+      return target
+    })
+    await svc.refreshTarget('stable')
+
+    fail = true
+    advance(60_000)
+    await svc.refreshTarget('stable')
+
+    expect(svc.target('stable')).toBe(target)
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
+    expect(svc.channelChecks()[0]?.outcome).toEqual({
+      status: 'unavailable',
+      reason: 'stable target unavailable: fetch failed',
+    })
+  })
+
+  it('records dev as checked without polling anything — dev is publisher-pushed', async () => {
+    const { svc } = build(async () => target, { fleetChannel: 'dev' })
+    await svc.refreshTarget('dev')
+    expect(svc.channelChecks()).toEqual([
+      {
+        channel: 'dev',
+        checkedAt: 1_000,
+        outcome: {
+          status: 'unavailable',
+          reason: 'Development target is not currently published by this source server.',
+        },
+      },
+    ])
+
+    svc.setTarget('dev', target)
+    await svc.refreshTarget('dev')
+    expect(svc.channelChecks()[0]?.outcome).toEqual({ status: 'ok' })
+  })
+
+  describe('checkNow', () => {
+    it('checks the fleet default and every channel some machine is pinned to', async () => {
+      const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
+      const { svc } = build(resolveTarget as never, {
+        fleetChannel: 'stable',
+        machines: [m('a', { channel: 'edge' }), m('b')],
+      })
+
+      const results = await svc.checkNow()
+
+      expect(resolveTarget.mock.calls.map(([channel]) => channel)).toEqual(['edge', 'stable'])
+      expect(results.map((record) => record.channel)).toEqual(['edge', 'stable'])
+      expect(results.every((record) => record.outcome.status === 'ok')).toBe(true)
+    })
+
+    it('returns the recorded outcome instead of re-resolving inside the rate window', async () => {
+      const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
+      const { svc, advance } = build(resolveTarget as never)
+
+      const first = await svc.checkNow()
+      advance(29_999)
+      const second = await svc.checkNow()
+
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      expect(second).toEqual(first)
+      expect(second[0]?.checkedAt).toBe(1_000)
+    })
+
+    it('coalesces concurrent checks into one release-feed resolve', async () => {
+      let finishResolve!: (resolved: typeof target) => void
+      const resolving = new Promise<typeof target>((resolve) => {
+        finishResolve = resolve
+      })
+      const resolveTarget = vi.fn(() => resolving)
+      const { svc } = build(resolveTarget as never)
+
+      const first = svc.checkNow()
+      const second = svc.checkNow()
+
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      finishResolve(target)
+      const [firstResult, secondResult] = await Promise.all([first, second])
+      expect(secondResult).toEqual(firstResult)
+    })
+
+    it('re-resolves once the rate window has passed', async () => {
+      const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
+      const { svc, advance } = build(resolveTarget as never)
+
+      await svc.checkNow()
+      advance(30_000)
+      const second = await svc.checkNow()
+
+      expect(resolveTarget).toHaveBeenCalledTimes(2)
+      expect(second[0]?.checkedAt).toBe(31_000)
+    })
+  })
+
+  /**
+   * POD-2153: the in-flight map used to sit on `checkNow` alone, so it only ever
+   * guarded that one caller against itself. Six production sites reach
+   * `refreshTarget` directly — the two boot resolves and the periodic tick in
+   * `server.ts`, `onFleetChannelChanged` in `modules/instance/trpc.ts`, and both
+   * fleet handlers — and every one of them opened a second concurrent request to
+   * the release feed.
+   *
+   * The duplicate request is the small half. The large half is that both resolves
+   * end in `setTarget`, which is LAST-WRITER-WINS BY COMPLETION ORDER: a slow
+   * resolve that started first can land after a fresh one and overwrite a newer
+   * target with a staler one. Sharing the in-flight promise removes the overlap
+   * that makes the ordering question exist at all.
+   */
+  describe('refresh coalescing across callers', () => {
+    /** A resolver that hangs until released, so two callers are genuinely concurrent. */
+    const suspended = () => {
+      let finish!: (resolved: typeof target) => void
+      const resolving = new Promise<typeof target>((resolve) => {
+        finish = resolve
+      })
+      return { resolveTarget: vi.fn(() => resolving), finish: () => finish(target) }
+    }
+
+    it('a forced check joins a refresh already in flight from another caller', async () => {
+      const { resolveTarget, finish } = suspended()
+      const { svc } = build(resolveTarget as never)
+
+      // The periodic tick (server.ts:440) — also the shape of boot and both fleet handlers.
+      const tick = svc.refreshTarget('stable')
+      // …and the user hits "Check now" while it is mid-flight.
+      const forced = svc.checkNow()
+
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      finish()
+      const [, forcedResult] = await Promise.all([tick, forced])
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      // The joined caller still gets a real answer, not a silent no-op.
+      expect(forcedResult).toEqual([
+        { channel: 'stable', checkedAt: 1_000, outcome: { status: 'ok' } },
+      ])
+    })
+
+    it('a fleet-handler refresh joins a forced check already in flight', async () => {
+      const { resolveTarget, finish } = suspended()
+      const { svc } = build(resolveTarget as never)
+
+      const forced = svc.checkNow()
+      // machineApplyUpdateHandler / machineSetUpdateChannelHandler / onFleetChannelChanged.
+      const handler = svc.refreshTarget('stable')
+
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      finish()
+      await Promise.all([forced, handler])
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+    })
+
+    it('coalesces per channel, not globally', async () => {
+      const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
+      const { svc } = build(resolveTarget as never)
+
+      await Promise.all([svc.refreshTarget('stable'), svc.refreshTarget('edge')])
+
+      expect(resolveTarget.mock.calls.map(([channel]) => channel)).toEqual(['stable', 'edge'])
+    })
+
+    it('releases the in-flight slot so a later caller resolves again', async () => {
+      const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => target)
+      const { svc, advance } = build(resolveTarget as never)
+
+      await svc.refreshTarget('stable')
+      advance(60_000)
+      await svc.refreshTarget('stable')
+
+      expect(resolveTarget).toHaveBeenCalledTimes(2)
+    })
+
+    /**
+     * A rejected resolve must not pin the channel's slot forever — that would be a
+     * permanent outage manufactured out of one unreachable second.
+     */
+    it('releases the in-flight slot after a failed resolve', async () => {
+      let fail = true
+      const resolveTarget = vi.fn(async (_channel: 'edge' | 'stable') => {
+        if (fail) throw new Error('stable target unavailable: fetch failed')
+        return target
+      })
+      const { svc, advance } = build(resolveTarget as never)
+
+      await svc.refreshTarget('stable')
+      fail = false
+      advance(60_000)
+      await svc.refreshTarget('stable')
+
+      expect(resolveTarget).toHaveBeenCalledTimes(2)
+      expect(svc.target('stable')).toBe(target)
+    })
+  })
+
+  /**
+   * The scheduled refresh asks this before it re-resolves. `setTarget` clears the
+   * channel's pending grants on a version change, so refreshing under a live wave
+   * would strand the machine mid-download against a descriptor nobody publishes.
+   */
+  describe('operationActive', () => {
+    it('is false with no wave in flight', () => {
+      const { svc } = make([m('a')])
+      expect(svc.operationActive('dev')).toBe(false)
+    })
+
+    it('is true while a grant is outstanding on that channel, and only that channel', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
+      svc.authorize('dev')
+
+      expect(svc.operationActive('dev')).toBe(true)
+      expect(svc.operationActive('stable')).toBe(false)
+    })
+
+    it('is false again once the machine reports it reached the target', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
+      svc.authorize('dev')
+      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+
+      expect(svc.operationActive('dev')).toBe(false)
+    })
+  })
+})
+
+/**
+ * THE CONSENT DIES WITH THE OPERATION THAT HELD IT (POD-2169, spec §3.2).
+ *
+ * `fleet()` is a read that ACTS: a machine whose directory version proves the
+ * target makes the canary healthy and continues an authorized wave from inside
+ * the projection. That is what stops a running update reaching "1 of N" and
+ * waiting for a second Apply. Nothing took the consent back when the operation
+ * ended, so the same mechanism went on granting afterwards.
+ */
+describe('withdrawAuthorization', () => {
+  const target = { version: '0.4.2', critical: false, artifacts: {} } as never
+
+  /**
+   * The failure exactly as reported. The user cancels; the coordinator marks the
+   * in-flight machines stuck. But a grant already sent is never recalled and the
+   * daemon's swap is crash-safe, so `a` finishes anyway and reconnects at the
+   * target — and the next read of the fleet, from anywhere, granted `b`.
+   */
+  it('stops the wave continuing after a machine finishes a cancelled grant', () => {
+    const machines = [m('a'), m('b')]
+    const { svc, send } = make(machines)
+    svc.setTarget('dev', target)
+    svc.authorize('dev')
+    expect(send).toHaveBeenCalledTimes(1)
+
+    // The operation terminates. This is what `onChanged` does, in its order.
+    svc.withdrawAuthorization()
+    svc.releaseInFlightGrants('The update was canceled while this machine was updating.')
+
+    // `a`'s daemon swapped anyway and came back on the new version.
+    machines[0] = m('a', { version: '0.4.2' })
+    const granted = send.mock.calls.length
+    svc.fleet()
+    svc.fleet()
+
+    expect(send).toHaveBeenCalledTimes(granted)
+  })
+
+  /** …and the cleanup itself must not be the thing that grants: it reads `fleet()`. */
+  it('is safe to call before releaseInFlightGrants, which is a fleet read', () => {
+    const machines = [m('a', { version: '0.4.2', state: 'downloading' }), m('b')]
+    const { svc, send } = make(machines)
+    svc.setTarget('dev', target)
+    svc.authorize('dev')
+    const granted = send.mock.calls.length
+
+    svc.withdrawAuthorization()
+    svc.releaseInFlightGrants()
+
+    expect(send).toHaveBeenCalledTimes(granted)
+  })
+
+  /**
+   * A deliberate Apply is new authority, so the machinery must come back — the
+   * withdrawal ends one operation's consent, it does not disable the channel.
+   */
+  it('is restored by the next deliberate authorization', () => {
+    const machines = [m('a'), m('b')]
+    const { svc, send } = make(machines)
+    svc.setTarget('dev', target)
+    svc.authorize('dev')
+    svc.withdrawAuthorization()
+
+    machines[0] = m('a', { version: '0.4.2' })
+    svc.authorize('dev')
+    expect(send.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('says nothing about a channel that has no rollout at all', () => {
+    const { svc } = make([m('a')])
+    expect(() => svc.withdrawAuthorization()).not.toThrow()
+    expect(() => svc.withdrawAuthorization('stable')).not.toThrow()
+  })
+})
+
+/**
+ * WHICH CHANNEL AN OPERATION IS ABOUT (POD-2189).
+ *
+ * Both composition roots wrote `channel: 'dev'` as a literal. `make()` above
+ * states a `dev` fleet default because its cases are about the development
+ * wave; these deliberately do not, because the bug was exactly the difference
+ * between what a development coordinator sees and what a shipped one does.
+ */
+describe('UpdatesService.operationChannel', () => {
+  const shipped = (machines: unknown[], fleetChannel?: UpdateChannel) =>
+    new UpdatesService({
+      machines: () => machines as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      ...(fleetChannel ? { fleetChannel: () => fleetChannel } : {}),
+    })
+
+  /**
+   * THE DEFECT, stated as the fleet it broke. Nothing here is pinned and no
+   * fleet default is configured, which is every shipped installation — and
+   * `DEFAULT_FLEET_UPDATE_CHANNEL` is `stable`, so the hardcoded `'dev'` sent
+   * `planInputFrom` looking for a target that by construction was not there.
+   */
+  it('is the shipped fleet default, not dev, when nothing is pinned', () => {
+    const svc = shipped([m('host'), m('vps')])
+    expect(svc.operationChannel('host')).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
+    expect(svc.operationChannel('host')).not.toBe('dev')
+  })
+
+  it("follows the host's own pin", () => {
+    const svc = shipped([m('host', { channel: 'edge' }), m('vps', { channel: 'stable' })])
+    expect(svc.operationChannel('host')).toBe('edge')
+  })
+
+  /** A development coordinator still gets a dev operation — the previous
+   *  behaviour was not wrong, it was only ever right for one fleet. */
+  it('still answers dev where dev is what this installation follows', () => {
+    const svc = shipped([m('host')], 'dev')
+    expect(svc.operationChannel('host')).toBe('dev')
+  })
+
+  /**
+   * Before the host's own handshake there is no row to read, and the question
+   * "what does an unpinned machine follow?" has the same answer either way. It
+   * matters because one composition root is the ADOPTION path, which runs
+   * before the daemon gateway listens.
+   */
+  it('falls back to the fleet default when the host is not in the directory yet', () => {
+    const svc = shipped([], 'edge')
+    expect(svc.operationChannel('host')).toBe('edge')
+    expect(svc.operationChannel(undefined)).toBe('edge')
+  })
+
+  /** One answer, not two (POD-2100): this must agree with the authority that
+   *  will actually grant, which is `channelOf` on the same row. */
+  it('agrees with channelOf for the host row', () => {
+    const host = m('host', { channel: 'stable' })
+    const svc = shipped([host], 'dev')
+    expect(svc.operationChannel('host')).toBe(svc.channelOf(host as never))
+  })
+})
+
+/**
+ * WHAT `/version` ADVERTISES, AND WHY IT IS NOT ALWAYS DEV (POD-2222/POD-2212).
+ *
+ * The panel's whole OFFER is derived from `server.target` — `use-update-state`
+ * reads `/version` and `describeUpdate` has nothing to show without it. That
+ * target used to be `devPublisher.publishTarget() ?? updates.target()`, and
+ * `target()` defaults to `dev`: both halves asked the development authority. On
+ * a stable installation the publisher is disabled and the dev authority has
+ * nothing, so `/version` carried no target at all and a machine that was
+ * genuinely behind a published stable release looked permanently up to date.
+ *
+ * The live drive measured the disagreement in one second: the operation
+ * resolved stable `0.1.3` while `/version` advertised `dev+03a2892`. So this is
+ * the same question `operationChannel` already answers — asked by the READ path
+ * as well, so the offer and the action cannot name different versions.
+ */
+describe('UpdatesService.advertisedTarget', () => {
+  const shipped = (machines: unknown[], fleetChannel?: UpdateChannel) =>
+    new UpdatesService({
+      machines: () => machines as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      ...(fleetChannel ? { fleetChannel: () => fleetChannel } : {}),
+    })
+
+  const t = (version: string) => ({ version, critical: false, artifacts: {} }) as never
+
+  /** THE DEFECT: a stable-pinned host, a published stable release, no offer. */
+  it("advertises the host's own stable authority to a stable-pinned host", () => {
+    const svc = shipped([m('host', { channel: 'stable' })])
+    svc.setTarget('stable', t('0.1.3'))
+
+    expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
+  })
+
+  /**
+   * The drive's exact configuration: a SOURCE host pinned to stable, whose dev
+   * publisher is alive and offering a `dev+` identity. The publisher must not
+   * speak for an authority the host does not follow — that is precisely the
+   * `dev+03a2892` the panel showed while the operation planned `0.1.3`.
+   */
+  it('does not let the development publisher speak for a stable-pinned host', () => {
+    const svc = shipped([m('host', { channel: 'stable' })])
+    svc.setTarget('stable', t('0.1.3'))
+
+    expect(svc.advertisedTarget('host', t('dev+03a2892'))?.version).toBe('0.1.3')
+  })
+
+  /** A development coordinator is unchanged: the publisher still wins, and the
+   *  service's own dev target is still the fallback when it has nothing. */
+  it('still prefers the published development bundle on a dev-pinned host', () => {
+    const svc = shipped([m('host', { channel: 'dev' })])
+    svc.setTarget('dev', t('dev+aaaaaaa'))
+
+    expect(svc.advertisedTarget('host', t('dev+bbbbbbb'))?.version).toBe('dev+bbbbbbb')
+    expect(svc.advertisedTarget('host')?.version).toBe('dev+aaaaaaa')
+  })
+
+  it('follows an edge-pinned host onto edge', () => {
+    const svc = shipped([m('host', { channel: 'edge' })])
+    svc.setTarget('edge', t('0.2.0'))
+    svc.setTarget('dev', t('dev+aaaaaaa'))
+
+    expect(svc.advertisedTarget('host')?.version).toBe('0.2.0')
+  })
+
+  /**
+   * A host that has not handshaked yet follows the fleet default — the same
+   * fallback `operationChannel` makes, because this must never answer a
+   * different authority than the action would grant.
+   */
+  it('agrees with operationChannel, including before the host is registered', () => {
+    const svc = shipped([], 'stable')
+    svc.setTarget('stable', t('0.1.3'))
+
+    expect(svc.operationChannel('host')).toBe('stable')
+    expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
+    expect(svc.advertisedTarget(undefined)?.version).toBe('0.1.3')
+  })
+
+  /** Nothing published on the host's authority is still nothing: an absent
+   *  target must not fall back to some other channel's version. */
+  it('advertises nothing rather than another channel when its own has none', () => {
+    const svc = shipped([m('host', { channel: 'stable' })])
+    svc.setTarget('dev', t('dev+aaaaaaa'))
+
+    expect(svc.advertisedTarget('host')).toBeUndefined()
   })
 })

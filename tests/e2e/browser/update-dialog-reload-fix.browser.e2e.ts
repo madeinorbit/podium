@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 import { RELAY } from './_harness'
 
 const VERSION = '0.4.2'
@@ -309,8 +309,10 @@ test('failed update explains recovery, dismisses, and retries', async ({ page })
   const dialog = page.getByTestId('update-dialog')
   await expect(dialog).toBeVisible({ timeout: 30_000 })
   await dialog.getByRole('button', { name: 'Update Podium' }).click()
-  await expect(dialog).toContainText('Podium could not reach the update source.')
-  await expect(dialog).toContainText("Check this server's internet connection")
+  // POD-2241 moved this sentence into the single machine-failure copy table, so
+  // the panel, the history row and the operation path all say it the same way.
+  await expect(dialog).toContainText('Podium could not download this update.')
+  await expect(dialog).toContainText('Check the connection, then try the update again.')
   await expect(dialog).not.toContainText('Failed to fetch')
   await expect(dialog.getByRole('button', { name: 'Try again' })).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Dismiss' })).toBeVisible()

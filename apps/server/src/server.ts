@@ -6,8 +6,16 @@ import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
 import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
-import { type LocalDaemonLink, MIN_SUPPORTED_VERSION, type MobileWebIdentity, PeerHelloReply, type UpdateTarget, WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import {
+  type LocalDaemonLink,
+  MIN_SUPPORTED_VERSION,
+  type MobileWebIdentity,
+  PeerHelloReply,
+  type UpdateTarget,
+  WIRE_VERSION,
+  wireSchemaDigest,
+} from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { loadConfig, resolveDevArtifactOrigin, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
@@ -31,15 +39,14 @@ import {
 } from '@podium/runtime/task-attribution'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
-import { cors } from 'hono/cors'
 import {
+  type ClientCredentialHeaders,
   clientAuthGuard,
   isSecureRequest,
   maintainClientCredentialByHash,
   registerAuthRoute,
-  resolveClientCredential,
   requestUserId,
-  type ClientCredentialHeaders,
+  resolveClientCredential,
 } from './auth-route'
 import { captureServerBuildVersion } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
@@ -53,6 +60,7 @@ import {
   recordHelloBuild,
 } from './gateway/peer-handshake'
 import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
+import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
 import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
 import { IssueToolProvider } from './issue-mcp'
@@ -73,6 +81,8 @@ import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
+import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
+import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -235,7 +245,12 @@ export function registerVersionRoute(
      * fires on every stripped-down deployment.
      */
     visibilityGrade?: () => string
-    updateTarget?: () => UpdateTarget | undefined
+    /**
+     * May answer asynchronously: on a development server, naming the target
+     * means reading HEAD, and this process serves every client of the instance
+     * — so that git call is off its event loop (POD-2048).
+     */
+    updateTarget?: () => UpdateTarget | undefined | Promise<UpdateTarget | undefined>
     appVersion?: () => string
     /**
      * The phone website on disk, so Update can tell whether the phone is on this
@@ -249,10 +264,10 @@ export function registerVersionRoute(
     mobileWeb?: () => MobileWebIdentity
   },
 ): void {
-  app.get('/version', (c) => {
+  app.get('/version', async (c) => {
     let target: UpdateTarget | undefined
     try {
-      target = deps.updateTarget?.()
+      target = await deps.updateTarget?.()
     } catch {
       target = undefined
     }
@@ -437,6 +452,14 @@ export async function startServer(
     registry.modules.updates.refreshTarget('edge'),
     registry.modules.updates.refreshTarget('stable'),
   ])
+  // …and keep asking. Boot is the only time this used to happen, so a server up
+  // for a month advertised the day-one target and a feed that was unreachable in
+  // that one boot second stayed "unavailable" for the month (POD-2100, spec §9.2).
+  const targetRefresh = startTargetRefresh({
+    refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+    operationActive: (channel) => registry.modules.updates.operationActive(channel),
+    schedule: timerSchedule,
+  })
 
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
@@ -550,6 +573,76 @@ export async function startServer(
     locks: registry.modules.locks,
   })
 
+  /**
+   * ADOPT WHATEVER THE PREVIOUS PROCESS WAS DOING (POD-2097/POD-2098, spec §3.4).
+   *
+   * The process that runs an update is the process an update replaces, so a
+   * successor booting with an operation still open is the NORMAL path, not the
+   * exceptional one. Each live operation is handed to its kind to be re-derived
+   * from OBSERVABLE FACTS — never from what the dead process believed:
+   *
+   *  - `appVersion` is this binary's own identity. It is the whole answer to
+   *    "did the server reach the target?", and getting it wrong in the other
+   *    direction is today's silent bug: a rollback re-offers the same update
+   *    instead of saying the swap failed.
+   *  - `servedWebDigest` is the WEBSITE's — both dists, via the same reader the
+   *    request path uses (POD-1980), so a phone export left behind is not read
+   *    as a finished web step.
+   *  - `machineDirectory` is the daemons' handshakes, which is the fact that
+   *    outlives the coordinator; in-memory convergence state does not.
+   *
+   * IT RUNS HERE, not with the other module bootstrapping above, because the
+   * update kind's runners need the publisher, the redeploy request and the
+   * served stamps — none of which exist before this line — and it must still
+   * precede `serveNative` below, so no client can observe a stale operation this
+   * boot was going to correct.
+   */
+  const updateOperationBoot = () =>
+    updateOperationContext({
+      updates: registry.modules.updates,
+      operations: registry.modules.operations,
+      // The host's own channel, resolved per boot (POD-2189) — see
+      // `UpdatesService.operationChannel`. This root is the ADOPTION path, so a
+      // literal here also decided which channel a resumed operation was read
+      // back against.
+      channel: registry.modules.updates.operationChannel(hostMachineId),
+      appVersion: () => appVersion,
+      hostMachineId,
+      ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
+      ...(devPublisher.requestWebRebuild
+        ? { requestWebRebuild: devPublisher.requestWebRebuild }
+        : {}),
+      ...(devPublisher.enabled
+        ? {
+            requestDestBundle: () => devPublisher.requestBuild(true),
+            preparation: devPublisher.preparation,
+          }
+        : {}),
+      servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
+      servedMobileWeb: () => servedWebIdentity(phoneWebDir()),
+    })
+  //
+  // AND IT CANNOT STOP THIS BOOT (POD-2147). Every fact the reality lookup
+  // gathers below can throw — a machine row with a shape this binary does not
+  // expect, a version string it cannot parse, a store read that fails — and
+  // this is awaited before `serveNative`. `adoptOnBoot` contains all of it and
+  // resolves regardless, abandoning the operations it cannot resume, so the
+  // bare await here is safe by the engine's own contract rather than by a catch
+  // at this call site. The server that cannot boot is the one that has to apply
+  // the update that fixes it.
+  await registry.modules.operations.engine.adoptOnBoot(
+    () => ({
+      appVersion,
+      servedWebDigest: websiteDigestReader(
+        () => servedWebSourceDigest(desktopWebDir()),
+        () => servedWebIdentity(phoneWebDir()),
+      )?.(),
+      machineDirectory: registry.modules.updates.fleet(),
+      now: Date.now(),
+    }),
+    updateOperationBoot,
+  )
+
   const requestPeerAddresses = new WeakMap<Request, string>()
   const readiness = createServerReadiness({
     bootConfig: config,
@@ -564,9 +657,16 @@ export async function startServer(
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
-    updateTarget: () => {
+    // THE HOST'S OWN AUTHORITY, not the dev one (POD-2222). `publishTarget` is
+    // still awaited on every read whatever the channel: it is what REFRESHES
+    // the dev target for the machines that do follow dev, and skipping it on a
+    // stable-pinned source host would stop that refresh for them.
+    // `advertisedTarget` then decides which authority this host is entitled to
+    // advertise — see `UpdatesService.advertisedTarget`.
+    updateTarget: async () => {
       void devPublisher.requestBuild(false).catch(() => {})
-      return devPublisher.publishTarget() ?? registry.modules.updates.target()
+      const published = await devPublisher.publishTarget()
+      return registry.modules.updates.advertisedTarget(hostMachineId, published)
     },
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
   })
@@ -598,6 +698,10 @@ export async function startServer(
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
   // differs from the local server — same cross-origin case as /trpc. Without CORS the fetch is
   // blocked and SetupGate's catch() silently skips onboarding. Must precede the route handler.
+  // `podiumCors` reflects an allow-listed origin and permits credentials, which a wildcard
+  // cannot: every /trpc call carries the session cookie, and a browser rejects a credentialed
+  // response allowed to `*` before the caller sees it. See ./http-cors.
+  //
   // Gate the human-client data plane (/trpc, /files) behind the login session whenever a
   // password is configured; open otherwise (loopback / all-in-one, or the user opted out).
   // The static SPA shell, /auth/*, GET /setup/config, /health and /version stay open so the
@@ -619,8 +723,8 @@ export async function startServer(
     trustedProxyHops,
   })
   const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
-  app.use('/setup/*', cors())
-  app.use('/readiness', cors())
+  app.use('/setup/*', podiumCors())
+  app.use('/readiness', podiumCors())
   registerReadinessRoute(app, readiness)
   registerSetupRoute(app, {
     readiness,
@@ -631,7 +735,7 @@ export async function startServer(
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
-  app.use('/auth/*', cors())
+  app.use('/auth/*', podiumCors())
   app.use('/auth/*', authReadinessBoundary(readiness))
   let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
@@ -686,7 +790,7 @@ export async function startServer(
     // The per-thread token each harness invocation's mcp-config carries (issue #67).
     { resolveThread: (token) => superagent.threadForMcpToken(token) },
   )
-  app.use('/trpc/*', cors())
+  app.use('/trpc/*', podiumCors())
   app.use('/trpc/*', boundary)
   app.use('/trpc/*', async (c, next) => {
     // A host-local first run must remain possible when PODIUM_PASSWORD already
@@ -835,6 +939,12 @@ export async function startServer(
       settled = true
       messaging.stop()
       registry.dispose()
+      // THE SECOND CLOSE PATH (POD-2148). Boot adoption has already run by
+      // here, so this server may hold armed deadlines and drives in flight over
+      // the store about to close — and a port-in-use start, the routine outcome
+      // with a stale backend on :18787, takes exactly this path. Same call and
+      // same order as the shutdown persist list below.
+      registry.modules.operations.engine.stop()
       store.close()
       reject(
         isAddressInUseError(err)
@@ -1071,6 +1181,15 @@ export async function startServer(
           server,
           persist: [
             ['messaging.stop', () => messaging.stop()],
+            // An armed refresh timer that outlives the server would resolve a
+            // target against a service whose store is already closed.
+            ['updates.stopTargetRefresh', () => targetRefresh.stop()],
+            // Same hazard, same window (POD-2097): an armed operation deadline
+            // that outlives the server would wake into a closed store and try
+            // to persist a stall against it. Operations are durable, so losing
+            // the timer costs nothing — the successor adopts the operation and
+            // re-derives it from reality, which is the stronger answer anyway.
+            ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
             // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
             // final network flush: shutdown is a user-visible latency path
             // (POD-611 made it deterministic and fast), and a report is worth

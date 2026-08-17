@@ -144,3 +144,28 @@ describe('buildManifest', () => {
     expect(parsed.critical).toBe(false)
   })
 })
+
+describe('the schema a release can open', () => {
+  const schemaMigrations = ['20260715135845_baseline', '20260816092917_operations-table']
+
+  it('declares the migrations this release defines (POD-2213)', () => {
+    // Without this, a machine whose database has moved past the release cannot
+    // tell — and a daemon that swapped anyway would leave a server that refuses
+    // to open its own database, with no way back through Podium.
+    const m = buildManifest({
+      version: '0.4.2',
+      platforms,
+      notes: null,
+      critical: false,
+      schemaMigrations,
+    })
+    expect(m.schema).toEqual({ migrations: schemaMigrations })
+    expect(UpdateTarget.parse(m).schema?.migrations).toEqual(schemaMigrations)
+  })
+
+  it('omits the declaration entirely when the release did not compute one', () => {
+    const m = buildManifest({ version: '0.4.2', platforms, notes: null, critical: false })
+    expect(m.schema).toBeUndefined()
+    expect('schema' in m).toBe(false)
+  })
+})

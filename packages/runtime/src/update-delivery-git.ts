@@ -11,24 +11,37 @@ export type GitRun = (
   args: string[],
   /** Milliseconds this step may take. Runners that ignore it are unbounded. */
   timeoutMs?: number,
-) => {
+) => Promise<{
   status: number | null
   stdout: string
-}
+}>
 
 /** Conventional timeout exit code, used here to name a step the budget killed. */
 export const GIT_TIMED_OUT_STATUS = 124
 
 /**
+ * A step the CALLER cancelled, as distinct from one the budget killed.
+ *
+ * Both end the convergence, but they mean opposite things to whoever reads the
+ * refusal: `timed-out` is this daemon giving up on a remote, `cancelled` is a
+ * newer grant superseding the one being applied. Collapsing them would report a
+ * healthy hand-off as a failure against the remote.
+ */
+export const GIT_ABORTED_STATUS = 125
+
+/**
  * Whole-convergence budget for git delivery.
  *
- * Git delivery is SYNCHRONOUS and runs three steps. Bounding each step
- * separately does not bound the sequence: three four-minute steps are twelve
- * minutes, which outlives the server's ten-minute silence deadline — the server
- * would mark the machine stuck and could re-grant while the daemon was still
- * blocked and unable to observe any cancellation. One shared budget for the
- * whole convergence is what keeps the daemon's failure earlier than the
- * server's.
+ * Git delivery runs three steps, and bounding each one separately does not
+ * bound the sequence: three four-minute steps are twelve minutes, which
+ * outlives the server's ten-minute silence deadline — the server would mark the
+ * machine stuck and could re-grant while this one was still working. One shared
+ * budget for the whole convergence is what keeps the daemon's failure earlier
+ * than the server's.
+ *
+ * The steps are awaited rather than blocking (POD-2046), so a superseding grant
+ * now aborts them promptly. The budget remains the bound that matters when
+ * nobody is cancelling — a `git fetch` against an unreachable remote.
  */
 export const GIT_CONVERGENCE_BUDGET_MS = 8 * 60_000
 
@@ -43,17 +56,35 @@ export function withGitBudget(
   const totalMs = opts.totalMs ?? GIT_CONVERGENCE_BUDGET_MS
   const now = opts.now ?? Date.now
   const startedAt = now()
-  return (cmd, args) => {
+  return async (cmd, args) => {
     const remaining = totalMs - (now() - startedAt)
     if (remaining <= 0) return { status: GIT_TIMED_OUT_STATUS, stdout: '' }
-    return run(cmd, args, remaining)
+    return await run(cmd, args, remaining)
   }
 }
+
+/**
+ * The steps a git convergence works through, in order (POD-2101).
+ *
+ * These are the heartbeat a source machine can produce: there is no byte count
+ * to divide, so what proves it is moving is that it has reached a later step.
+ * The names are machine strings on the wire (`phaseDetail`) and are therefore
+ * additive-only, exactly like everything else on that contract.
+ */
+export const GIT_PHASES = ['git-status', 'git-fetch', 'git-checkout'] as const
+export type GitPhase = (typeof GIT_PHASES)[number]
 
 export type GitConvergenceResult = { ok: true } | { ok: false; reason: string }
 
 function failed(reason: string): GitConvergenceResult {
   return { ok: false, reason }
+}
+
+/** The reason a step ended the whole convergence, or undefined if it ran. */
+function stoppedBy(status: number | null): 'timed-out' | 'cancelled' | undefined {
+  if (status === GIT_TIMED_OUT_STATUS) return 'timed-out'
+  if (status === GIT_ABORTED_STATUS) return 'cancelled'
+  return undefined
 }
 
 function validArgument(value: string): boolean {
@@ -65,23 +96,29 @@ function validArgument(value: string): boolean {
  *
  * The caller supplies the process runner so this safety gate can be tested
  * without executing git. No command in this sequence can erase the checkout.
+ *
+ * Every step is AWAITED, never blocking: this runs on the daemon's only thread,
+ * which also carries PTY output, the server link and hook ingest (POD-2046).
+ * Do not reintroduce a synchronous runner here.
  */
-export function convergeViaGit(
+export async function convergeViaGit(
   artifact: { repo: string; sha: string },
-  deps: { run: GitRun },
-): GitConvergenceResult {
+  deps: { run: GitRun; onPhase?: (phase: GitPhase) => void },
+): Promise<GitConvergenceResult> {
   if (!validArgument(artifact.repo) || !validArgument(artifact.sha)) {
     return failed('invalid-git-reference')
   }
 
-  const clean = deps.run('git', [
+  deps.onPhase?.('git-status')
+  const clean = await deps.run('git', [
     '-C',
     artifact.repo,
     'status',
     '--porcelain',
     '--untracked-files=all',
   ])
-  if (clean.status === GIT_TIMED_OUT_STATUS) return failed('timed-out')
+  const cleanStopped = stoppedBy(clean.status)
+  if (cleanStopped) return failed(cleanStopped)
   if (clean.status !== 0) return failed('status-failed')
   if (clean.stdout.length > 0) return failed('dirty-working-tree')
 
@@ -91,17 +128,28 @@ export function convergeViaGit(
   // same SHA with --detach needlessly abandons main, which prevents the next
   // pull from moving HEAD and therefore prevents the next dev update from ever
   // being published.
-  const current = deps.run('git', ['-C', artifact.repo, 'rev-parse', 'HEAD'])
-  if (current.status === GIT_TIMED_OUT_STATUS) return failed('timed-out')
+  const current = await deps.run('git', ['-C', artifact.repo, 'rev-parse', 'HEAD'])
+  const currentStopped = stoppedBy(current.status)
+  if (currentStopped) return failed(currentStopped)
   if (current.status !== 0) return failed('status-failed')
   if (current.stdout.trim().startsWith(artifact.sha)) return { ok: true }
 
-  const fetched = deps.run('git', ['-C', artifact.repo, 'fetch', '--all', '--prune'])
-  if (fetched.status === GIT_TIMED_OUT_STATUS) return failed('timed-out')
+  deps.onPhase?.('git-fetch')
+  const fetched = await deps.run('git', ['-C', artifact.repo, 'fetch', '--all', '--prune'])
+  const fetchedStopped = stoppedBy(fetched.status)
+  if (fetchedStopped) return failed(fetchedStopped)
   if (fetched.status !== 0) return failed('fetch-failed')
 
-  const checkedOut = deps.run('git', ['-C', artifact.repo, 'checkout', '--detach', artifact.sha])
-  if (checkedOut.status === GIT_TIMED_OUT_STATUS) return failed('timed-out')
+  deps.onPhase?.('git-checkout')
+  const checkedOut = await deps.run('git', [
+    '-C',
+    artifact.repo,
+    'checkout',
+    '--detach',
+    artifact.sha,
+  ])
+  const checkedOutStopped = stoppedBy(checkedOut.status)
+  if (checkedOutStopped) return failed(checkedOutStopped)
   if (checkedOut.status !== 0) return failed('checkout-failed')
 
   return { ok: true }

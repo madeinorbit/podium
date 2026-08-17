@@ -31,6 +31,10 @@
  *  - notification fact claims                            → store/notification-facts.ts
  *  - automations (automations/automation_runs)           → store/automations.ts
  *  - shipping (orders/attempts/steps/holds/receipts)     → store/shipping.ts
+ *  - operations (durable long-running lifecycle work)   → modules/operations/store.ts
+ *    (the one aggregate whose repository lives beside its engine rather than in
+ *    ./store/, because the operations framework ships as one module and the
+ *    table is meaningless without the state machine that writes it)
  */
 
 import { randomUUID } from 'node:crypto'
@@ -43,6 +47,7 @@ import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from './migrations/index'
+import { OperationStore } from './modules/operations/store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
@@ -142,6 +147,8 @@ export class SessionStore {
   readonly automations: AutomationsRepository
   /** Normalized, restart-safe Shipping aggregate family. */
   readonly shipping: ShippingRepository
+  /** Durable long-running operations (POD-2097) — updates now, server moves later. */
+  readonly operations: OperationStore
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
 
@@ -236,6 +243,7 @@ export class SessionStore {
     this.maintenance = new MaintenanceRepository(this.db)
     this.automations = new AutomationsRepository(this.db)
     this.shipping = new ShippingRepository(this.db)
+    this.operations = new OperationStore(this.db)
     this.messagingTopics = new MessagingTopicsRepository(this.db)
 
     // Per-boot runtime steps (environment-conditional FTS objects, one-time

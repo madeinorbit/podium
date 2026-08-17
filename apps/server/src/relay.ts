@@ -29,7 +29,12 @@ import type {
   LocalPortableStateControl,
   VisibilityResolver,
 } from '@podium/protocol'
-import { formatIssueRef, SubscriptionRegistry, wireSchemaDigest } from '@podium/protocol'
+import {
+  formatIssueRef,
+  isTerminalOperationState,
+  SubscriptionRegistry,
+  wireSchemaDigest,
+} from '@podium/protocol'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import { resolveUpdateChannel } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
@@ -64,7 +69,7 @@ import { checkIssueAccess } from './issue-authz'
 import { checkMachineUse, ownershipFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { NativeLoginService } from './modules/accounts/native-login'
-import { ApprovalService } from './modules/approvals/service'
+import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
@@ -107,6 +112,7 @@ import {
   NotifyService,
   type SessionNoticeInfo,
 } from './modules/notify/service'
+import { createOperations, type OperationsModule } from './modules/operations'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { ReadPositionService } from './modules/read-position/service'
 import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
@@ -135,6 +141,13 @@ import {
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
+import {
+  createUpdateFleetBridge,
+  exclusiveUpdateVersion,
+  LIFECYCLE_EXCLUSION_GROUP,
+  updateOperationKind,
+} from './modules/updates/operation'
+import { UpdateReconciler } from './modules/updates/reconciler'
 import { resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
@@ -203,6 +216,19 @@ export interface RegistryModules {
   sessions: SessionLifecycle
   machines: MachinesService
   updates: UpdatesService
+  /**
+   * Durable long-running operations (POD-2097) — the generic engine plus its
+   * kind registry. The registry is named here, not hidden behind the engine, so
+   * that a feature registering a new kind does it in a diff a reviewer sees.
+   */
+  operations: OperationsModule
+  /**
+   * Background convergence for machines that were asleep when an update ran
+   * (POD-2105, spec §3.6). OPTIONAL because it is pure choreography: a registry
+   * assembled without it (every fixture that builds a module set by hand) is a
+   * server that simply does not converge stragglers, not a broken one.
+   */
+  updatesReconciler?: UpdateReconciler
   rpc: DaemonRpcService
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
@@ -314,6 +340,8 @@ export class SessionRegistry {
   private readonly ledger: Ledger
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
+  /** Stalled-approval deadline (POD-2223) — modules/approvals. */
+  private readonly approvalStallSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
   private readonly issueAutoArchive: IssueAutoArchive
   /** Parent-branch movement watch (POD-384) — modules/issues. */
@@ -409,6 +437,11 @@ export class SessionRegistry {
       this.store.repos,
     )
     let updates: UpdatesService | undefined
+    // Forward-declared for the same reason `updates` is: the update SERVICE has
+    // to be able to ask whether a durable operation holds the lifecycle group
+    // (single-flight's other half, P6), and the operations module is composed
+    // further down, after everything it announces changes to.
+    let operations: OperationsModule | undefined
     const machines = new MachinesService({
       instanceId,
       ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
@@ -452,8 +485,10 @@ export class SessionRegistry {
           id: machine.id,
           name: machine.name,
           // Already the RESOLVED channel (pin, else fleet default) — see
-          // MachinesService.listMachines.
-          channel: machine.updateChannel ?? 'stable',
+          // MachinesService.listMachines. No fallback literal here: the service
+          // resolves an absent channel through the SAME helper (POD-2100), and a
+          // second literal is exactly how the two paths disagreed.
+          channel: machine.updateChannel,
           version: machine.appVersion ?? 'unreported',
           state: 'current',
           online: machine.online,
@@ -462,6 +497,9 @@ export class SessionRegistry {
           // it the wave grants updates a machine has already said it cannot
           // use, and the fleet learns by failing (POD-2004).
           ...(machine.deliveryCaps ? { deliveryCaps: machine.deliveryCaps } : {}),
+          // A daemon inside Podium Desktop is the shell's to update, never the
+          // wave's — the planner refuses to select it (POD-2099).
+          ...(machine.supervised ? { supervised: true } : {}),
         })),
       channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),
@@ -469,6 +507,19 @@ export class SessionRegistry {
       nextGrantId: () => randomUUID(),
       resolveTarget: resolveReleaseTarget,
       concurrency: 3,
+      // Read per call for the same reason `MachinesService` reads it per call:
+      // Settings → Updates writes the fleet default into config.json, and an
+      // unpinned machine must follow the CURRENT value (POD-1882).
+      fleetChannel: () => resolveUpdateChannel(),
+      // Read per call: a version published while an update is running is queued
+      // as `nextTarget` instead of mutating the running wave (POD-2098, §3.2).
+      exclusiveOperationActive: () =>
+        operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+      // …and WHICH version that operation is delivering, so an operation adopted
+      // across a restart can still be handed the package it resumed waiting for
+      // (POD-2228). This process has no memory of having published it.
+      exclusiveOperationVersion: (channel) =>
+        exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
     })
     updates = updatesService
     const requestBroker = new DaemonRequestBroker({
@@ -1574,6 +1625,9 @@ export class SessionRegistry {
       store: this.store.approvals,
       now: () => new Date().toISOString(),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      // The stall deadline runs only while a machine's daemon is actually attached:
+      // `toMachine` queues for an absent one, so that frame is parked, not lost.
+      hasDaemon: (machineId) => machines.hasDaemon(machineId),
       clients: () => clientRegistry.values(),
       sessionIssueId: (sessionId) => {
         const s = sessionsSvc.sessionById(sessionId)
@@ -2123,12 +2177,108 @@ export class SessionRegistry {
       cursors: this.store.readPositions,
       ledger,
     })
+
+    /**
+     * DURABLE OPERATIONS, AND THE ONE KIND THIS BINARY KNOWS (POD-2097/POD-2098).
+     *
+     * The registry is named on the module seam precisely so this registration is
+     * a line a reviewer can see rather than a reach-through from inside the
+     * engine. Registering `update` here — next to the `UpdatesService` it drives
+     * — is what turns "an update" from four independently polled facts into one
+     * object with an id, a plan and an outcome (spec §3.0/§3.1).
+     */
+    // Declared before the engine it reads and after the service it drives, which
+    // is the only order the cycle allows: the engine's `onChanged` has to be
+    // able to reach the reconciler, and the reconciler has to be able to ask the
+    // engine whether an operation is active. Both reads are lazy, so neither
+    // half captures the other's construction moment.
+    let updatesReconciler: UpdateReconciler | undefined
+    const operationsModule = createOperations({
+      store: this.store.operations,
+      onChanged: (row) => {
+        if (!isTerminalOperationState(row.state)) {
+          // An operation is live, so whatever background convergence did before
+          // it started is that operation's story to tell now (§3.6).
+          updatesReconciler?.onOperationStarted()
+          return
+        }
+        // THE CONSENT DIES WITH THE OPERATION THAT HELD IT (POD-2169, §3.2).
+        //
+        // FIRST of everything here, and that ordering is the fix rather than a
+        // tidiness. It was written because `releaseInFlightGrants` read
+        // `fleet()`, which continues an authorized wave from inside the read, so
+        // withdrawing second let the cleanup itself grant the next machine —
+        // after a cancel, the very thing the cancel was for. POD-2180 took that
+        // capability off the cleanup path (it reads the projection now), which
+        // makes this ordering belt AND braces rather than the only brace: the
+        // sweep below and `publishNextTargets` both run while this consent is
+        // either alive or dead, and dead is the answer for all of them.
+        updatesService.withdrawAuthorization()
+        // A version that arrived mid-update waits for the group to be free, and
+        // this is the moment it becomes free — whatever the outcome was. It
+        // re-creates the OFFER, never an operation (§3.2).
+        updatesService.publishNextTargets()
+        // POD-2101: the deadline that used to end a silent grant aged inside a
+        // `fleet()` read. The operation owns that authority now, so the moment
+        // it stops waiting is the moment those grants stop being believed. A
+        // `done` operation has nothing in flight to end — and if a late machine
+        // is still converging, it is converging successfully.
+        if (row.state !== 'done') {
+          updatesService.releaseInFlightGrants(
+            row.state === 'canceled'
+              ? 'The update was canceled while this machine was updating.'
+              : undefined,
+          )
+        }
+        // …and the same moment is when background convergence may resume. It
+        // sweeps whoever is still behind, which is also how a FAILED operation
+        // cleans up after itself without a human pressing Try again (§3.6).
+        // AFTER the release above, so the sweep sees machines whose grants have
+        // just stopped being believed rather than refusing them as in-flight.
+        updatesReconciler?.onOperationSettled(row.state)
+      },
+    })
+    operationsModule.kinds.register(updateOperationKind())
+    operations = operationsModule
+    /**
+     * The wave's own events are the operation's heartbeat (§3.3). Wired to the
+     * daemon frames and the connection edges rather than to a poll, so a step's
+     * liveness is a fact about the fleet and not about who happens to be
+     * watching the panel.
+     */
+    const updateFleetBridge = createUpdateFleetBridge({
+      engine: operationsModule.engine,
+      updates: updatesService,
+    })
+    /**
+     * THE STANDING RECONCILIATION (§3.6, POD-2105). Offline machines are
+     * `deferred` at plan time so an update can finish without them; this is what
+     * converges them afterwards, on their own reconnect, with no operation and
+     * no second click.
+     */
+    updatesReconciler = new UpdateReconciler({
+      updates: updatesService,
+      operationActive: () =>
+        operationsModule.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+    })
+    const reconciler = updatesReconciler
+    this.bus.on('machine.connected', ({ machineId }) => {
+      updateFleetBridge.onFleetChanged()
+      // The daemon's hello — and therefore the version it just booted with — is
+      // already recorded by the time this fires: `recordHelloBuild` precedes
+      // `attachDaemon` in the handshake, and `attachDaemon` is what emits this.
+      reconciler.onMachineConnected(machineId)
+    })
+    this.bus.on('machine.disconnected', () => updateFleetBridge.onFleetChanged())
+
     this.modules = {
       bus: this.bus,
       funnel,
       sessions: sessionsSvc,
       machines,
       updates: updatesService,
+      operations: operationsModule,
+      updatesReconciler: reconciler,
       rpc,
       serverTransfer,
       loginPropagation,
@@ -2295,6 +2445,14 @@ export class SessionRegistry {
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
+    // An approved op whose daemon takes the frame and never answers must not sit
+    // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
+    // daemon in the fleet is one that drops it.
+    this.approvalStallSweep = setInterval(
+      () => approvals.sweepStalledExecutions(),
+      APPROVAL_STALL_SWEEP_MS,
+    )
+    this.approvalStallSweep.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
     // jobs now run on the fenced janitor surface (parity-proven in unit tests).
     // Classes remain for tests / manual pruneNow; start() is no longer called.
@@ -2348,7 +2506,12 @@ export class SessionRegistry {
           run: (machineId, msg) => void agentRelayGate.run(machineId, msg),
         },
         updates: {
-          onUpdateStatus: (machineId, msg) => updatesService.onStatus(machineId, msg),
+          onUpdateStatus: (machineId, msg) => {
+            updatesService.onStatus(machineId, msg)
+            // …and the same frame is the running operation's progress event.
+            // The service still owns convergence; the operation only learns.
+            updateFleetBridge.onFleetChanged()
+          },
         },
       },
     })
@@ -2379,6 +2542,7 @@ export class SessionRegistry {
     this.eventRetention.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
+    clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
     this.issueAutoArchive.dispose()
     this.issueGitWatch.dispose()

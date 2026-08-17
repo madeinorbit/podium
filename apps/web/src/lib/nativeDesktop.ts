@@ -24,8 +24,16 @@ export interface NativeDesktopBridge {
   claimUpdateOwnership?: () => Promise<void>
   /** Checks a production feed; older shells may not expose this command. */
   checkUpdate?: (channel: NativeDesktopUpdateChannel) => Promise<NativeDesktopUpdateInfo | null>
-  /** Installs the signed desktop update and restarts the shell. */
-  installUpdate?: () => Promise<void>
+  /**
+   * Installs the signed desktop update and restarts the shell.
+   *
+   * The channel is an ARGUMENT (POD-2135): channel authority belongs to the
+   * server the shell is attached to, and passing it here is what stops
+   * `install_update`'s own re-check from consulting the shell's config and
+   * installing off a different channel than the one that was checked (spec §5).
+   * Older shells ignore the extra argument, which is why it stays optional.
+   */
+  installUpdate?: (channel?: NativeDesktopUpdateChannel) => Promise<void>
   /**
    * Opens a URL in the OS browser. Needed for the server's OWN URLs: the shell's link shim
    * only diverts cross-origin links, so a same-origin `_blank` lands in an in-app webview
@@ -47,6 +55,118 @@ export interface NativeDesktopBridge {
    * hub-minted pairing code. Caller restarts the shell afterwards (window.__PODIUM_RESTART__).
    */
   enableHosting?: (pairCode: string) => Promise<void>
+}
+
+/**
+ * A bounded progress report from the shell's own installer (POD-2135,
+ * `updater.rs` emits `podium://update-progress`). The Tauri callbacks used to be
+ * discarded, which is why the shell's half of an update was the one stretch with
+ * no liveness at all — spec §5 and P4 both name it.
+ */
+export interface NativeDesktopUpdateProgress {
+  phase: 'downloading' | 'installing'
+  received?: number
+  total?: number
+  percent?: number
+}
+
+/** The shell's typed failure. Same open kebab-case vocabulary as the operation's §7 codes. */
+export interface NativeDesktopUpdateError {
+  code: string
+  message: string
+}
+
+export function isNativeDesktopUpdateError(value: unknown): value is NativeDesktopUpdateError {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as { code?: unknown; message?: unknown }
+  return typeof candidate.code === 'string' && typeof candidate.message === 'string'
+}
+
+const UPDATE_PROGRESS_EVENT = 'podium://update-progress'
+
+interface TauriInternals {
+  invoke: (command: string, payload?: unknown) => Promise<unknown>
+  transformCallback: (callback: (payload: unknown) => void, once?: boolean) => number
+}
+
+function tauriInternals(): TauriInternals | undefined {
+  const internals = (globalThis as { __TAURI_INTERNALS__?: Partial<TauriInternals> })
+    .__TAURI_INTERNALS__
+  if (
+    typeof internals?.invoke !== 'function' ||
+    typeof internals.transformCallback !== 'function'
+  ) {
+    return undefined
+  }
+  return internals as TauriInternals
+}
+
+function parseProgress(payload: unknown): NativeDesktopUpdateProgress | undefined {
+  if (!payload || typeof payload !== 'object') return undefined
+  const value = payload as {
+    phase?: unknown
+    received?: unknown
+    total?: unknown
+    percent?: unknown
+  }
+  if (value.phase !== 'downloading' && value.phase !== 'installing') return undefined
+  return {
+    phase: value.phase,
+    ...(typeof value.received === 'number' ? { received: value.received } : {}),
+    ...(typeof value.total === 'number' ? { total: value.total } : {}),
+    ...(typeof value.percent === 'number' ? { percent: value.percent } : {}),
+  }
+}
+
+/**
+ * Subscribe to the shell's install progress. Returns an unsubscribe.
+ *
+ * DELIBERATELY FEATURE-DETECTED AND FULLY SWALLOWED. This runs in four places
+ * that are not a Podium shell — a browser tab, a phone, an older shell, a test
+ * — and in every one of them the honest behaviour is "no progress events", not
+ * an exception on mount. The panel's liveness degrades to the operation's own
+ * heartbeat, which is exactly what it does for every other place.
+ *
+ * The event plugin is reached through `__TAURI_INTERNALS__` rather than
+ * `@tauri-apps/api`, because the web bundle is served to browsers too and must
+ * not carry a Tauri dependency; `core:default` already grants `event:allow-listen`.
+ */
+export function onNativeDesktopUpdateProgress(
+  handler: (progress: NativeDesktopUpdateProgress) => void,
+): () => void {
+  const internals = tauriInternals()
+  if (!internals) return () => {}
+  let disposed = false
+  let stop: (() => void) | undefined
+  try {
+    const callback = internals.transformCallback((event: unknown) => {
+      const payload = (event as { payload?: unknown })?.payload ?? event
+      const progress = parseProgress(payload)
+      if (progress) handler(progress)
+    })
+    void internals
+      .invoke('plugin:event|listen', {
+        event: UPDATE_PROGRESS_EVENT,
+        target: { kind: 'Any' },
+        handler: callback,
+      })
+      .then((eventId) => {
+        const unlisten = (): void => {
+          void internals
+            .invoke('plugin:event|unlisten', { event: UPDATE_PROGRESS_EVENT, eventId })
+            .catch(() => {})
+        }
+        if (disposed) unlisten()
+        else stop = unlisten
+      })
+      .catch(() => {})
+  } catch {
+    return () => {}
+  }
+  return () => {
+    disposed = true
+    stop?.()
+  }
 }
 
 export function nativeDesktopBridge(): NativeDesktopBridge | undefined {

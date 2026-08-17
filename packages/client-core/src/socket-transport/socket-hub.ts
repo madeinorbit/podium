@@ -433,7 +433,15 @@ export interface HubEvents {
   attention: [event: AttentionEvent]
   openUrl: [request: SessionOpenUrlMessage]
   openUrlResult: [result: SessionOpenUrlResultMessage]
-  sessionDraft: [sessionId: SessionId, text: string]
+  /** A session's shared composer document changed. `meta` is the versioned-draft
+   *  stamp (Draft Sync v2) and is ABSENT from an older server — which must stay
+   *  distinguishable from rev 0, or the local arbitration reads an unstamped
+   *  document as older than everything it has ever seen. */
+  sessionDraft: [
+    sessionId: SessionId,
+    text: string,
+    meta?: { rev: number; origin?: string; editedAt?: string },
+  ]
   /** One live transcript frame: ONLY that frame's delta items — the caller owns
    *  history (see subscribeTranscript, which also manages the server-side
    *  subscription these frames depend on). */
@@ -1193,6 +1201,22 @@ export class SocketHub {
   sendSessionDraft(sessionId: SessionId, text: string): void {
     if (this.connectedFlag) this.sendRaw({ type: 'setSessionDraft', sessionId, text })
   }
+
+  /**
+   * Publish a VERSIONED draft edit (Draft Sync v2 wire), naming the rev it was
+   * typed against so the server can arbitrate it against other replicas.
+   *
+   * Returns whether the frame actually went out. That return value is the whole
+   * difference from `sendSessionDraft` above, and it is not a nicety: a draft
+   * frame dropped on a closed socket is text the server will never hear about,
+   * and the caller can only keep it dirty and re-offer it on reconnect if it is
+   * TOLD. Silently returning void here is the shape POD-2045 lost text through.
+   */
+  sendDraftEdit(sessionId: SessionId, baseRev: number, text: string): boolean {
+    if (!this.connectedFlag) return false
+    this.sendRaw({ type: 'draftEdit', sessionId, baseRev, text })
+    return true
+  }
   /** Submit a user-pasted loopback callback to the daemon that owns the session. */
   submitOpenUrlCallback(sessionId: SessionId, requestId: string, url: string): void {
     this.sendRaw({
@@ -1687,7 +1711,17 @@ export class SocketHub {
       if (changed) this.emit('sessions', this.sessionList)
     },
     sessionDraftChanged: (msg) => {
-      this.emit('sessionDraft', msg.sessionId, msg.text)
+      // Forward the stamp only when the server actually made one. `rev` is the
+      // load-bearing field; origin/editedAt ride along for diagnostics.
+      if (msg.rev === undefined) {
+        this.emit('sessionDraft', msg.sessionId, msg.text)
+        return
+      }
+      this.emit('sessionDraft', msg.sessionId, msg.text, {
+        rev: msg.rev,
+        ...(msg.origin !== undefined ? { origin: msg.origin } : {}),
+        ...(msg.editedAt !== undefined ? { editedAt: msg.editedAt } : {}),
+      })
     },
     sessionAgentStateChanged: (msg) => {
       let changed = false

@@ -29,6 +29,7 @@
     "./process-safety": "./src/process-safety.ts",
     "./sd-notify": "./src/sd-notify.ts",
     "./boot": "./src/boot.ts",
+    "./migration-ledger": "./src/migration-ledger.ts",
     "./update-delivery": "./src/update-delivery.ts",
     "./update-delivery-git": "./src/update-delivery-git.ts",
     "./source-version": "./src/source-version.ts"

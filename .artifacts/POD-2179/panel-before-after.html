@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Update panel — before and after POD-2179</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #16181d;
+        --muted: #5c6370;
+        --line: #e2e5ea;
+        --card: #f7f8fa;
+        --bad: #b3261e;
+        --good: #1a6b3c;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #14161a;
+          --fg: #e8eaee;
+          --muted: #9aa2ae;
+          --line: #2a2e36;
+          --card: #1b1e24;
+          --bad: #ef7a72;
+          --good: #6cc48e;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 2rem 1.25rem 4rem;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { max-width: 62rem; margin: 0 auto; }
+      h1 { font-size: 1.5rem; margin: 0 0 0.35rem; letter-spacing: -0.01em; }
+      .lede { color: var(--muted); margin: 0 0 2rem; max-width: 46rem; }
+      h2 { font-size: 1.05rem; margin: 2.25rem 0 0.15rem; letter-spacing: -0.005em; }
+      h2 + p { color: var(--muted); margin: 0 0 0.9rem; }
+      .pair { display: grid; gap: 0.75rem; grid-template-columns: 1fr; }
+      @media (min-width: 46rem) { .pair { grid-template-columns: 1fr 1fr; } }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--card);
+        padding: 0.85rem 1rem 1rem;
+      }
+      .tag {
+        font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        display: inline-block;
+        margin-bottom: 0.6rem;
+      }
+      .before .tag { color: var(--bad); }
+      .after .tag { color: var(--good); }
+      .title { font-weight: 650; margin: 0 0 0.15rem; }
+      .subtitle { color: var(--muted); margin: 0 0 0.7rem; }
+      ul.steps { list-style: none; margin: 0 0 0.7rem; padding: 0; }
+      ul.steps li { padding: 0.15rem 0; }
+      .sub {
+        display: block;
+        color: var(--muted);
+        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        padding-left: 1.35rem;
+      }
+      .button {
+        display: inline-block;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 0.3rem 0.75rem;
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+      .none { color: var(--muted); font-size: 0.9rem; }
+      .meta { color: var(--muted); font-size: 0.83rem; margin-top: 0.7rem; }
+      .note {
+        border-left: 3px solid var(--line);
+        padding: 0.1rem 0 0.1rem 0.9rem;
+        color: var(--muted);
+        margin: 0.9rem 0 0;
+        max-width: 46rem;
+      }
+      footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem; color: var(--muted); font-size: 0.88rem; }
+      code { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Update panel — before and after</h1>
+      <p class="lede">
+        Three views of the update panel, computed by the real view function on both sides of
+        this change: the left column is the integration tip, the right column is this branch.
+        Captured with <code>.artifacts/POD-2179/capture-panel.ts</code> run once per checkout —
+        no build and no browser, because the panel is a pure function of the operation the
+        server serves (spec §6).
+      </p>
+
+      <h2>1 · A fleet update, one machine converged and one still downloading</h2>
+      <p>Places: <code>alpha current 100%</code>, <code>beta downloading 62%</code>.</p>
+      <div class="pair">
+        <div class="panel before">
+          <span class="tag">Before</span>
+          <p class="title">Podium 0.4.4 is being applied</p>
+          <p class="subtitle">Updating your machines</p>
+          <ul class="steps">
+            <li>◐ Updating your machines<span class="sub">1 of 2 · alpha current 100%</span></li>
+          </ul>
+          <p class="meta">
+            Names the machine that has finished, and keeps naming it for the whole of beta's
+            download — the only machine the user is actually waiting for is never mentioned.
+          </p>
+        </div>
+        <div class="panel after">
+          <span class="tag">After</span>
+          <p class="title">Podium 0.4.4 is being applied</p>
+          <p class="subtitle">Updating your machines</p>
+          <ul class="steps">
+            <li>◐ Updating your machines<span class="sub">1 of 2 · beta downloading 62%</span></li>
+          </ul>
+          <p class="meta">§6.2's worked example, which the old filter could not produce.</p>
+        </div>
+      </div>
+
+      <h2>2 · The same update after beta reports a dirty checkout</h2>
+      <p>Places: <code>alpha current 100%</code>, <code>beta stuck</code>, <code>macbook pending</code>.</p>
+      <div class="pair">
+        <div class="panel before">
+          <span class="tag">Before</span>
+          <p class="title">Podium 0.4.4 is being applied</p>
+          <p class="subtitle">Updating your machines</p>
+          <ul class="steps">
+            <li>◐ Updating your machines<span class="sub">1 of 3 · alpha current 100%</span></li>
+          </ul>
+          <p class="meta">
+            On a stalled step this line is the only place a machine gets named at all, and the
+            machine it names is a healthy one.
+          </p>
+        </div>
+        <div class="panel after">
+          <span class="tag">After</span>
+          <p class="title">Podium 0.4.4 is being applied</p>
+          <p class="subtitle">Updating your machines</p>
+          <ul class="steps">
+            <li>◐ Updating your machines<span class="sub">1 of 3 · beta stuck</span></li>
+          </ul>
+          <p class="meta">Nothing is moving, so the machine that said why is the news.</p>
+        </div>
+      </div>
+
+      <h2>3 · A browser tab watching an all-in-one update</h2>
+      <p>
+        The plan is empty and the one required ask belongs to the desktop shell on
+        <code>ludovico</code>; the tab is behind by construction, because the server cannot be
+        replaced until that shell installs.
+      </p>
+      <div class="pair">
+        <div class="panel before">
+          <span class="tag">Before</span>
+          <p class="title">Podium 0.4.4 is ready here</p>
+          <p class="subtitle">The shared steps are done. This page is the last one.</p>
+          <p><span class="button">Reload</span></p>
+          <p class="meta">
+            All three are false: no step ran, the page is not the last one, and reloading
+            fetches the same old bundle from the same un-updated server. Indicator:
+            “Reload to finish”.
+          </p>
+        </div>
+        <div class="panel after">
+          <span class="tag">After</span>
+          <p class="title">Podium 0.4.4 is finishing elsewhere</p>
+          <p class="subtitle">Finish this in Podium Desktop on ludovico. on m_host</p>
+          <p class="none">No button — this surface cannot take this action (P5).</p>
+          <p class="meta">Indicator: “Update waiting for another place”.</p>
+        </div>
+      </div>
+
+      <p class="note">
+        The trailing <code>on m_host</code> in that last sentence is a separate defect, filed
+        as POD-2182 rather than folded in here: the ask carries the machine's ID in
+        <code>place</code> while its detail names the machine, so the sentence builder appends
+        an id it thinks is missing. It has been there all along — this change is what makes a
+        browser read the sentence at all.
+      </p>
+
+      <footer>
+        Evidence: <code>apps/web</code> vitest, 8 files / 152 tests green (the six
+        <code>features/updates</code> suites plus the two Settings suites that import from this
+        module). Four assertions were red before the change, naming the exact wrong strings in
+        the left column above. <code>@podium/web</code> typecheck failure set is byte-identical
+        to the fork point (887c9188c): the same 10 pre-existing errors, none in this feature.
+      </footer>
+    </main>
+  </body>
+</html>

@@ -13,6 +13,22 @@ type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
 /** The delivery result is deliberately small: verification happens before this seam. */
 export type GrantArtifact = { bytes: Uint8Array } | { git: true }
 
+/**
+ * What a delivery in flight says about itself — structurally `DeliveryProgress`
+ * from `@podium/runtime/update-delivery`, restated here so this file keeps
+ * depending on nothing but the protocol it reports over.
+ *
+ * The CADENCE IS NOT DECIDED HERE. Delivery already gates its reports (every
+ * 2 s or every 5 points, `decideProgressReport`), so every call becomes a frame:
+ * two places deciding when to speak is how one of them ends up silent.
+ */
+export interface GrantProgress {
+  phase: string
+  percent?: number
+  receivedBytes?: number
+  totalBytes?: number
+}
+
 export interface GrantApplyDeps {
   /** Read the label currently running, without ordering or semver parsing it. */
   currentVersion(): string
@@ -33,9 +49,26 @@ export interface GrantApplyDeps {
     asset: PlatformAsset | GitArtifact,
     delivery: UpdateArtifact['delivery'],
     signal?: AbortSignal,
+    onProgress?: (progress: GrantProgress) => void,
   ): Promise<GrantArtifact>
   /** Binary swap only. Database state is intentionally not part of this phase. */
   swap(bytes: Uint8Array): void | Promise<void>
+  /**
+   * Why this daemon must not converge TO THIS TARGET, checked before any byte
+   * is fetched and any checkout is moved (POD-2210, POD-2213). Absent, or
+   * answering `undefined`, is the ordinary daemon that may.
+   *
+   * A first-person refusal, and it has to be: the server can only know what a
+   * daemon tells it, and this daemon's reasons — its exit would stop the server
+   * sharing its process; its database has migrated past what that build can
+   * open — are not facts about the release, the platform or the delivery
+   * method, which is everything the caps negotiation can express.
+   *
+   * The TARGET is handed over because the second reason depends on it: the same
+   * daemon may converge happily to one version and be unable to survive
+   * another.
+   */
+  refuse?(target: UpdateGrantMessage['target']): string | undefined
   /** Persist before asking the process manager to restart us. */
   writePending(grant: PendingGrant): void
   restart(): void
@@ -56,6 +89,7 @@ function report(
   state: ConvergenceState,
   version: string,
   detail?: string,
+  progress?: GrantProgress,
 ): void {
   deps.report({
     type: 'updateStatus',
@@ -63,6 +97,8 @@ function report(
     state,
     version,
     ...(detail ? { detail } : {}),
+    ...(progress?.percent !== undefined ? { percent: progress.percent } : {}),
+    ...(progress?.phase ? { phaseDetail: progress.phase } : {}),
   })
 }
 
@@ -94,10 +130,40 @@ export async function applyGrant(
     report(deps, grant, 'rejected', current, `cannot converge: ${plan.reason}`)
     return
   }
+  /**
+   * AFTER `already-current`, BEFORE `downloading` (POD-2210, POD-2213).
+   *
+   * After, because a daemon that is already on the target has nothing to refuse
+   * and saying `current` keeps its fleet row true. Before, because the whole
+   * value of this refusal is that nothing was fetched, swapped or checked out —
+   * see `refuseConvergence` for why a half-applied convergence is worse here
+   * than a refused one, and `refuseSchemaRegression` for the refusal where
+   * "later" would mean a server that cannot open its own database and cannot be
+   * updated back.
+   */
+  const refusal = deps.refuse?.(grant.target)
+  if (refusal) {
+    report(deps, grant, 'rejected', current, refusal)
+    return
+  }
   report(deps, grant, 'downloading', current)
   try {
     const asset = plan.delivery === 'git' ? plan.artifact : plan.asset
-    const artifact = await deps.fetchArtifact(asset, plan.delivery, signal)
+    /**
+     * THE HEARTBEAT (POD-2101, spec §3.3). Same grant id, same `downloading`
+     * state, new numbers — so a server that predates this reads each one as the
+     * phase report it already understood, and one that does not sees the
+     * download move.
+     *
+     * A SUPERSEDED GRANT GOES QUIET. Delivery cancellation is best-effort (git
+     * steps finish what they started), and a report from a grant the server has
+     * replaced would refresh the liveness of a convergence nobody is waiting
+     * for.
+     */
+    const artifact = await deps.fetchArtifact(asset, plan.delivery, signal, (progress) => {
+      if (signal?.aborted) return
+      report(deps, grant, 'downloading', current, undefined, progress)
+    })
     // A superseded grant must not swap a binary or write a rollback marker: the
     // grant it would claim to be applying is no longer the one the server holds.
     if (signal?.aborted) return
@@ -127,9 +193,10 @@ export async function applyGrant(
  * NEWER grant cancels the one in flight before taking over.
  *
  * "Cancels" is bounded by what the delivery can honour — a network download
- * aborts, a synchronous git checkout runs to its own timeout — but the
- * superseded run is always AWAITED before the new one starts, so two
- * applications can never swap a binary or write a rollback marker concurrently.
+ * aborts, and since POD-2046 so do the git steps, which are awaited rather than
+ * blocking — but the superseded run is always AWAITED before the new one
+ * starts, so two applications can never swap a binary or write a rollback
+ * marker concurrently.
  */
 export function createGrantRunner(deps: GrantApplyDeps): {
   apply(grant: UpdateGrantMessage): Promise<void>

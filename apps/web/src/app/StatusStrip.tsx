@@ -4,6 +4,8 @@ import { isAgentComputing } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
+import { UpdateIndicator } from '@/features/updates/UpdateIndicator'
+import { useUpdates } from '@/features/updates/updates-panel-context'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
 import { StatusPerformanceStats } from './StatusPerformanceStats'
 import { useReplicaIssues, useStoreSelector } from './store'
@@ -50,6 +52,10 @@ export function StatusStrip(): JSX.Element {
   )
   const issues = useReplicaIssues()
   const { health, visible: connVisible } = useStableConnection()
+  // The update affordance (POD-2102). It passes the same test as the rest of
+  // the strip: window-scoped, stated nowhere else, and present only while it is
+  // a FACT — there is an update, or one is running, or one failed.
+  const updates = useUpdates()
 
   // Liveness is part of the question, not just the phase: a session that exited
   // mid-turn keeps `phase: 'working'` (the server preserves the final turn
@@ -78,6 +84,17 @@ export function StatusStrip(): JSX.Element {
               titleClassName="status-strip-issue-title"
             />
           </span>
+        </>
+      )}
+      {updates.indicator !== 'none' && (
+        <>
+          <span className="status-strip-seam" aria-hidden="true" />
+          <UpdateIndicator
+            state={updates.indicator}
+            label={updates.indicatorLabel}
+            open={updates.open}
+            onToggle={updates.toggle}
+          />
         </>
       )}
       {/* Only while degraded or down — a permanent "linked" is noise, the same

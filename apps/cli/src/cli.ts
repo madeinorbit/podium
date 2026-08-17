@@ -13,6 +13,7 @@
 
 import { asSessionId, isAgentKind, type MachineId } from '@podium/model'
 import {
+  ApprovalChannelTarget,
   type ApprovalOp,
   FEATURES,
   type FeatureId,
@@ -29,6 +30,7 @@ import {
   resolveAgentRelay,
   resolveFeatureOverrides,
   resolveInstanceId,
+  resolveLoggingMode,
   resolvePort,
   resolveRunRecordMode,
   resolveUpdateChannel,
@@ -183,6 +185,10 @@ export type LaunchPlan =
       claimRole: 'server' | 'daemon' | 'all-in-one' | undefined
       /** How the run-registry record is labeled (systemd unit / detached spawn / plain). */
       runRecordMode: 'systemd' | 'detached' | 'foreground'
+      /** Which sink this process's records go to. Usually the same answer as
+       *  `runRecordMode`; the desktop sidecar is the case where it is not,
+       *  because its inherited stdout is discarded — see `resolveLoggingMode`. */
+      logSinkMode: 'systemd' | 'detached' | 'foreground'
       /** Present iff roles.daemon. */
       daemonAuth: DaemonAuthKind | undefined
       /** Mode + connection inputs (feeds daemonOptionsForPlan at execute time). */
@@ -407,11 +413,16 @@ export function resolvePlan(
     if (argv[0] === 'update') return { kind: 'approval-request', op: { kind: 'update' } }
     if (argv[0] === 'stop') return { kind: 'approval-request', op: { kind: 'stop' } }
     if (argv[0] === 'channel' && argv[1]) {
-      return argv[1] === 'stable' || argv[1] === 'edge'
-        ? { kind: 'approval-request', op: { kind: 'channel', target: argv[1] } }
+      // Validated against the WIRE enum, not a repeated literal list: the broker
+      // is what refuses, so the planner must range over exactly what it accepts.
+      // The list used to be spelled out here and drifted — an agent could not
+      // request `dev` after the operator path learned it (POD-2199).
+      const target = ApprovalChannelTarget.safeParse(argv[1])
+      return target.success
+        ? { kind: 'approval-request', op: { kind: 'channel', target: target.data } }
         : {
             kind: 'usage-error',
-            message: `podium channel must be stable or edge (got '${argv[1]}')`,
+            message: `podium channel must be ${ApprovalChannelTarget.options.join(', ')} (got '${argv[1]}')`,
           }
     }
     if (argv[0] === 'set-server' && argv[1]) {
@@ -624,6 +635,7 @@ export function resolvePlan(
           ? ('all-in-one' as const)
           : undefined
   const runRecordMode = resolveRunRecordMode(env)
+  const logSinkMode = resolveLoggingMode(env)
   const daemonAuth = !runDaemon
     ? undefined
     : modePlan.mode === 'daemon'
@@ -637,6 +649,7 @@ export function resolvePlan(
     roles: { server: runServer, daemon: runDaemon },
     claimRole,
     runRecordMode,
+    logSinkMode,
     daemonAuth,
     modePlan,
     showSetupHint: forceSetup || modePlan.showSetupHint,
@@ -695,7 +708,8 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '',
     'Self-update:',
     '  update                Self-update from the configured channel feed',
-    '  channel [stable|edge] Show or switch the update channel',
+    '  channel [stable|edge|dev]',
+    '                        Show or switch the update channel',
     '',
     'Privacy:',
     '  telemetry             Show telemetry state (opt-in; off unless you turned it on)',
@@ -800,6 +814,13 @@ export interface DaemonStartOptions {
   installGrokHooks?: boolean
   /** In-process daemon↔server channel [POD-196] — all-in-one mode only. */
   localLink?: LocalDaemonLink
+  /**
+   * All-in-one only: this daemon's exit would stop the server too, because they
+   * are one PID (POD-2210). The daemon refuses updates rather than converging
+   * into a stop nothing would undo — see `refuseConvergence` in apps/daemon.
+   * Only the launcher can answer this, which is why it is passed and not sniffed.
+   */
+  exitStopsServer?: boolean
 }
 
 /** Build the daemon auth/options for modes that actually run a daemon. */
@@ -826,6 +847,12 @@ export function daemonOptionsForPlan(
   return {
     serverUrl,
     ...localAuth,
+    // THE FACT ONLY THIS FUNCTION KNOWS (POD-2210). `all-in-one` here is by
+    // construction the IN-PROCESS one: the systemd and detached shapes are
+    // resolved to their own launch plans long before this, and each of their
+    // components starts as its own process with its own manager. So this is
+    // exactly the shape whose daemon must not exit to finish an update.
+    ...(plan.mode === 'all-in-one' ? { exitStopsServer: true } : {}),
     installCodexHooks: true,
     installGrokHooks: true,
     ...(plan.mode === 'daemon' && plan.pairCode ? { pairCode: plan.pairCode } : {}),
@@ -910,7 +937,7 @@ async function runInProcess(
   // run and the console the CLI already chose is the right answer.
   const { configureProcessLogging } = await import('@podium/runtime/logging')
   const componentLogging = plan.claimRole
-    ? configureProcessLogging({ role: plan.claimRole, mode: plan.runRecordMode })
+    ? configureProcessLogging({ role: plan.claimRole, mode: plan.logSinkMode })
     : undefined
 
   // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a

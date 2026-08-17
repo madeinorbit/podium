@@ -1,4 +1,4 @@
-import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, FIRST_ADMIN_USER_ID, type UpdateChannel } from '@podium/model'
 import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
@@ -167,6 +167,275 @@ describe('fleet default update channel', () => {
   })
 })
 
+/**
+ * POD-2100. The disagreement this replaces was not subtle:
+ * `UpdatesService.channelOf` resolved a machine with no pin to `dev` while
+ * `machines.setUpdateChannel` and `machines.applyUpdate` resolved the SAME
+ * machine to `stable`. Which authority a machine belonged to depended on which
+ * code path asked, which decides which target it is granted.
+ *
+ * The claim under test is an identity, so the test states it as one: one machine,
+ * three paths, one channel.
+ */
+describe('one default channel', () => {
+  function addMachine(registry: ReturnType<typeof harness>['registry'], id: string) {
+    registry.sessionStore.machines.upsertMachine({
+      id,
+      name: id,
+      hostname: id,
+      tokenHash: `${id}-token`,
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+  }
+
+  it('resolves an unpinned machine identically through channelOf and both fleet handlers', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'edge'
+    const { registry, caller } = harness()
+    addMachine(registry, 'unpinned')
+    const refreshTarget = vi
+      .spyOn(registry.modules.updates, 'refreshTarget')
+      .mockResolvedValue(undefined)
+
+    const machine = registry.modules.updates.fleet().find((row) => row.id === 'unpinned')
+    expect(machine).toBeDefined()
+    expect(registry.modules.updates.channelOf(machine as never)).toBe('edge')
+
+    await caller.machines.setUpdateChannel({ id: 'unpinned', channel: null })
+    await caller.machines.applyUpdate({ id: 'unpinned' })
+
+    // Not merely "each handler refreshed something" — the SAME channel the
+    // service would grant against, twice.
+    expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['edge', 'edge'])
+    registry.dispose()
+  })
+
+  it('follows the fleet default onto dev as readily as onto stable', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'dev'
+    const { registry, caller } = harness()
+    addMachine(registry, 'unpinned')
+    const refreshTarget = vi
+      .spyOn(registry.modules.updates, 'refreshTarget')
+      .mockResolvedValue(undefined)
+
+    const machine = registry.modules.updates.fleet().find((row) => row.id === 'unpinned')
+    expect(registry.modules.updates.channelOf(machine as never)).toBe('dev')
+
+    await caller.machines.applyUpdate({ id: 'unpinned' })
+
+    expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['dev'])
+    registry.dispose()
+  })
+
+  it('lets a pin win over the fleet default on every path', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'edge'
+    const { registry, caller } = harness()
+    addMachine(registry, 'pinned')
+    registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
+    const refreshTarget = vi
+      .spyOn(registry.modules.updates, 'refreshTarget')
+      .mockResolvedValue(undefined)
+
+    const machine = registry.modules.updates.fleet().find((row) => row.id === 'pinned')
+    expect(registry.modules.updates.channelOf(machine as never)).toBe('stable')
+
+    await caller.machines.applyUpdate({ id: 'pinned' })
+
+    expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['stable'])
+    registry.dispose()
+  })
+})
+
+/**
+ * Spec §9.2 makes the refresh cadence part of the contract — "checked 2 h ago"
+ * has to be renderable, which means the check has to be recorded and exposed.
+ */
+describe('release target checks', () => {
+  /** The release feed is stubbed: a unit lane must never reach the network. */
+  const offline = () =>
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('getaddrinfo ENOTFOUND'))
+
+  it('exposes per-channel checked-at and outcome on the fleet payload', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'stable'
+    const fetchSpy = offline()
+    const { registry, caller } = harness()
+    await registry.modules.updates.refreshTarget('stable')
+
+    const fleet = await caller.updates.fleet()
+
+    expect(fleet.channelChecks).toEqual([
+      {
+        channel: 'stable',
+        checkedAt: expect.any(Number),
+        outcome: {
+          status: 'unavailable',
+          reason: 'stable target unavailable: getaddrinfo ENOTFOUND',
+        },
+      },
+    ])
+    fetchSpy.mockRestore()
+    registry.dispose()
+  })
+
+  it('has nothing to say about a channel it has never checked', async () => {
+    const { registry, caller } = harness()
+
+    await expect(caller.updates.fleet()).resolves.toMatchObject({ channelChecks: [] })
+    registry.dispose()
+  })
+
+  it('checkNow checks the channels in use and returns their outcomes', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'stable'
+    const fetchSpy = offline()
+    const { registry, caller } = harness()
+
+    const results = await caller.updates.checkNow()
+
+    // The host machine is pinned to `dev` by the harness, and the fleet default
+    // is `stable`; both are in use, nothing else is — `edge` is not polled for
+    // nobody's benefit.
+    expect(results.map((record) => record.channel)).toEqual(['dev', 'stable'])
+    expect(results.every((record) => record.outcome.status === 'unavailable')).toBe(true)
+    fetchSpy.mockRestore()
+    registry.dispose()
+  })
+})
+
+/**
+ * THE FLEET READ MODEL FOLLOWS THE OPERATION'S AUTHORITY (POD-2222/POD-2212).
+ *
+ * POD-2100 narrowed this read model to the `dev` authority, with a stated
+ * reason: edge and stable machines carry their own per-row targets, and
+ * comparing them against the DEV target would invent behind places the global
+ * action could not grant. That reasoning was right and its premise expired —
+ * POD-2189 made the global action's authority the HOST's own channel, so on a
+ * stable installation the read model and the action stopped describing the same
+ * wave. The consequence the live drive found: a stable-pinned installation is
+ * never counted as behind, and so is never OFFERED the update it could take.
+ *
+ * The widening is therefore exactly one channel wide — the same
+ * `operationChannel` the mutation uses — which is what keeps "no invented
+ * grantable places" true: the set counted here IS the set that mutation grants.
+ */
+describe('the fleet counted is the fleet the global action would grant', () => {
+  const hostAt = (
+    registry: ReturnType<typeof harness>['registry'],
+    channel: UpdateChannel,
+    appVersion: string,
+  ) => {
+    const id = registry.sessionStore.hostMachineId
+    registry.modules.machines.setUpdateChannel(id, channel)
+    registry.modules.machines.setMachineBuild(id, { appVersion }, [], '2026-08-13T00:00:00.000Z')
+  }
+
+  /** THE DEFECT: a real stable release, a host behind it, and a read model that
+   *  reported an empty dev wave — `targetVersion` null, nothing behind. */
+  it('counts a stable-pinned host as behind its own stable target', async () => {
+    const { registry, caller } = harness()
+    hostAt(registry, 'stable', '0.1.2')
+    registry.modules.updates.setTarget('stable', target('0.1.3'))
+
+    const fleet = await caller.updates.fleet()
+
+    expect(fleet.targetVersion).toBe('0.1.3')
+    expect(fleet.total).toBe(1)
+    expect(fleet.behind).toBe(1)
+    expect(fleet.machines.map((machine) => machine.id)).toEqual([
+      registry.sessionStore.hostMachineId,
+    ])
+    registry.dispose()
+  })
+
+  /**
+   * WHY THE READ MODEL IS PART OF THE OFFER AND NOT ONLY OF SETTINGS.
+   *
+   * Fixing `/version` alone is enough whenever the COORDINATOR is itself behind,
+   * because `serverBehind` then produces a place and the panel has something to
+   * show. This is the fleet where it is not: the coordinator is current, its
+   * website is current, and the only place left to name is other machines —
+   * which `describeUpdate` draws from `fleet.behind` alone. Dev-scoped, that
+   * count is zero on a stable fleet, `placesFor` returns nothing, and
+   * `describeUpdate` answers `{state:'none'}`: no offer, for a wave
+   * `updates.start` would plan and grant in full.
+   */
+  it('counts a behind stable machine when the coordinator itself is current', async () => {
+    const { registry, caller } = harness()
+    hostAt(registry, 'stable', '0.1.3')
+    registry.sessionStore.machines.upsertMachine({
+      id: 'stable-vps',
+      name: 'VPS',
+      hostname: 'vps',
+      tokenHash: 'vps-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
+    registry.modules.machines.setMachineBuild(
+      asMachineId('stable-vps'),
+      { appVersion: '0.1.2' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget('stable', target('0.1.3'))
+
+    const fleet = await caller.updates.fleet()
+
+    expect(fleet.total).toBe(2)
+    // The one number the panel's remaining place row is drawn from.
+    expect(fleet.behind).toBe(1)
+    registry.dispose()
+  })
+
+  /**
+   * THE NARROWING THAT MUST SURVIVE. A dev coordinator still counts only its
+   * dev wave: a stable machine sitting in the same directory is not the global
+   * action's business, keeps its own per-row action, and must not appear as a
+   * behind place this dialog cannot move.
+   */
+  it('still leaves an off-channel machine out of the wave the dialog counts', async () => {
+    const { registry, caller } = harness()
+    hostAt(registry, 'dev', 'dev+47a01e3')
+    registry.sessionStore.machines.upsertMachine({
+      id: 'stable-vps',
+      name: 'VPS',
+      hostname: 'vps',
+      tokenHash: 'vps-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
+    registry.modules.machines.setMachineBuild(
+      asMachineId('stable-vps'),
+      { appVersion: '0.1.2' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget('dev', target('dev+47a01e3'))
+    registry.modules.updates.setTarget('stable', target('0.1.3'))
+
+    const fleet = await caller.updates.fleet()
+
+    expect(fleet.targetVersion).toBe('dev+47a01e3')
+    expect(fleet.total).toBe(1)
+    expect(fleet.behind).toBe(0)
+    // Settings still gets every row, so the stable machine's own convergence
+    // remains visible where its own action lives.
+    expect(fleet.allMachines.map((machine) => machine.id)).toContain('stable-vps')
+    registry.dispose()
+  })
+
+  /** The invariant behind both cases, asserted directly rather than implied. */
+  it('scopes the wave to the same channel the operation would be computed on', async () => {
+    const { registry, caller } = harness()
+    hostAt(registry, 'stable', '0.1.2')
+    registry.modules.updates.setTarget('stable', target('0.1.3'))
+
+    const fleet = await caller.updates.fleet()
+    const channel = registry.modules.updates.operationChannel(registry.sessionStore.hostMachineId)
+
+    expect(channel).toBe('stable')
+    expect(fleet.targetVersion).toBe(registry.modules.updates.target(channel)?.version)
+    registry.dispose()
+  })
+})
+
 describe('updates tRPC', () => {
   it('reports coordinator preparation readiness and failures with the fleet', async () => {
     const preparation = {
@@ -180,13 +449,43 @@ describe('updates tRPC', () => {
     registry.dispose()
   })
 
-  it('refuses a convergence request when no target is configured', async () => {
+  /**
+   * §6.3's last line: never show an internal precondition as an error. "No
+   * update target is configured." is the internal precondition — it describes
+   * the server's own bookkeeping and tells the operator nothing they can act
+   * on. An empty channel is an ordinary state of the world, and it is sayable.
+   */
+  it('refuses a convergence request in prose when nothing is published', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const { registry, caller } = harness()
 
     await expect(caller.updates.converge()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: 'No update target is configured.',
+      message: 'Nothing has been published on the development channel yet.',
+    })
+    registry.dispose()
+  })
+
+  /**
+   * POD-2197. A dirty source checkout is the reason a target is missing, and the
+   * publisher already knows the sentence — "The source checkout has 2
+   * uncommitted changes and no longer matches HEAD (ee135e3). Commit or stash
+   * them to publish dev+ee135e3." Observed live (POD-2194): that sentence stayed
+   * in `preparation.failureDetail` while the caller was told "No update target
+   * is configured.", which is both the banned string and the useless half.
+   */
+  it('quotes the publisher when it is the reason there is no target', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+ee135e3'
+    const detail =
+      'The source checkout has 2 uncommitted changes and no longer matches HEAD (ee135e3). ' +
+      'Commit or stash them to publish dev+ee135e3.'
+    const { registry, caller } = harness({
+      updatePreparation: () => ({ webReady: false, bundleReady: false, failureDetail: detail }),
+    })
+
+    await expect(caller.updates.converge()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: detail,
     })
     registry.dispose()
   })
@@ -234,6 +533,85 @@ describe('updates tRPC', () => {
     const result = await caller.updates.converge()
     expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
     expect(requestWebRebuild).toHaveBeenCalledOnce()
+    registry.dispose()
+  })
+
+  /**
+   * POD-2195, END TO END. A machine running from source advertises git delivery
+   * and nothing else; the bare `dev+<sha>` identity the publisher puts up names
+   * a repo and a sha, which is everything that machine needs. Spec §9.2: it
+   * needs no build and no download. So the update must reach it WITHOUT the
+   * server first packing a tarball nothing in this plan will read.
+   *
+   * Observed on the live box before this fix (POD-2194): the plan was
+   * [prepare, machines, web], the only machine in the fleet advertised
+   * `update.delivery.git` alone, and it sat at "Waiting for the update package."
+   */
+  function sourceFleet(requestDestBundle: () => Promise<unknown>) {
+    const { registry, caller } = harness({ servedWebDigest: '47a01e3', requestDestBundle })
+    const grants: unknown[] = []
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.sessionStore.machines.upsertMachine({
+      id: 'source-machine',
+      name: 'Source',
+      hostname: 'source',
+      tokenHash: 'source-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('source-machine'), 'dev')
+    // The caps a daemon running from a checkout reports (`build-report.ts`):
+    // git and nothing else. It cannot take a tarball, and does not need one.
+    registry.modules.machines.setMachineBuild(
+      asMachineId('source-machine'),
+      { appVersion: 'dev+aaaaaaa' },
+      ['update.delivery.git'],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon('source-machine', (message) => grants.push(message))
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: {
+        web: { digest: '47a01e3' },
+        headlessAlternatives: [{ delivery: 'git', repo: '/src/podium', sha: '47a01e3' }],
+      },
+    } as UpdateTarget)
+    return { registry, caller, grants }
+  }
+
+  it('grants a source machine its own commit without packing anything', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+    const requestDestBundle = vi.fn().mockResolvedValue(undefined)
+    const { registry, caller, grants } = sourceFleet(requestDestBundle)
+
+    const result = await caller.updates.converge()
+    expect(result).toMatchObject({
+      state: 'in-progress',
+      version: 'dev+47a01e3',
+      grantedMachineIds: ['source-machine'],
+    })
+    expect(requestDestBundle).not.toHaveBeenCalled()
+    expect(grants).toHaveLength(1)
+    registry.dispose()
+  })
+
+  /**
+   * The read model has to agree with the wave, or Settings tells the operator
+   * nothing is happening while a machine is mid-fetch. Its `grantable` flag
+   * asked the target-only question too, so a source fleet's live counts were
+   * zeroed for the want of a tarball nobody wanted.
+   */
+  it('counts a source machine mid-grant as converging', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+    const { registry, caller } = sourceFleet(vi.fn().mockResolvedValue(undefined))
+
+    await caller.updates.converge()
+    await expect(caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
     registry.dispose()
   })
 
@@ -327,12 +705,21 @@ describe('updates tRPC', () => {
 
     const result = await caller.updates.converge()
     expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
-    expect(requestWebRebuild).toHaveBeenCalledOnce()
+    /**
+     * ORDER REVERSED, DELIBERATELY (POD-2098). The old choreography rebuilt the
+     * website first and then packed around it. The operation packs first,
+     * because an EXPLICIT pack rebuilds `apps/web/dist` on its way to the
+     * tarball (`decideWebDist`) — so the website is a consequence of preparing,
+     * not a separate round, and the `web` step's reality check then usually
+     * passes without acting. One build instead of two.
+     */
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
-    expect(requestDestBundle.mock.invocationCallOrder[0]).toBeGreaterThan(
-      requestWebRebuild.mock.invocationCallOrder[0] ?? 0,
-    )
+    // Nothing is granted while the target is still a bare identity: the wave
+    // may not learn by failing (POD-2004), and the `machines` step says so by
+    // staying in flight rather than by handing out a package that does not
+    // exist.
     expect(grants).toEqual([])
+    expect(requestWebRebuild).not.toHaveBeenCalled()
     registry.dispose()
   })
 
@@ -401,7 +788,18 @@ describe('updates tRPC', () => {
     registry.dispose()
   })
 
-  it('redeploys this server when dest packaging fails and the server is behind', async () => {
+  /**
+   * REPLACES "redeploys this server when dest packaging fails and the server is
+   * behind" (POD-2098, spec §7).
+   *
+   * Restarting anyway was a silent substitution: the operator asked for an
+   * update of every place and got one place, with the failure visible only as a
+   * log line. `preparation-failed` is a TYPED outcome with a sentence and a next
+   * action, and the operation it attaches to is retryable — which is the whole
+   * of P7. Nothing was handed out before the pack failed, so nothing is
+   * half-applied by refusing to continue.
+   */
+  it('fails with a typed preparation error instead of silently redeploying', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
     const requestCoordinatorRestart = vi.fn()
     const requestDestBundle = vi.fn().mockRejectedValue(new Error('compile failed'))
@@ -422,8 +820,17 @@ describe('updates tRPC', () => {
       artifacts: { web: { digest: '47a01e3' } },
     })
 
-    await caller.updates.converge()
-    await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
+    // The legacy alias has only one failure channel — a rejection — so that is
+    // how the shipped dialog still hears about it.
+    await expect(caller.updates.converge()).rejects.toThrow('compile failed')
+    expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+
+    // …and the operation itself is on record, typed and retryable.
+    const failed = await caller.operations.history({ kind: 'update' })
+    expect(failed[0]).toMatchObject({
+      state: 'failed',
+      error: { code: 'preparation-failed' },
+    })
     registry.dispose()
   })
 
@@ -458,7 +865,40 @@ describe('updates tRPC', () => {
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+
+    /**
+     * THE PACK RESOLVES, AND THE SERVER STILL DOES NOT RESTART YET.
+     *
+     * This is the step ordering the old 250 ms poll loop
+     * (`restartCoordinatorAfterDevelopmentFleet`) used to express: the machines
+     * go first, because restarting this process is what ends the process
+     * driving them. It is now simply the order of the plan — `machines` before
+     * `server` — with no loop and no 60-minute backstop.
+     */
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: {
+        web: { digest: '47a01e3' },
+        headless: {
+          delivery: 'bundle',
+          platforms: { 'linux-x64': { url: 'http://bundle', digest: 'd', signature: 's' } },
+        },
+      },
+    })
     finish?.()
+    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+    expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+
+    // The one machine reports the target, so the wave is done and the plan
+    // reaches the step that replaces this process.
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:01.000Z',
+    )
+    registry.bus.emit('machine.connected', { machineId: registry.sessionStore.hostMachineId })
     await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
     registry.dispose()
   })
@@ -704,6 +1144,122 @@ describe('updates tRPC', () => {
       throw new Error('The update transport is unavailable.')
     })
     await expect(caller.updates.converge()).rejects.toThrow('The update transport is unavailable.')
+    registry.dispose()
+  })
+})
+
+/**
+ * THE DURABLE UPDATE OPERATION, through the router (POD-2098).
+ *
+ * `updates.start` is what the panel calls; `updates.converge` above is the
+ * shipped dialog's entry point, kept for one release and now a thin alias over
+ * this. Everything here is about the properties the OPERATION adds: an identity,
+ * single-flight, a queue, a remainder retry.
+ */
+describe('the update operation', () => {
+  function behindHarness(options: Parameters<typeof harness>[0] = {}) {
+    process.env.PODIUM_APP_VERSION = '0.4.1'
+    const built = harness(options)
+    built.registry.modules.machines.setMachineBuild(
+      built.registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    built.registry.modules.updates.setTarget(target())
+    return built
+  }
+
+  it('answers an operation id, and puts it on the fleet payload for the old panel', async () => {
+    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const started = await caller.updates.start()
+    expect(started.operationId).toMatch(/^op_/)
+    expect(started.alreadyRunning).toBe(false)
+    expect(started.operation).toMatchObject({ kind: 'update', state: 'running' })
+
+    const fleet = await caller.updates.fleet()
+    expect(fleet.operationId).toBe(started.operationId)
+
+    const active = (await caller.operations.active()) as { id: string } | null
+    expect(active?.id).toBe(started.operationId)
+    registry.dispose()
+  })
+
+  /**
+   * §8's "two tabs / two users click Update". The second caller is handed the
+   * SAME operation rather than an error, which is what makes both tabs render
+   * one panel instead of one of them reporting a conflict.
+   */
+  it('gives two concurrent starts one operation id', async () => {
+    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const [first, second] = await Promise.all([caller.updates.start(), caller.updates.start()])
+    expect(second.operationId).toBe(first.operationId)
+    expect(second.alreadyRunning).toBe(true)
+    expect(await caller.operations.history({ kind: 'update' })).toHaveLength(1)
+    registry.dispose()
+  })
+
+  /**
+   * §3.2/§8: "a new version lands mid-update". The running wave is NEVER
+   * mutated; the newcomer waits and is offered when the operation terminates.
+   */
+  it('queues a version published mid-operation and does not change the running target', async () => {
+    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    await caller.updates.start()
+    registry.modules.updates.setTarget(target('0.4.3'))
+
+    expect(registry.modules.updates.target('dev')?.version).toBe('0.4.2')
+    const fleet = await caller.updates.fleet()
+    expect(fleet.targetVersion).toBe('0.4.2')
+    expect(fleet.nextTargetVersion).toBe('0.4.3')
+
+    // The operation ends; the queued version becomes an OFFER, not a second
+    // operation — the human decision was about the version that just finished.
+    registry.modules.operations.engine.cancel(fleet.operationId as string)
+    expect(registry.modules.updates.target('dev')?.version).toBe('0.4.3')
+    expect((await caller.updates.fleet()).nextTargetVersion).toBeUndefined()
+    expect(registry.modules.operations.engine.active('lifecycle')).toBeUndefined()
+    registry.dispose()
+  })
+
+  it('retries the remainder as a NEW operation, linked to the one it retries', async () => {
+    const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const first = await caller.updates.start()
+    registry.modules.operations.engine.cancel(first.operationId)
+
+    const retried = await caller.updates.retry({ id: first.operationId })
+    expect(retried.operationId).not.toBe(first.operationId)
+    expect(retried.operation).toMatchObject({ retryOf: first.operationId })
+    // History stays honest: the attempt that failed is still on record.
+    const history = await caller.operations.history({ kind: 'update' })
+    expect(history).toHaveLength(2)
+    registry.dispose()
+  })
+
+  it('refuses to retry an update it has no record of', async () => {
+    const { registry, caller } = behindHarness()
+    await expect(caller.updates.retry({ id: 'op_nope' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    registry.dispose()
+  })
+
+  it('still refuses to start when every place is already on target', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    const { registry, caller } = harness()
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget(target())
+    await expect(caller.updates.start()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Podium is already at this version everywhere.',
+    })
+    // …and no operation was manufactured just to carry that refusal (§6.3).
+    expect(await caller.operations.history({ kind: 'update' })).toHaveLength(0)
     registry.dispose()
   })
 })

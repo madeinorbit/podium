@@ -30,12 +30,18 @@ import {
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 import { createDevWebBuilder, type DevWebBuildState, decideWebDist } from './dev-web-build'
+import { createGitHeadShaCache } from './head-sha-cache'
 
 const log = createLogger('server:updates')
 
 export interface DevPublisherWiring {
-  /** Publish the current development target, if there is one. */
-  readonly publishTarget: () => UpdateTarget | undefined
+  /**
+   * Publish the current development target, if there is one.
+   *
+   * Asynchronous because naming the target means reading HEAD, and every git
+   * call this server makes is off its event loop (POD-2048).
+   */
+  readonly publishTarget: () => Promise<UpdateTarget | undefined>
   /**
    * Ask for a build. `/version` voids the promise so a compile never blocks a
    * read. Update awaits it. `explicit` bypasses the debounce for a
@@ -74,6 +80,21 @@ export function developmentArtifactUrl(
   return `${origin}/updates/dev-bundle/${encodeURIComponent(version)}?token=${encodeURIComponent(artifactToken)}`
 }
 
+/**
+ * The sentence an operator is shown when this server cannot name an address its
+ * fleet could fetch from — spec §6.2 and §7: a failure names itself, says the
+ * one next action, and is recoverable by taking it.
+ *
+ * It is written as the remedy rather than as the condition because that is what
+ * the reader can act on. The condition (which env var, which machines) stays in
+ * the console half of {@link DevBundleUnavailableError}, where a log reader
+ * wants it.
+ */
+export const ARTIFACT_ORIGIN_UNCONFIGURED_REASON =
+  'This server has no address your other machines can reach, so it cannot hand out the ' +
+  'update package. Set Public URL in Settings — or PODIUM_DEV_ARTIFACT_BASE_URL — to an ' +
+  'address they can reach, then start the update again.'
+
 export function selectDevelopmentArtifactOrigin(input: {
   externalOrigin: string | undefined
   localOrigin: string
@@ -81,9 +102,14 @@ export function selectDevelopmentArtifactOrigin(input: {
 }): string {
   if (input.externalOrigin) return input.externalOrigin
   if (input.hasRemoteManagedMachines) {
-    throw new Error(
+    // TYPED, so the refusal can travel (POD-2227). It used to be a bare Error
+    // whose only reader was `publishTarget`'s catch, which logged it and
+    // returned undefined — the operator was left watching a step that waited
+    // for a package this server had already decided it would never hand over.
+    throw new DevBundleUnavailableError(
       'development artifact publishing requires PODIUM_DEV_ARTIFACT_BASE_URL or ' +
         'config.publicUrl while remote managed machines are registered',
+      ARTIFACT_ORIGIN_UNCONFIGURED_REASON,
     )
   }
   return input.localOrigin
@@ -131,10 +157,25 @@ export function wireDevBundlePublisher(deps: {
   readonly locks: DevBundleLockService
   /** Names the transient build units. Defaults to the default instance. */
   readonly instanceId?: string
+  /** Seam for tests; defaults to `git rev-parse --short=7 HEAD` in `sourceRoot`. */
+  readonly readHeadSha?: (root: string) => Promise<string>
 }): DevPublisherWiring {
   const sourceRoot = deps.sourceRoot
   const artifactOrigin = deps.artifactOrigin
   const instanceId = deps.instanceId ?? 'default'
+  /**
+   * ONE HEAD READER for everything below, and the reason it is here.
+   *
+   * The publisher reads HEAD two to four times per `/version` — to decide, to
+   * name the target, to explain a refusal — and the web builder reads it again
+   * on a rebuild. Every one of those was its own `git rev-parse`. Sharing a
+   * cache is only possible at the composition root, because it is the only
+   * place that knows they are all asking about the same checkout (POD-2052).
+   */
+  const readHeadSha = deps.readHeadSha ?? developmentHeadSha
+  const headSha = sourceRoot
+    ? createGitHeadShaCache(sourceRoot, () => readHeadSha(sourceRoot))
+    : undefined
   /**
    * The website the compile will demand. Owned here rather than in `server.ts`
    * because it is one half of the same job: the publisher awaits it before the
@@ -145,7 +186,7 @@ export function wireDevBundlePublisher(deps: {
     ? createDevWebBuilder({
         root: sourceRoot,
         instanceId,
-        headSha: () => developmentHeadSha(sourceRoot),
+        headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
       })
     : undefined
   const publisher = sourceRoot
@@ -153,9 +194,17 @@ export function wireDevBundlePublisher(deps: {
         isSourceRun: true,
         root: sourceRoot,
         instanceId,
-        headSha: () => developmentHeadSha(sourceRoot),
+        headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
         signingKey: deps.signingKey,
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
+        // The instant a build is admitted, the read model must say `preparing`
+        // rather than keep offering the previous commit's target for the length
+        // of a compile. Admission is decided asynchronously (it reads HEAD and
+        // walks the tree off the loop), so the publisher announces it — a
+        // caller cannot infer it from `requestBuild` having returned.
+        onAdmitted: () => {
+          void publishReadiness()
+        },
         prepareWebDist: (headSha, explicit) => {
           if (!webBuilder) return Promise.resolve()
           const decision = decideWebDist({
@@ -209,10 +258,49 @@ export function wireDevBundlePublisher(deps: {
   let publishedVersion: string | undefined
   let bundleReady = false
   let bundleFailureDetail: string | undefined
+  /**
+   * A refusal that belongs to PUBLICATION rather than to the build — the server
+   * has bytes, or could make them, and no way to tell anyone where to get them
+   * (POD-2227). Held separately from `bundleFailureDetail` because
+   * `observeBundleReadiness` recomputes that one from the builder, which is
+   * perfectly happy: the tarball really was packed and signed.
+   */
+  let publishFailureDetail: string | undefined
+
+  /**
+   * CAN THIS SERVER NAME AN ADDRESS THE FLEET COULD FETCH FROM?
+   *
+   * Asked BEFORE the pack as well as at publication. The live drive spent
+   * thirty-five seconds building a bundle, reported "The update package is
+   * ready.", and then waited for a package this server had already decided it
+   * would never hand over — the answer was knowable before the first byte.
+   */
+  const artifactOriginFailure = (): DevBundleUnavailableError | undefined => {
+    if (!publisher) return undefined
+    try {
+      selectDevelopmentArtifactOrigin({
+        externalOrigin: artifactOrigin,
+        localOrigin: deps.localArtifactOrigin(),
+        hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+      })
+      return undefined
+    } catch (error) {
+      if (error instanceof DevBundleUnavailableError) return error
+      throw error
+    }
+  }
+
+  /** Log the console half once per distinct reason; keep the public half for the panel. */
+  const recordPublishFailure = (error: DevBundleUnavailableError): void => {
+    publishFailureDetail = error.publicReason
+    if (error.message === unavailableDiagnostic) return
+    unavailableDiagnostic = error.message
+    log.warn('development bundle target unavailable', { diagnostic: error.message })
+  }
 
   /** Cache publisher readiness at lifecycle transitions; fleet polling must not spawn git. */
-  const observeBundleReadiness = () => {
-    const readiness = publisher?.readiness()
+  const observeBundleReadiness = async () => {
+    const readiness = await publisher?.readiness()
     bundleReady = readiness?.state === 'ready'
     bundleFailureDetail = readiness?.state === 'failed' ? readiness.publicReason : undefined
     return readiness
@@ -230,16 +318,16 @@ export function wireDevBundlePublisher(deps: {
    * because the headless compile failed hides Update — operators then have no
    * button to rebuild yesterday's website.
    */
-  const publishReadiness = (): void => {
+  const publishReadiness = async (): Promise<void> => {
     if (!publisher) return
-    const identity = publisher.target()
+    const identity = await publisher.target()
     if (identity) {
       setSharedTarget(identity)
       publishedReason = undefined
       return
     }
     if (!deps.setTargetUnavailable) return
-    const readiness = observeBundleReadiness()
+    const readiness = await observeBundleReadiness()
     if (!readiness) return
     const reason =
       readiness.state === 'failed'
@@ -257,18 +345,25 @@ export function wireDevBundlePublisher(deps: {
     deps.setTargetUnavailable(reason)
   }
 
-  const publishTarget = (): UpdateTarget | undefined => {
+  const publishTarget = async (): Promise<UpdateTarget | undefined> => {
     try {
-      const target = publisher?.target()
+      const target = await publisher?.target()
       if (target) {
         setSharedTarget(target)
         publishedReason = undefined
       } else {
-        publishReadiness()
+        await publishReadiness()
       }
       unavailableDiagnostic = undefined
+      publishFailureDetail = undefined
       return target
     } catch (error) {
+      // A TYPED refusal reaches the read model; an untyped one is a diagnostic
+      // whose text may name paths, and stays in the log (POD-2227).
+      if (error instanceof DevBundleUnavailableError) {
+        recordPublishFailure(error)
+        return undefined
+      }
       const diagnostic = error instanceof Error ? error.message : String(error)
       if (diagnostic !== unavailableDiagnostic) {
         log.warn('development bundle target unavailable', { diagnostic })
@@ -280,40 +375,64 @@ export function wireDevBundlePublisher(deps: {
 
   return {
     enabled: publisher !== undefined,
-    requestWebRebuild: webBuilder ? () => webBuilder.requestRebuild() : undefined,
+    requestWebRebuild: webBuilder
+      ? () => {
+          // Human-initiated, like an explicit build: ask git rather than the
+          // stamp. Rebuilding the website for the wrong commit is a slow
+          // mistake to discover.
+          headSha?.invalidate()
+          webBuilder.requestRebuild()
+        }
+      : undefined,
     webBuildState: () => webBuilder?.state() ?? { state: 'idle' },
     preparation: () => {
       const web = webBuilder?.state()
       const failureDetail =
-        web?.state === 'failed' && publishedVersion === `dev+${web.headSha}`
+        // First, because it is the one that decides whether ANY of this can be
+        // delivered: a website rebuilt for a package nobody can fetch is not
+        // the sentence to lead with.
+        publishFailureDetail ??
+        (web?.state === 'failed' && publishedVersion === `dev+${web.headSha}`
           ? `The website could not be rebuilt for dev+${web.headSha}. See the server log.`
-          : bundleFailureDetail
+          : bundleFailureDetail)
       return {
         webReady: web?.state === 'ready',
-        bundleReady,
+        // A packed tarball with no address to fetch it from is not a ready
+        // package. `fleet` reported `bundleReady: true` right through the live
+        // stall, which read as the package being on its way (POD-2227).
+        bundleReady: bundleReady && publishFailureDetail === undefined,
         ...(failureDetail ? { failureDetail } : {}),
       }
     },
     publishTarget,
     requestBuild: (explicit) => {
       if (!publisher) return Promise.resolve()
-      const requested = publisher.requestBuild(explicit)
-      observeBundleReadiness()
-      // Before awaiting anything: if that admitted a build, the state is now
-      // `preparing` and the read model should say so rather than sit on the
-      // previous commit's target for the length of a compile.
-      publishReadiness()
-      return requested.then(
-        (built) => {
-          observeBundleReadiness()
-          publishTarget()
+      // Refuse before the compile, with the remedy in the sentence, rather than
+      // pack for thirty-five seconds and leave the step waiting (POD-2227).
+      const blocked = artifactOriginFailure()
+      if (blocked) {
+        recordPublishFailure(blocked)
+        return Promise.reject(blocked)
+      }
+      publishFailureDetail = undefined
+      // A human pressed Update. Whatever the stamp says, ask git — the one
+      // interaction where someone is watching is not the place to save 8ms,
+      // and it is the escape hatch if this cache is ever wrong about a
+      // checkout. The polling path keeps the cache.
+      if (explicit) headSha?.invalidate()
+      // `preparing` is published by the publisher's `onAdmitted` above, not
+      // from here: this call returns before admission has been decided.
+      return publisher.requestBuild(explicit).then(
+        async (built) => {
+          await observeBundleReadiness()
+          await publishTarget()
           return built
         },
-        (error: unknown) => {
-          observeBundleReadiness()
+        async (error: unknown) => {
+          await observeBundleReadiness()
           // The failure must reach the read model, or a stale target stays
           // published while the only trace of the problem is this log line.
-          publishReadiness()
+          await publishReadiness()
           // A refused build is a normal state on a working checkout (`/version`
           // asks on every read), so log each distinct reason once rather than
           // once per request. This full text — offending paths included — is

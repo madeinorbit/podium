@@ -1,72 +1,114 @@
-import { wireSchemaDigest } from '@podium/protocol'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+/**
+ * The hook's remaining job, tested at its seams (POD-2102): does it read the
+ * operation, does it hold this surface's local fact, and does EVERY action it
+ * dispatches come back as something the user can see?
+ *
+ * The states themselves are table-tested in `operation-view.test.ts` — this file
+ * is deliberately about the wiring, not the copy.
+ */
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type UpdateFleetState, type UpdateStateResult, useUpdateState } from './use-update-state'
+import { resetPolledQueryCache } from '@/lib/use-polled-query'
+import { type UpdateStateResult, useUpdateState } from './use-update-state'
 
 const mocks = vi.hoisted(() => ({
   makeTrpc: vi.fn(),
-  mutate: vi.fn(),
-  repair: vi.fn(),
-  query: vi.fn(),
+  active: vi.fn(),
+  history: vi.fn(),
+  fleet: vi.fn(),
+  converge: vi.fn(),
+  start: vi.fn(),
+  retry: vi.fn(),
+  cancel: vi.fn(),
+  checkNow: vi.fn(),
 }))
 
 vi.mock('@/app/trpc', () => ({ makeTrpc: mocks.makeTrpc }))
 
-const target = {
-  version: '0.4.2',
-  critical: false,
-  artifacts: {},
-}
+const target = { version: '0.4.2', critical: false, artifacts: {} }
+
 const reloadAction = vi.fn()
 
 function Probe({
   onResult,
   withReload = false,
-  liveFleet = false,
-  fleet,
+  behind = 1,
 }: {
   onResult: (result: UpdateStateResult) => void
   withReload?: boolean
-  liveFleet?: boolean
-  fleet?: UpdateFleetState
+  /** How many fleet machines are behind — the offer's only reason to exist here. */
+  behind?: number
 }) {
   const result = useUpdateState({
     httpOrigin: 'http://podium.test',
     needRefresh: false,
-    ...(fleet
-      ? { fleet }
-      : liveFleet
-        ? {}
-        : { fleet: { total: 1, behind: 1, converging: 0, failed: 0 } }),
+    fleet: { total: 1, behind, converging: 0, failed: 0 },
     reload: withReload ? reloadAction : undefined,
   })
   useEffect(() => {
     onResult(result)
   }, [onResult, result])
   return (
-    <>
-      {result.actions.startUpdate && (
-        <button type="button" onClick={() => void result.actions.startUpdate?.()}>
-          update Podium
-        </button>
-      )}
-      {result.actions.repairCompatibility && (
-        <button type="button" onClick={() => void result.actions.repairCompatibility?.()}>
-          repair and reload
-        </button>
-      )}
-      <output data-testid="view-state">
-        {result.view.state === 'failed'
-          ? [result.view.message, result.view.guidance, result.view.diagnostic].join('|')
-          : result.view.state === 'in-progress'
-            ? `${result.view.state}:${result.view.version}:${result.view.done}:${result.view.total}`
-            : result.view.state}
-      </output>
-      {result.actions.installApp && <span>install action</span>}
-      {result.actions.reload && <span>reload action</span>}
-    </>
+    <output data-testid="view-state">
+      {result.view.state}
+      {result.view.error ? `|${result.view.error.message}` : ''}
+    </output>
   )
+}
+
+/** A tRPC path this server has never heard of answers exactly like this. */
+function notFound(path: string): Error & { data: { code: string } } {
+  const error = new Error(`No procedure found on path "${path}"`) as Error & {
+    data: { code: string }
+  }
+  error.data = { code: 'NOT_FOUND' }
+  return error
+}
+
+function setupTransport(
+  version: { appVersion: string; target?: typeof target } = { appVersion: '0.4.1', target },
+): void {
+  mocks.makeTrpc.mockReturnValue({
+    setup: { channel: { query: vi.fn(async () => 'stable') } },
+    operations: {
+      active: { query: mocks.active },
+      history: { query: mocks.history },
+      cancel: { mutate: mocks.cancel },
+    },
+    updates: {
+      fleet: { query: mocks.fleet },
+      converge: { mutate: mocks.converge },
+      start: { mutate: mocks.start },
+      retry: { mutate: mocks.retry },
+      checkNow: { mutate: mocks.checkNow },
+    },
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => (url.endsWith('/version') ? version : { appVersion: '0.4.1' }),
+    })),
+  )
+}
+
+/**
+ * A Podium shell around the page. `checkUpdate` answers null by default — the
+ * all-in-one case, where the release feed knows nothing about a dev target and
+ * the operation's ask is the only thing that says an install is owed.
+ */
+function stubDesktopShell(over: Record<string, unknown> = {}): void {
+  vi.stubGlobal('__PODIUM_DESKTOP__', {
+    platform: 'linux',
+    minimize: vi.fn(async () => {}),
+    toggleMaximize: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
+    claimUpdateOwnership: vi.fn(async () => {}),
+    checkUpdate: vi.fn(async () => null),
+    installUpdate: vi.fn(async () => {}),
+    ...over,
+  })
 }
 
 function setPageVersion(version: string): void {
@@ -79,729 +121,426 @@ function setPageVersion(version: string): void {
 
 afterEach(() => {
   cleanup()
+  // The poll cache is process-wide by design, so one test's answer would
+  // otherwise be the next test's first render.
+  resetPolledQueryCache()
+  globalThis.sessionStorage?.clear()
+  // The restart handoff is deliberately localStorage — it has to outlive the
+  // process — so it has to be swept here too, or one test's update becomes the
+  // next one's news.
+  globalThis.localStorage?.clear()
   document.head.querySelector('meta[name="podium-version"]')?.remove()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
 })
 
-function setupTransport(
-  version: { appVersion: string; target?: typeof target } = { appVersion: '0.4.1', target },
-): void {
-  mocks.makeTrpc.mockReturnValue({
-    setup: { channel: { query: vi.fn(async () => 'stable') } },
-    updates: {
-      fleet: { query: mocks.query },
-      converge: { mutate: mocks.mutate },
-      repairCompatibility: { mutate: mocks.repair },
-    },
-  })
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string) => ({
-      ok: true,
-      json: async () => (url.endsWith('/version') ? version : { appVersion: '0.4.1' }),
-    })),
-  )
-}
-
-describe('useUpdateState update action', () => {
-  it('surfaces a background preparation failure instead of hanging near completion', async () => {
+describe('useUpdateState — reading the operation', () => {
+  it('renders the offer while the server has no operation', async () => {
     setupTransport()
-    let calls = 0
-    mocks.query.mockImplementation(async () => {
-      calls += 1
-      return calls === 1
-        ? { total: 1, behind: 1, converging: 0, failed: 0, targetVersion: '0.4.2' }
-        : {
-            total: 1,
-            behind: 0,
-            converging: 0,
-            failed: 0,
-            targetVersion: '0.4.2',
-            preparation: {
-              webReady: false,
-              bundleReady: false,
-              failureDetail: 'The website could not be rebuilt. See the server log.',
-            },
-          }
-    })
-    mocks.mutate.mockResolvedValue({
-      state: 'in-progress',
-      version: '0.4.2',
-      done: 0,
-      total: 3,
-      includesBundle: true,
-      fleet: { total: 1, behind: 1, converging: 0, failed: 0, targetVersion: '0.4.2' },
-    })
-
+    mocks.active.mockResolvedValue(null)
     const results: UpdateStateResult[] = []
-    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
-    const update = await screen.findByRole('button', { name: /update Podium/i })
-    update.click()
 
-    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
-    expect(screen.getByTestId('view-state').textContent).toContain(
-      'The website could not be rebuilt. See the server log.',
-    )
+    render(<Probe onResult={(result) => results.push(result)} />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+    expect(results.at(-1)?.view.primary?.kind).toBe('start')
   })
 
-  it('does not count development packaging before the server reports it ready', async () => {
+  it('renders the server’s operation instead of the offer, verbatim', async () => {
     setupTransport()
-    mocks.query.mockResolvedValue({
-      total: 0,
-      behind: 0,
-      converging: 0,
-      failed: 0,
-      targetVersion: '0.4.2',
-      preparation: { webReady: true, bundleReady: false },
-    })
-    mocks.mutate.mockResolvedValue({
-      state: 'in-progress',
-      version: '0.4.2',
-      done: 0,
-      total: 2,
-      includesBundle: true,
-      fleet: { total: 0, behind: 0, converging: 0, failed: 0, targetVersion: '0.4.2' },
-    })
-
-    const results: UpdateStateResult[] = []
-    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
-    const update = await screen.findByRole('button', { name: /update Podium/i })
-    update.click()
-
-    await waitFor(() =>
-      expect(
-        results.some(
-          (result) =>
-            result.view.state === 'in-progress' &&
-            result.view.total === 2 &&
-            result.view.done === 0,
-        ),
-      ).toBe(true),
-    )
-  })
-
-  it('moves the shared dialog to in-progress after a successful convergence call', async () => {
-    setupTransport()
-    mocks.mutate.mockResolvedValue({
-      state: 'in-progress',
-      version: '0.4.2',
-      done: 0,
-      total: 2,
-      fleet: { total: 1, behind: 1, converging: 1, failed: 0, targetVersion: '0.4.2' },
+    mocks.active.mockResolvedValue({
+      id: 'op_7',
+      kind: 'update',
+      state: 'running',
+      details: { target: { version: '0.4.2' } },
+      steps: [
+        { id: 'prepare', title: 'Preparing the update', state: 'done' },
+        { id: 'machines', title: 'Updating your machines', state: 'running' },
+      ],
     })
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
 
-    screen.getByRole('button', { name: /update Podium/i }).click()
-    await waitFor(() =>
-      expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
-    )
-
-    expect(mocks.mutate).toHaveBeenCalledTimes(1)
-    expect(results.at(-1)?.view).toMatchObject({
-      state: 'in-progress',
-      version: '0.4.2',
-      done: 0,
-      total: 2,
-    })
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('running'))
+    expect(results.at(-1)?.view.stepPosition).toEqual({ current: 2, total: 2 })
+    expect(results.at(-1)?.operation?.id).toBe('op_7')
+    // The fleet snapshot is not a second opinion while an operation exists.
+    expect(mocks.fleet).not.toHaveBeenCalled()
   })
 
-  it('offers Update and reloads when the server is current but the web stamp SHA is old', async () => {
-    let rebuilt = false
-    mocks.mutate.mockImplementation(async () => {
-      rebuilt = true
-      return {
-        state: 'in-progress',
-        version: 'dev+abc1234',
-        done: 0,
-        total: 1,
-        fleet: { total: 0, behind: 0, converging: 0, failed: 0, machines: [] },
-      }
-    })
-    mocks.makeTrpc.mockReturnValue({
-      setup: { channel: { query: vi.fn(async () => ({ channel: 'dev' })) } },
-      updates: {
-        fleet: {
-          query: vi.fn(async () => ({
-            total: 0,
-            behind: 0,
-            converging: 0,
-            failed: 0,
-            machines: [],
-          })),
-        },
-        converge: { mutate: mocks.mutate },
-        repairCompatibility: { mutate: mocks.repair },
-      },
-    })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => ({
-        ok: true,
-        json: async () =>
-          url.endsWith('/version')
-            ? {
-                appVersion: 'dev+abc1234',
-                wireSchemaDigest: wireSchemaDigest(),
-                target: {
-                  version: 'dev+abc1234',
-                  critical: false,
-                  artifacts: { web: { digest: 'abc1234' } },
-                },
-              }
-            : {
-                appVersion: rebuilt ? 'dev+abc1234' : 'dev+old1234',
-                sourceSha: rebuilt ? 'abc1234' : 'old1234',
-                wireSchemaDigest: wireSchemaDigest(),
-              },
-      })),
-    )
-
-    render(<Probe onResult={() => {}} withReload liveFleet />)
-    const update = await screen.findByRole('button', { name: /update Podium/i })
-    expect(screen.queryByRole('button', { name: /repair and reload/i })).toBeNull()
-    update.click()
-    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledOnce())
-    await waitFor(() => expect(reloadAction).toHaveBeenCalledOnce())
-  })
-
-  /**
-   * POD-1980. The desktop half of the website can be fresh while the phone
-   * export is weeks old — one `podium-web` run builds both, and a failed or
-   * skipped export leaves only the phone behind. Nothing on this page can see
-   * that, so the server says it on `/version` and the dialog acts on it.
-   */
-  it('offers Update when only the phone export is behind, and waits for it before reloading', async () => {
-    let rebuilt = false
-    mocks.mutate.mockImplementation(async () => {
-      rebuilt = true
-      return {
-        state: 'in-progress',
-        version: 'dev+abc1234',
-        done: 0,
-        total: 1,
-        fleet: { total: 0, behind: 0, converging: 0, failed: 0, machines: [] },
-      }
-    })
-    mocks.makeTrpc.mockReturnValue({
-      setup: { channel: { query: vi.fn(async () => ({ channel: 'dev' })) } },
-      updates: {
-        fleet: {
-          query: vi.fn(async () => ({
-            total: 0,
-            behind: 0,
-            converging: 0,
-            failed: 0,
-            machines: [],
-          })),
-        },
-        converge: { mutate: mocks.mutate },
-        repairCompatibility: { mutate: mocks.repair },
-      },
-    })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => ({
-        ok: true,
-        json: async () =>
-          url.endsWith('/version')
-            ? {
-                appVersion: 'dev+abc1234',
-                wireSchemaDigest: wireSchemaDigest(),
-                target: {
-                  version: 'dev+abc1234',
-                  critical: false,
-                  artifacts: { web: { digest: 'abc1234' } },
-                },
-                // This page's own dist is already current; the phone's is not.
-                mobileWeb: { present: true, digest: rebuilt ? 'abc1234' : 'old1234' },
-              }
-            : {
-                appVersion: 'dev+abc1234',
-                sourceSha: 'abc1234',
-                wireSchemaDigest: wireSchemaDigest(),
-              },
-      })),
-    )
-
-    const results: UpdateStateResult[] = []
-    render(<Probe onResult={(result) => results.push(result)} withReload liveFleet />)
-
-    const update = await screen.findByRole('button', { name: /update Podium/i })
-    // The dialog must have something to show, or the button has nowhere to live.
-    const view = results.at(-1)?.view as { state: string; places?: { kind: string }[] }
-    expect(view.state).toBe('available')
-    expect(view.places?.map((place) => place.kind)).toContain('phone')
-
-    update.click()
-    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledOnce())
-    await waitFor(() => expect(reloadAction).toHaveBeenCalledOnce())
-  })
-
-  it('says nothing when the phone export names the same commit as this page', async () => {
+  it('drops a payload that is not an operation rather than rendering a blank', async () => {
     setupTransport()
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => ({
-        ok: true,
-        json: async () =>
-          url.endsWith('/version')
-            ? {
-                appVersion: 'dev+abc1234',
-                wireSchemaDigest: wireSchemaDigest(),
-                target: {
-                  version: 'dev+abc1234',
-                  critical: false,
-                  artifacts: { web: { digest: 'abc1234' } },
-                },
-                mobileWeb: { present: true, digest: 'abc1234' },
-              }
-            : {
-                appVersion: 'dev+abc1234',
-                sourceSha: 'abc1234',
-                wireSchemaDigest: wireSchemaDigest(),
-              },
-      })),
-    )
-
-    const results: UpdateStateResult[] = []
-    render(<Probe onResult={(result) => results.push(result)} withReload liveFleet />)
-    await waitFor(() => expect(results.at(-1)?.server.appVersion).toBe('dev+abc1234'))
-    expect(screen.queryByRole('button', { name: /update Podium/i })).toBeNull()
-    expect(results.at(-1)?.view.state).toBe('none')
-  })
-
-  it('repairs and reloads when the source server is current but its web build is incompatible', async () => {
-    let rebuilt = false
-    mocks.repair.mockImplementation(async () => {
-      rebuilt = true
-      return { state: 'in-progress', version: 'dev+abc1234' }
-    })
-    mocks.makeTrpc.mockReturnValue({
-      setup: { channel: { query: vi.fn(async () => ({ channel: 'dev' })) } },
-      updates: {
-        fleet: {
-          query: vi.fn(async () => ({
-            total: 0,
-            behind: 0,
-            converging: 0,
-            failed: 0,
-            machines: [],
-          })),
-        },
-        converge: { mutate: mocks.mutate },
-        repairCompatibility: { mutate: mocks.repair },
-      },
-    })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => ({
-        ok: true,
-        json: async () =>
-          url.endsWith('/version')
-            ? {
-                appVersion: 'dev+abc1234',
-                wireSchemaDigest: 'server-schema',
-                target: { version: 'dev+abc1234', critical: false, artifacts: {} },
-              }
-            : {
-                appVersion: 'dev+abc1234',
-                wireSchemaDigest: rebuilt ? 'server-schema' : 'older-web-schema',
-              },
-      })),
-    )
-
-    render(<Probe onResult={() => {}} withReload liveFleet />)
-    const repair = await screen.findByRole('button', { name: /repair and reload/i })
-    repair.click()
-    await waitFor(() => expect(mocks.repair).toHaveBeenCalledOnce())
-    await waitFor(() => expect(reloadAction).toHaveBeenCalledOnce())
-  })
-
-  it('polls fleet state so progress advances beyond the initial zero', async () => {
-    setupTransport()
-    let calls = 0
-    mocks.query.mockImplementation(async () => {
-      calls += 1
-      if (calls === 1) return { total: 3, behind: 3, converging: 0, failed: 0 }
-      if (calls === 2)
-        return { total: 3, behind: 3, converging: 1, failed: 0, targetVersion: '0.4.2' }
-      if (calls === 3)
-        return { total: 3, behind: 2, converging: 2, failed: 0, targetVersion: '0.4.2' }
-      return { total: 3, behind: 0, converging: 0, failed: 0, targetVersion: '0.4.2' }
-    })
-    mocks.mutate.mockResolvedValue({
-      state: 'in-progress',
-      version: '0.4.2',
-      done: 0,
-      total: 4,
-      fleet: { total: 3, behind: 3, converging: 3, failed: 0, targetVersion: '0.4.2' },
-    })
-
-    const results: UpdateStateResult[] = []
-    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
-    screen.getByRole('button', { name: /update Podium/i }).click()
-
-    await waitFor(() => {
-      expect(
-        results.some(
-          (result) =>
-            result.view.state === 'in-progress' &&
-            result.view.version === '0.4.2' &&
-            result.view.done === 1 &&
-            result.view.total === 4,
-        ),
-      ).toBe(true)
-    })
-    expect(calls).toBeGreaterThanOrEqual(3)
-  })
-
-  /**
-   * The fleet read used to happen ONCE at mount and swallow its failure, so a
-   * read that failed before the session was established (a 401 on the live
-   * server) left `behind: 0` for the life of the page — and with it, no server
-   * or machine places in the dialog, only "This app". The retry is what makes
-   * those places appear at all.
-   */
-  it('recovers the fleet after a failed first read, so the places appear', async () => {
-    vi.useFakeTimers()
-    try {
-      setupTransport()
-      let calls = 0
-      mocks.query.mockImplementation(async () => {
-        calls += 1
-        if (calls === 1) throw new Error('unauthorized')
-        return { total: 2, behind: 2, converging: 0, failed: 0, targetVersion: '0.4.2' }
-      })
-
-      const results: UpdateStateResult[] = []
-      render(<Probe onResult={(result) => results.push(result)} liveFleet />)
-
-      // The first read failed: nothing knows of any machine yet.
-      await vi.advanceTimersByTimeAsync(0)
-      expect(results.at(-1)?.fleet.behind ?? 0).toBe(0)
-
-      // The idle refresh recovers it without a reload or any user action.
-      await vi.advanceTimersByTimeAsync(30_000)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(calls).toBeGreaterThanOrEqual(2)
-      expect(results.at(-1)?.fleet.behind).toBe(2)
-
-      const view = results.at(-1)?.view
-      const places = view && 'places' in view ? view.places.map((place) => place.kind) : []
-      expect(places).toContain('machines')
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('discovers a newly ready target on the idle refresh without reloading', async () => {
-    vi.useFakeTimers()
-    try {
-      mocks.makeTrpc.mockReturnValue({
-        setup: { channel: { query: vi.fn(async () => 'stable') } },
-        updates: {
-          fleet: { query: vi.fn().mockRejectedValue(new Error('unauthorized')) },
-          converge: { mutate: mocks.mutate },
-        },
-      })
-      let versionReads = 0
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async (url: string) => ({
-          ok: true,
-          json: async () => {
-            if (!url.endsWith('/version')) return { appVersion: '0.4.1' }
-            versionReads += 1
-            return versionReads > 2 ? { appVersion: '0.4.1', target } : { appVersion: '0.4.1' }
-          },
-        })),
-      )
-
-      render(<Probe onResult={() => {}} liveFleet />)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(screen.queryByRole('button', { name: /update Podium/i })).toBeNull()
-
-      await vi.advanceTimersByTimeAsync(30_000)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('moves the shared dialog to a translated, actionable server failure', async () => {
-    setupTransport()
-    mocks.mutate.mockRejectedValueOnce(
-      new Error('Unable to connect. Is the computer able to access the url?'),
-    )
-    mocks.mutate.mockResolvedValueOnce({
-      state: 'in-progress',
-      version: '0.4.2',
-      done: 0,
-      total: 2,
-      fleet: { total: 1, behind: 1, converging: 1, failed: 0, targetVersion: '0.4.2' },
-    })
+    mocks.active.mockResolvedValue({ kind: 'update' })
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
 
-    screen.getByRole('button', { name: /update Podium/i }).click()
-    await waitFor(() => expect(screen.getByTestId('view-state').textContent).toContain('try'))
-
-    expect(results.at(-1)?.view).toEqual({
-      state: 'failed',
-      message: 'Podium could not reach the update source.',
-      guidance: "Check this server's internet connection, then try the update again.",
-      diagnostic: 'The update could not be downloaded.',
-    })
-    expect(screen.getByTestId('view-state').textContent).not.toMatch(/unable to connect|url/i)
-
-    screen.getByRole('button', { name: /update Podium/i }).click()
-    await waitFor(() =>
-      expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
-    )
-    expect(mocks.mutate).toHaveBeenCalledTimes(2)
-  })
-
-  it('retains the guarded retry when the server reaches target before the attempt fails', async () => {
-    setupTransport()
-    const settledFleet: UpdateFleetState = {
-      total: 1,
-      behind: 1,
-      converging: 0,
-      failed: 0,
-      targetVersion: '0.4.2',
-    }
-    let queryCalls = 0
-    mocks.query.mockImplementation(() => {
-      queryCalls += 1
-      return Promise.resolve(settledFleet)
-    })
-
-    let failAttempt: (() => void) | undefined
-    mocks.mutate.mockImplementationOnce(
-      () =>
-        new Promise((_resolve, reject) => {
-          failAttempt = () =>
-            reject(new Error('Unable to connect. Is the computer able to access the url?'))
-        }),
-    )
-    mocks.mutate.mockResolvedValueOnce({
-      state: 'in-progress',
-      version: '0.4.2',
-      done: 0,
-      total: 2,
-      fleet: { ...settledFleet, converging: 1, failed: 0 },
-    })
-
-    let versionReads = 0
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => ({
-        ok: true,
-        json: async () =>
-          url.endsWith('/version')
-            ? { appVersion: ++versionReads === 1 ? '0.4.1' : '0.4.2', target }
-            : { appVersion: '0.4.1' },
-      })),
-    )
-    const results: UpdateStateResult[] = []
-
-    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
-    screen.getByRole('button', { name: /update Podium/i }).click()
-    await waitFor(() => {
-      expect(queryCalls).toBeGreaterThanOrEqual(2)
-      expect(results.at(-1)?.server.appVersion).toBe('0.4.2')
-    })
-
-    failAttempt?.()
-    await waitFor(() => {
-      expect(results.at(-1)?.view.state).toBe('failed')
-      expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy()
-    })
-
-    screen.getByRole('button', { name: /update Podium/i }).click()
-    await waitFor(() =>
-      expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
-    )
-    expect(mocks.mutate).toHaveBeenCalledTimes(2)
-  })
-
-  it('does not expose an install action without the desktop bridge', async () => {
-    setupTransport()
-    mocks.mutate.mockResolvedValue({
-      state: 'in-progress',
-      version: '0.4.2',
-      done: 0,
-      total: 1,
-      fleet: { total: 1, behind: 1, converging: 1, failed: 0 },
-    })
-
-    render(<Probe onResult={() => {}} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
-    expect(screen.queryByText('install action')).toBeNull()
-  })
-
-  it('a manual check reports current when nothing is behind', async () => {
-    setPageVersion('0.4.2')
-    setupTransport({ appVersion: '0.4.2' })
-    const results: UpdateStateResult[] = []
-
-    render(
-      <Probe
-        onResult={(result) => results.push(result)}
-        fleet={{ total: 0, behind: 0, converging: 0, failed: 0 }}
-      />,
-    )
-    await waitFor(() => expect(results.at(-1)?.checkNow).toBeTypeOf('function'))
-    await results.at(-1)?.checkNow()
-    await waitFor(() =>
-      expect(results.at(-1)?.view).toEqual({ state: 'current', version: '0.4.2' }),
-    )
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+    expect(results.at(-1)?.operation).toBeNull()
   })
 
   it('shows the running page version, not a stale built stamp', async () => {
-    setPageVersion('dev+abc1234')
-    setupTransport({
-      appVersion: 'dev+abc1234',
-      target: { version: 'dev+abc1234', critical: false, artifacts: {} },
-    })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => ({
-        ok: true,
-        json: async () =>
-          url.endsWith('/version')
-            ? {
-                appVersion: 'dev+abc1234',
-                target: { version: 'dev+abc1234', critical: false, artifacts: {} },
-              }
-            : { appVersion: 'dev+old1234', sourceSha: 'old1234' },
-      })),
-    )
+    setPageVersion('0.4.2')
+    setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
+    mocks.active.mockResolvedValue(null)
     const results: UpdateStateResult[] = []
 
-    render(
-      <Probe
-        onResult={(result) => results.push(result)}
-        fleet={{ total: 0, behind: 0, converging: 0, failed: 0 }}
-      />,
-    )
-    await waitFor(() => expect(results.at(-1)?.checkNow).toBeTypeOf('function'))
-    await results.at(-1)?.checkNow()
-    await waitFor(() =>
-      expect(results.at(-1)?.view).toEqual({ state: 'current', version: 'dev+abc1234' }),
-    )
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
+
+    await waitFor(() => expect(results.length).toBeGreaterThan(0))
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('none'))
+  })
+})
+
+/**
+ * `operations.active` filters terminal states out by design, so the two
+ * outcomes the panel must show — "done" and "failed" — can only come from
+ * `history`. Without this the failure would blink out of existence at the
+ * moment it became true.
+ */
+describe('useUpdateState — the outcome, which `active` cannot carry', () => {
+  const finished = (state: string, finishedAt: number) => ({
+    id: 'op_done',
+    kind: 'update',
+    state,
+    details: { target: { version: '0.4.2' } },
+    finishedAt,
+    steps: [{ id: 'prepare', title: 'Preparing the update', state: 'done' }],
   })
 
-  it('a manual check surfaces a failed desktop lookup', async () => {
-    setupTransport({ appVersion: '0.4.2' })
-    vi.stubGlobal('__PODIUM_DESKTOP__', {
-      platform: 'macos',
-      minimize: vi.fn(async () => {}),
-      toggleMaximize: vi.fn(async () => {}),
-      close: vi.fn(async () => {}),
-      checkUpdate: vi.fn(async () => {
-        throw new Error('update check failed: network down')
-      }),
-    })
-    const results: UpdateStateResult[] = []
-
-    render(
-      <Probe
-        onResult={(result) => results.push(result)}
-        fleet={{ total: 0, behind: 0, converging: 0, failed: 0 }}
-      />,
-    )
-    await waitFor(() => expect(results.at(-1)?.checkNow).toBeTypeOf('function'))
-    await results.at(-1)?.checkNow()
-    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
-    expect(results.at(-1)?.view).toMatchObject({
-      state: 'failed',
-      diagnostic: 'update check failed: network down',
-    })
-  })
-
-  it('claims update ownership and exposes the install action when the shell provides it', async () => {
+  it('shows a failure from history, and keeps showing it across a reload', async () => {
     setupTransport()
-    const claim = vi.fn(async () => {})
-    const install = vi.fn(async () => {})
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...finished('failed', Date.now() - 5_000), error: { code: 'download-failed' } },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(results.at(-1)?.view.error?.message).toMatch(/could not download this update/i)
+  })
+
+  it('stops showing a failure the user acknowledged', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...finished('failed', Date.now() - 5_000), error: { code: 'download-failed' } },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+
+    act(() => results.at(-1)?.acknowledge())
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+  })
+
+  it('lets an old failure go: after the window it belongs to Settings, not the corner', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...finished('failed', Date.now() - 60 * 60_000), error: { code: 'download-failed' } },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.length).toBeGreaterThan(0))
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+  })
+
+  it('does not congratulate a tab that never watched the update run', async () => {
+    // Everything already on the target, so nothing but the completion could
+    // possibly put a panel on screen.
+    setPageVersion('0.4.2')
+    setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([finished('done', Date.now() - 5_000)])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
+    await waitFor(() => expect(mocks.history).toHaveBeenCalled())
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('none'))
+    expect(results.at(-1)?.view.indicator).toBe('none')
+  })
+})
+
+/**
+ * THE ALL-IN-ONE FLOW (§4, §5): one click, one restart, and the same operation
+ * id reading `done` on the far side. Every assertion here is about a shape the
+ * other surfaces never see — an operation with NO STEPS whose entire content is
+ * one required ask addressed to this shell.
+ */
+describe('useUpdateState — all-in-one: one click, one restart', () => {
+  const waitingOnTheShell = {
+    id: 'op_aio',
+    kind: 'update',
+    state: 'waiting',
+    details: { target: { version: '0.4.2' } },
+    steps: [],
+    awaiting: [
+      {
+        id: 'desktop-install',
+        surface: 'desktop-all-in-one',
+        title: 'Install the update in Podium Desktop',
+        required: true,
+      },
+    ],
+  }
+
+  /**
+   * The regression this exists for: `canInstallDesktop` used to be computed
+   * ONLY from the offer-time facts — the release feed and the server's target
+   * artifact — and in all-in-one neither is present. The shell the operation
+   * was explicitly waiting for offered Reload, which does nothing, while the
+   * ask it was meant to answer sat there for the ten-minute grace.
+   */
+  it('offers Restart Podium on the strength of the ask alone', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    stubDesktopShell()
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('waiting-you'))
+    expect(results.at(-1)?.view.primary?.kind).toBe('install-desktop')
+    expect(results.at(-1)?.view.primary?.label).toBe('Restart Podium')
+  })
+
+  it('installs on the channel the server resolved, not the shell’s own config', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    const install = vi.fn(
+      () => new Promise<void>(() => {}), // never settles: the process is replaced
+    )
+    stubDesktopShell({ installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('waiting-you'))
+
+    void results.at(-1)?.run('install-desktop')
+    await waitFor(() => expect(install).toHaveBeenCalledWith('stable'))
+  })
+
+  /**
+   * THE ACCEPTANCE LINE. The shell execs, the webview process is replaced, and
+   * a page that has never seen this operation before is handed the successor
+   * server's `done`. Without the localStorage handoff the reloaded page
+   * congratulates nobody — `watched` is an in-memory Set, and sessionStorage
+   * dies with the process too — so one click and one restart end in silence.
+   */
+  it('still renders done for the operation it restarted for', async () => {
+    setPageVersion('0.4.2')
+    setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
+    stubDesktopShell()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    const before: UpdateStateResult[] = []
+    render(<Probe onResult={(result) => before.push(result)} behind={0} />)
+    await waitFor(() => expect(before.at(-1)?.operation?.id).toBe('op_aio'))
+
+    // The restart. Everything in memory goes; localStorage is what crosses.
+    cleanup()
+    resetPolledQueryCache()
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...waitingOnTheShell, state: 'done', awaiting: [], finishedAt: Date.now() - 2_000 },
+    ])
+    const after: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => after.push(result)} behind={0} />)
+
+    await waitFor(() => expect(after.at(-1)?.view.state).toBe('done'))
+    expect(after.at(-1)?.operation?.id).toBe('op_aio')
+  })
+
+  /**
+   * The bound on the handoff. It is a baton passed between two lives of the
+   * same app, not a memory of every update this machine has ever run — an app
+   * opened the next morning has nothing to celebrate (§6.2).
+   */
+  it('lets the handoff expire rather than congratulating tomorrow’s launch', async () => {
+    setPageVersion('0.4.2')
+    setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
+    stubDesktopShell()
+    globalThis.localStorage?.setItem(
+      'podium.update.watched-operation',
+      JSON.stringify({ id: 'op_aio', at: Date.now() - 60 * 60_000 }),
+    )
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      { ...waitingOnTheShell, state: 'done', awaiting: [], finishedAt: Date.now() - 60 * 60_000 },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
+
+    await waitFor(() => expect(mocks.history).toHaveBeenCalled())
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('none'))
+  })
+})
+
+describe('useUpdateState — dispatching actions', () => {
+  it('starts the update through the operation verb', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.start.mockResolvedValue({ id: 'op_1' })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+
+    await results.at(-1)?.run('start')
+    expect(mocks.start).toHaveBeenCalledTimes(1)
+    expect(mocks.converge).not.toHaveBeenCalled()
+  })
+
+  /**
+   * A server older than the operation verbs is a REAL case, not scaffolding:
+   * the bundle is swapped during the very update it is driving (P8).
+   */
+  it('falls back to converge when the server has never heard of updates.start', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.start.mockRejectedValue(notFound('updates.start'))
+    mocks.converge.mockResolvedValue({ fleet: { total: 1, behind: 0, converging: 1, failed: 0 } })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+
+    await results.at(-1)?.run('start')
+    expect(mocks.converge).toHaveBeenCalledTimes(1)
+    expect(results.at(-1)?.view.state).toBe('offer')
+  })
+
+  /**
+   * THE RETIRED POD-2091 BUG. A rejected action used to disappear into
+   * `runAction`'s try/finally: the spinner stopped and the user was told
+   * nothing at all.
+   */
+  it('surfaces a refused start as a failure the user can read', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.start.mockRejectedValue(
+      Object.assign(new Error('another update is already running'), {
+        data: { code: 'CONFLICT' },
+      }),
+    )
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+
+    await results.at(-1)?.run('start')
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(screen.getByTestId('view-state').textContent).toContain('already running')
+    expect(results.at(-1)?.view.primary?.kind).toBe('retry')
+  })
+
+  it('surfaces the shell’s typed install failure', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    const install = vi.fn(async () => {
+      throw { code: 'signature-invalid', message: 'The desktop update could not be verified.' }
+    })
     vi.stubGlobal('__PODIUM_DESKTOP__', {
       platform: 'linux',
       minimize: vi.fn(async () => {}),
       toggleMaximize: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
-      claimUpdateOwnership: claim,
+      claimUpdateOwnership: vi.fn(async () => {}),
       checkUpdate: vi.fn(async () => ({
         current_version: '0.4.1',
         version: '0.4.2',
         critical: false,
-        notes: 'A calmer update flow.',
+        notes: null,
       })),
       installUpdate: install,
     })
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
-    await waitFor(() => expect(screen.getByText('install action')).toBeTruthy())
-    expect(claim).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
 
-    await results.at(-1)?.actions.installApp?.()
-    expect(install).toHaveBeenCalledTimes(1)
+    await results.at(-1)?.run('install-desktop')
+    // The channel the SERVER resolved, passed as an argument (POD-2135).
+    expect(install).toHaveBeenCalledWith('stable')
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(results.at(-1)?.view.error?.message).toMatch(/couldn't be verified/i)
+    expect(results.at(-1)?.view.error?.detail).toContain('code: signature-invalid')
   })
 
-  it('only exposes reload when the app place is touched', async () => {
-    setupTransport({
-      appVersion: '0.4.1',
-      target: { ...target, artifacts: { web: { digest: 'new-web-digest' } } },
-    })
-
-    render(<Probe onResult={() => {}} withReload />)
-    await waitFor(() => expect(screen.getByText('reload action')).toBeTruthy())
-  })
-
-  it('does not expose reload when only the server place is touched', async () => {
+  it('claims update ownership so the shell does not raise its own dialog', async () => {
     setupTransport()
+    mocks.active.mockResolvedValue(null)
+    const claim = vi.fn(async () => {})
+    vi.stubGlobal('__PODIUM_DESKTOP__', {
+      platform: 'linux',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      claimUpdateOwnership: claim,
+    })
 
-    render(<Probe onResult={() => {}} withReload />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
-    expect(screen.queryByText('reload action')).toBeNull()
+    render(<Probe onResult={() => {}} />)
+    await waitFor(() => expect(claim).toHaveBeenCalledTimes(1))
   })
 
-  it('starts a machine-only update and counts only the affected machine', async () => {
-    setupTransport({ appVersion: '0.4.2', target })
-    mocks.mutate.mockResolvedValue({
-      state: 'in-progress',
-      version: '0.4.2',
-      done: 0,
-      total: 1,
-      fleet: {
-        total: 1,
-        behind: 1,
-        converging: 1,
-        failed: 0,
-        targetVersion: '0.4.2',
-      },
-    })
+  it('turns a refused cancel into a sentence instead of an exception', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue({ id: 'op_9', kind: 'update', state: 'running' })
+    mocks.cancel.mockResolvedValue({ canceled: false, refused: 'irreversible', step: 'server' })
     const results: UpdateStateResult[] = []
 
-    render(<Probe onResult={(result) => results.push(result)} withReload />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
-    expect(screen.queryByText('reload action')).toBeNull()
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('running'))
 
-    screen.getByRole('button', { name: /update Podium/i }).click()
-    await waitFor(() =>
-      expect(screen.getByTestId('view-state').textContent).toBe('in-progress:0.4.2:0:1'),
-    )
-    expect(results.at(-1)?.view).toMatchObject({ state: 'in-progress', total: 1 })
-    expect(mocks.mutate).toHaveBeenCalledOnce()
+    await results.at(-1)?.run('cancel')
+    await waitFor(() => expect(results.at(-1)?.view.note).toMatch(/finish or fail/i))
+    expect(results.at(-1)?.view.state).toBe('running')
+  })
+
+  /**
+   * `install_update` ends in `app.restart()`, which diverges: on success the
+   * promise is dropped with the process. So a RESOLVED install is the shell
+   * saying it installed and stayed put, and until now that produced a silent
+   * no-op — the panel cleared its spinner and went back to offering the same
+   * update (POD-2152, which found `restart-failed` had no producer at all).
+   */
+  it('treats an install that returned instead of restarting as restart-failed', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    const install = vi.fn(async () => {})
+    stubDesktopShell({ installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+
+    await results.at(-1)?.run('install-desktop')
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(results.at(-1)?.view.error?.message).toMatch(/could not restart itself/i)
+    expect(results.at(-1)?.view.error?.nextAction).toMatch(/open it again/i)
+  })
+
+  it('reports “up to date” after a manual check finds nothing', async () => {
+    setPageVersion('0.4.2')
+    setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
+    mocks.active.mockResolvedValue(null)
+    mocks.checkNow.mockResolvedValue({ checked: true })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('none'))
+
+    await results.at(-1)?.checkNow()
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('done'))
+    expect(results.at(-1)?.view.title).toBe('Podium is up to date')
+    expect(results.at(-1)?.view.indicator).toBe('none')
   })
 })

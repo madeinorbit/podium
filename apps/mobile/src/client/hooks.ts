@@ -35,6 +35,11 @@ export function useMobileStore() {
   return useStore<MobileTrpc>()
 }
 
+/** The server this app is talking to, e.g. `http://ludovico:18787`. */
+export function useHttpOrigin(): string {
+  return useStoreSelector<string, MobileTrpc>((s) => s.httpOrigin)
+}
+
 export function useTrpc(): MobileTrpc {
   return useStoreSelector<MobileTrpc, MobileTrpc>((s) => s.trpc)
 }

@@ -26,7 +26,22 @@ describe('applyChannel', () => {
     expect(loadConfig().updateChannel).toBe('edge')
     expect(applyChannel()).toEqual({ channel: 'edge' })
   })
+  /**
+   * POD-2196. `dev` is a channel the rest of the product already has: the config
+   * schema accepts it, `FleetUpdateChannel` names it, and it is the ONLY channel
+   * a source checkout's own target is ever published on. Refusing it here left a
+   * source machine pinned to `stable`, where that target never applies, and the
+   * only way to reach it was the `PODIUM_UPDATE_CHANNEL` env var.
+   */
+  it('pins a source machine to the development channel', () => {
+    expect(applyChannel('dev')).toEqual({ channel: 'dev' })
+    expect(loadConfig().updateChannel).toBe('dev')
+    expect(applyChannel()).toEqual({ channel: 'dev' })
+  })
   it('throws on an unknown channel', () => {
     expect(() => applyChannel('beta')).toThrow()
+  })
+  it('names every channel it accepts when it refuses one', () => {
+    expect(() => applyChannel('beta')).toThrow(/stable \| edge \| dev/)
   })
 })

@@ -19,6 +19,7 @@ import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
 import { vpsIntroState } from '@/features/setup/vps-activation'
+import { UpdatesProvider } from '@/features/updates/updates-context'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
@@ -63,7 +64,6 @@ import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
-import { UpdatePrompt } from './UpdatePrompt'
 import { Workspace } from './Workspace'
 
 const SettingsView = lazy(() =>
@@ -175,42 +175,47 @@ export function AppShell(): JSX.Element {
 
   return (
     <TooltipProvider>
-      <UpdatePrompt />
-      {appError ? (
-        <AppErrorPage
-          title="Podium could not connect"
-          message={appError}
-          onRetry={() => setAppError(null)}
-        />
-      ) : (
-        <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
-          <StoreProvider
-            // The principal the boot gate resolved from the authenticated
-            // transport — the runtime, its socket, its replica and its outbox
-            // are all bound to it, and a change to it rebuilds all three
-            // (POD-404). Never read from the URL or a raw storage key.
-            principal={kernel.principal}
-            config={config}
-            onFatalError={setAppError}
-            createReplicaFn={kernel.assembly.createReplicaFn}
-            feed={kernel.assembly.feed}
-            createOutboxFn={kernel.assembly.createOutboxFn}
-          >
-            <KernelHubAttach assembly={kernel.assembly} />
-            <RoutedDensityProvider>
-              <ThemeUiStateMirror />
-              <BrowserOpenOverlay />
-              <ConfirmProvider>
-                {/* Above both TopBar and the view outlet: the command bar's centre
+      {/* The update surface wraps the whole shell (POD-2102): its panel renders
+          here in the corner, and its indicator renders far below in the status
+          strip. One provider so the two are the same state, never two pictures
+          of one update. */}
+      <UpdatesProvider httpOrigin={config.httpOrigin}>
+        {appError ? (
+          <AppErrorPage
+            title="Podium could not connect"
+            message={appError}
+            onRetry={() => setAppError(null)}
+          />
+        ) : (
+          <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
+            <StoreProvider
+              // The principal the boot gate resolved from the authenticated
+              // transport — the runtime, its socket, its replica and its outbox
+              // are all bound to it, and a change to it rebuilds all three
+              // (POD-404). Never read from the URL or a raw storage key.
+              principal={kernel.principal}
+              config={config}
+              onFatalError={setAppError}
+              createReplicaFn={kernel.assembly.createReplicaFn}
+              feed={kernel.assembly.feed}
+              createOutboxFn={kernel.assembly.createOutboxFn}
+            >
+              <KernelHubAttach assembly={kernel.assembly} />
+              <RoutedDensityProvider>
+                <ThemeUiStateMirror />
+                <BrowserOpenOverlay />
+                <ConfirmProvider>
+                  {/* Above both TopBar and the view outlet: the command bar's centre
                     is a portal target the active mode fills (POD-365). */}
-                <ToolbarSlotProvider>
-                  <AppBody />
-                </ToolbarSlotProvider>
-              </ConfirmProvider>
-            </RoutedDensityProvider>
-          </StoreProvider>
-        </ErrorBoundary>
-      )}
+                  <ToolbarSlotProvider>
+                    <AppBody />
+                  </ToolbarSlotProvider>
+                </ConfirmProvider>
+              </RoutedDensityProvider>
+            </StoreProvider>
+          </ErrorBoundary>
+        )}
+      </UpdatesProvider>
       {/* Clear of the command bar, not through it: 24px put a two-line toast
           straight across the bar's controls, which is where the operator is
           working. --topbar-h plus the bar's own 10px rhythm gap (POD-1159).

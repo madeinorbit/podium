@@ -96,7 +96,7 @@ describe('fetchArtifact', () => {
         fetch: okFetch,
         pubkey,
         git: {
-          run: (_cmd, args) => {
+          run: async (_cmd, args) => {
             operations.push(args.find((arg) => ['status', 'rev-parse', 'fetch', 'checkout'].includes(arg)) ?? '')
             return { status: 0, stdout: '' }
           },

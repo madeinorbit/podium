@@ -2,6 +2,7 @@ import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logg
 import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { currentSkew, resetSkewNotice } from '@/app/skew-notice'
+import { reloadBudgetSpent } from '@/lib/reload-budget'
 import { checkServerVersion, forceReload } from './version-guard'
 
 const ORIGIN = 'https://relay.test'
@@ -282,7 +283,24 @@ describe('checkServerVersion — schema digest', () => {
     const notice = currentSkew()
     expect(notice?.source).toBe('boot-digest')
     expect(notice?.message).toContain('different app builds')
-    expect(notice?.message).toContain('Repair and reload')
+    // ONE REMEDY, NOT A SECOND PRESCRIPTION (POD-2102, spec §6.1). The banner
+    // used to name a specific button; that button is the panel's business, and
+    // naming it here was how the two surfaces came to recommend different
+    // things. It points at the panel now.
+    expect(notice?.message).toContain('update panel')
     expect(notice?.message).not.toContain('bun run build')
+  })
+
+  it('records the spent reload budget so the panel can explain it afterwards', async () => {
+    store.set(COUNTER_KEY, '2')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(versionResponse({ ...matched, wireSchemaDigest: 'deadbeefdeadbeef' })),
+    )
+    expect(await checkServerVersion(ORIGIN)).toBe('blocked')
+    expect(reloadBudgetSpent()).toBe(true)
   })
 })

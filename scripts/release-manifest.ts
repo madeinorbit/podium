@@ -29,6 +29,16 @@ export type ReleaseManifest = {
   critical?: true
   minRequired?: MinRequired
   web?: { digest: string }
+  /**
+   * The migrations this release's build defines (POD-2213).
+   *
+   * A machine converging BACKWARDS needs to know whether the build it is about
+   * to swap in can open the database it already has — a build that lacks a
+   * migration the database applied refuses to start, and from there nothing
+   * inside Podium can put the newer build back. The publisher is the only party
+   * that knows this list, so the manifest carries it.
+   */
+  schema?: { migrations: string[] }
 }
 
 export function sha256Digest(bytes: Uint8Array): string {
@@ -47,6 +57,8 @@ export function buildManifest(input: {
   critical: boolean
   minRequired?: MinRequired
   webDigest?: string
+  /** Migration folder names this build defines; absent means "did not say". */
+  schemaMigrations?: string[]
 }): ReleaseManifest {
   const platforms = Object.fromEntries(
     input.platforms.map(({ target, url, signature }) => [target, { url, signature }]),
@@ -65,6 +77,7 @@ export function buildManifest(input: {
   return {
     version: input.version,
     platforms,
+    ...(input.schemaMigrations ? { schema: { migrations: input.schemaMigrations } } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
     ...(input.critical ? { critical: true as const } : {}),
     ...(input.minRequired ? { minRequired: input.minRequired } : {}),

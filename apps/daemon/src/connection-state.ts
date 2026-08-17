@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
 import type { MachineId } from '@podium/model'
 import { createHandshakeDialer, type LocalDaemonAttachment, type PeerBuild, type PeerCredential, type PeerHelloRejected } from '@podium/protocol'
@@ -17,6 +17,16 @@ const log = createLogger('daemon:connection')
 
 const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
+
+/**
+ * How long a protocol-mismatch `podium update` may run before it is killed.
+ *
+ * There was no bound at all before POD-2046. Generous on purpose: an updater
+ * that downloads and swaps a build is legitimately slow, so this is a deadlock
+ * breaker for a run that has plainly stopped making progress, not a deadline
+ * anyone should hit.
+ */
+const UPDATE_RUN_TIMEOUT_MS = 10 * 60_000
 
 export const REAL_RECONNECT_TIMERS: ReconnectTimers = {
   setTimeout: (fn, ms) => {
@@ -254,17 +264,43 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     log.error('protocol mismatch — running `podium update`', { source })
-    const result = spawnSync(process.execPath, ['update'], { stdio: 'inherit' })
-    if (decidePostUpdate(result.status) === 'restart') {
-      ;(deps.restartAfterUpdate ?? (() => process.exit(0)))()
-      return
+    // LAUNCHED, NOT AWAITED (POD-2046). This runs on the daemon's only thread,
+    // which also carries PTY output, the server link and hook ingest. The
+    // `spawnSync` this replaces froze all of them for as long as the updater
+    // ran — and unlike git delivery it had NO timeout at all, so a `podium
+    // update` that never returned wedged the daemon permanently with no alarm.
+    // The verdict is reached in the continuation instead; this function stays
+    // void, and so do both of its callers.
+    const child = spawn(process.execPath, ['update'], {
+      stdio: 'inherit',
+      env: { ...process.env },
+    })
+    // The bound the sync version never had. Killed with SIGKILL because an
+    // updater wedged badly enough to reach this point cannot be trusted to
+    // honour a polite signal.
+    const giveUp = setTimeout(() => child.kill('SIGKILL'), UPDATE_RUN_TIMEOUT_MS)
+    ;(giveUp as { unref?: () => void }).unref?.()
+    // `error` and `close` can BOTH fire — a spawn failure emits error and then
+    // closes — and settling twice would restart the daemon on a run that had
+    // already been reported as blocked.
+    let settled = false
+    const settle = (status: number | null): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(giveUp)
+      if (decidePostUpdate(status) === 'restart') {
+        ;(deps.restartAfterUpdate ?? (() => process.exit(0)))()
+        return
+      }
+      terminal(
+        'blocked',
+        'protocol-mismatch',
+        `no newer build available (podium update exit ${status}) — manual update required`,
+        active,
+      )
     }
-    terminal(
-      'blocked',
-      'protocol-mismatch',
-      `no newer build available (podium update exit ${result.status}) — manual update required`,
-      active,
-    )
+    child.once('error', () => settle(null))
+    child.once('close', (code) => settle(code))
   }
 
   const receiveReply = (
@@ -318,7 +354,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     return createHandshakeDialer({
       peerRole: 'machine',
       credential: selected,
-      caps: deliveryCaps(deps.build.installKind),
+      caps: deliveryCaps(deps.build),
       build: deps.build,
       claims: {
         machineId: deps.machineId,

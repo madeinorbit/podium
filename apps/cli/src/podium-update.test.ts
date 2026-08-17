@@ -7,20 +7,81 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  compareVersions,
   isNewer,
   manifestUrlFor,
   parseManifest,
   platformTarget,
   runUpdate,
-  verifyTarball,
 } from './podium-update'
 
+/**
+ * PRERELEASE-SAFE SELF-UPDATE (POD-2099). Podium's own releases ARE
+ * prereleases, so the edge channel is the ordinary case here, not the exotic
+ * one: `Number('4-edge')` is NaN and the old comparison degraded to "not
+ * newer" for every edge-to-edge pair.
+ *
+ * Table-driven because the interesting content is the pairs, and one case per
+ * `it` would hide which rule each pair is really about.
+ */
+describe('isNewer', () => {
+  const cases: [candidate: string, current: string, newer: boolean, why: string][] = [
+    ['0.1.1', '0.1.0', true, 'a later patch'],
+    ['0.1.0', '0.1.0', false, 'the same version'],
+    ['0.2.0', '0.10.0', false, 'numeric core components, not text'],
+    ['0.1.4-edge.10', '0.1.4-edge.4', true, 'numeric prerelease identifiers count, not sort'],
+    ['0.1.4-edge.4', '0.1.4-edge.10', false, 'and the other way round'],
+    ['0.1.4-edge.4', '0.1.4-edge.4', false, 'the same prerelease'],
+    ['0.1.4', '0.1.4-edge.4', true, 'the release outranks its own prereleases'],
+    ['0.1.4-edge.4', '0.1.4', false, 'and a prerelease never overwrites the release'],
+    ['0.1.5-edge.1', '0.1.4', true, 'a prerelease of a LATER version still wins'],
+    ['0.1.4-edge.4', '0.1.3', true, 'edge moving forward across a patch'],
+    ['0.1.4-edge', '0.1.4-edge.1', false, 'fewer identifiers rank lower'],
+    ['0.1.4-edge.1', '0.1.4-edge', true, 'and more identifiers rank higher'],
+    ['0.1.4-beta', '0.1.4-alpha', true, 'alphanumeric identifiers compare as text'],
+    ['0.1.4-alpha.1', '0.1.4-alpha.beta', false, 'numeric ranks below alphanumeric'],
+    ['0.1.4+abc1234', '0.1.4', false, 'build metadata takes no part in precedence'],
+    ['0.1.5+abc1234', '0.1.4', true, 'and does not prevent a real comparison either'],
+    // FAIL CLOSED. A false negative leaves an install where it is; a false
+    // positive swaps an install directory on a label nobody could read.
+    ['0.1.4', 'dev', false, 'a source checkout has no place on this ordering'],
+    ['dev+abc1234', '0.1.4', false, 'nor does the label it reports'],
+    ['0.1.4', 'dev+abc1234', false, 'in either position'],
+    ['', '0.1.4', false, 'an empty version'],
+    ['0.1', '0.1.4', false, 'a two-component version is not a semver'],
+    ['0.1.4.5', '0.1.4', false, 'nor is a four-component one'],
+    ['latest', '0.1.4', false, 'nor a channel name'],
+    ['0.1.4-', '0.1.4-edge', false, 'nor an empty prerelease'],
+    ['0.1.4-edge..1', '0.1.4-edge.1', false, 'nor an empty identifier inside one'],
+  ]
+
+  for (const [candidate, current, newer, why] of cases) {
+    it(`${newer ? 'updates' : 'stays put'}: ${candidate || '<empty>'} vs ${current} — ${why}`, () => {
+      expect(isNewer(candidate, current)).toBe(newer)
+    })
+  }
+})
+
+describe('compareVersions numeric prerelease syntax', () => {
+  const cases: [left: string, right: string, order: number | null, why: string][] = [
+    ['0.1.4-edge.0', '0.1.4-edge.1', -1, 'zero itself is a valid numeric identifier'],
+    ['0.1.4-edge.10', '0.1.4-edge.2', 1, 'multi-digit identifiers may start nonzero'],
+    ['00.1.5', '0.1.4', null, 'a major component cannot have a leading zero'],
+    ['0.01.5', '0.1.4', null, 'a minor component cannot have a leading zero'],
+    ['0.1.05', '0.1.4', null, 'a patch component cannot have a leading zero'],
+    ['0.1.4-edge.00', '0.1.4-edge.0', null, 'multiple zeroes are malformed'],
+    ['0.1.4-edge.01', '0.1.4-edge.1', null, 'a leading zero is malformed on the left'],
+    ['0.1.5', '0.1.4-edge.01', null, 'a leading zero is malformed on the right'],
+  ]
+
+  for (const [left, right, order, why] of cases) {
+    it(`${left} vs ${right} — ${why}`, () => {
+      expect(compareVersions(left, right)).toBe(order)
+    })
+  }
+})
+
 describe('podium update helpers', () => {
-  it('isNewer compares semver-ish versions', () => {
-    expect(isNewer('0.1.1', '0.1.0')).toBe(true)
-    expect(isNewer('0.1.0', '0.1.0')).toBe(false)
-    expect(isNewer('0.2.0', '0.10.0')).toBe(false)
-  })
   it('parseManifest extracts version + linux url + signature', () => {
     const m = parseManifest(
       JSON.stringify({
@@ -71,34 +132,11 @@ describe('podium update helpers', () => {
   })
 })
 
-// --- Ed25519 verifyTarball (the pure security primitive) --------------------
-describe('verifyTarball', () => {
-  // Independent keypair so we can sign payloads deterministically in-test; the dev
-  // pubkey constant is exercised separately via the round-trip default path.
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
-  const pubB64 = publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
-  const payload = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])
-  const sigB64 = cryptoSign(null, payload, privateKey).toString('base64')
-
-  it('accepts a correctly-signed payload', () => {
-    expect(verifyTarball(payload, sigB64, pubB64)).toBe(true)
-  })
-  it('REJECTS a tampered payload (same signature)', () => {
-    const tampered = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 9])
-    expect(verifyTarball(tampered, sigB64, pubB64)).toBe(false)
-  })
-  it('REJECTS a wrong signature (signed by a different key)', () => {
-    const other = generateKeyPairSync('ed25519').privateKey
-    const wrongSig = cryptoSign(null, payload, other).toString('base64')
-    expect(verifyTarball(payload, wrongSig, pubB64)).toBe(false)
-  })
-  it('REJECTS a missing/empty signature', () => {
-    expect(verifyTarball(payload, '', pubB64)).toBe(false)
-  })
-  it('REJECTS garbage that is not a valid signature (no throw)', () => {
-    expect(verifyTarball(payload, 'not-base64-sig!!', pubB64)).toBe(false)
-  })
-})
+// The `verifyTarball` arms that stood here moved to
+// `packages/runtime/src/update-delivery.test.ts` with the function itself
+// (POD-2106) — the CLI had a byte-identical copy, and one security primitive
+// gets one home. `runUpdate`'s signature GATE is still tested below, where it
+// belongs: that is the CLI's own behaviour, not the primitive's.
 
 // --- crash-safe swap (FIX wave 1) -------------------------------------------
 // These exercise runUpdate's real download → extract → atomic-swap path against a tiny

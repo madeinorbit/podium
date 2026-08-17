@@ -394,8 +394,33 @@ describe('installMobileLogging', () => {
 })
 
 describe('appVersion', () => {
+  const page = (content: string | null) => ({
+    querySelector: (selector: string) => {
+      expect(selector).toBe('meta[name="podium-version"]')
+      return content === null ? null : { getAttribute: () => content }
+    },
+  })
+
   it('says dev rather than inventing a version', () => {
-    // EXPO_PUBLIC_APP_VERSION is a build-time inline; unset in a test run.
-    expect(appVersion()).toBe('dev')
+    // Neither channel present: no stamped page, no build-time inline.
+    expect(appVersion(undefined, undefined)).toBe('dev')
+  })
+
+  it('reads the version the build stamped into the page', () => {
+    expect(appVersion(page('dev+b324327'), undefined)).toBe('dev+b324327')
+  })
+
+  it('prefers the stamped page over a stale inline', () => {
+    expect(appVersion(page('dev+b324327'), '0.4.1')).toBe('dev+b324327')
+  })
+
+  it('falls back to the inline where there is no page — a native build', () => {
+    expect(appVersion(undefined, '0.4.1')).toBe('0.4.1')
+    expect(appVersion(page(null), '0.4.1')).toBe('0.4.1')
+  })
+
+  it('treats a blank stamp as absent rather than as a version', () => {
+    expect(appVersion(page('  '), '0.4.1')).toBe('0.4.1')
+    expect(appVersion(page('  '), '  ')).toBe('dev')
   })
 })

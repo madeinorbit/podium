@@ -295,6 +295,19 @@ describe('resolvePlan — launch matrix', () => {
     })
     expect(plan({ mode: 'server' }, ['server'])).toMatchObject({ runRecordMode: 'foreground' })
   })
+  it('the desktop sidecar is labeled foreground but logs to the FILE, not its dead stdout', () => {
+    // The shell inherits the child's stdio and a Finder-launched .app's stdout is
+    // nowhere, so the console sink wrote every record into a void: an all-in-one
+    // desktop install had no all-in-one.ndjson at all.
+    expect(plan({ mode: 'all-in-one' }, [], { PODIUM_DESKTOP_SUPERVISED: '1' })).toMatchObject({
+      runRecordMode: 'foreground',
+      logSinkMode: 'detached',
+    })
+    expect(plan({ mode: 'all-in-one' })).toMatchObject({
+      runRecordMode: 'foreground',
+      logSinkMode: 'foreground',
+    })
+  })
   it('port precedence: PODIUM_PORT env > config.port > 18787', () => {
     expect(plan({ mode: 'all-in-one', port: 2000 }, [], { PODIUM_PORT: '3000' })).toMatchObject({
       port: 3000,
@@ -346,7 +359,19 @@ describe('resolvePlan — utility subcommands', () => {
       kind: 'approval-request',
       op: { kind: 'channel', target: 'edge' },
     })
+    // POD-2199: an agent may pin its machine to `dev` — the only channel a source
+    // checkout's own target is published on. The operator path learned this in
+    // POD-2198 and the brokered one did not, so an agent session on a source
+    // machine sat on `stable`, where its target never appears.
+    expect(plan({}, ['channel', 'dev'], agent)).toEqual({
+      kind: 'approval-request',
+      op: { kind: 'channel', target: 'dev' },
+    })
+    // Still closed: `target` becomes argv on the approving machine.
     expect(plan({}, ['channel', 'nope'], agent)).toMatchObject({ kind: 'usage-error' })
+    expect(plan({}, ['channel', 'nope'], agent)).toMatchObject({
+      message: expect.stringContaining('dev'),
+    })
     expect(plan({}, ['set-server', 'wss://x'], agent)).toEqual({
       kind: 'approval-request',
       op: { kind: 'set-server', target: 'wss://x' },
@@ -773,9 +798,39 @@ describe('daemonOptionsForPlan', () => {
       serverUrl: 'ws://localhost:18787',
       bootstrapToken: 'local-secret',
       machineId: 'host-machine-id',
+      exitStopsServer: true,
       installCodexHooks: true,
       installGrokHooks: true,
     })
+  })
+
+  it('tells the all-in-one daemon that its exit would stop the server too', () => {
+    // POD-2210. The launcher is the ONLY place that knows this daemon shares a
+    // PID with the server, and the daemon needs it to refuse an update whose
+    // last step is an exit nothing would undo. Pinned here rather than only in
+    // the daemon because the fact travels across an app boundary: a daemon that
+    // is never told simply converges and takes the server down with it.
+    expect(
+      daemonOptionsForPlan(
+        { mode: 'all-in-one', showSetupHint: false },
+        18787,
+        'local-secret',
+        asMachineId('host-machine-id'),
+      ).exitStopsServer,
+    ).toBe(true)
+  })
+
+  it('never claims a split-mode daemon would stop a server by exiting', () => {
+    // The daemon unit, the detached daemon and `podium daemon --server …` each
+    // own their process. Setting the flag there would refuse updates on exactly
+    // the machines the fleet exists to update.
+    expect(
+      daemonOptionsForPlan(
+        { mode: 'daemon', serverUrl: 'wss://relay.example', showSetupHint: false },
+        18787,
+        'local-secret',
+      ).exitStopsServer,
+    ).toBeUndefined()
   })
 
   it('keeps remote daemon auth based on serverUrl and pair code', () => {

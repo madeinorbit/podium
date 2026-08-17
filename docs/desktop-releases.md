@@ -5,9 +5,22 @@ Podium has two production desktop update channels:
 - **stable** reads `releases/latest/download/latest.json`.
 - **edge** reads `releases/download/edge/latest.json`.
 
-The desktop shell reads `updateChannel` from `$PODIUM_STATE_DIR/config.json`, falling back to
-`~/.podium/config.json` and then to `stable`. Debug builds made by `tauri dev` do not contact
-either production feed or show the updater prompt. Development is not a release channel.
+**Channel authority: the attached server first, the shell's own config only as a fallback.**
+When the page drives an update it passes the channel explicitly and that choice wins
+(`resolve_update_channel` takes it as its argument). The shell's own `updateChannel` — read
+from `$PODIUM_STATE_DIR/config.json`, falling back to `~/.podium/config.json` and then to
+`stable` — is what a shell resolves with when nobody supplied one: no server attached, or the
+native fallback path below. One channel, resolved in one place, rather than the page and the
+shell each having an opinion.
+
+If no page claims the update within the ownership grace window, the shell shows a native
+dialog and installs from that resolved channel itself, so a shell whose webview cannot load
+is still updatable. It is a real dialog, not a log line. `PODIUM_UPDATE_TEST_AUTOCONFIRM=1`
+skips the confirmation and exists only for the verification script — never set it on a real
+install.
+
+Debug builds made by `tauri dev` do not contact either production feed or show the updater
+prompt. Development is not a release channel.
 
 ## Releasing is one tag push
 

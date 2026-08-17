@@ -38,6 +38,7 @@ import {
   useServerTransfer,
   useServerTransferStatus,
 } from '@/features/machines/server-transfer'
+import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
 import { NetworkStep } from '@/features/setup/network-step'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -1472,7 +1473,7 @@ function MachineUpdateControls({
   }
 
   const applyUpdate = async (): Promise<void> => {
-    if (busy || changingChannel || !machine.online || !targetVersion) return
+    if (busy || changingChannel || supervised || !machine.online || !targetVersion) return
     setApplying(true)
     setUpdateError(null)
     setUpdateStatus(null)
@@ -1497,6 +1498,14 @@ function MachineUpdateControls({
 
   const alreadyCurrent =
     targetVersion !== null && machine.appVersion !== null && machine.appVersion === targetVersion
+  /**
+   * This daemon lives inside the signed Podium Desktop bundle, which owns its
+   * bytes (POD-2099, spec §4). No wave delivers to it and no Apply here ever
+   * could: the shell update is the only thing that moves it. Offering the button
+   * anyway was the dead end §6.1 bans — a control whose only outcome is a
+   * refusal the user cannot act on.
+   */
+  const supervised = machine.supervised === true
   const targetLabel = targetVersion ? `Target ${targetVersion}` : 'Target unavailable'
   // Busy spans the whole act: the mutation round trip AND the convergence it
   // authorized. The action stays disabled for both.
@@ -1521,7 +1530,11 @@ function MachineUpdateControls({
           readable either way — the Target chip below never hides, and Settings →
           Updates discloses every machine that is pinned away from the fleet default,
           so an override can never become invisible by turning the flag off. */}
-      {developing ? (
+      {supervised ? (
+        <span className="flex-none settings-micro" data-machine-supervised={machine.id}>
+          Managed by Podium Desktop
+        </span>
+      ) : developing ? (
         <Select
           value={channel ?? FLEET_DEFAULT_VALUE}
           disabled={changingChannel || busy}
@@ -1585,30 +1598,53 @@ function MachineUpdateControls({
         variant="outline"
         size="sm"
         className="ml-auto flex-none"
-        disabled={busy || changingChannel || !machine.online || !targetVersion || alreadyCurrent}
+        disabled={
+          busy ||
+          changingChannel ||
+          supervised ||
+          !machine.online ||
+          !targetVersion ||
+          alreadyCurrent
+        }
         aria-busy={busy}
         aria-label={`Apply update to ${machine.name}`}
         title={
-          !machine.online
-            ? 'This machine must be online to apply its selected target.'
-            : (unavailableReason ?? undefined)
+          supervised
+            ? `Managed by Podium Desktop on this machine — it updates when the app does.`
+            : !machine.online
+              ? 'This machine must be online to apply its selected target.'
+              : (unavailableReason ?? undefined)
         }
         onClick={() => void applyUpdate()}
       >
         {busy ? 'Applying…' : alreadyCurrent ? 'Current' : retryable ? 'Try again' : 'Apply'}
       </Button>
 
-      {(unavailableReason || updateError || updateStatus) && (
+      {(supervised || unavailableReason || updateError || updateStatus) && (
         // min-w-0 as well as basis-full: a flex item's automatic minimum is its
         // min-content width, and these lines are `truncate` (nowrap), so without
         // it the longest reason set the row's width and ran off the pane.
         <div className="flex min-w-0 basis-full flex-col gap-0.5">
+          {/* The reason a disabled control is disabled belongs on the page, not
+              only in a title attribute nobody hovers. */}
+          {supervised && (
+            <span className="min-w-0 settings-micro">
+              Managed by Podium Desktop on this machine — it updates when the app does.
+            </span>
+          )}
           {unavailableReason && (
             <span
               className="min-w-0 truncate settings-micro text-warning!"
               title={unavailableReason}
             >
-              {unavailableReason}
+              {/* §6.3: an internal precondition is never shown as an error. The
+                  server's reason is a real fact about this deployment, so it is
+                  kept — inside a sentence, after a frame that says what it means
+                  for this machine. */}
+              {sourceUnavailableProse(
+                channel === null ? 'its update source' : UPDATE_CHANNEL_LABELS[channel],
+                unavailableReason,
+              )}
             </span>
           )}
           {updateError && (

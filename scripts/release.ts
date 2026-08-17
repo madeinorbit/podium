@@ -188,6 +188,33 @@ function writeChecksums(dir: string, files: string[]): string {
   return path
 }
 
+/** Where a checkout keeps the migrations its build defines. */
+export const MIGRATIONS_DIR = 'apps/server/src/migrations/drizzle'
+
+/**
+ * The migrations this release's build defines, for the manifest to declare
+ * (POD-2213).
+ *
+ * THROWS rather than publishing silence. A manifest with no declaration is one
+ * no machine can ever prove it could roll back to, so a release job that cannot
+ * see its own migrations has to stop and be fixed, not ship a target that will
+ * be refused for the rest of its life.
+ */
+export function readDefinedMigrations(dir: string = MIGRATIONS_DIR): string[] {
+  const names = existsSync(dir)
+    ? readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort()
+    : []
+  if (names.length === 0) {
+    throw new Error(
+      `no migrations found in ${dir}, so this release cannot declare the schema it can open`,
+    )
+  }
+  return names
+}
+
 export function publishPreparedHeadless(p: {
   channel: 'stable' | 'edge'
   tag: string
@@ -196,6 +223,8 @@ export function publishPreparedHeadless(p: {
   critical?: boolean
   minRequired?: MinRequiredShape
   changelogPath?: string
+  /** Seam for tests; defaults to this checkout's migrations. */
+  migrationsDir?: string
 }): void {
   if (p.channel === 'stable' && !p.tag) throw new Error('stable release needs --tag vX.Y.Z')
   const { version, prepared } = loadPreparedHeadless(p.dir, p.requiredTargets)
@@ -218,6 +247,7 @@ export function publishPreparedHeadless(p: {
         notes,
         critical: p.critical ?? false,
         minRequired: p.minRequired,
+        schemaMigrations: readDefinedMigrations(p.migrationsDir),
       }),
       null,
       2,

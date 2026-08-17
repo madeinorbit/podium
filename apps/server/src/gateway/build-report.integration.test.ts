@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { createHandshakeDialer, type PeerBuild } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
+import { machineCanTakeDelivery, type WaveMachine } from '../modules/updates/wave'
 import { startServer } from '../server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
@@ -88,6 +89,33 @@ describe('machine build report over a live daemon socket', () => {
       deliveryCaps: ['update.delivery.feed'],
       versionState: 'current',
     })
+    expect(row?.supervised).toBeUndefined()
+    await close(ws)
+  })
+
+  /**
+   * POD-2099, through the REAL composition root. The wave planner reads a
+   * projection assembled in `relay.ts`, and a field that never reaches it is a
+   * filter that never fires — the flag is asserted where the planner sees it,
+   * not only where the store writes it.
+   *
+   * Note the caps this daemon offers are the ordinary installed ones: the
+   * exclusion must not be riding on the empty cap list a real supervised daemon
+   * also sends.
+   */
+  it('marks a desktop-supervised daemon undeliverable in the planner projection', async () => {
+    const ws = await connect({
+      appVersion: '0.4.1',
+      wireSchemaDigest: 'abc',
+      installKind: 'installed',
+      supervised: true,
+    })
+    const listed = server.registry.modules.machines.listMachines()[0]
+    expect(listed).toMatchObject({ supervised: true })
+
+    const planned = server.registry.modules.updates.fleet()[0]
+    expect(planned?.supervised).toBe(true)
+    expect(machineCanTakeDelivery(planned as WaveMachine, ['feed'])).toBe(false)
     await close(ws)
   })
 })

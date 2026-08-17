@@ -1,11 +1,11 @@
 import { generateKeyPairSync, sign, verify } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { afterAll, describe, expect, it } from 'vitest'
 import { registerDevArtifactRoute } from './artifact-route'
-import type { BuiltDevBundle } from './dev-bundle'
+import { type BuiltDevBundle, DevBundleUnavailableError } from './dev-bundle'
 import {
   developmentArtifactUrl,
   selectDevelopmentArtifactOrigin,
@@ -76,6 +76,50 @@ describe('development artifact route', () => {
     expect(wireDevBundlePublisher({ ...base, sourceRoot: undefined }).enabled).toBe(false)
   })
 
+  it('shares ONE cached HEAD reader across everything it wires', async () => {
+    // The composition is the only place that can share it, and a shared reader
+    // is exactly the kind of wiring that goes missing without anyone noticing:
+    // drop it and every caller still works, just with a `git rev-parse` each
+    // (POD-2052). A poll reads HEAD twice — to decide, and to name the target.
+    const root = mkdtempSync(join(tmpdir(), 'wiring-head-'))
+    try {
+      mkdirSync(join(root, '.git', 'refs', 'heads'), { recursive: true })
+      writeFileSync(join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+      writeFileSync(join(root, '.git', 'refs', 'heads', 'main'), `${'a'.repeat(40)}\n`)
+
+      let reads = 0
+      const wiring = wireDevBundlePublisher({
+        sourceRoot: root,
+        artifactOrigin: 'https://podium.example.test',
+        localArtifactOrigin: () => 'http://127.0.0.1:18787',
+        hasRemoteManagedMachines: () => false,
+        artifactToken: 'random-token',
+        signingKey: 'unused-until-build',
+        setTarget: () => {},
+        locks: {
+          acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
+          cancel: () => {},
+          renew: () => {},
+          release: () => {},
+        },
+        readHeadSha: async () => {
+          reads++
+          return 'aaaaaaa'
+        },
+      })
+
+      for (let i = 0; i < 8; i++) await wiring.publishTarget()
+      expect(reads).toBe(1)
+
+      // A commit lands: the stamp moves and the next reader goes back to git.
+      writeFileSync(join(root, '.git', 'refs', 'heads', 'main'), `${'b'.repeat(40)}\n`)
+      await wiring.publishTarget()
+      expect(reads).toBe(2)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('uses loopback only for a same-host managed fleet', () => {
     const localOrigin = 'http://127.0.0.1:18787'
     expect(
@@ -99,6 +143,76 @@ describe('development artifact route', () => {
         hasRemoteManagedMachines: true,
       }),
     ).toThrow(/requires PODIUM_DEV_ARTIFACT_BASE_URL/)
+  })
+
+  /**
+   * A DEAD END IS THE ONE OUTCOME §6.2 AND §7 FORBID (POD-2227).
+   *
+   * This refusal was measured live: an installed machine paired to a source
+   * coordinator sat on "Waiting for the update package." for over ten minutes
+   * with nothing to click and no explanation, while the only statement of the
+   * cause was a single server-log line. The guard itself is right — a loopback
+   * URL handed to a remote daemon sends it back to itself — so what has to
+   * change is that it says so, in a sentence naming the one next action.
+   */
+  it('refuses with the configuration remedy, not just a log line', () => {
+    let thrown: unknown
+    try {
+      selectDevelopmentArtifactOrigin({
+        externalOrigin: undefined,
+        localOrigin: 'http://127.0.0.1:18787',
+        hasRemoteManagedMachines: true,
+      })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(DevBundleUnavailableError)
+    const reason = (thrown as DevBundleUnavailableError).publicReason
+    // The remedy is IN the sentence a client is shown, not in the console half.
+    expect(reason).toMatch(/Public URL/)
+    expect(reason).toMatch(/PODIUM_DEV_ARTIFACT_BASE_URL/)
+    // …and the console half keeps naming the condition for whoever reads a log.
+    expect((thrown as Error).message).toMatch(/remote managed machines are registered/)
+  })
+
+  it('gives up before the build rather than packing what it cannot hand out', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wiring-origin-'))
+    try {
+      mkdirSync(join(root, '.git', 'refs', 'heads'), { recursive: true })
+      writeFileSync(join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+      writeFileSync(join(root, '.git', 'refs', 'heads', 'main'), `${'a'.repeat(40)}\n`)
+      const wiring = wireDevBundlePublisher({
+        sourceRoot: root,
+        artifactOrigin: undefined,
+        localArtifactOrigin: () => 'http://127.0.0.1:18787',
+        hasRemoteManagedMachines: () => true,
+        artifactToken: 'random-token',
+        signingKey: 'unused-until-build',
+        setTarget: () => {},
+        locks: {
+          acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
+          cancel: () => {},
+          renew: () => {},
+          release: () => {},
+        },
+        readHeadSha: async () => 'aaaaaaa',
+      })
+
+      // Thirty-five seconds of compile to arrive at the same dead end is the
+      // wrong shape of honest: the answer is knowable before the first byte.
+      await expect(wiring.requestBuild(true)).rejects.toSatisfy(
+        (error: unknown) =>
+          error instanceof DevBundleUnavailableError && /Public URL/.test(error.publicReason),
+      )
+      // And the read model stops claiming the package is on its way. `fleet`
+      // reported `bundleReady: true` throughout the live drive, which reads as
+      // the package being ready while the target could not carry it at all.
+      const preparation = wiring.preparation()
+      expect(preparation.bundleReady).toBe(false)
+      expect(preparation.failureDetail).toMatch(/Public URL/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('puts dest identity into the shared read model without a public origin', () => {

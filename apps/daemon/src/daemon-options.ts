@@ -63,7 +63,17 @@ export interface DaemonOptions {
   reconnectTimers?: ReconnectTimers
   /** Test/embedding seam; production derives its checkout from the loaded source module. */
   sourceRoot?: string
-  /** Test/embedding seam; production exits so the process manager restarts the daemon. */
+  /**
+   * Does stopping this daemon also stop the coordinating server? True only for
+   * the in-process all-in-one, where they are one PID — set by the composition
+   * root, which is the only place that knows (`apps/cli`,
+   * `daemonOptionsForPlan`). Read by {@link refuseConvergence}: such a daemon
+   * refuses updates rather than exiting into a server nothing restarts
+   * (POD-2210).
+   */
+  exitStopsServer?: boolean
+  /** Test/embedding seam; production exits so the process manager restarts the
+   *  daemon — unless nothing would restart it, see {@link exitStopsServer}. */
   restartAfterUpdate?: () => void
   /** Starts the promoted role and echoes the expected proof only after it is serving. */
   restartAfterTransfer?: (

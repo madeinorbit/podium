@@ -18,6 +18,11 @@
       "@podium/source": "./src/daemon.ts",
       "types": "./dist/daemon.d.ts",
       "import": "./dist/daemon.js"
+    },
+    "./update-refusal": {
+      "@podium/source": "./src/update/refusal.ts",
+      "types": "./dist/update/refusal.d.ts",
+      "import": "./dist/update/refusal.js"
     }
   },
   "files": [

@@ -72,6 +72,11 @@
     "automations": {
       "owner": "POD-314",
       "keys": []
+    },
+    "operations": {
+      "owner": "POD-2087",
+      "$note": "Durable operations (POD-2097). `keys: []` is exact by this census's own definition — it counts hand-written `.mutation(` in router.ts, and this router's procedures are defined in apps/server/src/modules/operations/trpc.ts, the same shape as `updates`. It carries ONE write there, `operations.cancel`, and it is NOT yet derived from a contract table; the updater epic owns that migration. Recorded as pending rather than migrated so the claim stays true.",
+      "keys": []
     }
   }
 }

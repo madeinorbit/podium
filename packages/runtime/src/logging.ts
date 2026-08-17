@@ -19,8 +19,18 @@
  *                file this whole chunk exists to stop growing. `<role>.log`
  *                keeps its job as the net for STRAY output: a bun panic, a
  *                library's own printf, anything that never reached the logger.
- *   foreground → the console, pretty. A dev run or the desktop sidecar has a
- *                terminal attached and nothing tailing a file.
+ *   foreground → the console, pretty. A dev run has a terminal attached and
+ *                nothing tailing a file.
+ *
+ * THE DESKTOP SIDECAR IS NOT A FOREGROUND RUN, though it looks like one to
+ * `resolveRunRecordMode`: the shell spawns `podium --takeover` as a plain child
+ * and inherits its stdio, and a Finder-launched .app's stdout is nowhere. The
+ * pretty console sink wrote every record into that void — an all-in-one desktop
+ * install had no `all-in-one.ndjson` and no other trace of its backend either.
+ * `PODIUM_DESKTOP_SUPERVISED` is how it says so, and it takes the rotating file
+ * (see `resolveLoggingMode` in ./config). The run-registry record still calls it
+ * foreground, which is what it is: how a process is SUPERVISED and where its
+ * records can land are two questions, and they only usually have one answer.
  *
  * Level control is untouched by any of this: `PODIUM_LOG_LEVEL` / `PODIUM_LOG`
  * move whichever sink is registered, because none of them pins its own
@@ -36,7 +46,7 @@ import {
   setProcessContext,
 } from '@podium/logger'
 import { createFileSink, createStdoutSink } from '@podium/logger/node'
-import { type EnvSource, resolveInstanceId, resolveRunRecordMode } from './config'
+import { type EnvSource, resolveInstanceId, resolveLoggingMode } from './config'
 import { logDir } from './run-registry'
 import { developmentLogVersion } from './source-version'
 
@@ -46,7 +56,7 @@ export type LoggingMode = 'systemd' | 'detached' | 'foreground'
 export interface ProcessLoggingOptions {
   /** `server` | `daemon` | `janitor` | `all-in-one` | `cli` — names the file too. */
   role: string
-  /** Defaults to `resolveRunRecordMode(env)`. */
+  /** Defaults to `resolveLoggingMode(env)`. */
   mode?: LoggingMode
   /** App version for the `v` field. Defaults to `PODIUM_APP_VERSION` for a
    *  released binary, else the running source's own identity — see
@@ -125,7 +135,7 @@ export function resolveLogVersion(env: EnvSource = process.env): string {
  */
 export function configureProcessLogging(options: ProcessLoggingOptions): ProcessLogging {
   const env = options.env ?? process.env
-  const mode = options.mode ?? resolveRunRecordMode(env)
+  const mode = options.mode ?? resolveLoggingMode(env)
   const version = options.version ?? resolveLogVersion(env)
 
   // Fire-and-forget: the previous handle is unregistered synchronously inside

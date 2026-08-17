@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
-# E2E desktop update verification: build v0.1.0 and v0.1.1, serve v0.1.1 from a local
-# signed feed, run the on-disk v0.1.0 AppImage under Xvfb, and assert it upgrades.
+# E2E desktop update verification. Builds v0.1.0 and v0.1.1 once, then runs two arms
+# against a local signed feed, both driving the on-disk v0.1.0 AppImage under Xvfb:
+#
+#   ARM A (negative): the feed serves a CORRUPTED v0.1.1 with the genuine signature.
+#     The update must fail closed — the v0.1.0 AppImage stays byte-identical and still
+#     launches, still reporting 0.1.0.
+#   ARM B (positive): the feed serves the genuine v0.1.1. The update must land — the
+#     on-disk AppImage re-run reports 0.1.1.
+#
+# BOTH ARMS DRIVE THE NATIVE FALLBACK, and that is a precondition they cannot assume.
+# The fallback only runs when the page has not claimed update ownership inside the 8 s
+# grace window, and the shipped web bundle DOES claim it — the update panel claims on
+# mount. So a boot where the page comes up in time takes the bridge path instead and both
+# arms quietly stop testing anything: ARM A's "intact + launchable" is trivially true and
+# ARM B simply fails without saying why. Each arm therefore reads the branch the shell
+# recorded in $PODIUM_STATE_DIR/update-ownership and reports INCONCLUSIVE, naming that
+# cause, rather than a vacuous pass or an unexplained failure (POD-2104).
+#
+# The arms run sequentially on the same port because the feed endpoint is baked into
+# each build. Exit: 0 both verified, 2 no upgrade, 3 the corrupted artifact was not
+# rejected (3 wins — a bad artifact getting through is worse than an update not landing).
 #
 # The full chain exercised: updater.check() reaches the feed -> sees 0.1.1 ->
 # downloads the artifact -> verifies the minisign signature against the baked-in
@@ -70,15 +89,6 @@ trap 'restore_conf' EXIT
 build 0.1.0 || { echo "ABORT: v0.1.0 build failed"; exit 1; }
 build 0.1.1 || { echo "ABORT: v0.1.1 build failed"; exit 1; }
 
-# --- serve v0.1.1 from the local signed feed --------------------------------
-bun scripts/serve-update-feed.ts "dist-verify/0.1.1" 0.1.1 "$PORT" &
-FEED=$!
-trap 'kill $FEED 2>/dev/null || true; restore_conf' EXIT
-sleep 1
-echo "=== FEED up (pid $FEED) on :$PORT ==="
-# prove the manifest serves
-curl -fsS "http://127.0.0.1:$PORT/update/linux-x86_64/x86_64/0.1.0" | head -c 400; echo
-
 # --- single-instance pre-flight guard ---------------------------------------
 # tauri_plugin_single_instance holds a lock; a STALE Podium instance makes a
 # fresh launch focus-the-existing-window-and-exit BEFORE setup() runs, so running-version
@@ -95,10 +105,107 @@ kill_stale_desktop() {
   pkill -f 'appimage_extracted' 2>/dev/null || true
   sleep 2
 }
+
+# --- ARM A: a corrupted artifact must fail closed ---------------------------
+# The updater must refuse an artifact whose bytes do not match the signed digest.
+# "Fails closed" here means BOTH: the on-disk AppImage is left byte-for-byte intact,
+# AND it still boots afterwards still reporting its ORIGINAL version. A half-written
+# or replaced-then-broken AppImage is the dangerous outcome this arm exists to catch.
+#
+# The feed endpoint (host AND port) is baked into the build by set_version, so this arm
+# cannot use a second port: it runs on the SAME $PORT, sequentially, BEFORE the good
+# feed of ARM B starts.
+#
+# ARMEDNESS: "intact + launchable" is also what you get if the app never checked for an
+# update at all, so those assertions alone cannot say NO. The corrupt feed's stderr is
+# captured and the arm REQUIRES evidence that the artifact was actually requested;
+# without that download the arm reports INCONCLUSIVE rather than a vacuous pass.
+CORRUPT_DIR="$(mktemp -d)"
+cp "dist-verify/0.1.1/Podium_0.1.1_amd64.AppImage"     "$CORRUPT_DIR/"
+# Keep the GENUINE signature: the manifest still advertises a valid minisign signature
+# for the pristine 0.1.1 bytes while the served bytes are damaged — exactly the shape of
+# a tampered or corrupted download.
+cp "dist-verify/0.1.1/Podium_0.1.1_amd64.AppImage.sig" "$CORRUPT_DIR/"
+CORRUPT_APP="$CORRUPT_DIR/Podium_0.1.1_amd64.AppImage"
+CORRUPT_SIZE=$(stat -c%s "$CORRUPT_APP")
+# Overwrite 4 KiB in the middle, same total length — only the signature can catch this.
+dd if=/dev/urandom of="$CORRUPT_APP" bs=4096 seek=$(( CORRUPT_SIZE / 8192 )) count=1 \
+  conv=notrunc status=none
+echo "=== ARM A: serving CORRUPTED v0.1.1 (4 KiB damaged at offset $(( CORRUPT_SIZE / 2 ))) on :$PORT ==="
+
+bun scripts/serve-update-feed.ts "$CORRUPT_DIR" 0.1.1 "$PORT" >/tmp/corrupt-feed.log 2>&1 &
+BAD_FEED=$!
+trap 'kill $BAD_FEED 2>/dev/null || true; restore_conf' EXIT
+sleep 1
+
+# A dedicated COPY of the v0.1.0 AppImage: ARM B below needs the original untouched, and
+# this arm must be free to observe damage without destroying it.
+BAD_ARM_DIR="$(mktemp -d)"
+BAD_APP010="$BAD_ARM_DIR/Podium_0.1.0_amd64.AppImage"
+cp "dist-verify/0.1.0/Podium_0.1.0_amd64.AppImage" "$BAD_APP010"
+chmod +x "$BAD_APP010"
+BAD_ABS="$(readlink -f "$BAD_APP010")"
+BAD_HASH_PRE="$(sha256sum "$BAD_ABS" | cut -d' ' -f1)"
+BAD_STATE="$(mktemp -d)"
+kill_stale_desktop
+PODIUM_UPDATE_TEST_AUTOCONFIRM=1 PODIUM_STATE_DIR="$BAD_STATE" APPIMAGE="$BAD_ABS" \
+  timeout 90 xvfb-run -a "$BAD_APP010" >/tmp/update-corrupt.log 2>&1 || true
+BAD_HASH_POST="$(sha256sum "$BAD_ABS" 2>/dev/null | cut -d' ' -f1)"
+kill $BAD_FEED 2>/dev/null || true
+wait $BAD_FEED 2>/dev/null || true   # reap it so :$PORT is free for ARM B's feed
+trap 'restore_conf' EXIT
+
+# Which update path did this boot take? Both arms drive the NATIVE fallback, which only
+# runs when the page has not claimed ownership inside the 8 s grace — and the shipped web
+# bundle DOES claim it, from the update panel's own mount. That is correct product
+# behaviour and it silently turns both arms into assertions about nothing, so the shell
+# writes the branch it chose into the state dir and the arm reads it (POD-2104).
+BAD_PATH="$(cat "$BAD_STATE/update-ownership" 2>/dev/null || echo 'UNKNOWN')"
+# Did the updater actually fetch the damaged artifact? Without that, nothing was rejected.
+BAD_FETCHED=no
+grep -q 'artifact request' /tmp/corrupt-feed.log 2>/dev/null && BAD_FETCHED=yes
+# Assertion 1: the installer never replaced or truncated the running AppImage.
+BAD_INTACT=no
+[ -n "$BAD_HASH_POST" ] && [ "$BAD_HASH_PRE" = "$BAD_HASH_POST" ] && BAD_INTACT=yes
+# Assertion 2: the old AppImage is still launchable and still reports 0.1.0. Fresh state
+# dir, not pre-seeded — an ABSENT running-version is a detectable failure, not a pass.
+kill_stale_desktop
+BAD_RERUN_STATE="$(mktemp -d)"
+PODIUM_STATE_DIR="$BAD_RERUN_STATE" timeout 30 xvfb-run -a "$BAD_APP010" \
+  >/tmp/post-corrupt.log 2>&1 || true
+BAD_RERUN_VERSION="$(cat "$BAD_RERUN_STATE/running-version" 2>/dev/null || echo 'ABSENT')"
+BAD_RERUN_SETUP_RAN=no
+[ -f "$BAD_RERUN_STATE/running-version" ] && [ -f "$BAD_RERUN_STATE/bin/podium-sidecar" ] \
+  && BAD_RERUN_SETUP_RAN=yes
+
+if [ "$BAD_PATH" = "page" ]; then
+  FAILCLOSED_OK="INCONCLUSIVE (the page claimed update ownership, so the native path never ran)"
+elif [ "$BAD_FETCHED" != "yes" ]; then
+  FAILCLOSED_OK="INCONCLUSIVE (corrupt artifact was never downloaded — nothing was rejected)"
+elif [ "$BAD_INTACT" = "yes" ] && [ "$BAD_RERUN_SETUP_RAN" = "yes" ] && [ "$BAD_RERUN_VERSION" = "0.1.0" ]; then
+  FAILCLOSED_OK=yes
+else
+  FAILCLOSED_OK=no
+fi
+echo "=== ARM A RESULT: update path=$BAD_PATH, corrupt artifact downloaded=$BAD_FETCHED," \
+     "appimage intact=$BAD_INTACT," \
+     "re-run setup ran=$BAD_RERUN_SETUP_RAN, version=$BAD_RERUN_VERSION -> fail-closed: $FAILCLOSED_OK ==="
+grep -iE "update|signature|install|fail" /tmp/update-corrupt.log | head -30 || true
+rm -rf "$BAD_STATE" "$BAD_RERUN_STATE" "$CORRUPT_DIR"
+
+# --- ARM B: serve the GENUINE v0.1.1 from the local signed feed -------------
+bun scripts/serve-update-feed.ts "dist-verify/0.1.1" 0.1.1 "$PORT" &
+FEED=$!
+trap 'kill $FEED 2>/dev/null || true; restore_conf' EXIT
+sleep 1
+echo "=== FEED up (pid $FEED) on :$PORT ==="
+# prove the manifest serves
+curl -fsS "http://127.0.0.1:$PORT/update/linux-x86_64/x86_64/0.1.0" | head -c 400; echo
+
 echo "=== single-instance pre-flight: killing stale desktop instances ==="
 kill_stale_desktop
 
-# --- run v0.1.0 under Xvfb; let the updater check+download+install -----------
+# --- ARM B: run v0.1.0 under Xvfb; let the updater check+download+install ----
 # FRESH EMPTY state dir — deliberately do NOT pre-seed running-version. If the launch
 # no-ops (single-instance focus-exit, or setup() never runs), running-version is ABSENT,
 # which is a DETECTABLE failure rather than a stale 0.1.0 that would mask it.
@@ -110,7 +217,7 @@ PRE_SIZE=$(stat -c%s "$ABS_APP010")
 echo "=== RUN v0.1.0 (state=$SMOKE_STATE [fresh/empty], APPIMAGE=$ABS_APP010, size=$PRE_SIZE) ==="
 
 # APPIMAGE points the updater at the on-disk file to self-replace.
-PODIUM_UPDATE_AUTOCONFIRM=1 PODIUM_STATE_DIR="$SMOKE_STATE" APPIMAGE="$ABS_APP010" \
+PODIUM_UPDATE_TEST_AUTOCONFIRM=1 PODIUM_STATE_DIR="$SMOKE_STATE" APPIMAGE="$ABS_APP010" \
   timeout 90 xvfb-run -a "$APP010" >/tmp/update-run.log 2>&1 || true
 echo "=== RUN finished; updater-relevant log lines: ==="
 grep -iE "update|version|signature|install|restart|podium" /tmp/update-run.log | head -60 || true
@@ -125,6 +232,9 @@ CHECK_OK=no; DL_OK=no; SIG_OK=no; INSTALL_OK=no; UPGRADE_OK=no
 # ensure_executable) $PODIUM_STATE_DIR/bin/podium-sidecar; their presence proves setup() ran
 # (i.e. NOT a single-instance focus-exit no-op). Log greps are kept as best-effort diagnostics.
 POST_VERSION="$(cat "$SMOKE_STATE/running-version" 2>/dev/null || echo 'ABSENT')"
+# Same question as ARM A: did this boot take the native path the arm is testing, or did
+# the page claim ownership and leave it testing nothing? (POD-2104)
+SMOKE_PATH="$(cat "$SMOKE_STATE/update-ownership" 2>/dev/null || echo 'UNKNOWN')"
 POST_SIZE=$(stat -c%s "$ABS_APP010" 2>/dev/null || echo 0)
 if [ -f "$SMOKE_STATE/running-version" ] && [ -f "$SMOKE_STATE/bin/podium-sidecar" ]; then
   CHECK_OK="booted(state:$POST_VERSION)"
@@ -159,20 +269,34 @@ if [ "$RERUN_SETUP_RAN" = "yes" ] && [ "$RERUN_VERSION" = "0.1.1" ]; then
 fi
 
 echo "---- RESULT ----"
-echo "first run (state-dir boot signal): $CHECK_OK"
+echo "ARM A corrupt artifact fails closed: $FAILCLOSED_OK"
+echo "  (downloaded=$BAD_FETCHED, appimage intact=$BAD_INTACT, still boots=$BAD_RERUN_SETUP_RAN, version=$BAD_RERUN_VERSION)"
+echo "ARM B first run (state-dir boot signal): $CHECK_OK"
+echo "ARM B update path taken: $SMOKE_PATH  (native = the fallback these arms exercise)"
 echo "signature (no error in log): $SIG_OK"
 echo "install step: $INSTALL_OK"
 echo "re-run setup() ran (running-version + bin/podium-sidecar present): $RERUN_SETUP_RAN"
 echo "self-reported version after upgrade: $RERUN_VERSION"
 echo "appimage size (diagnostic only): $PRE_SIZE -> $POST_SIZE"
+
+RESULT_RC=0
 if [ "$UPGRADE_OK" = "yes" ]; then
   echo "UPGRADE VERIFIED ✓ (v0.1.0 -> v0.1.1) — on-disk re-run boots 0.1.1"
-  RESULT_RC=0
 else
   echo "UPGRADE NOT verified — on-disk re-run did not boot 0.1.1 (running-version=$RERUN_VERSION, setup ran=$RERUN_SETUP_RAN)."
+  [ "$SMOKE_PATH" = "page" ] && echo "  CAUSE: the page claimed update ownership, so the native install this arm drives never ran."
   echo "  Inspect /tmp/update-run.log and /tmp/post-run.log. Note: under --appimage-extract-and-run"
   echo "  the in-place \$APPIMAGE self-replace may not occur, and AppRun may swallow stdout."
   RESULT_RC=2
 fi
-rm -rf "$SMOKE_STATE" "$RERUN_STATE"
+# A corrupted artifact that does NOT fail closed is worse than an upgrade that does not
+# happen, so it gets its own exit code and overrides the ARM B verdict.
+if [ "$FAILCLOSED_OK" = "yes" ]; then
+  echo "FAIL-CLOSED VERIFIED ✓ — corrupted artifact rejected, v0.1.0 left intact and launchable"
+else
+  echo "FAIL-CLOSED NOT verified — $FAILCLOSED_OK. Inspect /tmp/update-corrupt.log,"
+  echo "  /tmp/post-corrupt.log and /tmp/corrupt-feed.log."
+  RESULT_RC=3
+fi
+rm -rf "$SMOKE_STATE" "$RERUN_STATE" "$BAD_ARM_DIR"
 exit "$RESULT_RC"

@@ -12,12 +12,25 @@ export interface WaveMachine {
   busy: boolean
   detail?: string
   /**
+   * How far this machine's current phase has got, as its last heartbeat said
+   * (POD-2101). Absent for a daemon that predates progress reporting, or for a
+   * delivery whose length nothing declared — never a manufactured zero.
+   */
+  percent?: number
+  /** The phase that percentage is about: `downloading`, `git-fetch`, … */
+  phaseDetail?: string
+  /**
    * How this machine can take delivery, as its daemon reported at handshake
    * (`deliveryCaps` in apps/daemon/src/build-report.ts): a machine running from
    * SOURCE can only fetch git, an INSTALLED one can only take a feed or bundle.
    * Absent for a machine that has never reported a build.
    */
   deliveryCaps?: readonly string[]
+  /**
+   * This daemon lives inside Podium Desktop, which supervises and updates it as
+   * part of its signed bundle. Absent means an ordinary fleet machine.
+   */
+  supervised?: boolean
 }
 
 /**
@@ -50,22 +63,36 @@ export function offeredDeliveries(target: {
  * `[update.delivery.git]`) and one is installed (caps `[feed, bundle]`, no git).
  * A `dev+<sha>` target with no packed tarball offers git ALONE, so the installed
  * machine could never take it — but a source machine reporting `current` ticked
- * the wave, which granted that machine the target anyway. `startUpdate` already
- * refuses to authorize such a target (`canGrantDevelopmentFleet`); nothing
- * enforced it where grants are actually issued.
+ * the wave, which granted that machine the target anyway. The plan already
+ * refused to wave such a machine (`machineCanTakeTargetNow`); nothing enforced
+ * it where grants are actually issued.
  *
  * A machine that cannot take it is simply not selected. It stays `behind` —
  * honest, and it converges the moment a target it CAN take is published, which
- * for the development channel is the tarball being packed a minute later.
+ * for the development channel is the tarball being packed a minute later. The
+ * mirror of that (POD-2195) is that a machine which CAN take git needs no
+ * tarball at all, so the plan packs one only for the machines that do.
  *
  * UNKNOWN CAPS MEAN YES. A machine that has never reported a build predates the
  * report or has not handshaken yet; refusing it would silently strand it
  * forever, which is worse than the failure this prevents.
+ *
+ * A SUPERVISED DAEMON IS NEVER YES, whatever its caps say (POD-2099). It lives
+ * inside Podium Desktop, so its bytes are part of a signed application bundle:
+ * on the macOS all-in-one it reports `installed` with feed+bundle caps, and
+ * granting it would send `swapHeadlessBundle` to rename directories INSIDE the
+ * .app; on Linux the copied sidecar reports source caps and a git grant would
+ * move a checkout the shell owns. The shell update carries that daemon
+ * atomically (spec §4, §5), which is why the exclusion is structural here
+ * rather than a platform check somewhere — no surface may update someone else's
+ * native app (P5). This precedes the caps question because it is not a question
+ * about delivery methods: there is no method by which the fleet may deliver.
  */
 export function machineCanTakeDelivery(
-  machine: Pick<WaveMachine, 'deliveryCaps'>,
+  machine: Pick<WaveMachine, 'deliveryCaps' | 'supervised'>,
   deliveries: readonly string[],
 ): boolean {
+  if (machine.supervised === true) return false
   if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
   if (deliveries.length === 0) return true
   return deliveries.some((delivery) =>
@@ -101,7 +128,11 @@ export function planWave(ctx: {
       machine.version !== ctx.targetVersion &&
       !IN_FLIGHT.has(machine.state) &&
       !TERMINAL_FAILURE.has(machine.state) &&
-      // Never hand a machine an update it has already told us it cannot take.
+      // Never hand a machine an update it has already told us it cannot take,
+      // and never hand one to a daemon a desktop app owns. Both live in one
+      // predicate, and it is applied to the ELIGIBLE set — so a supervised
+      // machine cannot be picked as the canary either, which is the selection
+      // that would otherwise slip past a filter placed further down.
       machineCanTakeDelivery(machine, deliveries),
   )
 

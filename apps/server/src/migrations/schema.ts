@@ -654,6 +654,12 @@ export const machines = sqliteTable('machines', {
   wireSchemaDigest: text('wire_schema_digest'),
   installKind: text('install_kind'),
   deliveryCapsJson: text('delivery_caps_json'),
+  // POD-2099. The daemon says a desktop app supervises it, so its bytes belong
+  // to a signed application bundle and no convergence wave may deliver to it.
+  // NULL is the honest reading for every row written before the field existed
+  // AND for a daemon that has not reported since: not supervised, because a
+  // supervised one is exactly the daemon that now says so on every hello.
+  supervised: integer('supervised'),
   buildReportedAt: text('build_reported_at'),
 })
 
@@ -2221,5 +2227,44 @@ export const automationRuns = sqliteTable(
       'automation_runs_check_20',
       sql`outcome IN ('spawned','missed','skipped_overlap','error')`,
     ),
+  ],
+)
+
+/**
+ * Durable long-running operations (POD-2097) — the table behind
+ * `@podium/protocol`'s operation contract. One row per operation; the whole
+ * wire object lives in `payload`, and the columns beside it are exactly the
+ * facts the engine has to ask SQLite rather than JSON: which group is busy,
+ * what to list in history, what to sweep.
+ *
+ * The row is small and always written whole. Writing the payload back entire is
+ * what keeps a successor server's unknown fields alive across a restart — a
+ * partial update would have to know every field there is, which is precisely
+ * what the frozen contract says no writer knows.
+ *
+ * `state` is text rather than a CHECK constraint on the six states by decision:
+ * the constraint would live in the schema of the OLD binary, so a rolling
+ * upgrade that adds a state would have the predecessor refuse its successor's
+ * writes. The states are enforced where they are parsed.
+ */
+export const operations = sqliteTable(
+  'operations',
+  {
+    /** `op_<uuid>`, minted by the engine — a lifecycle id, in no entity's id space. */
+    id: text().primaryKey(),
+    kind: text().notNull(),
+    /** At most one non-terminal operation per group — single-flight's key (P6). */
+    exclusionGroup: text('exclusion_group').notNull(),
+    state: text().notNull(),
+    createdAt: integer('created_at').notNull(),
+    /** The heartbeat, mirrored out of the payload so staleness is a query. */
+    updatedAt: integer('updated_at').notNull(),
+    finishedAt: integer('finished_at'),
+    /** The operation object as JSON — the bytes clients are served verbatim. */
+    payload: text().notNull(),
+  },
+  (table) => [
+    index('idx_operations_group_state').on(table.exclusionGroup, table.state),
+    index('idx_operations_kind_created').on(table.kind, table.createdAt),
   ],
 )

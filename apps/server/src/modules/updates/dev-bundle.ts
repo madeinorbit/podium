@@ -1,15 +1,56 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { createReadStream, existsSync, readFileSync } from 'node:fs'
 import { readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
 import { resolveInstanceId } from '@podium/runtime/config'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
 
 const log = createLogger('server:updates')
+
+const execFileAsync = promisify(execFile)
+
+/**
+ * EVERY GIT CALL HERE IS ASYNCHRONOUS, and that is a load-bearing property.
+ *
+ * This module runs inside the SERVER, which is the one process every client of
+ * this instance talks to. Two of the queries below walk the whole monorepo
+ * working tree, and `/version` asks for a publish on every read — so the
+ * synchronous form these used to take blocked the event loop of every session
+ * on the host for the length of a full-tree walk, not just the machine asking.
+ * Nothing here may go back to `execFileSync` (POD-2048).
+ *
+ * The environment is passed EXPLICITLY rather than inherited. Bun's synchronous
+ * spawns reuse the process-start environment while its asynchronous ones read
+ * `process.env` live [spec:SP-3f93], so moving these calls off the loop would
+ * otherwise change which environment `git` sees as an accident of the refactor.
+ * Naming the map makes it a decision: git reads the LIVE environment, which is
+ * what a test running under a temporary `$HOME` needs and what a runtime change
+ * to `GIT_*`/`HOME` on this process should mean.
+ */
+function gitEnv(): NodeJS.ProcessEnv {
+  return { ...process.env }
+}
+
+/**
+ * Where a commit keeps the migrations it defines. The folder names in this tree
+ * ARE the ledger names the server's migrator writes, which is what makes them
+ * comparable to what a database has applied.
+ */
+const MIGRATIONS_TREE = 'apps/server/src/migrations/drizzle'
+
+async function git(root: string, args: readonly string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', [...args], {
+    cwd: root,
+    encoding: 'utf8',
+    env: gitEnv(),
+  })
+  return stdout
+}
 
 /**
  * WHETHER TO BUILD A DEVELOPMENT BUNDLE.
@@ -211,37 +252,35 @@ export function classifyIgnoredSourceInputs(
   return offending
 }
 
-function defaultReadIgnoredSourceInputs(root: string): string {
+/**
+ * Reads the raw output of one source query.
+ *
+ * The defaults spawn `git` and are therefore asynchronous; a test seam that
+ * already has the string may answer synchronously, so the union is the type
+ * rather than a bare promise.
+ */
+export type DevBundleSourceReader = (root: string) => string | Promise<string>
+
+function defaultReadIgnoredSourceInputs(root: string): Promise<string> {
   const excludes = DEV_BUNDLE_NON_SOURCE_TREES.map((tree) => `:(exclude)**/${tree}/**`)
   const generatedExcludes = DEV_BUNDLE_IGNORED_SOURCE_ALLOWED_PREFIXES.map(
     (prefix) => `:(exclude)${prefix}**`,
   )
-  return String(
-    execFileSync(
-      'git',
-      [
-        'ls-files',
-        '-z',
-        '--others',
-        '--ignored',
-        '--exclude-standard',
-        '--',
-        ...DEV_BUNDLE_SOURCE_TREES,
-        ...excludes,
-        ...generatedExcludes,
-      ],
-      { cwd: root, encoding: 'utf8' },
-    ),
-  )
+  return git(root, [
+    'ls-files',
+    '-z',
+    '--others',
+    '--ignored',
+    '--exclude-standard',
+    '--',
+    ...DEV_BUNDLE_SOURCE_TREES,
+    ...excludes,
+    ...generatedExcludes,
+  ])
 }
 
-function defaultReadSourceStatus(root: string): string {
-  return String(
-    execFileSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
-      cwd: root,
-      encoding: 'utf8',
-    }),
-  )
+function defaultReadSourceStatus(root: string): Promise<string> {
+  return git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
 }
 
 /**
@@ -288,15 +327,15 @@ export function sourceIdentityDiagnostic(sha: string, offending: string[]): stri
  * Throws unless the checkout is exactly HEAD. A git failure is itself a refusal
  * — an unreadable status cannot establish identity.
  */
-export function assertSourceMatchesHead(
+export async function assertSourceMatchesHead(
   root: string,
   sha: string,
-  readSourceStatus: (root: string) => string = defaultReadSourceStatus,
-  readIgnoredSourceInputs: (root: string) => string = defaultReadIgnoredSourceInputs,
-): void {
+  readSourceStatus: DevBundleSourceReader = defaultReadSourceStatus,
+  readIgnoredSourceInputs: DevBundleSourceReader = defaultReadIgnoredSourceInputs,
+): Promise<void> {
   let porcelain: string
   try {
-    porcelain = readSourceStatus(root)
+    porcelain = await readSourceStatus(root)
   } catch (error) {
     throw new DevBundleUnavailableError(
       'development bundle unavailable: could not verify the source checkout against HEAD (' +
@@ -318,7 +357,7 @@ export function assertSourceMatchesHead(
 
   let ignoredListing: string
   try {
-    ignoredListing = readIgnoredSourceInputs(root)
+    ignoredListing = await readIgnoredSourceInputs(root)
   } catch (error) {
     throw new DevBundleUnavailableError(
       'development bundle unavailable: could not enumerate ignored source inputs for HEAD (' +
@@ -590,8 +629,8 @@ const DEFAULT_RENEW_INTERVAL_MS = 5 * 60 * 1000
 
 export const DEVELOPMENT_SOURCE_ROOT = SOURCE_ROOT
 
-export function developmentHeadSha(root: string = SOURCE_ROOT): string {
-  return String(execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root })).trim()
+export async function developmentHeadSha(root: string = SOURCE_ROOT): Promise<string> {
+  return (await git(root, ['rev-parse', '--short=7', 'HEAD'])).trim()
 }
 
 function shortSha(raw: string): string {
@@ -750,13 +789,7 @@ async function readExistingDevBundle(
 export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDevBundle> {
   const root = deps.root ?? SOURCE_ROOT
   const fs = deps.fs ?? nodeDevBundleFs
-  const sha = shortSha(
-    deps.headSha ??
-      execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
-        cwd: root,
-        encoding: 'utf8',
-      }),
-  )
+  const sha = shortSha(deps.headSha ?? (await developmentHeadSha(root)))
   const version = 'dev+' + sha
   const lock = deps.lock
   const acquired = await lock.acquire()
@@ -835,9 +868,38 @@ export function developmentPlatformTarget(
   return os + '-' + cpu
 }
 
+/**
+ * The migration folder names a commit defines, or `undefined` when the tree
+ * cannot be read.
+ *
+ * `undefined` is the honest answer and the daemon treats it as unproven — it
+ * refuses rather than swapping on a claim nobody stands behind.
+ */
+export async function migrationsAtRevision(
+  root: string,
+  sha: string,
+): Promise<string[] | undefined> {
+  try {
+    const stdout = await git(root, ['ls-tree', '-d', '--name-only', `${sha}:${MIGRATIONS_TREE}`])
+    const names = stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+    return names.length > 0 ? names : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function devTarget(
   built: BuiltDevBundle,
-  opts: { artifactUrl?: string; platform?: string; sourceRoot?: string; webDigest?: string } = {},
+  opts: {
+    artifactUrl?: string
+    platform?: string
+    sourceRoot?: string
+    webDigest?: string
+    schemaMigrations?: string[]
+  } = {},
 ): UpdateTarget {
   const platform = opts.platform ?? developmentPlatformTarget()
   const url = opts.artifactUrl ?? DEV_ARTIFACT_ROUTE + '/' + encodeURIComponent(built.version)
@@ -845,6 +907,7 @@ export function devTarget(
   return {
     version: built.version,
     critical: false,
+    ...(opts.schemaMigrations ? { schema: { migrations: opts.schemaMigrations } } : {}),
     artifacts: {
       headless: {
         delivery: 'bundle',
@@ -875,12 +938,13 @@ export function devTarget(
  */
 export function devIdentityTarget(
   headSha: string,
-  opts: { sourceRoot?: string } = {},
+  opts: { sourceRoot?: string; schemaMigrations?: string[] } = {},
 ): UpdateTarget {
   const sha = shortSha(headSha)
   return {
     version: 'dev+' + sha,
     critical: false,
+    ...(opts.schemaMigrations ? { schema: { migrations: opts.schemaMigrations } } : {}),
     artifacts: {
       web: { digest: sha },
       headlessAlternatives: [
@@ -896,14 +960,35 @@ export function devIdentityTarget(
 
 export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSha'> {
   isSourceRun: boolean | (() => boolean)
-  headSha: () => string
+  headSha: () => string | Promise<string>
   debounceMs?: number
   artifactUrl?: string | ((version: string) => string)
   platform?: string
+  /**
+   * The migrations defined AT a revision — what the published target declares
+   * it can open (POD-2213). Seam for tests; defaults to reading the commit's
+   * own migration tree.
+   *
+   * Read from the COMMIT, never from this server's compiled-in migration list:
+   * the one case where the two differ is a checkout moving backwards, which is
+   * exactly the convergence that must be refused.
+   */
+  migrationsAt?: (sha: string) => Promise<string[] | undefined>
   /** Seam for tests; defaults to `git status --porcelain -z` in `root`. */
-  readSourceStatus?: (root: string) => string
+  readSourceStatus?: DevBundleSourceReader
   /** Seam for tests; defaults to `git ls-files --others --ignored` in `root`. */
-  readIgnoredSourceInputs?: (root: string) => string
+  readIgnoredSourceInputs?: DevBundleSourceReader
+  /**
+   * Called the moment a request is ADMITTED: after HEAD and the identity gate
+   * have passed, before the compile that follows them.
+   *
+   * Reading HEAD and walking the tree happen off the event loop, so admission
+   * is no longer settled by the time `requestBuild` returns — a caller can no
+   * longer infer "a build started" from the call coming back. Anything that
+   * must say `preparing` rather than sit on the previous commit's target for
+   * the length of a compile has to be told, and this is the telling.
+   */
+  onAdmitted?: () => void
   /**
    * Settle `apps/web/dist` before anything expensive happens — and REFUSE
    * rather than rebuild it when this request is not explicit.
@@ -946,9 +1031,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   requestBuild(explicit?: boolean): Promise<BuiltDevBundle | null>
   current(): BuiltDevBundle | null
   /** The target for the CURRENT HEAD, or nothing. Never an older commit's. */
-  target(): UpdateTarget | undefined
+  target(): Promise<UpdateTarget | undefined>
   /** Explicit lifecycle for this HEAD, with a reason safe to show a client. */
-  readiness(): DevBundleReadiness
+  readiness(): Promise<DevBundleReadiness>
   /**
    * Why the last attempt refused or failed, in full — paths included. For the
    * server log; `readiness().publicReason` is the half a client may see.
@@ -965,11 +1050,23 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   const debounceMs = deps.debounceMs ?? 60_000
   const fs = deps.fs ?? nodeDevBundleFs
 
-  const currentHeadSha = (): string | null => {
+  const currentHeadSha = async (): Promise<string | null> => {
     try {
-      return shortSha(deps.headSha())
+      return shortSha(await deps.headSha())
     } catch {
       return null
+    }
+  }
+
+  /** Never throws: an unreadable tree publishes no declaration, which the
+   *  daemon reads as unproven and refuses. */
+  const readMigrationsAt = async (sha: string): Promise<string[] | undefined> => {
+    const read =
+      deps.migrationsAt ?? ((at: string) => migrationsAtRevision(deps.root ?? SOURCE_ROOT, at))
+    try {
+      return await read(sha)
+    } catch {
+      return undefined
     }
   }
 
@@ -979,95 +1076,132 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     failure = { sha, reason, publicReason: publicUnavailableReason(error, sha ?? 'unknown') }
   }
 
+  /**
+   * The outcome of deciding whether to build — the COMPILE it started, or the
+   * reason it never got that far. Distinct from the compile's own result,
+   * because the two now settle at different times and only the first is
+   * serialised (see `admissions` below).
+   */
+  type Admission = { result: Promise<BuiltDevBundle | null> } | { error: unknown }
+
+  const admit = async (explicit: boolean): Promise<Admission> => {
+    // The commit this attempt actually read, kept where the catch below can
+    // still see it — so a refusal is recorded against the commit it refused
+    // rather than against a second, later read of HEAD.
+    let attempted: string | null = null
+    try {
+      const headSha = shortSha(await deps.headSha())
+      attempted = headSha
+      const decision = decideDevBuild({
+        isSourceRun: typeof deps.isSourceRun === 'function' ? deps.isSourceRun() : deps.isSourceRun,
+        headSha,
+        builtSha,
+        lastAttemptAt,
+        now: now(),
+        inFlight: inFlight !== null,
+        debounceMs,
+        explicit,
+      })
+      if (!decision.build) return { result: Promise.resolve(inFlight ?? current) }
+
+      lastAttemptAt = now()
+      // Fail closed BEFORE restoring or compiling: a dirty checkout cannot
+      // produce a dev+<sha> build of that commit, and an artifact left in
+      // dist-bun must not be restored under a tree that has since diverged.
+      await assertSourceMatchesHead(
+        deps.root ?? SOURCE_ROOT,
+        headSha,
+        deps.readSourceStatus,
+        deps.readIgnoredSourceInputs,
+      )
+      // A restart loses only the in-memory descriptor, not the signed bytes.
+      // Restore an exact-HEAD artifact first; compile only when it is absent
+      // or no longer verifies under this server's persisted update key.
+      //
+      // A restore sweeps too. Retention that only ran on a successful build
+      // would leave whatever a crash, a failed compile or a plain shutdown
+      // left behind — and residue that only accumulates when something went
+      // wrong is exactly the kind that grows unnoticed for months.
+      //
+      // The website is settled first, because the compile cannot pack a
+      // dev+<sha> tarball around another commit's dist. `explicit` travels
+      // with the request: it decides whether a stale dist is REBUILT (this
+      // server is about to be at that commit) or merely REFUSED (it is not,
+      // and moving the page ahead of it would break every open tab). Costs a
+      // single small file read when the dist is already current, which is the
+      // common case on the `/version` path.
+      const prepared = deps.prepareWebDist?.(headSha, explicit) ?? Promise.resolve()
+      const requested = prepared
+        .then(() =>
+          current === null
+            ? readExistingDevBundle({ ...deps, fs, headSha }).then(async (existing) => {
+                if (!existing) return buildDevBundle({ ...deps, headSha })
+                await sweepDevBundles(fs, dirname(existing.path), {
+                  ...(deps.retain !== undefined ? { keep: deps.retain } : {}),
+                  protect: [basename(existing.path)],
+                })
+                return existing
+              })
+            : buildDevBundle({ ...deps, headSha }),
+        )
+        .then(
+          (built) => {
+            current = built
+            builtSha = headSha
+            unavailable = undefined
+            failure = undefined
+            return built
+          },
+          (error: unknown) => {
+            recordFailure(error, headSha)
+            throw error
+          },
+        )
+      inFlight = requested
+      void requested.then(
+        () => {
+          inFlight = null
+        },
+        () => {
+          inFlight = null
+        },
+      )
+      deps.onAdmitted?.()
+      return { result: requested }
+    } catch (error) {
+      recordFailure(error, attempted)
+      return { error }
+    }
+  }
+
+  /**
+   * ADMISSIONS RUN ONE AT A TIME, and that queue is what keeps "never two at
+   * once" true now that deciding takes awaits.
+   *
+   * `inFlight` used to be set in the same synchronous turn as the check that
+   * reads it, so two requests could not both pass it. Reading HEAD and walking
+   * the tree are asynchronous, so without this queue two `/version` polls
+   * landing together would both find `inFlight` empty and both start a
+   * quarter-gigabyte compile on the live host.
+   *
+   * Only the ADMISSION is serialised, never the compile: the queue is released
+   * as soon as a request has decided, so a poll arriving during a build still
+   * gets its answer immediately rather than waiting out the minute.
+   */
+  let admissions: Promise<unknown> = Promise.resolve()
+
   return {
     requestBuild(explicit = false) {
-      try {
-        const headSha = shortSha(deps.headSha())
-        const decision = decideDevBuild({
-          isSourceRun:
-            typeof deps.isSourceRun === 'function' ? deps.isSourceRun() : deps.isSourceRun,
-          headSha,
-          builtSha,
-          lastAttemptAt,
-          now: now(),
-          inFlight: inFlight !== null,
-          debounceMs,
-          explicit,
-        })
-        if (!decision.build) return inFlight ?? Promise.resolve(current)
-
-        lastAttemptAt = now()
-        // Fail closed BEFORE restoring or compiling: a dirty checkout cannot
-        // produce a dev+<sha> build of that commit, and an artifact left in
-        // dist-bun must not be restored under a tree that has since diverged.
-        assertSourceMatchesHead(
-          deps.root ?? SOURCE_ROOT,
-          headSha,
-          deps.readSourceStatus,
-          deps.readIgnoredSourceInputs,
-        )
-        // A restart loses only the in-memory descriptor, not the signed bytes.
-        // Restore an exact-HEAD artifact first; compile only when it is absent
-        // or no longer verifies under this server's persisted update key.
-        //
-        // A restore sweeps too. Retention that only ran on a successful build
-        // would leave whatever a crash, a failed compile or a plain shutdown
-        // left behind — and residue that only accumulates when something went
-        // wrong is exactly the kind that grows unnoticed for months.
-        //
-        // The website is settled first, because the compile cannot pack a
-        // dev+<sha> tarball around another commit's dist. `explicit` travels
-        // with the request: it decides whether a stale dist is REBUILT (this
-        // server is about to be at that commit) or merely REFUSED (it is not,
-        // and moving the page ahead of it would break every open tab). Costs a
-        // single small file read when the dist is already current, which is the
-        // common case on the `/version` path.
-        const prepared = deps.prepareWebDist?.(headSha, explicit) ?? Promise.resolve()
-        const requested = prepared
-          .then(() =>
-            current === null
-              ? readExistingDevBundle({ ...deps, fs, headSha }).then(async (existing) => {
-                  if (!existing) return buildDevBundle({ ...deps, headSha })
-                  await sweepDevBundles(fs, dirname(existing.path), {
-                    ...(deps.retain !== undefined ? { keep: deps.retain } : {}),
-                    protect: [basename(existing.path)],
-                  })
-                  return existing
-                })
-              : buildDevBundle({ ...deps, headSha }),
-          )
-          .then(
-            (built) => {
-              current = built
-              builtSha = headSha
-              unavailable = undefined
-              failure = undefined
-              return built
-            },
-            (error: unknown) => {
-              recordFailure(error, headSha)
-              throw error
-            },
-          )
-        inFlight = requested
-        void requested.then(
-          () => {
-            inFlight = null
-          },
-          () => {
-            inFlight = null
-          },
-        )
-        return requested
-      } catch (error) {
-        recordFailure(error, currentHeadSha())
-        return Promise.reject(error)
-      }
+      const admitted = admissions.then(() => admit(explicit))
+      admissions = admitted.catch(() => undefined)
+      return admitted.then((admission) =>
+        'error' in admission ? Promise.reject(admission.error) : admission.result,
+      )
     },
     current: () => current,
     unavailable: () => unavailable,
-    readiness: () => {
-      const headSha = currentHeadSha()
+    readiness: async () => {
+      const headSha = await currentHeadSha()
       if (headSha !== null && builtSha === headSha && current) {
         return { state: 'ready', headSha, version: current.version }
       }
@@ -1083,8 +1217,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       }
       return { state: 'idle', headSha }
     },
-    target: () => {
-      const headSha = currentHeadSha()
+    target: async () => {
+      const headSha = await currentHeadSha()
       if (headSha === null) return undefined
       // A dev+<sha> label names this commit. A dirty tree is not that commit,
       // so do not advertise one. Any other failure (stale web dist, compile)
@@ -1092,6 +1226,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       if (failure?.sha === headSha && failure.reason.includes('does not match HEAD')) {
         return undefined
       }
+      // Declared for the commit being advertised — the same short sha the git
+      // artifact tells the daemon to check out (POD-2213).
+      const migrations = await readMigrationsAt(headSha)
       if (current && builtSha === headSha) {
         const artifactUrl =
           typeof deps.artifactUrl === 'function'
@@ -1101,9 +1238,13 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           artifactUrl,
           platform: deps.platform,
           sourceRoot: deps.root,
+          ...(migrations ? { schemaMigrations: migrations } : {}),
         })
       }
-      return devIdentityTarget(headSha, { sourceRoot: deps.root })
+      return devIdentityTarget(headSha, {
+        sourceRoot: deps.root,
+        ...(migrations ? { schemaMigrations: migrations } : {}),
+      })
     },
   }
 }

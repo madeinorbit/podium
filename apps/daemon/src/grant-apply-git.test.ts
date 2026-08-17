@@ -52,6 +52,8 @@ describe('applyGrant git delivery', () => {
       grant.target.artifacts.headlessAlternatives?.[0],
       'git',
       undefined,
+      // Where git delivery reports the step it has reached (POD-2101).
+      expect.any(Function),
     )
     expect(deps.swap).not.toHaveBeenCalled()
     expect(order).toEqual(['write', 'restart'])

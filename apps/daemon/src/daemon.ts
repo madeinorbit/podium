@@ -1,7 +1,9 @@
+import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { captureDaemonBootBuild } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
+import { disarmExitSeam } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
@@ -23,6 +25,8 @@ export {
 } from './durable-backend'
 export { controlFrameByteLength, payloadRejectionReply } from './frame-guards'
 export { createLimiter, createReattachGates } from './reattach-gates'
+
+const log = createLogger('daemon')
 
 export interface DaemonHandle {
   readonly hookPort: number
@@ -61,6 +65,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     process.execPath,
     opts.sourceRoot,
   )
+  /**
+   * THE EXIT SEAM, DISARMED WHERE EXITING IS FATAL (POD-2210).
+   *
+   * `restartAfterUpdate` is the one call in this daemon whose default is
+   * `process.exit(0)`, and it has two callers: the grant runner after a
+   * convergence, and the protocol-mismatch self-update in `connection-state`.
+   * The grant path is already refused before it can reach here
+   * ({@link refuseConvergence}); disarming the seam itself is what makes that
+   * refusal a property of the process rather than of one code path, so a future
+   * third caller cannot reintroduce a silent stop of the server.
+   */
+  const options: DaemonOptions = disarmExitSeam({
+    ...(opts.restartAfterUpdate ? { provided: opts.restartAfterUpdate } : {}),
+    shape: { exitStopsServer: opts.exitStopsServer ?? false, env: process.env },
+  })
+    ? {
+        ...opts,
+        restartAfterUpdate: () =>
+          log.warn(
+            'not exiting to finish an update: this daemon shares its process with the podium ' +
+              'server and nothing would restart it. Stop podium and start it again.',
+          ),
+      }
+    : opts
   const instance = bootstrapDaemonInstance({
     settingsDir: opts.hooks?.settingsDir,
     socketPath: opts.hooks?.socketPath,
@@ -68,14 +96,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   })
   let connection: DaemonConnection | undefined
   const host = await createDaemonHostRuntime({
-    options: opts,
+    options,
     instance,
     build,
     installDir,
     send: (message) => connection?.send(message),
   })
   connection = createDaemonConnection({
-    options: opts,
+    options,
     build,
     machineId: asMachineId(host.machineId),
     identity: host.identity,
@@ -84,7 +112,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       host.frameGuard.send(socket as never, message as DaemonMessage),
     onConnected: host.connected,
     onTerminal: host.close,
-    restartAfterUpdate: opts.restartAfterUpdate,
+    restartAfterUpdate: options.restartAfterUpdate,
   })
   await connection.start()
 

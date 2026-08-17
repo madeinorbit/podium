@@ -1,8 +1,19 @@
 # Coherent update story: authority, delivery, and one Podium version
 
+> **SUPERSEDED by `2026-08-14-update-operations-design.md` (POD-2087).** Read that one.
+> This spec's *foundations* survive it and were not revisited: the server is the authority
+> for what its attached components run, that authority is separate from how bytes are
+> delivered, and there is one Podium version. What it got wrong is the shape of the thing
+> the user interacts with — it specified a single dialog over per-component status, and an
+> update turned out to be a long-running lifecycle **operation** with identity, single-flight,
+> adoption across the restart that replaces the coordinating server, and stragglers that
+> converge afterwards. Anything here about the dialog, its buttons, or how progress and
+> failure reach a person is history. Where the two disagree, the operations spec wins.
+
 - **Date:** 2026-08-04
 - **Issue:** POD-1670 (Coherent update story)
-- **Status:** Design (approved in brainstorm, awaiting implementation plan)
+- **Status:** Superseded (2026-08-16) — was: Design, approved in brainstorm
+- **Superseded by:** `2026-08-14-update-operations-design.md`
 - **Supersedes:** `2026-07-01-complete-update-story-design.md` (that spec shipped the wire
   handshake, the 426 self-heal and the daily headless timer; this one replaces its *policy*
   layer, where each component updated itself independently)

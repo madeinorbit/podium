@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { offeredDeliveries, planWave, type WaveMachine } from './wave'
+import { machineCanTakeDelivery, offeredDeliveries, planWave, type WaveMachine } from './wave'
 
 const m = (over: Partial<WaveMachine> & { id: string }): WaveMachine => ({
   version: '0.4.1',
@@ -177,6 +177,69 @@ describe('a machine that cannot take the delivery', () => {
         canaryHealthy: true,
       }),
     ).toEqual(['b-installed'])
+  })
+})
+
+/**
+ * A DAEMON INSIDE PODIUM DESKTOP IS THE SHELL'S TO UPDATE (POD-2099, spec §4).
+ *
+ * The flag is the whole decision: each test plans the SAME machine twice, once
+ * supervised and once not, so a filter that stopped firing would be visible as
+ * the two runs agreeing rather than as a bare red.
+ */
+describe('a desktop-supervised daemon', () => {
+  const macAllInOne = (over: Partial<WaveMachine> = {}): WaveMachine => ({
+    id: 'macbook',
+    version: '0.4.1',
+    state: 'current',
+    online: true,
+    busy: false,
+    // The shape that makes this dangerous: it reports `installed` with real
+    // bundle caps, so nothing in the caps answer would refuse it.
+    deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+    supervised: true,
+    ...over,
+  })
+  const plan = (machines: WaveMachine[], over: Partial<Parameters<typeof planWave>[0]> = {}) =>
+    planWave({
+      machines,
+      targetVersion: '0.4.2',
+      concurrency: 3,
+      canaryHealthy: true,
+      deliveries: ['feed', 'bundle'],
+      ...over,
+    })
+
+  it('is never granted a target it has the capabilities for', () => {
+    expect(plan([macAllInOne()])).toEqual([])
+    expect(plan([macAllInOne({ supervised: false })])).toEqual(['macbook'])
+  })
+
+  it('is never chosen as the canary, the one selection a widening filter misses', () => {
+    const machines = [macAllInOne(), macAllInOne({ id: 'vmi', supervised: false })]
+    expect(plan(machines, { canaryHealthy: false })).toEqual(['vmi'])
+    // Alone and unhealthy there is no canary left to pick, rather than picking it.
+    expect(plan([macAllInOne()], { canaryHealthy: false })).toEqual([])
+  })
+
+  it('is refused even when the caller offers no delivery list at all', () => {
+    // The per-machine Apply path (`authorizeMachine`) plans without deliveries;
+    // "no list" disables the CAPS question, and this must not ride on it.
+    expect(plan([macAllInOne()], { deliveries: undefined })).toEqual([])
+  })
+
+  it('never blocks the rest of the fleet from converging', () => {
+    const fleet = [macAllInOne(), macAllInOne({ id: 'ludovico', supervised: false })]
+    expect(plan(fleet)).toEqual(['ludovico'])
+  })
+
+  it('answers the delivery question directly, whatever it reported it can take', () => {
+    expect(machineCanTakeDelivery({ supervised: true, deliveryCaps: [] }, [])).toBe(false)
+    expect(
+      machineCanTakeDelivery({ supervised: true, deliveryCaps: ['update.delivery.git'] }, ['git']),
+    ).toBe(false)
+    // Absent is an ordinary fleet machine — the frozen-contract reading.
+    expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.git'] }, ['git'])).toBe(true)
   })
 })
 

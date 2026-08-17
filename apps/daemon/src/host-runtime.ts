@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process'
 import { mkdir, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
@@ -22,13 +21,10 @@ import {
   stateDir,
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
+import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
-import {
-  GIT_CONVERGENCE_BUDGET_MS,
-  GIT_TIMED_OUT_STATUS,
-  withGitBudget,
-} from '@podium/runtime/update-delivery-git'
+import { withGitBudget } from '@podium/runtime/update-delivery-git'
 import type { RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { provisionedAccountHome, type ProvisionedAccountHomeSource } from './account-home'
@@ -39,11 +35,17 @@ import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
-import { MAX_CONVERGENCE_ATTEMPTS, resolveOnBoot } from './convergence'
+import {
+  createSchemaGate,
+  MAX_CONVERGENCE_ATTEMPTS,
+  refuseConvergence,
+  resolveOnBoot,
+} from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
+import { createGitRunner } from './git-runner'
 import { createGrantRunner } from './grant-apply'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
@@ -317,39 +319,6 @@ export async function createDaemonHostRuntime(args: {
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
 
-  /**
-   * Git delivery runs SYNCHRONOUSLY and therefore cannot be cancelled: while a
-   * step is running this thread is blocked, so an abort signal cannot be
-   * observed until it returns. The bound that actually protects the daemon is
-   * the timeout — without it a hung `git fetch` against an unreachable remote
-   * blocks the whole process indefinitely, and no server deadline or grant
-   * runner can do anything about it.
-   *
-   * The caller passes the REMAINING whole-convergence budget, so three steps
-   * cannot add up past the server's silence deadline.
-   */
-  const runGit = (
-    command: string,
-    args: string[],
-    timeoutMs?: number,
-  ): { status: number | null; stdout: string } => {
-    const result = spawnSync(command, args, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: Math.max(
-        1,
-        Math.min(timeoutMs ?? GIT_CONVERGENCE_BUDGET_MS, GIT_CONVERGENCE_BUDGET_MS),
-      ),
-      killSignal: 'SIGKILL',
-    })
-    return {
-      // A timed-out step is killed with no exit code; name it as a timeout so
-      // the convergence refuses with that reason rather than reading empty
-      // output as success or blaming the command.
-      status: result.status ?? (result.error ? GIT_TIMED_OUT_STATUS : null),
-      stdout: typeof result.stdout === 'string' ? result.stdout : '',
-    }
-  }
   const reconcilePendingUpdate = (): void => {
     const pending = readPendingGrant(instance.runtimeDir)
     if (!pending) return
@@ -398,25 +367,59 @@ export async function createDaemonHostRuntime(args: {
     clearPendingGrant(instance.runtimeDir)
   }
 
+  /**
+   * Read ONCE, at boot, because it is a fact about how this process was started
+   * and cannot change while it runs — and because the operator deserves to see
+   * it in the log of the terminal they are watching, not only in the browser.
+   */
+  const convergenceRefusal = refuseConvergence({
+    exitStopsServer: opts.exitStopsServer ?? false,
+    env: process.env,
+  })
+  if (convergenceRefusal) {
+    log.warn(
+      'this daemon shares its process with the podium server and nothing would restart it — ' +
+        'updates will be refused here; stop podium and start it again to pick one up, or run ' +
+        '`podium setup` to install it as a service that can update itself',
+    )
+  }
+
+  /**
+   * The OTHER refusal, and the one that has to be asked per target (POD-2213):
+   * would the build we are about to swap in be able to open this machine's
+   * database? Read fresh at every grant — this daemon outlives its own server's
+   * migrations — and never at boot, where the answer would already be stale.
+   */
+  const schemaGate = createSchemaGate({
+    readApplied: () => readAppliedMigrations(),
+    currentVersion: build.appVersion ?? 'dev',
+  })
+
   // One runner per daemon: overlapping grants are serialized here rather than
   // racing to swap the same binary.
   const grantRunner = createGrantRunner({
     currentVersion: () => build.appVersion ?? 'dev',
-    caps: deliveryCaps(build.installKind),
-    fetchArtifact: (asset, delivery, signal) =>
+    caps: deliveryCaps(build),
+    fetchArtifact: (asset, delivery, signal, onProgress) =>
       fetchArtifact(asset, delivery, {
         fetch: globalThis.fetch,
         pubkey: PODIUM_UPDATE_PUBKEY,
         pinnedPubkey: identity.updatePubkey,
+        // Delivery decides WHEN there is news; `applyGrant` turns each one into
+        // an `updateStatus` frame (POD-2101).
+        ...(onProgress ? { onProgress } : {}),
         // One budget per convergence, established at the moment delivery
-        // starts rather than once for the life of the daemon.
-        git: { run: withGitBudget(runGit) },
+        // starts rather than once for the life of the daemon — and bound to
+        // THIS grant's abort, so a superseding grant cancels the git steps
+        // instead of waiting out their timeout.
+        git: { run: withGitBudget(createGitRunner(signal)) },
         ...(signal ? { signal } : {}),
       }),
     swap: (bytes) => {
       if (!installDir) throw new Error('binary delivery requires an installed daemon')
-      swapHeadlessBundle(bytes, installDir)
+      return swapHeadlessBundle(bytes, installDir)
     },
+    refuse: (target) => convergenceRefusal ?? schemaGate(target),
     writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
     restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
     report: (status) => send(status),

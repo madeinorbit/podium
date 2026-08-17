@@ -7,6 +7,7 @@ import { controlFrameByteLength, createFrameGuard, MAX_CONTROL_FRAME_BYTES } fro
 const context = (): DaemonContext =>
   ({
     agentRelayHub: { onResult: vi.fn() },
+    send: vi.fn(),
   }) as unknown as DaemonContext
 
 describe('daemon frame guards', () => {
@@ -47,6 +48,42 @@ describe('daemon frame guards', () => {
 
     expect(warn).toHaveBeenCalledTimes(1)
     expect(onResult).toHaveBeenCalledWith(valid)
+  })
+
+  /**
+   * POD-2223 — the whole point of the arm is that it is REACHED, not that the function
+   * in isolation returns the right object. This drives the real receive path: an approval
+   * exec request whose op this build's schema rejects must leave the guard with a reply
+   * on the wire, not just a throttled warn in the journal.
+   */
+  it('answers an approval exec request whose op it cannot parse, then drops it', () => {
+    const ctx = context()
+    const warn = vi.fn()
+    const guard = createFrameGuard(ctx, { warn })
+
+    guard.receive(
+      Buffer.from(
+        JSON.stringify({
+          type: 'approvalExecRequest',
+          requestId: 'apr_99',
+          op: { kind: 'channel', target: 'a-channel-no-build-has-ever-shipped' },
+        }),
+      ),
+    )
+
+    expect(ctx.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'approvalExecResult',
+        requestId: 'apr_99',
+        ok: false,
+        exitCode: null,
+      }),
+    )
+    // The frame is still dropped — answering is not accepting.
+    expect(warn).toHaveBeenCalledWith(
+      'dropped a malformed control frame',
+      expect.objectContaining({ direction: 'inbound' }),
+    )
   })
 
   it('contains outbound encoding/socket throws', () => {

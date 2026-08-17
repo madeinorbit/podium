@@ -7,6 +7,22 @@
  * details about how those places are connected.
  */
 import type { ServerVersion, SkewVerdict, UpdateNotes } from '@podium/protocol'
+/**
+ * THE SUBPATH IS LOAD-BEARING (POD-2241, POD-2190).
+ *
+ * Everything else this file needs from the protocol is a TYPE, which costs a
+ * bundle nothing. The refusal table is a value, and reaching it through the
+ * barrel pulls the entire wire schema into the update chunk — the chunk that
+ * was deliberately split out to keep 99 KB off the first paint. Measured: the
+ * chunk's cold import went from ~250 ms to ~3 s, and `updates-context.test.tsx`
+ * timed out waiting for the panel to appear. The table imports nothing, so
+ * through its own entrypoint it costs one module.
+ */
+import type { MachineFailureCode } from '@podium/protocol/update-refusal'
+import {
+  CODE_FOR_UPDATE_FAILURE_TOKEN,
+  matchUpdateFailureToken,
+} from '@podium/protocol/update-refusal'
 
 /**
  * `phone` is the Expo website at /mobile. It is always ANOTHER device from the
@@ -22,6 +38,17 @@ export interface Place {
   effect: string
 }
 
+/**
+ * THE OFFER, and nothing else (POD-2102).
+ *
+ * `in-progress` and `failed` used to live here, computed from the fleet
+ * snapshot — one of the three competing progress models spec §1.2 catalogues.
+ * They are gone: once an update starts it IS an operation, and the operation
+ * says what is happening (`operation-view.ts`). What is left is the question
+ * only the client can answer before anything starts — "what would this update
+ * touch, and what will you notice where" — which this file has always answered
+ * well and keeps answering.
+ */
 export type UpdateView =
   | { state: 'none' }
   | { state: 'checking' }
@@ -33,13 +60,6 @@ export type UpdateView =
       notes?: { summary?: string; url?: string }
       restartNote: string
       reason?: string
-    }
-  | { state: 'in-progress'; version: string; done: number; total: number }
-  | {
-      state: 'failed'
-      message: string
-      guidance: string
-      diagnostic?: string
     }
 
 export interface DesktopUpdateInfo {
@@ -208,16 +228,23 @@ function placesFor(input: UpdateInput): Place[] {
   return places
 }
 
-/**
- * True when this app is the only place and its update comes from the desktop
- * release feed rather than the server's target. Verified against the live dev
- * coordinator, whose target publishes `headless` artifacts only.
- */
 /** A short git SHA is the source-host web identity, not a packaged web artifact. */
 function isSourceWebDigest(digest: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(digest)
 }
 
+/**
+ * True when this app is the only place and its update comes from the desktop
+ * release feed rather than the server's target. Verified against the live dev
+ * coordinator, whose target publishes `headless` artifacts only.
+ *
+ * POD-2106 came to delete this as version-namespace guesswork the operation
+ * model made unnecessary, and it is not: operations describe an update already
+ * under way, while this runs earlier, on the OFFER, to pick which of two
+ * version streams to name. Both arms are pinned by tests — forcing either to
+ * `false` reds `update-view.test.ts` — so it stays until something replaces the
+ * two-streams problem itself rather than the code that copes with it.
+ */
 function appOnlyFromReleaseFeed(input: UpdateInput): boolean {
   if (input.desktopUpdate === undefined) return false
   if (input.server.target?.artifacts.desktop) return false
@@ -240,79 +267,257 @@ function skewReason(skew: SkewVerdict): string | undefined {
   }
 }
 
-type FailedUpdateView = Extract<UpdateView, { state: 'failed' }>
+/**
+ * What this file says when it recognized NOTHING. Exported because the caller
+ * has to be able to tell "translated" from "gave up": a §7 error carrying its
+ * own user-facing sentence should show that sentence rather than this one.
+ */
+export const UNTRANSLATED_FAILURE_MESSAGE = 'Podium could not finish the update.'
 
-/** Keep transport and delivery vocabulary out of the primary failure message.
- * A short, sanitized diagnostic remains available for support and operators. */
+export interface FailedUpdateView {
+  state: 'failed'
+  message: string
+  guidance: string
+  diagnostic?: string
+}
+
+/** What happened, and the one thing to do about it. §7's first two layers. */
+export interface MachineFailureCopy {
+  message: string
+  nextAction: string
+}
+
+/**
+ * THE ONLY PLACE A MACHINE FAILURE BECOMES WORDS (POD-2241).
+ *
+ * There used to be two: this file translated a raw daemon sentence, and
+ * `operation-view.ts` translated the code the server had derived from the same
+ * sentence — so the same refusal read one way on the ActionError path and
+ * another on the operation path, and an arm added to one was half a fix. The
+ * classification now happens once, in `@podium/protocol`, and the copy happens
+ * once, here. Both entry points call this.
+ *
+ * A `Record` and not a `switch`, deliberately: a code added to
+ * {@link MachineFailureCode} reds this file until somebody writes the sentence
+ * a human will read. A convention asking the next person to remember is not an
+ * instrument that can say no; a missing key is.
+ *
+ * `subject` is the machine's name when one is known. Each arm chooses its own
+ * fallback, because "A machine", "This machine" and "Podium" are not
+ * interchangeable in these sentences.
+ */
+const MACHINE_FAILURE_COPY: Record<
+  MachineFailureCode,
+  (subject: string | undefined) => MachineFailureCopy
+> = {
+  'machine-dirty-checkout': (subject) => ({
+    message: `${subject ?? 'A machine'} has local files or edits that prevent a safe update.`,
+    nextAction: `Commit, stash, move, or locally exclude those files on ${subject ?? 'that machine'}, then try again.`,
+  }),
+  'machine-unsupported': (subject) => ({
+    message: `${subject ?? 'A machine'} cannot use this update's package.`,
+    nextAction:
+      "Ask the server operator to check the release includes that machine's platform and " +
+      'delivery method, then try again.',
+  }),
+  /**
+   * THE ONLY ARM THAT MAY SAY "STOPPED RESPONDING". It reads as the truth for
+   * exactly one input — a machine that went quiet — and as a confident lie for
+   * every other sentence in the table, which is what POD-2210 and POD-2240 both
+   * were. Keep it narrow.
+   */
+  'machine-unreachable': (subject) => ({
+    message: `${subject ?? 'A machine'} stopped responding while updating.`,
+    nextAction:
+      'Podium stopped waiting for it. Check that machine is running, then apply the update ' +
+      'again from Settings → Machines.',
+  }),
+  /**
+   * THE FIRST FAILURE WHOSE NEXT ACTION WAS NOT "TRY AGAIN" (POD-2210).
+   *
+   * A Podium started as a single foreground process — `podium all`, or a bare
+   * `podium` on a box with no persistence — is server and daemon in one PID
+   * with nothing to restart it, so its daemon refuses rather than exiting into
+   * a server that never comes back. Trying again refuses identically: the
+   * answer is in the operator's terminal, not in this panel.
+   *
+   * "Nothing was changed" leads, because it is the question a person asks
+   * before they decide whether it is safe to restart it. Then both ways out, in
+   * the order a person wants them: the one that takes five seconds, and the one
+   * that makes it not happen again.
+   */
+  'machine-cannot-restart': (subject) => ({
+    message:
+      `${subject ? `Podium on ${subject}` : 'Podium here'} is running as a single foreground ` +
+      'process, so it cannot update itself. Nothing was changed.',
+    nextAction:
+      'Stop it in the terminal it is running in and start it again to pick up this update — or ' +
+      'run `podium setup` there to install it as a service, which can update itself without ' +
+      'going down.',
+  }),
+  /**
+   * THE REFUSAL THAT KEPT A MACHINE ALIVE (POD-2213), IN ITS THREE KINDS
+   * (POD-2233, POD-2239).
+   *
+   * Migrations are forward-only, so an older build cannot open a database a
+   * newer one has already migrated — it refuses to start, and the thing that
+   * would put the newer build back is the server that will not start. The
+   * daemon declines the downgrade before swapping anything.
+   *
+   * THREE ARMS, NOT ONE, because they are three different states of knowledge
+   * and §7 forbids a failure asserting what it has not established. Collapsing
+   * them made the panel claim what the daemon had deliberately refused to claim.
+   */
+  'machine-schema-advanced': (subject) => ({
+    // Both halves established: the refusal named an applied migration the
+    // target does not define, so the target IS behind and WOULD refuse to open.
+    message:
+      `${subject ?? 'A machine'} was asked to move to an older version that cannot open the ` +
+      'data it already has. Nothing was changed and Podium is still running there.',
+    nextAction:
+      'Pick a version at least as new as the one it is on — or, if you really need the older ' +
+      'one, restore a database backup from before the upgrade by hand first ' +
+      '(docs/data-and-upgrades.md).',
+  }),
+  /**
+   * The arm that asserts LEAST. Neither half is established: the target did not
+   * declare what it can open and could not be proved newer, so "older" and
+   * "cannot open" are both guesses. And no advice to pick something newer,
+   * which is not merely unproven but unachievable — a coordinator on a source
+   * build reports `dev+<sha>`, which orders against nothing published, so every
+   * choice returns here. The action that exists belongs to the release.
+   */
+  'machine-schema-unknown': (subject) => ({
+    message:
+      `${subject ?? 'A machine'} was asked to move to a version that does not say which data ` +
+      'it can open, so nothing here could tell whether it would start. Nothing was changed and ' +
+      'Podium is still running there.',
+    nextAction:
+      'Ask the server operator for a release that declares which data it can open — that is ' +
+      'what settles this. A machine running a development build cannot order itself against ' +
+      'published versions, so choosing a different one will not.',
+  }),
+  'machine-schema-unreadable': (subject) => ({
+    // Says nothing about the target at all — the database could not be read.
+    // The only one of the three where "try again" is right, because a read that
+    // lost to a lock or a permission can win next time.
+    message:
+      `${subject ?? 'A machine'} could not read its own database, so nothing here could tell ` +
+      'whether that version would start against it. Nothing was changed and Podium is still ' +
+      'running there.',
+    nextAction:
+      'Check that database file and its disk on that machine — the technical detail below says ' +
+      'why the read failed — then try again.',
+  }),
+  /**
+   * THE FOUR CODES THE UNREACHABLE DEFAULT USED TO ANSWER FOR (POD-2241).
+   *
+   * Every sentence behind these was written by a machine that was running and
+   * answering, and every one of them used to arrive as "stopped responding,
+   * check it's running; it will resume when it reconnects" — a claim that was
+   * false when made and that could never become true.
+   */
+  'machine-delivery-failed': (subject) => ({
+    message:
+      `${subject ?? 'A machine'} could not put this update in place. Nothing was changed there ` +
+      'and Podium is still running.',
+    nextAction:
+      'The technical detail below names the step that failed. Try again, and if it keeps ' +
+      "failing check that machine's checkout and its disk.",
+  }),
+  'machine-delivery-unavailable': (subject) => ({
+    // NO "try again": these are properties of the release or the pairing, not
+    // of a moment, so a retry is guaranteed to return here.
+    message:
+      `This update cannot be delivered to ${subject ?? 'a machine'} as configured. Nothing was ` +
+      'changed there.',
+    nextAction:
+      "Ask the server operator to check the release and that machine's pairing — trying again " +
+      'will not change this on its own.',
+  }),
+  'machine-artifact-rejected': (subject) => ({
+    // The one failure where "try again" is bad advice rather than merely
+    // useless: what arrived was not what was signed.
+    message:
+      `The update package failed verification on ${subject ?? 'a machine'}, so Podium refused ` +
+      'to install it. Nothing was changed there.',
+    nextAction:
+      'Ask the server operator to re-publish the release before applying it again — what ' +
+      'arrived was not what was signed.',
+  }),
+  'machine-update-not-confirmed': (subject) => ({
+    // Reported BY THAT MACHINE'S OWN BOOT, so it is up and connected. Nothing
+    // here claims why the new version did not start; the detail says how far it
+    // got.
+    message:
+      `${subject ?? 'A machine'} took this update but did not come back on the new version, ` +
+      'and is running again on the version it had.',
+    nextAction:
+      "Check that machine's log for why the new version did not start — the technical detail " +
+      'below says how far it got.',
+  }),
+  'update-withdrawn': (subject) => ({
+    message:
+      `The server withdrew this update while ${subject ?? 'a machine'} was still applying it, ` +
+      'so nothing was changed there.',
+    nextAction:
+      'The detail below is the reason the server gave. Apply the update again once it is ' +
+      'publishing one.',
+  }),
+  'download-failed': () => ({
+    // Deliberately subject-free: this is about the bytes, not about a machine,
+    // and naming one would accuse the wrong thing.
+    message: 'Podium could not download this update.',
+    nextAction: 'Check the connection, then try the update again.',
+  }),
+}
+
+/**
+ * The copy for a failure code, or `undefined` when the code is not one of this
+ * table's — a desktop-shell code, or one from a server newer than this bundle.
+ *
+ * `undefined` is what lets `operation-view.ts` keep degrading an unknown code
+ * to the server's own sentence instead of to a blank panel (P8).
+ */
+export function machineFailureCopy(code: string, subject?: string): MachineFailureCopy | undefined {
+  const arm = (
+    MACHINE_FAILURE_COPY as Record<string, ((s?: string) => MachineFailureCopy) | undefined>
+  )[code]
+  return arm?.(subject)
+}
+
+/**
+ * Translate a raw failure sentence — from a daemon, the grant path, the boot
+ * reconciler, or the service's own timeout — into what an operator reads.
+ *
+ * Still here, and still worth its keep, even though failures now arrive as
+ * TYPED codes on the operation (§7): a server older than the taxonomy — or any
+ * kind that reports a bare sentence — still produces free text. What changed in
+ * POD-2241 is that it is no longer a SECOND classifier. It matches the token
+ * with `@podium/protocol`'s table, which the server uses too, and renders the
+ * same copy the code path renders. There is one reading of one sentence.
+ */
 export function describeUpdateFailure(detail?: string, machineName?: string): FailedUpdateView {
   const normalized = detail?.trim()
-
-  if (normalized && /dirty[-_\s]working[-_\s]tree/i.test(normalized)) {
-    const subject = machineName ?? 'A machine'
-    const location = machineName ?? 'that machine'
-    return {
-      state: 'failed',
-      message: subject + ' has local files or edits that prevent a safe update.',
-      guidance:
-        'Commit, stash, move, or locally exclude those files on ' + location + ', then try again.',
-      diagnostic: 'Git delivery stopped because the checkout is not clean.',
-    }
-  }
-
-  if (normalized && /unsupported[-_\s]delivery/i.test(normalized)) {
-    return {
-      state: 'failed',
-      message: 'One or more machines cannot use this update.',
-      guidance:
-        'Ask the server operator to check the release package for those machines, then try again.',
-      diagnostic: "The machines do not support this update's delivery method.",
-    }
-  }
-
-  if (normalized && /(?:no[-_\s]artifact|unsupported[-_\s]platform)/i.test(normalized)) {
-    return {
-      state: 'failed',
-      message: 'One or more machines cannot use this update.',
-      guidance:
-        'Ask the server operator to check the release package for those machines, then try again.',
-      diagnostic: /unsupported[-_\s]platform/i.test(normalized)
-        ? "The release does not support the machines' platform."
-        : 'The release does not include an update package for the machines.',
-    }
-  }
-
-  // A bounded wait that ran out is its own story: nothing is wrong with the
-  // release, a machine simply stopped answering. Saying so — and saying the
-  // update can be applied again — is the difference between a visible timeout
-  // and a dialog that appears to have hung.
-  if (normalized && /stopped reporting progress/i.test(normalized)) {
-    return {
-      state: 'failed',
-      message: 'A machine stopped responding while updating.',
-      guidance:
-        'Podium stopped waiting for it. Check that machine is running, then apply the update ' +
-        'again from Settings → Machines.',
-      diagnostic: normalized,
-    }
-  }
-
-  if (
-    normalized &&
-    /(?:unable to connect|access the url|failed to fetch|fetch failed|download timed out|network(?:error| request failed)|econn(?:refused|reset)|etimedout|enotfound)/i.test(
-      normalized,
-    )
-  ) {
-    return {
-      state: 'failed',
-      message: 'Podium could not reach the update source.',
-      guidance: "Check this server's internet connection, then try the update again.",
-      diagnostic: 'The update could not be downloaded.',
+  const token = matchUpdateFailureToken(normalized)
+  if (token !== undefined) {
+    const copy = machineFailureCopy(CODE_FOR_UPDATE_FAILURE_TOKEN[token], machineName)
+    // Unreachable in practice — the table's codes are exactly this file's keys,
+    // and TypeScript holds that — but the fall-through below is the honest
+    // answer if it ever stops being true, rather than a thrown renderer.
+    if (copy) {
+      return {
+        state: 'failed',
+        message: copy.message,
+        guidance: copy.nextAction,
+        ...(normalized ? { diagnostic: normalized } : {}),
+      }
     }
   }
 
   return {
     state: 'failed',
-    message: 'Podium could not finish the update.',
+    message: UNTRANSLATED_FAILURE_MESSAGE,
     guidance: 'Try again. If it still fails, share the details below with the server operator.',
     ...(normalized ? { diagnostic: normalized } : {}),
   }
@@ -331,26 +536,6 @@ export function describeUpdate(input: UpdateInput): UpdateView {
       input.desktopUpdate?.version ??
       input.server.appVersion ??
       input.localVersion)
-
-  if (input.fleet.preparation?.failureDetail) {
-    return describeUpdateFailure(input.fleet.preparation.failureDetail)
-  }
-
-  if (input.fleet.failed > 0) {
-    const failure = input.fleet.machines?.find(
-      (machine) => machine.state === 'rejected' || machine.state === 'stuck',
-    )
-    return describeUpdateFailure(
-      failure?.detail ?? machineLabel(input.fleet.failed) + ' could not update.',
-      failure?.name,
-    )
-  }
-
-  if (input.fleet.converging > 0) {
-    const total = Math.max(input.fleet.total, input.fleet.converging + input.fleet.behind)
-    const done = Math.max(0, total - input.fleet.behind - input.fleet.converging)
-    return { state: 'in-progress', version, done, total }
-  }
 
   const required =
     input.skew !== 'ok' || target?.critical === true || input.desktopUpdate?.critical === true

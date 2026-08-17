@@ -74,6 +74,7 @@ import {
   USAGE_QUERIES,
 } from './modules/misc-queries'
 import { modelFamilyProcedures } from './modules/models/trpc'
+import { operationProcedures } from './modules/operations/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
 import { readPositionFamilyProcedures } from './modules/read-position/trpc'
 import {
@@ -415,6 +416,12 @@ export const appRouter = t.router({
   }),
   setup: t.router(setupFamilyProcedures()),
   updates: t.router(updateProcedures()),
+  /**
+   * Durable long-running operations (POD-2097) — reads serve the stored bytes
+   * verbatim, because the frozen contract's whole point is that this server and
+   * the bundle rendering it are routinely different builds.
+   */
+  operations: t.router(operationProcedures()),
   /**
    * THE AUTH SURFACE IS DERIVED (POD-314) — the human-client login password on
    * an already-configured instance. These run under the same /trpc guard, so

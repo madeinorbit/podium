@@ -438,6 +438,55 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
     expect(() => parseServerMessageLenient('{not json')).toThrow()
   })
 
+  // POD-2199. `approvalsChanged` is a full-list SNAPSHOT, not a delta, so a
+  // refused frame does not merely skip an update — it freezes the operator's
+  // pending list at whatever it last saw. The op catalog grows (a new kind, a
+  // new `channel` target like `dev`), and every value a newer server adds is one
+  // an older bundle's closed schema rejects, so that growth must cost the one
+  // unreadable request and nothing else.
+  const approval = (id: string, op: unknown) => ({
+    id,
+    machineId: 'm1',
+    sessionId: 's1',
+    issueId: null,
+    issueSeq: null,
+    issueTitle: null,
+    op,
+    status: 'pending',
+    createdAt: '2026-08-16T00:00:00.000Z',
+    decidedAt: null,
+    resultText: null,
+  })
+
+  it('quarantines an approval whose op this build cannot read, and still shows the rest', () => {
+    const raw = JSON.stringify({
+      type: 'approvalsChanged',
+      pending: [
+        approval('a', { kind: 'update' }),
+        // What a build that predates the widening sees when a newer server
+        // relays an agent's `podium channel dev` request.
+        approval('unreadable', { kind: 'channel', target: 'a-channel-this-build-lacks' }),
+        approval('c', { kind: 'stop' }),
+      ],
+    })
+    const { message, dropped } = parseServerMessageLenient(raw)
+    expect(dropped).toBe(1)
+    expect(message?.type === 'approvalsChanged' && message.pending.map((p) => p.id)).toEqual([
+      'a',
+      'c',
+    ])
+  })
+
+  it('passes a pending list this build reads fully — it does not drop what it understands', () => {
+    const raw = JSON.stringify({
+      type: 'approvalsChanged',
+      pending: [approval('a', { kind: 'channel', target: 'dev' })],
+    })
+    const { message, dropped } = parseServerMessageLenient(raw)
+    expect(dropped).toBe(0)
+    expect(message?.type === 'approvalsChanged' && message.pending.length).toBe(1)
+  })
+
   // Kind-tolerance ([spec:SP-3fe2] #258): a NEWER server may stream metadata
   // changes for entity kinds this build doesn't know. Those rows must PASS the
   // lenient parse (consumers ignore them but advance the cursor past them — a
@@ -1293,6 +1342,23 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
         } as unknown as DaemonMessage),
       ),
     ).toThrow()
+  })
+
+  // POD-2199: the brokered channel op is the AGENT's only way to pin a machine's
+  // update channel, and it admitted only the two published channels — so a source
+  // machine could not be pinned to `dev`, the one channel its own `dev+<sha>`
+  // target is ever published on, while an operator running the same command
+  // could (POD-2198). The enum is widened, deliberately NOT opened.
+  it('brokers a channel switch to dev, and still refuses a channel that does not exist', () => {
+    for (const target of ['stable', 'edge', 'dev'] as const) {
+      expect(ApprovalOp.parse({ kind: 'channel', target })).toEqual({ kind: 'channel', target })
+      expect(describeApprovalOp({ kind: 'channel', target })).toContain(target)
+    }
+    // CAN SAY NO. `target` is the one brokered parameter that reaches a command
+    // line verbatim, so the catalog stays closed: anything else is refused here,
+    // before it can become argv on somebody's machine.
+    expect(() => ApprovalOp.parse({ kind: 'channel', target: 'nightly' })).toThrow()
+    expect(() => ApprovalOp.parse({ kind: 'channel', target: '../../etc' })).toThrow()
   })
 
   it('describes every approved one-off detail the operator is authorizing', () => {

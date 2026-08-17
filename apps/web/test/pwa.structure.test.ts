@@ -80,9 +80,15 @@ describe('PWA shell height + safe-area inset', () => {
 })
 
 describe('update prompt', () => {
-  it('UpdatePrompt uses the SW registration to detect and apply new builds', () => {
-    const src = readWeb('src/app/UpdatePrompt.tsx')
-    expect(src).toContain("from './pwa-register'")
+  /**
+   * The service-worker plumbing moved from `UpdatePrompt` into the update
+   * surface's provider (POD-2102) — same wiring, one owner. What it asserts is
+   * unchanged, because every line of it is still load-bearing: the library's
+   * isUpdate-gated auto-reload no-ops on an uncontrolled normal-browser tab.
+   */
+  it('the update provider uses the SW registration to detect and apply new builds', () => {
+    const src = readWeb('src/features/updates/updates-context.tsx')
+    expect(src).toContain("from '@/app/pwa-register'")
     expect(readWeb('src/app/pwa-register.ts')).toContain("from 'virtual:pwa-register/react'")
     expect(src).toContain('useRegisterSW')
     expect(src).toContain('onRegisteredSW')

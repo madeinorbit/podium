@@ -76,4 +76,56 @@ describe('update frames', () => {
       UpdateStatusMessage.parse({ type: 'updateStatus', state: 'vibing', version: '0.4.2' }),
     ).toThrow()
   })
+
+  describe('progress heartbeats (POD-2101)', () => {
+    it('parses a frame written by a daemon that predates them', () => {
+      // THE COMPATIBILITY GATE. An old daemon reports a phase once and nothing
+      // else; the fields added for heartbeats must be absent, not empty.
+      const s = UpdateStatusMessage.parse({
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+      })
+      expect(s).not.toHaveProperty('percent')
+      expect(s).not.toHaveProperty('phaseDetail')
+    })
+
+    it('carries how far the phase has got', () => {
+      const s = UpdateStatusMessage.parse({
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'downloading',
+        version: '0.4.1',
+        percent: 62,
+        phaseDetail: 'downloading',
+      })
+      expect(s.percent).toBe(62)
+      expect(s.phaseDetail).toBe('downloading')
+    })
+
+    it('is routable as a daemon-to-server frame with the new fields', () => {
+      const m = DaemonMessage.parse({
+        type: 'updateStatus',
+        state: 'downloading',
+        version: '0.4.1',
+        percent: 7,
+        phaseDetail: 'git-fetch',
+      })
+      expect(m).toMatchObject({ percent: 7, phaseDetail: 'git-fetch' })
+    })
+
+    it('refuses a percent that is not a whole number in 0–100', () => {
+      for (const percent of [-1, 101, 42.5]) {
+        expect(() =>
+          UpdateStatusMessage.parse({
+            type: 'updateStatus',
+            state: 'downloading',
+            version: '0.4.1',
+            percent,
+          }),
+        ).toThrow()
+      }
+    })
+  })
 })

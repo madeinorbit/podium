@@ -45,6 +45,64 @@ interface SourcesReport {
   readonly sources: readonly string[]
 }
 
+/**
+ * THE UPDATE SURFACE'S DEFERRED HALF (POD-2190).
+ *
+ * These modules are the update engine: the poller, the view model it feeds, the
+ * protocol client it parses with, and the panel that renders the result. Not one
+ * of them can do anything useful until a poll has returned, and a poll cannot
+ * return before the app has painted — so their place is a chunk fetched just
+ * after first paint, never the eager graph.
+ *
+ * They were eager once, because the app shell mounted a provider that imported
+ * them, and that is exactly how the two eager budgets below went red. A byte
+ * ceiling alone would not have stopped it coming back: the overage was 572 bytes
+ * of gzip, so the next person to nudge the eager graph would have re-fired a
+ * number that names no cause and suggests no fix. This names both.
+ *
+ * If this fires, the question is not "what got bigger" — it is "what did the app
+ * shell import, directly or through one of these, that dragged the whole surface
+ * forward again".
+ */
+const UPDATE_ENGINE_MODULES = [
+  'operation-view.ts',
+  'update-view.ts',
+  'use-update-state.ts',
+  'operations-client.ts',
+  'UpdatePanel.tsx',
+  'UpdatesEngine.tsx',
+] as const
+
+/**
+ * MODULES A BROWSER CANNOT EVALUATE (POD-2206), as opposed to merely large ones.
+ *
+ * The byte ceilings below are a judgement about cost. This is not: every source
+ * matched here evaluates `createRequire(import.meta.url)` at MODULE SCOPE, or
+ * reaches something that does, and in a browser `node:module` is a stub. A chunk
+ * carrying one does not render slowly — it throws `createRequire is not a
+ * function` while it is still being evaluated, and the route is simply gone.
+ *
+ * That is POD-2176, and it was a whole-pane crash reachable from a one-line
+ * import: `sections/shared.tsx` took `harnessSupportsNoTools` from
+ * `@podium/harness/metadata`, which re-exports the registry, which holds all
+ * five manifests and their sqlite closure. It survived because the two gates
+ * that could see it both answered in a currency nobody reads at the time: the
+ * size budgets went red (they were already red), and `lint:architecture` named
+ * the file exactly — in a lane red for four unrelated reasons since before it
+ * landed. Neither said "the settings pane is gone in every real build".
+ *
+ * So this check exists to say THAT, in the build command, in bytes-free terms.
+ * `@podium/harness/browser` is the declared exception because it is the half
+ * with no runtime import at all — the split those two modules exist to keep.
+ */
+const BROWSER_HOSTILE_SOURCES = [
+  'packages/runtime/src/sqlite/',
+  'packages/harness/src/',
+  'packages/transcript/src/',
+] as const
+
+const BROWSER_HOSTILE_EXCEPTIONS = ['packages/harness/src/browser.ts'] as const
+
 const args = process.argv.slice(2)
 const checkBudget = args.includes('--check')
 const dist = resolve(args.find((arg) => !arg.startsWith('--')) ?? 'apps/web/dist')
@@ -134,6 +192,9 @@ const report = {
       'packages/model/src/annotations/matrix.ts',
     ),
     commandSources: matchingSources(eagerChunks, 'packages/commands/src/'),
+    updateEngineSources: UPDATE_ENGINE_MODULES.flatMap((module) =>
+      matchingSources(eagerChunks, `src/features/updates/${module}`),
+    ),
   },
   settings: {
     file: basename(settings.file),
@@ -146,6 +207,11 @@ const report = {
   },
   allBrowserChunks: {
     ownershipMatrixSources: matchingSources(allChunks, 'packages/model/src/annotations/matrix.ts'),
+    browserHostileSources: BROWSER_HOSTILE_SOURCES.flatMap((fragment) =>
+      matchingSources(allChunks, fragment).filter(
+        (source) => !BROWSER_HOSTILE_EXCEPTIONS.some((allowed) => source.includes(allowed)),
+      ),
+    ).sort(),
   },
 }
 
@@ -218,6 +284,26 @@ if (checkBudget) {
     errors.push('ownership matrix is present in a browser chunk')
   if (report.eager.commandSources.length > 0)
     errors.push(`command sources are eager: ${report.eager.commandSources.join(', ')}`)
+
+  // Deliberately phrased as a crash, not as weight: this is the one check here
+  // whose breach means a route does not render at all. See
+  // BROWSER_HOSTILE_SOURCES.
+  if (report.allBrowserChunks.browserHostileSources.length > 0) {
+    const { browserHostileSources: hostile } = report.allBrowserChunks
+    errors.push(
+      `${hostile.length} host-only source(s) are in a browser chunk — these evaluate ` +
+        `createRequire at module scope, so the chunk THROWS on evaluation and its routes are ` +
+        `gone in any built bundle (POD-2176), whatever the byte budgets say. Import the ` +
+        `browser half instead (@podium/harness/browser), or move the dependency behind a port ` +
+        `the composition root injects: ${hostile.slice(0, 5).join(', ')}` +
+        (hostile.length > 5 ? `, and ${hostile.length - 5} more` : ''),
+    )
+  }
+
+  if (report.eager.updateEngineSources.length > 0)
+    errors.push(
+      `update engine is eager, so the panel is back on the first paint: ${report.eager.updateEngineSources.join(', ')}`,
+    )
 
   const allowedSettingsCommandSources = new Set([
     'packages/commands/src/settings/write-plan.ts',

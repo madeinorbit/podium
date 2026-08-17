@@ -1405,6 +1405,55 @@ html[data-density="balanced"] .header-quota-pools {
   flex: none;
   color: var(--text-faint);
 }
+/* ---- the update indicator (POD-2102, spec §6.1) ----
+   The one place an update is always reachable from. It is deliberately the
+   quietest thing in the strip while it is only an OFFER — a dot and a word —
+   and gains motion only while an operation is actually running, so "something
+   is happening" is legible from across the room without ever being loud. */
+.status-strip-update {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.status-strip-update:hover,
+.status-strip-update[aria-expanded="true"] {
+  color: var(--text);
+}
+.status-strip-update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-faint);
+}
+.status-strip-update-dot-running {
+  background: var(--live);
+  animation: status-strip-update-pulse 1.4s ease-in-out infinite;
+}
+.status-strip-update-dot-attention {
+  background: var(--attention, var(--warning));
+}
+@keyframes status-strip-update-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-strip-update-dot-running {
+    animation: none;
+  }
+}
 .status-strip-metric {
   --metric-color: var(--live);
   position: relative;
@@ -2304,7 +2353,7 @@ html[data-density="balanced"] .header-quota-pools {
 /* Nothing floats over setup either. The update card is mounted above the shell
    so it survives the error screens, so setup marks the document instead — and
    the prompt comes back, unchanged, the moment the window is handed over. */
-html[data-setup-only="true"] [data-testid="update-dialog"] {
+html[data-setup-only="true"] [data-testid="update-panel"] {
   display: none;
 }
 

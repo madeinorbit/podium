@@ -81,8 +81,14 @@ describe('applyGrant', () => {
       caps: ['update.delivery.feed', 'update.delivery.bundle'],
     })
     await applyGrant({ type: 'updateGrant', grantId: 'g-installed', target: developmentTarget }, d)
-    // The third argument is the supersede signal, absent for a direct apply.
-    expect(d.fetchArtifact).toHaveBeenCalledWith(developmentBundleAsset, 'bundle', undefined)
+    // The third argument is the supersede signal, absent for a direct apply;
+    // the fourth is where delivery reports its progress (POD-2101).
+    expect(d.fetchArtifact).toHaveBeenCalledWith(
+      developmentBundleAsset,
+      'bundle',
+      undefined,
+      expect.any(Function),
+    )
     expect(d.swap).toHaveBeenCalledOnce()
     expect(d.restart).toHaveBeenCalledOnce()
   })
@@ -116,6 +122,59 @@ describe('applyGrant', () => {
     )
   })
 
+  /**
+   * THE FOREGROUND ALL-IN-ONE (POD-2210). A daemon whose exit is also the
+   * server's must not take delivery at all, and the operator must be told why
+   * rather than watching the browser lose its server mid-update.
+   */
+  describe('when converging would stop a server nothing would restart', () => {
+    const refusing = (over: Partial<Parameters<typeof applyGrant>[1]> = {}) =>
+      deps({
+        refuse: () => 'cannot converge: foreground-all-in-one — it would not come back',
+        ...over,
+      })
+
+    it('touches nothing: no fetch, no swap, no marker, no exit', async () => {
+      // Order matters as much as the refusal. Git delivery detaches the very
+      // checkout the running server reads its assets, migrations and lifecycle
+      // workers from, so a convergence stopped anywhere later would leave a live
+      // old process on new source. Nothing changed is the only honest state.
+      const d = refusing()
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+      expect(d.fetchArtifact).not.toHaveBeenCalled()
+      expect(d.swap).not.toHaveBeenCalled()
+      expect(d.writePending).not.toHaveBeenCalled()
+      expect(d.restart).not.toHaveBeenCalled()
+    })
+
+    it('reports rejected carrying the reason, and never says downloading', async () => {
+      const d = refusing()
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+      const frames = (d.report as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0] as { state: string; detail?: string },
+      )
+      expect(frames.map((f) => f.state)).toEqual(['rejected'])
+      expect(frames[0]?.detail).toContain('foreground-all-in-one')
+    })
+
+    it('still says current when it is already on the target', async () => {
+      // A refusal is about converging. A daemon that has nothing to converge has
+      // nothing to refuse, and a fleet row that read `rejected` here would be a
+      // lie about a machine that is up to date.
+      const d = refusing({ currentVersion: () => '0.4.2' })
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+      expect(d.report).toHaveBeenCalledWith(expect.objectContaining({ state: 'current' }))
+    })
+
+    it('converges normally when nothing refuses', async () => {
+      // The arm that proves the guard is a guard and not a general stop.
+      const d = deps()
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+      expect(d.swap).toHaveBeenCalledOnce()
+      expect(d.restart).toHaveBeenCalledOnce()
+    })
+  })
+
   it('reports downloading before it reports restarting', async () => {
     const d = deps()
     await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
@@ -123,6 +182,101 @@ describe('applyGrant', () => {
       (c: unknown[]) => (c[0] as { state: string }).state,
     )
     expect(states).toEqual(['downloading', 'restarting'])
+  })
+
+  /**
+   * THE HEARTBEAT (POD-2101). What the daemon owes the coordinator between
+   * "started" and "finished", so that nine minutes of downloading is
+   * distinguishable from nine minutes of nothing.
+   */
+  describe('progress heartbeats', () => {
+    const frames = (d: ReturnType<typeof deps>): Array<Record<string, unknown>> =>
+      (d.report as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0] as Record<string, unknown>,
+      )
+
+    it('turns each delivery report into a frame under the same grant id', async () => {
+      const d = deps({
+        fetchArtifact: vi.fn(
+          async (
+            _asset: unknown,
+            _delivery: unknown,
+            _signal?: AbortSignal,
+            onProgress?: (p: { phase: string; percent?: number }) => void,
+          ) => {
+            onProgress?.({ phase: 'downloading', percent: 20 })
+            onProgress?.({ phase: 'downloading', percent: 65 })
+            return { bytes: new Uint8Array([1]) }
+          },
+        ),
+      })
+      await applyGrant({ type: 'updateGrant', grantId: 'g-beat', target }, d)
+
+      expect(frames(d)).toEqual([
+        { type: 'updateStatus', grantId: 'g-beat', state: 'downloading', version: '0.4.1' },
+        {
+          type: 'updateStatus',
+          grantId: 'g-beat',
+          state: 'downloading',
+          version: '0.4.1',
+          percent: 20,
+          phaseDetail: 'downloading',
+        },
+        {
+          type: 'updateStatus',
+          grantId: 'g-beat',
+          state: 'downloading',
+          version: '0.4.1',
+          percent: 65,
+          phaseDetail: 'downloading',
+        },
+        { type: 'updateStatus', grantId: 'g-beat', state: 'restarting', version: '0.4.1' },
+      ])
+    })
+
+    it('names the phase without a percent when the delivery cannot measure one', async () => {
+      const d = deps({
+        fetchArtifact: vi.fn(
+          async (
+            _asset: unknown,
+            _delivery: unknown,
+            _signal?: AbortSignal,
+            onProgress?: (p: { phase: string; percent?: number }) => void,
+          ) => {
+            onProgress?.({ phase: 'git-fetch' })
+            return { git: true as const }
+          },
+        ),
+      })
+      await applyGrant({ type: 'updateGrant', grantId: 'g-git', target }, d)
+
+      const beat = frames(d)[1]
+      expect(beat).toMatchObject({ state: 'downloading', phaseDetail: 'git-fetch' })
+      expect(beat).not.toHaveProperty('percent')
+    })
+
+    it('goes quiet once a newer grant has superseded this one', async () => {
+      // A report from a superseded convergence would refresh the liveness of an
+      // update nobody is waiting for any more.
+      const abort = new AbortController()
+      const d = deps({
+        fetchArtifact: vi.fn(
+          async (
+            _asset: unknown,
+            _delivery: unknown,
+            _signal?: AbortSignal,
+            onProgress?: (p: { phase: string; percent?: number }) => void,
+          ) => {
+            abort.abort()
+            onProgress?.({ phase: 'downloading', percent: 40 })
+            return { bytes: new Uint8Array([1]) }
+          },
+        ),
+      })
+      await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d, abort.signal)
+
+      expect(frames(d).some((f) => f.percent !== undefined)).toBe(false)
+    })
   })
 })
 
@@ -212,5 +366,57 @@ describe('createGrantRunner', () => {
       (c: unknown[]) => (c[0] as { state: string }).state,
     )
     expect(states).not.toContain('rejected')
+  })
+})
+
+/**
+ * THE REFUSAL THAT NEEDS TO SEE THE TARGET (POD-2213).
+ *
+ * The foreground-all-in-one refusal is a fact about the process and needs no
+ * argument. Whether a downgrade would strand this machine's database is a fact
+ * about THIS target — so the seam hands the target over, and both refusals land
+ * in the same place: before a byte is fetched.
+ */
+describe('applyGrant consults the refusal about the target itself', () => {
+  const migratedTarget: UpdateGrantMessage['target'] = {
+    ...(target as UpdateGrantMessage['target']),
+    version: '0.1.3',
+    schema: { migrations: ['20260715135845_baseline'] },
+  }
+
+  it('hands the target to the refusal', async () => {
+    const refuse = vi.fn(() => undefined)
+    const d = deps({ refuse })
+    await applyGrant({ type: 'updateGrant', grantId: 'g1', target: migratedTarget }, d)
+    expect(refuse).toHaveBeenCalledWith(migratedTarget)
+  })
+
+  it('fetches nothing when the target cannot open this machine database', async () => {
+    const d = deps({
+      refuse: (t: UpdateGrantMessage['target']) =>
+        t.version === '0.1.3' ? 'cannot converge: schema-advanced — it would not start' : undefined,
+    })
+    await applyGrant({ type: 'updateGrant', grantId: 'g1', target: migratedTarget }, d)
+    expect(d.fetchArtifact).not.toHaveBeenCalled()
+    expect(d.swap).not.toHaveBeenCalled()
+    expect(d.restart).not.toHaveBeenCalled()
+    expect(d.report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'rejected',
+        detail: expect.stringContaining('schema-advanced'),
+      }),
+    )
+  })
+
+  it('converges to a target the same machine CAN open', async () => {
+    // The arm the design deliberately keeps: a downgrade whose schema did not
+    // advance is a rollback, and it still happens.
+    const d = deps({
+      refuse: (t: UpdateGrantMessage['target']) =>
+        t.version === '0.9.9' ? 'cannot converge: schema-advanced — it would not start' : undefined,
+    })
+    await applyGrant({ type: 'updateGrant', grantId: 'g1', target: migratedTarget }, d)
+    expect(d.swap).toHaveBeenCalledOnce()
+    expect(d.restart).toHaveBeenCalledOnce()
   })
 })

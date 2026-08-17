@@ -233,6 +233,39 @@ export type MachineUseDecision = z.infer<typeof MachineUseDecision>
 export const UpdateChannel = z.enum(['dev', 'edge', 'stable'])
 export type UpdateChannel = z.infer<typeof UpdateChannel>
 
+/**
+ * The channel an instance follows when nothing anywhere has chosen one.
+ *
+ * The SAME value `resolveUpdateChannel()` falls back to in @podium/runtime, and
+ * deliberately the only place that literal is written on the server side of the
+ * fence: @podium/runtime is the lower layer and cannot be imported by the model,
+ * so the two are stated independently and the pair is asserted by a test rather
+ * than by hope.
+ */
+export const DEFAULT_FLEET_UPDATE_CHANNEL: UpdateChannel = 'stable'
+
+/**
+ * THE ONE PLACE A MACHINE'S UPDATE CHANNEL IS DECIDED (POD-2100).
+ *
+ * A machine's channel is its own pin when it has one, and the instance's fleet
+ * default when it does not — that is the whole rule, and it belongs in one
+ * function because the alternative shipped: `UpdatesService.channelOf` defaulted
+ * an unpinned machine to `dev` while the fleet handlers defaulted it to
+ * `stable`, so the same machine resolved to two different authorities depending
+ * on which code path asked. Two answers to "which channel is this machine on" is
+ * not a rounding error; it decides which target gets granted.
+ *
+ * `fleetDefault` is passed rather than read so that no layer below the
+ * composition root reaches for config, and so a test can state a fleet default
+ * instead of mutating the environment.
+ */
+export function resolveMachineChannel(
+  pinned: UpdateChannel | null | undefined,
+  fleetDefault: UpdateChannel | null | undefined,
+): UpdateChannel {
+  return pinned ?? fleetDefault ?? DEFAULT_FLEET_UPDATE_CHANNEL
+}
+
 export const MachineWire = z.object({
   /** THE machine id itself — and the site that made ADR 1 Amendment 2 D16.2 an
    *  ORDERING constraint rather than a preference: while the server upserted this
@@ -291,6 +324,13 @@ export const MachineWire = z.object({
   installKind: z.string().nullable().optional(),
   /** Delivery methods the daemon offered in its last authenticated hello. */
   deliveryCaps: z.array(z.string()).optional(),
+  /**
+   * This daemon runs inside Podium Desktop, which owns its bytes (POD-2099).
+   * Fleet waves never deliver to it; the shell update does. Absent means an
+   * ordinary fleet machine, so a reader that ignores this field is never wrong
+   * about a machine that predates it.
+   */
+  supervised: z.boolean().optional(),
   /** When the server last accepted the build report. */
   buildReportedAt: z.string().nullable().optional(),
   /** Derived relative state; never persisted. */
