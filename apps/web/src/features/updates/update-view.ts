@@ -302,7 +302,7 @@ const MACHINE_FAILURE_COPY: Record<
   'machine-unsupported': (subject) => ({
     message: `${subject ?? 'A machine'} cannot use this update's package.`,
     nextAction:
-      'Ask the server operator to check the release includes that machine’s platform and ' +
+      "Ask the server operator to check the release includes that machine's platform and " +
       'delivery method, then try again.',
   }),
   /**
@@ -408,7 +408,7 @@ const MACHINE_FAILURE_COPY: Record<
       'and Podium is still running.',
     nextAction:
       'The technical detail below names the step that failed. Try again, and if it keeps ' +
-      'failing check that machine’s checkout and its disk.',
+      "failing check that machine's checkout and its disk.",
   }),
   'machine-delivery-unavailable': (subject) => ({
     // NO "try again": these are properties of the release or the pairing, not
@@ -417,7 +417,7 @@ const MACHINE_FAILURE_COPY: Record<
       `This update cannot be delivered to ${subject ?? 'a machine'} as configured. Nothing was ` +
       'changed there.',
     nextAction:
-      'Ask the server operator to check the release and that machine’s pairing — trying again ' +
+      "Ask the server operator to check the release and that machine's pairing — trying again " +
       'will not change this on its own.',
   }),
   'machine-artifact-rejected': (subject) => ({
@@ -438,7 +438,7 @@ const MACHINE_FAILURE_COPY: Record<
       `${subject ?? 'A machine'} took this update but did not come back on the new version, ` +
       'and is running again on the version it had.',
     nextAction:
-      'Check that machine’s log for why the new version did not start — the technical detail ' +
+      "Check that machine's log for why the new version did not start — the technical detail " +
       'below says how far it got.',
   }),
   'update-withdrawn': (subject) => ({

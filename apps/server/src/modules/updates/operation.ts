@@ -315,7 +315,7 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         code: failure.code,
         message:
           `This update cannot be delivered to ${subject(failure)} as configured. Nothing was ` +
-          'changed there. Ask the server operator to check the release and that machine’s ' +
+          "changed there. Ask the server operator to check the release and that machine's " +
           'pairing — trying again will not change this on its own.',
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),

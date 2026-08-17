@@ -286,7 +286,7 @@ describe('describeUpdateFailure', () => {
       state: 'failed',
       message: "ludovico cannot use this update's package.",
       guidance:
-        'Ask the server operator to check the release includes that machine’s platform and ' +
+        "Ask the server operator to check the release includes that machine's platform and " +
         'delivery method, then try again.',
       diagnostic: 'cannot converge: unsupported-delivery',
     })
