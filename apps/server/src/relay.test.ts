@@ -3201,6 +3201,93 @@ describe('hibernation', () => {
     expect(daemon.map((m) => m.type)).not.toContain('reattach')
   })
 
+  // The guard's first version keyed on driverId, which is transient — bind-only,
+  // not in toRow() — so a parked server row that survived a SERVER REDEPLOY had
+  // driverId undefined and failed OPEN into the spawn loop. The persisted
+  // resume kind is the durable fallback; this is the no-bind shape that caught it.
+  it('…and still holds it after a server redeploy, when the bind-time driverId is gone', () => {
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/w',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'codex app-server (codex-app-server)',
+      agentKind: 'codex',
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805181' },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+
+    // New registry on the SAME store — the redeploy. The rehydrated row has no
+    // driverId (never persisted; hibernated rows are never reattached) but its
+    // resume kind survives in the row.
+    const reg2 = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon2: ControlMessage[] = []
+    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
+
+    daemon2.length = 0
+    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel: `podium-cx-${sessionId}`,
+      killed: false,
+      reason: 'the server-driver process is still running',
+    })
+
+    expect(reg2.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon2.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  // The hold must NOT swallow the census repair for PTY-driven rows of the same
+  // harnesses: the census measures a live abduco host under the row's label — an
+  // identity no server-family session ever has — so its revive stays a passive
+  // PTY reattach and is exempt from the server-family hold.
+  it('the census still revives a PTY-driven codex row the hold would otherwise catch', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/w',
+    })
+    // A plain PTY bind: no driverId, no runtimeContract — but the same
+    // per-harness resume kind the server driver reports.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'codex',
+      agentKind: 'codex',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805182' },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    // Simulate the redeployed shape for the guard too: driverId is transient,
+    // and the census-vs-receipt split must not depend on it surviving.
+    // biome-ignore lint/suspicious/noExplicitAny: reach the live session to model the post-redeploy row
+    ;(reg as any).modules.sessions.sessions.get(sessionId).driverId = undefined
+
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'durableSessionCensus',
+      labels: [`podium-${sessionId}`],
+    })
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('reconnecting')
+    expect(daemon.map((m) => m.type)).toContain('reattach')
+  })
+
   it('leaves a parked row alone when the daemon confirms the kill', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []

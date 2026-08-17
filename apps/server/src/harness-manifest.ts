@@ -26,6 +26,7 @@ export {
   harnessSupportsNoTools,
   harnessUsesPromptTitleFallback,
   harnessUsesRawFirstTurn,
+  isServerFamilyResumeKind,
   transcriptRecordMapperFor,
 } from '@podium/harness/metadata'
 

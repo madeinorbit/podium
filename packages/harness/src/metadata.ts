@@ -87,5 +87,6 @@ export {
   harnessSupportsNoTools,
   harnessUsesPromptTitleFallback,
   harnessUsesRawFirstTurn,
+  isServerFamilyResumeKind,
   transcriptRecordMapperFor,
 } from './registry.js'

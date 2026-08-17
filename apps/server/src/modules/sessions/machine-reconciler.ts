@@ -38,7 +38,7 @@ import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { driverIdIsServerFamily } from '../../harness-manifest'
+import { driverIdIsServerFamily, isServerFamilyResumeKind } from '../../harness-manifest'
 import type { Session, SessionVolatileField } from './session'
 
 const log = createLogger('server:sessions')
@@ -175,7 +175,13 @@ export class SessionMachineReconciler {
       if (s.machineId !== machineId || s.headless || s.archived) continue
       if (s.status !== 'hibernated') continue
       if (!live.has(s.durableLabel)) continue
-      this.reviveParkedButAlive(s, machineId, 'the durable host is still running')
+      // The census MEASURED a live abduco/tmux host under this row's label —
+      // an identity a server-family session never has — so this caller may
+      // bypass the server-family hold below: the reattach it triggers is the
+      // passive PTY bind, never a spawning adopt.
+      this.reviveParkedButAlive(s, machineId, 'the durable host is still running', {
+        measuredPtyHost: true,
+      })
     }
   }
 
@@ -190,10 +196,21 @@ export class SessionMachineReconciler {
    * `onExit` leaves a hibernated row hibernated — a wrong guess here costs a
    * probe, never a resurrection.
    */
-  reviveParkedButAlive(session: Session, machineId: MachineId, reason: string): void {
+  reviveParkedButAlive(
+    session: Session,
+    machineId: MachineId,
+    reason: string,
+    opts: {
+      /** The CALLER measured a live abduco/tmux host under this row's label —
+       *  an identity no server-family session ever has — so the reattach this
+       *  revive triggers is the passive PTY bind. Only the census can say it. */
+      measuredPtyHost?: boolean
+    } = {},
+  ): void {
     if (session.status !== 'hibernated' && session.status !== 'exited') return
     /**
-     * A SERVER-FAMILY ROW IS NEVER BLIND-REATTACHED FROM A RECEIPT (POD-2249).
+     * A POSSIBLY-SERVER-FAMILY ROW IS NEVER BLIND-REATTACHED FROM A RECEIPT
+     * (POD-2249).
      *
      * For the PTY family the reattach below is passive — it binds an existing
      * master or answers `reattachFailed`; a wrong guess costs a probe. For the
@@ -205,13 +222,32 @@ export class SessionMachineReconciler {
      * that is not passive for this family. The daemon's reap escalates to
      * SIGKILL on its own; a process that survives that needs an operator, not
      * a spawn loop.
+     *
+     * THE GUARD KEYS ON DURABLE DATA, because its first version keyed on
+     * `driverId` alone and failed OPEN on exactly the rows it protects:
+     * `driverId` is transient (set only from the bind frame, absent from
+     * `toRow()`, and a hibernated row is deliberately never reattached), so a
+     * parked server row that survived a server redeploy sailed straight into
+     * the spawn loop. The persisted `resume.kind` is the fallback — a
+     * per-HARNESS fact, so post-redeploy it also holds PTY-driven rows of the
+     * harnesses that declare a server driver. RECORDED CONSEQUENCE, not a
+     * defect: receipt-driven repair is off for the whole server family (and,
+     * post-redeploy, for those harnesses' PTY rows) — a genuinely
+     * parked-but-alive row there has only the warn. The census remains the
+     * PTY family's repair path: it measures the abduco host itself, an
+     * identity a server session never has, and says so via
+     * `opts.measuredPtyHost`.
      */
-    if (session.driverId && driverIdIsServerFamily(session.driverId)) {
+    const mayBeServerDriven = session.driverId
+      ? driverIdIsServerFamily(session.driverId)
+      : session.resume?.kind !== undefined && isServerFamilyResumeKind(session.resume.kind)
+    if (!opts.measuredPtyHost && mayBeServerDriven) {
       log.warn(
-        'a parked server-driver session still reports a live process — holding the park (needs recovery)',
+        'a parked possibly-server-driver session still reports a live process — holding the park (needs recovery)',
         {
           sessionId: session.sessionId,
           driverId: session.driverId,
+          resumeKind: session.resume?.kind,
           status: session.status,
           reason,
         },

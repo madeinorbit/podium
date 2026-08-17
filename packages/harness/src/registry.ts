@@ -220,6 +220,25 @@ export function driverIdIsServerFamily(driverId: string): boolean {
   )
 }
 
+/**
+ * MIGHT a session with this resume-ref kind be server-driven? True exactly when
+ * the harness that owns the kind declares a server driver (POD-2249).
+ *
+ * "MIGHT", deliberately: `resumeKind` is a per-HARNESS fact, so `codex-thread`
+ * names PTY-driven codex sessions too. This is the DURABLE approximation of
+ * {@link driverIdIsServerFamily} for a row whose `driverId` did not survive —
+ * that field is transient by design (re-established on bind), while the resume
+ * kind is in `toRow()`. A caller holding both should prefer the driver id; this
+ * exists for the post-redeploy row that has only the kind, where failing open
+ * is the spawn loop and failing closed is a held park.
+ */
+export function isServerFamilyResumeKind(resumeKind: string): boolean {
+  return Object.values(AGENT_MANIFESTS).some(
+    (manifest) =>
+      manifest.resumeKind === resumeKind && declaredValue(manifest.runtime.server) !== undefined,
+  )
+}
+
 export function harnessResumeKind(kind: HarnessAgent): string
 export function harnessResumeKind(kind: AgentKind | string): string | undefined
 export function harnessResumeKind(kind: AgentKind | string): string | undefined {
