@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  The page for harness/deck-entry.tsx. The entry has been tracked since POD-1226
+  but its page was not, so `vite --config vite.deck-harness.config.ts` served the
+  app's own index.html and the deck harness could not actually be opened without
+  hand-rolling this file again. Served at /harness/deck.html (vite's root is
+  apps/web).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flight deck harness</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/harness/deck-entry.tsx"></script>
+  </body>
+</html>

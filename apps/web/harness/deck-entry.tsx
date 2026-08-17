@@ -30,6 +30,7 @@ declare global {
       setWidth: (px: number) => void
       /** Swap the fixture; `bump` re-renders against the new one. */
       setMission: (name: keyof typeof MISSIONS) => void
+      setMode: (mode: 'full' | 'active' | 'needs-you') => void
       setIssueColor: (hex: string | null) => void
       point: (sessionId: string | null) => void
     }
@@ -142,6 +143,128 @@ const MISSIONS = {
     state.selectedIssueId = 'root'
     state.paneA = 's2'
   },
+  /**
+   * THE VIEW BAR'S OWN CASE (POD-1245) — a mission shaped like the one an
+   * operator filed `Active` against.
+   *
+   * Every finished task here keeps an agent, because that is what a real
+   * mission looks like: agents park, they do not exit. `t1` and `t2` are over
+   * and their agents are merely hibernating (nothing to see on `Active`); `t3`
+   * is over but an agent is genuinely mid-turn on it (the escape hatch, which
+   * must still show); `t4` is live. `t5` is a DONE parent whose child is in
+   * review — the path case `Needs you` has to draw without letting the parent
+   * look like it is asking too.
+   */
+  filters: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1211',
+        title: 'JSON panel reading experience',
+        stage: 'planning',
+        memberSessionIds: ['s1'],
+      }),
+      issue('t1', {
+        parentId: 'root',
+        displayRef: 'POD-1212',
+        title: 'Viewer folding and search',
+        stage: 'done',
+        closedReason: 'done',
+        memberSessionIds: ['s2'],
+      }),
+      issue('t2', {
+        parentId: 'root',
+        displayRef: 'POD-1213',
+        title: 'Payload panel split',
+        stage: 'done',
+        closedReason: 'cancelled',
+        memberSessionIds: ['s3'],
+      }),
+      issue('t3', {
+        parentId: 'root',
+        displayRef: 'POD-1214',
+        title: 'Reader tier for long payloads',
+        stage: 'done',
+        closedReason: 'done',
+        memberSessionIds: ['s4'],
+      }),
+      issue('t4', {
+        parentId: 'root',
+        displayRef: 'POD-1215',
+        title: 'Syntax theme tokens',
+        memberSessionIds: ['s5'],
+      }),
+      issue('t5', {
+        parentId: 'root',
+        displayRef: 'POD-1216',
+        title: 'Copy affordances',
+        stage: 'done',
+        closedReason: 'done',
+        memberSessionIds: ['s6', 's7'],
+      }),
+      issue('t6', {
+        parentId: 't5',
+        displayRef: 'POD-1217',
+        title: 'Copy-as-path menu item',
+        stage: 'review',
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'POD-1211-A',
+        name: 'Spine designer',
+        title: 'Spine designer',
+        agentState: { phase: 'working', since: '2026-01-01T00:28:00.000Z' },
+      }),
+      // Parked after finishing — the shape that used to re-admit a done task.
+      session('s2', {
+        issueId: 't1',
+        displayRef: 'POD-1212-A',
+        name: 'Folding behaviour',
+        title: 'Folding behaviour',
+        status: 'hibernated',
+      }),
+      session('s3', {
+        issueId: 't2',
+        displayRef: 'POD-1213-A',
+        name: 'Panel split probe',
+        title: 'Panel split probe',
+        status: 'hibernated',
+      }),
+      // Genuinely mid-turn on a closed task: the escape hatch, still open.
+      session('s4', {
+        issueId: 't3',
+        displayRef: 'POD-1214-A',
+        name: 'Reader tier measurements',
+        title: 'Reader tier measurements',
+        agentState: { phase: 'working', since: '2026-01-01T00:20:00.000Z' },
+      }),
+      session('s5', {
+        issueId: 't4',
+        displayRef: 'POD-1215-A',
+        name: 'Token sweep',
+        title: 'Token sweep',
+        agentState: { phase: 'working', since: '2026-01-01T00:25:00.000Z' },
+      }),
+      session('s6', {
+        issueId: 't5',
+        displayRef: 'POD-1216-A',
+        name: 'Copy affordance pass',
+        title: 'Copy affordance pass',
+        agentState: { phase: 'working', since: '2026-01-01T00:26:00.000Z' },
+      }),
+      session('s7', {
+        issueId: 't5',
+        displayRef: 'POD-1216-B',
+        name: 'Menu wording',
+        title: 'Menu wording',
+        status: 'hibernated',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
 } as const
 
 function Harness(): JSX.Element {
@@ -157,6 +280,12 @@ function Harness(): JSX.Element {
       setWidth: (px) => setWidth(px),
       setMission: (name) => {
         setMission(name)
+        bump((v) => v + 1)
+      },
+      // The view bar's own state is persisted UI state, so the harness sets it
+      // the way the app does rather than reaching into the component.
+      setMode: (mode) => {
+        state.ui.set('podium.flightDeck.mode', mode === 'full' ? null : mode)
         bump((v) => v + 1)
       },
       setIssueColor: (hex) => setColor(hex),
