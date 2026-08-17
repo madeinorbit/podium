@@ -133,16 +133,21 @@ await page.waitForTimeout(3000)
 // the same class of thing POD-1160 records for wheel input. Dispatching the
 // DOM event directly sidesteps its actionability layer entirely, and a real
 // `click()` is what the app's own handler listens for anyway.
-const label = JSON.stringify(process.env.PODIUM_ROW_LABEL ?? 'Chat feed motion')
-const opened = await page.evaluate(`(() => {
-  const hit = Array.from(document.querySelectorAll('.shell-work-row-title'))
-    .find((el) => (el.textContent || '').includes(${label}))
-  if (!hit) return false
-  const row = hit.closest('[role="button"], button, [data-pressable], li, div')
-  ;(row || hit).click()
-  return true
-})()`)
-console.log(`opened work row ${label}: ${opened}`)
+const label = process.env.PODIUM_ROW_LABEL ?? 'Chat feed motion'
+let opened = false
+for (let i = 0; i < 20 && !opened; i++) {
+  opened = await page.evaluate((wanted: string) => {
+    const hit = Array.from(document.querySelectorAll('*')).find(
+      (el) => el.children.length === 0 && (el.textContent ?? '').trim().includes(wanted),
+    )
+    if (!hit) return false
+    const row = hit.closest('[data-pressable], [role="button"], button, li') ?? hit.parentElement
+    ;(row ?? hit).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    return true
+  }, label)
+  if (!opened) await page.waitForTimeout(1000)
+}
+console.log(`opened work row "${label}": ${opened}`)
 await page.waitForTimeout(4000)
 
 let armed = false
