@@ -38,9 +38,17 @@ export function ActivationShell({
         data-activation-scroll
         className="workspace-sheet min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
       >
+        {/* shrink-0 is load-bearing (POD-1200). The sheet above is a column flex
+            container, so this frame is a flex ITEM: with the default shrink it is
+            squashed to the sheet's height the moment a step is taller than the
+            window, its children spill past its padding box, and the last control
+            on the step ends up flush against the bottom of the window with the
+            step's whole `pb-*` above it, out of the flow. Refusing to shrink
+            makes the frame as tall as its content again, which is what puts the
+            bottom padding back UNDER the last row where it was written to be. */}
         <div
           className={cn(
-            'mx-auto flex min-h-full w-full max-w-[1180px] flex-col px-6 pt-10 pb-12 font-sans sm:px-12 sm:pt-14 sm:pb-14 lg:px-[72px] lg:pt-16 lg:pb-14',
+            'mx-auto flex min-h-full w-full max-w-[1180px] shrink-0 flex-col px-6 pt-10 pb-12 font-sans sm:px-12 sm:pt-14 sm:pb-14 lg:px-[72px] lg:pt-16 lg:pb-14',
             frameClassName,
           )}
         >

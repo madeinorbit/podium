@@ -252,6 +252,16 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.onboarding.vpsServerDraft',
   /** Project, agent, model, effort, and prompt for first-task activation. */
   'podium.firstTaskActivation.draft',
+  /**
+   * Set while first-run setup is underway, cleared when it is finished.
+   *
+   * DEVICE-LOCAL for the same reason the intake drafts above are: this is the
+   * progress of a wizard being driven on THIS screen, and a phone has no
+   * business being dragged back into setup because a laptop is halfway through
+   * it. The one piece of first-run state that must survive moving between
+   * origins — the VPS lane — is replicated instead (`podium.onboarding.vps`).
+   */
+  'podium.onboarding.active',
 ] as const
 
 export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
@@ -269,6 +279,8 @@ export const LOCAL_PROJECT_INTAKE_DRAFT_KEY = 'podium.localProjectIntake.draft'
 export const EXISTING_PODIUM_CLIENT_DRAFT_KEY = 'podium.existingPodium.clientDraft'
 export const EXISTING_PODIUM_MACHINE_DRAFT_KEY = 'podium.existingPodium.machineDraft'
 export const FIRST_TASK_ACTIVATION_DRAFT_KEY = 'podium.firstTaskActivation.draft'
+/** Truthy while first-run setup is underway on this device (POD-1200). */
+export const ONBOARDING_ACTIVE_KEY = 'podium.onboarding.active'
 
 export type ShellDensity = 'balanced' | 'compact'
 

@@ -60,6 +60,15 @@ describe('activation route persistence', () => {
     expect(parsed.hash).toBe('#detail')
   })
 
+  it('writes the welcome step too, so stepping back keeps the checkpoint', () => {
+    // The first step used to be the one step that erased the param, which is how
+    // closing the project picker after it had added a repo dropped the whole
+    // wizard and revealed a half-configured shell (POD-1200).
+    const url = activationUrl({ pathname: '/', search: '?e2e=1', hash: '' }, { route: 'welcome' })
+    expect(new URL(url, 'https://podium.test').searchParams.get('activation')).toBe('welcome')
+    expect(hasActivationState(new URL(url, 'https://podium.test').search)).toBe(true)
+  })
+
   it('retires only setup params after real setup completes', () => {
     const url = activationUrl(
       {
@@ -76,33 +85,36 @@ describe('activation route persistence', () => {
   })
 
   it('keeps a durable VPS handoff resumable after a restart has created work', () => {
+    const settled = {
+      loaded: true,
+      repoCount: 1,
+      setupInProgress: false,
+      hasActivationCheckpoint: false,
+      hasVpsCheckpoint: false,
+    }
+    expect(isActivationEligible({ ...settled, sessionCount: 2, hasVpsCheckpoint: true })).toBe(true)
+    expect(isActivationEligible({ ...settled, sessionCount: 0 })).toBe(false)
     expect(
-      isActivationEligible({
-        loaded: true,
-        repoCount: 1,
-        sessionCount: 2,
-        hasActivationCheckpoint: false,
-        hasVpsCheckpoint: true,
-      }),
+      isActivationEligible({ ...settled, sessionCount: 1, hasActivationCheckpoint: true }),
     ).toBe(true)
-    expect(
-      isActivationEligible({
-        loaded: true,
-        repoCount: 1,
-        sessionCount: 0,
-        hasActivationCheckpoint: false,
-        hasVpsCheckpoint: false,
-      }),
-    ).toBe(false)
-    expect(
-      isActivationEligible({
-        loaded: true,
-        repoCount: 1,
-        sessionCount: 1,
-        hasActivationCheckpoint: true,
-        hasVpsCheckpoint: false,
-      }),
-    ).toBe(true)
+  })
+
+  it('keeps unfinished setup on screen once its first step has created a repo', () => {
+    // The step that adds a project retires "nothing exists yet" three steps
+    // before setup is over (POD-1200). Only finishing — which clears the flag —
+    // hands the shell over.
+    const midSetup = {
+      loaded: true,
+      repoCount: 1,
+      sessionCount: 0,
+      setupInProgress: true,
+      hasActivationCheckpoint: false,
+      hasVpsCheckpoint: false,
+    }
+    expect(isActivationEligible(midSetup)).toBe(true)
+    expect(isActivationEligible({ ...midSetup, setupInProgress: false })).toBe(false)
+    // Still nothing before the repo list has loaded: a flag cannot outvote that.
+    expect(isActivationEligible({ ...midSetup, loaded: false })).toBe(false)
   })
 
   it('continues a fresh native client at remote project intake', () => {

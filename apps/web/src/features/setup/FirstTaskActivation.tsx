@@ -408,7 +408,10 @@ export function FirstTaskActivation({
             {issueAgentIcon(agent, agent === 'claude-code' ? 18 : 17)}
           </div>
 
-          <div className="min-w-0 flex-1">
+          {/* basis-full below `sm` sends the action button to its own line
+              instead of squeezing this column to ~150px, where the install hint
+              and its command pill collided with the button (POD-1200). */}
+          <div className="min-w-0 flex-1 max-sm:basis-full">
             <div className="flex items-center gap-2.5">
               <span
                 className={cn(
@@ -422,13 +425,20 @@ export function FirstTaskActivation({
             {agent === 'cursor' && setupCommand ? (
               <p className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-[13px] leading-[1.45] text-[#9ba1ab]">
                 <span>Install the CLI, then run</span>
-                <code className="inline-flex h-[21px] items-center rounded-[5px] bg-[#22262d] px-2 font-mono text-[12px] leading-none text-[#c3c8d0] shadow-[inset_0_0_0_1px_#333842]">
+                {/* No fixed height, and never broken across lines: on a phone
+                    this column is ~150px wide, and a 21px pill with a command
+                    wrapped onto three lines inside it put the text outside its
+                    own box (POD-1200). It wraps as a whole instead. */}
+                <code className="inline-flex items-center rounded-[5px] bg-[#22262d] px-2 py-[3px] font-mono text-[12px] leading-none whitespace-nowrap text-[#c3c8d0] shadow-[inset_0_0_0_1px_#333842]">
                   {setupCommand}
                 </code>
                 <span>— Podium detects it.</span>
               </p>
             ) : (
-              <p className="mt-[5px] truncate text-[13px] leading-[1.45] text-[#9ba1ab]">
+              /* One line on a desktop row, wrapped on a phone: the column is the
+                 full width there now, so ellipsising a sentence that fits is
+                 just hiding the instruction it carries (POD-1200). */
+              <p className="mt-[5px] truncate text-[13px] leading-[1.45] text-[#9ba1ab] max-sm:whitespace-normal">
                 {setupHint(agent, readiness)}
               </p>
             )}

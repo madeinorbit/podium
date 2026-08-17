@@ -138,7 +138,8 @@ export function OnboardingWizard({
           action="Pick a project"
           note={
             <ActivationChoiceNote>
-              If you move to a VPS later, your tasks come along — sessions running here stay here.
+              Moving to a VPS later means starting fresh there: your projects, tasks and history
+              can’t move across yet. Carrying them over is coming.
             </ActivationChoiceNote>
           }
           onSelect={() => onRouteChange('local-project')}

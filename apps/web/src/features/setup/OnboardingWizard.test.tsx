@@ -68,8 +68,9 @@ describe('OnboardingWizard setup routes', () => {
 
     expect(screen.getByRole('heading', { name: 'Where should Podium run?' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Explore Podium/ })).toBeNull()
-    // The local answer says what it costs before it is taken.
-    expect(screen.getByText(/sessions running here stay here/i)).toBeTruthy()
+    // The local answer says what it costs before it is taken — and what it costs
+    // is starting over on the VPS, not a migration that does not exist yet.
+    expect(screen.getByText(/can’t move across yet/i)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Pick a project' }))
     expect(onRouteChange).toHaveBeenCalledWith('local-project')

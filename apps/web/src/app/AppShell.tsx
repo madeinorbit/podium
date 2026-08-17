@@ -307,6 +307,7 @@ function AppBody(): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const {
     state: activationState,
+    setupInProgress,
     navigate: navigateActivation,
     reconcile: reconcileActivation,
     clear: clearActivation,
@@ -328,6 +329,7 @@ function AppBody(): JSX.Element {
     loaded: reposLoaded,
     repoCount: repos.length,
     sessionCount: sessions.length,
+    setupInProgress,
     hasActivationCheckpoint,
     hasVpsCheckpoint: vpsActivation.state !== null,
   })

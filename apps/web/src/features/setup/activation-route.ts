@@ -58,23 +58,37 @@ export function hasActivationState(search: string): boolean {
   return params.has(ACTIVATION_ROUTE_PARAM) || params.has(ACTIVATION_MODE_PARAM)
 }
 
-/** A durable VPS handoff remains setup even after a restart has created work. */
+/**
+ * A durable VPS handoff remains setup even after a restart has created work.
+ *
+ * So does setup that is simply UNDERWAY (POD-1200). "Nothing exists yet" is how
+ * setup starts, but it is not what keeps setup open: the first thing setup does
+ * is add a repo, which retires that condition while the user is still three
+ * steps from the end. Once the wizard has been entered, `setupInProgress` is the
+ * condition that holds — and only finishing it, which clears the flag, lets the
+ * shell through.
+ */
 export function isActivationEligible({
   loaded,
   repoCount,
   sessionCount,
+  setupInProgress,
   hasActivationCheckpoint,
   hasVpsCheckpoint,
 }: {
   loaded: boolean
   repoCount: number
   sessionCount: number
+  setupInProgress: boolean
   hasActivationCheckpoint: boolean
   hasVpsCheckpoint: boolean
 }): boolean {
   return (
     loaded &&
-    ((repoCount === 0 && sessionCount === 0) || hasActivationCheckpoint || hasVpsCheckpoint)
+    ((repoCount === 0 && sessionCount === 0) ||
+      setupInProgress ||
+      hasActivationCheckpoint ||
+      hasVpsCheckpoint)
   )
 }
 
@@ -113,7 +127,13 @@ export function shouldStartRemoteClientAtProjects({
 /**
  * Persist the setup step in the URL while preserving the app router's own query
  * state (`server`, `e2e`, workspace selection, and future foreign params).
- * The default welcome route stays implicit; every non-default route is exact.
+ *
+ * EVERY route is written, `welcome` included (POD-1200). It used to stay
+ * implicit as the default, which made the first step the one step that erased
+ * the checkpoint {@link isActivationEligible} reads: stepping back to welcome
+ * after the project step had added a repo left setup with no reason to be on
+ * screen, and the half-configured shell appeared underneath it. The param is
+ * removed in exactly one place now — `state: null`, meaning setup is over.
  */
 export function activationUrl(
   location: Pick<Location, 'pathname' | 'search' | 'hash'>,
@@ -123,7 +143,7 @@ export function activationUrl(
   params.delete(ACTIVATION_ROUTE_PARAM)
   params.delete(ACTIVATION_MODE_PARAM)
 
-  if (state && state.route !== DEFAULT_ACTIVATION_STATE.route) {
+  if (state) {
     params.set(ACTIVATION_ROUTE_PARAM, state.route)
   }
 
