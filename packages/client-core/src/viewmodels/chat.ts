@@ -58,16 +58,22 @@ export interface ChatBlock {
   result?: string
 }
 
-/** A text-less user item that only carries uploaded-image paths — the
- *  parser's companion to a user turn whose image marker rode in a separate
- *  record. Folded into the preceding user block so the upload renders inside
- *  the turn it belongs to. */
+/** A text-less user item that only carries attached media paths — the parser's
+ *  companion to a user turn whose image marker or @-mentioned file rode in a
+ *  separate record. Folded into the preceding user block so the attachment
+ *  renders inside the turn it belongs to.
+ *
+ *  Images and files fold alike (POD-1171). The predicate used to accept only
+ *  `kind: 'image'`, so an @-mention's file marker fell through and stood alone
+ *  as its own right-aligned "You" bubble holding nothing but a chip — a turn the
+ *  operator never took. Anything else the parser might one day tag stays
+ *  standalone rather than being silently absorbed into someone's prompt. */
 function isUserMediaMarker(item: TranscriptItem): boolean {
   return (
     item.role === 'user' &&
     item.text === '' &&
     (item.toolPaths?.length ?? 0) > 0 &&
-    (item.tags ?? []).every((t) => t.kind === 'image')
+    (item.tags ?? []).every((t) => t.kind === 'image' || t.kind === 'file')
   )
 }
 
@@ -90,8 +96,14 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
         }
         continue
       }
-      // No preceding user turn (window seam) — render it as a media-only turn.
-      blocks.push({ item })
+      // No preceding user turn to fold into (window seam). An IMAGE still earns
+      // a turn of its own — the operator uploaded a picture and they want to see
+      // it. A marker that is NOTHING BUT file chips does not: it says nothing the
+      // reader can use, and standing alone it claims a turn the operator never
+      // took, which is the bug this fold exists to close (POD-1171). Tested for
+      // narrowly — a tag-less item keeps its old standalone rendering.
+      const tags = item.tags ?? []
+      if (!(tags.length > 0 && tags.every((t) => t.kind === 'file'))) blocks.push({ item })
       continue
     }
     if (item.role === 'tool' && item.toolResult !== undefined && item.toolUseId) {

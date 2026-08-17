@@ -159,11 +159,20 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   }
   if (r.type === 'attachment') {
     const att = (r as { attachment?: { type?: string; filename?: string } }).attachment
-    const sub = att?.type
-    if (
-      (sub === 'file' || sub === 'edited_text_file' || sub === 'compact_file_reference') &&
-      att?.filename
-    ) {
+    // ONLY WHAT THE HUMAN ATTACHED (POD-1171). Claude Code writes many
+    // `attachment` subtypes and all of them are context bookkeeping except one:
+    // 'file' is a path the operator named in the composer (@mention), so it
+    // belongs to their turn. The other two file-bearing subtypes are the harness
+    // talking to itself — 'edited_text_file' re-attaches a file whose bytes
+    // changed on disk after a tool call (Claude Code's own UI shows nothing),
+    // and 'compact_file_reference' carries a path across a compaction seam.
+    // Emitting those as role:'user' put an empty "You" bubble holding a file
+    // chip into the feed seconds after the AGENT edited the file, which reads as
+    // the human having sent it. Same call the string-content branch already
+    // makes for `promptSource: 'system'`: drop it rather than render a lie.
+    // Their paths need no allow-listing either — the tool_use that touched the
+    // file already contributed it (see knownPathsFor).
+    if (att?.type === 'file' && att.filename) {
       return [
         {
           id: freshId(`att-${att.filename}`),

@@ -614,17 +614,38 @@ describe('claudeRecordToItems toolPaths', () => {
     expect(items.some((i) => i.toolPaths?.includes('/repo/spec.md'))).toBe(true)
   })
 
-  it('extracts an edited_text_file attachment path', () => {
+  // ATTACHMENT BOOKKEEPING IS NOT A USER TURN (POD-1171). Every file-bearing
+  // attachment subtype used to become a role:'user' item, so the chat drew an
+  // empty right-aligned "You" bubble holding a file chip — seconds after the
+  // AGENT's own Bash call rewrote the file. Only the operator's @mention
+  // ('file') survives; the harness's own re-attachments produce nothing.
+  it('drops an edited_text_file attachment (harness re-attach, not a user turn)', () => {
     const items = claudeRecordToItems({
       type: 'attachment',
       attachment: { type: 'edited_text_file', filename: '/repo/b.ts', snippet: '...' },
     })
-    expect(items.some((i) => i.toolPaths?.includes('/repo/b.ts'))).toBe(true)
+    expect(items).toEqual([])
   })
 
-  // Duplicate-key guard: two attachment records for the SAME file (e.g. first an
-  // @-mention 'file', then a 'compact_file_reference') must produce DIFFERENT ids
-  // so React does not warn about duplicate keys in the chat view.
+  it('drops a compact_file_reference attachment (context carried across a seam)', () => {
+    const items = claudeRecordToItems({
+      type: 'attachment',
+      attachment: { type: 'compact_file_reference', filename: '/repo/DESIGN.md' },
+    })
+    expect(items).toEqual([])
+  })
+
+  it('drops attachment subtypes that carry no file at all', () => {
+    expect(
+      claudeRecordToItems({ type: 'attachment', attachment: { type: 'nested_memory' } }),
+    ).toEqual([])
+    // 'file' without a filename is not renderable either.
+    expect(claudeRecordToItems({ type: 'attachment', attachment: { type: 'file' } })).toEqual([])
+  })
+
+  // Duplicate-key guard: two 'file' attachment records for the SAME path (a
+  // re-mention, or one restored either side of a compaction) must produce
+  // DIFFERENT ids so React does not warn about duplicate keys in the chat view.
   it('produces distinct ids for two attachment records with the same filename', () => {
     const filename = '/repo/spec.md'
     const [item1] = claudeRecordToItems({
@@ -633,7 +654,7 @@ describe('claudeRecordToItems toolPaths', () => {
     })
     const [item2] = claudeRecordToItems({
       type: 'attachment',
-      attachment: { type: 'compact_file_reference', filename },
+      attachment: { type: 'file', filename },
     })
     expect(item1).toBeDefined()
     expect(item2).toBeDefined()

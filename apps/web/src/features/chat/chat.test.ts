@@ -266,6 +266,55 @@ describe('pairToolResults media-marker folding', () => {
     expect(blocks).toHaveLength(1)
     expect(blocks[0]!.item.toolPaths).toEqual(['/home/u/.podium/uploads/s1/shot.png'])
   })
+
+  // AN @-MENTIONED FILE IS PART OF THE PROMPT, NOT A TURN (POD-1171). The
+  // parser emits it as its own text-less record; folding only accepted image
+  // tags, so it used to stand alone as an empty "You" bubble holding a chip.
+  const fileMarker: TranscriptItem = {
+    id: 'f1',
+    role: 'user',
+    text: '',
+    toolPaths: ['/repo/spec.md'],
+    tags: [{ kind: 'file', label: 'spec.md' }],
+  }
+
+  it('folds an @-mention file marker into the preceding user block', () => {
+    const blocks = pairToolResults([user({}), fileMarker])
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.item.text).toBe('look at this')
+    expect(blocks[0]!.item.toolPaths).toEqual(['/repo/spec.md'])
+    expect(blocks[0]!.item.tags).toEqual([{ kind: 'file', label: 'spec.md' }])
+  })
+
+  it('folds mixed image and file markers into one prompt', () => {
+    const blocks = pairToolResults([user({}), marker, fileMarker])
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.item.toolPaths).toEqual([
+      '/home/u/.podium/uploads/s1/shot.png',
+      '/repo/spec.md',
+    ])
+  })
+
+  it('drops a file-only marker with no user block to fold into', () => {
+    // Unlike an uploaded image, a lone file chip shows the reader nothing and
+    // claims a turn the operator never took.
+    expect(pairToolResults([fileMarker])).toEqual([])
+  })
+
+  it('keeps a tag-less path marker standalone (unchanged fallback)', () => {
+    const untagged: TranscriptItem = { id: 'x1', role: 'user', text: '', toolPaths: ['/repo/a.ts'] }
+    expect(pairToolResults([untagged])).toHaveLength(1)
+  })
+
+  it('does not fold a marker into an interrupt block', () => {
+    const interrupt: TranscriptItem = {
+      id: 'i1',
+      role: 'user',
+      text: '[Request interrupted by user]',
+      event: 'interrupt',
+    }
+    expect(pairToolResults([interrupt, fileMarker])).toHaveLength(1)
+  })
 })
 
 describe('mergeByCursor', () => {
