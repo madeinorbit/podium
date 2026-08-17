@@ -1,9 +1,26 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { APP_START_FALLBACK_ID, AppStarted } from './AppStarted'
 import { reportSkew, resetSkewNotice } from './skew-notice'
 import { SKEW_BANNER_HEIGHT_VAR, skewBannerHeightValue, WireSkewBanner } from './WireSkewBanner'
 
 const clearedValue = () => document.documentElement.style.getPropertyValue(SKEW_BANNER_HEIGHT_VAR)
+const indexHtml = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
+const mainSource = readFileSync(resolve(process.cwd(), 'src/app/main.tsx'), 'utf8')
+
+function installAppStartFallback(): HTMLElement {
+  const page = new DOMParser().parseFromString(indexHtml, 'text/html')
+  const fallback = page.getElementById(APP_START_FALLBACK_ID)
+  const script = page.querySelector<HTMLScriptElement>('[data-app-start-fallback-script]')
+  if (!(fallback instanceof HTMLElement) || !script?.textContent) {
+    throw new Error('index.html is missing the app-start fallback or its timer')
+  }
+  document.body.replaceChildren(fallback)
+  Function(script.textContent)()
+  return fallback
+}
 
 beforeEach(() => {
   resetSkewNotice()
@@ -12,7 +29,39 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
+  document.body.replaceChildren()
   resetSkewNotice()
+})
+
+describe('the app-start fallback', () => {
+  it('stays silent when the app mounts before the delay', () => {
+    vi.useFakeTimers()
+    installAppStartFallback()
+    expect(mainSource).toContain('<AppStarted />')
+
+    render(<AppStarted />)
+
+    expect(document.getElementById(APP_START_FALLBACK_ID)).toBeNull()
+    vi.advanceTimersByTime(4000)
+    expect(document.getElementById(APP_START_FALLBACK_ID)).toBeNull()
+  })
+
+  it('appears after the delay when nothing mounts, in normal document flow', () => {
+    vi.useFakeTimers()
+    const fallback = installAppStartFallback()
+
+    expect(fallback.hidden).toBe(true)
+    vi.advanceTimersByTime(3999)
+    expect(fallback.hidden).toBe(true)
+    vi.advanceTimersByTime(1)
+    expect(fallback.hidden).toBe(false)
+    expect(fallback.style.position).toBe('')
+    expect(fallback.textContent).toContain('Podium’s app did not start.')
+    expect(fallback.textContent).toContain('Reload')
+    expect(fallback.textContent).not.toContain('update panel')
+    expect(fallback.textContent).not.toContain('Repair and reload')
+  })
 })
 
 describe('the space the skew banner reserves', () => {

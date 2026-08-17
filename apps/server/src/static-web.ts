@@ -3,7 +3,6 @@ import { basename, extname, join, normalize, sep } from 'node:path'
 import { brotliCompress, gzip, constants as zlibConstants } from 'node:zlib'
 import { desktopShellLocation, mobileEntryRedirect } from '@podium/model'
 import type { Context, Hono } from 'hono'
-import { gradeWebBundle, injectBundleWarning } from './web-bundle-stamp'
 
 /**
  * Backend route prefixes that must never be shadowed by the SPA index.html.
@@ -305,12 +304,6 @@ export interface StaticWebOptions {
    *  (routes registered earlier, e.g. registerMobileRouting's fallback, own
    *  the absent case). */
   lazy?: boolean
-  /** Compare this dist's build stamp against the running server and warn in the
-   *  served HTML when they disagree (POD-1610). OPT-IN, not defaulted on: only
-   *  the apps/web dist carries a stamp, so defaulting it would put a permanent
-   *  "unstamped" banner on the Expo mobile shell, which is a different artefact
-   *  built by a different toolchain. */
-  stampCheck?: boolean
   /**
    * Opt-in isolation headers for SharedArrayBuffer (POD-541). The Expo mobile
    * shell needs them for durable expo-sqlite; the desktop web shell does not
@@ -464,17 +457,10 @@ export function registerMobileRouting(
   app.get('/mobile/*', mobileFallback)
 }
 
-/**
- * The SPA shell, with the stale-build warning folded in when it applies.
- *
- * Read per request rather than cached at registration: `lazy` dists appear after
- * boot and every dev rebuild replaces this file, so a cached shell would serve a
- * warning about a build that no longer exists (see `gradeWebBundle`, which caches
- * the VERDICT on the stamp's mtime and so re-grades exactly when the stamp moves).
- */
-function serveIndex(webDir: string, indexPath: string, stampCheck: boolean): string {
-  const html = readFileSync(indexPath, 'utf8')
-  return stampCheck ? injectBundleWarning(html, gradeWebBundle(webDir)) : html
+/** Read per request: `lazy` dists appear after boot and every dev rebuild replaces
+ * this file, so caching the shell at registration would serve obsolete asset URLs. */
+function serveIndex(indexPath: string): string {
+  return readFileSync(indexPath, 'utf8')
 }
 
 /**
@@ -529,7 +515,7 @@ export function registerWebStatic(
       return await serveFile(
         indexPath,
         accepted,
-        Buffer.from(serveIndex(webDir, indexPath, opts.stampCheck === true), 'utf8'),
+        Buffer.from(serveIndex(indexPath), 'utf8'),
         isolationHeaders,
       )
     }
@@ -538,13 +524,11 @@ export function registerWebStatic(
     if (!isNavigationRequest(pathname, c)) return c.notFound()
     // index.html goes out through ONE path — the fallback — even when it was
     // asked for by name. The service worker precaches `/index.html` explicitly,
-    // so a second, un-annotated route for the same file is how the stale-build
-    // warning (POD-1610) would be missing from precisely the installed PWA that
-    // most needs it.
+    // so it uses this same path.
     return await serveFile(
       indexPath,
       accepted,
-      Buffer.from(serveIndex(webDir, indexPath, opts.stampCheck === true), 'utf8'),
+      Buffer.from(serveIndex(indexPath), 'utf8'),
       isolationHeaders,
     )
   }
@@ -560,5 +544,5 @@ export function registerWebStatic(
  * build appears without another server restart.
  */
 export function registerDesktopWebStatic(app: Hono, webDir: string): boolean {
-  return registerWebStatic(app, webDir, { lazy: true, stampCheck: true })
+  return registerWebStatic(app, webDir, { lazy: true })
 }

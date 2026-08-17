@@ -60,6 +60,29 @@
     <title>Podium</title>
   </head>
   <body>
+    <div
+      id="app-start-fallback"
+      role="alert"
+      hidden
+      style="box-sizing: border-box; width: 100%; padding: 16px; background: #2b2b31; color: #f7f7f9; font: 600 14px/1.5 ui-sans-serif, system-ui, sans-serif"
+    >
+      Podium’s app did not start.
+      <button
+        type="button"
+        onclick="window.location.reload()"
+        style="margin-left: 12px; border: 1px solid currentColor; border-radius: 6px; padding: 3px 10px; background: transparent; color: inherit; font: inherit; cursor: pointer"
+      >
+        Reload
+      </button>
+    </div>
+    <script data-app-start-fallback-script>
+      (() => {
+        var fallback = document.getElementById('app-start-fallback')
+        window.setTimeout(function () {
+          if (fallback && fallback.isConnected) fallback.hidden = false
+        }, 4000)
+      })()
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/app/main.tsx"></script>
   </body>
