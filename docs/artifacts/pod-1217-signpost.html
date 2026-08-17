@@ -1,0 +1,612 @@
+<title>Nobody Left</title>
+
+<style>
+  :root {
+    --ground: #f6f5f2;
+    --surface: #ffffff;
+    --surface-sunk: #f0efeb;
+    --ink: #191a1c;
+    --ink-soft: #3d4046;
+    --muted: #6e7078;
+    --faint: #92949b;
+    --hairline: #e3e2dd;
+    --hairline-firm: #d2d0c9;
+    --false: #b0443b;
+    --false-wash: #b0443b14;
+    --true: #2f7355;
+    --true-wash: #2f735514;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #141518;
+      --surface: #1c1e22;
+      --surface-sunk: #17191c;
+      --ink: #e9e7e2;
+      --ink-soft: #c8c6c1;
+      --muted: #93969e;
+      --faint: #74777f;
+      --hairline: #2b2e34;
+      --hairline-firm: #3a3e45;
+      --false: #e4796a;
+      --false-wash: #e4796a1a;
+      --true: #66b693;
+      --true-wash: #66b8931a;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #141518;
+    --surface: #1c1e22;
+    --surface-sunk: #17191c;
+    --ink: #e9e7e2;
+    --ink-soft: #c8c6c1;
+    --muted: #93969e;
+    --faint: #74777f;
+    --hairline: #2b2e34;
+    --hairline-firm: #3a3e45;
+    --false: #e4796a;
+    --false-wash: #e4796a1a;
+    --true: #66b693;
+    --true-wash: #66b8931a;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 41rem;
+    margin: 0 auto;
+    padding: 4rem 1.5rem 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.25rem;
+  }
+
+  /* ---- masthead ---- */
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-size: clamp(2.4rem, 7vw, 3.1rem);
+    line-height: 1.05;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-family: var(--serif);
+    font-size: 1.19rem;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    text-wrap: pretty;
+  }
+
+  /* ---- section scaffolding ---- */
+
+  .block {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+
+  .block > h2 {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    padding-bottom: 0.7rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .block p {
+    font-family: var(--serif);
+    font-size: 1.06rem;
+    color: var(--ink-soft);
+    text-wrap: pretty;
+  }
+
+  /* ---- the screen mock ---- */
+
+  .screen {
+    background: var(--surface-sunk);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .screen-label {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .screen-label .count {
+    border: 1px solid var(--hairline-firm);
+    border-radius: 999px;
+    padding: 0 0.4rem;
+    font-size: 0.65rem;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+
+  .card-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+  }
+
+  .glyph {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--surface-sunk);
+    border: 1px solid var(--hairline);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    margin-top: 0.1rem;
+  }
+
+  .card-headline {
+    font-family: var(--mono);
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.4;
+  }
+
+  .card-sub {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    margin-top: 0.3rem;
+  }
+
+  .lie {
+    color: var(--false);
+    background: var(--false-wash);
+    box-shadow: 0 0 0 3px var(--false-wash);
+    border-radius: 2px;
+  }
+
+  .card-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    padding-left: 1.9rem;
+  }
+
+  .btn {
+    font-family: var(--sans);
+    font-size: 0.74rem;
+    border: 1px solid var(--hairline-firm);
+    border-radius: 5px;
+    padding: 0.22rem 0.6rem;
+    color: var(--muted);
+    background: var(--surface);
+  }
+
+  .btn.solid {
+    background: var(--ink);
+    color: var(--ground);
+    border-color: var(--ink);
+  }
+
+  /* the session row that is on the very same screen */
+
+  .roster {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .session-row {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+  }
+
+  .pulse {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--true);
+    box-shadow: 0 0 0 3px var(--true-wash);
+  }
+
+  .session-row .who {
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .session-row .spacer {
+    flex: 1;
+  }
+
+  .session-row .state {
+    color: var(--true);
+    font-size: 0.72rem;
+  }
+
+  /* margin flags */
+
+  .flag {
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    line-height: 1.45;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding-left: 0.15rem;
+  }
+
+  .flag .mark {
+    font-family: var(--mono);
+    font-size: 0.63rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    flex: none;
+    padding: 0.05rem 0.35rem;
+    border-radius: 3px;
+  }
+
+  .flag.bad .mark {
+    color: var(--false);
+    background: var(--false-wash);
+  }
+
+  .flag.good .mark {
+    color: var(--true);
+    background: var(--true-wash);
+  }
+
+  .flag span:last-child {
+    color: var(--muted);
+  }
+
+  /* ---- fact list ---- */
+
+  .facts {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .fact {
+    display: grid;
+    grid-template-columns: 8.5rem 1fr;
+    gap: 0.9rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--hairline);
+    align-items: baseline;
+  }
+
+  .fact dt {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--faint);
+  }
+
+  .fact dd {
+    font-family: var(--serif);
+    font-size: 1.02rem;
+    color: var(--ink-soft);
+  }
+
+  .fact dd b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  @media (max-width: 34rem) {
+    .fact {
+      grid-template-columns: 1fr;
+      gap: 0.2rem;
+    }
+  }
+
+  /* ---- code ---- */
+
+  .code {
+    background: var(--surface-sunk);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.75;
+    color: var(--ink-soft);
+  }
+
+  .code .dim {
+    color: var(--faint);
+  }
+
+  .code .note-bad {
+    color: var(--false);
+  }
+
+  .code .note-good {
+    color: var(--true);
+  }
+
+  .code .path {
+    display: block;
+    color: var(--faint);
+    font-size: 0.7rem;
+    margin-bottom: 0.6rem;
+  }
+
+  /* ---- fixes ---- */
+
+  .fixes {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .fix {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: 1.1rem 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .fix.pick {
+    border-color: var(--true);
+    box-shadow: 0 0 0 3px var(--true-wash);
+  }
+
+  .fix-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .fix-head h3 {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 0.63rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    color: var(--true);
+    background: var(--true-wash);
+  }
+
+  .fix p {
+    font-family: var(--serif);
+    font-size: 1.02rem;
+    color: var(--ink-soft);
+  }
+
+  .fix .cost {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--faint);
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--hairline);
+  }
+
+  /* ---- tail ---- */
+
+  .tail {
+    font-family: var(--serif);
+    font-size: 1.02rem;
+    color: var(--muted);
+    border-left: 2px solid var(--hairline-firm);
+    padding-left: 1rem;
+    text-wrap: pretty;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    color: var(--ink);
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">POD-1217 &middot; diagnosis</p>
+    <h1>Nobody Left</h1>
+    <p class="standfirst">
+      The task says its agent walked out. The agent is still sitting there. Here is what
+      is on the screen, why the screen is wrong, and the smallest honest fix.
+    </p>
+  </header>
+
+  <section class="block">
+    <h2>What the screen shows right now</h2>
+
+    <div class="screen">
+      <p class="screen-label">Where the work went <span class="count">1</span></p>
+
+      <div class="card">
+        <div class="card-top">
+          <span class="glyph" aria-hidden="true">&rarr;</span>
+          <div>
+            <p class="card-headline">The same work is tracked in POD-1160</p>
+            <p class="card-sub"><span class="lie">No session remains on this closed task.</span></p>
+          </div>
+        </div>
+        <div class="card-buttons">
+          <span class="btn solid">Open POD-1160</span>
+          <span class="btn">Tuck away</span>
+        </div>
+      </div>
+
+      <div class="roster">
+        <div class="session-row">
+          <span class="pulse" aria-hidden="true"></span>
+          <span class="who">POD-1217-A</span>
+          <span>codex</span>
+          <span class="spacer"></span>
+          <span class="state">live &middot; idle</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flag bad">
+      <span class="mark">false</span>
+      <span>This sentence is hard-coded. It never looks at any session.</span>
+    </div>
+    <div class="flag good">
+      <span class="mark">true</span>
+      <span>Same screen, a few pixels down: the session it says is gone.</span>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>What is actually true</h2>
+    <dl class="facts">
+      <div class="fact">
+        <dt>the issue</dt>
+        <dd>Closed as a <b>duplicate</b> of POD-1160. Correct — the Safari fix had already landed there.</dd>
+      </div>
+      <div class="fact">
+        <dt>the session</dt>
+        <dd>Never shut down. Still <b>live</b>, and you were still typing to it half an hour after the close.</dd>
+      </div>
+      <div class="fact">
+        <dt>the card</dt>
+        <dd>Invents a third fact — that the task is <b>empty</b> — from the duplicate mark alone.</dd>
+      </div>
+    </dl>
+    <p>
+      So nothing moved anywhere. Two true things are on screen, and a false sentence
+      sits between them.
+    </p>
+  </section>
+
+  <section class="block">
+    <h2>Why it says that</h2>
+    <p>
+      The code that draws this card has a rule for exactly this case &mdash; don't cry
+      "they left" while an agent is still here. The rule is just written three lines too
+      late, so a duplicate leaves before reaching it.
+    </p>
+    <div class="code">
+      <span class="path">packages/client-core/src/viewmodels/mission.ts</span>
+      <div>const targetId = issue.supersededBy ?? issue.duplicateOf</div>
+      <div>if (targetId) return { <span class="dim">&hellip;</span> } <span class="note-bad">&larr; POD-1217 leaves here</span></div>
+      <div class="dim">&hellip;</div>
+      <div>if (sessions.some(onThisTask)) return null <span class="note-good">&larr; the rule, never reached</span></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>The fix</h2>
+    <div class="fixes">
+
+      <div class="fix pick">
+        <div class="fix-head">
+          <h3>Move the rule up</h3>
+          <span class="tag">recommended</span>
+        </div>
+        <p>
+          Check for a live session <em>before</em> the duplicate branch, not after. While
+          somebody is on the task, no card at all &mdash; the session row already says who
+          is there.
+        </p>
+        <p>
+          Nothing is lost: the sidebar keeps its <code>duplicate &middot; POD-1160</code>
+          line, so the trail to POD-1160 stays. And the card comes back the moment the
+          session ends, which is when its question finally has an answer.
+        </p>
+        <p class="cost">one guard moved &middot; plus a test for duplicate + live session, which does not exist today</p>
+      </div>
+
+      <div class="fix">
+        <div class="fix-head">
+          <h3>Keep the card, rewrite the sentence</h3>
+        </div>
+        <p>
+          Headline stays; the second line reads the real sessions instead of assuming
+          none &mdash; "Codex is still on this task."
+        </p>
+        <p>
+          Weaker. It still hangs a heading that asks <em>where did the work go?</em> over a
+          task nobody left, and it is more wording to keep true later.
+        </p>
+        <p class="cost">new copy on two surfaces &middot; same test still needed</p>
+      </div>
+
+    </div>
+  </section>
+
+  <p class="tail">
+    Separate from all of this: closing an issue does not stop its agent. POD-1217-A is
+    still running on that worktree right now. Worth deciding on, but it is not what the
+    card got wrong.
+  </p>
+
+</div>
