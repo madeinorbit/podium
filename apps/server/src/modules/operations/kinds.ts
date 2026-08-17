@@ -11,6 +11,14 @@ import type { CommandPrincipal } from '../../command-principal'
 import type { DeadlineBreach } from './transitions'
 
 /**
+ * Adoption observed a real but provisional successor state. The engine must
+ * leave the durable row byte-for-byte alone and run no step until an explicit
+ * later reality edge retries reconciliation.
+ */
+export const ADOPTION_DEFERRED = Symbol('operation-adoption-deferred')
+export type AdoptionDeferred = typeof ADOPTION_DEFERRED
+
+/**
  * What a KIND is (POD-2097, spec §3.0).
  *
  * The engine drives operations without knowing what any of them do. Everything
@@ -125,7 +133,10 @@ export interface OperationKindDefinition<Ctx = unknown, Reality = unknown> {
    * It returns the operation it believes in. Returning the input unchanged is a
    * legitimate answer for a kind whose steps cannot be observed.
    */
-  reconcile(operation: Operation, reality: Reality): Operation | Promise<Operation>
+  reconcile(
+    operation: Operation,
+    reality: Reality,
+  ): Operation | AdoptionDeferred | Promise<Operation | AdoptionDeferred>
   runners: Record<string, StepRunner<Ctx>>
   deadlines?: Record<string, StepDeadlines>
   projectSealed?(

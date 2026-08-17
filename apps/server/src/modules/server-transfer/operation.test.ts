@@ -1,6 +1,7 @@
 import { asMachineId } from '@podium/model'
 import type { Operation } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { ADOPTION_DEFERRED } from '../operations/kinds'
 import {
   projectRecoveryOperation,
   reconcileServerMoveOperation,
@@ -140,6 +141,50 @@ describe('server-move operation', () => {
     expect(uncertain.awaiting).toEqual([
       expect.objectContaining({ id: 'server-move-recovery', required: true }),
     ])
+  })
+
+  it('strictly defers an exact promoting target, then settles only exact promoted proof', () => {
+    const promoting = {
+      operationId: 'operation-1',
+      transferId: 'final-transfer',
+      sourceMachineId: 'source-1',
+      targetMachineId: 'target-1',
+      manifestDigest: 'b'.repeat(64),
+      publicUrl: 'https://podium.example.com',
+      port: 443,
+    }
+    expect(
+      reconcileServerMoveOperation(operation(), {
+        promoting,
+        machineId: 'target-1',
+        now: 100,
+      }),
+    ).toBe(ADOPTION_DEFERRED)
+
+    expect(
+      reconcileServerMoveOperation(operation(), {
+        promoting,
+        promoted: promoting,
+        machineId: 'target-1',
+        now: 101,
+      }),
+    ).toMatchObject({ state: 'done', finishedAt: 101 })
+
+    expect(
+      reconcileServerMoveOperation(operation(), {
+        promoting: { ...promoting, publicUrl: 'https://other.example.com' },
+        machineId: 'target-1',
+        now: 100,
+      }),
+    ).toMatchObject({ state: 'failed', error: { code: 'handoff-orphaned' } })
+
+    expect(
+      reconcileServerMoveOperation(operation(), {
+        promoted: promoting,
+        machineId: 'target-1',
+        now: 101,
+      }),
+    ).toMatchObject({ state: 'done', finishedAt: 101 })
   })
 
   it('adopts an exact promoted proof as done and rejects every mismatched identity', () => {

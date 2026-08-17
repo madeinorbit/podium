@@ -81,7 +81,10 @@ import {
 } from './modules/server-transfer/journal'
 import { serverMoveAuthorization } from './modules/server-transfer/authorization'
 import { serverMoveFaultHook } from './modules/server-transfer/operation'
-import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
+import {
+  readNewestTargetPromotionMetadata,
+  readPromotedTargetMetadata,
+} from './modules/server-transfer/target-status'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
@@ -843,12 +846,14 @@ export async function startServer(
   const parentReport = readParentOutcome()?.why
   const durableUsers = registry.sessionStore.users
   const serverMoveCrash = serverMoveFaultHook()
+  const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
   if (!recoveryOnly)
     await registry.modules.operations.engine.adoptOnBoot(
       (row) =>
         row.kind === 'server-move'
           ? {
-              promoted: readPromotedTargetMetadata(stateDir()) ?? null,
+              promoted: bootTargetPromotion?.state === 'promoted' ? bootTargetPromotion : null,
+              promoting: bootTargetPromotion?.state === 'promoting' ? bootTargetPromotion : null,
               journal: registry.modules.serverTransfer.status(),
               machineId: hostMachineId,
               now: Date.now(),
@@ -906,11 +911,68 @@ export async function startServer(
     )
   if (!recoveryOnly && parentReport) clearParentOutcome()
 
+  const deferredPromotion =
+    bootTargetPromotion?.state === 'promoting' &&
+    registry.modules.operations.engine.isAdoptionDeferred(bootTargetPromotion.operationId)
+      ? bootTargetPromotion
+      : undefined
+  let serverMoveDataPlaneDeferred = deferredPromotion !== undefined
+  let stopDeferredPromotionPoll = (): void => {}
+  if (deferredPromotion) {
+    let settling = false
+    const settle = async (): Promise<void> => {
+      if (settling || !serverMoveDataPlaneDeferred) return
+      const promoted = readPromotedTargetMetadata(stateDir(), deferredPromotion.transferId)
+      if (!promoted || promoted.operationId !== deferredPromotion.operationId) return
+      settling = true
+      try {
+        const operation = await registry.modules.operations.engine.resumeDeferredAdoption(
+          deferredPromotion.operationId,
+          {
+            promoted,
+            machineId: hostMachineId,
+            journal: registry.modules.serverTransfer.status(),
+            now: Date.now(),
+          },
+        )
+        if (!registry.modules.operations.engine.isAdoptionDeferred(deferredPromotion.operationId)) {
+          stopDeferredPromotionPoll()
+          // Only exact promoted proof opens traffic. A final mismatched verdict
+          // remains health-only and is durably visible as handoff-orphaned.
+          if (operation?.state === 'done') serverMoveDataPlaneDeferred = false
+        }
+      } catch (error) {
+        log.warn('deferred server move adoption retry failed', {
+          operationId: deferredPromotion.operationId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        settling = false
+      }
+    }
+    const poll = setInterval(() => {
+      void settle()
+    }, 50)
+    poll.unref?.()
+    stopDeferredPromotionPoll = () => clearInterval(poll)
+    // Read immediately, then keep retrying while deferred. This closes both the
+    // write-before-poll window and a transient reconciliation failure.
+    void settle()
+  }
+
   const requestPeerAddresses = new WeakMap<Request, string>()
-  const readiness = createServerReadiness({
+  const configuredReadiness = createServerReadiness({
     bootConfig: config,
     hasLiveAgentMachine: () => registry.modules.machines.onlineMachineIds().length > 0,
   })
+  const readiness = () =>
+    serverMoveDataPlaneDeferred
+      ? ({
+          state: 'activation_pending',
+          reason: 'restart_required',
+          dataPlane: 'blocked',
+        } as const)
+      : configuredReadiness()
   let targetsResolvedOnBoot = recoveryOnly
   const app = new Hono()
   // The dev resolver pulls this server's own feed. The listener must therefore
@@ -918,8 +980,15 @@ export async function startServer(
   // window or a supervisor (and the packaged restart gate) could observe the
   // exact empty fleet state boot is about to repair.
   app.get('/health', (c) =>
-    targetsResolvedOnBoot ? c.text('ok') : c.text('resolving update targets', 503),
+    serverMoveDataPlaneDeferred || targetsResolvedOnBoot
+      ? c.text('ok')
+      : c.text('resolving update targets', 503),
   )
+  app.use('*', async (c, next) => {
+    if (!serverMoveDataPlaneDeferred || c.req.path === '/health') return next()
+    return c.json({ error: 'server_not_ready', readiness: readiness() }, 503)
+  })
+
   if (recoveryOnly) {
     const allowedRecoveryProcedures = new Set([
       '/health',
@@ -1249,6 +1318,7 @@ export async function startServer(
     const failListen = (err: unknown): void => {
       if (settled) return
       settled = true
+      stopDeferredPromotionPoll()
       messaging.stop()
       registry.dispose()
       // THE SECOND CLOSE PATH (POD-2148). Boot adoption has already run by
@@ -1309,8 +1379,9 @@ export async function startServer(
         async fetch(request, nativeServer) {
           const peerAddress = nativeServer.requestIP?.(request)?.address
           if (peerAddress) requestPeerAddresses.set(request, peerAddress)
-          const upgrade =
-            recoveryOnly && new URL(request.url).pathname !== '/daemon'
+          const upgrade = serverMoveDataPlaneDeferred
+            ? null
+            : recoveryOnly && new URL(request.url).pathname !== '/daemon'
               ? null
               : ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
@@ -1530,6 +1601,7 @@ export async function startServer(
             server,
             persist: [
               ['messaging.stop', () => messaging.stop()],
+              ['serverMove.stopDeferredPromotionPoll', stopDeferredPromotionPoll],
               // An armed refresh timer that outlives the server would resolve a
               // target against a service whose store is already closed.
               ['updates.stopTargetRefresh', () => targetRefresh.stop()],
@@ -1565,6 +1637,7 @@ export async function startServer(
               ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
               ['registry.dispose', () => registry.dispose()],
               ['store.close', () => store.close()],
+
             ],
           }),
       })

@@ -8,6 +8,7 @@ import {
 } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import type {
+  AdoptionDeferred,
   AnyOperationKindDefinition,
   CancelCleanupResult,
   HandoffSealPatch,
@@ -18,6 +19,7 @@ import type {
   StepOutcome,
   StepProgressPatch,
 } from './kinds'
+import { ADOPTION_DEFERRED } from './kinds'
 import type { OperationRow, OperationStore, PersistedOperation } from './store'
 import {
   applyStepPatch,
@@ -170,6 +172,8 @@ export class OperationEngine {
   private readonly runnerScope = new AsyncLocalStorage<RunnerIdentity>()
   /** Concurrent callers share one cleanup run and one terminal result. */
   private readonly cancelRuns = new Map<string, Promise<CancelResult>>()
+  /** Live rows whose successor reality exists but is not final enough to persist. */
+  private readonly deferredAdoptions = new Set<string>()
   /** Set by `stop()`. The store is about to close, so nothing may write again. */
   private stopped = false
 
@@ -641,8 +645,16 @@ export class OperationEngine {
     this.contexts.set(row.id, contextFor(row))
     const reality = await realityFor(row)
     const reconciled = await (
-      def.reconcile as (op: Operation, r: unknown) => Operation | Promise<Operation>
+      def.reconcile as (
+        operation: Operation,
+        observed: unknown,
+      ) => Operation | AdoptionDeferred | Promise<Operation | AdoptionDeferred>
     )(row.operation, reality)
+    if (reconciled === ADOPTION_DEFERRED) {
+      this.deferredAdoptions.add(row.id)
+      return row.operation
+    }
+    this.deferredAdoptions.delete(row.id)
 
     const adoptedOperation = this.persist(
       this.persistable(this.resumeStalled(reconciled), def),
@@ -654,6 +666,43 @@ export class OperationEngine {
     // ones is deleted by its own completion — so requiring it here turned a
     // successful adoption into a thrown boot (POD-2147).
     return this.deps.store.get(row.id)?.operation ?? adoptedOperation
+  }
+
+  /**
+   * Retry exactly one adoption the engine previously deferred. Another
+   * deferred verdict is a strict no-op; a final verdict is persisted before
+   * any runner can observe it.
+   */
+  async resumeDeferredAdoption(
+    operationId: string,
+    reality: unknown,
+  ): Promise<Operation | undefined> {
+    return this.enqueueResult(operationId, async () => {
+      if (!this.deferredAdoptions.has(operationId)) return undefined
+      const row = this.deps.store.get(operationId)
+      if (!row?.operation || isTerminalOperationState(row.state)) return row?.operation ?? undefined
+      const def = this.deps.registry.get(row.kind)
+      if (!def) return undefined
+
+      const reconciled = await (
+        def.reconcile as (
+          operation: Operation,
+          observed: unknown,
+        ) => Operation | AdoptionDeferred | Promise<Operation | AdoptionDeferred>
+      )(row.operation, reality)
+      if (reconciled === ADOPTION_DEFERRED) return row.operation
+      this.deferredAdoptions.delete(operationId)
+      const persisted = this.persist(
+        this.persistable(this.resumeStalled(reconciled), def),
+        this.now(),
+      )
+      if (!isTerminalOperationState(persisted.state)) await this.driveLocked(operationId)
+      return this.deps.store.get(operationId)?.operation ?? persisted
+    })
+  }
+
+  isAdoptionDeferred(operationId: string): boolean {
+    return this.deferredAdoptions.has(operationId)
   }
 
   /**

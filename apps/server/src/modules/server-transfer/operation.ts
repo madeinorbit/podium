@@ -2,7 +2,7 @@ import type { MachineId } from '@podium/model'
 import type { Operation as ProtocolOperation } from '@podium/protocol'
 import type { ServerTransferOutcome, TransferJournalEntry, TransferRecord } from './types'
 import type { OperationEngine } from '../operations/engine'
-import type { OperationKindDefinition } from '../operations/kinds'
+import { ADOPTION_DEFERRED, type OperationKindDefinition } from '../operations/kinds'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import {
   type ServerTransferCrashPoint,
@@ -35,6 +35,15 @@ export interface ServerMoveContext {
 
 export interface ServerMoveReality {
   promoted?: {
+    operationId: string
+    transferId: string
+    sourceMachineId: string
+    targetMachineId: string
+    manifestDigest: string
+    publicUrl: string
+    port: number
+  } | null
+  promoting?: {
     operationId: string
     transferId: string
     sourceMachineId: string
@@ -258,6 +267,23 @@ export function reconcileServerMoveOperation(
       error: null,
       finishedAt: reality.now,
     }
+  }
+  // Starting the target server is what the daemon health-checks, so the exact
+  // target-owned stage can still be `promoting` on this first boot. Its
+  // candidate proof is internally bound to the final transfer id and digest by
+  // target-status; stable move identity binds that candidate to this imported
+  // operation. This verdict deliberately writes and runs nothing.
+  const promoting = reality.promoting
+  if (
+    promoting &&
+    promoting.operationId === operation.id &&
+    promoting.sourceMachineId === details.sourceMachineId &&
+    promoting.targetMachineId === details.targetMachineId &&
+    promoting.publicUrl === details.publicUrl &&
+    promoting.port === details.port &&
+    reality.machineId === details.targetMachineId
+  ) {
+    return ADOPTION_DEFERRED
   }
   return {
     ...operation,

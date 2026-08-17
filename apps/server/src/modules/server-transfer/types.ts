@@ -103,6 +103,19 @@ export interface PromotedTargetMetadata {
   proof: TargetHealthProof
 }
 
+/** Strict target-owned marker for the health-only boot window. */
+export interface PromotingTargetMetadata {
+  operationId: string
+  transferId: string
+  sourceMachineId: MachineId
+  targetMachineId: MachineId
+  publicUrl: string
+  manifestDigest: string
+  port: number
+  state: 'promoting'
+  proof: TransferProof
+}
+
 export interface ServerTransferFailure {
   code: string
   detail: string
