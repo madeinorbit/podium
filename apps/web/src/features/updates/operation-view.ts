@@ -683,6 +683,21 @@ export function operationView(input: OperationViewInput): UpdatePanelView {
 function computeView(input: OperationViewInput): UpdatePanelView {
   const operation = input.operation
 
+  if (input.actionError?.code === 'PRECONDITION_FAILED') {
+    const version =
+      input.offer && 'version' in input.offer ? input.offer.version : undefined
+    if (version !== undefined) {
+      return offerView({
+        ...input,
+        actionError: undefined,
+        offer: input.local.behind
+          ? { state: 'local-stale', version }
+          : { state: 'current', version },
+      })
+    }
+    return noneView()
+  }
+
   // An action that failed is the panel's problem even when the server has no
   // operation to hang it on: this is the path a rejected `installUpdate` used
   // to fall down (retired POD-2091).

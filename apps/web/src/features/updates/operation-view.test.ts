@@ -533,6 +533,42 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
     expect(result.indicator).toBe('attention')
   })
 
+  it('folds an update precondition into current state when there is nothing to do', () => {
+    const result = operationView({
+      operation: null,
+      offer: OFFER,
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+      actionError: {
+        code: 'PRECONDITION_FAILED',
+        message: 'Podium is already at this version everywhere.',
+      },
+    })
+
+    expect(result.state).toBe('done')
+    expect(result.title).toBe('Podium is up to date')
+    expect(result.primary).toBeUndefined()
+  })
+
+  it('offers reload instead of retry for a stale page refused by the server', () => {
+    const result = operationView({
+      operation: null,
+      offer: OFFER,
+      local: { ...NOT_BEHIND, behind: true, canReload: true },
+      surface: 'web',
+      now: NOW,
+      actionError: {
+        code: 'PRECONDITION_FAILED',
+        message: 'Podium is already at this version everywhere.',
+      },
+    })
+
+    expect(result.state).toBe('waiting-you')
+    expect(result.primary).toMatchObject({ kind: 'reload' })
+    expect(result.primary?.kind).not.toBe('retry')
+  })
+
   it('maps every desktop error code to three layers', () => {
     const codes = [
       'debug-build',
