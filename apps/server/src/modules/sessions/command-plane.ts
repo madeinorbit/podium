@@ -31,7 +31,6 @@
  * answer by the same path instead of by two coincidences.
  */
 
-import { type SpawnedByRef, spawnedByTag } from '@podium/model'
 import {
   type CommandDef,
   sessionCommandPlane,
@@ -41,12 +40,20 @@ import type {
   AgentKind,
   Attribution,
   IssueId,
-  SessionId,
-  UserId,
   MachineId,
   MutationId,
+  SessionId,
+  UserId,
 } from '@podium/model'
-import { actorAgent, actorSystem, actorUser, asAgentIdentityId, asMutationId } from '@podium/model'
+import {
+  actorAgent,
+  actorSystem,
+  actorUser,
+  asAgentIdentityId,
+  asMutationId,
+  type SpawnedByRef,
+  spawnedByTag,
+} from '@podium/model'
 import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
 
 import type { MutationLedgerPort } from '@podium/sync'
@@ -60,11 +67,11 @@ import {
   machineAccessMessage,
   machineUseDecision,
 } from '../../machine-access'
+import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
 import { type AnswerChoice, inboxPrincipalFromCommand } from './inbox'
-import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
 import type { SessionLifecycle } from './lifecycle'
 import {
   assertMayCommandSession,
@@ -651,14 +658,30 @@ export const SESSION_COMMAND_HANDLERS = {
    * invariant), so putting them there is the `use` verb. With no owner column yet
    * an ownerless machine still allows — which is exactly POD-379's `willChange`
    * characterization for POD-1079, unchanged by this migration.
+   *
+   * THE SESSION STILL DECIDES WHEREVER IT CAN (POD-1203). `input.machineId` is
+   * consulted only when the session names no machine, so the routing invariant
+   * above is untouched and a caller cannot steer a known session's bytes
+   * elsewhere. It exists for the home composer, which uploads before its session
+   * exists; the gate then runs on the target it actually chose, so the explicit
+   * arm is no weaker than the derived one.
    */
   uploadImage: async (
     ctx: SessionCommandCtx,
-    input: { sessionId: SessionId; filename: string; mimeType: string; dataBase64: string },
+    input: {
+      sessionId: SessionId
+      filename: string
+      mimeType: string
+      dataBase64: string
+      machineId?: MachineId
+    },
   ) => {
     const row = ctx.sessions.sessionById(input.sessionId)
-    if (row?.machineId !== undefined) ctx.assertMachineUse(row.machineId)
-    const result = await ctx.deps.rpc().uploadImage(input)
+    const machineId = row?.machineId ?? input.machineId
+    if (machineId !== undefined) ctx.assertMachineUse(machineId)
+    const result = await ctx.deps
+      .rpc()
+      .uploadImage({ ...input, ...(machineId ? { machineId } : {}) })
     if (result.error) {
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: result.error })
     }

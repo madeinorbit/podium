@@ -435,6 +435,22 @@ const uploadImageInput = z.object({
   mimeType: z.string().max(100),
   /** ~7.5 MB decoded — the router's shipped bound, kept exactly. */
   dataBase64: z.string().max(10 * 1024 * 1024),
+  /**
+   * WHERE TO PUT THE BYTES WHEN THERE IS NO SESSION TO ASK (POD-1203).
+   *
+   * Routing normally reads the machine off the session, and that stays the rule:
+   * when the session is known this field is IGNORED, so a caller cannot redirect
+   * a live session's upload onto a machine of its choosing. It answers the one
+   * case the session cannot — the home composer, where the operator attaches a
+   * screenshot to a mission whose session does not exist yet but whose machine
+   * they have already picked. Without it that upload lands on the DEFAULT
+   * machine (POD-379's pinned unknown-session behaviour) and the absolute path
+   * that comes back is a path on the wrong disk.
+   *
+   * The `use` gate applies to whichever machine is actually written to, so an
+   * explicit target is gated exactly as a session-derived one is.
+   */
+  machineId: MachineIdField.optional(),
 })
 
 const uploadImage: CommandDef = {

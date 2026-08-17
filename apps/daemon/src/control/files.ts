@@ -26,7 +26,7 @@ async function handleImageUpload(
   try {
     const filePath = await ctx.portableStateFence.run(async () => {
       const id = randomUUID()
-      const path = uploadFilePath(stateDir(), msg.sessionId, id, msg.mimeType)
+      const path = uploadFilePath(stateDir(), msg.sessionId, id, msg.mimeType, msg.filename)
       await mkdir(dirname(path), { recursive: true })
       await writeFile(path, Buffer.from(msg.dataBase64, 'base64'))
       return path

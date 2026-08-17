@@ -1,6 +1,6 @@
 import { buildImagePrompt } from '@podium/client-core/viewmodels'
 import { describe, expect, it } from 'vitest'
-import { hasImageItems } from './image-items'
+import { hasImageItems } from './transfer-items'
 
 describe('buildImagePrompt', () => {
   it('returns text unchanged when no paths', () => {

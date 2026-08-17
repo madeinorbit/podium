@@ -835,6 +835,10 @@ export class DaemonRpcService {
     filename: string
     mimeType: string
     dataBase64: string
+    /** Fallback target for a session that does not exist yet (POD-1203) — the
+     *  home composer attaches before its session is spawned. Ignored whenever
+     *  the session names a machine of its own. */
+    machineId?: MachineId
   }): Promise<{ path: string; error?: string }> {
     // The upload is written to (and read back by) the machine that runs the session,
     // so the returned path is valid in that session's prompt.
@@ -852,7 +856,7 @@ export class DaemonRpcService {
           mimeType: input.mimeType,
           dataBase64: input.dataBase64,
         }),
-        session?.machineId,
+        session?.machineId ?? input.machineId,
       )
     return this.deps.portableStateFence ? this.deps.portableStateFence.runWriter(write) : write()
   }

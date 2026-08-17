@@ -412,6 +412,56 @@ describe('oracle: sessions.uploadImage', () => {
     )
   })
 
+  /* POD-1203. The home composer attaches BEFORE its session exists, and the
+   * absolute path it gets back has to be valid on the machine that mission is
+   * about to run on — the default machine is a coin flip. `machineId` answers
+   * the routing question the missing session cannot. */
+  it('routes an upload for a session that does not exist yet to the machine the caller named', async () => {
+    const o = makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
+    const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
+
+    const result = await o.call.sessions.uploadImage({
+      sessionId: GHOST,
+      filename: 'shot.png',
+      mimeType: 'image/png',
+      dataBase64: 'AA==',
+      machineId: asMachineId('other'),
+    })
+
+    expect(result).toEqual({ path: '/on/other/x.png' })
+    expect(otherSeen.filter((m) => m.type === 'imageUploadRequest')).toHaveLength(1)
+    // Not the default machine, which is where it would have gone without it.
+    expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toEqual([])
+  })
+
+  /* The routing invariant above is not weakened by the new field: when the
+   * session is known IT decides, so a caller cannot redirect a live session's
+   * bytes onto a machine of its choosing and hand the agent a path its own disk
+   * does not have. */
+  it(`${MUST_NOT_CHANGE}: a KNOWN session's machine still wins over a caller-named one`, async () => {
+    const o = makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
+    const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
+    const { sessionId } = await o.call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      machineId: 'other',
+    })
+    otherSeen.length = 0
+    o.daemon.length = 0
+
+    const result = await o.call.sessions.uploadImage({
+      sessionId,
+      filename: 'shot.png',
+      mimeType: 'image/png',
+      dataBase64: 'AA==',
+      machineId: o.store.hostMachineId,
+    })
+
+    expect(result).toEqual({ path: '/on/other/x.png' })
+    expect(otherSeen.filter((m) => m.type === 'imageUploadRequest')).toHaveLength(1)
+    expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toEqual([])
+  })
+
   it(`${MUST_NOT_CHANGE}: an upload to a DETACHED (offline) machine times out after the RPC budget and surfaces as TIMEOUT`, async () => {
     vi.useFakeTimers()
     try {

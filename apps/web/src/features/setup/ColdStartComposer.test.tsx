@@ -11,6 +11,7 @@ const styles = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'u
 const create = vi.fn()
 const start = vi.fn()
 const focusIssueSession = vi.fn(async () => null)
+const uploadImage = vi.fn()
 const uiValues = new Map<string, string>()
 const machineId = asMachineId('machine-a')
 
@@ -51,6 +52,7 @@ const store = {
       },
     },
     issues: { create: { mutate: create }, start: { mutate: start } },
+    sessions: { uploadImage: { mutate: uploadImage } },
   },
 }
 
@@ -78,7 +80,21 @@ afterEach(() => {
   start.mockReset()
   focusIssueSession.mockReset()
   focusIssueSession.mockResolvedValue(null)
+  uploadImage.mockReset()
 })
+
+/** The hidden `<input type=file>` the paperclip clicks — it has no accessible
+ *  name by design, so it is reached the way the button reaches it. */
+function fileInput(): HTMLInputElement {
+  const input = document.querySelector('input[type=file]')
+  if (!input) throw new Error('the composer has no file input')
+  return input as HTMLInputElement
+}
+
+function attach(file: File): void {
+  Object.defineProperty(fileInput(), 'files', { value: [file], configurable: true })
+  fireEvent.change(fileInput())
+}
 
 /* The headline's accessible name is the SENTENCE, not the sentence with the
  * project button's own label spliced into it. Both assertions below used to
@@ -196,5 +212,95 @@ describe('ColdStartComposer', () => {
     expect(heading.className).not.toContain('flex')
     expect(heading.textContent?.endsWith('⁠?')).toBe(true)
     expect(heading.lastElementChild?.className).toContain('cold-start-project')
+  })
+
+  /* POD-1203. The home box can be given a screenshot or a document, and the
+   * whole point is that the agent receives it — a chip that only ever decorated
+   * this screen would be worse than no affordance at all. */
+  describe('attachments', () => {
+    it('uploads to the SELECTED machine, because a path is only valid on one disk', async () => {
+      create.mockResolvedValue({ id: asIssueId('issue-att') })
+      start.mockResolvedValue({ id: asIssueId('issue-att') })
+      uploadImage.mockResolvedValue({ path: '/home/a/.podium/uploads/scope/1.png' })
+      render(<ColdStartComposer first />)
+
+      attach(new File(['bytes'], 'shot.png', { type: 'image/png' }))
+
+      await waitFor(() =>
+        expect(uploadImage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            filename: 'shot.png',
+            mimeType: 'image/png',
+            machineId: 'machine-a',
+          }),
+        ),
+      )
+      // The scope is a stand-in for a session that does not exist yet — it must
+      // be SOMETHING (the uploads dir is named by it) and must not be a real
+      // session id, which is why nothing here asserts a lookup.
+      expect(uploadImage.mock.calls[0]?.[0].sessionId).toMatch(/^coldstart-/)
+    })
+
+    it('carries the uploaded path into the started mission, in the brief', async () => {
+      const issueId = asIssueId('issue-att')
+      create.mockResolvedValue({ id: issueId })
+      start.mockResolvedValue({ id: issueId })
+      uploadImage.mockResolvedValue({ path: '/home/a/.podium/uploads/scope/1.png' })
+      render(<ColdStartComposer first />)
+
+      fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+        target: { value: 'Match this mock' },
+      })
+      attach(new File(['bytes'], 'mock.png', { type: 'image/png' }))
+      await waitFor(() => expect(uploadImage).toHaveBeenCalled())
+      fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+
+      await waitFor(() => expect(create).toHaveBeenCalled())
+      const input = create.mock.calls[0]?.[0]
+      // The description stays the prose a human reads on the issue card…
+      expect(input.description).toBe('Match this mock')
+      expect(input.title).toBe('Match this mock')
+      // …and the path rides in the brief, which the started session's first
+      // prompt joins onto it ([spec:SP-6144]).
+      expect(input.brief).toContain('/home/a/.podium/uploads/scope/1.png')
+    })
+
+    it('refuses to launch until the bytes have landed, so the brief cannot name a file in flight', async () => {
+      create.mockResolvedValue({ id: asIssueId('issue-att') })
+      let land: (result: { path: string }) => void = () => {}
+      uploadImage.mockReturnValue(
+        new Promise<{ path: string }>((resolve) => {
+          land = resolve
+        }),
+      )
+      render(<ColdStartComposer first />)
+
+      fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+        target: { value: 'Read this spec' },
+      })
+      attach(new File(['bytes'], 'spec.pdf', { type: 'application/pdf' }))
+
+      const launch = () => screen.getByRole('button', { name: 'Start work' }) as HTMLButtonElement
+      await waitFor(() => expect(launch().disabled).toBe(true))
+      fireEvent.click(launch())
+      expect(create).not.toHaveBeenCalled()
+
+      land({ path: '/home/a/.podium/uploads/scope/1.pdf' })
+      await waitFor(() => expect(launch().disabled).toBe(false))
+    })
+
+    it('takes a document, not only a screenshot', async () => {
+      uploadImage.mockResolvedValue({ path: '/home/a/.podium/uploads/scope/1.pdf' })
+      render(<ColdStartComposer first />)
+
+      attach(new File(['%PDF'], 'brief.pdf', { type: 'application/pdf' }))
+
+      await waitFor(() =>
+        expect(uploadImage).toHaveBeenCalledWith(
+          expect.objectContaining({ filename: 'brief.pdf', mimeType: 'application/pdf' }),
+        ),
+      )
+      expect(screen.getByText('brief.pdf')).toBeTruthy()
+    })
   })
 })

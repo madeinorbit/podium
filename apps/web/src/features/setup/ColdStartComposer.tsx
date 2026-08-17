@@ -1,19 +1,21 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
-import { asMutationId, type GitRepositoryWire } from '@podium/model'
+import { asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
-import { ArrowRight, ChevronDown, LoaderCircle, Monitor } from 'lucide-react'
+import { ArrowRight, ChevronDown, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
+import { useAttachments } from '@/features/chat/use-attachments'
 import { AUTO } from '@/lib/agent-models'
 import {
   ISSUE_AGENT_KINDS,
+  type IssueAgentKind,
   issueAgentIcon,
   issueAgentKind,
   issueAgentLabel,
-  type IssueAgentKind,
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
@@ -31,6 +33,30 @@ function promptTitle(prompt: string): string {
     .map((line) => line.trim())
     .find(Boolean)
   return (firstLine ?? prompt.trim()).slice(0, 120)
+}
+
+/**
+ * THE BRIEF IS WHERE THE ATTACHED PATHS GO (POD-1203).
+ *
+ * A started issue's first prompt is `description` then `brief`, joined
+ * ([spec:SP-6144]) — so either field reaches the agent. The brief is the right
+ * half: the description is prose a HUMAN reads, on the issue card, in the
+ * sidebar and as the source of the title, and three absolute upload paths
+ * stapled to the front of it would be the first thing they see about their own
+ * mission. The brief is where technical detail belongs, and the agent reads both.
+ *
+ * The chat composer's own convention is paths first, then prose; the ordering
+ * differs here for the same reason the fields do — an issue leads with its
+ * summary, and the spec says so.
+ */
+function attachmentBrief(paths: readonly string[]): string {
+  if (paths.length === 0) return ''
+  return [
+    paths.length === 1
+      ? 'The operator attached this file to the mission:'
+      : 'The operator attached these files to the mission:',
+    ...paths,
+  ].join('\n')
 }
 
 export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
@@ -123,6 +149,31 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   )
   const ready = activationAgentIsReady(readiness)
 
+  /**
+   * ATTACHING BEFORE THERE IS ANYTHING TO ATTACH TO (POD-1203).
+   *
+   * The same hook, the same mutation and the same daemon that the session chat
+   * composer uses — a second upload path would be a second set of size limits,
+   * failure shapes and GC rules to keep in step, for no gain. The two things it
+   * has to be told are the two the session normally answers:
+   *
+   *  - WHICH MACHINE. The chosen one, because the paths that come back have to be
+   *    valid on the disk this mission is about to run on. The hook re-uploads by
+   *    itself if that choice changes underneath an attachment.
+   *  - WHICH FOLDER. Uploads are filed per session, and this one has no session.
+   *    A scope id minted here stands in for it: the daemon treats it as an opaque
+   *    directory name (it deliberately validates no session — a client may upload
+   *    before the PTY is live), so the bytes land beside every other upload and
+   *    are swept by the same 24h TTL. It is NOT a session id in disguise; nothing
+   *    ever looks it up, and the session this mission spawns gets its own.
+   */
+  const [uploadScope] = useState(() => asSessionId(`coldstart-${randomUUID()}`))
+  const attachments = useAttachments({
+    sessionId: uploadScope,
+    trpc,
+    ...(selectedMachine ? { machineId: selectedMachine.id } : {}),
+  })
+
   useEffect(() => {
     if (!selectedRepo) return
     const repoChanged = draft.repoPath !== selectedRepo.path
@@ -163,11 +214,19 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
 
   const start = async (): Promise<void> => {
     const prompt = draft.title.trim()
-    if (busy || !selectedRepo || !selectedMachine || !ready || (!draft.pendingIssueId && !prompt))
+    if (
+      busy ||
+      attachments.uploading ||
+      !selectedRepo ||
+      !selectedMachine ||
+      !ready ||
+      (!draft.pendingIssueId && !prompt)
+    )
       return
     setBusy(true)
     setError(null)
     try {
+      const brief = attachmentBrief(attachments.ready().paths)
       const createMutationId = draft.createMutationId || asMutationId(randomUUID())
       const created = draft.pendingIssueId
         ? { id: draft.pendingIssueId }
@@ -176,6 +235,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             machineId: selectedMachine.id,
             title: promptTitle(prompt),
             description: prompt,
+            ...(brief ? { brief } : {}),
             parentBranch: selectedRepo.branch?.trim() || undefined,
             defaultAgent: agent,
             defaultModel: draft.model !== AUTO ? draft.model : undefined,
@@ -192,6 +252,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       })
       await trpc.issues.start.mutate({ id: created.id, mutationId: startMutationId })
       clearFirstTaskDraft(uiState)
+      attachments.clear()
       // SENDING A PROMPT LANDS ON THE TRANSCRIPT IT STARTED (POD-1202).
       //
       // Selecting the issue was all this used to do, and at that moment the
@@ -251,6 +312,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           {first ? ' its first mission.' : '⁠?'}
         </h2>
 
+        {/* The DROP TARGET is the whole box, not the textarea (POD-1203): a drag
+            aimed at a mission is aimed at the composer, and half of this box is
+            the instrument row. Same reach the chat composer gives it. */}
         <div
           className="cold-start-field relative overflow-hidden rounded-[14px] bg-bar shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"
           onKeyDown={(event) => {
@@ -259,6 +323,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               void start()
             }
           }}
+          {...attachments.dropHandlers}
         >
           <textarea
             aria-label="What do you want to work on?"
@@ -266,9 +331,30 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             value={draft.title}
             disabled={busy || Boolean(draft.pendingIssueId)}
             onChange={(event) => setDraft({ ...draft, title: event.currentTarget.value })}
+            onPaste={attachments.onPaste}
             placeholder="Describe the mission — an outcome, a bug, a question about the codebase…"
             className="cold-start-input block w-full resize-none bg-transparent px-[22px] text-[14.5px] leading-[1.6] text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
           />
+          {attachments.attachments.length > 0 && (
+            <div className="px-[22px] pb-2.5">
+              <AttachmentStrip
+                attachments={attachments.attachments}
+                onRemove={attachments.remove}
+              />
+            </div>
+          )}
+          <input
+            ref={attachments.fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={attachments.onFileInputChange}
+          />
+          {attachments.dragOver && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[14px] border-2 border-dashed border-primary bg-primary/5">
+              <span className="text-sm font-medium text-primary">Drop files to attach</span>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2 border-t border-hairline-soft px-3.5 py-2.5">
             {/* The instrument strip is a WELL cut into the composer's bar. The
                 floor is --well-floor rather than a flat tone because the well
@@ -348,6 +434,20 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               placeholder="Choose a machine…"
               onSelect={selectMachine}
             />
+            {/* The clip sits with the machine picker rather than beside Launch:
+                both name WHAT the mission is given, and the auto-margined group
+                to its right is reserved for the act of launching it. */}
+            <button
+              type="button"
+              data-pressable
+              aria-label="Attach a file"
+              title="Attach a file"
+              disabled={busy || Boolean(draft.pendingIssueId)}
+              onClick={attachments.openFilePicker}
+              className="inline-flex size-7 flex-none items-center justify-center rounded-lg text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Paperclip size={13} aria-hidden="true" />
+            </button>
             {/* The chord and the launch travel together in one auto-margined
                 group, so hiding the chord on a narrow pane cannot strand the
                 button in the middle of the row. */}
@@ -365,6 +465,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 className="btn-primary-rim inline-flex h-[30px] items-center gap-[7px] rounded-[9px] border border-transparent bg-primary px-3.5 text-[12px] leading-none font-semibold text-primary-foreground transition-colors hover:bg-primary/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-text-strong disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={
                   busy ||
+                  // A launch that outran its uploads would create the mission
+                  // with a brief naming files that are still in flight.
+                  attachments.uploading ||
                   !selectedRepo ||
                   !selectedMachine ||
                   !ready ||

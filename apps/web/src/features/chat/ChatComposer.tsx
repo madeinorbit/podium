@@ -352,7 +352,7 @@ export function ChatComposer({
             ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
             : "size-7 rounded-[8px] [&_svg:not([class*='size-'])]:size-4",
         )}
-        title="Attach image"
+        title="Attach a file"
         onClick={attachments.openFilePicker}
       >
         <Paperclip size={16} aria-hidden="true" />
@@ -538,13 +538,12 @@ export function ChatComposer({
               compact ? 'rounded-[9px]' : 'rounded-[12px]',
             )}
           >
-            <span className="text-sm font-medium text-primary">Drop image to attach</span>
+            <span className="text-sm font-medium text-primary">Drop files to attach</span>
           </div>
         )}
         <input
           ref={attachments.fileInputRef}
           type="file"
-          accept="image/*"
           multiple
           className="hidden"
           onChange={attachments.onFileInputChange}
