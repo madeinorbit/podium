@@ -505,6 +505,31 @@ function errorCopy(
         message: 'Desktop updates are turned off in this development build.',
         nextAction: 'Install a released build of Podium Desktop to update it.',
       }
+    case 'invalid-update-channel':
+      return {
+        message: message ?? 'Podium received an unsupported desktop update channel.',
+        nextAction: 'Report this as a Podium bug.',
+      }
+    case 'updater-unavailable':
+      return {
+        message: message ?? 'Podium could not start the desktop update checker.',
+        nextAction: 'Restart Podium, then check again.',
+      }
+    case 'no-release-on-channel':
+      return {
+        message: message ?? 'Nothing has been published on this update channel yet.',
+        nextAction: 'Choose a different release channel.',
+      }
+    case 'network-unreachable':
+      return {
+        message: message ?? 'Podium could not reach the desktop update channel.',
+        nextAction: "Check this machine's internet connection, then check again.",
+      }
+    case 'update-check-failed':
+      return {
+        message: message ?? 'Podium could not read this channel’s desktop release information.',
+        nextAction: 'Ask the release publisher to check the desktop manifest.',
+      }
     case 'signature-invalid':
       return {
         message: "The desktop update couldn't be verified, so Podium refused to install it.",
@@ -705,17 +730,22 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     const error = presentOperationError(input.actionError, {
       ...(operation ? { operationId: operation.id } : {}),
     })
+    const primary =
+      input.actionError.code === 'network-unreachable'
+        ? { kind: 'check' as const, label: 'Check again', pendingLabel: 'Checking…' }
+        : input.actionError.code === 'no-release-on-channel' ||
+            input.actionError.code === 'invalid-update-channel' ||
+            input.actionError.code === 'updater-unavailable' ||
+            input.actionError.code === 'update-check-failed'
+          ? undefined
+          : { kind: 'retry' as const, label: 'Try again', pendingLabel: 'Trying again…' }
     return {
       state: 'failed',
       title: 'Podium update failed',
       ...(operation ? { operationId: operation.id } : {}),
       steps: operation ? stepRows(operation) : [],
       error,
-      primary: {
-        kind: 'retry',
-        label: 'Try again',
-        pendingLabel: 'Trying again…',
-      },
+      ...(primary ? { primary } : {}),
       awaitingElsewhere: [],
       indicator: 'attention',
       indicatorLabel: 'Update failed',

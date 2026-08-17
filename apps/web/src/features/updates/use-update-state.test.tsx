@@ -528,6 +528,34 @@ describe('useUpdateState — dispatching actions', () => {
     expect(results.at(-1)?.view.error?.nextAction).toMatch(/open it again/i)
   })
 
+  it('surfaces a missing channel release instead of calling it a download failure', async () => {
+    setPageVersion('0.4.2')
+    setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
+    mocks.active.mockResolvedValue(null)
+    mocks.checkNow.mockResolvedValue({ checked: true })
+    stubDesktopShell({
+      checkUpdate: vi.fn(async () => {
+        throw {
+          code: 'no-release-on-channel',
+          message: 'Nothing has been published on the stable channel yet.',
+        }
+      }),
+    })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} behind={0} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('none'))
+
+    await results.at(-1)?.checkNow()
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(results.at(-1)?.view.error).toMatchObject({
+      message: 'Nothing has been published on the stable channel yet.',
+      nextAction: 'Choose a different release channel.',
+    })
+    expect(results.at(-1)?.view.error?.detail).toContain('code: no-release-on-channel')
+    expect(results.at(-1)?.view.primary).toBeUndefined()
+  })
+
   it('reports “up to date” after a manual check finds nothing', async () => {
     setPageVersion('0.4.2')
     setupTransport({ appVersion: '0.4.2', target: { ...target, version: '0.4.2' } })
