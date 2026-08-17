@@ -53,6 +53,7 @@ export type UpdateView =
   | { state: 'none' }
   | { state: 'checking' }
   | { state: 'current'; version: string }
+  | { state: 'local-stale'; version: string }
   | {
       state: 'available' | 'required'
       version: string
@@ -83,6 +84,7 @@ export interface UpdateInput {
       bundleReady: boolean
       failureDetail?: string
     }
+    startability?: { startable: true } | { startable: false; reason: string }
     machines?: readonly { name?: string; version?: string; state: string; detail?: string }[]
   }
   touched: { app: boolean; server: boolean; machines: boolean; phone: boolean }
@@ -541,6 +543,9 @@ export function describeUpdate(input: UpdateInput): UpdateView {
     input.skew !== 'ok' || target?.critical === true || input.desktopUpdate?.critical === true
   const places = placesFor(input)
   if (!required && places.length === 0) return { state: 'none' }
+  if (input.fleet.startability?.startable === false && input.desktopUpdate === undefined) {
+    return { state: 'local-stale', version }
+  }
 
   const result: Extract<UpdateView, { state: 'available' | 'required' }> = {
     state: required ? 'required' : 'available',

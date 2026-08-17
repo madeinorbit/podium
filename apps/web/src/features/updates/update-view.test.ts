@@ -33,6 +33,24 @@ describe('describeUpdate', () => {
     expect(v.state).toBe('none')
   })
 
+  it('makes a stale local page reload-only when the server cannot start an update', () => {
+    const v = describeUpdate({
+      ...base,
+      fleet: {
+        ...base.fleet,
+        behind: 0,
+        startability: {
+          startable: false,
+          reason: 'Podium is already at this version everywhere.',
+        },
+      },
+      touched: { app: true, server: false, machines: false },
+      skew: 'client-too-old',
+    } as never)
+
+    expect(v).toEqual({ state: 'local-stale', version: '0.4.2' })
+  })
+
   it('names places, never components', () => {
     const v = describeUpdate(base as never)
     const text = JSON.stringify(v)
