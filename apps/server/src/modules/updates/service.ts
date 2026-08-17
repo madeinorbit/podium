@@ -125,6 +125,24 @@ interface PendingGrant {
  */
 export const GRANT_TIMED_OUT_DETAIL = 'The machine stopped reporting progress while updating.'
 
+/**
+ * The stable token that fronts a stuck detail written by {@link
+ * UpdatesService.setTargetUnavailable} (POD-2241).
+ *
+ * The reason itself is free prose composed by the development publisher
+ * ("Building the development bundle for dev+abc…", or a pack failure's public
+ * reason), and free prose is precisely what no reader can classify: before this
+ * token, a machine ended by a WITHDRAWN target read as `machine-unreachable`,
+ * so the operator was sent to go and check a machine that was never the problem
+ * and that had done nothing wrong.
+ *
+ * Only the per-machine detail is tokenized. The channel's own
+ * `unavailableReason` — what Settings shows for the target — stays the bare
+ * sentence, because there it is the whole answer rather than one machine's
+ * verdict.
+ */
+export const TARGET_WITHDRAWN_TOKEN = 'update-withdrawn'
+
 /** The one decision an explicit per-machine Apply can produce. */
 export type MachineApplyOutcome =
   | { result: 'granted'; version: string }
@@ -224,7 +242,11 @@ export class UpdatesService {
       if (state.state === 'current' || state.state === 'rejected' || state.state === 'stuck') {
         continue
       }
-      this.machineStates.set(machineId, { ...state, state: 'stuck', detail: reason })
+      this.machineStates.set(machineId, {
+        ...state,
+        state: 'stuck',
+        detail: `${TARGET_WITHDRAWN_TOKEN}: ${reason}`,
+      })
     }
   }
 

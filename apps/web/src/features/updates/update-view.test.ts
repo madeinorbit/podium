@@ -261,16 +261,26 @@ describe('describeUpdate', () => {
  * reports free text and `presentOperationError` falls through to exactly this.
  */
 describe('describeUpdateFailure', () => {
+  /**
+   * POD-2241 changed the third layer here on purpose. The diagnostic used to be
+   * a HAND-WRITTEN sentence per arm ("The machines do not support this update's
+   * delivery method"), which meant three tokens with three different causes
+   * shared one message and were told apart only by prose this file invented.
+   * The raw sentence is both more useful to the operator who has to act on it
+   * and the thing the operation path already shows. What §7 keeps out of the
+   * OPERATOR's two layers is the vocabulary — that is what is asserted.
+   */
   it('translates an unsupported delivery failure into actionable language', () => {
-    const v = describeUpdateFailure('cannot converge: unsupported-delivery')
+    const v = describeUpdateFailure('cannot converge: unsupported-delivery', 'ludovico')
     expect(v).toEqual({
       state: 'failed',
-      message: 'One or more machines cannot use this update.',
+      message: "ludovico cannot use this update's package.",
       guidance:
-        'Ask the server operator to check the release package for those machines, then try again.',
-      diagnostic: "The machines do not support this update's delivery method.",
+        'Ask the server operator to check the release includes that machine’s platform and ' +
+        'delivery method, then try again.',
+      diagnostic: 'cannot converge: unsupported-delivery',
     })
-    expect(JSON.stringify(v)).not.toContain('unsupported-delivery')
+    expect(`${v.message} ${v.guidance}`).not.toContain('unsupported-delivery')
   })
 
   /**
@@ -291,13 +301,13 @@ describe('describeUpdateFailure', () => {
     expect(v.message).toMatch(/cannot update itself/i)
     // "Nothing was changed" is the load-bearing half: the operator has to know
     // whether their checkout moved before deciding what to do next.
-    expect(v.guidance).toMatch(/nothing was changed/i)
+    expect(v.message).toMatch(/nothing was changed/i)
     expect(v.guidance).toMatch(/start it again/i)
     expect(v.guidance).toMatch(/podium setup/i)
     // Never the generic delivery copy, which would send them to the release
     // operator for a problem that lives in their own terminal.
-    expect(v.message).not.toMatch(/one or more machines/i)
-    expect(JSON.stringify(v)).not.toContain('foreground-all-in-one')
+    expect(v.message).not.toMatch(/cannot use this update/i)
+    expect(`${v.message} ${v.guidance}`).not.toContain('foreground-all-in-one')
   })
 
   it('names the machine when the refusal came from one', () => {
@@ -322,8 +332,8 @@ describe('describeUpdateFailure', () => {
     expect(v.state).toBe('failed')
     expect(v.message).toMatch(/ludovico/)
     expect(v.message).toMatch(/older/i)
-    expect(v.guidance).toMatch(/still running/i)
-    expect(v.message).not.toMatch(/one or more machines/i)
+    expect(v.message).toMatch(/still running/i)
+    expect(v.message).not.toMatch(/cannot use this update/i)
     // The prose stays jargon-free; the diagnostic keeps the one fact worth
     // keeping — WHICH migration the older build could not open.
     expect(`${v.message} ${v.guidance}`).not.toContain('schema-advanced')
@@ -351,7 +361,7 @@ describe('describeUpdateFailure', () => {
 
     expect(v.state).toBe('failed')
     expect(v.message).toMatch(/ludovico/)
-    expect(v.guidance).toMatch(/still running/i)
+    expect(v.message).toMatch(/still running/i)
     // Neither half of the schema-advanced sentence is known here.
     expect(v.message).not.toMatch(/older/i)
     expect(v.message).not.toMatch(/cannot open|can't open/i)
@@ -396,7 +406,7 @@ describe('describeUpdateFailure', () => {
     expect(v.state).toBe('failed')
     expect(v.message).toMatch(/could not read/i)
     expect(v.message).not.toMatch(/older/i)
-    expect(v.guidance).toMatch(/still running/i)
+    expect(v.message).toMatch(/still running/i)
     expect(v.guidance).toMatch(/try again/i)
     expect(`${v.message} ${v.guidance}`).not.toContain('schema-unreadable')
     expect(v.diagnostic).toContain('SQLITE_CANTOPEN')
@@ -408,10 +418,10 @@ describe('describeUpdateFailure', () => {
     expect(v).toMatchObject({
       state: 'failed',
       message: 'ludovico has local files or edits that prevent a safe update.',
-      diagnostic: 'Git delivery stopped because the checkout is not clean.',
+      diagnostic: 'git delivery failed: dirty-working-tree',
     })
     expect(v.guidance).toMatch(/commit, stash, move, or locally exclude/i)
-    expect(JSON.stringify(v)).not.toContain('dirty-working-tree')
+    expect(`${v.message} ${v.guidance}`).not.toContain('dirty-working-tree')
   })
 
   it('translates connection failures without exposing raw transport copy', () => {
@@ -419,11 +429,11 @@ describe('describeUpdateFailure', () => {
 
     expect(v).toEqual({
       state: 'failed',
-      message: 'Podium could not reach the update source.',
-      guidance: "Check this server's internet connection, then try the update again.",
-      diagnostic: 'The update could not be downloaded.',
+      message: 'Podium could not download this update.',
+      guidance: 'Check the connection, then try the update again.',
+      diagnostic: 'Unable to connect. Is the computer able to access the url?',
     })
-    expect(JSON.stringify(v)).not.toMatch(/unable to connect|access the url/i)
+    expect(`${v.message} ${v.guidance}`).not.toMatch(/unable to connect|access the url/i)
   })
 
   it('keeps an unknown failure as support detail', () => {

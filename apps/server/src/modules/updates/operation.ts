@@ -2,12 +2,14 @@ import type { MachineId, UpdateChannel } from '@podium/model'
 import type {
   AwaitingAsk,
   DeferredPlace,
+  MachineFailureCode,
   Operation,
   OperationError,
   OperationStep,
   StepPlace,
   UpdateTarget,
 } from '@podium/protocol'
+import { classifyUpdateFailureDetail } from '@podium/protocol'
 import {
   DEFAULT_DOWNLOAD_TIMEOUT_MS,
   PROGRESS_REPORT_INTERVAL_MS,
@@ -130,6 +132,44 @@ export const UPDATE_ERROR_CODES = [
   'machine-schema-advanced',
   'machine-schema-unknown',
   'machine-schema-unreadable',
+  /**
+   * THE ELEVEN SENTENCES THE UNREACHABLE DEFAULT WAS ANSWERING FOR (POD-2241).
+   *
+   * A by-import audit drove every producer in the update path and handed what
+   * it actually wrote to both readers. Eleven precise sentences — every git
+   * delivery step, both verification failures, every delivery misconfiguration,
+   * both boot-reconciliation verdicts, an HTTP status from the artifact fetch —
+   * fell to `machine-unreachable`, so a machine that had just answered was
+   * reported as having stopped responding and as due to resume when it
+   * reconnects. Neither was true and the second could never become true.
+   *
+   * These four codes are the next actions those sentences actually imply, which
+   * is the only reason to have a code at all:
+   *
+   *  - `machine-delivery-failed` — a step failed on a live machine (git status,
+   *    fetch, checkout, or their timeout). Nothing was changed there; retrying
+   *    can legitimately produce a different answer.
+   *  - `machine-delivery-unavailable` — this update cannot be delivered to that
+   *    machine AS CONFIGURED (a bad git reference, no checkout runner, no
+   *    artifact URL, no pinned key). Retrying is guaranteed to return here, so
+   *    the copy must not offer it.
+   *  - `machine-artifact-rejected` — digest or signature verification failed and
+   *    the daemon refused to install. Corrupt or tampered; a security event, and
+   *    the one failure where "try again" is actively bad advice.
+   *  - `machine-update-not-confirmed` — it restarted and came back on the wrong
+   *    version. It is UP; the boot itself is what reported this.
+   */
+  'machine-delivery-failed',
+  'machine-delivery-unavailable',
+  'machine-artifact-rejected',
+  'machine-update-not-confirmed',
+  /**
+   * The server retracted the target while a machine was still applying it —
+   * `setTargetUnavailable` ends those rows as `stuck` and says why. The machine
+   * is fine and nothing about it needs checking, which is exactly what the
+   * unreachable default told the operator to go and do.
+   */
+  'update-withdrawn',
   'download-failed',
   'server-did-not-reach-target',
   'web-build-failed',
@@ -145,6 +185,11 @@ export type UpdateFailure =
   | { code: 'machine-schema-advanced'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-schema-unknown'; places: string[]; names: string[]; detail?: string }
   | { code: 'machine-schema-unreadable'; places: string[]; names: string[]; detail?: string }
+  | { code: 'machine-delivery-failed'; places: string[]; names: string[]; detail?: string }
+  | { code: 'machine-delivery-unavailable'; places: string[]; names: string[]; detail?: string }
+  | { code: 'machine-artifact-rejected'; places: string[]; names: string[]; detail?: string }
+  | { code: 'machine-update-not-confirmed'; places: string[]; names: string[]; detail?: string }
+  | { code: 'update-withdrawn'; places: string[]; names: string[]; detail?: string }
   | { code: 'download-failed'; places?: string[]; names?: string[]; detail?: string }
   | { code: 'server-did-not-reach-target'; observedVersion: string; targetVersion: string }
   | { code: 'web-build-failed'; detail?: string }
@@ -250,6 +295,66 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
+    case 'machine-delivery-failed':
+      // A step failed on a machine that is still running and still answering.
+      // Say what was NOT done first — the operator's next question is whether
+      // their checkout moved — and point at the detail, which names the step.
+      return {
+        code: failure.code,
+        message:
+          `${subject(failure)} could not put this update in place. Nothing was changed there ` +
+          'and Podium is still running. The technical detail below names the step that failed; ' +
+          "try again, and if it keeps failing check that machine's checkout and its disk.",
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-delivery-unavailable':
+      // NO "try again" — this is the arm for the failures that are properties
+      // of the release or the pairing, not of a moment. Retrying returns here.
+      return {
+        code: failure.code,
+        message:
+          `This update cannot be delivered to ${subject(failure)} as configured. Nothing was ` +
+          'changed there. Ask the server operator to check the release and that machine’s ' +
+          'pairing — trying again will not change this on its own.',
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-artifact-rejected':
+      // The one failure where "try again" is bad advice rather than merely
+      // useless: the bytes that arrived were not the bytes that were signed, so
+      // a retry either succeeds by luck or repeats the same unsafe fetch.
+      return {
+        code: failure.code,
+        message:
+          `The update package failed verification on ${subject(failure)}, so Podium refused to ` +
+          'install it and nothing was changed there. Ask the server operator to re-publish the ' +
+          'release before applying it again — what arrived was not what was signed.',
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-update-not-confirmed':
+      // Reported BY THE MACHINE'S OWN BOOT, so it is up. Nothing here claims
+      // why the new version did not start; the detail says how far it got.
+      return {
+        code: failure.code,
+        message:
+          `${subject(failure)} took this update but did not come back on the new version, and ` +
+          "is running again on the version it had. Check that machine's log for why the new " +
+          'version did not start — the technical detail below says how far it got.',
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'update-withdrawn':
+      return {
+        code: failure.code,
+        message:
+          `The server withdrew this update while ${subject(failure)} was still applying it, so ` +
+          'nothing was changed there. The detail below is the reason it gave; apply the update ' +
+          'again once the server is publishing one.',
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
     case 'download-failed':
       return {
         code: failure.code,
@@ -284,81 +389,30 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
 
 /**
  * Map a machine's convergence `detail` — a string written by the daemon, the
- * grant path, or the service's own timeout — onto a code.
+ * grant path, the boot reconciler, or the service's own timeout — onto a code.
  *
- * The patterns are deliberately the SAME ones `describeUpdateFailure` already
- * matches in `apps/web/src/features/updates/update-view.ts`. That function keeps
- * working unchanged (the panel issue consumes the codes later); this is where
- * the same evidence acquires a name the server can persist and a retry can key
- * on, instead of a sentence that has to be re-parsed by every reader.
+ * THIS IS NO LONGER A CLASSIFIER (POD-2241). It used to be one, and that was
+ * the defect: `describeUpdateFailure` in apps/web classified the SAME sentence
+ * independently, so an arm added here was half a fix and the missing half
+ * produced a confident wrong answer rather than a blank. The patterns now live
+ * once, in `@podium/protocol`'s {@link classifyUpdateFailureDetail}, which both
+ * readers call. Add a token there, not here — and note that doing so reds this
+ * package and apps/web until both have said what it means, which is the point.
+ *
+ * Kept as a named export because the operation path is its only caller and the
+ * name says what the call is FOR; and because `MachineFailureCode` widening in
+ * the protocol should fail HERE, at the union, rather than silently produce a
+ * code no arm of {@link describeUpdateOperationFailure} answers.
  */
-export type MachineFailureCode =
-  | 'machine-dirty-checkout'
-  | 'machine-unsupported'
-  | 'machine-unreachable'
-  | 'machine-cannot-restart'
-  | 'machine-schema-advanced'
-  | 'machine-schema-unknown'
-  | 'machine-schema-unreadable'
-  | 'download-failed'
+export type { MachineFailureCode }
+
+/** Every machine code must be a member of this kind's §7 taxonomy. */
+type _MachineCodesAreUpdateErrorCodes = MachineFailureCode extends UpdateErrorCode ? true : never
+const _machineCodesAreUpdateErrorCodes: _MachineCodesAreUpdateErrorCodes = true
+void _machineCodesAreUpdateErrorCodes
 
 export function classifyMachineFailure(detail: string | undefined): MachineFailureCode {
-  const normalized = detail?.trim() ?? ''
-  if (/dirty[-_\s]working[-_\s]tree|local (?:files|edits)|uncommitted/i.test(normalized)) {
-    return 'machine-dirty-checkout'
-  }
-  // POD-2210. FIRST among the machine refusals, and before the fall-through
-  // below in particular: this daemon is running, answering, and declining on
-  // purpose, so the default's "stopped responding, check it's running" would
-  // send the operator to look at the healthiest thing in the picture. The token
-  // is the daemon's (`FOREGROUND_ALL_IN_ONE_REFUSAL` in apps/daemon).
-  if (/foreground[-_\s]all[-_\s]in[-_\s]one/i.test(normalized)) return 'machine-cannot-restart'
-  /**
-   * POD-2239. The schema refusals, for the same reason and in the same place as
-   * the foreground one above: this daemon is running, answering, and declining
-   * on purpose. Without these arms all three fell to the default below, and the
-   * panel told the operator that a machine which had just answered had stopped
-   * responding and would resume when it reconnects — two false claims about a
-   * machine that will never "resume", because nothing about it is going to
-   * change on its own.
-   *
-   * Kept THREE, and ahead of the delivery and download branches. The patterns
-   * are deliberately the same ones `describeUpdateFailure` matches in
-   * apps/web/src/features/updates/update-view.ts, so the OPERATION path and the
-   * ActionError path read one daemon sentence the same way — the divergence
-   * between them is exactly what this issue was.
-   *
-   * Before the download branch in particular: `schema-unreadable` carries the
-   * underlying read error verbatim, and an arbitrary errno string is exactly
-   * the kind of text that branch is built to catch.
-   */
-  if (/schema[-_\s]advanced/i.test(normalized)) return 'machine-schema-advanced'
-  if (/schema[-_\s]unknown/i.test(normalized)) return 'machine-schema-unknown'
-  if (/schema[-_\s]unreadable/i.test(normalized)) return 'machine-schema-unreadable'
-  if (/unsupported[-_\s]delivery|unsupported[-_\s]platform|no[-_\s]artifact/i.test(normalized)) {
-    return 'machine-unsupported'
-  }
-  if (
-    /unable to connect|access the url|failed to fetch|fetch failed|download(?: timed out| failed)|network(?:error| request failed)|econn(?:refused|reset)|etimedout|enotfound/i.test(
-      normalized,
-    )
-  ) {
-    return 'download-failed'
-  }
-  // Everything else — including the service's own GRANT_TIMED_OUT_DETAIL ("The
-  // machine stopped reporting progress while updating.") — is a machine that
-  // stopped answering. That is the honest default: the alternative is a generic
-  // "could not finish" that tells the operator nothing about where to look.
-  //
-  // THIS DEFAULT IS THE COMMON CASE AGAIN (POD-2167). When POD-2101 moved the
-  // grant deadline onto the step, the only remaining writer of that detail was
-  // `releaseInFlightGrants`, which runs after the operation is already terminal
-  // — so nothing reached here from a timeout at all, and the very failure §7
-  // built `places` for arrived as a nameless `stalled`. {@link describeUpdateStall}
-  // is the reader it was missing: a machine whose own clock ran out is
-  // classified from whatever it last said, which is usually nothing, which is
-  // `machine-unreachable`.
-  return 'machine-unreachable'
+  return classifyUpdateFailureDetail(detail)
 }
 
 /** Which surface created the operation. Open vocabulary owned by this kind (§4). */

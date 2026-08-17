@@ -39,6 +39,7 @@ import type { AwaitingAsk, Operation, OperationError, OperationStep } from '@pod
 import type { IndicatorState } from './indicator-state'
 import {
   describeUpdateFailure,
+  machineFailureCopy,
   type Place,
   UNTRANSLATED_FAILURE_MESSAGE,
   type UpdateView,
@@ -410,8 +411,16 @@ function deferredNote(operation: Operation): string | undefined {
   return `${subject} will update when ${deferred.length === 1 && names.length === 1 ? 'it reconnects' : 'they reconnect'}.`
 }
 
-function placeSubject(places: readonly string[] | undefined, fallback: string): string {
-  if (!places || places.length === 0) return fallback
+/**
+ * Who a failure is about, or `undefined` when the operation did not say.
+ *
+ * `undefined` rather than a fallback string, because the fallback is not one
+ * word: "A machine", "This machine" and "Podium" each belong to a particular
+ * sentence, and choosing here would put the wrong one in most of them. The copy
+ * table picks its own (POD-2241).
+ */
+function placeSubject(places: readonly string[] | undefined): string | undefined {
+  if (!places || places.length === 0) return undefined
   if (places.length <= 2) return places.join(' and ')
   return `${places.length} machines`
 }
@@ -448,97 +457,22 @@ function errorCopy(
   message: string | undefined,
   places: readonly string[] | undefined,
 ): { message: string; nextAction: string } {
+  /**
+   * EVERY MACHINE FAILURE, FROM THE ONE TABLE (POD-2241).
+   *
+   * These arms used to be written out here, a second time, in wording that had
+   * drifted from `describeUpdateFailure`'s — which is how the same refusal came
+   * to read one way on the ActionError path and another on the operation path.
+   * One table now serves both, keyed by the code the shared classifier
+   * produces, and TypeScript reds `update-view.ts` when a code arrives with no
+   * sentence for the human.
+   *
+   * Consulted BEFORE the switch so a machine code can never be answered twice.
+   */
+  const machine = machineFailureCopy(code, placeSubject(places))
+  if (machine) return machine
+
   switch (code) {
-    case 'machine-dirty-checkout': {
-      const subject = placeSubject(places, 'A machine')
-      return {
-        message: `${subject} has local edits that prevent a safe update.`,
-        nextAction: `Commit or stash them there, then try again.`,
-      }
-    }
-    case 'machine-unsupported':
-      return {
-        message: `${placeSubject(places, 'A machine')} can't use this update's package.`,
-        nextAction: 'Check the release includes its platform, then try again.',
-      }
-    case 'machine-unreachable':
-      return {
-        message: `${placeSubject(places, 'A machine')} stopped responding while updating.`,
-        nextAction: "Check it's running; it will resume when it reconnects.",
-      }
-    /**
-     * POD-2210: Podium started as a single foreground process (`podium all`, or
-     * a bare `podium` where nothing manages it) is server and daemon in one PID
-     * with nothing to restart it, so its daemon refuses the update instead of
-     * exiting into a server that never comes back.
-     *
-     * The one §7 failure whose next action is NOT "try again" — trying again
-     * would refuse identically, because the answer is in the operator's terminal
-     * and not in this panel. Saying "nothing was changed" is the first half of
-     * the sentence for a reason: it is the question a person asks before they
-     * decide whether it is safe to restart it.
-     */
-    case 'machine-cannot-restart':
-      return {
-        message: `${placeSubject(places, 'Podium')} is running as a single foreground process, so it cannot update itself. Nothing was changed.`,
-        nextAction:
-          'Stop it in its terminal and start it again to pick this up — or run `podium setup` ' +
-          'there to install it as a service, which can update itself without going down.',
-      }
-    /**
-     * THE THREE SCHEMA REFUSALS ON THE OPERATION PATH (POD-2239).
-     *
-     * `describeUpdateFailure` above already says these three things when the
-     * refusal arrives as free text on an ActionError. A real update does not
-     * take that path: it fails a step on the operation, so it arrives here as
-     * a code — and until the server had arms for the three tokens they all
-     * classified as `machine-unreachable` and the operator was told a machine
-     * that had just answered had stopped responding and would resume when it
-     * reconnected. Neither was true, and the second could never become true.
-     *
-     * Three arms, matching the three codes, for the same reason the other path
-     * has three: they are three different states of knowledge, and §7 forbids
-     * a failure asserting what it has not established.
-     */
-    case 'machine-schema-advanced':
-      return {
-        message: `${placeSubject(places, 'A machine')} was asked to move to an older version that cannot open the data it already has. Nothing was changed and Podium is still running there.`,
-        nextAction:
-          'Pick a version at least as new as the one it is on — or, if you really need the ' +
-          'older one, restore a database backup from before the upgrade by hand first ' +
-          '(docs/data-and-upgrades.md).',
-      }
-    /**
-     * The arm that asserts LEAST, deliberately. The target did not declare what
-     * it can open and could not be proved newer, so "older" and "cannot open"
-     * are both guesses — and advice to pick something newer is not merely
-     * unproven but unachievable, because a coordinator on a source build
-     * reports `dev+<sha>`, which orders against nothing published. Every choice
-     * would come back here. The action that exists belongs to the release.
-     */
-    case 'machine-schema-unknown':
-      return {
-        message: `${placeSubject(places, 'A machine')} was asked to move to a version that does not say which data it can open, so nothing here could tell whether it would start. Nothing was changed and Podium is still running there.`,
-        nextAction:
-          'Ask the server operator for a release that declares which data it can open — that is ' +
-          'what settles this. A machine running a development build cannot order itself against ' +
-          'published versions, so choosing a different one will not.',
-      }
-    case 'machine-schema-unreadable':
-      // Nothing is known about the target at all here, so nothing is claimed
-      // about it. The only one of the three where "try again" is right: a read
-      // that lost to a lock or a permission can win next time.
-      return {
-        message: `${placeSubject(places, 'A machine')} could not read its own database, so nothing here could tell whether that version would start against it. Nothing was changed and Podium is still running there.`,
-        nextAction:
-          'Check that database file and its disk on that machine — the technical detail below ' +
-          'says why the read failed — then try again.',
-      }
-    case 'download-failed':
-      return {
-        message: "The update couldn't be downloaded.",
-        nextAction: "Check the server's connection, then try again.",
-      }
     case 'server-did-not-reach-target':
       return {
         message: 'The server restarted but came back on its old version. Nothing else was changed.',

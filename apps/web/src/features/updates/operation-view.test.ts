@@ -376,8 +376,10 @@ describe('operationView — the seven states', () => {
     })
     const result = view(payload)
     expect(result.state).toBe('failed')
-    expect(result.error?.message).toBe('vmi has local edits that prevent a safe update.')
-    expect(result.error?.nextAction).toBe('Commit or stash them there, then try again.')
+    expect(result.error?.message).toBe('vmi has local files or edits that prevent a safe update.')
+    expect(result.error?.nextAction).toBe(
+      'Commit, stash, move, or locally exclude those files on vmi, then try again.',
+    )
     expect(result.error?.detail).toContain('git status reported 3 modified files')
     expect(result.error?.detail).toContain('operation: op_01j')
     expect(result.primary).toMatchObject({ kind: 'retry', label: 'Try again' })
@@ -402,9 +404,9 @@ describe('operationView — the seven states', () => {
       }),
     )
     expect(result.state).toBe('failed')
-    expect(result.error?.message).toMatch(/^ludovico is running as a single foreground process/)
+    expect(result.error?.message).toMatch(/^Podium on ludovico is running as a single foreground/)
     expect(result.error?.message).toMatch(/nothing was changed/i)
-    expect(result.error?.nextAction).toMatch(/stop it in its terminal and start it again/i)
+    expect(result.error?.nextAction).toMatch(/stop it in the terminal it is running in/i)
     expect(result.error?.nextAction).toMatch(/podium setup/i)
     // The raw token stays in the collapsed diagnostic, never in the sentence.
     expect(result.error?.message).not.toContain('foreground-all-in-one')

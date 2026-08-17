@@ -221,7 +221,7 @@ describe('useUpdateState — the outcome, which `active` cannot carry', () => {
     render(<Probe onResult={(result) => results.push(result)} />)
 
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
-    expect(results.at(-1)?.view.error?.message).toMatch(/couldn't be downloaded/i)
+    expect(results.at(-1)?.view.error?.message).toMatch(/could not download this update/i)
   })
 
   it('stops showing a failure the user acknowledged', async () => {
