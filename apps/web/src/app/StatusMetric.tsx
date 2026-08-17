@@ -40,14 +40,29 @@ interface StatusMetricProps {
   aside: string
   reading: (value: number) => { value: string; label: string }
   foot: string
+  bucketMs: number
   shareText?: string
-  /** Agent concurrency is an absolute pixel stack; rates scale to their peak. */
-  scaleMax?: number
 }
 
-function timeLabel(bucket: StatusMetricBucket | undefined, index: number, count: number): string {
-  if (index === count - 1 || !bucket || bucket.startMs <= 0) return 'now'
-  return new Date(bucket.startMs + 60 * 60 * 1_000).toLocaleTimeString([], {
+export function bucketEndMs(
+  bucket: StatusMetricBucket | undefined,
+  index: number,
+  count: number,
+  bucketMs: number,
+): number | null {
+  if (index === count - 1 || !bucket || bucket.startMs <= 0 || bucketMs <= 0) return null
+  return bucket.startMs + bucketMs
+}
+
+function timeLabel(
+  bucket: StatusMetricBucket | undefined,
+  index: number,
+  count: number,
+  bucketMs: number,
+): string {
+  const endMs = bucketEndMs(bucket, index, count, bucketMs)
+  if (endMs === null) return 'now'
+  return new Date(endMs).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
   })
@@ -74,8 +89,8 @@ export function StatusMetric({
   aside,
   reading,
   foot,
+  bucketMs,
   shareText,
-  scaleMax,
 }: StatusMetricProps): JSX.Element {
   const [activeIndex, setActiveIndex] = useState(Math.max(0, buckets.length - 1))
   const lastIndex = Math.max(0, buckets.length - 1)
@@ -83,8 +98,8 @@ export function StatusMetric({
   const active = buckets[safeIndex] ?? { startMs: 0, value: 0 }
   const activeReading = reading(active.value)
   const peak = Math.max(0, ...buckets.map((bucket) => bucket.value))
-  const chartMax = Math.max(scaleMax ?? peak, Number.EPSILON)
-  const activeTime = timeLabel(active, safeIndex, buckets.length)
+  const chartMax = Math.max(peak, Number.EPSILON)
+  const activeTime = timeLabel(active, safeIndex, buckets.length, bucketMs)
   const tipRef = useRef<HTMLSpanElement>(null)
   const placeTip = useCallback(() => {
     const tip = tipRef.current
@@ -166,7 +181,7 @@ export function StatusMetric({
                 ? 1
                 : Math.max(
                     1,
-                    Math.round((Math.min(bucket.value, chartMax) / chartMax) * GRAPH_HEIGHT),
+                    Math.round((bucket.value / chartMax) * GRAPH_HEIGHT),
                   )
             const ageStrength = 0.36 + (index / Math.max(1, lastIndex)) * 0.34
             return (
@@ -176,7 +191,6 @@ export function StatusMetric({
                 data-active={index === safeIndex ? 'true' : 'false'}
                 data-current={index === lastIndex ? 'true' : 'false'}
                 data-zero={bucket.value <= 0 ? 'true' : 'false'}
-                data-over-cap={bucket.value > chartMax ? 'true' : 'false'}
                 style={
                   {
                     '--history-strength': ageStrength,
