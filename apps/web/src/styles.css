@@ -5433,17 +5433,25 @@ html[data-density="compact"] .brief-shelf {
 
 /* THE ENGINE'S ANCHOR FOLLOWS THE PIN (POD-1160).
 
-   Safari 26 ships scroll anchoring, and on this feed it is an authority
-   problem: the engine picks an anchor row and then REVERTS whatever moves it —
-   the app's bottom writes (measured: a -200px write applied late, partially,
-   or never, then snapped back) and the reader's own wheel (measured: 0px of
-   escape against it). Turning anchoring off wholesale is worse in two ways
-   that are both on the record: `overflow-anchor: none` on the SCROLLER makes
-   WebKit under-compute the scrollable region outright (POD-993, 444px
-   unreachable), and excluding every child starves the same geometry-refresh
-   channel, so the engine's idea of the maximum runs stale and it drags the
-   view up to it — 115-161px short, exactly the "it jumps up a second or two
-   after I reach the bottom" report.
+   KNOW WHICH ENGINE THE MEASUREMENTS BELOW CAME FROM (round 2): every one of
+   them ran in Playwright's TRUNK WebKit, which ships scroll anchoring.
+   RELEASE Safari — the operator's browser — has none at all
+   (`CSS.supports('overflow-anchor: none')` is false there), so this whole
+   block is inert for it; the bug that browser actually has is a stale async
+   scroll maximum, owned by `writeBottom` and arrival-by-intent in
+   use-transcript-scroll.ts. This regime manages the engine the automated
+   tests run in today and the one release Safari becomes when anchoring ships.
+
+   In an anchoring WebKit this feed is an authority problem: the engine picks
+   an anchor row and then REVERTS whatever moves it — the app's bottom writes
+   (measured: a -200px write applied late, partially, or never, then snapped
+   back) and the reader's own wheel (measured: 0px of escape against it).
+   Turning anchoring off wholesale is worse in two ways that are both on the
+   record: `overflow-anchor: none` on the SCROLLER makes WebKit under-compute
+   the scrollable region outright (POD-993, 444px unreachable), and excluding
+   every child starves the same geometry-refresh channel, so the engine's idea
+   of the maximum runs stale and it drags the view up to it — 115-161px short,
+   exactly the "it jumps up a second or two after I reach the bottom" report.
 
    So eligibility follows the reader's intent, which the scroll hook already
    tracks (use-transcript-scroll.ts):
@@ -5457,8 +5465,9 @@ html[data-density="compact"] .brief-shelf {
      Measured: 1440-1481px of escape against a bottom-writer, position holds.
 
    The hook re-grants eligibility on any DOWNWARD movement, before arrival:
-   the style flip itself refreshes the engine's stale maximum, so the true
-   bottom is reachable again by the time the reader gets there. */
+   in an anchoring engine the style flip refreshes the stale maximum on its
+   own; in release Safari it does nothing, which is why a write that falls
+   short heals the geometry itself with one frame of real padding. */
 [data-feed-scroller] > * {
   overflow-anchor: none;
 }

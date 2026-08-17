@@ -6,20 +6,23 @@ import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-trans
 
 // THE ENGINE'S ANCHOR FOLLOWS THE PIN (POD-1160).
 //
-// Safari's scroll anchoring reverts whatever moves its chosen anchor — the
-// pin's writes and the reader's wheel alike — so the stylesheet admits only
-// the feed's last child as an anchor candidate, and only while the scroller
-// carries `data-anchor-end`. This suite pins WHO toggles that attribute and
-// when, which is the part that would rot silently:
+// An anchoring WebKit (trunk today; release Safari has no scroll anchoring
+// yet, so there the attribute is inert) reverts whatever moves its chosen
+// anchor — the pin's writes and the reader's wheel alike — so the stylesheet
+// admits only the feed's last child as an anchor candidate, and only while
+// the scroller carries `data-anchor-end`. This suite pins WHO toggles that
+// attribute and when, which is the part that would rot silently:
 //
 //   - wheel-up or touch intent revokes it with the pin (leaving it granted is
-//     the measured trap where WebKit allows 0px of escape);
-//   - downward movement re-grants it BEFORE arrival (in WebKit the grant is
-//     what refreshes the engine's stale maximum, without which the bottom is
-//     unreachable and the gap<=4 re-pin can never fire);
-//   - upward movement that has left the bottom revokes it (scrollbar drags
-//     raise no wheel intent), but never while the pin holds — a clamp after
-//     the tail unmounts also reads as an upward move;
+//     the measured trap where an anchoring WebKit allows 0px of escape);
+//   - downward movement re-grants it BEFORE arrival (in an anchoring engine
+//     the grant is what refreshes the stale maximum; in release Safari the
+//     heal in `writeBottom` owns that instead);
+//   - upward movement revokes it only when it is legibly the READER's — travel
+//     clearly past the stale-clamp band, outside any wheel-down gesture. A
+//     rubber band settling onto a stale maximum, or a clamp after the tail
+//     unmounts, is ENGINE motion, and reading it as intent revoked the re-arm
+//     mid-gesture, every gesture (round 2);
 //   - a deliberate request for the bottom (jump, send) grants it.
 //
 // jsdom lays nothing out; scroll positions are driven by hand and the question
@@ -156,6 +159,31 @@ describe('the end anchor follows intent', () => {
     scrolledTo(4300) // up 200px: past the 80px band, the pin drops on distance
     expect(held.pinnedToBottom.current).toBe(false)
     expect(granted()).toBe(false)
+  })
+
+  // THE RETRACTION IS NOT A DRAG (POD-1160 round 2). In release Safari the
+  // rubber band settles UPWARD onto a stale engine maximum ~100-160px short of
+  // the DOM bottom, and that settle raises no wheel intent either — so reading
+  // it as a drag revoked the re-arm the reader's own wheel-down had just made,
+  // mid-gesture, every gesture. An upward move that stays inside the
+  // stale-clamp band keeps the grant; only travel clearly past it revokes.
+  it('keeps the grant through a retraction inside the stale-clamp band', () => {
+    wheelUp()
+    scrolledTo(3000)
+    scrolledTo(4400) // the reader wheels back down: re-armed
+    expect(granted()).toBe(true)
+    scrolledTo(4385) // the rubber band settles up onto the stale maximum
+    expect(held.pinnedToBottom.current).toBe(false)
+    expect(granted()).toBe(true)
+  })
+
+  it('keeps the grant when the upward move follows a wheel-down within its gesture', () => {
+    act(() => {
+      scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true }))
+    })
+    scrolledTo(3000) // a big clamp inside the same gesture raises no fresh intent
+    expect(held.pinnedToBottom.current).toBe(false)
+    expect(granted()).toBe(true)
   })
 
   it('survives an upward CLAMP while pinned — the tail-unmount case', () => {
