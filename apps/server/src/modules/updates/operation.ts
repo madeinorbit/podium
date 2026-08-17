@@ -279,6 +279,34 @@ export function updateOperationDetails(operation: Operation): UpdateOperationDet
   return details
 }
 
+/**
+ * WHICH VERSION IS THE RUNNING OPERATION DELIVERING ON THIS CHANNEL (POD-2228)?
+ *
+ * `UpdatesService` asks this to recognise its own package: a publication for
+ * the version already under way is that update acquiring its bytes, not a rival
+ * version to be queued behind it. It matters only where the service has no
+ * memory to compare against — a successor process after a restart — which is
+ * precisely where an adopted operation was starved of the package it resumed
+ * waiting for.
+ *
+ * It lives here rather than at the composition root because reading an update's
+ * `details` is this kind's knowledge, and a second copy of that reading in
+ * `relay.ts` is how the harness and production would come to disagree. A row
+ * this binary cannot parse, or one belonging to another kind (a future server
+ * move shares the exclusion group), answers `undefined` — the caller then falls
+ * back to the memory test, which is the pre-existing behaviour.
+ */
+export function exclusiveUpdateVersion(
+  row: { operation: Operation | null } | undefined,
+  channel: UpdateChannel,
+): string | undefined {
+  const operation = row?.operation
+  if (!operation || operation.kind !== UPDATE_OPERATION_KIND) return undefined
+  const details = updateOperationDetails(operation)
+  if (!details || details.channel !== channel) return undefined
+  return details.target.version
+}
+
 // ─────────────────────────────── planning ────────────────────────────────
 
 export interface UpdatePlanInput {

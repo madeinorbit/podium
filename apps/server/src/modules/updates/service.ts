@@ -41,6 +41,25 @@ export interface UpdatesDeps {
    * the answer changes on every transition.
    */
   exclusiveOperationActive?(): boolean
+  /**
+   * Which version is the running exclusive operation DELIVERING on this channel?
+   *
+   * THE OTHER HALF OF "IT IS NOT A NEW VERSION" (POD-2228). {@link setTarget}
+   * lets a descriptor for the version already published land mid-operation,
+   * because a `dev+` identity gaining its tarball is the same update acquiring
+   * its bytes. That test asked the wrong witness: the in-memory target. A
+   * successor process has none — a restart empties the map — so the publication
+   * the ADOPTED operation was waiting for was read as a rival version, queued,
+   * and never applied. The operation then waited for a package this service was
+   * holding, and the channel was blocked for every other publication until a
+   * human cancelled it.
+   *
+   * The operation carries its target in `details.target`, so the running
+   * operation always knows the answer even when this service has forgotten it.
+   * Read per call, like {@link exclusiveOperationActive}: it changes on every
+   * transition. Absent, or `undefined`, degrades to the memory test alone.
+   */
+  exclusiveOperationVersion?(channel: UpdateChannel): string | undefined
 }
 
 /** What one channel's last release-target lookup produced. */
@@ -223,12 +242,18 @@ export class UpdatesService {
     // about to deliver, and the running operation is waiting for exactly that.
     // So it lands immediately even mid-operation — it is not a new version.
     //
+    // TWO WITNESSES, because after a restart only the second one exists
+    // (POD-2228): the version this coordinator has published, and the version
+    // the running operation is delivering. A successor's `targets` map is empty,
+    // so asking memory alone made the adopted operation's own package look like
+    // a rival publication — queued, never applied, and blocking the channel.
+    //
     // WHAT IS GONE (POD-2098, spec §3.2/§10.2): this used to also `tick()` an
     // authorized wave from here, which made publishing a descriptor a way to
     // start granting. Sequencing is the operation's job now — the `machines`
     // step ticks explicitly, after `prepare`, exactly once, where a reader can
     // see it happen.
-    if (this.targets.get(channel)?.version === target.version) {
+    if (this.isSameUpdate(channel, target.version)) {
       this.unavailableReasons.delete(channel)
       this.targets.set(channel, target)
       return
@@ -253,6 +278,15 @@ export class UpdatesService {
     for (const [machineId, pending] of this.pendingGrants) {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
     }
+  }
+
+  /**
+   * Is this arriving version the update already under way on this channel —
+   * rather than a rival publication? See {@link UpdatesDeps.exclusiveOperationVersion}.
+   */
+  private isSameUpdate(channel: UpdateChannel, version: string): boolean {
+    if (this.targets.get(channel)?.version === version) return true
+    return this.deps.exclusiveOperationVersion?.(channel) === version
   }
 
   /**

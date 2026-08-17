@@ -143,6 +143,7 @@ import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
 import {
   createUpdateFleetBridge,
+  exclusiveUpdateVersion,
   LIFECYCLE_EXCLUSION_GROUP,
   updateOperationKind,
 } from './modules/updates/operation'
@@ -514,6 +515,11 @@ export class SessionRegistry {
       // as `nextTarget` instead of mutating the running wave (POD-2098, §3.2).
       exclusiveOperationActive: () =>
         operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+      // …and WHICH version that operation is delivering, so an operation adopted
+      // across a restart can still be handed the package it resumed waiting for
+      // (POD-2228). This process has no memory of having published it.
+      exclusiveOperationVersion: (channel) =>
+        exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
     })
     updates = updatesService
     const requestBroker = new DaemonRequestBroker({

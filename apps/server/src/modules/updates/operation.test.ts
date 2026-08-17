@@ -19,6 +19,7 @@ import {
   DESKTOP_INSTALL_ASK,
   describeUpdateOperationFailure,
   describeUpdateWaitingExpiry,
+  exclusiveUpdateVersion,
   LIFECYCLE_EXCLUSION_GROUP,
   planUpdateOperation,
   RELOAD_SURFACES_ASK,
@@ -693,7 +694,29 @@ function harness(options: HarnessOptions = {}) {
   const clock = fakeClock()
   const sent: Array<{ machineId: string; message: UpdateGrantMessage }> = []
   const fleet = options.machines ?? [machine({ id: 'vmi' })]
-  const newUpdatesService = () => {
+  /**
+   * Declared before the service that reads it: seeding a target runs
+   * `setTarget`, which now asks the engine what is running, and `relay.ts` has
+   * the same shape — `operations?.engine` is optional there for the same reason.
+   */
+  let engine: OperationEngine | undefined
+  const requireEngine = (): OperationEngine => {
+    if (!engine) throw new Error('harness engine is not constructed yet')
+    return engine
+  }
+  /**
+   * SINGLE-FLIGHT IS WIRED HERE BECAUSE IT IS WIRED IN `relay.ts` (POD-2228).
+   *
+   * The harness used to leave both of these out, so every publication in every
+   * drill landed unconditionally — no test in this file could observe a target
+   * being queued behind the running operation, which is exactly the half that
+   * deadlocked a restart. A harness that cannot reproduce production's guards
+   * cannot say no to a bug in them.
+   */
+  const newUpdatesService = (
+    driver: () => OperationEngine | undefined,
+    seed: UpdateTarget | undefined = options.target ?? devTarget(),
+  ) => {
     const service = new UpdatesService({
       machines: () => fleet,
       send: (machineId, message) => sent.push({ machineId, message }),
@@ -701,15 +724,18 @@ function harness(options: HarnessOptions = {}) {
       nextGrantId: () => `grant_${sent.length + 1}`,
       concurrency: 3,
       fleetChannel: () => 'dev',
+      exclusiveOperationActive: () =>
+        driver()?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
+      exclusiveOperationVersion: (channel) =>
+        exclusiveUpdateVersion(driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
     })
-    service.setTarget('dev', options.target ?? devTarget())
+    if (seed) service.setTarget('dev', seed)
     return service
   }
-  const updates = newUpdatesService()
+  const updates = newUpdatesService(() => engine)
 
   /** Deferred work the watchers schedule; drained explicitly, never slept on. */
   const scheduled: Array<() => void> = []
-  let engine: OperationEngine
   const contextOver = (
     service: UpdatesService,
     driver: () => OperationEngine,
@@ -742,7 +768,7 @@ function harness(options: HarnessOptions = {}) {
       ? { heartbeatIntervalMs: options.heartbeatIntervalMs }
       : {}),
   })
-  const context = (): UpdateOperationContext => contextOver(updates, () => engine)
+  const context = (): UpdateOperationContext => contextOver(updates, requireEngine)
 
   const registry = new OperationKindRegistry()
   registry.register(updateOperationKind())
@@ -762,7 +788,7 @@ function harness(options: HarnessOptions = {}) {
     sent,
     context,
     get engine() {
-      return engine
+      return requireEngine()
     },
     /** Run everything the watchers queued, and whatever that queues in turn. */
     async drain(): Promise<void> {
@@ -789,9 +815,19 @@ function harness(options: HarnessOptions = {}) {
      * one. This is the boundary reconciliation actually crosses: same store,
      * same fleet, nothing else.
      */
-    reboot(): { engine: OperationEngine; updates: UpdatesService; context: () => UpdateOperationContext } {
-      const nextUpdates = newUpdatesService()
+    reboot(opts: { seedTarget?: UpdateTarget | undefined } = {}): {
+      engine: OperationEngine
+      updates: UpdatesService
+      context: () => UpdateOperationContext
+    } {
       const nextEngine = new OperationEngine({ store, registry, clock: clock.clock })
+      // `seedTarget: undefined` is the honest shape of a successor that has not
+      // published yet: `targets` is EMPTY across a restart, and pre-seeding it
+      // is what hid POD-2228 from every adoption drill in this file.
+      const nextUpdates =
+        'seedTarget' in opts
+          ? newUpdatesService(() => nextEngine, opts.seedTarget)
+          : newUpdatesService(() => nextEngine)
       return {
         engine: nextEngine,
         updates: nextUpdates,
@@ -1583,12 +1619,77 @@ describe('surviving the coordinator restart', () => {
     expect(h.sent.at(-1)?.machineId).toBe('vmi')
     expect(h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.stalls ?? 0).toBe(0)
   })
+
+  /**
+   * THE DEADLOCK THIS EPIC'S CENTRAL CLAIM WAS HIDING (POD-2228).
+   *
+   * Adoption across a restart is proven; what was not proven is that an adopted
+   * operation can still be COMPLETED. The successor's `targets` map is empty, so
+   * when the resumed `prepare` finished its pack and the publisher offered the
+   * tarball, single-flight read that publication as a rival version and queued
+   * it. The `machines` step then waited for a package this very process was
+   * holding back, forever, and no other version could be published on the
+   * channel until a human cancelled the operation.
+   *
+   * Measured live on 2026-08-17: `/version` served `dev+a094223` with its full
+   * bundle while `updates.fleet` reported `targetVersion: null`, and cancelling
+   * the operation published it instantly with nothing else changed.
+   */
+  it('completes an operation adopted across a restart, package and all', async () => {
+    const fleet = [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })]
+    // The publisher republishes into whichever process is alive — which is the
+    // whole point: after the restart that is the successor, with no memory.
+    let publisher: UpdatesService | undefined
+    const packed = packedTarget()
+    const h = harness({
+      machines: fleet,
+      servedWebDigest: () => WEB_DIGEST,
+      appVersion: 'dev+abc1234',
+      requestDestBundle: async () => {
+        publisher?.setTarget('dev', packed)
+      },
+    })
+    publisher = h.updates
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    expect(h.read().steps?.map((step) => step.id)).toContain(UPDATE_STEP_PREPARE)
+
+    // Down mid-update, before the pack was published.
+    h.engine.stop()
+    const sentBefore = h.sent.length
+
+    const boot = h.reboot({ seedTarget: undefined })
+    publisher = boot.updates
+    await boot.engine.adoptOnBoot(
+      () => ({
+        appVersion: 'dev+abc1234',
+        servedWebDigest: WEB_DIGEST,
+        machineDirectory: fleet,
+        now: h.clock.clock.now(),
+      }),
+      () => boot.context(),
+    )
+    await boot.engine.whenSettled('op_1')
+    await h.drain()
+    await boot.engine.whenSettled('op_1')
+
+    // The package the adopted operation was waiting for is PUBLISHED, not
+    // parked behind it…
+    expect(boot.updates.target('dev')?.artifacts.headless).toBeDefined()
+    expect(boot.updates.nextTarget('dev')).toBeUndefined()
+    // …the step it was blocking got its grant…
+    expect(stepState(h.read(), UPDATE_STEP_PREPARE)).toBe('done')
+    expect(h.sent.length).toBeGreaterThan(sentBefore)
+    // …and it is not still saying it has nothing to hand anyone.
+    expect(h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.detail).not.toBe(
+      'Waiting for the update package.',
+    )
+  })
 })
 
 // ────────────────── §3.2 single-flight and nextTarget ────────────────
 
 describe('a version published mid-operation', () => {
-  function service(active: () => boolean) {
+  function service(active: () => boolean, deliveringVersion?: () => string | undefined) {
     const sent: string[] = []
     const updates = new UpdatesService({
       machines: () => [machine({ id: 'vmi' })],
@@ -1598,6 +1699,10 @@ describe('a version published mid-operation', () => {
       concurrency: 3,
       fleetChannel: () => 'dev',
       exclusiveOperationActive: active,
+      ...(deliveringVersion
+        ? { exclusiveOperationVersion: (channel: UpdateChannel) =>
+            channel === 'dev' ? deliveringVersion() : undefined }
+        : {}),
     })
     return { updates, sent }
   }
@@ -1648,6 +1753,38 @@ describe('a version published mid-operation', () => {
     updates.setTarget('dev', packedTarget())
     expect(updates.target('dev')?.artifacts.headless).toBeDefined()
     expect(updates.nextTarget('dev')).toBeUndefined()
+  })
+
+  /**
+   * THE SAME PUBLICATION, AFTER A RESTART (POD-2228).
+   *
+   * The test above is the whole of what the guard could recognise: it matched
+   * the arriving version against the target already in memory. A successor
+   * process has no such memory — `targets` is empty — so the operation it just
+   * adopted was starved of the very bytes it was waiting for, and the channel
+   * was blocked for everyone else until a human cancelled it. The operation
+   * knows the version it is delivering; that is the fact the guard must ask.
+   */
+  it('lets an ADOPTED operation gain its packed artifact with nothing in memory', () => {
+    const { updates } = service(
+      () => true,
+      () => 'dev+abc1234',
+    )
+    expect(updates.target('dev')).toBeUndefined()
+    updates.setTarget('dev', packedTarget())
+    expect(updates.target('dev')?.artifacts.headless).toBeDefined()
+    expect(updates.nextTarget('dev')).toBeUndefined()
+  })
+
+  /** …and a version the running operation is NOT delivering is still queued. */
+  it('still queues a version the running operation is not delivering', () => {
+    const { updates } = service(
+      () => true,
+      () => 'dev+abc1234',
+    )
+    updates.setTarget('dev', devTarget({ version: '0.4.4' }))
+    expect(updates.target('dev')).toBeUndefined()
+    expect(updates.nextTarget('dev')?.version).toBe('0.4.4')
   })
 
   /**
