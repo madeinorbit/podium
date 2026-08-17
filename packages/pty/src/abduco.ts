@@ -1,4 +1,4 @@
-import { execFile, type SpawnOptions, spawn, spawnSync } from 'node:child_process'
+import { execFile, type SpawnOptions, spawn } from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -223,8 +223,8 @@ function scopeEnv(base: NodeJS.ProcessEnv): Record<string, string> {
   return { ...base, ...(dir ? { XDG_RUNTIME_DIR: dir } : {}) } as Record<string, string>
 }
 
-let scopeChecked = false
-let scopeOk = false
+let scopeOk: boolean | undefined
+let scopeInFlight: Promise<boolean> | undefined
 let scopeWarned = false
 
 /**
@@ -236,19 +236,36 @@ let scopeWarned = false
  * every spawn takes the failure path. `PODIUM_NO_SCOPE` forces it off (tests /
  * non-systemd hosts). Memoized — the answer can't change within a process.
  */
-export function canScopeMaster(): boolean {
-  if (scopeChecked) return scopeOk
-  scopeChecked = true
-  scopeOk =
-    !process.env.PODIUM_NO_SCOPE &&
-    process.platform === 'linux' &&
-    userRuntimeDir() !== undefined &&
-    spawnSync('systemd-run', ['--user', '--scope', '--collect', '--quiet', '--', 'true'], {
-      stdio: 'ignore',
-      timeout: 8000,
-      env: scopeEnv(liveEnv()),
-    }).status === 0
-  return scopeOk
+export function canScopeMaster(): Promise<boolean> {
+  if (scopeOk !== undefined) return Promise.resolve(scopeOk)
+  if (scopeInFlight) return scopeInFlight
+  if (
+    process.env.PODIUM_NO_SCOPE ||
+    process.platform !== 'linux' ||
+    userRuntimeDir() === undefined
+  ) {
+    scopeOk = false
+    return Promise.resolve(false)
+  }
+
+  let pending!: Promise<boolean>
+  pending = new Promise<boolean>((resolve) => {
+    execFile(
+      'systemd-run',
+      ['--user', '--scope', '--collect', '--quiet', '--', 'true'],
+      { timeout: 8000, env: scopeEnv(liveEnv()) },
+      (error) => resolve(error === null),
+    )
+  })
+    .then((ok) => {
+      scopeOk = ok
+      return ok
+    })
+    .finally(() => {
+      if (scopeInFlight === pending) scopeInFlight = undefined
+    })
+  scopeInFlight = pending
+  return pending
 }
 
 /**
@@ -871,7 +888,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   // runs in the foreground but returns the instant the create process exits — abduco
   // daemonizes the master and returns immediately, so timing matches the bare call.
   // (cwd/env are inherited by the scope, verified against the live user manager.)
-  if (canScopeMaster()) {
+  if (await canScopeMaster()) {
     // Reclaim a stale scope squatting this label's unit name first, or `systemd-run`
     // fails ("unit already exists") and the master falls into the daemon's cgroup —
     // where the next redeploy kills it (see scopeReclaimArgvs). Guarded on no live

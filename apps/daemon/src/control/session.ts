@@ -759,9 +759,30 @@ function announceDriverSelection(
   ctx.send({ type: 'driverSelected', sessionId, driverId })
 }
 
-async function launchServerDriverSession(
+type ServerDriverProbeVerdict =
+  | { drivable: true }
+  | {
+      drivable: false
+      reason: 'unsupported' | 'unprobeable'
+      diagnostic: { title: string; body: string }
+    }
+
+export type ServerDriverAdmissionProbe = (
+  driverId: string,
+  policy?: { retryInconclusive?: boolean },
+) => Promise<ServerDriverProbeVerdict>
+
+const defaultServerDriverAdmissionProbe: ServerDriverAdmissionProbe = (driverId, policy) =>
+  driverId === 'codex-app-server'
+    ? codexAppServerVersionProbe(undefined, policy)
+    : driverId === 'grok-acp'
+      ? grokAcpVersionProbe(undefined, policy)
+      : opencodeVersionProbe(undefined, policy)
+
+export async function launchServerDriverSession(
   ctx: DaemonContext,
   msg: SpawnControl,
+  probeDriver: ServerDriverAdmissionProbe = defaultServerDriverAdmissionProbe,
 ): Promise<ServerDriverLaunchResult> {
   const { preferred } = runtimeDriverIntentForSpawn({
     agentKind: msg.agentKind,
@@ -797,13 +818,8 @@ async function launchServerDriverSession(
    * another. The REFUSAL below still keys on `namedHere`: an unprobeable
    * manifest or machine default degrades, while a per-spawn server id refuses.
    */
-  const probeFor = (driverId: string) => {
-    return driverId === 'codex-app-server'
-      ? codexAppServerVersionProbe()
-      : driverId === 'grok-acp'
-        ? grokAcpVersionProbe()
-        : opencodeVersionProbe()
-  }
+  const probeFor = (driverId: string) =>
+    probeDriver(driverId, namedHere === driverId ? { retryInconclusive: true } : undefined)
   const preferredServer = admissionProbeDriver(preferred, loginState)
   const preferredProbe = preferredServer === undefined ? undefined : await probeFor(preferredServer)
   const namedProbe = namedHere ? preferredProbe : undefined

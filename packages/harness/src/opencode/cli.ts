@@ -28,9 +28,10 @@ export function opencodeBinCandidates(homeDir?: string): string[] {
 export function resolveOpencodeBin(homeDir?: string): string {
   for (const candidate of opencodeBinCandidates(homeDir)) {
     if (candidate !== 'opencode' && !existsSync(candidate)) continue
-    if (opencodeRuns(candidate)) {
-      return candidate
-    }
+    // Launch resolution must not execute the CLI. Availability/identity scans
+    // own process probes; a PTY spawn only needs the preferred executable name
+    // and lets the eventual exec report a missing or broken binary normally.
+    return candidate
   }
   return 'opencode'
 }

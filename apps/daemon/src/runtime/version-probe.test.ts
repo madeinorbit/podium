@@ -60,4 +60,28 @@ describe('the asynchronous version-probe cache', () => {
     await expect(cache.probe(run)).resolves.toEqual({ drivable: true })
     expect(calls).toBe(2)
   })
+
+  it('retries a completed inconclusive answer deliberately while coalescing concurrent retries', async () => {
+    const cache = createVersionProbeCache<Verdict>({ evaluate })
+    await cache.probe(() => ({ output: 'ENOENT', ok: false }))
+
+    let calls = 0
+    let finish!: (result: { output: string; ok: boolean }) => void
+    const recovered = () => {
+      calls += 1
+      return new Promise<{ output: string; ok: boolean }>((resolve) => {
+        finish = resolve
+      })
+    }
+    const first = cache.probe(recovered, { retryInconclusive: true })
+    const second = cache.probe(recovered, { retryInconclusive: true })
+    await Promise.resolve()
+    expect(calls).toBe(1)
+
+    finish({ output: '1.0.0', ok: true })
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { drivable: true },
+      { drivable: true },
+    ])
+  })
 })

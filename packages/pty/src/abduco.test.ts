@@ -283,6 +283,7 @@ describe('alt-screen chrome stripper', () => {
 })
 
 const hasAbduco = isAbducoAvailable()
+const hasScopeMaster = hasAbduco && (await canScopeMaster())
 
 // POD-107: the in-test killAbducoSession calls sit on the happy path — a failed
 // assertion or timeout leaks the detached master for days. Sweep every label this
@@ -422,7 +423,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
   }, 15000)
 })
 
-describe.skipIf(!hasAbduco || !canScopeMaster())('scope reclaim before respawn', () => {
+describe.skipIf(!hasScopeMaster)('scope reclaim before respawn', () => {
   // Reproduces the diagnosed "agent keeps getting shut down" loop: a session's
   // deterministic scope (`<label>.scope`) is left ACTIVE by orphaned grandchildren the
   // agent spawned (a leaked sub-stack, stray Xvfb …). The same-named systemd-run then

@@ -15,6 +15,12 @@ export interface ProbeVerdictShape {
   reason?: 'unsupported' | 'unprobeable'
 }
 
+export interface VersionProbePolicy {
+  /** A deliberate retry may bypass a completed transient miss, but still joins
+   *  a probe another caller already has in flight. */
+  retryInconclusive?: boolean
+}
+
 /**
  * Cache a three-valued version gate and coalesce callers behind one asynchronous
  * child. Definitive answers live for the daemon lifetime; inconclusive answers
@@ -32,13 +38,16 @@ export function createVersionProbeCache<Verdict extends ProbeVerdictShape>(input
   let inFlight: Promise<Verdict> | undefined
 
   return {
-    probe(run: VersionProbe): Promise<Verdict> {
+    probe(run: VersionProbe, policy: VersionProbePolicy = {}): Promise<Verdict> {
       if (definitive) return Promise.resolve(definitive)
-      if (inconclusive && now() < inconclusive.expiresAt) {
+      // In-flight before completed-inconclusive is load-bearing: concurrent
+      // deliberate retries coalesce behind the same child instead of each
+      // bypassing the stale verdict and forking its own.
+      if (inFlight) return inFlight
+      if (!policy.retryInconclusive && inconclusive && now() < inconclusive.expiresAt) {
         return Promise.resolve(inconclusive.verdict)
       }
       inconclusive = undefined
-      if (inFlight) return inFlight
 
       let pending!: Promise<Verdict>
       pending = Promise.resolve()

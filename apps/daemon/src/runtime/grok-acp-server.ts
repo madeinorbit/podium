@@ -25,7 +25,12 @@ import { asSessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
-import { createVersionProbeCache, execVersionProbe, type VersionProbe } from './version-probe'
+import {
+  createVersionProbeCache,
+  execVersionProbe,
+  type VersionProbe,
+  type VersionProbePolicy,
+} from './version-probe'
 
 const log = createLogger('daemon:grok-acp-server')
 const PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
@@ -101,8 +106,9 @@ const versionProbeCache = createVersionProbeCache<GrokAcpProbeVerdict>({
 /** Three-valued gate: a timeout/ENOENT is transient and cached only briefly. */
 export function grokAcpVersionProbe(
   probe: VersionProbe = defaultVersionProbe,
+  policy?: VersionProbePolicy,
 ): Promise<GrokAcpProbeVerdict> {
-  return versionProbeCache.probe(probe)
+  return versionProbeCache.probe(probe, policy)
 }
 
 export function resetGrokAcpVersionProbe(): void {
@@ -190,7 +196,7 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
     if (child.exitCode === null && child.signalCode === null) child.kill(signal)
     if (live.size > 0) return
     children.delete(sessionId)
-    if (!canScopeMaster()) return
+    if (!(await canScopeMaster())) return
     const unit = scopeUnitName(grokAcpProcessKey(sessionId))
     for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
   }
@@ -207,7 +213,7 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
       }
 
       const label = grokAcpProcessKey(input.sessionId)
-      const scoped = canScopeMaster()
+      const scoped = await canScopeMaster()
       const unit = scopeUnitName(label)
       if (scoped && liveChildren(input.sessionId).size === 0) {
         for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)

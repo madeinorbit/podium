@@ -43,7 +43,7 @@ import {
   startDaemon,
 } from './daemon'
 import type { DaemonContext } from './control/context'
-import { sessionHandlers } from './control/session'
+import { launchServerDriverSession, sessionHandlers } from './control/session'
 import { runtimeHandlers } from './runtime/handlers'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import {
@@ -53,6 +53,7 @@ import {
 import { createDaemonCodexRuntime } from './runtime/codex-driver'
 import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime } from './runtime/grok-driver'
+import { createVersionProbeCache } from './runtime/version-probe'
 import { createSessionObservers, type ReattachControl } from './session-observers'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
@@ -1310,6 +1311,119 @@ describe('default server-driver spawn integration', () => {
     } finally {
       runtime.dispose()
     }
+  })
+})
+
+describe('server-driver admission control path', () => {
+  type Verdict =
+    | { drivable: true }
+    | {
+        drivable: false
+        reason: 'unsupported' | 'unprobeable'
+        diagnostic: { title: string; body: string }
+      }
+
+  const cachedProbe = (
+    run: () => { output: string; ok: boolean } | Promise<{ output: string; ok: boolean }>,
+  ) => {
+    const cache = createVersionProbeCache<Verdict>({
+      evaluate: ({ output, ok }) =>
+        ok
+          ? { drivable: true }
+          : {
+              drivable: false,
+              reason: 'unprobeable',
+              diagnostic: { title: 'probe did not answer', body: output },
+            },
+    })
+    return (_driverId: string, policy?: { retryInconclusive?: boolean }) => cache.probe(run, policy)
+  }
+
+  const spawn = (
+    sessionId: string,
+    runtimeContract?: string,
+    agentKind: 'codex' | 'opencode' = 'codex',
+  ) =>
+    withTestBindingInstruction({
+      type: 'spawn',
+      sessionId,
+      agentKind,
+      cwd: '/tmp',
+      geometry: G,
+      ...(runtimeContract ? { runtimeContract } : {}),
+    }) as never
+
+  it('starts no probe child for a logged-out default spawn', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    ctx.harnessLoginState = () => 'out'
+    let childProcesses = 0
+    const result = await launchServerDriverSession(
+      ctx,
+      spawn('logged-out-opencode', undefined, 'opencode'),
+      cachedProbe(() => {
+        childProcesses += 1
+        return { output: 'codex-cli 0.147.0', ok: true }
+      }),
+    )
+
+    expect(result).toEqual({ handled: false, requestedDriverId: 'opencode-server' })
+    expect(childProcesses).toBe(0)
+  })
+
+  it('coalesces concurrent spawns behind one probe and binds neither before it resolves', async () => {
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    let childProcesses = 0
+    let finish!: (result: { output: string; ok: boolean }) => void
+    const probe = cachedProbe(() => {
+      childProcesses += 1
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    })
+
+    const first = launchServerDriverSession(ctx, spawn('coalesced-one'), probe)
+    const second = launchServerDriverSession(ctx, spawn('coalesced-two'), probe)
+    await Promise.resolve()
+    expect(childProcesses).toBe(1)
+    expect(sent.some((msg) => msg.type === 'bind')).toBe(false)
+
+    finish({ output: 'codex-cli 0.147.0', ok: true })
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { handled: true },
+      { handled: true },
+    ])
+    expect(sent.filter((msg) => msg.type === 'bind')).toHaveLength(2)
+    runtime.dispose()
+  })
+
+  it('fresh-probes an explicit retry after a completed transient miss', async () => {
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    let childProcesses = 0
+    const probe = cachedProbe(() => {
+      childProcesses += 1
+      return childProcesses === 1
+        ? { output: 'codex: ENOENT', ok: false }
+        : { output: 'codex-cli 0.147.0', ok: true }
+    })
+
+    await expect(
+      launchServerDriverSession(ctx, spawn('explicit-miss', 'codex-app-server'), probe),
+    ).resolves.toEqual({ handled: true })
+    expect(sent.at(-1)).toMatchObject({ type: 'spawnError', sessionId: 'explicit-miss' })
+
+    await expect(
+      launchServerDriverSession(ctx, spawn('explicit-recovered', 'codex-app-server'), probe),
+    ).resolves.toEqual({ handled: true })
+    expect(childProcesses).toBe(2)
+    expect(sent.some((msg) => msg.type === 'bind' && msg.sessionId === 'explicit-recovered')).toBe(
+      true,
+    )
+    runtime.dispose()
   })
 })
 

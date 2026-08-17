@@ -21,12 +21,15 @@ export function cursorBinCandidates(homeDir?: string): string[] {
 export function resolveCursorBin(homeDir?: string): string {
   for (const candidate of cursorBinCandidates(homeDir)) {
     if (candidate !== 'agent' && !existsSync(candidate)) continue
-    if (agentRuns(candidate)) {
-      return candidate
-    }
+    // Launch resolution must not execute the CLI. Inventory owns identity
+    // probes; the PTY control path only selects the preferred executable name.
+    return candidate
   }
   return 'agent'
 }
+
+/** @deprecated No module cache remains; retained for older test callers. */
+export function resetCursorCliCache(): void {}
 
 /** True when the Cursor Agent CLI can be resolved and responds to --version. */
 export function isCursorCliAvailable(homeDir?: string): boolean {

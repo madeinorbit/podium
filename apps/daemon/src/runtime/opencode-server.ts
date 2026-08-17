@@ -68,7 +68,12 @@ import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } fr
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
 import type { OpencodeClientTerminals } from './opencode-attach'
-import { createVersionProbeCache, execVersionProbe, type VersionProbe } from './version-probe'
+import {
+  createVersionProbeCache,
+  execVersionProbe,
+  type VersionProbe,
+  type VersionProbePolicy,
+} from './version-probe'
 
 const log = createLogger('daemon:opencode-server')
 
@@ -293,8 +298,9 @@ const versionProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
 
 export function opencodeVersionProbe(
   probe: VersionProbe = defaultVersionProbe,
+  policy?: VersionProbePolicy,
 ): Promise<OpencodeProbeVerdict> {
-  return versionProbeCache.probe(probe)
+  return versionProbeCache.probe(probe, policy)
 }
 
 /** The old shape, kept for the callers that only ask "may I drive it". A probe
@@ -412,7 +418,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     // grandchild the agent spawned — behind, which is exactly the state that
     // squats the deterministic unit name and pushes the NEXT spawn into the
     // daemon's own cgroup.
-    if (!canScopeMaster()) return
+    if (!(await canScopeMaster())) return
     const unit = scopeUnitName(opencodeScopeLabel(sessionId))
     for (const args of scopeReclaimArgvs(unit)) {
       await runSystemctl(args)
@@ -456,7 +462,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       const port = await freeLoopbackPort()
       const baseUrl = `http://127.0.0.1:${port}`
       const label = opencodeScopeLabel(input.sessionId)
-      const scoped = canScopeMaster()
+      const scoped = await canScopeMaster()
       const unit = scopeUnitName(label)
 
       if (scoped) {

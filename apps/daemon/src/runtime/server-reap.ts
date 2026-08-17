@@ -108,7 +108,7 @@ export interface ServerReapIo {
   probeOpencode(input: { baseUrl: string; secret: string }): Promise<boolean>
   runSystemctl(args: readonly string[]): Promise<void>
   sleep(ms: number): Promise<void>
-  canScope(): boolean
+  canScope(): boolean | Promise<boolean>
 }
 
 const defaultIo: ServerReapIo = {
@@ -364,7 +364,7 @@ async function reapByIdentity(
 ): Promise<void> {
   const identity = reap.identity
   const reclaimScope = async (): Promise<void> => {
-    if (!identity.scopeUnit || !io.canScope()) return
+    if (!identity.scopeUnit || !(await io.canScope())) return
     for (const args of scopeReclaimArgvs(identity.scopeUnit)) await io.runSystemctl(args)
   }
   try {

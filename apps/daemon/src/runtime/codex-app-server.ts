@@ -63,7 +63,12 @@ import { asSessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
-import { createVersionProbeCache, execVersionProbe, type VersionProbe } from './version-probe'
+import {
+  createVersionProbeCache,
+  execVersionProbe,
+  type VersionProbe,
+  type VersionProbePolicy,
+} from './version-probe'
 
 const log = createLogger('daemon:codex-app-server')
 
@@ -220,8 +225,9 @@ const versionProbeCache = createVersionProbeCache<CodexProbeVerdict>({
 
 export function codexAppServerVersionProbe(
   probe: VersionProbe = defaultVersionProbe,
+  policy?: VersionProbePolicy,
 ): Promise<CodexProbeVerdict> {
-  return versionProbeCache.probe(probe)
+  return versionProbeCache.probe(probe, policy)
 }
 
 /** Reset the memo. Tests only — a daemon never needs it. */
@@ -408,7 +414,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
   ): Promise<void> {
     if (live.size > 0) return
     children.delete(sessionId)
-    if (!canScopeMaster()) return
+    if (!(await canScopeMaster())) return
     const unit = scopeUnitName(codexScopeLabel(sessionId))
     for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
   }
@@ -462,7 +468,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       }
 
       const label = codexScopeLabel(input.sessionId)
-      const scoped = canScopeMaster()
+      const scoped = await canScopeMaster()
       const unit = scopeUnitName(label)
       /**
        * RECLAIM A SQUATTED UNIT — BUT NEVER ONE THIS DAEMON IS STILL USING.
