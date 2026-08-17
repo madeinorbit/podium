@@ -216,15 +216,19 @@ export function useRowDrag(opts: {
       if (homeIndex < 0) return
 
       const pointerId = e.pointerId
-      const startY = e.clientY
-      const height = wrapper.getBoundingClientRect().height
+      const startRect = wrapper.getBoundingClientRect()
+      const height = startRect.height
+      /** Where in the row the operator took hold of it. The lift is defined by
+       *  this offset rather than by a travelled distance, so it survives the
+       *  row's RESTING position moving under the gesture — which the list
+       *  scrolling does, and so does anything that reflows the rows above. */
+      const grabOffset = e.clientY - startRect.top
       const scroller = scrollParent(wrapper)
-      const startScroll = scroller ? scroller.scrollTop : 0
 
-      let pointerY = startY
+      let pointerY = e.clientY
       let target = { scope: sourceScope, index: homeIndex }
       let done = false
-      let edgeFrame = 0
+      let frame = 0
 
       wrapper.style.zIndex = '30'
       wrapper.style.position = 'relative'
@@ -247,14 +251,30 @@ export function useRowDrag(opts: {
 
       grip.setPointerCapture(pointerId)
 
-      /** Has the document drifted away from the list we froze? */
-      const intact = (): boolean => {
-        if (!wrapper.isConnected) return false
-        for (const rows of frozen.values()) {
-          for (const row of rows) if (!row.el.isConnected) return false
-        }
+      /** Does one scope still hold the rows we froze for it, in that order? An
+       *  INSERTION matters as much as a removal: the frozen list is what the
+       *  reported `order` is built from, so a scope that has gained a row would
+       *  be renumbered from a set that no longer describes it — the same
+       *  "renumbering a sample" the caller refuses for a filtered column. Cheap
+       *  enough per move: a handful of element comparisons. */
+      const scopeIntact = (scope: string): boolean => {
+        const container = containers.get(scope)
+        const rows = frozen.get(scope)
+        if (!container || !rows || !container.isConnected) return false
+        const live = siblingWrappers(container)
+        if (live.length !== rows.length) return false
+        for (let i = 0; i < rows.length; i++) if (live[i] !== rows[i]!.el) return false
         return true
       }
+
+      /** ONLY THE SCOPES THIS GESTURE IS ACTUALLY SPEAKING FOR. The source, whose
+       *  `homeIndex` the whole preview is expressed in, and wherever the row would
+       *  land right now, which is the one list a drop would renumber. A legal
+       *  target the pointer never visits is free to change — cancelling a drag
+       *  within a project because Pinned gained a row would be a gesture ended by
+       *  something that had nothing to do with it. */
+      const intact = (): boolean =>
+        wrapper.isConnected && scopeIntact(sourceScope) && scopeIntact(target.scope)
 
       /** Re-apply the whole preview for the current target (idempotent). */
       const applyPreview = () => {
@@ -299,17 +319,23 @@ export function useRowDrag(opts: {
           finish(false)
           return false
         }
-        // Scroll compensation: the row's own resting position moved up by
-        // whatever the list scrolled, so the lift has to travel that much
-        // further to stay under a pointer that never left the same clientY.
-        const scrolled = scroller ? scroller.scrollTop - startScroll : 0
-        wrapper.style.transform = `translateY(${pointerY - startY + scrolled}px)`
+        // THE LIFT IS MEASURED, NOT ACCUMULATED. Subtracting the transform we
+        // ourselves applied recovers the row's RESTING top, so the offset below
+        // is computed against where the row actually sits this frame. A travelled
+        // `clientY - startY` silently assumed that resting position never moved,
+        // and it moves whenever the list scrolls or anything above the row
+        // reflows — including, on the sidebar, Motion correcting a section.
+        const restTop = wrapper.getBoundingClientRect().top - appliedShift(wrapper)
+        wrapper.style.transform = `translateY(${pointerY - grabOffset - restTop}px)`
 
-        // Which legal container is the pointer over? Default to the source.
+        // Which legal container is the pointer over? Default to the source, and
+        // never move into a scope that has drifted from its frozen list — the
+        // pointer being over it is not a reason to plan a write against it.
         let scope = sourceScope
         for (const [cScope, container] of containers) {
           const r = container.getBoundingClientRect()
           if (pointerY >= r.top - SCOPE_SLOP && pointerY <= r.bottom + SCOPE_SLOP) {
+            if (cScope !== sourceScope && !scopeIntact(cScope)) break
             scope = cScope
             break
           }
@@ -333,12 +359,10 @@ export function useRowDrag(opts: {
         return true
       }
 
-      /** Drag to a slot that is off-screen. Runs itself frame by frame while the
-       *  pointer sits in an edge zone and stops as soon as it leaves one or the
-       *  list runs out of scroll. */
-      const edgeStep = () => {
-        edgeFrame = 0
-        if (done || !scroller) return
+      /** Auto-scroll when the pointer sits in one of the list's edge zones, so a
+       *  row can be dragged to a slot that is off-screen. */
+      const edgeScroll = () => {
+        if (!scroller) return
         const r = scroller.getBoundingClientRect()
         let velocity = 0
         if (pointerY < r.top + EDGE_ZONE) {
@@ -346,12 +370,24 @@ export function useRowDrag(opts: {
         } else if (pointerY > r.bottom - EDGE_ZONE) {
           velocity = ((pointerY - (r.bottom - EDGE_ZONE)) / EDGE_ZONE) * EDGE_SPEED
         }
-        if (velocity === 0) return
-        const before = scroller.scrollTop
-        scroller.scrollTop = before + velocity
-        if (scroller.scrollTop === before) return
+        if (velocity !== 0) scroller.scrollTop += velocity
+      }
+
+      /** ONE FRAME LOOP FOR THE WHOLE GESTURE, and it is not a poll standing in
+       *  for an event — it is the only thing that can be right. The lift's
+       *  position is a function of where the row RESTS, and the row's resting
+       *  position moves for reasons no input event announces: the list scrolling,
+       *  a section above it reflowing, a fold opening. Recomputing only on
+       *  `pointermove` left the row parked one row-height away from the pointer
+       *  until the operator happened to move again — measured at 47px on the
+       *  drive, exactly the height of a row that had arrived above it. A drag is
+       *  an active gesture; a frame's worth of reads while the pointer is down is
+       *  what it costs to have the lift always be where the hand is. */
+      const tick = () => {
+        if (done) return
+        edgeScroll()
         if (!retarget()) return
-        edgeFrame = requestAnimationFrame(edgeStep)
+        frame = requestAnimationFrame(tick)
       }
 
       const clearAll = () => {
@@ -373,13 +409,12 @@ export function useRowDrag(opts: {
       }
 
       const detach = () => {
-        if (edgeFrame) cancelAnimationFrame(edgeFrame)
-        edgeFrame = 0
+        if (frame) cancelAnimationFrame(frame)
+        frame = 0
         window.removeEventListener('pointermove', onMove, { capture: true })
         window.removeEventListener('pointerup', onUp, { capture: true })
         window.removeEventListener('pointercancel', onCancel, { capture: true })
         window.removeEventListener('keydown', onKey, { capture: true })
-        scroller?.removeEventListener('scroll', onScroll)
         // Detached grips throw on release, and a detached grip is exactly the
         // case this whole listener arrangement exists to survive.
         if (grip.isConnected && grip.hasPointerCapture(pointerId)) {
@@ -393,8 +428,10 @@ export function useRowDrag(opts: {
         detach()
         session.current = null
         const { scope, index } = target
+        // Re-checked at the last moment, because the release is when the frozen
+        // list stops being a preview and becomes a write.
         const changed = scope !== sourceScope || index !== homeIndex
-        if (!commit || !changed) {
+        if (!commit || !changed || !scopeIntact(scope)) {
           clearAll()
           setDragging(false)
           return
@@ -419,10 +456,13 @@ export function useRowDrag(opts: {
         void Promise.resolve(queued).then(settle, settle)
       }
 
+      // Input is answered immediately rather than waiting for the next frame; the
+      // loop is there for the frames where no pointer event arrives at all.
+      // `retarget` is idempotent, so doing both costs nothing.
       const onMove = (ev: PointerEvent) => {
         if (done || ev.pointerId !== pointerId) return
         pointerY = ev.clientY
-        if (retarget() && !edgeFrame) edgeFrame = requestAnimationFrame(edgeStep)
+        retarget()
       }
       const onUp = (ev: PointerEvent) => {
         if (ev.pointerId === pointerId) finish(true)
@@ -439,10 +479,6 @@ export function useRowDrag(opts: {
         ev.stopPropagation()
         finish(false)
       }
-      const onScroll = () => {
-        if (!done) retarget()
-      }
-
       // ON `window`, IN THE CAPTURE PHASE, NOT ON THE GRIP. The grip can unmount
       // under the gesture — see the header — and capture-phase delivery also
       // means no handler in between can swallow a move or an up that this
@@ -451,10 +487,10 @@ export function useRowDrag(opts: {
       window.addEventListener('pointerup', onUp, { capture: true })
       window.addEventListener('pointercancel', onCancel, { capture: true })
       window.addEventListener('keydown', onKey, { capture: true })
-      scroller?.addEventListener('scroll', onScroll, { passive: true })
 
       session.current = { pointerId }
       setDragging(true)
+      frame = requestAnimationFrame(tick)
     },
     [opts, endHandoff],
   )

@@ -202,12 +202,47 @@ describe('useRowDrag', () => {
       })
 
       act(() => result.current.startDrag(gripEvent(grips[0]!, 10), 'i1'))
-      // The store repaints a neighbour under the gesture.
-      delete rows[1]!.dataset.dragKey
+      // The store repaints a neighbour under the gesture: same row, new id.
+      rows[1]!.dataset.dragKey = 'i2-renamed'
       act(() => pointer('pointermove', 120))
       act(() => pointer('pointerup', 120))
 
       expect(drops.map((d) => d.order)).toEqual([['i2', 'i3', 'i1']])
+    })
+
+    it('cancels when a row in the scope stops being draggable', () => {
+      const drops: RowDrop[] = []
+      const { rows, grips } = mount('group:a', ['i1', 'i2', 'i3'])
+      const { result } = setup((drop) => {
+        drops.push(drop)
+      })
+
+      act(() => result.current.startDrag(gripEvent(grips[0]!, 10), 'i1'))
+      // A lane change or an expiring snooze takes the grip off a neighbour, so
+      // it leaves the scope the order is about.
+      delete rows[1]!.dataset.dragKey
+      act(() => pointer('pointermove', 120))
+      act(() => pointer('pointerup', 120))
+
+      expect(drops).toEqual([])
+      expect(rows[0]!.style.transform).toBe('')
+    })
+
+    it('cancels when a row is inserted into the scope', () => {
+      const drops: RowDrop[] = []
+      const { container, rows, grips } = mount('group:a', ['i1', 'i2', 'i3'])
+      const { result } = setup((drop) => {
+        drops.push(drop)
+      })
+
+      act(() => result.current.startDrag(gripEvent(grips[0]!, 10), 'i1'))
+      const arrival = document.createElement('div')
+      arrival.dataset.dragKey = 'i0'
+      container.insertBefore(arrival, rows[0]!)
+      act(() => pointer('pointermove', 120))
+      act(() => pointer('pointerup', 120))
+
+      expect(drops).toEqual([])
     })
 
     it('cancels when a frozen row leaves the document', () => {

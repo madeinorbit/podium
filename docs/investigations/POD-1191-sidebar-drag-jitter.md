@@ -1,7 +1,9 @@
 # Sidebar drag-and-drop is visually unreliable
 
-Investigation only — no behaviour changed. Everything below is read off the
-current `main` (`5357c5c31`).
+The investigation is below as it was written, off `main` at `5357c5c31`. **The fix
+has since landed on this issue's branch** — see [What shipped](#what-shipped) at
+the end, including the measured before/after and the one finding that is fixed
+defensively rather than demonstrated.
 
 ## The headline: two owners of `style.transform` on the same nodes
 
@@ -188,3 +190,82 @@ owner instead of two.
   the hook's own. Finding 1 is what breaks it, not the technique.
 - **`pointerEvents: 'none'` on the wrapper** (line 134) with the grip inside it.
   Pointer capture bypasses hit-testing, so moves still arrive.
+
+## What shipped
+
+Two files: `apps/web/src/features/worklist/useRowDrag.ts` and the
+`layoutRevision` block in `SidebarUnified.tsx`.
+
+**Finding 1 — one owner of `transform`.** `layoutDependency` is the only thing in
+this app that makes Motion measure: `MeasureLayout.getSnapshotBeforeUpdate` calls
+`willUpdate` only when it changes, every `layout` site in the sidebar passes the
+same `layoutRevision`, and there is no `layoutId` or `AnimatePresence` anywhere in
+`apps/web`. Without a `willUpdate`, `didUpdate` takes its `clearIsLayoutDirty`
+branch and never reaches `resetTransformStyle`. So the sidebar simply **holds
+`layoutRevision` still while `dragging` is true** — signature included — and the
+hook reports `dragging` for exactly that purpose.
+
+**Finding 2** falls out of the same freeze: the flag stays true through the
+handoff window, so the drop's repaint carries no layout animation at all. That is
+the right answer rather than a lucky one — the preview has already put every row
+where the new order wants it, so there is nothing left to animate.
+
+**Finding 3** — listeners moved to `window` in the capture phase, `state.cleanup`
+replaced by a `detach()` that every exit path runs, plus Escape-to-cancel.
+**Finding 4** — the row list, its ids and `homeIndex` are captured at pointerdown;
+a scope that has drifted from its frozen list cancels the gesture, re-checked at
+the release because that is when a preview becomes a write. Only the *source* and
+*current target* scopes are held to this, so a Pinned arrival cannot cancel a drag
+happening inside a project.
+**Finding 5** — the lift is now **measured, not accumulated**: it is defined by the
+grab offset against the row's resting top each frame, on a `requestAnimationFrame`
+loop that runs for the gesture's duration, plus edge auto-scroll. The loop is not
+a poll standing in for an event — a row's resting position moves for reasons no
+input event announces, and recomputing only on `pointermove` left the row parked
+one row-height from the pointer until the operator moved again.
+
+### Measured
+
+A throwaway Vite harness reproduced the one structural fact jsdom cannot hold —
+rows whose `[data-drag-key]` wrapper is a `motion.div layout="position"` in a
+`LayoutGroup`, driven by the real hook — with `?fix=0` restoring the pre-fix
+arrangement so the same Playwright drive measures both. A row arrives in Pinned
+mid-gesture, which reflows the section below it.
+
+| | pre-fix (`?fix=0`) | fixed |
+| - | - | - |
+| max distance between the lift and the pointer | **23.4 px** | **0.00006 px** |
+| inline `transform` writes on the dragged row the hook did not make | **15** — a `none`, then `translate3d(…)` frames | **0** |
+| inline `transform` after the drop settles | `none` (Motion's) | `""` (the hook's clear) |
+| list scrolled 90 px mid-drag, no pointer event after | 0 px drift | 0 px drift |
+
+The `none` and `translate3d(…)` writes are finding 1 caught in the act: Motion
+measuring a box that included the gesture's transform, concluding the row had
+moved, and animating it.
+
+The scroll row passes in **both** columns because the harness only A/Bs the
+`layoutRevision` freeze — both columns run the new hook. The old hook had no
+scroll handling at all, which is a code fact, not a measured one.
+
+### Finding 6 is fixed defensively, not demonstrated
+
+The source section now takes an explicit `position`/`z-index` for the gesture's
+duration, so the lift's paint order is the same whether or not Motion has made a
+section a stacking context. But **the failure was never reproduced**: making it
+happen needs the *Pinned* container itself to be transformed, and Pinned is first
+in its `LayoutGroup`, so nothing in the harness moves it. The first probe
+attempted `elementFromPoint` at the lift's midpoint, which is invalid — the hook
+sets `pointer-events: none` on the dragged row, so that call reports what is
+behind it. Screenshots at the crossing look correct in both columns. Treat the
+z-index as cheap insurance on a mechanism reasoned from the CSS spec, not as a
+fixed bug.
+
+### What guards this
+
+`useRowDrag.test.ts` covers what happy-dom can hold: the reported order, the
+`dragging` flag's lifecycle including the handoff window, the gesture surviving
+its grip unmounting, the session never being left occupied, frozen ids, and the
+four ways a drifting list cancels. The `layoutRevision` freeze itself is guarded
+only by the prose at both ends and by the harness — a future refactor that
+re-derives the revision without the `!dragging` guard would silently restore
+finding 1.
