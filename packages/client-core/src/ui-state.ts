@@ -64,6 +64,8 @@ export const UI_STATE_KEYS = {
   htmlmode: 'podium.htmlmode',
   /** Markdown file tab presentation map (tabId → mode). */
   mdmode: 'podium.mdmode',
+  /** JSON file tab presentation map (tabId → mode). */
+  jsonmode: 'podium.jsonmode',
   /** Issues list layout/ordering preferences. */
   issuesDisplay: 'podium.issues.display',
   /** Guided VPS onboarding lane; replicated so it survives the server-origin transfer. */
@@ -86,6 +88,7 @@ export const RECENT_FILES_KEY = UI_STATE_KEYS.recentFiles
 export const RIGHT_PANEL_KEY = UI_STATE_KEYS.rightPanel
 export const HTML_MODE_MAP_KEY = UI_STATE_KEYS.htmlmode
 export const MD_MODE_MAP_KEY = UI_STATE_KEYS.mdmode
+export const JSON_MODE_MAP_KEY = UI_STATE_KEYS.jsonmode
 export const ISSUES_DISPLAY_KEY = UI_STATE_KEYS.issuesDisplay
 export const ONBOARDING_VPS_KEY = UI_STATE_KEYS.onboardingVps
 export const ONBOARDING_VPS_SERVER_DRAFT_KEY = 'podium.onboarding.vpsServerDraft'
@@ -176,6 +179,10 @@ export const UI_STATE_ROUTES = {
   [UI_STATE_KEYS.mdmode]: {
     home: 'per-user-replicated',
     reason: 'Markdown file presentation modes are personal file-tab layout.',
+  },
+  [UI_STATE_KEYS.jsonmode]: {
+    home: 'per-user-replicated',
+    reason: 'JSON file presentation modes are personal file-tab layout.',
   },
   [UI_STATE_KEYS.issuesDisplay]: {
     home: 'per-user-replicated',

@@ -149,6 +149,18 @@ const chrome = EditorView.theme({
     color: 'var(--syntax-gutter-active)',
   },
   '.cm-foldGutter .cm-gutterElement': { color: 'var(--syntax-punct)' },
+  // CodeMirror's stock placeholder is a light chip (#eee on #ddd) that sat on the
+  // dark ground like a sticker. A collapsed range is still code: same ink one tier
+  // down, a hairline, and no fill.
+  '.cm-foldPlaceholder': {
+    backgroundColor: 'transparent',
+    border: '1px solid var(--syntax-punct)',
+    borderRadius: '3px',
+    color: 'var(--syntax-comment)',
+    margin: '0 2px',
+    padding: '0 5px',
+    fontSize: '0.9em',
+  },
   '.cm-selectionMatch, .cm-searchMatch': { backgroundColor: 'var(--syntax-match)' },
   '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'var(--syntax-selection)' },
   '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': {

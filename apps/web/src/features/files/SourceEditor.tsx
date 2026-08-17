@@ -1,5 +1,6 @@
 // apps/web/src/SourceEditor.tsx
 
+import type { Extension } from '@codemirror/state'
 import { EditorState } from '@codemirror/state'
 import type { EditorView as EditorViewType } from '@codemirror/view'
 import { basicSetup, EditorView } from 'codemirror'
@@ -18,6 +19,8 @@ export function SourceEditor({
   onChange,
   onSave,
   viewRef,
+  extensions,
+  onViewReady,
 }: {
   path: string
   initialContent: string
@@ -25,6 +28,13 @@ export function SourceEditor({
   onChange: (next: string) => void
   onSave: () => void
   viewRef?: React.MutableRefObject<EditorViewType | null>
+  /** Per-file-kind additions, appended last so they win. Must be stable across
+   *  renders — a fresh array on every render would tear the editor down. */
+  extensions?: Extension[]
+  /** The view exists and is parented. The one hook for anything that has to wait
+   *  for it — the language extension is loaded async, so `viewRef` is still null
+   *  through the first paint. */
+  onViewReady?: (view: EditorViewType) => void
 }): JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const seedRef = useRef(initialContent)
@@ -32,6 +42,8 @@ export function SourceEditor({
   onChangeRef.current = onChange
   const onSaveRef = useRef(onSave)
   onSaveRef.current = onSave
+  const onViewReadyRef = useRef(onViewReady)
+  onViewReadyRef.current = onViewReady
 
   useEffect(() => {
     let cancelled = false
@@ -49,6 +61,7 @@ export function SourceEditor({
             // its stock light-background defaults.
             ...editorTheme,
             ...ext,
+            ...(extensions ?? []),
             EditorView.editable.of(editable),
             EditorView.updateListener.of((u) => {
               if (u.docChanged) onChangeRef.current(u.state.doc.toString())
@@ -65,6 +78,7 @@ export function SourceEditor({
         }),
       })
       if (viewRef) viewRef.current = view
+      onViewReadyRef.current?.(view)
     })()
     return () => {
       cancelled = true
@@ -72,7 +86,7 @@ export function SourceEditor({
       if (viewRef) viewRef.current = null
     }
     // initialContent intentionally excluded: seed once per mount (keyed remount on reload).
-  }, [path, editable, viewRef])
+  }, [path, editable, viewRef, extensions])
 
   // `overflow-hidden`, not `overflow-auto`: the editor owns a real height (see
   // `editorTheme`) and scrolls INSIDE itself, which is what keeps the line-number
