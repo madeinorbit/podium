@@ -1,5 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import {
+  DEFAULT_LOAD_PER_CORE,
   formatMemBytes,
   hostLoadView,
   hostMemoryView,
@@ -8,9 +9,16 @@ import {
   occupiedRootsFromKey,
   panelLabel,
   placeReclaimable,
+  residencyBreakdown,
   residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
-import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId, MachineId } from '@podium/model/browser'
+import type {
+  AgentMemoryWire,
+  HostMemoryWire,
+  MachineId,
+  ProjectMemoryWire,
+  SessionId,
+} from '@podium/model/browser'
 import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
@@ -18,6 +26,7 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { HealthPopoverFooter } from './HealthPopover'
 import { useHostLifecycleSettings } from './host-lifecycle-settings'
+import { SEVERITY, TONE_KEY } from './severity'
 
 interface Breakdown {
   hostname: string
@@ -145,19 +154,64 @@ export function LoadPanel({
     setView('settings')
   }
 
-  const figures = [
-    mem?.label,
-    mem != null ? `${mem.pct}%` : null,
-    load?.perCore != null ? `load ${load.label}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  // The chip is two bare bars once the density hides its MEM/LOAD marks, and
+  // their colour is severity, not identity — a healthy memory bar and a pegged
+  // load bar differ only in hue. So the panel repeats both meters at the chip's
+  // own width and fill and names them, and each carries the sentence the colour
+  // was standing in for.
+  const loadThreshold = hibernation?.loadPerCore ?? DEFAULT_LOAD_PER_CORE
+  const loadNote =
+    load == null || load.perCore == null
+      ? 'this host reports no load sample'
+      : load.severity === 'critical'
+        ? `per core — past the ${loadThreshold}× line`
+        : `per core — bar fills at ${loadThreshold}×`
+
+  // What the removed native tooltip used to say, kept where it can sit beside
+  // the memory it explains. The pinned tier lists these sessions one by one.
+  const phases = residencyBreakdown(sessions, machineId)
+  const resident = phases.working + phases.idle + phases.waiting + phases.other
+  const agentLine =
+    resident > 0
+      ? `${resident} agent${resident === 1 ? '' : 's'} here — ${phases.working} working, ${phases.idle} idle, ${phases.waiting} waiting on you`
+      : null
 
   return (
     <>
-      <div className="hp-header">
+      <div className="hp-header hp-header-stacked">
         <span className="hp-title">{mem?.hostname ?? '…'}</span>
-        {figures && <span className="hp-figures">{figures}</span>}
+        <div className="hp-meters">
+          {mem && (
+            <div className="hp-meter-row">
+              <span className="header-meter" role="presentation">
+                <span
+                  className={cn('block h-full', SEVERITY[mem.severity].fill)}
+                  style={{ width: `${mem.pct}%` }}
+                />
+              </span>
+              <span className="hp-meter-mark">MEM</span>
+              <span className="hp-meter-value" data-tone={TONE_KEY[mem.severity]}>
+                {mem.pct}%
+              </span>
+              <span className="hp-meter-note">{mem.label} used</span>
+            </div>
+          )}
+          {load && (
+            <div className="hp-meter-row">
+              <span className="header-meter" role="presentation">
+                <span
+                  className={cn('block h-full', SEVERITY[load.severity].fill)}
+                  style={{ width: `${load.meterPct}%` }}
+                />
+              </span>
+              <span className="hp-meter-mark">LOAD</span>
+              <span className="hp-meter-value" data-tone={TONE_KEY[load.severity]}>
+                {load.label}
+              </span>
+              <span className="hp-meter-note">{loadNote}</span>
+            </div>
+          )}
+        </div>
       </div>
       {/* Everything between the hostname and the footer scrolls: the pinned tier
           lists one row per session, so on a busy machine it is taller than the
@@ -193,6 +247,7 @@ export function LoadPanel({
             </div>
           )}
           {updateNote}
+          {!pinned && agentLine && <div className="hp-dim-line">{agentLine}</div>}
           {!pinned && hibernation && (
             <div className="hp-dim-line">
               {hibernation.enabled

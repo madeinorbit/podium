@@ -478,6 +478,19 @@ describe('header machine chip carries host-pressure readouts', () => {
     }
   })
 
+  // POD-1223: the chip opens its panel on hover, so a native tooltip could only
+  // float on top of that panel — and the one that did named the agents alone,
+  // never the two meters. The panel names them now (see load-panel-legend).
+  it('carries no native title over its own hover panel', async () => {
+    render(<HeaderHostIndicators />)
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+    const chips = screen
+      .getAllByRole('button')
+      .filter((el) => el.classList.contains('header-machine-chip'))
+    expect(chips.length).toBeGreaterThanOrEqual(2)
+    for (const chip of chips) expect(chip.getAttribute('title')).toBeNull()
+  })
+
   it('shows resident inventory neutrally and meters the observed idle subset', async () => {
     maxIdleSessions = 2
     sessions = [

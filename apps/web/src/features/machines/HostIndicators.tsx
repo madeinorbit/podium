@@ -1,4 +1,3 @@
-import type { MachineId } from '@podium/model/browser'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   hostAgentsView,
@@ -11,6 +10,7 @@ import {
   residencyBreakdown,
   residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
+import type { MachineId } from '@podium/model/browser'
 import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { lazy, Suspense, useMemo, useState } from 'react'
@@ -20,10 +20,11 @@ import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { HealthPopover } from './HealthPopover'
-import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
 import type { HostInfoTab } from './HostMemoryView'
+import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
 import { OutboxRecoveryIndicator } from './OutboxRecovery'
 import { QuotaIndicator } from './QuotaIndicator'
+import { SEVERITY, TONE_KEY } from './severity'
 
 // The chips themselves are permanent header chrome, but everything behind them
 // opens on demand: the info modal after a click, the load breakdown once the
@@ -35,23 +36,6 @@ const HostInfoView = lazy(() =>
 const LoadPanel = lazy(() =>
   import('./LoadPanel').then((module) => ({ default: module.LoadPanel })),
 )
-
-// Memory pressure → colors, reproducing the legacy `.mem-*` contract: the bar
-// fill is always tinted by severity; the icon stays neutral while `ok` and only
-// recolors on warn/critical; the compact (icon-only) chip carries severity on
-// the whole glyph (green when fine → warning → destructive).
-const SEVERITY = {
-  ok: { fill: 'bg-success', icon: '', compact: 'text-success' },
-  warn: { fill: 'bg-warning', icon: 'text-warning', compact: 'text-warning' },
-  critical: {
-    fill: 'bg-destructive',
-    icon: 'text-destructive',
-    compact: 'text-destructive',
-  },
-} as const
-
-/** Memory severity → the `data-tone` the header readout colours itself by. */
-const TONE_KEY = { ok: 'ok', warn: 'warn', critical: 'crit' } as const
 
 /**
  * Host health strip. Just two glyphs: a memory icon with a fullness bar (one per
@@ -316,6 +300,11 @@ export function HeaderHostIndicators(): JSX.Element {
         ]
           .filter(Boolean)
           .join('; ')
+        // The chip carries no `title`. It already opens its panel on hover, and
+        // the native tooltip that floated over that panel named only the agents
+        // — never the two meters the eye actually lands on. The panel names them
+        // now (LoadPanel's header legend); `aria-label` keeps the whole readout
+        // in one string for assistive tech.
         return (
           <HealthPopover
             key={host.machineId}
@@ -325,7 +314,6 @@ export function HeaderHostIndicators(): JSX.Element {
                 type="button"
                 className="header-machine-chip"
                 aria-label={aria}
-                title={agentTitleParts.join(' — ')}
               >
                 <span
                   className={cn(

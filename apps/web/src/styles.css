@@ -1000,13 +1000,51 @@ html[data-density="balanced"] .header-quota-pools {
   font-weight: 600;
   color: var(--text-strong);
 }
-.hp-figures {
+/* The machine panel's header stacks — hostname, then the meter legend beneath
+   it. The quota panel keeps the single baseline row of `.hp-header`. */
+.hp-header-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  padding-bottom: 8px;
+}
+/* The key to the chip. A chip meter at balanced density is a bare 36px bar
+   whose only variable is hue, and hue there means severity, not which series it
+   is: the same blue reads MEM on one bar and LOAD on the next. So the legend
+   repeats each meter at the chip's width and fill, then gives it back the mark
+   the density hid, the number, and the sentence the colour was standing in for. */
+.hp-meters {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  align-items: center;
+  gap: 4px 7px;
+}
+.hp-meter-row {
+  display: contents;
+}
+.hp-meter-mark {
   font-family: var(--font-mono);
   font-size: var(--shell-type-micro);
+  font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--text-dim);
-  white-space: nowrap;
+}
+.hp-meter-value {
+  font-family: var(--font-mono);
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-strong);
+}
+.hp-meter-value[data-tone="warn"] {
+  color: var(--warning);
+}
+.hp-meter-value[data-tone="crit"] {
+  color: var(--destructive);
+}
+.hp-meter-note {
+  font-size: 10.5px;
+  color: var(--text-dim);
 }
 .hp-verdict {
   display: inline-flex;
