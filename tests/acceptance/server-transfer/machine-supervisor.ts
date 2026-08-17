@@ -125,7 +125,7 @@ async function writeEvidence(): Promise<void> {
     connectivity: readJson(join(stateRoot, 'connectivity.json')),
     sourceJournal: readJson(join(stateRoot, '.server-transfer', 'journal.json')),
     transferStages: transferStages(),
-    issueTitles: issueTitles(),
+    issueTitles: health ? issueTitles() : [],
     machineId: existsSync(join(stateRoot, 'machine.id'))
       ? readFileSync(join(stateRoot, 'machine.id'), 'utf8').trim()
       : null,
