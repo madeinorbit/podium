@@ -1401,15 +1401,6 @@ html[data-density="balanced"] .header-quota-pools {
   border: 1px solid color-mix(in srgb, var(--metric-color) 78%, transparent);
   content: "";
 }
-.status-strip-history-stack[data-over-cap="true"]::before {
-  position: absolute;
-  top: -2px;
-  left: 0;
-  width: 2px;
-  height: 1px;
-  background: color-mix(in srgb, var(--metric-color) 60%, white);
-  content: "";
-}
 .status-strip-history-pixel {
   display: block;
   width: 2px;

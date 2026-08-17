@@ -87,6 +87,7 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
         aside={`avg ${burnValue}`}
         reading={(value) => ({ value: money(value), label: 'API-equivalent cost' })}
         foot="Last 12 hours · hourly API list-price estimate"
+        bucketMs={HOUR_MS}
         shareText={burnShare}
       />
       <span className="status-strip-seam" aria-hidden="true" />
@@ -107,6 +108,7 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
           label: value === 1 ? 'confirmed merge' : 'confirmed merges',
         })}
         foot="Last 12h · landed branches; a PR URL alone is excluded"
+        bucketMs={HOUR_MS}
         shareText={shareShipRate(shipped, rate(shipsPerHour))}
       />
     </>
