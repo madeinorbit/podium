@@ -1107,9 +1107,9 @@ function defaultServerSpawnContext(
   },
 ): DaemonContext {
   return {
-    send: (msg) => void sent.push(msg),
+    send: (msg: DaemonMessage) => void sent.push(msg),
     machineId: 'default-server-machine',
-    durableLabelFor: (id) => `default-server-${id}`,
+    durableLabelFor: (id: SessionId) => `default-server-${id}`,
     sessionBinding: {
       transition: async () => ({ status: 'applied' }),
     },

@@ -522,7 +522,8 @@ export async function createDaemonHostRuntime(args: {
     // Inventory publishes this detector's result; selection reads the same fact
     // synchronously so a spawn racing the asynchronous inventory report cannot
     // start a headless server before a known logout reaches the server cache.
-    harnessLoginState: (agentKind) => harnessDetectLogin(agentKind, homeDir ?? homedir())?.state,
+    harnessLoginState: (agentKind) =>
+      agentKind === 'shell' ? undefined : harnessDetectLogin(agentKind, homeDir ?? homedir())?.state,
     bridges,
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     composerEngine,
