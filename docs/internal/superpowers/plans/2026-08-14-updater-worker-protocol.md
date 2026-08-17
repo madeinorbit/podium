@@ -30,6 +30,13 @@ both passed vacuously, a test whose machine had the same word for its name and i
 vitest reporter whose silence was read as proof, and a server lane that *refused to start*
 while everyone read the red as failure.
 
+The eighth was the one that hid the epic's last blocker: **the operation test harness never
+wired single-flight at all**, so no adoption drill in that file could ever observe a
+publication being queued — which is exactly the state that deadlocked a real server after a
+restart (POD-2230). The drills passed for two weeks because they could not reach the thing
+that breaks. It is wired now, and `reboot()` hands the successor the empty map a real restart
+produces.
+
 The seventh was the worst, because it would have been *created by following advice*: a
 reviewer suggested allowlisting a boundary violation, and POD-2224 measured that the
 allowlist **cannot excuse that rule at all** — it is emitted into the manifest family but is
