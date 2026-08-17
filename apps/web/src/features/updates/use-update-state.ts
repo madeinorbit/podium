@@ -191,25 +191,38 @@ function phoneBehind(server: ServerVersion, expectedDigest: string): boolean {
 }
 
 /** The channel the SERVER decides (spec §5: resolved in exactly one place). */
-function desktopChannelOf(channel: unknown): NativeDesktopUpdateChannel {
+export function desktopChannelOf(channel: unknown): NativeDesktopUpdateChannel | undefined {
   const selected =
     typeof channel === 'string' ? channel : (channel as { channel?: string } | undefined)?.channel
-  return selected === 'dev' || selected === 'edge' ? 'edge' : 'stable'
+  if (selected === 'dev' || selected === 'edge') return 'edge'
+  if (selected === 'stable') return 'stable'
+  return undefined
+}
+
+const UNKNOWN_DESKTOP_CHANNEL = 'The desktop update channel could not be determined.'
+
+/**
+ * Leave restart recovery to the query transport: it waits for readiness and
+ * replays this idempotent read. A failure or an unfamiliar payload stays
+ * unread; neither is permission to choose a feed.
+ */
+async function readDesktopChannel(
+  queryChannel: () => Promise<unknown>,
+): Promise<NativeDesktopUpdateChannel> {
+  const channel = desktopChannelOf(await queryChannel())
+  if (channel === undefined) throw new Error(UNKNOWN_DESKTOP_CHANNEL)
+  return channel
 }
 
 async function readDesktopUpdate(
-  queryChannel: () => Promise<unknown>,
-): Promise<{ info?: DesktopUpdateInfo; channel: NativeDesktopUpdateChannel }> {
-  const channel = desktopChannelOf(await queryChannel().catch(() => 'stable'))
+  channel: NativeDesktopUpdateChannel,
+): Promise<DesktopUpdateInfo | undefined> {
   const check = nativeDesktopBridge()?.checkUpdate
-  if (!check) return { channel }
+  if (!check) return undefined
   const next = await check(channel)
-  return {
-    channel,
-    ...(next
-      ? { info: { version: next.version, critical: next.critical, notes: next.notes } }
-      : {}),
-  }
+  return next
+    ? { version: next.version, critical: next.critical, notes: next.notes }
+    : undefined
 }
 
 /**
@@ -403,7 +416,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     new Set(watchedHandoff((options.now ?? Date.now)())),
   )
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
-  const [desktopChannel, setDesktopChannel] = useState<NativeDesktopUpdateChannel>('stable')
+  const [desktopChannel, setDesktopChannel] = useState<NativeDesktopUpdateChannel | undefined>()
   const [desktopProgress, setDesktopProgress] = useState<NativeDesktopUpdateProgress | undefined>()
   const [actionError, setActionError] = useState<ActionError | undefined>()
   const [note, setNote] = useState<string | undefined>()
@@ -421,11 +434,12 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     if (claim) void claim().catch(() => {})
 
     let cancelled = false
-    void readDesktopUpdate(queryChannel)
-      .then(({ info, channel }) => {
+    void readDesktopChannel(queryChannel)
+      .then(async (channel) => {
         if (cancelled) return
-        setDesktopUpdate(info)
         setDesktopChannel(channel)
+        const info = await readDesktopUpdate(channel)
+        if (!cancelled) setDesktopUpdate(info)
       })
       .catch(() => {})
 
@@ -623,6 +637,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     (operation?.awaiting ?? []).some((ask) => ask.surface === surface)
   const canInstallDesktop =
     typeof installUpdate === 'function' &&
+    desktopChannel !== undefined &&
     (desktopUpdate !== undefined || desktopTargeted || desktopAsked)
 
   /**
@@ -675,6 +690,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           case 'restart-app': {
             const install = nativeDesktopBridge()?.installUpdate
             if (!install) break
+            if (desktopChannel === undefined) throw new Error(UNKNOWN_DESKTOP_CHANNEL)
             await install(desktopChannel)
             /**
              * REACHING THIS LINE IS ITSELF THE FAILURE (POD-2152).
@@ -725,11 +741,13 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const checkNow = useCallback(async (): Promise<void> => {
     setPending('check')
     setActionError(undefined)
+    setDesktopChannel(undefined)
     try {
       await trpc.updates.checkNow.mutate().catch(() => {})
-      const { info, channel } = await readDesktopUpdate(queryChannel)
-      setDesktopUpdate(info)
+      const channel = await readDesktopChannel(queryChannel)
       setDesktopChannel(channel)
+      const info = await readDesktopUpdate(channel)
+      setDesktopUpdate(info)
       setCheckedAt(clock())
       refresh()
     } catch (error) {

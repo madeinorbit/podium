@@ -11,10 +11,15 @@ import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ServerUnavailableError } from '@/app/trpc'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
-import { type UpdateStateResult, useUpdateState } from './use-update-state'
+import {
+  desktopChannelOf,
+  type UpdateStateResult,
+  useUpdateState,
+} from './use-update-state'
 
 const mocks = vi.hoisted(() => ({
   makeTrpc: vi.fn(),
+  channel: vi.fn(),
   active: vi.fn(),
   history: vi.fn(),
   fleet: vi.fn(),
@@ -78,8 +83,9 @@ function setupTransport(
 ): void {
   mocks.history.mockResolvedValue([])
   mocks.fleet.mockResolvedValue({ total: 1, behind: 1, converging: 0, failed: 0 })
+  mocks.channel.mockResolvedValue('stable')
   mocks.makeTrpc.mockReturnValue({
-    setup: { channel: { query: vi.fn(async () => 'stable') } },
+    setup: { channel: { query: mocks.channel } },
     operations: {
       active: { query: mocks.active },
       history: { query: mocks.history },
@@ -156,6 +162,12 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
+})
+
+describe('desktopChannelOf', () => {
+  it('does not turn an unread channel into stable', () => {
+    expect(desktopChannelOf(undefined)).toBeUndefined()
+  })
 })
 
 describe('useUpdateState — reading the operation', () => {
@@ -378,6 +390,103 @@ describe('useUpdateState — all-in-one: one click, one restart', () => {
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('waiting-you'))
     expect(results.at(-1)?.view.primary?.kind).toBe('install-desktop')
     expect(results.at(-1)?.view.primary?.label).toBe('Restart Podium')
+  })
+
+  it('does not offer or perform the install while the channel is unread', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    const channel = deferred<unknown>()
+    mocks.channel.mockReturnValue(channel.promise)
+    const install = vi.fn(async () => {})
+    const check = vi.fn(async () => null)
+    stubDesktopShell({ checkUpdate: check, installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.operation?.id).toBe('op_aio'))
+
+    expect(results.at(-1)?.view.primary?.kind).not.toBe('install-desktop')
+    await act(async () => {
+      await results.at(-1)?.run('install-desktop')
+    })
+
+    expect(install).not.toHaveBeenCalled()
+    expect(check).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(results.at(-1)?.view.error?.message).toBe(
+        'The desktop update channel could not be determined.',
+      ),
+    )
+  })
+
+  it('leaves a failed channel query unread and does not install', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    mocks.channel.mockRejectedValue(new Error('server is restarting'))
+    const install = vi.fn(async () => {})
+    const check = vi.fn(async () => null)
+    stubDesktopShell({ checkUpdate: check, installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(mocks.channel).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(results.at(-1)?.operation?.id).toBe('op_aio'))
+
+    expect(results.at(-1)?.view.primary?.kind).not.toBe('install-desktop')
+    await act(async () => {
+      await results.at(-1)?.run('install-desktop')
+    })
+
+    expect(install).not.toHaveBeenCalled()
+    expect(check).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(results.at(-1)?.view.error?.message).toBe(
+        'The desktop update channel could not be determined.',
+      ),
+    )
+  })
+
+  it('uses the real channel after restart readiness lets the query replay', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    const readiness = deferred<Response>()
+    const channelFetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockReturnValueOnce(readiness.promise)
+      .mockResolvedValueOnce(
+        new Response('[{"result":{"data":{"channel":"edge"}}}]', { status: 200 }),
+      )
+    const { makeTrpc } = await vi.importActual<typeof import('@/app/trpc')>('@/app/trpc')
+    const recovering = makeTrpc('http://podium.test', {
+      fetch: channelFetch as typeof fetch,
+      recoveryDelaysMs: [0],
+      report: false,
+    })
+    mocks.channel.mockImplementation(() => recovering.setup.channel.query())
+    const install = vi.fn(
+      () => new Promise<void>(() => {}), // success replaces the process
+    )
+    const check = vi.fn(async () => null)
+    stubDesktopShell({ checkUpdate: check, installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(channelFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(results.at(-1)?.operation?.id).toBe('op_aio'))
+
+    // The first response was cut and the transport is waiting on readiness:
+    // there is still no channel and therefore no install action.
+    expect(results.at(-1)?.view.primary?.kind).not.toBe('install-desktop')
+
+    await act(async () => {
+      readiness.resolve(new Response('{}', { status: 200 }))
+    })
+    await waitFor(() => expect(check).toHaveBeenCalledWith('edge'))
+    await waitFor(() => expect(results.at(-1)?.view.primary?.kind).toBe('install-desktop'))
+
+    void results.at(-1)?.run('install-desktop')
+    await waitFor(() => expect(install).toHaveBeenCalledWith('edge'))
   })
 
   it('installs on the channel the server resolved, not the shell’s own config', async () => {

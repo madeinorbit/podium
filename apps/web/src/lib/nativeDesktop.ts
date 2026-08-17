@@ -33,9 +33,10 @@ export interface NativeDesktopBridge {
    * server the shell is attached to, and passing it here is what stops
    * `install_update`'s own re-check from consulting the shell's config and
    * installing off a different channel than the one that was checked (spec §5).
-   * Older shells ignore the extra argument, which is why it stays optional.
+   * Older shells may omit this command; legacy zero-argument implementations
+   * ignore the extra argument when it is present.
    */
-  installUpdate?: (channel?: NativeDesktopUpdateChannel) => Promise<void>
+  installUpdate?: (channel: NativeDesktopUpdateChannel) => Promise<void>
   /** Persists the user's production feed choice for native update checks without a page. */
   setUpdateChannel?: (channel: NativeDesktopUpdateChannel) => Promise<void>
   /**
