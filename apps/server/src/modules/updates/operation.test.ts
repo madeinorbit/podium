@@ -768,10 +768,11 @@ describe('the error taxonomy', () => {
         detail: `synthetic ${token}`,
       } as UpdateFailure)
       expect(error.code).toBe(code)
-      // A typed error whose message is its own code is the failure mode the
-      // taxonomy exists to prevent.
-      expect(error.message.length).toBeGreaterThan(20)
-      expect(error.message).not.toContain(code)
+      // A typed error whose message is its own code — or absent — is the
+      // failure mode the taxonomy exists to prevent.
+      expect(error.message, token).toBeDefined()
+      expect(error.message?.length, token).toBeGreaterThan(20)
+      expect(error.message, token).not.toContain(code)
     }
   })
 
