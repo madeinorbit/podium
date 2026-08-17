@@ -96,8 +96,13 @@ describe('backupDatabase preflight', () => {
     expect(statSync(backupPath as string).size).toBe(statSync(dbPath).size)
     expect(backupMains(dir)).toEqual([basename(backupPath as string)])
     expect(String(vi.mocked(copyFileSync).mock.calls[0]?.[1])).toContain('.partial-')
-    expect(vi.mocked(fsyncSync)).toHaveBeenCalled()
     expect(vi.mocked(renameSync).mock.calls.at(-1)?.[1]).toBe(backupPath)
+    const fileFsyncOrder = vi.mocked(fsyncSync).mock.invocationCallOrder[0]
+    const publishOrder = vi.mocked(renameSync).mock.invocationCallOrder.at(-1)
+    if (fileFsyncOrder === undefined || publishOrder === undefined) {
+      throw new Error('snapshot did not reach fsync and rename')
+    }
+    expect(fileFsyncOrder).toBeLessThan(publishOrder)
     db.close()
   })
 
