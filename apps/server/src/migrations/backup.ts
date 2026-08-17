@@ -1,29 +1,67 @@
 /**
- * Pre-migration database backup (#43): before a boot advances the schema of a
- * database that already holds real tables, the file (+ -wal/-shm sidecars) is
- * copied to a timestamped sibling, keeping the last MIGRATION_BACKUPS_TO_KEEP.
- * The drizzle applier calls this before letting the migrator run.
+ * Durable database snapshots shared by boot migrations and update operations.
  *
- * POD-615: a full disk once let copyFileSync die on ENOSPC mid-copy, crash-loop
- * the server, and leave a truncated backup behind. The copy is now preceded by
- * a free-space preflight (fail loudly, with numbers) and followed — on any
- * failure — by removal of whatever partial backup files were written.
+ * A snapshot is copied to a temporary sibling, fsynced, and renamed only when
+ * complete. Retention considers only SQLite files that pass quick_check, so a
+ * crash residue or corrupt file is preserved for inspection and can never evict
+ * a usable restore point.
  */
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, readdirSync, rmSync, statfsSync, statSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  fsyncSync,
+  openSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statfsSync,
+  statSync,
+} from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { createLogger } from '@podium/logger'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 
-/** How many pre-migration backups to retain per database file. */
-export const MIGRATION_BACKUPS_TO_KEEP = 2
+const log = createLogger('server:migrations')
+
+/**
+ * Keep the upgrade under rehearsal plus two predecessors. Three bounds disk use
+ * while leaving two known-good restore points if the newest candidate is bad.
+ */
+export const MIGRATION_BACKUPS_TO_KEEP = 3
 
 /** Safety margin applied to the measured backup size before the free-space check. */
 const PREFLIGHT_MARGIN = 1.1
 
 /** True when the backup file name (not a -wal/-shm sidecar) belongs to `dbFile`. */
 function isBackupMain(name: string, dbFile: string): boolean {
-  return name.startsWith(`${dbFile}.backup-v`) && !name.endsWith('-wal') && !name.endsWith('-shm')
+  return (
+    name.startsWith(`${dbFile}.backup-v`) &&
+    !name.includes('.partial-') &&
+    !name.endsWith('-wal') &&
+    !name.endsWith('-shm')
+  )
+}
+
+function isPartialBackup(name: string, dbFile: string): boolean {
+  return name.startsWith(`${dbFile}.backup-v`) && name.includes('.partial-')
+}
+
+function usableBackup(path: string): boolean {
+  let db: SqlDatabase | undefined
+  try {
+    if (statSync(path).size === 0) return false
+    db = openDatabase(path, { readOnly: true })
+    const row = db.prepare('PRAGMA quick_check').get() as Record<string, unknown> | undefined
+    return row !== undefined && Object.values(row)[0] === 'ok'
+  } catch {
+    return false
+  } finally {
+    db?.close()
+  }
 }
 
 /**
@@ -47,32 +85,25 @@ export function freeDiskBytes(dir: string): number {
 
 /**
  * Copies the on-disk database (plus -wal/-shm sidecars when present) to a
- * timestamped sibling before a schema-advancing run, then prunes to the last
- * MIGRATION_BACKUPS_TO_KEEP backups.
+ * timestamped sibling, then prunes old usable snapshots.
  *
- * Safety: called at startup while this process holds the ONLY connection
- * (Podium's server is the single writer), after `PRAGMA wal_checkpoint(TRUNCATE)`
- * folded the WAL into the main file — so a plain file copy is a consistent
- * snapshot. Returns the backup path, or undefined when nothing was copied.
- * `label` becomes the filename's `.backup-v<label>-<stamp>` segment; keep the
- * `v` prefix so `pruneBackups` reclaims every backup.
+ * Safety: called while this process owns the live connection, after
+ * `PRAGMA wal_checkpoint(TRUNCATE)` folded the WAL into the main file. The main
+ * backup filename is published last, after every temporary copy has been
+ * fsynced, so a mid-copy ENOSPC can never leave a truncated restorable file.
  *
- * `freeBytes` is injectable for tests; production uses `freeDiskBytes`.
+ * `freeBytes` and `prune` are injectable for focused failure tests.
  */
 export function backupDatabase(
   db: SqlDatabase,
   dbPath: string,
   label: string,
   freeBytes: (dir: string) => number = freeDiskBytes,
+  prune: (dbPath: string) => void = pruneBackups,
 ): string | undefined {
   if (!existsSync(dbPath)) return undefined
-  // Fold WAL content into the main DB file so the copy is self-consistent.
-  // Harmless no-op under non-WAL journal modes. Must run outside a transaction.
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
 
-  // Free-space preflight (POD-615): refuse to start a copy the disk cannot
-  // hold — a mid-copy ENOSPC would crash-loop the boot and leave a truncated
-  // backup file behind.
   const dir = dirname(dbPath)
   let needed = statSync(dbPath).size
   for (const suffix of ['-wal', '-shm']) {
@@ -84,40 +115,109 @@ export function backupDatabase(
     throw new Error(
       `Not enough disk space for the pre-migration backup in ${dir}: ` +
         `need ~${required} bytes (database + sidecars + 10% margin), only ${available} bytes free. ` +
-        `The server refuses to start the migration until disk space is freed.`,
+        'The server refuses to start the migration until disk space is freed.',
     )
   }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const backupPath = `${dbPath}.backup-v${label}-${stamp}`
+  const partialPath = `${backupPath}.partial-${randomUUID()}`
+  const suffixes = ['', '-wal', '-shm'].filter(
+    (suffix) => suffix === '' || existsSync(`${dbPath}${suffix}`),
+  )
   try {
-    copyFileSync(dbPath, backupPath)
-    for (const suffix of ['-wal', '-shm']) {
-      if (existsSync(`${dbPath}${suffix}`))
-        copyFileSync(`${dbPath}${suffix}`, `${backupPath}${suffix}`)
+    for (const suffix of suffixes) {
+      const temp = `${partialPath}${suffix}`
+      copyFileSync(`${dbPath}${suffix}`, temp)
+      const fd = openSync(temp, 'r')
+      try {
+        fsyncSync(fd)
+      } finally {
+        closeSync(fd)
+      }
+    }
+
+    // Sidecars become visible first; the main filename is the trust marker and
+    // is published last, only after every byte of the snapshot set is durable.
+    for (const suffix of suffixes.filter(Boolean)) {
+      renameSync(`${partialPath}${suffix}`, `${backupPath}${suffix}`)
+    }
+    renameSync(partialPath, backupPath)
+
+    // Persist the directory entry before the update operation records this path
+    // and asks the coordinator to restart onto code that may run migrations.
+    const dirFd = openSync(dir, 'r')
+    try {
+      fsyncSync(dirFd)
+    } finally {
+      closeSync(dirFd)
     }
   } catch (err) {
-    // Never leave a truncated backup behind — remove whatever was written.
+    log.warn('database snapshot did not complete; removing its unpublished files', {
+      path: partialPath,
+      err,
+    })
     for (const suffix of ['', '-wal', '-shm']) {
+      rmSync(`${partialPath}${suffix}`, { force: true })
       rmSync(`${backupPath}${suffix}`, { force: true })
     }
     throw err
   }
-  pruneBackups(dbPath)
+
+  try {
+    // Normal-operation cleanup: every successful snapshot, including the
+    // update server step, reaches retention immediately.
+    prune(dbPath)
+  } catch (err) {
+    // Cleanup must not turn an already durable recovery point into an update
+    // failure. The next successful snapshot retries retention.
+    log.warn('database snapshot retention could not be applied', { path: dbPath, err })
+  }
   return backupPath
 }
 
-/** Keeps the newest MIGRATION_BACKUPS_TO_KEEP backup sets; deletes the rest. */
-function pruneBackups(dbPath: string): void {
+/** Keeps the newest valid backup sets; suspicious files are preserved for inspection. */
+export function pruneBackups(dbPath: string): void {
   const dir = dirname(dbPath)
   const dbFile = basename(dbPath)
-  const mains = readdirSync(dir)
+  const names = readdirSync(dir)
+  for (const name of names.filter((entry) => isPartialBackup(entry, dbFile))) {
+    log.warn('leaving an incomplete database snapshot untouched', { path: join(dir, name) })
+  }
+
+  const mains = names
     .filter((name) => isBackupMain(name, dbFile))
-    .map((name) => ({ name, mtimeMs: statSync(join(dir, name)).mtimeMs }))
+    .flatMap((name) => {
+      const path = join(dir, name)
+      if (!usableBackup(path)) {
+        log.warn('leaving an unreadable database snapshot untouched', { path })
+        return []
+      }
+      return [{ name, mtimeMs: statSync(path).mtimeMs }]
+    })
     .sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name))
+
   for (const stale of mains.slice(MIGRATION_BACKUPS_TO_KEEP)) {
     for (const suffix of ['', '-wal', '-shm']) {
       rmSync(join(dir, `${stale.name}${suffix}`), { force: true })
     }
+  }
+}
+
+/** Newest valid snapshot available for an operation's restore guidance. */
+export function latestDatabaseBackup(dbPath: string): string | undefined {
+  try {
+    const dir = dirname(dbPath)
+    const dbFile = basename(dbPath)
+    return readdirSync(dir)
+      .filter((name) => isBackupMain(name, dbFile))
+      .flatMap((name) => {
+        const path = join(dir, name)
+        return usableBackup(path) ? [{ path, mtimeMs: statSync(path).mtimeMs }] : []
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs || b.path.localeCompare(a.path))[0]?.path
+  } catch (err) {
+    log.warn('database snapshot history could not be read', { path: dbPath, err })
+    return undefined
   }
 }

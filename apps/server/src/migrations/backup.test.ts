@@ -1,27 +1,47 @@
 /**
- * Backup unit tests (POD-615): free-space preflight, partial-backup cleanup on
- * copy failure, and retention pruning. Every assertion reads the backup
- * directory back from disk — a bare return-value check is never trusted on its
- * own. `freeBytes` is stubbed; `copyFileSync` is a pass-through vi.fn so one
- * test can simulate a mid-copy ENOSPC that leaves a truncated file behind.
+ * Durable snapshot tests: free-space refusal, atomic publication, partial-copy
+ * cleanup, bounded retention, suspicious-file preservation, and non-fatal
+ * pruning. Every filesystem fixture is removed after its test.
  */
 
-import { copyFileSync, existsSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  fsyncSync,
+  mkdtempSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { backupDatabase, freeDiskBytes, MIGRATION_BACKUPS_TO_KEEP } from './backup'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  backupDatabase,
+  freeDiskBytes,
+  latestDatabaseBackup,
+  MIGRATION_BACKUPS_TO_KEEP,
+} from './backup'
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
-  return { ...actual, copyFileSync: vi.fn(actual.copyFileSync) }
+  return {
+    ...actual,
+    copyFileSync: vi.fn(actual.copyFileSync),
+    fsyncSync: vi.fn(actual.fsyncSync),
+    renameSync: vi.fn(actual.renameSync),
+  }
 })
 
 const PLENTY = () => Number.MAX_SAFE_INTEGER
+const tempDirs: string[] = []
 
 function tmpDb(name = 'test.sqlite'): { db: SqlDatabase; dbPath: string; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'podium-backup-'))
+  tempDirs.push(dir)
   const dbPath = join(dir, name)
   const db = openDatabase(dbPath)
   db.exec(`CREATE TABLE t (id TEXT PRIMARY KEY); INSERT INTO t VALUES ('x');`)
@@ -30,12 +50,18 @@ function tmpDb(name = 'test.sqlite'): { db: SqlDatabase; dbPath: string; dir: st
 
 function backupMains(dir: string): string[] {
   return readdirSync(dir)
-    .filter((n) => n.includes('.backup-v') && !n.endsWith('-wal') && !n.endsWith('-shm'))
+    .filter((name) => name.includes('.backup-v') && !name.endsWith('-wal') && !name.endsWith('-shm'))
     .sort()
 }
 
 beforeEach(() => {
   vi.mocked(copyFileSync).mockClear()
+  vi.mocked(fsyncSync).mockClear()
+  vi.mocked(renameSync).mockClear()
+})
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
 describe('backupDatabase preflight', () => {
@@ -51,15 +77,15 @@ describe('backupDatabase preflight', () => {
       expect.unreachable('preflight should have thrown')
     } catch (err) {
       const msg = (err as Error).message
-      expect(msg).toContain(dir) // names the path
-      expect(msg).toContain(`need ~${Math.ceil(dbSize * 1.1)} bytes`) // required (db + 10% margin)
-      expect(msg).toContain('only 10 bytes free') // available
+      expect(msg).toContain(dir)
+      expect(msg).toContain(`need ~${Math.ceil(dbSize * 1.1)} bytes`)
+      expect(msg).toContain('only 10 bytes free')
     }
     expect(backupMains(dir)).toEqual([])
     db.close()
   })
 
-  it('backs up successfully when space suffices', () => {
+  it('publishes a sufficient snapshot only after temp-copy fsync and rename', () => {
     const { db, dbPath, dir } = tmpDb()
 
     const backupPath = backupDatabase(db, dbPath, 'ok', PLENTY)
@@ -69,6 +95,9 @@ describe('backupDatabase preflight', () => {
     expect(existsSync(backupPath as string)).toBe(true)
     expect(statSync(backupPath as string).size).toBe(statSync(dbPath).size)
     expect(backupMains(dir)).toEqual([basename(backupPath as string)])
+    expect(String(vi.mocked(copyFileSync).mock.calls[0]?.[1])).toContain('.partial-')
+    expect(vi.mocked(fsyncSync)).toHaveBeenCalled()
+    expect(vi.mocked(renameSync).mock.calls.at(-1)?.[1]).toBe(backupPath)
     db.close()
   })
 
@@ -80,10 +109,8 @@ describe('backupDatabase preflight', () => {
 })
 
 describe('backupDatabase partial-copy cleanup', () => {
-  it('removes partially written backup files when a copy fails mid-way', () => {
+  it('never publishes the truncated file when a copy fails mid-way', () => {
     const { db, dbPath, dir } = tmpDb()
-    // Simulate ENOSPC mid-copy: the destination gets a truncated file, then
-    // the copy throws — exactly the Jul 15 full-disk failure mode.
     vi.mocked(copyFileSync).mockImplementationOnce((_src, dest) => {
       writeFileSync(dest as string, 'truncated')
       throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' })
@@ -91,24 +118,57 @@ describe('backupDatabase partial-copy cleanup', () => {
 
     expect(() => backupDatabase(db, dbPath, 'boom', PLENTY)).toThrow(/ENOSPC/)
 
-    expect(backupMains(dir)).toEqual([]) // no truncated backup-v file lingers
-    expect(readdirSync(dir).filter((n) => n.includes('.backup-v'))).toEqual([]) // nor sidecars
+    expect(backupMains(dir)).toEqual([])
+    expect(readdirSync(dir).filter((name) => name.includes('.backup-v'))).toEqual([])
     db.close()
   })
 })
 
 describe('backupDatabase retention', () => {
-  it('keeps only the newest MIGRATION_BACKUPS_TO_KEEP (=2) backups', () => {
-    expect(MIGRATION_BACKUPS_TO_KEEP).toBe(2)
+  it('runs on successful snapshots and keeps only the newest three of four', () => {
+    expect(MIGRATION_BACKUPS_TO_KEEP).toBe(3)
     const { db, dbPath, dir } = tmpDb()
 
-    for (const label of ['a', 'b', 'c']) backupDatabase(db, dbPath, label, PLENTY)
+    for (const label of ['a', 'b', 'c', 'd']) backupDatabase(db, dbPath, label, PLENTY)
 
     const kept = backupMains(dir)
-    expect(kept).toHaveLength(2)
-    expect(kept.some((n) => n.includes('.backup-vb-'))).toBe(true)
-    expect(kept.some((n) => n.includes('.backup-vc-'))).toBe(true)
-    expect(kept.some((n) => n.includes('.backup-va-'))).toBe(false)
+    expect(kept).toHaveLength(3)
+    expect(kept.some((name) => name.includes('.backup-vb-'))).toBe(true)
+    expect(kept.some((name) => name.includes('.backup-vc-'))).toBe(true)
+    expect(kept.some((name) => name.includes('.backup-vd-'))).toBe(true)
+    expect(kept.some((name) => name.includes('.backup-va-'))).toBe(false)
+    db.close()
+  })
+
+  it('does not count or delete corrupt and partial snapshots as keepers', () => {
+    const { db, dbPath, dir } = tmpDb()
+    const corrupt = `${dbPath}.backup-vcorrupt-2026-08-17T00-00-00-000Z`
+    const partial = `${dbPath}.backup-vpartial-2026-08-17T00-00-00-000Z.partial-deadbeef`
+    writeFileSync(corrupt, 'not sqlite')
+    writeFileSync(partial, 'half a database')
+
+    for (const label of ['a', 'b', 'c', 'd']) backupDatabase(db, dbPath, label, PLENTY)
+
+    const present = readdirSync(dir)
+    expect(present).toContain(basename(corrupt))
+    expect(present).toContain(basename(partial))
+    expect(present.filter((name) => /\.backup-v[bcd]-/.test(name))).toHaveLength(3)
+    expect(present.some((name) => name.includes('.backup-va-'))).toBe(false)
+    expect(latestDatabaseBackup(dbPath)).toContain('.backup-vd-')
+    db.close()
+  })
+
+  it('does not fail a completed snapshot when pruning fails', () => {
+    const { db, dbPath } = tmpDb()
+    const prune = vi.fn(() => {
+      throw new Error('retention unavailable')
+    })
+
+    const backupPath = backupDatabase(db, dbPath, 'kept', PLENTY, prune)
+
+    expect(prune).toHaveBeenCalledWith(dbPath)
+    expect(backupPath).toBeDefined()
+    expect(existsSync(backupPath as string)).toBe(true)
     db.close()
   })
 })

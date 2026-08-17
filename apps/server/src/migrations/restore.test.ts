@@ -342,17 +342,18 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
 
   it('never consumes the backup pool: the backup being restored, and the pre-migration backups, all survive', () => {
     // Regression, found by the two-restores test above. The safety copy used to
-    // go through backupDatabase, whose pruneBackups keeps only the 2 newest
+    // go through backupDatabase, whose pruneBackups keeps only the 3 newest
     // `<db>.backup-v*` files — matching the PREFIX, so every label shares two
     // slots. Restoring twice therefore deleted the backup being restored from,
     // and would have evicted the pre-migration backups that ARE the sanctioned
     // rollback path: the restore command eating its own inputs.
     const { db, dbPath, dir, ledger } = authority()
     write(ledger, ['iss_1'])
-    // Two pre-migration backups — the full pool, exactly as a migrated server has.
+    // Three pre-migration backups — the full pool, exactly as a migrated server has.
     const migrationBackups = [
       backupDatabase(db, dbPath, 'drizzle-1', PLENTY),
       backupDatabase(db, dbPath, 'drizzle-2', PLENTY),
+      backupDatabase(db, dbPath, 'drizzle-3', PLENTY),
     ]
     const target = migrationBackups[0]
     if (!target || !migrationBackups[1]) throw new Error('backups did not run')

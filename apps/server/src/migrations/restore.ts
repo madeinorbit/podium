@@ -270,7 +270,7 @@ function remintRestoredEpoch(
  *
  * Deliberately NOT `backupDatabase`, and this is the interesting decision here.
  * That function ends in `pruneBackups`, which keeps only
- * MIGRATION_BACKUPS_TO_KEEP (2) `<db>.backup-v*` files — matching on the prefix
+ * MIGRATION_BACKUPS_TO_KEEP (3) `<db>.backup-v*` files — matching on the prefix
  * alone, so EVERY label competes for the same two slots. Routing a restore's
  * safety copy through it has two bad consequences, the first of which a test
  * caught immediately:
