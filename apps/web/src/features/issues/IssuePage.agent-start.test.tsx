@@ -56,25 +56,35 @@ afterEach(() => {
 })
 
 describe('IssuePage agent start controls', () => {
-  it('starts a new ticket session with a selected agent from the split dropdown', async () => {
+  // POD-1224: the agent is a SETTING in the launch box, not a one-off hidden in
+  // a split button's dropdown. Choosing it writes `defaultAgent` — so the same
+  // choice governs the CLI, the board and the next session — and the action
+  // button then starts plainly, with no agent argument of its own.
+  it('writes the chosen agent to the issue and adds a session with it', async () => {
     const issue = makeIssue({ id: 'i-1', defaultAgent: 'claude-code', worktreePath: '/r/wt' })
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )
 
-    const sessionAgentButton = screen.getAllByTitle('Choose session agent').at(0)
-    if (!sessionAgentButton) throw new Error('missing session agent dropdown')
-    fireEvent.click(sessionAgentButton)
-    const defaultItem = await screen.findByRole('menuitem', {
-      name: 'New Claude Code (default) session',
-    })
-    expect(defaultItem.querySelector('svg')).toBeTruthy()
-    expect(screen.queryByRole('menuitem', { name: 'New Claude Code session' })).toBeNull()
-    const codexItem = screen.getByRole('menuitem', { name: 'New Codex session' })
+    const agentButton = screen.getAllByRole('button', { name: 'Agent' }).at(0)
+    if (!agentButton) throw new Error('missing agent picker')
+    fireEvent.click(agentButton)
+    const codexItem = await screen.findByRole('menuitem', { name: 'Codex' })
     expect(codexItem.querySelector('svg')).toBeTruthy()
     fireEvent.click(codexItem)
 
-    await waitFor(() => expect(addSession).toHaveBeenCalledWith({ id: 'i-1', agentKind: 'codex' }))
+    // Models are per-agent, so the write resets model + effort with it.
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({
+        id: 'i-1',
+        patch: { defaultAgent: 'codex', defaultModel: 'auto', defaultEffort: 'auto' },
+      }),
+    )
+
+    const addButton = screen.getAllByRole('button', { name: '+ Session' }).at(0)
+    if (!addButton) throw new Error('missing add-session button')
+    fireEvent.click(addButton)
+    await waitFor(() => expect(addSession).toHaveBeenCalledWith({ id: 'i-1' }))
   })
 
   it('picks a model for the ticket and persists it via issues.update', async () => {

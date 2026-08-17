@@ -59,12 +59,15 @@ export function IssueRelations({
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()
   const relations = groupRelations(issue)
+  // NOTHING IS A BADGE, NOT A SENTENCE (POD-1224). "No links to other tasks."
+  // took a full line under the heading to restate the heading's own subject in
+  // the negative — on most tasks, the emptiest band in the rail was also its
+  // wordiest. The empty state now rides the heading's count slot, so the band is
+  // one line until it has something to say.
+  const empty = relations.length === 0 && !issue.dependencyNote && issue.blockedByNotes.length === 0
   return (
     <section className="group/section flex flex-col gap-2">
-      <SectionHeading>Relations</SectionHeading>
-      {relations.length === 0 && !issue.dependencyNote && issue.blockedByNotes.length === 0 && (
-        <p className="text-[12.5px] text-text-faint">No links to other tasks.</p>
-      )}
+      <SectionHeading {...(empty ? { count: 'none' } : {})}>Relations</SectionHeading>
       {relations.map((group) => (
         <div key={group.section} className="flex flex-col gap-0.5">
           <span className={MACHINE_LABEL_SUB}>{group.section}</span>

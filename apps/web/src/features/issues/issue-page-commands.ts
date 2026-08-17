@@ -197,6 +197,14 @@ export function issuePageCommands({
     setMachine: (machineId: MachineId | null): void => {
       update({ machineId })
     },
+    /** The harness this issue's sessions launch with. Models are per-agent, so
+     *  the server resets model + effort on a change ([spec:SP-7ff1]); the client
+     *  writes the same reset so the optimistic row does not show the previous
+     *  agent's model for a beat. */
+    setDefaultAgent: (defaultAgent: string): void => {
+      if (defaultAgent === issue.defaultAgent) return
+      update({ defaultAgent, defaultModel: 'auto', defaultEffort: 'auto' })
+    },
     /** Effort is per-model — changing the model resets effort to auto. */
     setDefaultModel: (defaultModel: string): void => {
       update({ defaultModel, defaultEffort: 'auto' })

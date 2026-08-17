@@ -81,7 +81,9 @@ describe('IssuePage sub-issue list (#133)', () => {
     const marks = screen.getAllByTestId('issue-edge-archived')
     expect(marks.length).toBeGreaterThan(0)
     expect(marks.every((el) => el.textContent === 'archived')).toBe(true)
-    expect(screen.queryByText('No parent')).toBeNull()
+    // The empty parent trigger, addressed by its label rather than its word —
+    // an archived parent still RESOLVES, so the row must not fall back to it.
+    expect(screen.queryByRole('button', { name: 'Set parent' })).toBeNull()
   })
 
   it('keeps an archived child visible under the parent, marked archived', () => {

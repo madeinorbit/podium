@@ -3,13 +3,13 @@ import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
 import {
+  AUTO,
   allConnectorModelLabel,
   allConnectorModelOptions,
-  AUTO,
   decodeModelPick,
-  encodeModelPick,
   effortLabel,
   effortOptionsForModel,
+  encodeModelPick,
   modelLabel,
   modelOptions,
 } from './agent-models'
@@ -70,7 +70,12 @@ const PickerTrigger = forwardRef<
       )}
       {...props}
     >
-      {label}
+      {/* The label is its own truncating box (POD-1224). A bare text node in a
+          flex button is an anonymous flex item, so `text-overflow` has nothing
+          to apply to — inside a fixed-width well (the issue rail's launch box is
+          232px) a long model name pushed the chevron out of the segment instead
+          of ellipsising. */}
+      <span className="min-w-0 truncate">{label}</span>
       <ChevronDown size={13} aria-hidden="true" className="text-text-faint" />
     </Button>
   ) : (
@@ -97,11 +102,14 @@ export function ModelPicker({
   value,
   onChange,
   variant = 'pill',
+  className,
 }: {
   agentKind: IssueAgentKind
   value: string
   onChange: (value: string) => void
   variant?: Variant
+  /** Trigger classes — how a caller sizes the segment inside its own row. */
+  className?: string
 }): JSX.Element {
   // Live models from the agent's own CLI (grok/cursor/opencode), fetched + cached by
   // the server; falls back to the static catalog for claude/codex or before it loads.
@@ -114,6 +122,7 @@ export function ModelPicker({
           icon={cpuIcon}
           label={modelLabel(agentKind, value, live)}
           aria-label="Model"
+          {...(className ? { className } : {})}
         />
       }
       options={modelOptions(agentKind, live)}
@@ -182,6 +191,7 @@ export function EffortPicker({
   value,
   onChange,
   variant = 'pill',
+  className,
 }: {
   agentKind: IssueAgentKind
   /** The currently-selected model — effort is scoped to it. */
@@ -189,6 +199,8 @@ export function EffortPicker({
   value: string
   onChange: (value: string) => void
   variant?: Variant
+  /** Trigger classes — how a caller sizes the segment inside its own row. */
+  className?: string
 }): JSX.Element | null {
   const live = useModelCatalog()[agentKind]
   // Auto model uses the agent's effort ladder; a concrete model can narrow it or
@@ -203,6 +215,7 @@ export function EffortPicker({
           icon={gaugeIcon}
           label={effortLabel(agentKind, value)}
           aria-label="Effort"
+          {...(className ? { className } : {})}
         />
       }
       options={options}

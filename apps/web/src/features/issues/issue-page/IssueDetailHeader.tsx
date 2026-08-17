@@ -75,32 +75,43 @@ export function IssueDetailHeader({
       <Button type="button" variant="ghost" size="icon-sm" title="Back" onClick={onBack}>
         <ArrowLeft size={15} aria-hidden="true" />
       </Button>
-      <span className="text-[11.5px] text-text-dim">{repoName}</span>
-      <span className="text-[11.5px] text-text-faint">›</span>
-      {parent && (
-        <>
-          <button
-            data-pressable
-            type="button"
-            className="max-w-[160px] truncate font-mono text-[10.5px] text-text-dim tabular-nums hover:text-foreground"
-            title={`${issueDisplayRef(parent)} · ${parent.title}${parent.archived ? ' · archived' : ''}`}
-            onClick={() => onNavigate(parent.id)}
-          >
-            {issueDisplayRef(parent)}
-            {parent.archived ? ' · archived' : ''}
-          </button>
-          <span className="text-[11.5px] text-text-faint">›</span>
-        </>
-      )}
-      <button
-        data-pressable
-        type="button"
-        className="cursor-pointer rounded font-mono text-[10.5px] text-foreground tabular-nums hover:text-primary"
-        title={`${issueDisplayRef(issue)} · ${issue.title} — click to copy "${issueDisplayRef(issue)}"`}
-        onClick={() => copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)}
-      >
-        {issueDisplayRef(issue)}
-      </button>
+      {/* ONE BASELINE (POD-1224). The crumbs mix a 11.5px sans repo name with
+          10.5px mono refs, and `items-center` on the bar centred each one's LINE
+          BOX — two fonts at two sizes have different ascent/descent, so centring
+          the boxes put the baselines a pixel apart and the chain read as
+          stepped. They are their own baseline-aligned group now, and that group
+          is what the bar centres. `leading-none` so the group's own box is the
+          text and nothing else. */}
+      <div className="flex min-w-0 items-baseline gap-2 leading-none">
+        <span className="text-[11.5px] text-text-dim">{repoName}</span>
+        <span className="text-[11.5px] text-text-faint">›</span>
+        {parent && (
+          <>
+            <button
+              data-pressable
+              type="button"
+              className="max-w-[160px] truncate font-mono text-[11px] text-text-dim tabular-nums leading-none hover:text-foreground"
+              title={`${issueDisplayRef(parent)} · ${parent.title}${parent.archived ? ' · archived' : ''}`}
+              onClick={() => onNavigate(parent.id)}
+            >
+              {issueDisplayRef(parent)}
+              {parent.archived ? ' · archived' : ''}
+            </button>
+            <span className="text-[11.5px] text-text-faint">›</span>
+          </>
+        )}
+        <button
+          data-pressable
+          type="button"
+          className="cursor-pointer rounded font-mono text-[11px] text-foreground tabular-nums leading-none hover:text-primary"
+          title={`${issueDisplayRef(issue)} · ${issue.title} — click to copy "${issueDisplayRef(issue)}"`}
+          onClick={() =>
+            copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
+          }
+        >
+          {issueDisplayRef(issue)}
+        </button>
+      </div>
 
       {/* TRANSIENT URGENCY ONLY (POD-635). This band is always on screen, so it
           carries the two facts that decide whether this task is your next move:
@@ -113,9 +124,9 @@ export function IssueDetailHeader({
           repeating what the rail already said is what made the top of the page
           read as an instrument cluster rather than the start of a document. */}
       {(needsYou || working > 0) && (
-        <div className="ml-1 flex min-w-0 items-center gap-2.5 border-hairline-bar border-l pl-2.5">
+        <div className="ml-1 flex min-w-0 items-center gap-2.5 self-center border-hairline-bar border-l py-1 pl-2.5">
           {needsYou && (
-            <span className="flex flex-none items-center gap-1.5 text-[10.5px] text-attention">
+            <span className="flex flex-none items-center gap-1.5 text-[11px] leading-none text-attention">
               <span className="size-[5px] rounded-full bg-attention" aria-hidden="true" />
               needs you
             </span>

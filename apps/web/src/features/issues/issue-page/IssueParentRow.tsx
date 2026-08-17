@@ -142,12 +142,21 @@ export function IssueParentRow({
                 size="sm"
                 disabled={busy}
                 title={REPARENT_SCOPE_NOTE}
+                aria-label={parent ? 'Change parent' : 'Set parent'}
                 className={cn(
-                  'h-7 shrink-0 gap-1 px-2 font-normal text-[13px]',
-                  parent ? 'text-text-faint' : 'w-full justify-start',
+                  'h-7 shrink-0 gap-1 px-2 font-normal',
+                  parent
+                    ? 'text-[13px] text-text-faint'
+                    : // EMPTY IS A PLACEHOLDER, NOT A VALUE (POD-1224). This read
+                      // at the value tier — 13px in `muted-foreground`, across the
+                      // full cell — so the loudest word in the band was the one
+                      // saying there is nothing here. It now speaks at the same
+                      // 12.5px faint the empty Relations band does, so the rail
+                      // has ONE voice for "nothing set".
+                      'w-full justify-start text-[12.5px] text-text-faint',
                 )}
               >
-                {parent ? 'Change' : <span className="text-muted-foreground">No parent</span>}
+                {parent ? 'Change' : 'None'}
               </Button>
             }
           />

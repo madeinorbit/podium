@@ -43,13 +43,14 @@
  *
  * THE LONG TAIL. "More fields" was a fold that opened itself whenever it had
  * anything in it — so it was a disclosure that mostly disclosed nothing, and a
- * heading over an empty box on every ordinary task. Estimate, Due, Snooze and
- * Type now behave the way Linear's optional properties do: a row when the field
- * is SET, and otherwise one quiet `+ Add property` menu at the foot of the head
- * band. Nothing became unreachable — which matters, because the rail is the
- * only place in the web UI that can set an estimate, a due date or a type. The
- * Linear link went the other way: it is already an item in the page's overflow
- * menu (`open-linear`), so a second home in the rail was the duplicate.
+ * heading over an empty box on every ordinary task. POD-1163 replaced it with a
+ * `+ Add property` menu at the foot of the head band; POD-1224 removed that too.
+ * Estimate, Due, Snooze and Type are now purely DISPLAY: a row when the field is
+ * set (editable and clearable there), and nothing at all when it is not. The
+ * rail's job on an ordinary task is to answer five questions, and a permanent
+ * control for four fields that almost no task carries was the fifth thing on
+ * screen competing with them. Setting one from empty is `podium issue update`
+ * (estimate / due / defer / type) — the same route the agents already use.
  *
  * All mutations still go through the named commands in
  * `../issue-page-commands.ts`; the pure derivations still come from
@@ -118,16 +119,10 @@ export function IssueProperties({
   const mergeStyle = useMergeStyle(trpc)
   // Relation add is two steps: pick a dep type, then a target issue.
   const [addRelType, setAddRelType] = useState('blocks')
-  // Long-tail properties the operator asked for on THIS task but has not filled
-  // in yet. Local and transient by design: an added-then-abandoned Due row is a
-  // UI state, not a fact about the issue, and persisting it would put an empty
-  // row back on the rail forever — the defect the fold was covering for.
-  const [revealed, setRevealed] = useState<ReadonlySet<LongTailKey>>(new Set())
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {
     setAddRelType('blocks')
-    setRevealed(new Set())
   }, [issue.id])
 
   // Repo-mates: the pool for relations + parent, excluding self, seq-ordered.
@@ -164,18 +159,13 @@ export function IssueProperties({
     groupKey: entry.outcome,
   }))
 
-  // A long-tail property earns a row when it is SET, or when the operator just
-  // asked for it. Everything else stays behind one `+ Add property` menu.
-  const isSet: Record<LongTailKey, boolean> = {
-    estimate: issue.estimateMin != null,
-    due: issue.dueAt != null,
-    defer: issue.deferUntil != null,
-    type: issue.type !== 'task',
-  }
-  const shows = (key: LongTailKey): boolean => isSet[key] || revealed.has(key)
-  const addable = LONG_TAIL.filter((entry) => !shows(entry.key))
-  const reveal = (key: string): void => {
-    setRevealed((prior) => new Set(prior).add(key as LongTailKey))
+  // A long-tail property earns a row when it is SET, and never otherwise
+  // (POD-1224) — see the module note's LONG TAIL section.
+  const shows = (key: LongTailKey): boolean => {
+    if (key === 'estimate') return issue.estimateMin != null
+    if (key === 'due') return issue.dueAt != null
+    if (key === 'defer') return issue.deferUntil != null
+    return issue.type !== 'task'
   }
 
   return (
@@ -317,30 +307,6 @@ export function IssueProperties({
             />
           </PropertyRow>
         )}
-
-        {addable.length > 0 && (
-          // The foot of the head band, on the LABEL column rather than the
-          // value column: it adds a row, it is not the value of one.
-          <div className="-ml-2 flex min-h-[30px] items-center">
-            <PropertyMenu
-              options={addable.map((entry) => ({ value: entry.key, label: entry.label }))}
-              placeholder="Add property…"
-              onSelect={reveal}
-              trigger={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  data-testid="add-property"
-                  className="h-7 gap-1 px-2 text-[12px] text-text-faint"
-                >
-                  <Plus size={12} aria-hidden="true" /> Add property
-                </Button>
-              }
-            />
-          </div>
-        )}
       </RailSection>
 
       <RailSection>
@@ -390,17 +356,8 @@ export function IssueProperties({
   )
 }
 
-/** The long-tail properties, in the order the add-menu offers them. Every one
- *  is a field with no other home in the web UI, which is why the fold they used
- *  to live in became a menu rather than a deletion. */
-const LONG_TAIL = [
-  { key: 'estimate', label: 'Estimate' },
-  { key: 'due', label: 'Due date' },
-  { key: 'defer', label: 'Snooze' },
-  { key: 'type', label: 'Type' },
-] as const
-
-type LongTailKey = (typeof LONG_TAIL)[number]['key']
+/** The long-tail properties: a row each when SET, nothing when not. */
+type LongTailKey = 'estimate' | 'due' | 'defer' | 'type'
 
 /** ONE BAND OF THE RAIL, ONE RHYTHM (POD-1163).
  *
@@ -422,7 +379,3 @@ function RailSection({
 }): JSX.Element {
   return <div className={cn('flex flex-col px-5 py-4', gap === 'loose' && 'gap-4')}>{children}</div>
 }
-
-/** Re-exported for the call sites that used to import it from the properties
- *  module; the component itself now lives with the sessions block it belongs to. */
-export { IssueAgentAction } from './IssueSessionsBlock'

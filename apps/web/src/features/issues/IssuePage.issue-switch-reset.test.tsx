@@ -60,7 +60,10 @@ vi.mock('@/app/store', () => {
   return {
     useStore: () => state(),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(state()),
-    useReplicaIssues: () => [],
+    // Two repo-mates, so the rail renders its relation controls: the pending
+    // relation TYPE is the transient the properties reset still owns, and with
+    // an empty replica there is no control to hold it (POD-1224).
+    useReplicaIssues: () => [FIRST, SECOND],
   }
 })
 
@@ -158,29 +161,33 @@ describe('issue-page/IssueBody.tsx — the long-form editor reset', () => {
   })
 })
 
-describe('issue-page/IssueProperties.tsx — the properties reset', () => {
-  // POD-591 deleted the transient this test was originally written for (a
-  // typed-but-unsubmitted defer date), and POD-1163 gave the same effect a NEW
-  // transient to own: which long-tail property the operator revealed. "More
-  // fields" was a fold over Estimate / Due / Snooze / Type; those rows now
-  // appear when the field is set, or when the operator adds one from the
-  // `+ Add property` menu — and that reveal is page-local UI state, so it must
-  // NOT follow you onto the next task. Carrying it across would put an empty
-  // Snooze row on an issue nobody asked for one on, which is exactly the
-  // permanent-empty-row defect the fold was covering for.
-  it('drops a revealed long-tail row rather than carrying it to the next issue', async () => {
-    const { switchIssue } = open()
-    // Not set on the fixture, so it is not rendered until it is asked for.
+describe('issue-page/IssueProperties.tsx — the long tail', () => {
+  // POD-591 deleted the transient this file's properties test was originally
+  // written for (a typed-but-unsubmitted defer date); POD-1163 replaced it with
+  // a `+ Add property` reveal, and POD-1224 removed that control too. There is
+  // no page-local reveal left to carry across a switch — Estimate / Due /
+  // Snooze / Type render when the field is SET and never otherwise, which is the
+  // property this test now pins.
+  it('renders no long-tail row for a field the issue does not carry', () => {
+    open()
     expect(screen.queryAllByLabelText('Defer until')).toHaveLength(0)
+    expect(screen.queryAllByLabelText('Due date')).toHaveLength(0)
+    expect(screen.queryAllByTestId('add-property')).toHaveLength(0)
+  })
 
-    // The aside and the mobile disclosure both mount the properties stack, so
-    // the control is addressed positionally rather than by a unique query.
-    await userEvent.click(screen.getAllByTestId('add-property')[0] as HTMLElement)
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Snooze' }))
-    expect(screen.getAllByLabelText('Defer until').length).toBeGreaterThan(0)
+  // The transient the properties reset still owns, and the one this file is
+  // shaped around: a relation type picked but not spent must not follow you.
+  it('drops a pending relation type rather than carrying it to the next issue', async () => {
+    const { switchIssue } = open()
+    // The aside and the mobile disclosure both mount the stack, so every query
+    // here is positional.
+    await userEvent.click(screen.getAllByRole('button', { name: 'blocks' })[0] as HTMLElement)
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'related' }))
+    expect(screen.getAllByRole('button', { name: 'related' }).length).toBeGreaterThan(0)
 
     switchIssue()
 
-    expect(screen.queryAllByLabelText('Defer until')).toHaveLength(0)
+    expect(screen.queryAllByRole('button', { name: 'related' })).toHaveLength(0)
+    expect(screen.getAllByRole('button', { name: 'blocks' }).length).toBeGreaterThan(0)
   })
 })

@@ -110,7 +110,7 @@ describe('the parent row', () => {
     const onSetParent = renderRow({ id: 'i-1', owner: 'alice' }, [
       { id: 'i-epic', seq: 9, title: 'Bobs epic', owner: 'bob' },
     ])
-    await userEvent.click(screen.getByRole('button', { name: /no parent/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Set parent' }))
     await userEvent.click(await screen.findByText('Bobs epic'))
 
     expect(confirm).toHaveBeenCalledWith(
@@ -123,7 +123,7 @@ describe('the parent row', () => {
   it('does NOT confirm when the owners are unknown — the single-user case', async () => {
     const confirm = stubConfirm(true)
     const onSetParent = renderRow({ id: 'i-1' }, [{ id: 'i-epic', seq: 9, title: 'An epic' }])
-    await userEvent.click(screen.getByRole('button', { name: /no parent/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Set parent' }))
     await userEvent.click(await screen.findByText('An epic'))
 
     expect(confirm).not.toHaveBeenCalled()
@@ -135,10 +135,12 @@ describe('the parent row', () => {
     const onSetParent = renderRow({ id: 'i-1', owner: 'alice', parentId: 'i-epic' }, [
       { id: 'i-epic', seq: 9, title: 'Bobs epic', owner: 'bob' },
     ])
-    // The trigger reads "No parent" whenever the parent does not RESOLVE, even
+    // The trigger stays the EMPTY one whenever the parent does not RESOLVE, even
     // though `parentId` is set — unchanged from before the port, and the reason
-    // the menu item is addressed by role rather than by text here.
-    await userEvent.click(screen.getByRole('button', { name: /no parent/i }))
+    // the menu item is addressed by role rather than by text here. Its visible
+    // word is "None" (POD-1224); it is addressed by its `Set parent` label so
+    // the query does not collide with the menu item it opens.
+    await userEvent.click(screen.getByRole('button', { name: 'Set parent' }))
     await userEvent.click(await screen.findByRole('menuitem', { name: 'No parent' }))
 
     expect(confirm).not.toHaveBeenCalled()
