@@ -8,6 +8,7 @@
  *
  * Query string: `?rows=N` sizes the list, `?theme=…` picks the palette block.
  */
+import type { JSX } from 'react'
 import { createRoot } from 'react-dom/client'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import '@/index.css'

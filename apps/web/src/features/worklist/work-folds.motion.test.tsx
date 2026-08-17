@@ -13,6 +13,7 @@
  * animation to a test that only checked the start.
  */
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import type { JSX } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FoldPanel } from './work-folds'
 
