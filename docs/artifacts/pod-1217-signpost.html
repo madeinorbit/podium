@@ -552,9 +552,10 @@
       is on the screen, why the screen is wrong, and the smallest honest fix.
     </p>
     <p class="revision">
-      Second draft. The first recommended guarding the shared viewmodel; review showed
-      that also deletes the very trail it promised to keep, and never lets the card
-      return. That option is now the rejected one, below.
+      Second draft, and now shipped. The first draft recommended guarding the shared
+      viewmodel; review showed that also deletes the very trail it promised to keep, and
+      never lets the card return. That option is the rejected one below; the recommended
+      one is in the code.
     </p>
   </header>
 
@@ -656,7 +657,7 @@
       <div class="fix pick">
         <div class="fix-head">
           <h3>Fix the one sentence, at the card</h3>
-          <span class="tag">recommended</span>
+          <span class="tag">shipped</span>
         </div>
         <p>
           Only the first sentence makes a claim about sessions. The headline is a lineage
@@ -669,7 +670,7 @@
           Small on purpose: one component, one conditional. The shared viewmodel is not
           touched, so every other surface that leans on it keeps working.
         </p>
-        <p class="cost">one component &middot; one conditional &middot; plus a test for duplicate + present session, which does not exist today</p>
+        <p class="cost">landed &middot; +74 lines in FlightDeck.tsx, client-core untouched &middot; 7 new tests, verified against the un-fixed card first</p>
       </div>
 
       <div class="fix">
