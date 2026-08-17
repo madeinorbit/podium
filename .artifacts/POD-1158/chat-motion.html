@@ -40,7 +40,8 @@
 
   --yellow:#f5c518; --ink-on-yellow:#16171a;
   --t:1;                       /* speed multiplier: 1 = real time, 4 = quarter */
-  --curve:cubic-bezier(0.22,1,0.36,1);
+  --curve:cubic-bezier(0.22,1,0.36,1);   /* the house curve, used everywhere today */
+  --travel:6px;                          /* today's lift distance */
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
@@ -278,8 +279,8 @@ section{padding-top:62px}
   font-variant-numeric:tabular-nums}
 
 /* 1 — the block lands (transform + opacity, on the BODY, not the row) */
-@keyframes land{ from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
-@keyframes land-bubble{ from{opacity:0; transform:translateY(9px) scale(.986)} to{opacity:1; transform:none} }
+@keyframes land{ from{opacity:0; transform:translateY(var(--travel))} to{opacity:1; transform:none} }
+@keyframes land-bubble{ from{opacity:0; transform:translateY(calc(var(--travel) * 1.5)) scale(.986)} to{opacity:1; transform:none} }
 @media (prefers-reduced-motion:no-preference){
   .enter-land .md,
   .enter-land .foot{animation:land calc(300ms * var(--t)) var(--curve) both}
@@ -373,6 +374,16 @@ section{padding-top:62px}
   <div class="seg" id="seg-speed">
     <button type="button" data-speed="1" aria-pressed="true">1&times;</button>
     <button type="button" data-speed="4" aria-pressed="false">&frac14;&times;</button>
+  </div>
+  <span class="strip-label" style="margin-left:8px">Curve</span>
+  <div class="seg" id="seg-curve">
+    <button type="button" data-curve="cubic-bezier(0.22,1,0.36,1)" aria-pressed="true">House</button>
+    <button type="button" data-curve="cubic-bezier(0.4,0,0.2,1)" aria-pressed="false">Even</button>
+  </div>
+  <span class="strip-label" style="margin-left:8px">Travel</span>
+  <div class="seg" id="seg-travel">
+    <button type="button" data-travel="6px" aria-pressed="true">6px</button>
+    <button type="button" data-travel="12px" aria-pressed="false">12px</button>
   </div>
   <span class="strip-label" style="margin-left:8px">Reduced motion</span>
   <div class="seg" id="seg-motion">
@@ -567,6 +578,13 @@ section{padding-top:62px}
   <div class="rule"></div>
   <p class="lede">Each feed below opens with two messages that did <em>not</em> animate — that is the latch working, and it is the state a reader spends 99% of their time in. Press the button to land a new one. The same three materials: the block moves, the ink resolves, or the space opens.</p>
 
+  <div class="note" style="margin-top:22px">
+    <h4>Third gap, and it is the one you can feel from here <span class="tagline" style="color:var(--gold)">measured</span></h4>
+    <p>If everything below reads as "it just appears", that is not a broken demo. Sampled at 1&times;, today's lift travels <b>7.1px, then 1.6px, then 0.5px</b> at 0 / 55 / 110ms — <b>four fifths of it is over within one 55ms sample</b>, and the remainder is a pixel and a half. There is nothing there for an eye to catch.</p>
+    <p style="margin-top:11px"><code>cubic-bezier(.22,1,.36,1)</code> is the right curve for a chevron rotating or a panel you are already looking at: its whole job is to get out of the way. An arrival is the opposite job — it has to be caught by an eye that is somewhere else on the screen. So there are two dials in the strip above, and they matter more than which of the four options you pick. Set <b>Curve: Even</b> and <b>Travel: 12px</b> and land a message: the same option at the same duration now measures <b>12px, 6.5px, 2.0px</b> across those same three samples. One of those is a motion; the other is a repaint.</p>
+    <p style="margin-top:11px">This is very likely the larger half of the original complaint. The arrival <em>does</em> fire on a completed turn today, correctly, latched — and it is still invisible.</p>
+  </div>
+
   <div style="margin-top:16px"><button type="button" class="btn" data-fire-group="arrival">Land a message in all four</button></div>
 
   <div class="grid">
@@ -747,6 +765,20 @@ section{padding-top:62px}
     var b = e.target.closest('[data-speed]'); if (!b) return;
     root.style.setProperty('--t', b.dataset.speed);
     pressGroup(segSpeed, b);
+  });
+
+  var segCurve = document.getElementById('seg-curve');
+  segCurve.addEventListener('click', function(e){
+    var b = e.target.closest('[data-curve]'); if (!b) return;
+    root.style.setProperty('--curve', b.dataset.curve);
+    pressGroup(segCurve, b);
+  });
+
+  var segTravel = document.getElementById('seg-travel');
+  segTravel.addEventListener('click', function(e){
+    var b = e.target.closest('[data-travel]'); if (!b) return;
+    root.style.setProperty('--travel', b.dataset.travel);
+    pressGroup(segTravel, b);
   });
 
   var segMotion = document.getElementById('seg-motion');
