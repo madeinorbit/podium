@@ -68,14 +68,13 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { GitBranch, Plus, Search } from 'lucide-react'
-import { type CSSProperties, Fragment, type JSX, useMemo, useState } from 'react'
+import { Fragment, type JSX, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { agentBrandText } from '@/lib/agent-tone'
-import { FLOW_CSS, issueColorHex } from '@/lib/issueColors'
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -116,16 +115,20 @@ function isIssueRow(row: UnifiedWorkRow): row is UnifiedIssueRow {
  * lands its outer edge EXACTLY on the column's right edge: nothing overflows,
  * so the scroller needs no negative-margin trick to let it out, and the spine
  * reads as the column's own edge lighting up rather than as an object stuck to
- * the tile. Same `--issue` grammar as the wide row, so a colour pick animates
- * it through the registered transition.
+ * the tile.
+ *
+ * NEUTRAL INK, not the issue hue — `WorkRowShell`'s rule, and the design draws
+ * the same near-black/near-white bar: the tile beside it is already tinted with
+ * the issue's colour, and selection is a different question from identity. A
+ * hued spine also lost the argument on contrast, since an issue colour at 3px
+ * against a tinted tile is a whisper in either theme.
  */
-function RailSpine({ hex }: { hex: string | undefined }): JSX.Element {
+function RailSpine(): JSX.Element {
   return (
     <span
       data-testid="rail-spine"
       aria-hidden="true"
-      className="issue-scope pointer-events-none absolute top-1/2 right-[-11px] h-[20px] w-[3px] -translate-y-1/2 rounded-l-[2px]"
-      style={{ '--issue': hex ?? FLOW_CSS, background: 'var(--issue)' } as CSSProperties}
+      className="pointer-events-none absolute top-1/2 right-[-11px] h-[20px] w-[3px] -translate-y-1/2 rounded-l-[2px] bg-text-strong"
     />
   )
 }
@@ -355,9 +358,7 @@ export function SidebarRail(): JSX.Element {
         {row.kind === 'issue'
           ? renderIssueMark(row, phase, waitingCount, selected)
           : renderWorktreeMark(row, phase, selected)}
-        {selected && (
-          <RailSpine hex={row.kind === 'issue' ? issueColorHex(row.issue.color) : undefined} />
-        )}
+        {selected && <RailSpine />}
         {hover?.key === key && (
           <RailHoverCard
             anchor={hover.anchor}
