@@ -51,7 +51,11 @@ export function routeMachineDiagnostic(
       id: issueId,
       repoPath,
       title: diagnostic.title,
-      description: 'A host integration was disabled because its installed version is unrecognized.',
+      // Only the daemon knows what actually degraded; the fallback is the one
+      // diagnostic that predates the field (an unsupported integration version).
+      description:
+        diagnostic.description ??
+        'A host integration was disabled because its installed version is unrecognized.',
       brief: [
         diagnostic.body,
         `Machine: ${diagnostic.machineId}`,

@@ -85,6 +85,7 @@ export interface EventMap {
     code: string
     title: string
     body: string
+    description?: string
     observedVersion?: string
   }
   /** A host reported a fresh metrics sample. */

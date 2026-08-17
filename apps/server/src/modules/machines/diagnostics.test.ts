@@ -41,6 +41,26 @@ describe('routeMachineDiagnostic', () => {
     }
   })
 
+  // POD-1229: every diagnostic used to describe itself as an unrecognized
+  // integration version, whatever it actually was. A port conflict said so in
+  // its body and then contradicted itself in the description the reader sees first.
+  it('uses the daemon description when one is supplied, and the legacy sentence when not', () => {
+    const withDescription = deps()
+    routeMachineDiagnostic(
+      { ...diagnostic, description: 'Another program holds the hook port.' },
+      withDescription,
+    )
+    for (const [input] of vi.mocked(withDescription.createIssue).mock.calls) {
+      expect(input.description).toBe('Another program holds the hook port.')
+    }
+
+    const withoutDescription = deps()
+    routeMachineDiagnostic(diagnostic, withoutDescription)
+    for (const [input] of vi.mocked(withoutDescription.createIssue).mock.calls) {
+      expect(input.description).toContain('installed version is unrecognized')
+    }
+  })
+
   it('is idempotent when the deterministic issue already exists', () => {
     const d = deps({ issueExists: () => true })
     routeMachineDiagnostic(diagnostic, d)

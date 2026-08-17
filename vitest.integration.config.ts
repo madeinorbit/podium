@@ -14,6 +14,7 @@ const integrationTests = [
   'packages/pty/src/tmux.test.ts',
   ...ptySmokeTests,
   'apps/daemon/src/daemon.test.ts',
+  'apps/daemon/src/daemon.port-conflict.test.ts',
   'apps/daemon/src/memory-breakdown.test.ts',
   'scripts/redeploy-wait.test.ts',
   // Heavy process/PTY/server-boot suites excluded from the unit lane

@@ -217,12 +217,13 @@
         "code": "code",
         "title": "title",
         "body": "body",
+        "description": "description",
         "observedVersion": "observedVersion"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"machineDiagnostic\",\"code\":\"code\",\"title\":\"title\",\"body\":\"body\",\"observedVersion\":\"observedVersion\"}"
+      "encoded": "{\"type\":\"machineDiagnostic\",\"code\":\"code\",\"title\":\"title\",\"body\":\"body\",\"description\":\"description\",\"observedVersion\":\"observedVersion\"}"
     },
     {
       "schema": "MachinesChangedMessage",

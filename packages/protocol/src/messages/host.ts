@@ -71,6 +71,13 @@ export const MachineDiagnosticMessage = z.object({
   code: z.string().min(1),
   title: z.string().min(1),
   body: z.string().min(1),
+  /**
+   * Plain-language "what happened to me" for the attention item the server
+   * raises. Optional only for compatibility with daemons that predate it;
+   * without it the server has to fall back to a sentence about an unrecognized
+   * integration version, which is a lie for every other kind of degradation.
+   */
+  description: z.string().min(1).optional(),
   observedVersion: z.string().optional(),
 })
 export type MachineDiagnosticMessage = z.infer<typeof MachineDiagnosticMessage>

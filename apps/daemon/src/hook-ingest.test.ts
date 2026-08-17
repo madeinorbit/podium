@@ -117,11 +117,36 @@ describe('hook ingest', () => {
     expect(got).toEqual([])
   })
 
-  it('rejects startup when the stable preferred port is taken', async () => {
+  // POD-1229: refusing to start took the whole daemon host down with it — the
+  // machine read offline and nothing named the port. Ingest that works on a
+  // moved port, and says so, beats an ingest that works nowhere and does not.
+  it('falls back to an ephemeral port when the stable one is taken, and reports the conflict', async () => {
     ingest = await startHookIngest({ port: 0, onPayload: () => {} })
-    await expect(startHookIngest({ port: ingest.port, onPayload: () => {} })).rejects.toMatchObject(
-      { code: 'EADDRINUSE' },
-    )
+    const got: unknown[] = []
+    const second = await startHookIngest({ port: ingest.port, onPayload: (_s, p) => got.push(p) })
+    try {
+      expect(second.port).not.toBe(ingest.port)
+      expect(second.portConflict).toEqual({
+        preferredPort: ingest.port,
+        boundPort: second.port,
+        detail: expect.stringContaining(String(ingest.port)),
+      })
+      // Degraded means MOVED, not broken: the endpoint it hands out serves.
+      const res = await fetch(second.endpointFor(asSessionId('s1')), {
+        method: 'POST',
+        body: JSON.stringify({ hook_event_name: 'Stop' }),
+      })
+      expect(res.status).toBe(200)
+      await new Promise((r) => setTimeout(r, 10))
+      expect(got).toEqual([{ hook_event_name: 'Stop' }])
+    } finally {
+      await second.close()
+    }
+  })
+
+  it('reports no conflict when it gets the port it asked for', async () => {
+    ingest = await startHookIngest({ port: 0, onPayload: () => {} })
+    expect(ingest.portConflict).toBeUndefined()
   })
 })
 

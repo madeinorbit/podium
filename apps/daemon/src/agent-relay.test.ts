@@ -88,12 +88,30 @@ describe('agent relay hub', () => {
 })
 
 describe('agent relay server', () => {
-  it('rejects startup when the stable preferred port is taken', async () => {
+  // POD-1229: a taken port used to fail daemon startup, which cost the machine
+  // everything else the daemon does. Move the relay and report it instead.
+  it('falls back to an ephemeral port when the stable one is taken, and reports the conflict', async () => {
     const first = await startAgentRelayServer({ port: 0, relay: async () => ({ ok: true }) })
     try {
-      await expect(
-        startAgentRelayServer({ port: first.port, relay: async () => ({ ok: true }) }),
-      ).rejects.toMatchObject({ code: 'EADDRINUSE' })
+      const second = await startAgentRelayServer({
+        port: first.port,
+        relay: async () => ({ ok: true, result: 'served' }),
+      })
+      try {
+        expect(second.port).not.toBe(first.port)
+        expect(second.portConflict).toEqual({
+          preferredPort: first.port,
+          boundPort: second.port,
+          detail: expect.stringContaining(String(first.port)),
+        })
+        const res = await fetch(second.endpointFor(asSessionId('s1')), {
+          method: 'POST',
+          body: JSON.stringify({ proc: 'ready' }),
+        })
+        expect(await res.json()).toEqual({ ok: true, result: 'served' })
+      } finally {
+        await second.close()
+      }
     } finally {
       await first.close()
     }

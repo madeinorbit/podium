@@ -55,6 +55,8 @@ export const unitTestExclude = [
   'packages/pty/test/harness-smoke/**',
   // Boots a real daemon and spawns PTY-backed fixture agents per test.
   'apps/daemon/src/daemon.test.ts',
+  // Boots real daemons against real held ports (POD-1229 boot degradation).
+  'apps/daemon/src/daemon.port-conflict.test.ts',
   // Spawn real child processes (bun install/typecheck; memory sampling).
   'scripts/redeploy-wait.test.ts',
   'apps/daemon/src/memory-breakdown.test.ts',

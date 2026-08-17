@@ -4,6 +4,11 @@ import { createConnection } from 'node:net'
 import { dirname } from 'node:path'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
+import {
+  HOOK_INGEST_ENDPOINT,
+  listenStableLoopbackPort,
+  type StablePortConflict,
+} from './loopback-listen'
 
 /**
  * Receives Claude Code `type: "http"` hook POSTs at /hooks/<podiumSessionId>.
@@ -18,6 +23,12 @@ import { asSessionId } from '@podium/model'
  */
 export interface HookIngest {
   port: number
+  /**
+   * Set when the preferred port was taken and ingest bound an ephemeral one
+   * instead. Ingest works; it is the STABILITY that was lost, so the caller is
+   * expected to report this where a person sees it. See {@link DEFAULT_HOOK_PORT}.
+   */
+  portConflict?: StablePortConflict
   /** Stable, instance-scoped Codex endpoint when configured. */
   socketPath?: string
   endpointFor(sessionId: SessionId): string
@@ -28,6 +39,13 @@ export interface HookIngest {
  * Default is a FIXED, instance-owned port, not ephemeral: hook URLs live in settings files of
  * durable (abduco/tmux) sessions that outlive this process. A daemon restart
  * must come back on the same port or surviving agents post into the void.
+ *
+ * Wanting it is not the same as getting it. When something else already holds
+ * the port, this ingest binds an ephemeral one and reports `portConflict`
+ * rather than refusing to start (POD-1229) — the stability was already gone the
+ * moment another process answered on that address, and taking the whole daemon
+ * host down with it only hides the cause behind an offline machine. See
+ * `loopback-listen.ts` for why the server port does not get the same treatment.
  */
 export const DEFAULT_HOOK_PORT = 45777
 
@@ -158,19 +176,11 @@ export async function startHookIngest(opts: {
   }
 
   const server = createServer(onRequest)
-  const preferred = opts.port ?? DEFAULT_HOOK_PORT
-  const port = await new Promise<number>((resolve, reject) => {
-    const finish = (): void => {
-      const addr = server.address()
-      if (addr === null || typeof addr === 'string') {
-        reject(new Error('hook ingest: no port'))
-        return
-      }
-      resolve(addr.port)
-    }
-    server.once('error', reject)
-    server.listen(preferred, '127.0.0.1', finish)
-  })
+  const { port, conflict } = await listenStableLoopbackPort(
+    server,
+    opts.port ?? DEFAULT_HOOK_PORT,
+    HOOK_INGEST_ENDPOINT.name,
+  )
 
   let socketServer: Server | undefined
   let socketOwned = false
@@ -201,6 +211,7 @@ export async function startHookIngest(opts: {
 
   return {
     port,
+    ...(conflict ? { portConflict: conflict } : {}),
     ...(opts.socketPath ? { socketPath: opts.socketPath } : {}),
     endpointFor: (sessionId) => `http://127.0.0.1:${port}/hooks/${sessionId}`,
     close: async () => {

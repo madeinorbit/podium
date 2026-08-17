@@ -1,8 +1,13 @@
-import { asSessionId } from '@podium/model'
-import type { SessionId } from '@podium/model'
 import { createServer, type Server } from 'node:http'
+import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
-import { type DaemonMessage } from '@podium/protocol/daemon'
+import type { DaemonMessage } from '@podium/protocol/daemon'
+import {
+  AGENT_RELAY_ENDPOINT,
+  listenStableLoopbackPort,
+  type StablePortConflict,
+} from './loopback-listen'
 
 /** Procs that legitimately BLOCK server-side longer than a normal RPC, so the hub
  *  must hold their request open past the 30s default or the CLI throws before the
@@ -89,9 +94,12 @@ export function createAgentRelayHub(
  * Fixed default port, mirroring the hook ingest. The port is injected into an
  * agent's environment at spawn (Task 3) so its `podium` CLI can POST here;
  * on a daemon restart we must come back on the same port or already-running
- * agents post into the void. Bind conflicts fail startup so no session can be
- * silently routed to another daemon;
- * ephemeral port 0 remains available when tests request it explicitly.
+ * agents post into the void. A bind conflict is reported as `portConflict` and
+ * the relay moves to an ephemeral port rather than failing daemon startup
+ * (POD-1229) — nothing is silently routed to another daemon, because the
+ * conflict is raised as a machine diagnostic and every session spawned from
+ * here on is given the port that was actually bound. Ephemeral port 0 remains
+ * available when tests request it explicitly.
  */
 export const DEFAULT_AGENT_RELAY_PORT = 45778
 
@@ -123,12 +131,18 @@ const RELAY_BODY_MAX_BYTES = 1 * 1024 * 1024
  * agent, NOT a sandbox against a co-located adversary who can already forge any
  * sessionId. Hardening here is about not crashing/OOMing on hostile input.
  */
-export function startAgentRelayServer(opts: {
+export async function startAgentRelayServer(opts: {
   relay: (req: AgentRelayRequest) => Promise<AgentRelayResult>
   openUrl?: (sessionId: SessionId, url: string) => { ok: true } | { ok: false; error: string }
   /** Preferred port; pass 0 for ephemeral (tests). Defaults to DEFAULT_AGENT_RELAY_PORT. */
   port?: number
-}): Promise<{ port: number; endpointFor(sessionId: SessionId): string; close(): Promise<void> }> {
+}): Promise<{
+  port: number
+  /** Set when the preferred port was taken; see {@link DEFAULT_AGENT_RELAY_PORT}. */
+  portConflict?: StablePortConflict
+  endpointFor(sessionId: SessionId): string
+  close(): Promise<void>
+}> {
   const server: Server = createServer((req, res) => {
     // Accept the current `/session/<sid>` path and every legacy prefix it has
     // carried (`/issue/`, then `/agent/`): an in-flight session keeps POSTing to
@@ -211,21 +225,15 @@ export function startAgentRelayServer(opts: {
     })
   })
 
-  const preferred = opts.port ?? DEFAULT_AGENT_RELAY_PORT
-  return new Promise((resolve, reject) => {
-    const finish = (): void => {
-      const addr = server.address()
-      if (addr === null || typeof addr === 'string') {
-        reject(new Error('agent relay: no port'))
-        return
-      }
-      resolve({
-        port: addr.port,
-        endpointFor: (sessionId) => `http://127.0.0.1:${addr.port}/session/${sessionId}`,
-        close: () => new Promise<void>((r) => server.close(() => r())),
-      })
-    }
-    server.once('error', reject)
-    server.listen(preferred, '127.0.0.1', finish)
-  })
+  const { port, conflict } = await listenStableLoopbackPort(
+    server,
+    opts.port ?? DEFAULT_AGENT_RELAY_PORT,
+    AGENT_RELAY_ENDPOINT.name,
+  )
+  return {
+    port,
+    ...(conflict ? { portConflict: conflict } : {}),
+    endpointFor: (sessionId) => `http://127.0.0.1:${port}/session/${sessionId}`,
+    close: () => new Promise<void>((r) => server.close(() => r())),
+  }
 }

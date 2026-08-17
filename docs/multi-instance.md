@@ -53,9 +53,23 @@ Duplicate selectors and invalid IDs are rejected.
 | Daemon unit | `podium-daemon.service` | `podium-blue-daemon.service` | none |
 | Update timer | `podium-update-user.timer` | `podium-blue-update.timer` | none |
 
-Named endpoint triplets are deterministic and non-overlapping for ordinary IDs. A rare hash
-collision, or any explicit collision, fails during bind; Podium does not silently move to an
-ephemeral port. Set all three port overrides when an operator needs a fixed allocation.
+Named endpoint triplets are deterministic and non-overlapping for ordinary IDs. Set all three port
+overrides when an operator needs a fixed allocation.
+
+A collision — a rare hash collision, an explicit one, or another instance already on the default
+triplet — is handled differently per port, because the two kinds of port are dialed by different
+people:
+
+- **Server port**: bind fails and the process refuses to start. It is dialed from outside Podium
+  (browsers, other machines, bookmarks), so a different port serves nobody.
+- **Hook and agent-relay ports**: the daemon binds an ephemeral port instead of failing, and
+  raises a machine diagnostic naming the port, the fallback, and the overrides above. They are
+  dialed only by sessions Podium itself launches, and it writes the address into their settings
+  and environment at spawn — so sessions spawned after the move are fine, and sessions spawned
+  before it were already lost to whatever else is answering on that address. Refusing to start
+  would instead cost the whole daemon: the machine reads offline, its folders cannot be browsed,
+  and no agent can be placed (POD-1229). Restart the affected sessions, or set the overrides and
+  restart the daemon, to get back on a stable port.
 
 Each state root contains `instance.json`. A process refuses a root already marked for another
 identity. A named instance also refuses to adopt a non-empty unmarked directory unless

@@ -152,9 +152,11 @@ export function durableSessionLabel(
 
 /**
  * Stable endpoint triplet. Operators may override each port in config/env; the
- * derived named-instance slot is a convenient default. A rare hash collision
- * fails at bind time (never falls back to an unstable port) and is resolved by
- * setting explicit ports.
+ * derived named-instance slot is a convenient default. A rare hash collision is
+ * resolved by setting explicit ports; until then the server port fails at bind
+ * time, while the daemon's hook and agent-relay ports move to an ephemeral port
+ * and raise a machine diagnostic rather than taking the daemon down with them
+ * (POD-1229, docs/multi-instance.md).
  */
 export interface InstancePorts {
   server: number

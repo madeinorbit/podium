@@ -55,6 +55,7 @@ import { sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { reportLongTick, startLoopAttribution } from './loop-attribution'
+import { AGENT_RELAY_ENDPOINT, describePortConflict, HOOK_INGEST_ENDPOINT } from './loopback-listen'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
 import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
@@ -315,6 +316,30 @@ export async function createDaemonHostRuntime(args: {
       return agentRelayHub.relay(request)
     },
   })
+  /**
+   * A stable agent-facing port was taken, so the endpoint moved (POD-1229).
+   *
+   * Collected rather than sent, because nothing is connected yet at this point
+   * in boot and `send` would drop it on the floor — which is the whole failure
+   * being fixed here. `connected()` replays them, so a reconnect re-asserts a
+   * condition that is still true, and the server's per-code dedup makes that
+   * idempotent.
+   */
+  const portConflicts = [
+    ...(ingest.portConflict
+      ? [describePortConflict(HOOK_INGEST_ENDPOINT, ingest.portConflict, instance.instanceId)]
+      : []),
+    ...(agentRelay.portConflict
+      ? [describePortConflict(AGENT_RELAY_ENDPOINT, agentRelay.portConflict, instance.instanceId)]
+      : []),
+  ]
+  for (const diagnostic of portConflicts) {
+    // Two audiences, deliberately. This line is for whoever is watching the
+    // daemon's journal; the diagnostic below is for the person who only ever
+    // sees the app and would otherwise be told their machine is offline.
+    log.error(diagnostic.title, { code: diagnostic.code, detail: diagnostic.body })
+  }
+
   const outputScheduler = new OutputScheduler({
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
@@ -538,6 +563,7 @@ export async function createDaemonHostRuntime(args: {
       // inflate every later socket readdir. Sweep before the reattach storm.
       reapStaleAbducoBindTemps()
     }
+    for (const diagnostic of portConflicts) send({ type: 'machineDiagnostic', ...diagnostic })
     reconcilePendingUpdate()
     pushDurableSessionCensus()
     void reportInventory(ctx)
