@@ -9,6 +9,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ServerUnavailableError } from '@/app/trpc'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { type UpdateStateResult, useUpdateState } from './use-update-state'
 
@@ -24,7 +25,10 @@ const mocks = vi.hoisted(() => ({
   checkNow: vi.fn(),
 }))
 
-vi.mock('@/app/trpc', () => ({ makeTrpc: mocks.makeTrpc }))
+vi.mock('@/app/trpc', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/trpc')>()),
+  makeTrpc: mocks.makeTrpc,
+}))
 
 const target = { version: '0.4.2', critical: false, artifacts: {} }
 
@@ -462,6 +466,29 @@ describe('useUpdateState — dispatching actions', () => {
     await results.at(-1)?.run('start')
     expect(mocks.start).toHaveBeenCalledTimes(1)
     expect(mocks.converge).not.toHaveBeenCalled()
+  })
+
+  it('lets an update-owned restart advance through operation progress without an action error', async () => {
+    setupTransport()
+    mocks.active
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({
+        id: 'op_restart',
+        kind: 'update',
+        state: 'running',
+        steps: [{ id: 'server', title: 'Updating your server', state: 'running' }],
+      })
+    mocks.start.mockRejectedValue(new ServerUnavailableError(new SyntaxError('cut response')))
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+
+    await results.at(-1)?.run('start')
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('running'))
+    expect(results.at(-1)?.operation?.id).toBe('op_restart')
+    expect(results.at(-1)?.view.error).toBeUndefined()
   })
 
   /**

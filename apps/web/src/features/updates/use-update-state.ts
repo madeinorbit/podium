@@ -32,7 +32,7 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { makeTrpc } from '@/app/trpc'
+import { isServerUnavailable, makeTrpc } from '@/app/trpc'
 import { pageBuildVersion } from '@/lib/logging/build-version'
 import {
   isNativeDesktopUpdateError,
@@ -703,7 +703,17 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         // EVERY rejection lands here. This is the catch the old `runAction`
         // never had: a refused `installUpdate` used to stop a spinner and say
         // nothing at all.
-        setActionError(toActionError(error))
+        if ((kind === 'start' || kind === 'retry') && isServerUnavailable(error)) {
+          /**
+           * Starting an update can cut its own mutation response: the durable
+           * operation has already requested the server restart. Never replay
+           * the write and never paint that expected handoff as a second,
+           * contradictory failure; poll the operation that owns the progress.
+           */
+          refresh()
+        } else {
+          setActionError(toActionError(error))
+        }
       } finally {
         setPending(null)
         setDesktopProgress(undefined)

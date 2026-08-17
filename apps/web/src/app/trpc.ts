@@ -7,7 +7,13 @@ import {
 } from '@podium/client-core/transport'
 import { createLogger } from '@podium/logger'
 import type { AppRouter } from '@podium/server'
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import {
+  createTRPCClient,
+  httpBatchLink,
+  TRPCClientError,
+  type TRPCLink,
+} from '@trpc/client'
+import { observable, type Unsubscribable } from '@trpc/server/observable'
 
 export type { ServerConfig, ServerOrigin }
 export { parseServer, parseServerOrigin }
@@ -67,14 +73,6 @@ export function trpcProcedurePath(url: string): string {
 export interface ReportingFetchOptions {
   /** Log failures at `warn`. OFF for the log transport's own client. */
   report?: boolean
-  /** Readiness retry schedule. Overridden with zero-delay entries by focused tests. */
-  recoveryDelaysMs?: readonly number[]
-}
-
-function requestMethod(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
-  if (init?.method) return init.method.toUpperCase()
-  if (typeof Request !== 'undefined' && input instanceof Request) return input.method.toUpperCase()
-  return 'GET'
 }
 
 function requestSignal(
@@ -117,16 +115,6 @@ function wait(delayMs: number, signal?: AbortSignal): Promise<void> {
     }
     signal?.addEventListener('abort', aborted, { once: true })
   })
-}
-
-async function requireJsonResponse(response: Response): Promise<Response> {
-  try {
-    const text = await response.clone().text()
-    JSON.parse(text)
-    return response
-  } catch (error) {
-    throw new ServerUnavailableError(error)
-  }
 }
 
 async function waitForServer(
@@ -178,75 +166,151 @@ export function reportingFetch(
   options: ReportingFetchOptions = {},
 ): typeof fetch {
   const report = options.report ?? true
-  const recoveryDelaysMs = options.recoveryDelaysMs ?? DEFAULT_RECOVERY_DELAYS_MS
   return async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const path = trpcProcedurePath(url)
     const reportable = report && !path.split(',').some((name) => name.startsWith('logs.'))
-    const method = requestMethod(input, init)
     const signal = requestSignal(input, init)
-    const request = async (): Promise<Response> => {
-      let response: Response
-      try {
-        // Send the login session cookie with every tRPC call. Same-origin already does this
-        // by default; being explicit keeps it working if the client is ever cross-origin.
-        response = await base(input, { ...init, credentials: 'include' })
-      } catch (error) {
-        if (isAbort(error, signal)) throw error
-        throw new ServerUnavailableError(error)
-      }
+    try {
+      // Send the login session cookie with every tRPC call. Same-origin already does this
+      // by default; being explicit keeps it working if the client is ever cross-origin.
+      const response = await base(input, { ...init, credentials: 'include' })
       if (reportable && !response.ok) {
         log.warn('trpc call failed', { path, status: response.status })
       }
-      return requireJsonResponse(response)
-    }
-    try {
-      return await request()
+      return response
     } catch (error) {
       if (isAbort(error, signal)) throw error
-      if (reportable) log.warn('trpc call was interrupted', { path, error })
-
-      /**
-       * tRPC batches queries and mutations separately: queries are GET and
-       * mutations are POST. Replaying a GET after readiness returns is safe.
-       * Replaying a mutation is not: the server may have committed it before
-       * the response was cut off, so a retry could perform the write twice.
-       */
-      if (method !== 'GET') {
-        throw error instanceof ServerUnavailableError
-          ? error
-          : new ServerUnavailableError(error)
-      }
-
-      try {
-        await waitForServer(base, url, recoveryDelaysMs, signal)
-        // One replay, after the server has answered readiness. A second broken
-        // response is a real outage, not permission to loop the query forever.
-        return await request()
-      } catch (retryError) {
-        if (isAbort(retryError, signal)) throw retryError
-        throw retryError instanceof ServerUnavailableError
-          ? retryError
-          : new ServerUnavailableError(retryError)
-      }
+      if (reportable) log.warn('trpc call could not be sent', { path, error })
+      throw new ServerUnavailableError(error)
     }
   }
+}
+
+function causedBy(error: unknown, predicate: (value: unknown) => boolean): boolean {
+  const seen = new Set<unknown>()
+  let value = error
+  while (value !== undefined && value !== null && !seen.has(value)) {
+    if (predicate(value)) return true
+    seen.add(value)
+    value = typeof value === 'object' && 'cause' in value ? value.cause : undefined
+  }
+  return false
+}
+
+export function isServerUnavailable(error: unknown): boolean {
+  return causedBy(
+    error,
+    (value) =>
+      value instanceof ServerUnavailableError ||
+      (typeof value === 'object' &&
+        value !== null &&
+        'code' in value &&
+        value.code === 'SERVER_UNAVAILABLE'),
+  )
+}
+
+function isInterrupted(error: unknown): boolean {
+  return causedBy(
+    error,
+    (value) => value instanceof ServerUnavailableError || value instanceof SyntaxError,
+  )
+}
+
+function isParseFailure(error: unknown): boolean {
+  return causedBy(error, (value) => value instanceof SyntaxError)
+}
+
+function unavailable(error: unknown): TRPCClientError<AppRouter> {
+  return TRPCClientError.from(new ServerUnavailableError(error))
+}
+
+/**
+ * Recover only after tRPC's own body reader has found a cut response.
+ *
+ * This link is intentionally above `httpBatchLink`: the batch link consumes
+ * each response exactly once and reports its parse failure here. Queries may
+ * replay once after readiness because they are idempotent. Mutations never do;
+ * the server may have committed the write before its response was cut.
+ */
+function restartRecoveryLink(options: {
+  base: typeof fetch
+  httpOrigin: string
+  report: boolean
+  recoveryDelaysMs: readonly number[]
+}): TRPCLink<AppRouter> {
+  return () =>
+    ({ op, next }) =>
+      observable((observer) => {
+        let stopped = false
+        let subscription: Unsubscribable | undefined
+
+        const subscribe = (replayed: boolean): void => {
+          subscription = next(op).subscribe({
+            next: (value) => observer.next(value),
+            complete: () => observer.complete(),
+            error: (error) => {
+              if (!isInterrupted(error)) {
+                observer.error(error)
+                return
+              }
+
+              const reportable = options.report && !op.path.startsWith('logs.')
+              if (reportable && isParseFailure(error)) {
+                log.warn('trpc call returned a cut response', { path: op.path, error })
+              }
+
+              if (op.type !== 'query' || replayed) {
+                observer.error(unavailable(error))
+                return
+              }
+
+              void waitForServer(
+                options.base,
+                `${options.httpOrigin}/trpc/${op.path}`,
+                options.recoveryDelaysMs,
+                op.signal ?? undefined,
+              ).then(
+                () => {
+                  if (!stopped) subscribe(true)
+                },
+                (retryError: unknown) => {
+                  if (!stopped) observer.error(unavailable(retryError))
+                },
+              )
+            },
+          })
+        }
+
+        subscribe(false)
+        return () => {
+          stopped = true
+          subscription?.unsubscribe()
+        }
+      })
 }
 
 export interface MakeTrpcOptions extends ReportingFetchOptions {
   /** Fetch implementation; injectable for the restart recovery test. */
   fetch?: typeof fetch
+  /** Readiness retry schedule. Overridden with zero-delay entries by focused tests. */
+  recoveryDelaysMs?: readonly number[]
 }
 
 export function makeTrpc(httpOrigin: string, options: MakeTrpcOptions = {}): Trpc {
-  const { fetch: base = fetch, ...reportingOptions } = options
+  const {
+    fetch: base = fetch,
+    recoveryDelaysMs = DEFAULT_RECOVERY_DELAYS_MS,
+    report = true,
+  } = options
   // The login session (podium_session cookie) is the operator's authentication; the tracker
   // grants full authority to any authenticated /trpc caller (no separate issue credential).
   return createTRPCClient<AppRouter>({
     links: [
+      restartRecoveryLink({ base, httpOrigin, report, recoveryDelaysMs }),
       httpBatchLink({
         url: `${httpOrigin}/trpc`,
-        fetch: reportingFetch(base, reportingOptions),
+        fetch: reportingFetch(base, { report }),
       }),
     ],
   })

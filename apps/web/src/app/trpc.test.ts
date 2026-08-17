@@ -107,18 +107,32 @@ describe('reportingFetch', () => {
     ['truncated', '[{"result":{"data":'],
   ])('turns a 200 with an %s body into a transport failure', async (_kind, body) => {
     const base = vi.fn().mockResolvedValue(new Response(body, { status: 200 }))
-
-    const error = await reportingFetch(base)(
-      'https://relay.test/trpc/updates.checkNow?batch=1',
-      { method: 'POST' },
-    ).catch((cause: unknown) => cause)
-
-    expect(error).toBeInstanceOf(ServerUnavailableError)
-    expect(error).toMatchObject({
-      code: 'SERVER_UNAVAILABLE',
-      message: SERVER_UNAVAILABLE_MESSAGE,
+    const trpc = makeTrpc('https://relay.test', {
+      fetch: base as typeof fetch,
+      recoveryDelaysMs: [0],
     })
+
+    const error = await trpc.updates.checkNow.mutate().catch((cause: unknown) => cause)
+
+    expect(base).toHaveBeenCalledTimes(1)
+    expect(error).toMatchObject({ message: SERVER_UNAVAILABLE_MESSAGE })
+    expect((error as Error & { cause?: unknown }).cause).toBeInstanceOf(ServerUnavailableError)
     expect((error as Error).message).not.toMatch(/JSON|Unexpected end/i)
+  })
+
+  it('lets the client body reader consume a successful response exactly once', async () => {
+    const bodyReader = vi.fn(async () => '[{"result":{"data":{"total":0,"behind":0}}}]')
+    const response = {
+      ok: true,
+      status: 200,
+      json: async () => JSON.parse(await bodyReader()),
+      clone: () => ({ text: bodyReader }),
+    } as unknown as Response
+    const base = vi.fn().mockResolvedValue(response)
+    const trpc = makeTrpc('https://relay.test', { fetch: base as typeof fetch })
+
+    await expect(trpc.updates.fleet.query()).resolves.toEqual({ total: 0, behind: 0 })
+    expect(bodyReader).toHaveBeenCalledTimes(1)
   })
 
   it('waits for readiness, then replays an interrupted idempotent query once', async () => {

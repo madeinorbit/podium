@@ -202,6 +202,7 @@
         "@tanstack/react-db": "^0.1.94",
         "@tauri-apps/plugin-sql": "^2.3.2",
         "@trpc/client": "^11.0.0",
+        "@trpc/server": "^11.0.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "codemirror": "^6.0.2",
