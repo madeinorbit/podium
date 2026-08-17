@@ -20,13 +20,16 @@
  * its control layer resolves.
  */
 import { randomUUID } from 'node:crypto'
+import { asMachineId, type MachineId } from '@podium/model'
 import {
   closeSync,
   copyFileSync,
   existsSync,
   fsyncSync,
   linkSync,
+  mkdirSync,
   openSync,
+  readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -103,6 +106,53 @@ function removeTemp(path: string): void {
     unlinkSync(path)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
+
+export class MachineIdentityConflictError extends Error {
+  constructor(
+    readonly expected: MachineId,
+    readonly observed: string,
+  ) {
+    super(
+      `machine.id contains ${observed || 'an empty identity'}; refusing to replace it with transfer target ${expected}`,
+    )
+    this.name = 'MachineIdentityConflictError'
+  }
+}
+
+/**
+ * Atomically establish the promoted server's local identity as the daemon identity that
+ * accepted the transfer. An existing equal value is an idempotent success; any other value
+ * is preserved and refused so promotion can never silently make the target wear a new ID.
+ */
+export function establishTargetMachineId(
+  expected: MachineId,
+  dir: string = stateDir(),
+): MachineId {
+  const path = join(dir, 'machine.id')
+  const verifyExisting = (): MachineId => {
+    const observed = readFileSync(path, 'utf8').trim()
+    if (observed !== expected) throw new MachineIdentityConflictError(expected, observed)
+    return asMachineId(observed)
+  }
+
+  mkdirSync(dir, { recursive: true })
+  const tempPath = join(dir, `.machine-id-transfer-${process.pid}-${randomUUID()}.tmp`)
+  try {
+    writeFileSync(tempPath, expected, { mode: 0o600, flag: 'wx' })
+    syncPath(tempPath)
+    try {
+      // A hard link publishes the already-fsynced bytes atomically without replacing a winner.
+      linkSync(tempPath, path)
+      syncParent(path)
+      return expected
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      return verifyExisting()
+    }
+  } finally {
+    removeTemp(tempPath)
   }
 }
 

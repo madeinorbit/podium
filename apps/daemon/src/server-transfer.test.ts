@@ -347,7 +347,6 @@ describe('server transfer target daemon', () => {
       ),
     ).toBeUndefined()
 
-    await writeFile(join(stateRoot, 'machine.id'), 'target-machine-id')
     await writeFile(join(stateRoot, 'daemon.secret'), 'target-daemon-secret')
     let readinessObserved = false
     const promoteInput = {
@@ -412,7 +411,7 @@ describe('server transfer target daemon', () => {
     expect(await readFile(join(stateRoot, 'transcripts', 'session.txt.part'), 'utf8')).toBe(
       'legitimate-part-file',
     )
-    expect(await readFile(join(stateRoot, 'machine.id'), 'utf8')).toBe('target-machine-id')
+    expect(await readFile(join(stateRoot, 'machine.id'), 'utf8')).toBe(targetMachineId)
     expect(await readFile(join(stateRoot, 'daemon.secret'), 'utf8')).toBe('target-daemon-secret')
     expect(JSON.parse(await readFile(join(stateRoot, 'config.json'), 'utf8'))).toMatchObject({
       mode: 'server',
@@ -438,6 +437,39 @@ describe('server transfer target daemon', () => {
         health: 'serving',
       },
     })
+  })
+
+  it('refuses promotion when machine.id conflicts with the paired daemon identity', async () => {
+    const { promoteInput } = await prepareAndValidateCandidate()
+    await writeFile(join(stateRoot, 'machine.id'), 'other-machine')
+    const restartAfterTransfer = vi.fn(async (expected: ServerTransferServingProof) => expected)
+
+    const response = await invoke(
+      'serverTransferPromoteRequest',
+      promoteInput,
+      restartAfterTransfer,
+    )
+
+    expect(response).toMatchObject({
+      ok: false,
+      state: 'validated',
+      errorCode: 'identity-mismatch',
+      error: expect.stringContaining('refusing to replace it with transfer target target-machine'),
+    })
+    expect(restartAfterTransfer).not.toHaveBeenCalled()
+    expect(await readFile(join(stateRoot, 'machine.id'), 'utf8')).toBe('other-machine')
+    expect(await stat(join(stateRoot, 'config.json')).catch(() => undefined)).toBeUndefined()
+    expect(await stat(join(stateRoot, 'podium.db')).catch(() => undefined)).toBeUndefined()
+    expect(await stat(join(stateRoot, 'enrollment.ledger')).catch(() => undefined)).toBeUndefined()
+    expect(await stat(join(stateRoot, 'transcripts')).catch(() => undefined)).toBeUndefined()
+    expect(
+      JSON.parse(
+        await readFile(
+          join(stateRoot, '.server-transfer', String(promoteInput.transferId), 'state.json'),
+          'utf8',
+        ),
+      ),
+    ).not.toHaveProperty('promotion')
   })
 
   it('uses stable offset errors and digest-owned idempotent abort cleanup', async () => {

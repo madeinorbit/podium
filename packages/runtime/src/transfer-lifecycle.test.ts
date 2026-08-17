@@ -1,6 +1,15 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadConfig, saveConfig } from './config'
 import type { RunRole } from './run-registry'
@@ -8,6 +17,7 @@ import { applySetup } from './setup'
 import {
   applySourceDemotion,
   applyTargetServerPromotion,
+  establishTargetMachineId,
   finalizeTargetServerPromotion,
   hostConfigBackupPath,
   planRoleTransition,
@@ -70,6 +80,33 @@ describe('server transfer lifecycle', () => {
     if (previousStateDir === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = previousStateDir
     rmSync(root, { recursive: true, force: true })
+  })
+
+  it('durably creates the target machine identity', () => {
+    const machineId = asMachineId('target-machine')
+
+    expect(establishTargetMachineId(machineId)).toBe(machineId)
+    expect(readFileSync(join(root, 'machine.id'), 'utf8')).toBe(machineId)
+    expect(statSync(join(root, 'machine.id')).mode & 0o777).toBe(0o600)
+    expect(readdirSync(root).some((name) => name.startsWith('.machine-id-transfer-'))).toBe(false)
+  })
+
+  it('accepts an equal target machine identity idempotently', () => {
+    const machineId = asMachineId('target-machine')
+    writeFileSync(join(root, 'machine.id'), machineId, { mode: 0o600 })
+
+    expect(establishTargetMachineId(machineId)).toBe(machineId)
+    expect(readFileSync(join(root, 'machine.id'), 'utf8')).toBe(machineId)
+    expect(readdirSync(root).some((name) => name.startsWith('.machine-id-transfer-'))).toBe(false)
+  })
+
+  it('refuses to overwrite a conflicting target machine identity', () => {
+    writeFileSync(join(root, 'machine.id'), 'other-machine', { mode: 0o600 })
+
+    expect(() => establishTargetMachineId(asMachineId('target-machine'))).toThrow(
+      /refusing to replace it with transfer target target-machine/,
+    )
+    expect(readFileSync(join(root, 'machine.id'), 'utf8')).toBe('other-machine')
   })
 
   it('durably demotes the source, preserves rollback state, and is idempotent', () => {

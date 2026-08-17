@@ -32,7 +32,11 @@ import { type ControlMessage } from '@podium/protocol/daemon'
 import { configPath, stateDir } from '@podium/runtime/config'
 import { applySetup, validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { finalizeTargetServerPromotion } from '@podium/runtime/transfer-lifecycle'
+import {
+  establishTargetMachineId,
+  finalizeTargetServerPromotion,
+  MachineIdentityConflictError,
+} from '@podium/runtime/transfer-lifecycle'
 import type { ControlHandlers, DaemonContext } from './control/context'
 
 const TRANSFER_DIR = '.server-transfer'
@@ -898,6 +902,12 @@ async function promote(
     fail('conflicting-digest', 'manifest digest mismatch')
   if (meta.targetMachineId !== ctx.machineId)
     fail('identity-mismatch', 'transfer target identity changed')
+  try {
+    establishTargetMachineId(ctx.machineId)
+  } catch (error) {
+    if (error instanceof MachineIdentityConflictError) fail('identity-mismatch', error.message)
+    throw error
+  }
   const promotion = {
     idempotencyKey: msg.idempotencyKey,
     publicUrl: checked.normalized,
