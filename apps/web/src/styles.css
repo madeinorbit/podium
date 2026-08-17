@@ -9492,13 +9492,30 @@ a.ref-link--session::before {
 /* The gutter is a sixth of the pane, floored at a thumb's width and capped at
    the old desktop 96px. It is added BACK into the max-width so the reading
    measure stays the 1060px it was — the gutter grows into the margin, never
-   into the sentence. */
+   into the sentence.
+
+   THE BLOCK PADDING IS NOT THE INLINE ONE [POD-1184]. It was `5cqi` — a WIDTH
+   asking a HEIGHT question — so a 1280×420 window spent 63px of a 396px pane
+   on air above the sentence because the pane happened to be wide. The window's
+   height is the honest measure here: the shell splits into columns, never into
+   rows, so every pane is as tall as the window less its fixed chrome. Width
+   still has a say (a wide pane wants a deeper margin) — `min()` takes whichever
+   axis is scarcer.
+
+   `margin-block: auto` IS THE CENTERING, and the parent's `justify-content` is
+   not. Centering a flex line that overflows its scroll container pushes the
+   overrun out of BOTH ends, and the start-edge half cannot be scrolled back to:
+   at 1200×260 the sentence sat at y=-59 inside the scroller — clipped, with the
+   project picker in it, and no way to reach it. Auto margins resolve to zero
+   the moment free space runs out, so the deck centres while it fits and scrolls
+   from its top edge the moment it does not. */
 .cold-start-body {
   --cold-gutter: clamp(20px, 6cqi, 96px);
   width: 100%;
   max-width: calc(1060px + 2 * var(--cold-gutter));
+  margin-block: auto;
   padding-inline: var(--cold-gutter);
-  padding-block: clamp(32px, 5cqi, 80px);
+  padding-block: clamp(20px, min(5cqi, 7dvh), 80px);
 }
 
 /* THE HEADLINE AND THE PROJECT ARE ONE TYPE SIZE. They were `clamp(26px, 3vw,
@@ -9507,15 +9524,40 @@ a.ref-link--session::before {
    is meant to scan past outweighed the question. Everything in the pill is now
    an em of the headline — 1.45em tall, .85em of label — so the crossover is
    arithmetically impossible whatever the pane does. */
+
+/* THE RAMP IS GENTLER THAN THE PANE [POD-1184]. `4.4cqi` is a pure ratio, so a
+   674px pane still asked for 30px of headline — three lines of it, over a field
+   whose own type never moves — and the sentence went from asking a question to
+   shouting one. This runs from 20px in a phone-width pane to the same 33px at
+   full width, but through an offset rather than the origin, so the small end
+   settles instead of collapsing. */
 .cold-start-head {
-  gap: 0.4em;
-  font-size: clamp(21px, 4.4cqi, 33px);
+  font-size: clamp(20px, 15px + 1.3cqi, 33px);
+  line-height: 1.15;
+  letter-spacing: -0.022em;
+  /* The pill is an inline-flex box a line and a half tall, so every line it
+     lands on is taller than the ones it doesn't. Balancing keeps the ragged
+     edge even and stops a two-line sentence from leaving one word alone. */
+  text-wrap: balance;
 }
 .cold-start-project {
+  display: inline-flex;
+  /* The pill sits IN the sentence, so it aligns to the sentence: its optical
+     centre against the surrounding x-height rather than its box bottom against
+     the baseline, which is where an inline-flex box lands by default. */
+  vertical-align: middle;
   height: 1.45em;
   gap: 0.33em;
+  /* Asymmetric: a word space in front, next to nothing behind, so the sentence's
+     own punctuation lands against the pill instead of floating off it. Measured
+     at 27.7px of headline, `middle` puts the pill's label baseline 0.84px under
+     the sentence's — inside a pixel, so no further correction is warranted. */
+  margin-inline: 0.14em 0.04em;
   padding-inline: 0.4em;
   border-radius: 0.33em;
+  max-width: 100%;
+  /* Never let the project name break mid-word or hyphenate: it is a name. */
+  white-space: nowrap;
 }
 .cold-start-project-mark {
   width: 0.4em;
@@ -9524,10 +9566,32 @@ a.ref-link--session::before {
 }
 .cold-start-project-name {
   font-size: 0.85em;
+  /* A repository name is arbitrary text in the middle of a sentence. Cap it at
+     the measure and truncate rather than let one long name push the pill past
+     the gutter, where nothing can wrap it back. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cold-start-project-caret {
   width: 0.6em;
   height: 0.6em;
+}
+
+/* THE FIELD GIVES GROUND BEFORE THE DECK SCROLLS [POD-1184]. Both of these were
+   fixed pixels — a 30px gap and a 132px well — which is what made a short pane
+   overflow at all: on a 260px-tall window the deck needed 307px and clipped its
+   own headline and Launch row at once. Under ~700px of window the well takes
+   about a fifth of it and the gap closes to a hairline over two, which keeps
+   the whole instrument on screen down to a 240px pane — measured with the
+   shell's real chrome in place, since the topbar and status strip take 76px
+   before the pane gets any height at all. Below that it scrolls, from the top,
+   with everything reachable. */
+.cold-start-field {
+  margin-top: clamp(14px, 3.4dvh, 30px);
+}
+.cold-start-input {
+  min-height: clamp(72px, 19dvh, 132px);
+  padding-block: clamp(12px, 2dvh, 20px) 10px;
 }
 
 /* THE CHORD IS A ONE-LINE AFFORDANCE. The row's rigid furniture is ~560px: the

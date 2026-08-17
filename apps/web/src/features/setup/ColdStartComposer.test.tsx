@@ -1,8 +1,12 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { asIssueId, asMachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
+
+const styles = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8')
 
 const create = vi.fn()
 const start = vi.fn()
@@ -134,5 +138,34 @@ describe('ColdStartComposer', () => {
     const strip = screen.getByRole('button', { name: 'Agent' }).parentElement
     expect(strip?.className).toContain('overflow-hidden')
     expect(strip?.className).toContain('flex-none')
+  })
+
+  /* POD-1184. The deck scrolls when a pane is too short for it, and a scroll
+   * container that CENTERS its overflowing content pushes half the overrun out
+   * of the start edge, where scrolling cannot reach it: at a 1200×260 window
+   * the sentence sat 59px above the scroller's top, project picker and all.
+   * `justify-center` is therefore forbidden here — the centring is the body's
+   * own `margin-block: auto`, which resolves to zero the moment free space
+   * runs out. Neither half shows up in a happy-dom render, so assert both. */
+  it('centres the deck without putting its top out of scroll reach', () => {
+    render(<ColdStartComposer first={false} />)
+    const deck = screen.getByLabelText('What do you want to work on?').closest('.cold-start')
+    expect(deck).toBeTruthy()
+    expect(deck?.className).toContain('overflow-y-auto')
+    expect(deck?.className).not.toContain('justify-center')
+    expect(styles).toMatch(/\.cold-start-body\s*\{[^}]*margin-block:\s*auto/)
+  })
+
+  /* POD-1184. The headline is one SENTENCE with a control set into it, not a
+   * flex row of three items: as a flex row the trailing mark was its own item
+   * behind a 0.4em gap, and a narrow pane stranded it under the pill. Inline
+   * flow puts it hard against the pill instead, joined by U+2060 so no line can
+   * break between them. */
+  it('keeps the sentence mark attached to the project pill', () => {
+    render(<ColdStartComposer first={false} />)
+    const heading = screen.getByRole('heading', { name: /What do you want to work on in podium/ })
+    expect(heading.className).not.toContain('flex')
+    expect(heading.textContent?.endsWith('⁠?')).toBe(true)
+    expect(heading.lastElementChild?.className).toContain('cold-start-project')
   })
 })

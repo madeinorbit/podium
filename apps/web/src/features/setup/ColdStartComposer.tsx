@@ -200,10 +200,19 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   }
 
   return (
-    <div className="cold-start flex min-h-0 flex-1 flex-col justify-center overflow-y-auto bg-card font-sans">
+    <div className="cold-start flex min-h-0 flex-1 flex-col overflow-y-auto bg-card font-sans">
       <div className="cold-start-body">
-        <h2 className="cold-start-head flex flex-wrap items-center leading-[1.15] font-semibold tracking-[-0.022em] text-text-strong">
-          <span>{first ? 'Give' : 'What do you want to work on in'}</span>
+        {/* ONE SENTENCE, SET AS TEXT (POD-1184). The headline used to be a
+            wrapping FLEX row of three items — sentence, project pill, tail —
+            and a flex line break is not a text line break: at a ~680px pane
+            the sentence wrapped internally, leaving "in" alone on its own
+            line, and the tail "?" landed after the pill as a separate item
+            with a 0.4em gap in front of it, reading as a stranded glyph rather
+            than the sentence's punctuation. Inline flow has neither problem —
+            the pill is one unbreakable word inside the sentence and the mark
+            sits hard against it. */}
+        <h2 className="cold-start-head font-semibold text-text-strong">
+          {first ? 'Give ' : 'What do you want to work on in '}
           <PropertyMenu
             trigger={
               <button
@@ -212,7 +221,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 aria-label={
                   selectedRepo ? `Project: ${repoLabel(selectedRepo)}` : 'Choose a project'
                 }
-                className="cold-start-project inline-flex items-center bg-bar text-text-strong shadow-[inset_0_0_0_1px_var(--border-strong)] transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="cold-start-project items-center bg-bar text-text-strong shadow-[inset_0_0_0_1px_var(--border-strong)] transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 <span className="cold-start-project-mark bg-claude" aria-hidden="true" />
                 <span className="cold-start-project-name leading-none font-semibold tracking-[-0.02em]">
@@ -226,11 +235,16 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             placeholder="Choose a project…"
             onSelect={selectRepo}
           />
-          <span>{first ? 'its first mission.' : '?'}</span>
+          {/* U+2060 WORD JOINER. A line may break either side of an atomic
+              inline box, so a pill that nearly fills the measure could strand
+              the question mark alone on the next line — the same orphan this
+              rewrite removed, one character smaller. The tail of the first-run
+              wording is a phrase and breaks normally. */}
+          {first ? ' its first mission.' : '⁠?'}
         </h2>
 
         <div
-          className="relative mt-[30px] overflow-hidden rounded-[14px] bg-bar shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"
+          className="cold-start-field relative overflow-hidden rounded-[14px] bg-bar shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
@@ -245,7 +259,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             disabled={busy || Boolean(draft.pendingIssueId)}
             onChange={(event) => setDraft({ ...draft, title: event.currentTarget.value })}
             placeholder="Describe the mission — an outcome, a bug, a question about the codebase…"
-            className="block min-h-[132px] w-full resize-none bg-transparent px-[22px] pt-5 pb-2.5 text-[14.5px] leading-[1.6] text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
+            className="cold-start-input block w-full resize-none bg-transparent px-[22px] text-[14.5px] leading-[1.6] text-text-strong outline-none placeholder:text-text-faint disabled:opacity-60"
           />
           <div className="flex flex-wrap items-center gap-2 border-t border-hairline-soft px-3.5 py-2.5">
             {/* The instrument strip is a WELL cut into the composer's bar. The
