@@ -355,6 +355,12 @@ export class SyncRepository {
     this.db.prepare('UPDATE queued_messages SET attempts = attempts + 1 WHERE id = ?').run(id)
   }
 
+  /** The count bounds how many copies ONE CLI process may be typed; a fresh PTY
+   *  has received none of them, so a bind clears it (POD-1242). */
+  resetQueuedAttempts(id: string): void {
+    this.db.prepare('UPDATE queued_messages SET attempts = 0 WHERE id = ?').run(id)
+  }
+
   /** Drop a dead session's queue (kill without resume ref, permanent delete). */
   deleteQueuedMessagesForSession(sessionId: SessionId): void {
     this.db.prepare('DELETE FROM queued_messages WHERE session_id = ?').run(sessionId)

@@ -137,6 +137,11 @@ export interface MessageWire {
   // message / why didn't my wake fire" from these.
   deliveredAt: string | null
   deliveredTo: string | null
+  /** When the push crossed into the recipient's CLI — short of delivery, which
+   *  waits for the agent to take it as a turn. A queued row carrying this stamp
+   *  is in the harness's hands: nothing further will be typed, and the chat stops
+   *  calling it pending (POD-1242). */
+  injectedAt: string | null
   expiresAt: string | null
   /** JSON of the REQUESTED axes when the clamp matrix downgraded them. */
   clampedFrom: string | null

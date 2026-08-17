@@ -65,10 +65,25 @@ const READY_STATE_GRACE_MS = 10_000
 /** Liveness budget for a wake. A cold resume of a large session routinely
  *  outran the 25s a live session gets, and gave up before the PTY had bound. */
 const WOKEN_DRAIN_DEADLINE_MS = 60_000
-/** How long a typed prompt has to show up as a turn before we call it lost. */
+/** How long a typed prompt has to show up as a turn before we call it lost.
+ *  Only counted while the agent is FREE to take it — see {@link SessionInbox.drain}. */
 const CONFIRM_TIMEOUT_MS = 5_000
 const CONFIRM_POLL_MS = 250
-/** Type attempts for one queued row within a single drain pass. */
+/** Poll cadence while the CLI is holding our prompt behind a running turn. The
+ *  wait is measured in minutes, so it is not worth a 250ms tick; a second still
+ *  settles the row promptly once the turn boundary takes it. */
+const HELD_POLL_MS = 1_000
+/**
+ * The outer bound on waiting for a turn that never comes (POD-1242).
+ *
+ * A held prompt is not a lost one, so the confirmation clock does not run while
+ * the harness says it is computing — but "computing" is a REPORT, and a wedged
+ * daemon that stops updating it would otherwise hold the row forever. Generous
+ * enough that a genuinely long turn is waited out rather than retyped over.
+ */
+const HELD_CONFIRM_CEILING_MS = 30 * 60_000
+/** Type attempts for one queued row, counted ACROSS drain passes (POD-1242) —
+ *  the row carries the count, so a re-armed pass resumes rather than restarts. */
 const MAX_DELIVERY_ATTEMPTS = 5
 /** Backoff before re-typing an unconfirmed row; scaled by attempt number. */
 const RETRY_BACKOFF_MS = 2_000
@@ -160,6 +175,10 @@ export interface InboxQueuePort {
   list(sessionId: SessionId): QueuedInboxMessage[]
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   bumpAttempts(id: string): void
+  /** A FRESH PROCESS HAS NEVER BEEN TYPED INTO (POD-1242). Attempts bound how
+   *  many copies of a row one CLI may receive; the count dies with that CLI.
+   *  UNBRANDED BY DECISION: queue primary key, as above. */
+  resetAttempts?(id: string): void
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   delete(id: string): void
 }
@@ -180,6 +199,10 @@ export interface InboxAuthorizationPort {
   /** The queued row has now crossed the real PTY boundary — and, where the
    *  transcript can witness it, has been seen to become a turn (POD-1100). */
   applied(input: { sourceMessageId: string; sessionId: SessionId }): void
+  /** The bytes went into the CLI; the agent has not been seen to take them yet
+   *  (POD-1242). Between this and {@link applied} the message is the harness's,
+   *  not the queue's — nothing more will be typed, and nothing can be retracted. */
+  injected?(input: { sourceMessageId: string; sessionId: SessionId }): void
 }
 
 export interface InboxAttentionPort {
@@ -538,6 +561,12 @@ export class SessionInbox {
     // The status alone cannot see it: the bind that wakes this pass has already
     // flipped the session to 'live' by the time we are called.
     const woken = session.status !== 'live' || opts?.justBound === true
+    // The CLI that was typed into is gone; whatever it was holding went with it.
+    // Give this process the full attempt budget rather than the exhausted one the
+    // dead process left behind (POD-1242).
+    if (woken && this.deps.queue.resetAttempts) {
+      for (const row of this.deps.queue.list(sessionId)) this.deps.queue.resetAttempts(row.id)
+    }
     const deadline = this.deps.now() + (woken ? WOKEN_DRAIN_DEADLINE_MS : QUEUE_DRAIN_DEADLINE_MS)
     const baseStateAt = stateStampMs(session)
     let liveAtMs = 0
@@ -567,9 +596,22 @@ export class SessionInbox {
      * finding it is not proof of loss — a slow harness may simply not have
      * written the record yet — so the timeout retypes rather than dead-letters,
      * and gives up leaving the row exactly where a retry can find it.
+     *
+     * A BUSY AGENT IS NOT A LOST PROMPT (POD-1242). The CLI parks typed input in
+     * its own composer queue and does not write the user turn until the running
+     * turn ends, which is minutes away and routinely much more. The five-second
+     * clock therefore only runs while the harness is FREE to take the prompt:
+     * while it reports computing we simply wait, and the clock restarts whole
+     * when it stops — otherwise the very first poll after a long turn would find
+     * an expired deadline and retype into the boundary it was waiting for. The
+     * old behaviour typed the same message up to five times in forty seconds
+     * (observed: eight copies of one offer click), and the CLI showed each copy
+     * to the running turn as a queued command, so the agent acted on the request
+     * several times over.
      */
     const confirm = (head: QueuedInboxMessage, needle: string, attempt: number): void => {
-      const until = this.deps.now() + CONFIRM_TIMEOUT_MS
+      let until = this.deps.now() + CONFIRM_TIMEOUT_MS
+      const heldUntil = this.deps.now() + HELD_CONFIRM_CEILING_MS
       const poll = (): void => {
         const current = this.deps.getSession(sessionId)
         if (!current || (current.status !== 'live' && current.status !== 'starting')) {
@@ -580,7 +622,19 @@ export class SessionInbox {
           settleHead(current, head)
           return
         }
-        if (this.deps.now() < until) {
+        const now = this.deps.now()
+        if (isAgentComputing(current)) {
+          // Held, not lost. Give up only at the ceiling, and leave the row
+          // exactly where a later re-arm finds it — with its attempts intact.
+          if (now >= heldUntil) {
+            stop()
+            return
+          }
+          until = now + CONFIRM_TIMEOUT_MS
+          setTimeout(poll, HELD_POLL_MS).unref?.()
+          return
+        }
+        if (now < until) {
           setTimeout(poll, CONFIRM_POLL_MS).unref?.()
           return
         }
@@ -608,6 +662,16 @@ export class SessionInbox {
         settleHead(current, head)
         return
       }
+      // A RE-ARMED PASS OVER AN ALREADY-TYPED ROW (POD-1242). This row has been
+      // typed before and the harness is computing; the copy it is holding IS the
+      // delivery. Rejoin the wait rather than type a second one — `attempt - 1`
+      // because nothing is typed here, so the last typed attempt still stands.
+      if (attempt > 1 && needle !== null && current.transcriptAvailable) {
+        if (isAgentComputing(current)) {
+          confirm(head, needle, attempt - 1)
+          return
+        }
+      }
       this.deps.queue.bumpAttempts(head.id)
       // Baseline: if OUR text is already the last user turn we cannot tell a
       // fresh arrival from the one that is there, so there is nothing to witness.
@@ -626,6 +690,13 @@ export class SessionInbox {
         // would answer the wrong question; leave the row for the next re-arm.
         stop()
         return
+      }
+      // The bytes are in the CLI now, whatever the agent does with them next
+      // (POD-1242). Said out loud so the ledger — and the operator's own bubble —
+      // can stop calling a message that has been handed over "pending". It is not
+      // delivery: `applied` below still waits for the turn.
+      if (head.sourceMessageId) {
+        this.deps.authorization.injected?.({ sourceMessageId: head.sourceMessageId, sessionId })
       }
       if (witnessable && needle !== null) confirm(head, needle, attempt)
       else settleHead(current, head)
@@ -659,7 +730,16 @@ export class SessionInbox {
         afterHead(current)
         return
       }
-      attemptDelivery(head, 1)
+      // ATTEMPTS ARE THE ROW'S, NOT THE PASS'S (POD-1242). The cap used to reset
+      // every time a bind, an idle edge or a reconnect re-armed the drain, so a
+      // row that could not be confirmed was retyped five times per pass, forever.
+      // Spent means spent: the row stays durable and waits for a fresh process,
+      // which is the one event that hands the budget back.
+      if (head.attempts >= MAX_DELIVERY_ATTEMPTS) {
+        stop()
+        return
+      }
+      attemptDelivery(head, head.attempts + 1)
     }
     /**
      * Ready to be typed into. On a wake that means the harness has reported

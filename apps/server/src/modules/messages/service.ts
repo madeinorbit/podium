@@ -43,6 +43,7 @@ import {
   asIssueId,
   asSessionId,
   FIRST_ADMIN_USER_ID,
+  isAgentComputing,
   type IssueScope,
   type SessionId,
   type SessionMeta,
@@ -1182,6 +1183,18 @@ export class MessageDeliveryService {
     }
   }
 
+  /** SessionInbox calls this the moment a durable row's bytes cross into the CLI,
+   *  which is BEFORE the agent takes them: a busy harness parks typed input in its
+   *  own composer queue until the running turn ends (POD-1242). Delivery still
+   *  waits for {@link onQueuedInputApplied}; what this stamp says is that the
+   *  message is the harness's now — no further copy will be typed, and the
+   *  operator's own bubble can stop calling it pending. */
+  onQueuedInputInjected(messageId: string, sessionId: SessionId): void {
+    const message = this.deps.messages.getMessage(messageId)
+    if (!message || message.status !== 'queued') return
+    this.markInjected(message, sessionId)
+  }
+
   /** Brake 2 + the spawn seam: unresumable wake → spawn a fresh agent on the
    *  target issue (deferred wiring) within the per-issue daily budget; no seam
    *  or budget exhausted → ledger + needs-attention, row stays queued. */
@@ -1342,7 +1355,25 @@ export class MessageDeliveryService {
   private awaitingConfirmation(m: MessageRow, nowMs: number): boolean {
     if (!m.injectedAt) return false
     if (this.render.isPointer(m)) return true
+    // A TURN IN FLIGHT IS NOT A LOST PUSH (POD-1242). The echo window is sized
+    // against the drain deadline plus tail latency — a turn's own length is a
+    // different order entirely, and a mid-turn injection cannot echo as a user
+    // turn until the harness reaches its boundary. Re-pushing on that schedule is
+    // how one offer click reached an agent eight times: MAX_ECHO_REQUEUES capped
+    // the damage but the requeues themselves were never the right reading of a
+    // busy target. While it is computing, the copy it is holding IS the push.
+    const target = m.deliveredTo ? this.targetOf(asSessionId(m.deliveredTo)) : undefined
+    if (target && isAgentComputing(target)) return true
     return nowMs - Date.parse(m.injectedAt) < ECHO_CONFIRM_WINDOW_MS
+  }
+
+  /** One recipient's live meta, through the narrow read when the composition
+   *  root wired it [POD-1653]. Undefined for a session this service cannot see. */
+  private targetOf(sessionId: SessionId): SessionMeta | undefined {
+    return (
+      this.deps.sessions.sessionById?.(sessionId) ??
+      this.deps.sessions.listSessions().find((candidate) => candidate.sessionId === sessionId)
+    )
   }
 
   /** Shared idempotency/cooldown gate for every event-triggered or sweep retry.

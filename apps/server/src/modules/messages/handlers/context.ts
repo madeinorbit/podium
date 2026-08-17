@@ -387,6 +387,7 @@ export class MailAccess {
       ackedBy: m.ackedBy,
       deliveredAt: m.deliveredAt,
       deliveredTo: m.deliveredTo,
+      injectedAt: m.injectedAt ?? null,
       expiresAt: m.expiresAt,
       clampedFrom: m.clampedFrom,
       hop: m.hop,

@@ -34,7 +34,8 @@ function harness(
     owner?: typeof ALICE | null
     status?: string
     agentKind?: 'codex' | 'opencode' | 'grok' | 'claude-code' | 'shell'
-    /** The harness's observed phase — what the interrupt's idle guard reads. */
+    /** The harness's observed phase — what the interrupt's idle guard reads, and
+     *  what a queued send meets: `working` is WHY the send was queued (POD-1242). */
     phase?: string
     userTurns?: number
     /** Whether the transcript can WITNESS a send — production's normal state for
@@ -49,6 +50,7 @@ function harness(
   const answered: unknown[] = []
   let authorized = true
   const applied = vi.fn()
+  const injected = vi.fn()
   const handleInput = vi.fn()
   const transcript: Array<{ id: string; role: 'user' | 'assistant'; text: string }> = Array.from(
     { length: options.userTurns ?? 0 },
@@ -96,6 +98,10 @@ function harness(
         const row = rows.find((candidate) => candidate.id === id)
         if (row) row.attempts += 1
       },
+      resetAttempts: (id) => {
+        const row = rows.find((candidate) => candidate.id === id)
+        if (row) row.attempts = 0
+      },
       delete: (id) => {
         const index = rows.findIndex((row) => row.id === id)
         if (index >= 0) rows.splice(index, 1)
@@ -106,6 +112,7 @@ function harness(
       authorizeAtDrain: () =>
         authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const),
       applied,
+      injected,
       rejected: (input) => rejected.push(input),
     },
     attention: {
@@ -133,6 +140,7 @@ function harness(
     rejected,
     answered,
     applied,
+    injected,
     handleInput,
     transcript,
     revoke: () => {
@@ -152,6 +160,10 @@ function harness(
     },
     setStatus: (status: string) => {
       ;(session as unknown as { status: string }).status = status
+    },
+    /** The harness starting or finishing a turn. */
+    setPhase: (phase: string) => {
+      ;(session as unknown as { agentState: Record<string, unknown> }).agentState.phase = phase
     },
   }
 }
@@ -747,6 +759,148 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     vi.advanceTimersByTime(10_400)
 
     expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+
+  it('waits out a running turn instead of retyping into it', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    // The state a queued send meets by definition: the agent is mid-turn, which
+    // is WHY the send was queued. The CLI takes the prompt into its own composer
+    // queue and writes no user turn until the turn ends, so the five-second
+    // confirmation can never succeed — and used to retype on that schedule.
+    const h = harness({ transcriptAvailable: true, phase: 'working' })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-busy'),
+      sourceMessageId: 'msg_busy',
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(240_000)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(h.rows).toHaveLength(1)
+    // Typed, not taken: the operator's bubble may settle, the ledger may not.
+    expect(h.injected).toHaveBeenCalledWith({ sourceMessageId: 'msg_busy', sessionId: SID })
+    expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it('settles the held row at the turn boundary that finally takes it', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true, phase: 'working' })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-held'),
+      sourceMessageId: 'msg_held',
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(600_000)
+    expect(h.rows).toHaveLength(1)
+
+    // Ten minutes later the turn ends and the CLI submits what it was holding.
+    h.landTurn(PROMPT)
+    h.setPhase('idle')
+    vi.advanceTimersByTime(1_100)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(h.rows).toEqual([])
+    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_held', sessionId: SID })
+  })
+
+  it('retypes once the agent is free and the prompt never arrived', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true, phase: 'working' })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-freed'),
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(60_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    // The turn ended and took something else — our prompt is not in the
+    // transcript and nothing is holding it any more. NOW it was lost.
+    h.setPhase('idle')
+    vi.advanceTimersByTime(9_000)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT, PROMPT])
+  })
+
+  it('does not retype into a busy agent when a later pass re-arms the drain', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-rearm'),
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(7_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    // The prompt it is holding started a turn. A reconnect re-arms the drain —
+    // which is the second engine that put eight copies of one click on screen.
+    h.setPhase('working')
+    vi.advanceTimersByTime(120_000)
+    h.inbox.drain(SID)
+    vi.advanceTimersByTime(120_000)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(h.rows).toHaveLength(1)
+  })
+
+  it('counts type attempts across drain passes, not within each one', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-budget'),
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(180_000)
+    expect(typedTexts(h.sent)).toHaveLength(5)
+
+    // The row is still queued, and every bind, idle edge and machine reconnect
+    // re-arms this pass. A per-pass cap makes the cap mean nothing.
+    h.inbox.drain(SID)
+    vi.advanceTimersByTime(180_000)
+
+    expect(typedTexts(h.sent)).toHaveLength(5)
+    expect(h.rows).toHaveLength(1)
+  })
+
+  it('gives a freshly bound CLI the attempt budget the dead one used up', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-rebound'),
+      principal: agentPrincipal(),
+    })
+    vi.advanceTimersByTime(180_000)
+    expect(typedTexts(h.sent)).toHaveLength(5)
+
+    // A new process never saw any of those five: whatever the old CLI was
+    // holding died with it, so the row is undelivered rather than over-delivered.
+    h.inbox.drain(SID, { justBound: true })
+    vi.advanceTimersByTime(180_000)
+
+    expect(typedTexts(h.sent)).toHaveLength(10)
   })
 
   it('removes on write when the transcript cannot witness the send', () => {

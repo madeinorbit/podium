@@ -11,6 +11,7 @@ export class QueuedMessageApply {
       events: MessageDeliveryDeps['events']
       authorize(message: MessageRow): { ok: true } | { ok: false; reason: string }
       applied(messageId: string, sessionId: SessionId): void
+      injected(messageId: string, sessionId: SessionId): void
       bus: EventBus
       now(): string
     },
@@ -25,6 +26,12 @@ export class QueuedMessageApply {
 
   applied(messageId: string, sessionId: SessionId): void {
     this.deps.applied(messageId, sessionId)
+  }
+
+  /** The push crossed into the CLI but the agent has not been seen to take it —
+   *  short of `applied`, and the point after which nothing is retyped (POD-1242). */
+  injected(messageId: string, sessionId: SessionId): void {
+    this.deps.injected(messageId, sessionId)
   }
 
   reject(messageId: string, reason: string): void {

@@ -885,12 +885,14 @@ export class SessionRegistry {
     // ever invoked after construction completes.
     const queuedApplyHooks: {
       applied?: (messageId: string, sessionId: SessionId) => void
+      injected?: (messageId: string, sessionId: SessionId) => void
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
       events: this.store.events,
       authorize: mail.authorizeAtApply,
       applied: (messageId, sessionId) => queuedApplyHooks.applied?.(messageId, sessionId),
+      injected: (messageId, sessionId) => queuedApplyHooks.injected?.(messageId, sessionId),
       bus: this.bus,
       now: () => new Date(this.now()).toISOString(),
     })
@@ -903,6 +905,8 @@ export class SessionRegistry {
       rejectQueuedMessage: (messageId, reason) => queuedMessageApply.reject(messageId, reason),
       confirmQueuedMessageApplied: (messageId, sessionId) =>
         queuedMessageApply.applied(messageId, sessionId),
+      noteQueuedMessageInjected: (messageId, sessionId) =>
+        queuedMessageApply.injected(messageId, sessionId),
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
@@ -1347,6 +1351,8 @@ export class SessionRegistry {
     })
     queuedApplyHooks.applied = (messageId, sessionId) =>
       messagesSvc.onQueuedInputApplied(messageId, sessionId)
+    queuedApplyHooks.injected = (messageId, sessionId) =>
+      messagesSvc.onQueuedInputInjected(messageId, sessionId)
     this.bus.on('message.deadLettered', ({ messageId, reason }) =>
       messagesSvc.notifyQueuedInputRejected(messageId, reason),
     )

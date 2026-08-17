@@ -524,6 +524,35 @@ describe('ChatView composer', () => {
     expect(container.querySelector('[data-notice="queue"]')).toBeNull()
   })
 
+  it('stops calling a queued message pending once the CLI has been handed it', async () => {
+    fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
+      {
+        id: 'msg_injected',
+        from: 'operator',
+        to: 'session:s1',
+        body: 'merge this branch',
+        createdAt: '2026-06-03T00:00:01.000Z',
+        // Typed into the harness, not yet taken as a turn. The agent may already
+        // be acting on it — Claude Code shows queued input to the running turn —
+        // so a bubble that still says "sends after this turn" sits under the work
+        // it caused and offers a Retract that can no longer retract (POD-1242).
+        injectedAt: '2026-06-03T00:00:02.000Z',
+        status: 'queued',
+      },
+    ])
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const queued = container.querySelector('[data-testid="queued-chat-message"]')
+    expect(queued?.textContent).toContain('merge this branch')
+    expect(queued?.textContent).not.toContain('pending')
+    expect(queued?.querySelector('.msg-action--retract')).toBeNull()
+    // It reads as a message in flight, which is what it is: no reserved-place rim.
+    expect(queued?.querySelector('.transcript-you-bubble--queued')).toBeNull()
+  })
+
   it('retracts a pending durable message and removes it from the transcript', async () => {
     fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
       {

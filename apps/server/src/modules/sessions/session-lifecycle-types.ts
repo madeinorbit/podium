@@ -83,6 +83,9 @@ export interface SessionLifecycleDeps {
   rejectQueuedMessage?(messageId: string, reason: string): void
   /** Advance the source intent only after queued input crosses into the PTY. */
   confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): void
+  /** Record that the queued input's bytes reached the CLI, which is short of
+   *  delivery: the agent takes it at its own turn boundary (POD-1242). */
+  noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): void
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
    * `MutationLedger`. Threaded through rather than constructed here — the service

@@ -341,6 +341,13 @@ export interface QueuedChatMessage {
   id: string
   text: string
   at: number
+  /** THE CLI HAS IT (POD-1242). The ledger stamps this when the bytes cross into
+   * the harness, which is BEFORE the agent takes them: a busy Claude Code parks
+   * typed input in its own composer queue until the running turn ends, and shows
+   * it to that turn on the way. So an injected row is no longer waiting on us —
+   * it cannot be retracted, nothing more will be typed, and the agent may already
+   * be acting on it. Null while the row is still only promised. */
+  injectedAt: number | null
 }
 
 export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): QueuedChatMessage[] {
@@ -360,6 +367,7 @@ export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): Que
       id: row.id as string,
       text: row.body as string,
       at: Date.parse(row.createdAt as string) || 0,
+      injectedAt: typeof row.injectedAt === 'string' ? Date.parse(row.injectedAt) || null : null,
     }))
     .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
 }

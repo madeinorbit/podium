@@ -315,6 +315,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           sourceMessageId: row.sourceMessageId,
         })),
       bumpAttempts: (id) => bag.store.sync.bumpQueuedAttempts(id),
+      resetAttempts: (id) => bag.store.sync.resetQueuedAttempts(id),
       delete: (id) => bag.store.sync.deleteQueuedMessage(id),
     },
     daemon: {
@@ -324,6 +325,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       authorizeAtDrain: (input) => bag.authorizeQueuedInputAtApply(input),
       applied: ({ sourceMessageId, sessionId }) =>
         bag.deps.confirmQueuedMessageApplied?.(sourceMessageId, sessionId),
+      injected: ({ sourceMessageId, sessionId }) =>
+        bag.deps.noteQueuedMessageInjected?.(sourceMessageId, sessionId),
       rejected: ({ sourceMessageId, reason }) => {
         if (sourceMessageId) bag.deps.rejectQueuedMessage?.(sourceMessageId, reason)
       },

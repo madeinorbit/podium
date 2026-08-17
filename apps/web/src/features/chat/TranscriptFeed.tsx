@@ -646,40 +646,62 @@ export function TranscriptFeed({
           to repeat the count above the field, which said the same fact twice
           about the very bubble sitting an inch above it. So the wording the
           composer carried comes here — a parked session has no turn to send
-          after, it has a process to start first (POD-762). */}
-      {restoredQueued.map((message) => (
-        <div
-          key={message.id}
-          className="transcript-row transcript-turn-open transcript-arrive-bubble"
-          data-testid="queued-chat-message"
-        >
-          <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-          <div className="transcript-body transcript-you">
-            <div className="transcript-you-bubble transcript-you-bubble--queued">
-              <div className="transcript-you-body">
-                <div className="chat-md whitespace-pre-wrap">{message.text}</div>
-              </div>
-            </div>
-            <div className="msg-foot" data-side="right">
-              <span className="transcript-delivery">
-                {sessionWaking(session)
-                  ? 'pending · sends once the agent is up'
-                  : 'pending · sends after this turn'}
-              </span>
-              <button
-                data-pressable
-                type="button"
-                className="msg-action msg-action--retract"
-                aria-label="Retract pending message"
-                title="Retract pending message"
-                onClick={() => void onRetractQueued(message.id)}
+          after, it has a process to start first (POD-762).
+
+          AND THE RESERVATION ENDS WHERE THE HANDOVER BEGINS (POD-1242). Once the
+          bytes are in the CLI the message is no longer waiting on us: it cannot
+          be retracted, and the agent is very often already acting on it — Claude
+          Code shows queued input to the turn in flight, which is how an operator
+          watched a merge run tool by tool while the bubble underneath it still
+          read "pending · sends after this turn". So an injected row drops the
+          dashed rim and the whole foot and takes its place as a settled card: the
+          same silence a message in flight keeps everywhere else in this feed. A
+          WAKING session is the exception — its row is queued for a process that
+          does not exist yet, so the stamp says nothing about a CLI and the
+          reservation stands. */}
+      {restoredQueued.map((message) => {
+        const handedOver = message.injectedAt !== null && !sessionWaking(session)
+        return (
+          <div
+            key={message.id}
+            className="transcript-row transcript-turn-open transcript-arrive-bubble"
+            data-testid="queued-chat-message"
+          >
+            <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+            <div className="transcript-body transcript-you">
+              <div
+                className={cn(
+                  'transcript-you-bubble',
+                  !handedOver && 'transcript-you-bubble--queued',
+                )}
               >
-                <MetaGlyph name="close" />
-              </button>
+                <div className="transcript-you-body">
+                  <div className="chat-md whitespace-pre-wrap">{message.text}</div>
+                </div>
+              </div>
+              {!handedOver && (
+                <div className="msg-foot" data-side="right">
+                  <span className="transcript-delivery">
+                    {sessionWaking(session)
+                      ? 'pending · sends once the agent is up'
+                      : 'pending · sends after this turn'}
+                  </span>
+                  <button
+                    data-pressable
+                    type="button"
+                    className="msg-action msg-action--retract"
+                    aria-label="Retract pending message"
+                    title="Retract pending message"
+                    onClick={() => void onRetractQueued(message.id)}
+                  >
+                    <MetaGlyph name="close" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
       {/* Headless streaming overlay: the in-progress assistant text (or the
           driver's status label) below the last transcript row. Replaced by
           the real item when it lands via the transcript tail; cleared on
