@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { atTail, measureAtTail, shouldFollowContentGrowth } from './transcript-tail'
+import { atTail, measureAtTail, shouldFollowContentGrowth, tailOffset } from './transcript-tail'
 
 describe('atTail', () => {
   it('opens at the tail even while the settling layout measures away from it', () => {
@@ -41,5 +41,23 @@ describe('shouldFollowContentGrowth', () => {
     expect(
       shouldFollowContentGrowth({ previousHeight: 400, nextHeight: 800, pinning: false }),
     ).toBe(false)
+  })
+})
+
+describe('tailOffset', () => {
+  it('lands the newest row on the bottom edge', () => {
+    expect(tailOffset(2525, 735)).toBe(1790)
+  })
+
+  it('overshoots rather than under-scrolls before the viewport is measured', () => {
+    // The measured live case (POD-1251): the phone opened a hibernated
+    // transcript 1790px short of its newest message because the list's own
+    // "end" was 0. An unmeasured viewport must not be able to produce that
+    // again — the scroll views clamp an overshoot, they do not clamp a 0.
+    expect(tailOffset(2525, 0)).toBe(2525)
+  })
+
+  it('never asks for a negative offset when the content fits', () => {
+    expect(tailOffset(400, 735)).toBe(0)
   })
 })

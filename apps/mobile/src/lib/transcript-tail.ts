@@ -61,3 +61,24 @@ export function shouldFollowContentGrowth(args: {
   if (!args.pinning) return false
   return args.nextHeight > args.previousHeight
 }
+
+/**
+ * Where the newest row sits at the bottom edge — computed from the two heights
+ * the list has just been HANDED, not from its own frame bookkeeping.
+ *
+ * `FlatList.scrollToEnd` cannot be used for the opening pin (POD-1251).
+ * Without `getItemLayout`, VirtualizedList derives the end offset from
+ * `_averageCellLength * lastIndex`, and on the first content-size change no cell
+ * has been measured yet, so the average is 0 and the "end" it scrolls to is 0.
+ * The feed then opens at the OLDEST loaded row and — on a hibernated session,
+ * where nothing further ever arrives to grow the content again — stays there,
+ * with the newest message a screen and a half below and the jump-to-newest pill
+ * hidden, because the list believes it is already at the tail.
+ *
+ * Overshoot is safe and deliberate: both the DOM and the native scroll views
+ * clamp to the maximum offset, so a viewport height that has not been measured
+ * yet (0) still lands exactly at the bottom.
+ */
+export function tailOffset(contentHeight: number, viewportHeight: number): number {
+  return Math.max(0, contentHeight - Math.max(0, viewportHeight))
+}

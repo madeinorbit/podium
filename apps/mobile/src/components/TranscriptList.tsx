@@ -58,6 +58,7 @@ import {
   atTail as atTailRule,
   measureAtTail,
   shouldFollowContentGrowth,
+  tailOffset,
 } from '../lib/transcript-tail'
 import {
   color,
@@ -668,9 +669,12 @@ export function TranscriptList({
   // find something must never be yanked back down. See ../lib/transcript-tail.
   const pinned = useRef(true)
   const operatorMoved = useRef(false)
-  // Last measured content height. Used to ignore the echo `scrollToEnd` sends
-  // back through onContentSizeChange — that loop froze the phone for minutes.
+  // Last measured content height. Used to ignore the echo the pin sends back
+  // through onContentSizeChange — that loop froze the phone for minutes.
   const contentHeight = useRef(0)
+  // The feed's own height, from its onLayout. The pin subtracts it rather than
+  // asking the list where its end is (POD-1251).
+  const viewportHeight = useRef(0)
   // A different session is a different conversation, and it opens at ITS tail
   // even if the previous one was left scrolled up.
   const transcriptId = assetContext?.sessionId ?? null
@@ -944,6 +948,9 @@ export function TranscriptList({
             animated: false,
           })
         }}
+        onLayout={(event) => {
+          viewportHeight.current = event.nativeEvent.layout.height
+        }}
         onContentSizeChange={(_width, height) => {
           const previous = contentHeight.current
           contentHeight.current = height
@@ -954,7 +961,13 @@ export function TranscriptList({
               pinning: !operatorMoved.current || pinned.current,
             })
           ) {
-            listRef.current?.scrollToEnd({ animated: false })
+            // scrollToOffset, NOT scrollToEnd: the end this list computes for
+            // itself is 0 until a cell has been measured, which is exactly the
+            // frame the opening pin runs in. See `tailOffset`.
+            listRef.current?.scrollToOffset({
+              offset: tailOffset(height, viewportHeight.current),
+              animated: false,
+            })
           }
         }}
         ListFooterComponent={

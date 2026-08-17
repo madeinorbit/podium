@@ -4,7 +4,7 @@ import type { SessionMeta } from '@podium/model'
 import { Moon, RotateCcw } from 'lucide-react-native'
 import { type JSX, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { color, font, leading, mono, radius, sans, space, tone } from '../theme/theme'
+import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
@@ -112,12 +112,20 @@ function LifecycleButton({
         testID={['lifecycle-', action.id].join('')}
         onPress={() => void run()}
         style={({ pressed }) => [
-          styles.action,
-          action.id === 'remove' ? styles.removeAction : null,
-          pressed ? styles.actionPressed : null,
+          compact ? styles.barAction : styles.action,
+          !compact && action.id === 'remove' ? styles.removeAction : null,
+          pressed ? (compact ? styles.barActionPressed : styles.actionPressed) : null,
         ]}
       >
-        <Text style={[styles.actionText, action.id === 'remove' ? styles.removeText : null]}>
+        <Text
+          style={
+            compact
+              ? styles.barActionText
+              : action.id === 'remove'
+                ? styles.removeText
+                : styles.actionText
+          }
+        >
           {busy && action.busyLabel ? action.busyLabel : label}
         </Text>
       </PressableScale>
@@ -159,15 +167,8 @@ export function MobileSessionLifecycle({
 
   if (!hasTranscript) {
     return (
-      <View
-        style={[styles.pane, parked ? styles.parkedPane : styles.endedPane]}
-        testID="lifecycle-pane"
-      >
-        <Icon
-          as={parked ? Moon : RotateCcw}
-          size={28}
-          color={parked ? tone.accent.fg : tone.danger.fg}
-        />
+      <View style={styles.pane} testID="lifecycle-pane">
+        <Icon as={parked ? Moon : RotateCcw} size={28} color={color.accentTint} />
         <Text style={styles.paneCopy}>{parked ? action.hint : `${detail} ${action.hint}`}</Text>
         <LifecycleButton
           action={action}
@@ -183,64 +184,107 @@ export function MobileSessionLifecycle({
   return (
     <View
       accessibilityRole="summary"
-      style={[styles.banner, parked ? styles.parkedBanner : styles.endedBanner]}
+      style={[styles.banner, parked ? null : styles.faultBanner]}
       testID="lifecycle-banner"
     >
-      <View style={styles.bannerRow}>
+      <View style={parked ? styles.mark : [styles.mark, styles.faultMark]}>
         <Icon
           as={parked ? Moon : RotateCcw}
-          size={15}
-          color={parked ? tone.accent.fg : tone.danger.fg}
-        />
-        <Text style={[styles.bannerText, parked ? styles.parkedText : styles.endedText]}>
-          {parked
-            ? 'Hibernated — transcript is read-only until you resume.'
-            : `${detail} Transcript is read-only.`}
-        </Text>
-        <LifecycleButton
-          action={action}
-          session={session}
-          onResume={onResume}
-          onRemove={onRemove}
-          compact
+          size={14}
+          color={parked ? color.textFaint : color.accentTint}
         />
       </View>
+      <Text style={styles.bannerText}>
+        {parked ? (
+          <>
+            <Text style={styles.stateWord}>Hibernated</Text> — transcript is read-only until you
+            resume.
+          </>
+        ) : (
+          `${detail} Transcript is read-only.`
+        )}
+      </Text>
+      <LifecycleButton
+        action={action}
+        session={session}
+        onResume={onResume}
+        onRemove={onRemove}
+        compact
+      />
     </View>
   )
 }
 
 const styles = StyleSheet.create({
+  /**
+   * THE STATE BAR — the phone's copy of web's `.pane-state-bar` (POD-747,
+   * brought over in POD-1251).
+   *
+   * It used to be a tinted slab: a yellow ground with yellow copy for a parked
+   * session and a RED one for an ended session, which is the enterprise-console
+   * look the design system opens by rejecting — and which spends The Signal
+   * Rule's yellow on a state that is asking nothing of anyone. Hibernation is a
+   * STATE, not a request.
+   *
+   * What it is instead, exactly as on web: the `bar` chrome tier, one hairline
+   * seam, machine voice, the state's own word in strong ink and nothing else
+   * emphasised, its glyph carrying the tone. A fault (exited, crashed) tints
+   * that glyph and NOTHING ELSE — never a fill.
+   */
   banner: {
     flexShrink: 0,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
-  parkedBanner: {
-    backgroundColor: tone.accent.bg,
-    borderBottomColor: tone.accent.border,
-  },
-  endedBanner: {
-    backgroundColor: tone.danger.bg,
-    borderBottomColor: tone.danger.border,
-  },
-  bannerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: space.sm,
+    backgroundColor: color.bar,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.hairlineBar,
+    paddingLeft: space.md,
+    paddingRight: space.sm,
+    paddingVertical: space.xs + 1,
+  },
+  /** A fault line can carry the daemon's diagnosis and run to two lines; the
+   *  mark and the control must not drift down the bar with it. */
+  faultBanner: {
+    alignItems: 'flex-start',
+  },
+  mark: {
+    flexShrink: 0,
+  },
+  faultMark: {
+    paddingTop: 2,
   },
   bannerText: {
-    ...sans(400),
+    ...mono(400),
     flex: 1,
+    color: color.textDim,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny, 'prose'),
-    paddingTop: 1,
   },
-  parkedText: {
-    color: tone.accent.fg,
+  /** The state's own word, and nothing else, steps up to strong ink — it is
+   *  what the reader is scanning for; the consequence after it stays in the
+   *  machine voice. */
+  stateWord: {
+    ...mono(500),
+    color: color.text,
   },
-  endedText: {
-    color: tone.danger.fg,
+  /** The bar's control is chrome inside chrome: an outline cell, not the
+   *  filled-yellow primary the pane below uses. */
+  barAction: {
+    alignSelf: 'flex-start',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.borderStrong,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs - 1,
+  },
+  barActionPressed: {
+    backgroundColor: color.surfacePressed,
+  },
+  barActionText: {
+    ...mono(500),
+    color: color.body,
+    fontSize: font.micro,
   },
   action: {
     alignSelf: 'flex-start',
@@ -252,10 +296,13 @@ const styles = StyleSheet.create({
   actionPressed: {
     backgroundColor: color.accentTint,
   },
+  /** Remove is the SECONDARY of the pane, not its alarm: the copy above it
+   *  already says the session left nothing to resume, and a red-rimmed button
+   *  under that sentence reads as a warning about pressing it. */
   removeAction: {
     backgroundColor: color.surfaceHigh,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: tone.danger.border,
+    borderColor: color.borderStrong,
   },
   actionText: {
     ...mono(700),
@@ -263,7 +310,9 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
   },
   removeText: {
-    color: tone.danger.fg,
+    ...mono(700),
+    color: color.body,
+    fontSize: font.micro,
   },
   error: {
     ...sans(500),
@@ -278,12 +327,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: space.md,
     paddingHorizontal: space.xl,
-  },
-  parkedPane: {
-    backgroundColor: tone.accent.bg,
-  },
-  endedPane: {
-    backgroundColor: tone.danger.bg,
   },
   paneCopy: {
     ...sans(400),

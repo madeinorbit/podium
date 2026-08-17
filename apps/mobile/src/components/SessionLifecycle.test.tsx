@@ -46,9 +46,31 @@ describe('mobile session lifecycle surface', () => {
       />,
     )
 
-    expect(screen.getByText('Hibernated — transcript is read-only until you resume.')).toBeTruthy()
+    const banner = screen.getByTestId('lifecycle-banner')
+    expect(banner.textContent).toContain('Hibernated — transcript is read-only until you resume.')
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Resume' })))
     expect(onResume).toHaveBeenCalledWith('session-1')
+  })
+
+  // THE STATE BAR SPENDS NO SIGNAL (POD-1251, matching web's POD-747): a parked
+  // or ended session is reporting a state, not asking for anything, so the bar
+  // takes the chrome ground and neither the yellow that means "waiting on you"
+  // nor the red that means destruction may appear as a fill.
+  it.each([
+    ['hibernated', 'parked'],
+    ['exited', 'ended'],
+  ] as const)('paints the %s bar in chrome, not in a signal fill', (status) => {
+    render(
+      <MobileSessionLifecycle
+        session={session({ status })}
+        hasTranscript
+        onResume={vi.fn(async () => ({ ok: true as const }))}
+        onRemove={vi.fn(async () => {})}
+      />,
+    )
+
+    const ground = getComputedStyle(screen.getByTestId('lifecycle-banner')).backgroundColor
+    expect(ground).toBe('rgba(27, 29, 33, 1.00)') // color.bar
   })
 
   it('keeps a failed resume visible and retryable', async () => {
