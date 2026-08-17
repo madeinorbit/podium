@@ -2994,6 +2994,18 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   background: var(--card);
   box-shadow: 0 14px 30px -18px var(--chat-shadow);
   pointer-events: auto;
+  /* THE BRIEF'S LINE BOX, PUBLISHED WHERE THE SIDE COLUMN CAN SEE IT (POD-1213).
+     The time stamps the words but lives in a different column from them, and the
+     two were only ever aligned at their TOPS — a 23px line box beside an 11px
+     one, which on a one-line brief drew the time five pixels above the sentence
+     and read as a slip. `1lh` cannot be read across siblings, so the setting the
+     text is in is published here and the time takes its line box from it: same
+     height, same top, so the two are centred on each other at any setting. The
+     compact value mirrors `html[data-density="compact"] .chat-md`. */
+  --brief-lh: 23px;
+}
+html[data-density="compact"] .brief-shelf {
+  --brief-lh: 21px;
 }
 /* THREE LINES, THEN THE CONTROL (POD-993 round 3). It clamped to two and faded
    the third, which meant almost every brief arrived cut — two lines is under a
@@ -3072,22 +3084,26 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
 .brief-shelf-text > :last-child {
   margin-bottom: 0;
 }
+/* The gap between the time and the control is the CONTROL'S margin, not the
+   column's `gap` — an idle toggle has to be able to give its row back (see
+   below), and a gap belongs to the column, which would hold the space open
+   under a toggle that is no longer occupying any. */
 .brief-shelf-side {
   flex: none;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 7px;
-  padding-top: 1px;
 }
 .brief-shelf-time {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--shell-type-micro);
-  line-height: 1;
+  /* On the brief's line, not above it — see `--brief-lh` on `.brief-shelf`. */
+  line-height: var(--brief-lh);
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
 }
 .brief-shelf-toggle {
+  margin-top: 7px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--shell-type-micro);
   line-height: 1;
@@ -3102,10 +3118,18 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
 /* A brief with nothing hidden still RESERVES the control's box — see the note in
    PinnedBrief. Taking it out of the flow narrows and widens the text beside it,
    and a brief sitting on the three-line boundary then oscillates between cut and
-   not-cut forever. Invisible and unreachable, but still occupying its space. */
+   not-cut forever. Invisible and unreachable, but still occupying its space.
+
+   Its WIDTH, that is. The loop turns on the width of the text column and on
+   nothing else, so the height is free to go — and it has to, because a column
+   holding an invisible second row is taller than a one-line brief, which left
+   the shelf standing 54px around 23px of words with the slack all underneath
+   (POD-1213). A zero-height item still contributes its width to the column. */
 .brief-shelf-toggle[data-idle="true"] {
   visibility: hidden;
   pointer-events: none;
+  height: 0;
+  margin-top: 0;
 }
 @keyframes brief-shelf-in {
   from {
