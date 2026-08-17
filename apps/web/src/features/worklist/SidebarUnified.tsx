@@ -100,11 +100,12 @@ export function SidebarUnified(): JSX.Element {
       >
         <WorkSections derivation={derivation} query={filter.query} />
       </div>
-      {/* Footer: the 3a design's 34px strip at the column's 13px inset, on the
+      {/* Footer: the 3a design's 34px strip — 35 with its rule, which is
+          outside the 34 in a content-box mock (POD-1253) — at the column's 13px inset, on the
           same `--muted` ground as the section bands — the column's two chrome
           ends read as one tone and the list floats between them. We keep muted
           icon controls where the mock writes `new task` / `search` as words. */}
-      <AppToolsRow className="h-[34px] flex-none border-t border-hairline-bar bg-muted px-[13px]" />
+      <AppToolsRow className="h-[35px] flex-none border-t border-hairline-bar bg-muted px-[13px]" />
     </>
   )
 }

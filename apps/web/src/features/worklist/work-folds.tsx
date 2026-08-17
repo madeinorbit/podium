@@ -33,7 +33,7 @@ const TAIL_FOLD_CLASS =
  * It was a label floating on the column's ground — fine while every row under it
  * drew a hairline, but with the rules gone (see `WorkRowShell`) the labels were
  * the only structure left in a 30-row column and the lightest marks in it. So it
- * became a BAND: 34px, full-bleed, `--muted`, and a hairline UNDER it. It had a
+ * became a BAND: 34px of ground under a hairline, full-bleed, `--muted`. It had a
  * rule on both edges while it was the only ruled thing in the column; with the
  * rows ruled again (POD-1078) the top one was drawing a second line a pixel
  * under the last row's, so the band keeps the edge that is its own.
@@ -47,15 +47,21 @@ const TAIL_FOLD_CLASS =
  *  Shared because the empty work list wears a band too (POD-1058) and there is
  *  nothing there to fold: a STATIC band, so it takes the shape and the tone but
  *  none of the hover, focus or transition a button needs. Two spellings of
- *  34px/`--muted`/hairline would drift the moment one of them is retuned. */
+ *  35px/`--muted`/hairline would drift the moment one of them is retuned.
+ *
+ *  35px, NOT 34 (POD-1253): the mock's `height:34px` is a CONTENT box — the file
+ *  sets `box-sizing:border-box` exactly once, on its outer <section>, so the
+ *  1px rule sits OUTSIDE the 34 and the band measures 35. Ours spent the rule
+ *  inside the 34 and gave the band 33px of ground. Same reading error as the
+ *  row's `min-height`, one pixel instead of four. */
 export const SECTION_BAND_CLASS =
-  'flex h-[34px] w-full flex-none items-center gap-[9px] border-b border-hairline-bar bg-muted px-[13px] text-left'
+  'flex h-[35px] w-full flex-none items-center gap-[9px] border-b border-hairline-bar bg-muted px-[13px] text-left'
 
 /** The gap ABOVE a section that is not the first (POD-1078, the design's 14px).
  *  The band already said where a group STARTS; nothing said where one ended, so
  *  a project's last row and the next project's band met on a single hairline and
  *  the two groups read as one run. 14px of the column's ground parts them, and
- *  it stays well under the band's 34px so the band is still the thing you see
+ *  it stays well under the band's 35px so the band is still the thing you see
  *  when you scan.
  *
  *  It sits on the section, not between sections (no `gap` on the scroller): the

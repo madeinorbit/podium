@@ -356,9 +356,19 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           // looks like one instead of like a search box.
           //
           // `h-10` = the artboard's 38px content plus its rim, since this box is
-          // border-box; `px-[11px]` plus that rim is the mock's 12px inset.
+          // border-box; `px-[11px]` plus that rim is the mock's 12px inset. The
+          // mock is content-box throughout — it declares `box-sizing:border-box`
+          // exactly once, on its outer <section> — so every height in that file
+          // has its border added on top of the number written.
+          //
+          // `pr-36` is the artboard's own right boundary for the label: 11px
+          // inset + a 16px glyph + the row's 9px gap. An earlier cut spent 5 of
+          // that gap on label width to stop a repo name truncating; measured,
+          // the label has ~60px of slack at the column's default width and ~30
+          // at its minimum, so the deviation bought nothing and the mock's
+          // number stands (`e2e/pod1253-spawn-label.ts`).
           className={cn(
-            'flex h-10 w-full min-w-0 items-center gap-[9px] rounded-[8px] border border-border-strong bg-chip px-[11px] pr-[31px] text-[12.5px] font-medium tracking-[-0.005em] leading-[normal] text-foreground disabled:opacity-50',
+            'shell-spawn-chip flex h-10 w-full min-w-0 items-center gap-[9px] rounded-[8px] border border-border-strong bg-chip px-[11px] pr-[36px] text-[12.5px] font-medium tracking-[-0.005em] leading-[normal] text-foreground disabled:opacity-50',
             // The refusal is a DIM, not a colour: the row's own hue is the
             // agent's brand swatch, and greying is what every other refused
             // spawn affordance does. Warning ink is the exception — it is the

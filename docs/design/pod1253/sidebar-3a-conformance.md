@@ -2,9 +2,16 @@
 
 What the artboard specifies, what shipped, and what changed. Every "artboard"
 number below was read off the mock rendered in a browser
-(`getComputedStyle` / `getBoundingClientRect`), not off the source, because the
-mock's boxes are `content-box` and half the drift came from reading its
-`min-height` as a finished row height.
+(`getComputedStyle` / `getBoundingClientRect`), not off the source.
+
+**The mock is `content-box` throughout.** `ADE Sidebar 3a.dc.html` declares
+`box-sizing: border-box` exactly once, on its outer `<section>`, and the dc
+runtime ships no reset — so every `height` and `min-height` in that file has its
+border added ON TOP of the number written. Reading those numbers as finished
+border-box heights is where most of the drift came from, at four scales at once:
+4px on every row, 10px on a metered row, 2px on the spawn control and the filter
+field, 1px on the bands and the footer. (Caught for the spawn control by the
+agent on POD-1257, who was working the same row; the generalisation is theirs.)
 
 Two artboards are in scope: **3a** (the column) and **3b** (the same column with
 the inline filter, which is the composition we actually ship — the filter sits
@@ -20,14 +27,14 @@ it.
 | Row with the progress meter | `min-height:46px` + 7px + rule = **61px** | ~55px | **61px** |
 | Row padding / gap / rule | `7px 13px`, gap 11, 1px | same | same |
 | Spawn block | `padding: 9px 10px 0` (3b) | `10px 16px 8px 12px` | **`9px 10px 0`** |
-| Spawn control | 38px inside a 1px rim = **40px**, radius 8, gap 9, `padding: 0 11px` | 30px, radius 6, gap 8, no rim | **40px, radius 8, gap 9, rim** |
+| Spawn control | 38px inside a 1px rim = **40px**, radius 8, gap 9, `padding: 0 11px`, label boundary at 11+16+9 = **36px** | 30px, radius 6, gap 8, no rim | **40px, radius 8, gap 9, rim, pr 36** |
 | Spawn control ground | the RAISED tier (`#ffffff` paper / `#23262d` dark) | `--secondary`, a recess | **`--chip`** |
 | Spawn label | 500, 12.5px, `-.005em` | 400, 12px | **500, 12.5px** |
 | Spawn swatch / chevron | 11px radius 3 / 16px at an 11px inset | 10px / 14px | **11px / 16px** |
-| Section band | 34px, `0 13px`, gap 9, `--muted`, rule under | gap 8 | **gap 9** |
+| Section band | 34px of ground + a 1px rule = **35px**, `0 13px`, gap 9, `--muted` | 34px total, gap 8 | **35px, gap 9** |
 | Tail fold (`12 closed`) | `padding: 16px 13px 0`, gap 9, 13px chevron | `16px 13px 4px`, 12px chevron, one rung fainter | **`16px 13px 0`, 13px, `--text-dim`** |
-| Footer strip | 34px, `0 13px`, gap 14, 16px glyphs on the 13px inset | gap 4, 28px cells, first glyph at 19px | **gap 14, 16px glyphs at 13px** |
-| Search field (3b) | 30px, radius 7, `0 9px`, 14px glyph | 13px glyph | **14px glyph** |
+| Footer strip | 34px + its 1px rule = **35px**, `0 13px`, gap 14, 16px glyphs on the 13px inset | 34px total, gap 4, 28px cells, first glyph at 19px | **35px, gap 14, glyphs at 13px** |
+| Search field (3b) | 30px inside a 1px rim = **32px**, radius 7, `0 9px`, 14px glyph | 30px total, 13px glyph | **32px, 14px glyph** |
 
 The row box is the one that mattered most: **every row in the column was four
 pixels short**, and a metered row ten. The mock writes two different
@@ -55,6 +62,16 @@ place.
   DESIGN.md §5 asks live activity to read calm blue and it still does — in the
   spinner and in the meter's running segment, which are the two marks that *are*
   the activity. Amber remains the one exception, for a row that is asking.
+
+- **The spawn control has a hover again, in light.** Making it the artboard's
+  raised `--chip` card quietly killed its hover: `data-pressable` says hover with
+  `filter: brightness(1.08)`, which can only brighten, and `--chip` is `#ffffff`
+  in every light preset. Measured as painted pixels, the hover delta there was
+  `[0,0,0]` — no feedback at all — while dark moved `+3`. The artboard hovers the
+  other way (`#faf9f7` under `#ffffff`, `#282c33` under `#23262d`): both move
+  *toward the foreground*, which `.shell-spawn-chip` now spells once for both
+  themes as a 3% mix, standing the filter down. Post-fix: light `-6`, dark `+5`,
+  against the mock's own `+5`. (Caught by the agent on POD-1257.)
 
 ## Not changed, and why
 
@@ -101,6 +118,22 @@ harness (`apps/web/vite.sidebar.config.ts`) exists for exactly this: the real
 `SidebarUnified` over a stubbed store, still between presses.
 `apps/web/e2e/pod1253-raf-control.ts` is the positive control — a plain CSS
 transition in the same browser, which must report ~60 frames or the rig is blind.
+
+## The rigs, and their controls
+
+Three of these measure things a screenshot and a computed style both lie about,
+so each carries a control that has to fire before its result means anything:
+
+- `pod1253-harness.ts` — geometry and fold sampling in the harness. Control: an
+  **idle** run before each gesture (~60fps, no long tasks) — without it a busy
+  app and a slow fold are the same number.
+- `pod1253-raf-control.ts` — a plain CSS transition in the same browser. If this
+  reports a handful of frames, the sampler is blind.
+- `pod1253-spawn-hover.ts` — the hover read as **painted pixels**, because
+  `getComputedStyle` reports the background it was handed whether or not a filter
+  cancelled it. Control: the dark run, which must move even when light does not.
+- `pod1253-spawn-label.ts` — whether a padding deviation actually buys label
+  width. It did not, which is how `pr-36` came back.
 
 ## Shots
 

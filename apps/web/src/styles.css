@@ -129,6 +129,29 @@ html[data-density="compact"] {
 .shell-work-row:has([data-testid="row-progress"]) {
   --work-row-content: 46px;
 }
+/* THE SPAWN CHIP'S GROUND, AND THE ONE HOVER THE FILTER CANNOT DRAW (POD-1253).
+
+   `data-pressable` says hover with `filter: brightness(1.08)` (index.css), which
+   can only ever BRIGHTEN. That was fine while this control was a `--secondary`
+   grey. It is `--chip` now, and `--chip` is #ffffff in every light preset — so
+   the brightest thing on screen got a brightening filter and the control had no
+   hover feedback at all in light mode. The artboard hovers the other way:
+   #faf9f7 under a #ffffff rest, and #282c33 under #23262d in the dark board.
+   Both move TOWARD the foreground, which is what the mix below spells once for
+   both themes — measured at 3% it lands within two values of each.
+
+   It lives here rather than in a `hover:` utility because styles.css is
+   UNLAYERED and `[data-pressable]` sits in `@layer components`: this rule wins
+   wherever it disagrees, which is the only way `filter: none` can call the
+   brightness off. The press keeps its own darkening, restated because standing
+   the filter down on hover would otherwise take `:active` with it. */
+.shell-spawn-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 3%, var(--chip));
+  filter: none;
+}
+.shell-spawn-chip:active:not(:disabled) {
+  filter: brightness(0.94);
+}
 html[data-density="compact"] .shell-work-row {
   --work-row-pad: 6px;
 }
