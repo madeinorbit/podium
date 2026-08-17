@@ -1520,6 +1520,7 @@
         "src/plugins.ts",
         "src/pre-migrated-store-wiring.test.ts",
         "src/pspec.ts",
+        "src/queue-drain-abandonment.test.ts",
         "src/quota-machines.test.ts",
         "src/raw-file-headers.ts",
         "src/readiness-boundary.ts",
