@@ -75,6 +75,14 @@ afterEach(() => {
   setSelectedIssueId.mockClear()
 })
 
+/* The headline's accessible name is the SENTENCE, not the sentence with the
+ * project button's own label spliced into it. Both assertions below used to
+ * read `Give Project: podium its first mission` — the trigger's
+ * `aria-label="Project: podium"` leaking into the h2's computed name — and both
+ * were already failing on main before this issue touched the file: the name
+ * computation now takes the button's content, so the heading reads the way it
+ * looks. The button keeps its own label when it is the focused thing, which is
+ * where "Project:" is worth saying. */
 describe('ColdStartComposer', () => {
   it('uses the reusable first-run wording and production task path', async () => {
     const issueId = asIssueId('issue-first')
@@ -82,9 +90,7 @@ describe('ColdStartComposer', () => {
     start.mockResolvedValue({ id: issueId })
     render(<ColdStartComposer first />)
 
-    expect(
-      screen.getByRole('heading', { name: /Give Project: podium its first mission/ }),
-    ).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /Give podium its first mission/ })).toBeTruthy()
     fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
       target: { value: 'Ship the new onboarding\nKeep the empty state subtle.' },
     })
@@ -113,7 +119,20 @@ describe('ColdStartComposer', () => {
   it('switches to reusable workspace wording when tasks already exist', () => {
     render(<ColdStartComposer first={false} />)
     expect(
-      screen.getByRole('heading', { name: /What do you want to work on in Project: podium/ }),
+      screen.getByRole('heading', { name: /What do you want to work on in podium/ }),
     ).toBeTruthy()
+  })
+
+  /* POD-1169. The instrument strip clips its own contents (`overflow-hidden`)
+   * to keep the three pickers in one groove, and that sets its automatic
+   * minimum size to 0 — as a shrinkable flex item it SQUASHED instead of
+   * wrapping, so a narrow pane lost the agent, model and effort controls
+   * silently rather than moving them to a second line. `flex-none` is the fix
+   * and it is invisible in a jsdom render, so assert it directly. */
+  it('keeps the instrument strip unshrinkable, so a narrow pane wraps it whole', () => {
+    render(<ColdStartComposer first={false} />)
+    const strip = screen.getByRole('button', { name: 'Agent' }).parentElement
+    expect(strip?.className).toContain('overflow-hidden')
+    expect(strip?.className).toContain('flex-none')
   })
 })

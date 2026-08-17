@@ -9137,3 +9137,81 @@ a.ref-link--session::before {
     transparent var(--ghost-end)
   );
 }
+
+/* ── THE COLD DECK'S FIT [POD-1169] ──────────────────────────────────────────
+   The cold start is a PANE, not a page. Every responsive decision it made used
+   to be keyed off the VIEWPORT — `sm:px-10 lg:px-24`, `3vw` type, a
+   `lg:flex-nowrap` instrument row — and the flight deck routinely hands this
+   screen a 500px pane on a 1500px display. There the viewport answers `lg` to
+   all three questions: 96px of gutter each side of a 500px column, a 33px
+   headline in the ~300px that leaves, and a bottom row forbidden to wrap. That
+   is the reported bug, not three separate ones.
+
+   So the pane is the container and every measure below reads it. There is one
+   real breakpoint (the row's own width, 560px) — the rest is continuous, which
+   is what a screen with one sentence and one field should be.
+
+   `cq*` units inside a container resolve against the container's ANCESTOR, not
+   itself, so the sizes live on `.cold-start-body` and only `container-type`
+   lives on the element being measured. */
+.cold-start {
+  container-type: inline-size;
+  container-name: cold-start;
+}
+
+/* The gutter is a sixth of the pane, floored at a thumb's width and capped at
+   the old desktop 96px. It is added BACK into the max-width so the reading
+   measure stays the 1060px it was — the gutter grows into the margin, never
+   into the sentence. */
+.cold-start-body {
+  --cold-gutter: clamp(20px, 6cqi, 96px);
+  width: 100%;
+  max-width: calc(1060px + 2 * var(--cold-gutter));
+  padding-inline: var(--cold-gutter);
+  padding-block: clamp(32px, 5cqi, 80px);
+}
+
+/* THE HEADLINE AND THE PROJECT ARE ONE TYPE SIZE. They were `clamp(26px, 3vw,
+   33px)` and a flat 28px, which CROSS OVER: under a ~1100px viewport the pill's
+   label was larger than the sentence containing it, so the one word the reader
+   is meant to scan past outweighed the question. Everything in the pill is now
+   an em of the headline — 1.45em tall, .85em of label — so the crossover is
+   arithmetically impossible whatever the pane does. */
+.cold-start-head {
+  gap: 0.4em;
+  font-size: clamp(21px, 4.4cqi, 33px);
+}
+.cold-start-project {
+  height: 1.45em;
+  gap: 0.33em;
+  padding-inline: 0.4em;
+  border-radius: 0.33em;
+}
+.cold-start-project-mark {
+  width: 0.4em;
+  height: 0.4em;
+  border-radius: 0.12em;
+}
+.cold-start-project-name {
+  font-size: 0.85em;
+}
+.cold-start-project-caret {
+  width: 0.6em;
+  height: 0.6em;
+}
+
+/* THE CHORD IS A ONE-LINE AFFORDANCE. The row's rigid furniture is ~560px: the
+   instrument strip (~256), the machine chip (~133), the launch button (~94),
+   three 8px gaps and 28px of row padding. Above that the row is one line and
+   ⌘↵ has somewhere to sit; below it the row has already wrapped and the hint is
+   a third line of furniture on a screen that just ran out of them. Keyed off
+   the pane rather than `sm:` for the same reason as everything else here — a
+   500px pane on a wide display was showing it while the row was two lines. */
+.cold-start-chord {
+  display: none;
+}
+@container cold-start (min-width: 560px) {
+  .cold-start-chord {
+    display: inline;
+  }
+}
