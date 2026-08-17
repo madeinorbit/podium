@@ -2301,6 +2301,13 @@ html[data-density="balanced"] .header-quota-pools {
   }
 }
 
+/* Nothing floats over setup either. The update card is mounted above the shell
+   so it survives the error screens, so setup marks the document instead — and
+   the prompt comes back, unchanged, the moment the window is handed over. */
+html[data-setup-only="true"] [data-testid="update-dialog"] {
+  display: none;
+}
+
 /* Handing the window back. The bar goes from empty chassis to full instrument
    panel in one frame, which reads as a flicker rather than an arrival, so its
    contents fade up while the window buttons — the one thing that was already

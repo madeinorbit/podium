@@ -311,6 +311,19 @@ function AppBody(): JSX.Element {
   // render, so nothing else can be reached until setup finishes.
   const activationVisible = activationEligible
 
+  // The update prompt lives above this subtree (it owns the service worker and
+  // must survive the error screens), so setup cannot simply not render it. It
+  // still has no business here: on a phone its card covers a whole choice, and
+  // it offers to update machines to someone who has not chosen a machine yet.
+  useEffect(() => {
+    if (!activationVisible) return
+    const root = document.documentElement
+    root.dataset.setupOnly = 'true'
+    return () => {
+      delete root.dataset.setupOnly
+    }
+  }, [activationVisible])
+
   // Handing the window back is the one moment the shell appears out of nothing.
   // Fade the command bar's contents in over that hand-off instead of snapping a
   // full instrument panel onto a screen that held one sentence a moment ago.
