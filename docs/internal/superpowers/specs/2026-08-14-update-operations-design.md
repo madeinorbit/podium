@@ -611,6 +611,36 @@ clearly. The nicer shape is still open: this deserves the §3.5 **ask** the desk
 gets ("finish this in your terminal") rather than a failure, which needs the host daemon's
 shape as a fact on the wire.
 
+### 19.2e-bis The same lesson, three more codes, one layer down (POD-2239)
+
+The schema regression gate refuses for three distinguishable reasons, and POD-2233 gave each
+its own sentence on the ActionError path. The OPERATION path had **no arm for any of them**:
+`classifyMachineFailure` matched neither `schema-advanced`, `schema-unknown` nor
+`schema-unreadable`, so all three fell into the same `machine-unreachable` default that
+POD-2210 had just been carved out of — and the panel told the operator that a machine which
+had answered and declined on purpose had stopped responding and would resume when it
+reconnected. Neither claim was true and the second could never become true, since nothing
+about that machine was going to change on its own. It is worth naming plainly: the ActionError
+path is not the path a real update fails on, so the correction landed everywhere except where
+it was needed.
+
+The new codes are `machine-schema-advanced`, `machine-schema-unknown` and
+`machine-schema-unreadable`. Three, not one, because they are three states of knowledge and §7
+forbids a failure asserting what it has not established: `schema-advanced` knows the target is
+behind and would refuse to open; `schema-unknown` knows neither half; `schema-unreadable` knows
+nothing about the target at all and is the only one where "try again" can change the answer.
+
+The `schema-unknown` copy is the one to preserve under editing. It must offer **no version to
+pick** — not merely because "older" is unproven there, but because the advice is unachievable:
+a coordinator on a source build reports `dev+<sha>`, which `isProvablyNewer` orders against
+nothing published, so every choice the operator makes comes back to the same refusal. The
+action that exists belongs to the release, not to the operator's choice.
+
+The generalisation, now seen twice: **a new arm on one presentation path is only half a fix
+while a second path classifies the same daemon sentence independently.** The two readers here
+are `classifyMachineFailure` (apps/server) and `describeUpdateFailure` (apps/web), and they
+match on deliberately identical patterns for exactly this reason.
+
 ### 19.2f The op catalog widened and its tolerance shipped with it (P8), decided both ways
 
 `98f65d411` added `dev` to `ApprovalChannelTarget` **and**, in the same commit, put
