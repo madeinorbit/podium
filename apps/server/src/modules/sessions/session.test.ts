@@ -748,6 +748,7 @@ describe('Session', () => {
   it('keeps the daemon spawn diagnosis in wire and durable state until retry', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const s = makeSession()
+    s.selectedDriverId = 'generic-pty'
     s.markSpawnError('codex executable was not found')
 
     expect(s.toMeta(NO_SESSION_USER_STATE)).toMatchObject({
@@ -755,7 +756,11 @@ describe('Session', () => {
       exitCode: -1,
       spawnFailure: 'codex executable was not found',
     })
-    expect(s.toRow()).toMatchObject({ spawnFailure: 'codex executable was not found' })
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
+    expect(s.toRow()).toMatchObject({
+      spawnFailure: 'codex executable was not found',
+      selectedDriverId: null,
+    })
 
     s.markResumed()
     expect(s.toMeta(NO_SESSION_USER_STATE).spawnFailure).toBeUndefined()

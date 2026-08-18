@@ -1750,6 +1750,42 @@ describe('SessionRegistry', () => {
     expect(reg2.modules.sessions.listSessions().at(0)?.driverFamily).toBe('terminal')
   })
 
+  it('clears a persisted pre-launch driver decision when the spawn is refused', () => {
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
+    const store1 = new SessionStore(file, TEST_MACHINE)
+    const reg1 = new SessionRegistry(store1, undefined, { instanceId: 'default' })
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg1.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/a',
+    })
+
+    // Defend the durable boundary even against an older daemon that announced
+    // its fallback before discovering that the explicit server request must be
+    // refused. No driver bound, so no driver may survive the spawn error.
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      type: 'driverSelected',
+      sessionId,
+      driverId: 'generic-pty',
+    })
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      type: 'spawnError',
+      sessionId,
+      message: "explicit codex-app-server request cannot be honoured",
+    })
+
+    expect(store1.sessions.loadSessions().at(0)?.selectedDriverId).toBeNull()
+    store1.close()
+
+    const store2 = new SessionStore(file, TEST_MACHINE)
+    const reg2 = new SessionRegistry(store2, undefined, { instanceId: 'default' })
+    const restored = reg2.modules.sessions.listSessions().at(0)
+    expect(restored?.status).toBe('exited')
+    expect(restored?.driverFamily).toBeUndefined()
+    expect(store2.sessions.loadSessions().at(0)?.selectedDriverId).toBeNull()
+    store2.close()
+  })
+
   it('reattachFailed marks the session exited', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = new SessionStore(file, TEST_MACHINE)

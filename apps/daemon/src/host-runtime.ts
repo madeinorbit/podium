@@ -104,7 +104,7 @@ export interface DaemonHostRuntime {
 }
 
 /** Keep the synchronous spawn gate on the exact home inventory uses. */
-export function daemonHarnessLoginContext(
+function daemonHarnessLoginContext(
   homeDir: string | undefined,
 ): Pick<DaemonContext, 'homeDir' | 'harnessLoginState'> {
   return {

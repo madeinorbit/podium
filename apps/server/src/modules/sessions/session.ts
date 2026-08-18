@@ -406,6 +406,11 @@ export class Session {
   markSpawnError(message: string): void {
     this.status = 'exited'
     this.exitCode = -1
+    // A spawn error means no driver ever bound. Drop both the pre-launch
+    // decision and any transient handle fact so persistence cannot describe an
+    // exited row as a driver family that never ran.
+    this.selectedDriverId = undefined
+    this.driverId = undefined
     this.spawnFailure = message.trim().slice(0, 2000) || 'unknown spawn error'
     this.agentState = undefined
     // Terminal transition — same stop metadata as onExit [spec:SP-6144].

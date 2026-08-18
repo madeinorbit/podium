@@ -71,11 +71,11 @@ describe('the per-spawn driver override', () => {
 
 describe('driver resolution', () => {
   const available = ['claude-pty', 'generic-pty', 'opencode-server'] as const
-  it('applies a known logout before deciding whether to probe a server binary', () => {
-    expect(admissionProbeDriver('opencode-server', 'out')).toBeUndefined()
-    expect(admissionProbeDriver('codex-app-server', 'out')).toBeUndefined()
-    expect(admissionProbeDriver('grok-acp', 'out')).toBeUndefined()
-    expect(admissionProbeDriver('opencode-server', 'in')).toBe('opencode-server')
+  it('applies interactive-login selection before probing a server binary', () => {
+    expect(admissionProbeDriver('opencode-server', 'logged-out')).toBeUndefined()
+    expect(admissionProbeDriver('codex-app-server', 'logged-out')).toBeUndefined()
+    expect(admissionProbeDriver('grok-acp', 'logged-out')).toBeUndefined()
+    expect(admissionProbeDriver('opencode-server', 'unknown')).toBe('opencode-server')
   })
 
   it('keeps an unsettled Codex login off app-server without widening other harnesses', () => {

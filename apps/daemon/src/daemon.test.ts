@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -44,7 +44,6 @@ import {
 } from './daemon'
 import type { DaemonContext } from './control/context'
 import { launchServerDriverSession, sessionHandlers } from './control/session'
-import { daemonHarnessLoginContext } from './host-runtime'
 import { runtimeHandlers } from './runtime/handlers'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import {
@@ -1288,16 +1287,113 @@ describe('default server-driver spawn integration', () => {
     }
   })
 
-  it('reads Codex login from the same home inventory publishes', () => {
-    const home = trackTmp('podium-codex-login-home-')
-    mkdirSync(join(home, '.codex'))
+  it('reads Codex login from the same home inventory publishes', async () => {
+    const inventoryHome = trackTmp('podium-codex-login-home-')
+    const ambientHome = trackTmp('podium-codex-ambient-home-')
+    const fakeBin = trackTmp('podium-codex-bin-')
+    const probeMarker = join(trackTmp('podium-codex-probe-'), 'called')
+    mkdirSync(join(inventoryHome, '.codex'))
+    mkdirSync(join(ambientHome, '.codex'))
+    writeFileSync(
+      join(ambientHome, '.codex', 'auth.json'),
+      JSON.stringify({ tokens: { access_token: 'a', refresh_token: 'r' } }),
+    )
+    const fakeCodex = join(fakeBin, 'codex')
+    writeFileSync(
+      fakeCodex,
+      '#!/bin/sh\nprintf probe >> "$PODIUM_TEST_CODEX_PROBE_MARKER"\nprintf "codex-cli 0.147.0\\n"\n',
+    )
+    chmodSync(fakeCodex, 0o755)
+    vi.stubEnv('HOME', ambientHome)
     vi.stubEnv('CODEX_HOME', '')
+    vi.stubEnv('PATH', fakeBin)
+    vi.stubEnv('PODIUM_TEST_CODEX_PROBE_MARKER', probeMarker)
+
+    const sent: DaemonMessage[] = []
+    const productionSessionId = asSessionId('production-grace-home')
+    const wss = new WebSocketServer({ port: 0 })
+    let daemon: DaemonHandle | undefined
+    let serverSocket: WS | undefined
     try {
-      const loginContext = daemonHarnessLoginContext(home)
-      expect(loginContext.homeDir).toBe(home)
-      // Existing .codex plus absent auth.json is Codex's five-second grace state.
-      expect(loginContext.harnessLoginState('codex')).toBe('unknown')
+      await new Promise<void>((resolve) => wss.once('listening', () => resolve()))
+      const port = (wss.address() as { port: number }).port
+      const connected = new Promise<void>((resolve) => {
+        wss.once('connection', (ws) => {
+          serverSocket = ws
+          void handshakeAndCollect(ws, sent).then(resolve)
+        })
+      })
+      daemon = await startDaemon({
+        serverUrl: `ws://localhost:${port}`,
+        bootstrapToken: 'test',
+        identityDir: trackTmp('podium-codex-identity-'),
+        hooks: { port: 0, settingsDir: trackTmp('podium-codex-hooks-') },
+        agentRelay: { port: 0 },
+        backend: 'none',
+        metrics: { background: false },
+        discovery: {
+          homeDir: inventoryHome,
+          background: false,
+          cachePath: ':memory:',
+        },
+        workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
+        launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      })
+      await connected
+      serverSocket?.send(encode({ type: 'inventoryRequest' }))
+      await vi.waitFor(
+        () => expect(sent.some((message) => message.type === 'inventoryReport')).toBe(true),
+        { timeout: 5_000 },
+      )
+      const inventoryReport = sent.find(
+        (message): message is Extract<DaemonMessage, { type: 'inventoryReport' }> =>
+          message.type === 'inventoryReport',
+      )
+      expect(
+        inventoryReport?.inventory.agents.find((agent) => agent.kind === 'codex')?.login.state,
+      ).toBe('unknown')
+      // Boot inventory legitimately version-probes installed CLIs. Admission
+      // must add no SECOND Codex probe once that same home's grace fact has
+      // already selected the interactive path.
+      const probeCallsBeforeSpawn = existsSync(probeMarker)
+        ? readFileSync(probeMarker, 'utf8')
+        : ''
+      serverSocket?.send(
+        encode({
+          type: 'spawn',
+          sessionId: productionSessionId,
+          agentKind: 'codex',
+          cwd: '/tmp',
+          geometry: G,
+        }),
+      )
+
+      await vi.waitFor(() =>
+        expect(
+          sent.find(
+            (message) =>
+              message.type === 'driverSelected' &&
+              message.sessionId === productionSessionId,
+          ),
+        ).toMatchObject({ driverId: 'generic-pty' }),
+      )
+      await vi.waitFor(() =>
+        expect(
+          sent.some(
+            (message) => message.type === 'bind' && message.sessionId === productionSessionId,
+          ),
+        ).toBe(true),
+      )
+      expect(existsSync(probeMarker) ? readFileSync(probeMarker, 'utf8') : '').toBe(
+        probeCallsBeforeSpawn,
+      )
     } finally {
+      await daemon?.close({ reapSessions: true })
+      for (const client of wss.clients) client.terminate()
+      await Promise.race([
+        new Promise<void>((resolve) => wss.close(() => resolve())),
+        new Promise<void>((resolve) => setTimeout(resolve, 100)),
+      ])
       vi.unstubAllEnvs()
     }
   })
@@ -1390,7 +1486,11 @@ describe('server-driver admission control path', () => {
     const sent: DaemonMessage[] = []
     const ctx = defaultServerSpawnContext(sent, {})
     ctx.harnessLoginState = () => 'unknown'
-    const probe = cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true }))
+    let probes = 0
+    const probe = cachedProbe(() => {
+      probes += 1
+      return { output: 'codex-cli 0.147.0', ok: true }
+    })
 
     await expect(launchServerDriverSession(ctx, spawn('grace-default'), probe)).resolves.toEqual({
       handled: false,
@@ -1412,7 +1512,13 @@ describe('server-driver admission control path', () => {
       sessionId: 'grace-explicit',
       message: expect.stringContaining("harness 'codex' login is not confirmed yet"),
     })
+    expect(
+      sent.some(
+        (msg) => msg.type === 'driverSelected' && msg.sessionId === 'grace-explicit',
+      ),
+    ).toBe(false)
     expect(sent.some((msg) => msg.type === 'bind')).toBe(false)
+    expect(probes).toBe(0)
   })
 
   it('coalesces concurrent spawns behind one probe and binds neither before it resolves', async () => {

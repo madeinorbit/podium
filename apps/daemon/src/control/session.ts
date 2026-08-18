@@ -703,9 +703,9 @@ type ServerDriverLaunchResult = { handled: true } | { handled: false; requestedD
 /** The only server binary admission may probe after applying the login gate. */
 export function admissionProbeDriver(
   preferred: string | undefined,
-  loginState: ReturnType<DaemonContext['harnessLoginState']>,
+  selectionAuth: ReturnType<typeof selectionAuthForLogin>,
 ): string | undefined {
-  if (loginState === 'out') return undefined
+  if (selectionAuth === 'logged-out') return undefined
   return preferred && isServerDriverId(preferred) ? preferred : undefined
 }
 
@@ -827,7 +827,7 @@ export async function launchServerDriverSession(
    */
   const probeFor = (driverId: string) =>
     probeDriver(driverId, namedHere === driverId ? { retryInconclusive: true } : undefined)
-  const preferredServer = admissionProbeDriver(preferred, loginState)
+  const preferredServer = admissionProbeDriver(preferred, selectionAuth)
   const preferredProbe = preferredServer === undefined ? undefined : await probeFor(preferredServer)
   const namedProbe = namedHere ? preferredProbe : undefined
   /**
@@ -875,15 +875,6 @@ export async function launchServerDriverSession(
     return { handled: true }
   }
   /**
-   * THE DECISION, ANNOUNCED HERE AND NOT LOWER DOWN (POD-2290). Everything
-   * below this line either refuses or starts a process, and starting one is the
-   * slow part the clients were left guessing through. This covers BOTH exits
-   * that follow: the server launch, and the degrade where `resolution.driverId`
-   * is itself the terminal driver and the spawn falls through to the PTY path.
-   * The refusals above deliberately precede it.
-   */
-  announceDriverSelection(ctx, msg.sessionId, resolution.driverId)
-  /**
    * THIS SPAWN NAMED A SERVER DRIVER AND DID NOT GET IT — REFUSED (POD-2113).
    *
    * Without this the request dies right here, in silence: `resolution.driverId`
@@ -927,6 +918,14 @@ export async function launchServerDriverSession(
     })
     return { handled: true }
   }
+  /**
+   * THE DECISION, ANNOUNCED ONLY AFTER EVERY REFUSAL (POD-2290). Starting the
+   * process is the slow part clients cannot guess through, so the decision must
+   * still precede either the server launch or the terminal fallback. A refused
+   * spawn launches neither, and therefore must not persist a phantom driver as
+   * though it did.
+   */
+  announceDriverSelection(ctx, msg.sessionId, resolution.driverId)
   if (!isServerDriver(msg.agentKind, resolution.driverId)) {
     /**
      * THE DEGRADE THAT SURVIVES, SAID OUT LOUD.
