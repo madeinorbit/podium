@@ -77,10 +77,13 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
   // The root plus opens the compact launcher with model / effort / project.
   await page.getByRole('button', { name: 'New work' }).click()
   await expect(page.getByText('New work', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Choose project' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Start in / })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Model, Auto' })).toBeVisible()
   await page.screenshot({ path: resolve(ARTIFACTS, 'new-work-session-flow.png'), fullPage: true })
-  await page.getByRole('button', { name: 'New work', exact: true }).click().catch(() => {})
+  await page
+    .getByRole('button', { name: 'New work', exact: true })
+    .click()
+    .catch(() => {})
   await page.keyboard.press('Escape').catch(() => {})
 
   // File a task without an initial agent, then add one from the task itself.
@@ -99,7 +102,7 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
   await expect(page.getByRole('button', { name: /Open / })).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: /Open / }).first().click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
-  await expect(page.getByRole('button', { name: /Task POD-\d+ — peek/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Task \d+ — open the mission/ })).toBeVisible()
 
   // Switch through the real UI to the terminal and wait for the real harness
   // PTY/keyecho process. The controls below are clicked, not invoked via APIs.

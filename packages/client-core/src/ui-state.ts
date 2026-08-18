@@ -239,6 +239,22 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
      nothing reads these keys. */
   'podium:superagent:width',
   'podium:rightdock:width',
+  /**
+   * THE PHONE LAUNCH SHEET'S LAST PICKS (POD-1354) — model, effort, machine and
+   * project.
+   *
+   * Remembering them is what stops the sheet resetting to Auto on every app
+   * start, which made the operator who always runs one model re-choose it every
+   * single launch. DEVICE-LOCAL rather than replicated, deliberately: this is
+   * the default the NEXT tap on this device should take, and what you reach for
+   * in thirty seconds on a phone is routinely not what you reach for at the
+   * desk. It changes nothing about any issue or session — a launch still sends
+   * whatever the sheet shows at the moment Start is pressed.
+   */
+  'podium.newWork.model',
+  'podium.newWork.effort',
+  'podium.newWork.machine',
+  'podium.newWork.repo',
   /** Flight Deck view (`full` | `active` | `needs-you`) and the set of folded
    *  branches. The artifact's ledger classes both as DISPLAY PREFERENCE for this
    *  screen: they change what column 2 shows and never touch issue stage or
@@ -292,6 +308,11 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.onboarding.active',
 ] as const
 
+/** The phone launch sheet's remembered picks — see CLIENT_DEVICE_LOCAL_UI_KEYS. */
+export const NEW_WORK_MODEL_KEY = 'podium.newWork.model'
+export const NEW_WORK_EFFORT_KEY = 'podium.newWork.effort'
+export const NEW_WORK_MACHINE_KEY = 'podium.newWork.machine'
+export const NEW_WORK_REPO_KEY = 'podium.newWork.repo'
 export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
 export const FLIGHT_DECK_FOLDS_KEY = 'podium.flightDeck.folds'
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'

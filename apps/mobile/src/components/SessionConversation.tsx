@@ -12,6 +12,7 @@ import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import { readTranscriptPage, useHub, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
+import { dropEchoedPendingTurns } from '../lib/pending-turns'
 import { sendOfferAction } from '../lib/send-offer-action'
 import { Composer } from './Composer'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
@@ -21,6 +22,24 @@ import { MobileSessionLifecycle } from './SessionLifecycle'
 import { TaskSheet } from './TaskSheet'
 import { type PendingTurn, TranscriptList } from './TranscriptList'
 import { EmptyState } from './ui'
+import { type SentAttachment, useComposerAttachments } from './useComposerAttachments'
+
+/**
+ * A pending turn plus the exact string that was put on the wire.
+ *
+ * Not part of {@link PendingTurn} because the transcript has no use for it: the
+ * list renders prose and files, and the composed prompt is an implementation
+ * detail of sending. Keeping it here means a retry re-sends what was refused
+ * instead of reconstructing it.
+ */
+type LocalPendingTurn = PendingTurn & { wire: string }
+
+/** The session as the operator has just left it — the answered offer removed,
+ *  so every derivation over it agrees with what is on screen. */
+function withoutOffer(session: SessionMeta): SessionMeta {
+  const { offer: _answered, ...rest } = session
+  return rest as SessionMeta
+}
 
 /**
  * ONE CONVERSATION, TWO HOSTS [POD-724].
@@ -67,8 +86,30 @@ export function SessionConversation({
   // Turns sent from this screen, painted until the server echoes them into the
   // transcript (POD-338). A parked session queues the message and answers
   // minutes later — without this the composer reads as if it never sent.
-  const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
+  const [pendingTurns, setPendingTurns] = useState<LocalPendingTurn[]>([])
   const turnSeq = useRef(0)
+  /**
+   * True for a beat after ANY send from this screen — composer or offer button.
+   *
+   * The transcript's tail reads the session's own agent state, which is a
+   * server fact and arrives after the round trip. Between the press and that
+   * frame the session still says "Idle" under a message that has visibly been
+   * sent, so the app reads as having swallowed it. The desktop chat carries the
+   * same flag for the same reason (`justSent` in `use-chat-send.ts`); it is a
+   * claim about THIS client's action, not about the agent, and it expires on
+   * its own so a refused send cannot leave a permanent "working".
+   */
+  const [justSent, setJustSent] = useState(false)
+  /**
+   * The offer hidden by an accept that has not been echoed yet, keyed by its
+   * createdAt. The server clears the offer as part of accepting it, but that
+   * clear rides the same round trip as the send — leaving the card on screen
+   * until it lands makes the press look ignored, and invites a second press on
+   * a decision already taken. Cleared again if the send is REFUSED, because
+   * then the offer really is still open.
+   */
+  const [answeredOfferAt, setAnsweredOfferAt] = useState<string | null>(null)
+  const attachments = useComposerAttachments(sessionId)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
   // What the feed owes the floating composer. Only ever the RESTING height, so
@@ -89,6 +130,8 @@ export function SessionConversation({
     setItems(cached?.items ?? [])
     setLoaded(false)
     setPendingTurns([])
+    setJustSent(false)
+    setAnsweredOfferAt(null)
     paging.current = { hasMore: false, loading: false }
     const attach = (since: string | undefined) => {
       if (!alive) return
@@ -125,45 +168,79 @@ export function SessionConversation({
 
   useEffect(() => {
     if (pendingTurns.length === 0) return
-    const echoed = new Set(items.filter((i) => i.role === 'user').map((i) => i.text.trim()))
+    const echoed = items.filter((item) => item.role === 'user')
     setPendingTurns((prev) => {
-      const next = prev.filter((turn) => !echoed.has(turn.text.trim()))
+      const next = dropEchoedPendingTurns(prev, echoed)
       return next.length === prev.length ? prev : next
     })
   }, [items, pendingTurns.length])
 
+  // The optimistic "working" claim is a bridge to the server's own answer, not
+  // a substitute for it. Eight seconds is the desktop's ceiling and the same one
+  // applies here: past that, whatever the session reports IS the truth.
+  useEffect(() => {
+    if (!justSent) return
+    const timer = setTimeout(() => setJustSent(false), 8000)
+    return () => clearTimeout(timer)
+  }, [justSent])
+
+  const fail = useCallback((id: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error)
+    setPendingTurns((prev) =>
+      prev.map((turn) => (turn.id === id ? { ...turn, failed: message } : turn)),
+    )
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+  }, [])
+
   const dispatch = useCallback(
-    (id: string, text: string) => {
-      void store.resumeAndSend(sessionId, text).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error)
-        setPendingTurns((prev) =>
-          prev.map((turn) => (turn.id === id ? { ...turn, failed: message } : turn)),
-        )
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+    (turn: LocalPendingTurn) => {
+      setJustSent(true)
+      void store.resumeAndSend(sessionId, turn.wire).catch((error: unknown) => {
+        fail(turn.id, error)
       })
     },
-    [store.resumeAndSend, sessionId],
+    [store.resumeAndSend, sessionId, fail],
   )
 
+  /**
+   * WHAT GOES ON THE WIRE IS NOT WHAT GOES IN THE BUBBLE.
+   *
+   * The harness reads an attachment by absolute path, so the paths are prefixed
+   * onto the prompt the agent receives. The operator, who just picked a photo,
+   * should see the photo — so the optimistic row keeps the prose and the paths
+   * apart and renders the files the way the echoed turn will. `wire` is kept on
+   * the turn so a retry re-sends the exact bytes-and-words that were refused,
+   * rather than re-deriving them from a bubble that was never the message.
+   */
   const send = useCallback(
-    (text: string) => {
+    (text: string, files?: readonly SentAttachment[]) => {
       const trimmed = text.trim()
-      if (!trimmed) return
-      const id = `${Date.now()}:${turnSeq.current++}`
-      setPendingTurns((prev) => [...prev, { id, text: trimmed }])
-      dispatch(id, trimmed)
+      const attached = files ?? []
+      if (!trimmed && attached.length === 0) return
+      const wire =
+        attached.length > 0
+          ? `${attached.map((file) => file.path).join('\n')}\n${trimmed}`
+          : trimmed
+      const turn: LocalPendingTurn = {
+        id: `${Date.now()}:${turnSeq.current++}`,
+        text: trimmed,
+        wire,
+        ...(attached.length > 0 ? { files: attached } : {}),
+      }
+      setPendingTurns((prev) => [...prev, turn])
+      dispatch(turn)
     },
     [dispatch],
   )
 
   const retry = useCallback(
     (turn: PendingTurn) => {
+      const again = { ...(turn as LocalPendingTurn) }
+      delete again.failed
       setPendingTurns((prev) =>
-        prev.map((candidate) =>
-          candidate.id === turn.id ? { id: candidate.id, text: candidate.text } : candidate,
-        ),
+        prev.map((candidate) => (candidate.id === turn.id ? again : candidate)),
       )
-      dispatch(turn.id, turn.text)
+      dispatch(again)
     },
     [dispatch],
   )
@@ -187,20 +264,80 @@ export function SessionConversation({
   const livePeekIssue = peekIssue
     ? (issues.find((candidate) => candidate.id === peekIssue.id) ?? peekIssue)
     : null
-  const offerArtifacts = session.offer
+  /**
+   * The offer this screen is still ASKING. An accept hides its card on the press
+   * rather than on the round trip — the server clears the offer as part of
+   * accepting it, but that clear arrives with the echo, and a card that sits
+   * there through the wait reads as a press that did nothing.
+   *
+   * Keyed by `createdAt`, so an offer the agent REPLACES while this one is in
+   * flight is a different question and shows.
+   */
+  // `!= null`, not `!== undefined`: a cleared offer arrives as an explicit null,
+  // and reaching for `.createdAt` through it throws.
+  const answered = session.offer != null && session.offer.createdAt === answeredOfferAt
+  const offer = answered ? undefined : session.offer
+  const offerArtifacts = offer
     ? resolveOfferArtifacts({
-        offer: session.offer,
+        offer,
         issue,
         ...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {}),
       })
     : []
-  const activity = chatActivity(session, false)
+  // THE SHARED READING OF "JUST SENT", not a local one: `chatActivity` already
+  // knows that a fresh send means "Sending" on a live session and "Waking the
+  // agent…" on a parked one, and the desktop chat passes the same flag into the
+  // same function. This screen used to hard-code `false` here, which is why the
+  // tail said Idle under a message that had visibly been sent.
+  //
+  // Read against the session AS ANSWERED: an accepted offer is still on the meta
+  // until the server's clear lands, and `agentBadge` turns that into "waiting on
+  // decision". Leaving it would put the transcript's last line back on the
+  // question the operator just answered, which is the same stale claim the
+  // hidden card was.
+  const activity = chatActivity(answered ? withoutOffer(session) : session, justSent)
   // A parked or ended session is present but has no process. It gets the
   // recovery banner; when there is also no conversation to show, the banner is
   // the WHOLE screen rather than a header over an empty transcript [POD-1758].
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = composerState({ session, headless: false, turnRunning: false, compact: false })
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
+
+  /**
+   * ACCEPTING AN OFFER IS SENDING A MESSAGE, and it now looks like one.
+   *
+   * It used to be the only send on this screen with no optimistic half: the
+   * button called straight through to the wire, so between the press and the
+   * server's echo the transcript showed nothing at all — no bubble, no working
+   * state, and the offer still sitting there. On a parked session, which is
+   * exactly the session an offer is usually posted from, that gap is minutes.
+   *
+   * The three optimistic parts, all of which the desktop already had: the offer
+   * leaves, the prompt appears as a pending "You" row, and the tail says
+   * working. A refusal puts all three back — the offer returns, the row goes red
+   * with the reason and a Try again, and the caller sees the throw so the card
+   * can say "Not sent" too.
+   */
+  const acceptOffer = (prompt: string, offerCreatedAt: string): Promise<void> => {
+    const text = prompt.trim()
+    const turn: LocalPendingTurn = {
+      id: `${Date.now()}:${turnSeq.current++}`,
+      text,
+      wire: text,
+    }
+    setAnsweredOfferAt(offerCreatedAt)
+    setPendingTurns((prev) => [...prev, turn])
+    setJustSent(true)
+    return sendOfferAction(trpc.sessions, {
+      sessionId,
+      text,
+      wake: composer.canResume,
+    }).catch((error: unknown) => {
+      setAnsweredOfferAt(null)
+      fail(turn.id, error)
+      throw error
+    })
+  }
 
   return (
     <KeyboardAvoidingView
@@ -248,7 +385,7 @@ export function SessionConversation({
               emptyComponent={
                 // An offer is itself the thing to act on — do not tell the
                 // operator the session is empty underneath a pending decision.
-                loaded && items.length === 0 && pendingTurns.length === 0 && !session.offer ? (
+                loaded && items.length === 0 && pendingTurns.length === 0 && !offer ? (
                   <EmptyState
                     fill
                     title="No transcript yet"
@@ -274,17 +411,11 @@ export function SessionConversation({
                 else setPeekIssue(target)
               }}
               footer={
-                session.offer ? (
+                offer ? (
                   <SessionActionCard
-                    offer={session.offer}
+                    offer={offer}
                     evidenceCount={offerArtifacts.length}
-                    onAction={(prompt) =>
-                      sendOfferAction(trpc.sessions, {
-                        sessionId,
-                        text: prompt,
-                        wake: composer.canResume,
-                      })
-                    }
+                    onAction={(prompt) => acceptOffer(prompt, offer.createdAt)}
                     // The same write the web x makes: the offer leaves every
                     // surface and every viewer, not just this phone.
                     onDismiss={(offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt)}
@@ -305,6 +436,7 @@ export function SessionConversation({
             onSend={send}
             disabled={!composer.enabled}
             draftInsertion={draftInsertion}
+            attachments={attachments}
             onRestingHeight={setComposerHeight}
           />
         </View>

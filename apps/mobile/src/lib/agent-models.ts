@@ -56,9 +56,21 @@ const CODEX_EFFORT: Choice[] = [
   { value: 'xhigh', label: 'Extra high' },
 ]
 
-const CODEX_56_EFFORT = [...CODEX_EFFORT, { value: 'max', label: 'Max' }]
-const CODEX_56_FRONTIER_EFFORT = [...CODEX_56_EFFORT, { value: 'ultra', label: 'Ultra' }]
+/** Codex's newer frontier line carries two rungs the older models do not; the
+ *  live catalog supersedes this the moment a probe answers. */
+const CODEX_56_EFFORT: Choice[] = [...CODEX_EFFORT, { value: 'max', label: 'Max' }]
+const CODEX_56_FRONTIER_EFFORT: Choice[] = [...CODEX_56_EFFORT, { value: 'ultra', label: 'Ultra' }]
 
+/**
+ * THE FALLBACK, NOT THE ANSWER.
+ *
+ * Every list below is what the sheet shows when no live probe has answered yet
+ * — an older server with no `models` router, a cold start, or a dropped
+ * connection. The authority is `useModelCatalog`, which reads the machine's own
+ * installed harnesses. Keeping this table current still matters (it is what a
+ * first open paints), but it must never be the only source: that is exactly the
+ * staleness this issue is fixing.
+ */
 const AGENT_MODELS: Record<IssueAgentKind, ModelChoice[]> = {
   'claude-code': [
     { value: 'opus', label: 'Opus', efforts: CLAUDE_GROK_EFFORT.map((o) => o.value) },
@@ -172,9 +184,23 @@ export function modelLabel(
   return agentModels(kind, live).find((m) => m.value === value)?.label ?? value
 }
 
-export function isEffortValid(kind: IssueAgentKind, value: string | null | undefined): boolean {
+/**
+ * Would this harness accept this effort?
+ *
+ * The per-KIND table is the floor, but a single model may carry rungs the kind's
+ * generic list does not (Codex's frontier line has `max` and `ultra`), and once
+ * a live catalog is in hand its per-model `efforts` are the authority. Checking
+ * only the generic table would silently reset a legitimate pick back to Auto the
+ * moment the operator changed anything else on the sheet.
+ */
+export function isEffortValid(
+  kind: IssueAgentKind,
+  value: string | null | undefined,
+  live?: readonly ModelChoice[],
+): boolean {
   if (!value || value === AUTO) return true
-  return AGENT_EFFORTS[kind].some((e) => e.value === value)
+  if (AGENT_EFFORTS[kind].some((e) => e.value === value)) return true
+  return agentModels(kind, live).some((model) => model.efforts?.includes(value))
 }
 
 const MODEL_PICK_SEP = ':'
@@ -255,4 +281,25 @@ export function spawnSelection(
     ...(decoded.model && decoded.model !== AUTO ? { model: decoded.model } : {}),
     ...(effort && effort !== AUTO ? { effort } : {}),
   }
+}
+
+/**
+ * Substring filter over a flat catalog, matched against the harness name as
+ * well as the model label — "claude" should find Claude Code's models, and
+ * "opus" should find OpenCode's Claude entry too. Case- and separator-tolerant
+ * because nobody types `gpt-5.6-sol` on a phone keyboard.
+ */
+export function filterCatalogOptions(
+  options: readonly CatalogOption[],
+  query: string,
+): CatalogOption[] {
+  const needle = query
+    .trim()
+    .toLowerCase()
+    .replace(/[\s._-]+/g, '')
+  if (!needle) return [...options]
+  return options.filter((option) => {
+    const hay = `${option.group ?? ''}${option.label}`.toLowerCase().replace(/[\s._-]+/g, '')
+    return hay.includes(needle)
+  })
 }

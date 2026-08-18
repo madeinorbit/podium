@@ -35,8 +35,9 @@ test('Expo terminal keyboard is compact, mono, and visibly scrollable', async ({
   await page.goto(`/mobile?server=${RELAY}&e2e=1`)
   await page.getByRole('button', { name: 'New work' }).click()
   const launcher = page.getByRole('dialog')
-  await launcher.getByRole('button', { name: 'Choose project' }).click()
-  await launcher.getByRole('button', { name: 'podium', exact: true }).click()
+  // The sheet preselects the only project there is; Start launches straight
+  // from it rather than routing through a list of one [POD-1354].
+  await launcher.getByRole('button', { name: /^Start in / }).click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
 
   const sessionUrl = new URL(page.url())

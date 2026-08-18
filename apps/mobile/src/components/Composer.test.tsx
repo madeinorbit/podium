@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { View } from 'react-native'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
@@ -19,7 +19,11 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: vi.fn(),
 }))
-vi.mock('lucide-react-native', () => ({ ArrowUp: () => null }))
+vi.mock('lucide-react-native', () => ({
+  ArrowUp: () => null,
+  ClipboardPaste: () => null,
+  Paperclip: () => null,
+}))
 
 const { Composer } = await import('./Composer')
 
@@ -97,5 +101,68 @@ describe('Composer floating dock', () => {
   it('drops no glyph in front of the text field', () => {
     const { container } = render(<Composer placeholder="Message the agent…" onSend={vi.fn()} />)
     expect(container.textContent).not.toContain('>')
+  })
+})
+
+describe('Composer return key', () => {
+  const typeInto = (container: HTMLElement, value: string) => {
+    const input = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value } })
+    return input
+  }
+
+  /**
+   * The composer asks `(hover: hover) and (pointer: fine)` once, on mount, to
+   * tell a desktop browser from a phone. happy-dom answers every media query
+   * `true`, which is the DESKTOP reading — so the touch case has to be stated
+   * rather than assumed, and both are pinned here.
+   */
+  const pointer = (fine: boolean) => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: fine,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }))
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('makes a newline on a plain Enter — a soft keyboard has no Shift to reach for', () => {
+    pointer(false)
+    const onSend = vi.fn()
+    const { container } = render(<Composer placeholder="Message…" onSend={onSend} />)
+    const input = typeInto(container, 'half a thought')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('still submits on a plain Enter where a real pointer says a real keyboard', () => {
+    pointer(true)
+    const onSend = vi.fn()
+    const { container } = render(<Composer placeholder="Message…" onSend={onSend} />)
+    const input = typeInto(container, 'ship it')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledWith('ship it', undefined)
+  })
+
+  it('sends on the Cmd chord even on touch, which is the paired-keyboard escape hatch', () => {
+    pointer(false)
+    const onSend = vi.fn()
+    const { container } = render(<Composer placeholder="Message…" onSend={onSend} />)
+    const input = typeInto(container, 'ship it')
+    fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+    expect(onSend).toHaveBeenCalledWith('ship it', undefined)
+  })
+
+  it('refuses an empty send rather than posting whitespace', () => {
+    pointer(true)
+    const onSend = vi.fn()
+    const { container } = render(<Composer placeholder="Message…" onSend={onSend} />)
+    const input = typeInto(container, '   ')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSend).not.toHaveBeenCalled()
   })
 })

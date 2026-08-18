@@ -24,7 +24,10 @@ async function openPicker(page: import('@playwright/test').Page): Promise<void> 
     await expect(title).toBeVisible({ timeout: 1_500 })
   }).toPass({ timeout: 30_000 })
   await expect(page.getByRole('button', { name: 'Model, Auto' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Choose project' })).toBeVisible()
+  // ONE PROJECT IS PRESELECTED, NOT ASKED FOR [POD-1354]: the sheet names where
+  // this lands on the Start control instead of collecting a tap for a list of
+  // one.
+  await expect(page.getByRole('button', { name: /^Start in / })).toBeVisible()
   await expect(page.getByRole('button', { name: 'New task' })).toHaveCount(0)
 }
 
@@ -53,13 +56,12 @@ test('Expo plus launches inside a draft task through the desktop spawn path', as
   await openPicker(page)
   await page.screenshot({ path: resolve(ARTIFACTS, 'mobile-harness-picker.png'), fullPage: true })
 
-  await page.getByRole('button', { name: 'Choose project' }).click()
-  await expect(page.getByText('Project', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'podium', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'podium', exact: true }).click()
+  await page.getByRole('button', { name: /^Start in / }).click()
 
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
-  await expect(page.getByRole('button', { name: /Task POD-\d+ — peek/ })).toBeVisible({
+  // The session header's task control opens the MISSION and has said so since
+  // POD-724; this locator still read `peek`, so it could only ever fail.
+  await expect(page.getByRole('button', { name: /Task \d+ — open the mission/ })).toBeVisible({
     timeout: 30_000,
   })
   await page.screenshot({ path: resolve(ARTIFACTS, 'mobile-draft-session.png'), fullPage: true })
@@ -83,12 +85,18 @@ test('Expo plus exposes machine choice for a repository on multiple hosts', asyn
   await page.screenshot({ path: resolve(ARTIFACTS, 'mobile-machine-picker.png'), fullPage: true })
 
   await localMachine.click()
-  await page.getByRole('button', { name: 'Choose project' }).click()
-  const shared = page.getByRole('button', { name: 'shared', exact: true })
-  if ((await shared.count()) > 0) await shared.click()
-  else await page.getByRole('button', { name: 'podium', exact: true }).click()
+  // More than one repo on this host, so the project IS a list — open it, pick,
+  // and start from the sheet.
+  const projectField = page.getByRole('button', { name: /^Project,/ })
+  if ((await projectField.count()) > 0) {
+    await projectField.click()
+    const shared = page.getByRole('button', { name: 'shared', exact: true })
+    if ((await shared.count()) > 0) await shared.click()
+    else await page.getByRole('button', { name: 'podium', exact: true }).click()
+  }
+  await page.getByRole('button', { name: /^Start in / }).click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
-  await expect(page.getByRole('button', { name: /Task POD-\d+ — peek/ })).toBeVisible({
+  await expect(page.getByRole('button', { name: /Task \d+ — open the mission/ })).toBeVisible({
     timeout: 30_000,
   })
 })

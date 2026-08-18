@@ -42,8 +42,7 @@ test('the Expo pane says a silent PTY has printed nothing, and stops when it doe
 
   await page.goto(`/mobile?server=${RELAY}&e2e=1`)
   await page.getByRole('button', { name: 'New work' }).click()
-  await page.getByRole('button', { name: 'Choose project' }).click()
-  await page.getByRole('button', { name: 'podium', exact: true }).click()
+  await page.getByRole('button', { name: /^Start in / }).click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
 
   await page.getByRole('button', { name: 'Open terminal' }).click()

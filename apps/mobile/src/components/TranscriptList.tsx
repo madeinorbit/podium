@@ -70,6 +70,7 @@ import {
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Icon } from './Icon'
+import { PendingFiles } from './PendingFiles'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
 import { SharedFiles } from './SharedFiles'
@@ -100,7 +101,13 @@ type Row = MobileTranscriptRow | PendingRow
  *  a send into a parked session looks like nothing happened at all. */
 export interface PendingTurn {
   id: string
+  /** The PROSE, without the attachment paths that ride with it — the paths are
+   *  rendered as files below, exactly as they will be once the server echoes
+   *  this turn back. */
   text: string
+  /** Files uploaded with this turn, so the bubble shows the screenshot the
+   *  operator just attached instead of a bare filename in the text. */
+  files?: readonly { path: string; previewUri: string; name: string }[]
   /** Set when the send itself was REJECTED (POD-346). A rejected turn that
    *  keeps saying "sending…" is the worst possible outcome — the phone reads as
    *  broken and the words are lost. The row goes red, names the reason, and
@@ -593,7 +600,14 @@ export function TranscriptList({
       built.push({
         key: `pending:${turn.id}`,
         kind: 'pending',
-        item: { id: turn.id, role: 'user', text: turn.text } as TranscriptItem,
+        item: {
+          id: turn.id,
+          role: 'user',
+          text: turn.text,
+          ...(turn.files && turn.files.length > 0
+            ? { toolPaths: turn.files.map((file) => file.path) }
+            : {}),
+        } as TranscriptItem,
         blockIndices: [],
         turn: 'open',
         pendingText: turn.text,
@@ -778,6 +792,11 @@ export function TranscriptList({
                 </Text>
               </View>
               <MessageText text={row.pendingText} style={styles.userText} onRefPress={onRefPress} />
+              {/* The LOCAL preview, not the uploaded copy: those bytes are
+                  already in hand, and fetching them back would show a grey chip
+                  with a UUID on it where the operator's photo should be until
+                  the round trip lands. */}
+              <PendingFiles files={turn.files ?? []} />
               {failed ? (
                 <>
                   <Text style={styles.pendingError}>{failed}</Text>

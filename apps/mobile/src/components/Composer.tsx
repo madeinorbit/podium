@@ -1,5 +1,5 @@
 import { BlurView } from 'expo-blur'
-import { ArrowUp } from 'lucide-react-native'
+import { ArrowUp, ClipboardPaste, Paperclip } from 'lucide-react-native'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
   LayoutChangeEvent,
@@ -19,8 +19,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { onMediaPaste } from '../lib/composer-media'
 import { alpha } from '../theme/mix'
 import { color, font, leading, radius, sans, space, spring } from '../theme/theme'
+import { AttachmentStrip } from './AttachmentStrip'
 import {
   COMPOSER_LINE,
   COMPOSER_MIN_HEIGHT,
@@ -28,9 +30,11 @@ import {
   composerMaxHeight,
   composerScrolls,
 } from './composer-height'
+import { composerKeyAction, hasHardwareKeyboard } from './composer-keys'
 import { useComposerMeasure } from './composer-measure'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
+import type { ComposerAttachmentsApi, SentAttachment } from './useComposerAttachments'
 
 /** The send target — 32pt of ink, 52pt of thumb once hitSlop is counted. */
 const SEND = 32
@@ -61,18 +65,31 @@ export function Composer({
   caption,
   captionTone = 'working',
   draftInsertion,
+  attachments,
   below,
   bottomInset = 0,
   onRestingHeight,
 }: {
   placeholder: string
-  onSend: (text: string) => void
+  /**
+   * The prose, plus anything attached to it. The two are handed over SEPARATELY
+   * rather than pre-joined: the caller has to send one string but paint the
+   * other half as thumbnails on its optimistic bubble, and re-splitting a
+   * composed prompt to recover the paths is how the two copies drift.
+   */
+  onSend: (text: string, files?: readonly SentAttachment[]) => void
   disabled?: boolean
   /** Compact agent activity inside the composer chrome; absent takes no space. */
   caption?: string | null
   captionTone?: 'working' | 'attention'
   /** A keyed insertion from a transcript action (for example Quote in reply). */
   draftInsertion?: { id: number; text: string } | null
+  /**
+   * Files riding with this prompt — paste, drop, or the picker. Absent means
+   * this composer takes words only, and no attach control is drawn at all: a
+   * paperclip on a surface with nowhere to put a file is worse than none.
+   */
+  attachments?: ComposerAttachmentsApi
   /**
    * Sits UNDER the well, still inside the dock — the Superagent model/effort
    * rail. Outside the capsule so it is never an unreachable text target.
@@ -98,11 +115,23 @@ export function Composer({
   const [measured, setMeasured] = useState<number | null>(null)
   const [line, setLine] = useState(COMPOSER_LINE)
   const inputRef = useRef<TextInput>(null)
+  // Read once per mount rather than per keystroke: `matchMedia` is a layout
+  // query, and the answer does not change while a prompt is being typed.
+  const hardwareKeyboard = useRef(hasHardwareKeyboard())
   const insets = useSafeAreaInsets()
   const keyboardVisible = useKeyboardVisible()
   const reduceMotion = useReduceMotion()
   const { width, fontScale } = useWindowDimensions()
-  const canSend = !disabled && text.trim().length > 0
+  const attached = attachments?.attachments ?? []
+  const uploading = attachments?.uploading ?? false
+  // An attachment with no words IS a message — "look at this" is the whole
+  // prompt half the time. What must never be sent is a path that has not
+  // finished uploading, so a chip in flight blocks the send rather than racing
+  // it.
+  const canSend =
+    !disabled &&
+    !uploading &&
+    (text.trim().length > 0 || attached.some((file) => file.state === 'ready'))
 
   const height = composerFieldHeight(measured, line)
   const scrolls = composerScrolls(measured, line)
@@ -139,6 +168,22 @@ export function Composer({
     return () => settle.stop()
   }, [animatedHeight, height, reduceMotion])
 
+  /**
+   * PASTE AND DROP, ON THE FIELD ITSELF.
+   *
+   * Wired to the composer's own text node rather than the document: a paste into
+   * the PROMPT is a different event from a paste anywhere else on the page, and
+   * a page-level listener would swallow both. `accept` is read through a ref so
+   * re-binding the listener is not the price of one chip arriving.
+   */
+  const acceptRef = useRef(attachments?.accept)
+  acceptRef.current = attachments?.accept
+  const takesMedia = attachments !== undefined
+  useEffect(() => {
+    if (!takesMedia) return
+    return onMediaPaste(inputRef.current, (files) => acceptRef.current?.(files))
+  }, [takesMedia])
+
   useEffect(() => {
     if (!draftInsertion) return
     setText(
@@ -149,20 +194,27 @@ export function Composer({
   }, [draftInsertion])
 
   const send = () => {
+    if (!canSend) return
     const trimmed = text.trim()
-    if (!trimmed) return
-    onSend(trimmed)
+    const files = attachments?.ready() ?? []
+    if (!trimmed && files.length === 0) return
+    onSend(trimmed, files.length > 0 ? files : undefined)
+    attachments?.clear()
     setText('')
     setMeasured(null)
   }
 
-  // A physical keyboard (the phone web app on a desktop browser, or a paired
-  // Bluetooth keyboard) must submit on Enter — the multiline field otherwise
-  // only ever inserts a newline and the composer reads as "it doesn't send".
-  // Shift+Enter keeps the newline, matching the desktop composer.
+  // ENTER MAKES A NEWLINE ON A PHONE. See ./composer-keys.ts for why, and for
+  // the one case that still submits: a real keyboard, or the Cmd/Ctrl chord.
   const onKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-    const native = e.nativeEvent as TextInputKeyPressEventData & { shiftKey?: boolean }
-    if (native.key !== 'Enter' || native.shiftKey) return
+    const native = e.nativeEvent as TextInputKeyPressEventData & {
+      shiftKey?: boolean
+      metaKey?: boolean
+      ctrlKey?: boolean
+      altKey?: boolean
+    }
+    const action = composerKeyAction(native, hardwareKeyboard.current)
+    if (action !== 'send') return
     e.preventDefault?.()
     send()
   }
@@ -203,7 +255,17 @@ export function Composer({
             {caption}
           </Text>
         ) : null}
+        {attachments ? (
+          <AttachmentStrip attachments={attached} onRemove={attachments.remove} />
+        ) : null}
         <View style={styles.row}>
+          {attachments?.pick || attachments?.paste ? (
+            <AttachButton
+              mode={attachments.pick ? 'pick' : 'paste'}
+              disabled={disabled === true}
+              onPress={attachments.pick ?? attachments.paste ?? (() => {})}
+            />
+          ) : null}
           <Animated.View style={[styles.fieldWrap, { height: animatedHeight }]}>
             <TextInput
               ref={inputRef}
@@ -222,8 +284,11 @@ export function Composer({
               // grow; useComposerMeasure asks the node directly instead.
               onContentSizeChange={Platform.OS === 'web' ? undefined : onContentSizeChange}
               scrollEnabled={scrolls}
-              submitBehavior="submit"
-              onSubmitEditing={send}
+              // THE RETURN KEY INSERTS A LINE. It used to be wired to `submit`
+              // with `onSubmitEditing` sending, which is what made a soft
+              // keyboard's Enter fire the message; the hardware-keyboard case is
+              // handled in `onKeyPress` instead, where the modifiers are legible.
+              submitBehavior="newline"
             />
           </Animated.View>
           <SendButton ready={canSend} onPress={send} reduceMotion={reduceMotion} />
@@ -231,6 +296,41 @@ export function Composer({
       </BlurView>
       {below}
     </View>
+  )
+}
+
+/**
+ * The attach control — a paperclip where a file dialog exists, a clipboard where
+ * the only route is the OS pasteboard (native, whose text field reports no paste
+ * event of its own).
+ *
+ * It sits at the LEFT end of the control row, bottom-aligned with the send
+ * target, so the growing field pushes neither of them around. Ink weight, never
+ * accent: this is furniture, and the one coloured control in the capsule is the
+ * send disc.
+ */
+function AttachButton({
+  mode,
+  disabled,
+  onPress,
+}: {
+  mode: 'pick' | 'paste'
+  disabled: boolean
+  onPress: () => void
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={mode === 'pick' ? 'Attach a file' : 'Paste an image'}
+      testID="composer-attach"
+      disabled={disabled}
+      onPress={onPress}
+      scaleTo={0.9}
+      hitSlop={10}
+      style={({ pressed }) => [styles.attach, pressed && styles.attachPressed]}
+    >
+      <Icon as={mode === 'pick' ? Paperclip : ClipboardPaste} size={18} color={color.textFaint} />
+    </PressableScale>
   )
 }
 
@@ -377,6 +477,19 @@ const styles = StyleSheet.create({
     fontSize: font.body,
     lineHeight: leading(font.body),
     padding: 0,
+  },
+  attach: {
+    width: SEND,
+    height: SEND,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Pulls the glyph back toward the capsule's curve: the field's own text
+    // inset is generous, and a round control needs less of it than text does.
+    marginLeft: -(space.sm + 2),
+  },
+  attachPressed: {
+    opacity: 0.55,
   },
   send: {
     width: SEND,

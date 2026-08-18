@@ -7,13 +7,13 @@ import {
 import type { AskAnswerChoice } from '@podium/client-core/viewmodels'
 import type {
   IssueColorSlot,
-  MutationId,
   IssueStage,
   IssueType,
   IssueWire,
+  MutationId,
   SessionId,
-  TranscriptItem,
   ThreadId,
+  TranscriptItem,
 } from '@podium/model'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { Platform } from 'react-native'
@@ -48,6 +48,26 @@ interface MobileTrpcExtras {
       TranscriptPage
     >
     sendText: MutationProcedure<{ sessionId: SessionId; text: string; mutationId?: MutationId }>
+    /**
+     * Bytes in, an absolute path on the session's machine out — the one route a
+     * prompt has to carry a screenshot, a photo or a document (POD-1203).
+     *
+     * NO `mutationId`: two uploads are two daemon round-trips and must never be
+     * deduped into one. The uploaded file inherits its session's owner and
+     * grants like every other child of a session (doc §3.1.2), so the payload
+     * carries no actor and no origin — `machineId` is only the fallback target
+     * for a session that does not exist yet.
+     */
+    uploadImage: MutationProcedure<
+      {
+        sessionId: SessionId
+        filename: string
+        mimeType: string
+        dataBase64: string
+        machineId?: string
+      },
+      { path: string; error?: string }
+    >
     answerAskUserQuestion: MutationProcedure<
       {
         sessionId: SessionId

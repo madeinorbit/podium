@@ -1,6 +1,12 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
+  NEW_WORK_EFFORT_KEY,
+  NEW_WORK_MACHINE_KEY,
+  NEW_WORK_MODEL_KEY,
+  NEW_WORK_REPO_KEY,
+} from '@podium/client-core/ui-state'
+import {
   lastUsedMaps,
   machineViewsFromWire,
   type RepoNavView,
@@ -12,22 +18,24 @@ import {
 import type { AgentKind, MachineId } from '@podium/model'
 import { lastUsedMachine } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
-import { ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react-native'
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useMobileStore, useSessions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
+import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import {
   AUTO,
   allConnectorModelLabel,
   allConnectorModelOptions,
+  type CatalogOption,
   decodeModelPick,
   effortOptionsForModel,
+  filterCatalogOptions,
   groupedCatalogOptions,
+  type IssueAgentKind,
   isEffortValid,
   spawnSelection,
-  type CatalogOption,
-  type IssueAgentKind,
 } from '../lib/agent-models'
 import { reposOnMachine } from '../lib/new-work'
 import { sessionHref } from '../lib/session-route'
@@ -40,10 +48,41 @@ import { HeaderButton } from './Screen'
 
 type PickerStep = 'launch' | 'model' | 'effort' | 'machine' | 'repo' | null
 
+/** The model pick that means "no agent at all" — a plain shell in the worktree.
+ *  It lives in the model list rather than behind its own link: choosing what
+ *  runs is one decision, and splitting it across two controls made the shell
+ *  read as a different KIND of thing to start. */
+const SHELL_PICK = 'shell'
+
+/** Above this many models the list needs a filter more than it needs the space.
+ *  A live catalog on a machine with four harnesses installed runs well past it. */
+const SEARCH_THRESHOLD = 8
+
+const readString = (raw: string | null): string | null => (raw && raw.length > 0 ? raw : null)
+const writeString = (value: string | null): string | null => value
+
 /**
- * Pocket launch sheet: model, then effort, then a machine when more than one
- * host is visible, then the project. Tracked tasks are created from the Tasks
- * tab — this sheet only starts an agent.
+ * Pocket launch sheet: everything the spawn needs on ONE screen, with the
+ * drill-downs reserved for the lists that genuinely have many entries.
+ *
+ * IT USED TO BE A WIZARD, and the last step was the insult: after choosing a
+ * model and an effort you pressed "Choose project" and were handed a list —
+ * which, on the single-repo instance most operators run, had exactly one row in
+ * it. A choice with one option is not a choice; it is a tap the app collects on
+ * the way to doing the only thing it could have done. The project is now a
+ * PRESELECTED field like the others (most recently used first, and inert when
+ * there is only one), the primary control says Start, and nothing stands between
+ * a returning operator and the same launch they made yesterday.
+ *
+ * The picks PERSIST (doc §3.3, through the replica's ui-state collection). The
+ * sheet used to reset to Auto on every app start, so the operator who always
+ * runs Opus on high re-chose it every time — the reference launchers all
+ * remember, because the last launch is by far the best prediction of the next.
+ *
+ * Model choices come from the machine's own installed harnesses via
+ * {@link useModelCatalog}; the compiled-in table is only the cold-start
+ * fallback. Tracked tasks are still created from the Tasks tab — this sheet only
+ * starts an agent.
  */
 export function NewWorkButton() {
   const pathname = usePathname()
@@ -52,10 +91,29 @@ export function NewWorkButton() {
   const sessions = useSessions()
   const { sections } = useSlice(worklistSlice)
   const [step, setStep] = useState<PickerStep>(null)
-  const [harness, setHarness] = useState<AgentKind>('claude-code')
-  const [modelPick, setModelPick] = useState(AUTO)
-  const [effort, setEffort] = useState(AUTO)
-  const [machinePick, setMachinePick] = useState<MachineId | null>(null)
+  const [query, setQuery] = useState('')
+  const [modelPick, setModelPick] = usePersistedUiState<string | null>(
+    NEW_WORK_MODEL_KEY,
+    readString,
+    writeString,
+  )
+  const [effortPick, setEffortPick] = usePersistedUiState<string | null>(
+    NEW_WORK_EFFORT_KEY,
+    readString,
+    writeString,
+  )
+  const [machinePick, setMachinePick] = usePersistedUiState<string | null>(
+    NEW_WORK_MACHINE_KEY,
+    readString,
+    writeString,
+  )
+  const [repoPick, setRepoPick] = usePersistedUiState<string | null>(
+    NEW_WORK_REPO_KEY,
+    readString,
+    writeString,
+  )
+  const model = modelPick ?? AUTO
+  const effort = effortPick ?? AUTO
 
   // Machines as THIS principal may act on them (doc §3.1.4 M1/M5): `see` is
   // already applied by the server's per-principal projection, `use` is read per
@@ -68,13 +126,15 @@ export function NewWorkButton() {
   const showMachine = machineViews.length > 1
   const machineId =
     (machinePick && machineViews.some((view) => view.machine.id === machinePick)
-      ? machinePick
+      ? (machinePick as MachineId)
       : null) ??
     (lastUsedMachine(sessions, usable) as MachineId | undefined) ??
     (usable[0]?.id as MachineId | undefined) ??
     null
   const selectedMachine = machineViews.find((view) => view.machine.id === machineId)
-  const modelCatalog = useModelCatalog<MobileTrpc>(machineId ?? undefined)
+  // The catalog is a fact about the machine this spawn will land on, so it is
+  // read for THAT machine and re-read when the operator changes it.
+  const catalog = useModelCatalog<MobileTrpc>(machineId ?? undefined)
 
   const { repos, lastUsedByRepo } = useMemo(() => {
     const choices = [...sections.pinnedRepos, ...sections.repos]
@@ -93,6 +153,18 @@ export function NewWorkButton() {
     () => reposOnMachine(repos, machineId, machineViews.length),
     [repos, machineId, machineViews.length],
   )
+
+  /**
+   * The project this sheet will start in, decided BEFORE it is shown.
+   *
+   * Remembered pick first, then most-recently-used (the list is already sorted
+   * that way). A remembered path that is not on the selected machine is not an
+   * error to report — it is simply not a candidate, and falling through to the
+   * top of the list is what the operator would have done by hand.
+   */
+  const selectedRepo =
+    visibleRepos.find((repo) => repo.path === repoPick) ?? visibleRepos[0] ?? null
+  const onlyOneRepo = visibleRepos.length === 1
 
   /**
    * Where this spawn lands, or `null` to refuse it outright — the same shape
@@ -115,7 +187,14 @@ export function NewWorkButton() {
     return refusal === 'unauthorized' ? null : resolved
   }
 
-  const close = () => setStep(null)
+  const close = () => {
+    setStep(null)
+    setQuery('')
+  }
+
+  const decoded = decodeModelPick(model)
+  const isShell = model === SHELL_PICK
+  const harness: AgentKind = isShell ? 'shell' : (decoded.agentKind ?? 'claude-code')
 
   const start = (repo: RepoNavView, explicit?: MachineId) => {
     const targetMachine = resolveSpawnMachine(
@@ -124,7 +203,8 @@ export function NewWorkButton() {
     )
     if (targetMachine === null) return
     const { worktree } = spawnTargetForRepo(repo, targetMachine)
-    const selection = spawnSelection(modelPick, effort)
+    const selection = isShell ? {} : spawnSelection(effectiveModel, effort)
+    setRepoPick(repo.path)
     const { sessionId } = store.spawnDraftAgent({
       target: worktree,
       agentKind: harness,
@@ -137,31 +217,54 @@ export function NewWorkButton() {
 
   const applyModel = (value: string) => {
     setModelPick(value)
-    const decoded = decodeModelPick(value)
-    if (decoded.agentKind) setHarness(decoded.agentKind)
-    const options = decoded.agentKind
-      ? effortOptionsForModel(decoded.agentKind, decoded.model, modelCatalog[decoded.agentKind])
-      : []
-    const kind = (decoded.agentKind ?? harness) as IssueAgentKind
-    if (options.length === 0 || !isEffortValid(kind, effort)) {
-      setEffort(AUTO)
+    setQuery('')
+    if (value === SHELL_PICK) {
+      setEffortPick(AUTO)
+      setStep('launch')
+      return
     }
+    const picked = decodeModelPick(value)
+    const kind = (picked.agentKind ?? 'claude-code') as IssueAgentKind
+    const options = effortOptionsForModel(kind, picked.model, catalog[kind])
+    if (options.length === 0 || !isEffortValid(kind, effort, catalog[kind])) setEffortPick(AUTO)
     setStep('launch')
   }
 
-  const decoded = decodeModelPick(modelPick)
-  const modelSelected = modelPick !== AUTO
+  // The shell rides at the END of the list: it is the escape hatch, not a peer
+  // of the models above it.
+  const modelOptions: CatalogOption[] = [
+    ...allConnectorModelOptions(catalog),
+    { value: SHELL_PICK, label: 'Shell', group: 'No agent' },
+  ]
+  /**
+   * A REMEMBERED PICK THE MACHINE NO LONGER OFFERS FALLS BACK TO AUTO.
+   *
+   * Only once the live catalog has actually answered for this harness, which is
+   * the whole precision of the check: with an empty catalog the static fallback
+   * is in play and a model that exists on the machine but not in the compiled
+   * table would be discarded for no reason. With a live answer in hand, a pick
+   * that is missing from it is a model this machine cannot run — starting on it
+   * would fail at the daemon, several taps later, with nothing on screen that
+   * explained why.
+   */
+  const pickHarness = (decoded.agentKind ?? 'claude-code') as IssueAgentKind
+  const retired =
+    !isShell &&
+    model !== AUTO &&
+    (catalog[pickHarness]?.length ?? 0) > 0 &&
+    !catalog[pickHarness]?.some((choice) => choice.value === decoded.model)
+  const effectiveModel = retired ? AUTO : model
+  const modelValue = isShell
+    ? 'Shell'
+    : retired
+      ? 'Auto'
+      : allConnectorModelLabel(decoded.agentKind, decoded.model, catalog)
   const effortChoices =
-    !modelSelected || harness === 'shell'
+    effectiveModel === AUTO || isShell
       ? []
-      : effortOptionsForModel(
-          (decoded.agentKind ?? harness) as IssueAgentKind,
-          decoded.model,
-          modelCatalog[decoded.agentKind ?? harness],
-        )
-  const modelOptions = allConnectorModelOptions(modelCatalog)
-  const modelValue = allConnectorModelLabel(decoded.agentKind, decoded.model, modelCatalog)
-  const canStart = !showMachine || selectedMachine?.availability === 'available'
+      : effortOptionsForModel(pickHarness, decoded.model, catalog[pickHarness])
+  const machineOk = !showMachine || selectedMachine?.availability === 'available'
+  const canStart = machineOk && selectedRepo !== null
 
   const title =
     step === 'model'
@@ -181,12 +284,6 @@ export function NewWorkButton() {
     setStep('launch')
   }
 
-  const goToProject = () => {
-    const decodedPick = decodeModelPick(modelPick)
-    if (decodedPick.agentKind) setHarness(decodedPick.agentKind)
-    setStep('repo')
-  }
-
   return (
     <>
       <HeaderButton label="New work" onPress={() => setStep('launch')}>
@@ -204,7 +301,10 @@ export function NewWorkButton() {
               <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel="Back"
-                onPress={() => setStep('launch')}
+                onPress={() => {
+                  setStep('launch')
+                  setQuery('')
+                }}
                 style={({ pressed }) => [styles.headBack, pressed && styles.pressed]}
               >
                 <Icon as={ChevronLeft} size={16} color={color.textDim} />
@@ -238,44 +338,46 @@ export function NewWorkButton() {
               />
             ) : null}
 
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Choose project"
-              accessibilityState={{ disabled: !canStart || visibleRepos.length === 0 }}
-              disabled={!canStart || visibleRepos.length === 0}
-              onPress={goToProject}
-              scaleTo={0.985}
-              style={({ pressed }) => [
-                styles.continue,
-                (!canStart || visibleRepos.length === 0) && styles.continueDisabled,
-                pressed && canStart && styles.continuePressed,
-              ]}
-            >
-              <Text style={styles.continueText}>Choose project</Text>
-              <Icon as={ChevronRight} size={16} color={color.accentText} />
-            </PressableScale>
+            {/* ONE PROJECT IS NOT A CHOICE. It is still shown — the operator has
+                to be able to see where this lands — but as a statement rather
+                than a control that opens a list of one. */}
+            <FieldSelect
+              label="Project"
+              value={selectedRepo?.name ?? 'No repositories available'}
+              {...(onlyOneRepo || visibleRepos.length === 0
+                ? {}
+                : { onPress: () => setStep('repo') })}
+            />
 
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="Shell"
-              onPress={() => {
-                setHarness('shell')
-                setModelPick(AUTO)
-                setEffort(AUTO)
-                setStep('repo')
-              }}
-              style={({ pressed }) => [styles.quiet, pressed && styles.pressed]}
+              accessibilityLabel={selectedRepo ? `Start in ${selectedRepo.name}` : 'Start'}
+              accessibilityState={{ disabled: !canStart }}
+              disabled={!canStart}
+              onPress={() => selectedRepo && start(selectedRepo)}
+              scaleTo={0.985}
+              style={({ pressed }) => [
+                styles.continue,
+                !canStart && styles.continueDisabled,
+                pressed && canStart && styles.continuePressed,
+              ]}
             >
-              <Text style={styles.quietText}>Start a shell instead</Text>
-              <Icon as={ChevronRight} size={14} color={color.textMicro} />
+              <Text style={styles.continueText}>Start</Text>
+              <Icon as={ChevronRight} size={16} color={color.accentText} />
             </PressableScale>
+
+            {visibleRepos.length === 0 ? (
+              <Text style={styles.none}>No repositories are available on this account.</Text>
+            ) : null}
           </>
         ) : null}
 
         {step === 'model' ? (
-          <OptionList
-            groups={groupedCatalogOptions(modelOptions)}
-            selected={modelPick}
+          <ModelStep
+            options={modelOptions}
+            selected={effectiveModel}
+            query={query}
+            onQuery={setQuery}
             onPick={applyModel}
           />
         ) : null}
@@ -285,7 +387,7 @@ export function NewWorkButton() {
             groups={[{ options: effortChoices }]}
             selected={effort}
             onPick={(value) => {
-              setEffort(value)
+              setEffortPick(value)
               setStep('launch')
             }}
           />
@@ -350,7 +452,11 @@ export function NewWorkButton() {
                     key={repo.path}
                     accessibilityRole="button"
                     accessibilityLabel={repo.name}
-                    onPress={() => start(repo)}
+                    accessibilityState={{ selected: repo.path === selectedRepo?.path }}
+                    onPress={() => {
+                      setRepoPick(repo.path)
+                      setStep('launch')
+                    }}
                     scaleTo={0.99}
                     style={({ pressed }) => [
                       styles.row,
@@ -371,7 +477,11 @@ export function NewWorkButton() {
                           : 'not used yet'}
                       </Text>
                     </View>
-                    <Icon as={ChevronRight} size={15} color={color.textMicro} />
+                    {repo.path === selectedRepo?.path ? (
+                      <Text style={styles.check}>✓</Text>
+                    ) : (
+                      <Icon as={ChevronRight} size={15} color={color.textMicro} />
+                    )}
                   </PressableScale>
                 )
               })}
@@ -383,6 +493,52 @@ export function NewWorkButton() {
   )
 }
 
+/**
+ * The model list, with a filter once it is long enough to scroll past what a
+ * thumb wants to flick. Harness headers stay: on a machine with four CLIs
+ * installed, "Opus" alone does not say which of them will run it.
+ */
+function ModelStep({
+  options,
+  selected,
+  query,
+  onQuery,
+  onPick,
+}: {
+  options: readonly CatalogOption[]
+  selected: string
+  query: string
+  onQuery: (value: string) => void
+  onPick: (value: string) => void
+}) {
+  const searchable = options.length > SEARCH_THRESHOLD
+  const shown = searchable ? filterCatalogOptions(options, query) : [...options]
+  return (
+    <View style={styles.optionStack}>
+      {searchable ? (
+        <View style={styles.search}>
+          <Icon as={Search} size={15} color={color.textMicro} />
+          <TextInput
+            accessibilityLabel="Filter models"
+            value={query}
+            onChangeText={onQuery}
+            placeholder="Filter models"
+            placeholderTextColor={color.textDim}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={styles.searchInput}
+          />
+        </View>
+      ) : null}
+      {shown.length === 0 ? (
+        <Text style={styles.none}>No model matches that.</Text>
+      ) : (
+        <OptionList groups={groupedCatalogOptions(shown)} selected={selected} onPick={onPick} />
+      )}
+    </View>
+  )
+}
+
 function FieldSelect({
   label,
   value,
@@ -390,23 +546,39 @@ function FieldSelect({
 }: {
   label: string
   value: string
-  onPress: () => void
+  /** Absent renders the field as a STATEMENT — no chevron, no press target.
+   *  A control that opens a list of one is worse than no control. */
+  onPress?: () => void
 }) {
+  const body = (
+    <>
+      <Text style={styles.selectValue} numberOfLines={1}>
+        {value}
+      </Text>
+      {onPress ? <Icon as={ChevronDown} size={16} color={color.textMicro} /> : null}
+    </>
+  )
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={`${label}, ${value}`}
-        onPress={onPress}
-        scaleTo={0.99}
-        style={({ pressed }) => [styles.select, pressed && styles.selectPressed]}
-      >
-        <Text style={styles.selectValue} numberOfLines={1}>
-          {value}
-        </Text>
-        <Icon as={ChevronDown} size={16} color={color.textMicro} />
-      </PressableScale>
+      {onPress ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`${label}, ${value}`}
+          onPress={onPress}
+          scaleTo={0.99}
+          style={({ pressed }) => [styles.select, pressed && styles.selectPressed]}
+        >
+          {body}
+        </PressableScale>
+      ) : (
+        <View
+          accessibilityLabel={`${label}, ${value}`}
+          style={[styles.select, styles.selectStatic]}
+        >
+          {body}
+        </View>
+      )}
     </View>
   )
 }
@@ -509,11 +681,37 @@ const styles = StyleSheet.create({
   selectPressed: {
     backgroundColor: color.surfacePressed,
   },
+  /** A field that states rather than asks sits one tier quieter, so the two
+   *  read differently before the chevron is looked for. */
+  selectStatic: {
+    borderColor: color.border,
+    backgroundColor: 'transparent',
+  },
   selectValue: {
     ...sans(500),
     flex: 1,
     color: color.text,
     fontSize: font.small,
+  },
+
+  search: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    backgroundColor: color.surface,
+  },
+  searchInput: {
+    ...sans(400),
+    flex: 1,
+    minWidth: 0,
+    color: color.text,
+    fontSize: font.small,
+    padding: 0,
   },
 
   optionStack: {
@@ -547,22 +745,6 @@ const styles = StyleSheet.create({
     ...sans(700),
     color: color.accentText,
     fontSize: font.small,
-  },
-
-  quiet: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    marginTop: space.md,
-    minHeight: 44,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.md,
-  },
-  quietText: {
-    ...sans(400),
-    flex: 1,
-    color: color.textDim,
-    fontSize: font.tiny,
   },
 
   list: {
