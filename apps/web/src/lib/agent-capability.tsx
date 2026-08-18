@@ -21,6 +21,18 @@
  * why, and cannot say why without being disabled.
  *
  * ---------------------------------------------------------------------------
+ * A CONDITION IS NOT A REFUSAL, AND IT IS NOT LOUDER THAN ONE (POD-1322)
+ * ---------------------------------------------------------------------------
+ *
+ * A signed-out harness used to wear amber ink across the whole row. That put the
+ * menu's loudest treatment on the one row that still works — `New OpenCode`
+ * shouted while `New Cursor`, which cannot start at all, sat quietly greyed — and
+ * greying it instead is not the fix either: greyed means `disabled` here, and the
+ * pane a signed-out harness opens IS where you sign in. So the row stays live and
+ * in normal ink, and the condition goes where refusals already live: two faint
+ * words in the right-hand column, `signed out` beside `not installed`.
+ *
+ * ---------------------------------------------------------------------------
  * WHY A ROW STATES ITS CASE INSTEAD OF DISAPPEARING
  * ---------------------------------------------------------------------------
  *
@@ -45,13 +57,22 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { MENU_HINT } from '@/lib/menu-surface'
 
+/** The short form of a SIGNED-OUT harness, stated in the same right-hand column
+ *  that carries `not installed` (POD-1322). It is deliberately the same faint
+ *  ink and not amber: a logged-out harness is startable — the pane it opens is
+ *  where you sign in — so colouring it made the one row that WORKS louder than
+ *  the row that is actually refused, which inverted the menu's hierarchy. The
+ *  words carry it; `warning` still carries the sentence into the tooltip. */
+export const SIGNED_OUT_HINT = 'signed out'
+
 /** How one agent row reads. `reason` set = the row refuses a click. */
 export interface AgentRowStatus {
   /** The sentence, on hover. Set = disabled; see the module note. */
   reason?: string
   /** The short form, stated on the row itself for the pointer that never hovers. */
   hint?: string
-  /** Amber, non-blocking: the spawn is allowed and will need something from you. */
+  /** Non-blocking: the spawn is allowed and will need something from you. Carries
+   *  the sentence for the tooltip; the row itself states it as `hint`. */
   warning?: string
 }
 
@@ -182,7 +203,7 @@ export function agentFleetStatus(
           'logged-out',
         )
       : undefined
-    return warning ? { warning } : {}
+    return warning ? { warning, hint: SIGNED_OUT_HINT } : {}
   }
   return {}
 }
@@ -274,12 +295,6 @@ export function CapabilityAgentItem({
         data-agent-label={label}
         data-refused={reason ? 'true' : undefined}
         disabled={reason !== undefined}
-        // Attention as INK, and it has to survive the hover: the row's preset
-        // lifts a hovered row to `--text-strong`, which would drop the one signal
-        // the row exists to carry at exactly the moment the pointer is on it.
-        className={
-          warning && !reason ? 'text-warning hover:text-warning focus:text-warning' : undefined
-        }
         onClick={onSelect}
       >
         {icon}

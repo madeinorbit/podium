@@ -11,7 +11,12 @@
  * different, accepted. Without that, "everything is refused" passes too.
  */
 import { describe, expect, it } from 'vitest'
-import { agentFleetStatus, agentLabel, candidateFromAvailability } from './agent-capability'
+import {
+  agentFleetStatus,
+  agentLabel,
+  candidateFromAvailability,
+  SIGNED_OUT_HINT,
+} from './agent-capability'
 
 const harness = (kind: string, installed: boolean, state: 'in' | 'out' = 'in') => ({
   kind,
@@ -128,8 +133,9 @@ describe('agentFleetStatus', () => {
     const status = agentFleetStatus([{ machineName: 'mine', loggedOut: true }], 'New Cursor')
     expect(status.reason).toBeUndefined()
     expect(status.warning).toContain('mine')
-    // A hint is a refusal's short form; a warning is not a refusal.
-    expect(status.hint).toBeUndefined()
+    // The hint column carries CONDITIONS as well as refusals (POD-1322): the row
+    // stays clickable, and `signed out` is what it says instead of turning amber.
+    expect(status.hint).toBe(SIGNED_OUT_HINT)
   })
 
   it('says "no host" when nothing is a candidate at all', () => {

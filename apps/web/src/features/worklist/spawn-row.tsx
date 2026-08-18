@@ -369,14 +369,13 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           // the label has ~60px of slack at the column's default width and ~30
           // at its minimum, so the deviation bought nothing and the mock's
           // number stands (`e2e/pod1253-spawn-label.ts`).
-          className={cn(
-            'shell-spawn-chip flex h-10 w-full min-w-0 items-center gap-[9px] rounded-[8px] border border-border-strong bg-chip px-[11px] pr-[36px] text-[12.5px] font-medium tracking-[-0.005em] leading-[normal] text-foreground disabled:opacity-50',
-            // The refusal is a DIM, not a colour: the row's own hue is the
-            // agent's brand swatch, and greying is what every other refused
-            // spawn affordance does. Warning ink is the exception — it is the
-            // one state the operator has to act on before the pane is useful.
-            defaultAgentStatus.warning && !defaultAgentStatus.reason && 'text-warning',
-          )}
+          //
+          // The refusal is a DIM, not a colour: the row's own hue is the agent's
+          // brand swatch, and greying is what every other refused spawn
+          // affordance does. A signed-out harness gets no ink at all — it is
+          // startable, and its two words in the hint column say so without
+          // outshouting the refusals (POD-1322).
+          className="shell-spawn-chip flex h-10 w-full min-w-0 items-center gap-[9px] rounded-[8px] border border-border-strong bg-chip px-[11px] pr-[36px] text-[12.5px] font-medium tracking-[-0.005em] leading-[normal] text-foreground disabled:opacity-50"
           disabled={!defaultRepo || defaultAgentStatus.reason !== undefined}
           // The refusal replaces the invitation. A button that still reads
           // "Start a new Cursor agent in podium" while refusing the click is

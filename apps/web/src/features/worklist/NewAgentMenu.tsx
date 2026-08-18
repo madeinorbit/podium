@@ -111,6 +111,9 @@ function fleetStatus(
  *   - `harness-missing`    — refused, dimmed dot, "not installed" (POD-1201).
  *     The host is reachable and yours; what is missing is the CLI, and that is
  *     the one of the three a person fixes by installing something.
+ *
+ * A signed-out host is none of those: it is live and clickable, and says so with
+ * "signed out" in the same hint column (POD-1322).
  */
 function MachineItem({
   view,
@@ -133,11 +136,6 @@ function MachineItem({
       data-refused={reason ? 'true' : undefined}
       disabled={reason !== undefined}
       title={reason ?? warning ?? `Start in ${machine.name}`}
-      // Attention as INK, and it has to survive the hover — see the same note in
-      // `lib/agent-capability`.
-      className={
-        warning && !reason ? 'text-warning hover:text-warning focus:text-warning' : undefined
-      }
       onClick={reason === undefined ? onSelect : undefined}
     >
       {/* The lock and the status dot are readings rather than icons, so they
@@ -292,11 +290,16 @@ export function NewAgentMenu({
           <DropdownMenuSub key={kind}>
             <DropdownMenuSubTrigger
               title={warning}
-              className={warning ? 'text-warning hover:text-warning focus:text-warning' : undefined}
               onClick={() => defaultRepo && pick(kind, defaultRepo)}
             >
               {glyph}
-              {label}
+              {/* The label takes the free space so the hint and the sub-trigger's
+                  own chevron both sit where their `ml-auto` intends — and so this
+                  row's markup matches the refused branch above it. */}
+              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                {label}
+              </span>
+              {hint && <span className={MENU_HINT}>{hint}</span>}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               <RepoItems

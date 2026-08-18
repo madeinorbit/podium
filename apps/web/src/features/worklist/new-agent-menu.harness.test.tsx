@@ -21,14 +21,14 @@ import { NewAgentMenu } from './NewAgentMenu'
 
 const onSpawn = vi.fn()
 
-const machine = (agents: { kind: string; installed: boolean }[]) => ({
+const machine = (agents: { kind: string; installed: boolean; login?: 'in' | 'out' }[]) => ({
   machine: {
     id: 'mine',
     name: 'mine',
     hostname: 'mine',
     online: true,
     inventory: {
-      agents: agents.map((a) => ({ ...a, login: { state: 'in' as const } })),
+      agents: agents.map(({ login, ...a }) => ({ ...a, login: { state: login ?? 'in' } })),
     },
   },
   grants: { see: true, use: true, manage: true },
@@ -103,5 +103,53 @@ describe('sidebar new-agent menu — an uninstalled harness', () => {
     expect(claude.getAttribute('aria-haspopup')).toBe('menu')
     const cursor = await screen.findByRole('menuitem', { name: /New Cursor/ })
     expect(cursor.getAttribute('aria-haspopup')).toBeNull()
+  })
+})
+
+/**
+ * THE SIGNED-OUT ROW (POD-1322).
+ *
+ * Installed but logged out is a CONDITION, not a refusal: the pane the row opens
+ * is where you sign in, so the click has to survive. It used to survive wearing
+ * amber ink across the whole label, which made the row that works louder than
+ * the `not installed` row above, which does not — hence the counterfactual these
+ * tests keep against the Cursor ones in the same fixture.
+ */
+describe('sidebar new-agent menu — a signed-out harness', () => {
+  const signedOut = () =>
+    machine([
+      { kind: 'claude-code', installed: true },
+      { kind: 'cursor', installed: true, login: 'out' },
+    ])
+
+  it('keeps the row live and spawns on click', async () => {
+    render(open([signedOut()]))
+
+    const cursor = await screen.findByRole('menuitem', { name: /New Cursor/ })
+    expect(cursor.getAttribute('data-refused')).toBeNull()
+    expect(cursor.getAttribute('aria-disabled')).not.toBe('true')
+
+    fireEvent.click(cursor)
+    expect(onSpawn).toHaveBeenCalled()
+  })
+
+  it('states the condition in the hint column instead of colouring the row', async () => {
+    render(open([signedOut()]))
+
+    const cursor = await screen.findByRole('menuitem', { name: /New Cursor/ })
+    expect(cursor.textContent).toContain('signed out')
+    expect(cursor.textContent).not.toContain('not installed')
+    // The ink is the regression: amber here outshouted the refusal beside it.
+    expect(cursor.className).not.toContain('text-warning')
+    // The sentence still reaches a pointer, and it says what the click will do.
+    expect(cursor.getAttribute('title')).toContain('isn\u2019t logged in on mine')
+  })
+
+  it('leaves a signed-in harness in the same menu unmarked', async () => {
+    render(open([signedOut()]))
+
+    const claude = await screen.findByRole('menuitem', { name: /New Claude/ })
+    expect(claude.textContent).not.toContain('signed out')
+    expect(claude.getAttribute('title')).toBeNull()
   })
 })

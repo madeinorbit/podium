@@ -30,10 +30,11 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   agentFleetStatus,
-  candidateFromAvailability,
   CapabilityAgentItem,
+  candidateFromAvailability,
   capabilityHint,
   capabilityReason,
+  SIGNED_OUT_HINT,
 } from '@/lib/agent-capability'
 import { AUTO } from '@/lib/agent-models'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
@@ -175,7 +176,7 @@ function MachineMenu({
           const hint =
             capabilityHint(rejection) ??
             (loggedOut
-              ? `no ${agentName.toLowerCase()} login`
+              ? SIGNED_OUT_HINT
               : machine.inventory
                 ? `${machine.inventory.os} ${machine.inventory.arch}`
                 : '')
@@ -184,10 +185,7 @@ function MachineMenu({
               key={machine.id}
               disabled={rejection !== undefined}
               title={reason ?? undefined}
-              className={cn(
-                machine.id === value && 'bg-hairline-soft text-text-strong',
-                loggedOut && !rejection && 'text-warning hover:text-warning focus:text-warning',
-              )}
+              className={cn(machine.id === value && 'bg-hairline-soft text-text-strong')}
               onClick={() => onSelect(machine.id)}
             >
               <span
