@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { IssueEvent } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -483,20 +483,33 @@ describe('IssuePanelView inspector', () => {
   })
 })
 
-// A conversation that has not become a task is the NORMAL first state of a
-// fresh agent, not a failure — the dock says what will appear, and never asks
-// for a task to be created.
+// An id that resolves to no task is not a state worth describing: the panel
+// renders the explorer's own level 0, which is what "no task" looks like
+// everywhere else in this dock and is a place the operator can act from.
 describe('IssuePanelView with no task', () => {
-  it('takes shape instead of reporting a missing task', () => {
+  it('renders the task index, not an empty state of its own', () => {
     mockSessions = [session({ sessionId: 'fresh', issueId: undefined, name: 'New Codex' })]
     render(<IssuePanelView cwd="/elsewhere" sessionId={asSessionId('fresh')} />)
 
-    expect(screen.getByTestId('dock-intake')).toBeTruthy()
-    expect(screen.getByText('Conversation workspace')).toBeTruthy()
-    expect(parts()).toEqual(['Taking shape'])
-    expect(screen.getByText('Waiting for your first message')).toBeTruthy()
-    expect(screen.getByText('New Codex · ready')).toBeTruthy()
-    expect(screen.getByText(/Podium does not force a task/)).toBeTruthy()
+    expect(screen.getByTestId('explorer-list')).toBeTruthy()
+    expect(screen.queryByTestId('dock-intake')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/Conversation workspace|Taking shape/)
     expect(document.body.textContent).not.toMatch(/no task|not found|error/i)
+  })
+
+  it('shows an archived task rather than substituting another (POD-1277)', () => {
+    const archived = makeIssue({
+      id: 'arch',
+      repoPath: '/r',
+      seq: 99,
+      title: 'Retired sweep',
+      archived: true,
+    })
+    mockIssues = [ROOT, archived]
+    mockSessions = [session({ sessionId: 'live', issueId: ROOT.id })]
+    render(<IssuePanelView cwd="/r" sessionId={asSessionId('live')} issueId={asIssueId('arch')} />)
+
+    expect(screen.getByText('Retired sweep')).toBeTruthy()
+    expect(screen.queryByTestId('dock-intake')).toBeNull()
   })
 })

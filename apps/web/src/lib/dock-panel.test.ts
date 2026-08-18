@@ -174,8 +174,21 @@ describe('issueForPanel', () => {
         issueId: asIssueId('i9'),
       })?.id,
     ).toBe('i9')
-    // Archived/deleted/unknown explicit issue falls through to the old logic.
-    const gone = issue({ id: 'i9', worktreePath: null, archived: true })
+    // An ARCHIVED explicit issue is still that issue (POD-1277): the explorer
+    // opens archived tasks on purpose, and substituting the session's issue
+    // showed a panel about a task nobody asked for.
+    const retired = issue({ id: 'i9', worktreePath: null, archived: true })
+    expect(
+      issueForPanel({
+        issues: [owning, attached, retired],
+        sessions: [s],
+        cwd: '/repo/.worktrees/issue-7',
+        sessionId: asSessionId('s1'),
+        issueId: asIssueId('i9'),
+      })?.id,
+    ).toBe('i9')
+    // Deleted or unknown still falls through to the old logic — nothing to show.
+    const gone = issue({ id: 'i9', worktreePath: null, deletedAt: '2026-01-01T00:00:00.000Z' })
     expect(
       issueForPanel({
         issues: [owning, attached, gone],

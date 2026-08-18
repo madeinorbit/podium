@@ -84,8 +84,8 @@ function CardClick({ id }: { id: string }): JSX.Element {
   )
 }
 
-function mount(missionId: string | null = null, dockOpen = true): ReturnType<typeof render> {
-  return render(
+function tree(missionId: string | null = null, dockOpen = true): JSX.Element {
+  return (
     <OperatorFocusProvider missionId={missionId}>
       <IssueExplorerProvider>
         <DeckClick id="c" />
@@ -94,8 +94,12 @@ function mount(missionId: string | null = null, dockOpen = true): ReturnType<typ
         <IssueExplorerCrumbs />
         {dockOpen && <IssueExplorer cwd="/r" />}
       </IssueExplorerProvider>
-    </OperatorFocusProvider>,
+    </OperatorFocusProvider>
   )
+}
+
+function mount(missionId: string | null = null, dockOpen = true): ReturnType<typeof render> {
+  return render(tree(missionId, dockOpen))
 }
 
 /** The live level. Two are mounted while a move is running — the one arriving
@@ -253,6 +257,31 @@ describe('issue explorer navigation', () => {
     fireEvent.change(search, { target: { value: 'minimap' } })
     expect(screen.getByText('Nothing here by that name or ref.')).toBeTruthy()
     expect(screen.queryByText('Minimap stale-tick crash')).toBeNull()
+  })
+
+  it('opens the archived task it recovered (POD-1277)', () => {
+    mount()
+    fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'POD-766' } })
+    fireEvent.click(screen.getByText('Minimap stale-tick crash'))
+
+    // A row the list offers has to open. It used to push a level the panel
+    // refused, which left an empty state written for a chat with no task yet.
+    expect(detail().dataset.issueId).toBe('archived')
+    expect(screen.getByTestId('explorer-crumbs').textContent).toContain('archived')
+  })
+
+  it('sends a level whose task left the replica back to the index (POD-1277)', () => {
+    const view = mount()
+    fireEvent.click(screen.getByRole('tab', { name: /Backlog/ }))
+    fireEvent.click(screen.getByText('Someone else’s task'))
+    expect(detail().dataset.issueId).toBe('s')
+
+    state.issues = [EPIC, CHILD, ARCHIVED]
+    act(() => view.rerender(tree()))
+
+    expect(screen.queryByTestId('detail')).toBeNull()
+    expect(screen.getByTestId('explorer-list')).toBeTruthy()
+    expect(screen.getByTestId('explorer-crumbs').textContent).not.toContain('#9')
   })
 
   it('pushes a task from the list and pops back to it from the trail', () => {

@@ -51,6 +51,14 @@ export interface IssueExplorerNav {
    * retarget, because a card in another surface is not a step in this trail.
    */
   retarget: (id: string) => void
+  /**
+   * Collapse to level 0 — the task list.
+   *
+   * Silent, and not a pop: the level did not step back, it stopped existing
+   * (the task was deleted, or the replica no longer carries it). Sliding a
+   * level out implies somewhere to slide back to, and there is nowhere.
+   */
+  toIndex: () => void
   /** Null until the operator picks one — the list resolves the default from the
    *  counts it already has, so the shell never pays for that pass. */
   tab: ExplorerTab | null
@@ -73,6 +81,7 @@ const IssueExplorerContext = createContext<IssueExplorerNav>({
   popTo: noop,
   back: noop,
   retarget: noop,
+  toIndex: noop,
   tab: null,
   setTab: noop,
   query: '',
@@ -178,6 +187,12 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
     setSeq((n) => n + 1)
   }, [])
 
+  const toIndex = useCallback((): void => {
+    setStack((prev) => (prev.length === 0 ? prev : []))
+    setMotion(null)
+    setSeq((n) => n + 1)
+  }, [])
+
   const value = useMemo<IssueExplorerNav>(
     () => ({
       stack,
@@ -188,6 +203,7 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
       popTo,
       back,
       retarget,
+      toIndex,
       tab,
       setTab,
       query,
@@ -203,6 +219,7 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
       popTo,
       back,
       retarget,
+      toIndex,
       tab,
       query,
       listScrollTop,

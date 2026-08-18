@@ -118,12 +118,20 @@ export function issueForPanel<T extends IssuePanelLike>(args: {
   sessions: SessionMeta[]
   cwd: string
   sessionId?: SessionId
-  /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — beats both the
-   *  session attachment and cwd containment when it names a live issue. */
+  /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441; every explorer
+   *  level, POD-743) — beats both the session attachment and cwd containment
+   *  whenever the id still names a task. */
   issueId?: IssueId
 }): T | null {
   if (args.issueId !== undefined) {
-    const explicit = args.issues.find((i) => i.id === args.issueId && !i.archived && !i.deletedAt)
+    // ARCHIVED COUNTS. An explicit id is a request to look at THAT task, and
+    // the explorer hands archived ones over deliberately — its search recovers
+    // them by exact ref and its breadcrumb labels them. Substituting the
+    // session's issue for one the operator asked for by name showed a panel
+    // about a different task, and where nothing else resolved it showed an
+    // empty state belonging to another surface entirely (POD-1277). Deleted is
+    // still a miss: there is nothing left to render.
+    const explicit = args.issues.find((i) => i.id === args.issueId && !i.deletedAt)
     if (explicit) return explicit
   }
   const session = args.sessionId

@@ -22,7 +22,6 @@ import {
   issueStatusOf,
   type MachineId,
   type SessionId,
-  type SessionMeta,
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -49,7 +48,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { copyToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
-import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
+import { IssueExplorerList } from './explorer/IssueExplorerList'
 import {
   DOCK_BODY,
   DOCK_ROW,
@@ -740,82 +739,6 @@ function ProducedAndDeferred({
   )
 }
 
-/** One line of the intake canvas — the sessionless dock's only content shape. */
-function IntakeField({
-  label,
-  value,
-  loading = false,
-}: {
-  label: string
-  value: string
-  loading?: boolean
-}): JSX.Element {
-  return (
-    <div
-      className={cn(
-        DOCK_BODY,
-        'grid grid-cols-[52px_minmax(0,1fr)] items-center gap-2 border-t border-border/50 py-2.5',
-      )}
-    >
-      <span className="shell-type-micro font-mono text-muted-foreground/80">{label}</span>
-      <span className={cn('min-w-0 truncate text-muted-foreground', loading && 'animate-pulse')}>
-        {value}
-      </span>
-    </div>
-  )
-}
-
-/** The dock with no inspected task. A conversation that has not become work yet
- *  is a normal state, not an error: this says what will appear and where, and
- *  never asks for a task to be created. */
-function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="dock-intake">
-      <header
-        className="flex-none border-b border-border/60 px-3.5 pt-3 pb-3"
-        data-testid="dock-fixed"
-      >
-        <div className="flex items-center gap-2 font-mono text-[11px] leading-none text-text-dim">
-          {session ? (
-            <KindIcon kind={session.agentKind} chip />
-          ) : (
-            <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-hidden="true" />
-          )}
-          <span className="label-mono">Live session</span>
-          <span className="label-mono ml-auto">Ready</span>
-        </div>
-        <h2 className="shell-type-reading mt-1.5 font-semibold text-foreground">
-          Conversation workspace
-        </h2>
-        <p className={cn(DOCK_BODY, 'mt-1.5 text-muted-foreground')}>
-          Start in chat. Task details, plan and team will appear here when the agent structures the
-          work.
-        </p>
-      </header>
-      <div
-        className="min-h-0 flex-1 overflow-y-auto px-3.5 pt-3 pb-6"
-        data-testid="dock-scroll"
-        data-dock-scroll=""
-      >
-        <DockPart title="Taking shape">
-          <IntakeField label="Task" value="Waiting for your first message" loading />
-          <IntakeField label="Plan" value="The agent will outline the work" />
-          <IntakeField
-            label="Team"
-            value={
-              session ? `${sessionDisplayName(session)} · ready` : 'Agents will appear as they join'
-            }
-          />
-        </DockPart>
-        <p className="shell-type-micro text-text-faint">
-          If the conversation stays exploratory, this view stays light. Podium does not force a
-          task.
-        </p>
-      </div>
-    </div>
-  )
-}
-
 /**
  * Issue tab of the right dock: the approved task inspector. A two-row fixed
  * head (ref, controls), the decision band when the issue needs you, and then
@@ -936,8 +859,14 @@ export function IssuePanelView({
     showInDeck(target)
   }
 
+  // NO ISSUE, NO PANEL OF ITS OWN. An id that resolves to nothing is not a
+  // state worth describing — the explorer's own level 0 is what "no task" looks
+  // like, and it is a place you can act from. This used to render an intake
+  // canvas written for a chat that had not become work yet, which on a level
+  // pointed at a real-but-unshowable task read as a panel about nothing
+  // (POD-1277). The trail collapses to match, in the explorer's own effect.
   if (!issue) {
-    return <IntakeDock session={sessions.find((s) => s.sessionId === sessionId)} />
+    return <IssueExplorerList />
   }
 
   const openChildren = children.filter((c) => c.stage !== 'done' && !c.closedReason)

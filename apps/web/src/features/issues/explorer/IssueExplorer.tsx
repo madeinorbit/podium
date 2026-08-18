@@ -1,5 +1,5 @@
-import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId } from '@podium/model'
+import { asIssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronRight, ListTree } from 'lucide-react'
 import type { JSX } from 'react'
@@ -49,7 +49,8 @@ export function IssueExplorer({
   cwd: string
   machineId?: MachineId
 }): JSX.Element {
-  const { current, seq, motion, push } = useIssueExplorer()
+  const { current, seq, motion, push, toIndex } = useIssueExplorer()
+  const issues = useReplicaIssues()
   const [frames, setFrames] = useState<Frame[]>([
     { key: seq, id: current === null ? null : asIssueId(current), move: null },
   ])
@@ -73,6 +74,17 @@ export function IssueExplorer({
     const timer = setTimeout(() => setFrames([next]), MOVE_MS)
     return () => clearTimeout(timer)
   }, [seq, current, motion])
+
+  // A LEVEL WHOSE TASK IS GONE GOES HOME. Deletion is the one way a level can
+  // outlive its subject — archived tasks still open, and the trail labels them.
+  // An empty replica is not evidence of absence (it is a reconnect mid-flight),
+  // so the trail survives one, and the panel behind it renders the list either
+  // way (POD-1277).
+  const missing =
+    current !== null && issues.length > 0 && !issues.some((i) => i.id === current && !i.deletedAt)
+  useEffect(() => {
+    if (missing) toIndex()
+  }, [missing, toIndex])
 
   return (
     <div className="explorer-stack" data-testid="issue-explorer">
