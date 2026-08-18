@@ -5,7 +5,16 @@ import {
   type VpsReleaseChannel,
   vpsInstallerChannel,
 } from '@podium/runtime/vps-bootstrap'
-import { ArrowRight, Check, Copy, RefreshCw, Server, ShieldCheck, Terminal } from 'lucide-react'
+import {
+  ArrowRight,
+  Check,
+  Copy,
+  LoaderCircle,
+  RefreshCw,
+  Server,
+  ShieldCheck,
+  Terminal,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -261,8 +270,13 @@ export function VpsFirstActivation({
             ) : read.status === 'reading' ? (
               <p
                 role="status"
-                className="px-4 py-3.5 text-[12.5px] leading-[1.6] text-[#8a9099] italic"
+                className="flex items-center gap-2 px-4 py-3.5 text-[12.5px] leading-[1.6] text-[#8a9099]"
               >
+                <LoaderCircle
+                  size={14}
+                  className="flex-none animate-spin text-[#e3ba52] motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
                 Reading which release train this Podium installs from…
               </p>
             ) : (
