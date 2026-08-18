@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The native macOS app now discovers Codex, Claude, OpenCode, and other supported harnesses
+  installed by Homebrew or configured by the user's login shell, even when the app is launched
+  outside a terminal.
+
 ## [0.1.0-edge.2] - 2026-08-17
 
 ## [0.1.0-edge.1] - 2026-08-17
