@@ -37,6 +37,9 @@ const targetUrl = 'http://target:18787'
 const edgeUrl = 'http://edge:18787'
 const repoPath = '/fixture-repo'
 
+// A dropped promote reply is classified only after the production RPC's intentional 120s bound.
+const PROMOTE_UNCERTAINTY_WAIT_MS = 150_000
+
 function api(baseUrl: string): ReturnType<typeof createTRPCClient<AppRouter>> {
   return createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: `${baseUrl}/trpc` })] })
 }
@@ -323,11 +326,13 @@ async function lostReplyCase(
         ? operation
         : undefined,
     'generic uncertain operation projection',
+    PROMOTE_UNCERTAINTY_WAIT_MS,
   )
   const sourceEvidence = await eventually(
     () => evidence('source'),
     (value) => value.sourceJournal?.state === 'commit-uncertain',
     'source commit-uncertain journal',
+    PROMOTE_UNCERTAINTY_WAIT_MS,
   )
   let sourceWriteRejected = false
   try {
