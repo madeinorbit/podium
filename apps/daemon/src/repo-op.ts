@@ -94,6 +94,64 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (!path) return { error: 'missing args' }
       return { bin: 'git', argv: ['--no-optional-locks', 'diff', 'HEAD', '--', path] }
     }
+    /**
+     * COMMIT UNFOLD [POD-1289] — read-only, --no-optional-locks like the probes.
+     *
+     * `-m --first-parent` is what makes a MERGE answer at all: `git show` on a
+     * merge prints an empty diff by default, so a merge row would have unfolded
+     * to nothing. Against the first parent it says what landing that merge did
+     * to this branch, which is the question the row is asking. On an ordinary
+     * commit the pair is a no-op, and a root commit still lists its files as
+     * added — so one invocation covers every row the log can render.
+     *
+     * `-M` detects renames, so a moved file reads as one `R` row rather than as
+     * an add and a delete the reader has to pair up themselves.
+     */
+    case 'commitFiles': {
+      // `%x09`-free: --name-status is already tab-separated (`M\tpath`,
+      // `R100\told\tnew`). --format= empties the commit header, so the output
+      // is the file list alone.
+      const { sha } = args
+      if (!sha) return { error: 'missing args' }
+      const bad = assertSafeRef(sha, 'sha')
+      if (bad) return { error: bad }
+      return {
+        bin: 'git',
+        argv: [
+          '--no-optional-locks',
+          'show',
+          '--format=',
+          '--name-status',
+          '-M',
+          '-m',
+          '--first-parent',
+          sha,
+          '--',
+        ],
+      }
+    }
+    case 'commitDiffFile': {
+      // One file's diff INSIDE a commit. The path rides after `--` as a
+      // pathspec; the sha is guarded because `show` has no `--` before its rev.
+      const { sha, path } = args
+      if (!sha || !path) return { error: 'missing args' }
+      const bad = assertSafeRef(sha, 'sha')
+      if (bad) return { error: bad }
+      return {
+        bin: 'git',
+        argv: [
+          '--no-optional-locks',
+          'show',
+          '--format=',
+          '-M',
+          '-m',
+          '--first-parent',
+          sha,
+          '--',
+          path,
+        ],
+      }
+    }
     case 'lsFiles':
       // Composer @-file autocomplete [POD-412]: every tracked path in the
       // checkout, relative to its root, NUL-separated (-z also suppresses the

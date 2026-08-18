@@ -4,6 +4,7 @@ import {
   entryStatus,
   entryTitle,
   entryTone,
+  parseCommitFiles,
   parseLog,
   parseStatus,
   untrackedDiff,
@@ -65,6 +66,32 @@ describe('parseLog', () => {
   })
   it('skips malformed lines and blanks', () => {
     expect(parseLog('\nnot a log line\n')).toEqual([])
+  })
+})
+
+describe('parseCommitFiles', () => {
+  it('parses name-status rows, pairing a rename and dropping its score', () => {
+    const out = ['M\tsrc/b.ts', 'A\tsrc/a.ts', 'R100\tdocs/old.md\tdocs/new.md', 'D\tgone.ts'].join(
+      '\n',
+    )
+    const entries = parseCommitFiles(`${out}\n`)
+    expect(entries.map((e) => e.path)).toEqual(['docs/new.md', 'gone.ts', 'src/a.ts', 'src/b.ts'])
+    expect(entries[0]).toMatchObject({ x: 'R', renamedFrom: 'docs/old.md', committed: true })
+    expect(entries.every((e) => e.untracked === false)).toBe(true)
+  })
+  it('unquotes paths and skips blanks and half-rows', () => {
+    expect(parseCommitFiles('\nM\n M\t"sp ace.ts"\n')[0]?.path).toBe('sp ace.ts')
+    expect(parseCommitFiles('')).toEqual([])
+  })
+  it('a commit has ONE axis: dim tone, bare letter, no staged vocabulary', () => {
+    // Everything in a commit is committed. Reporting "modified (staged)" would
+    // name an index that has nothing left to say about a file already in
+    // history — and the badge must not borrow the colour that means staged.
+    const [entry] = parseCommitFiles('M\tsrc/a.ts\n')
+    expect(entryTone(entry!)).toBe('committed')
+    expect(entryBadge(entry!)).toBe('M')
+    expect(entryStatus(entry!)).toBe('modified')
+    expect(entryTitle(entry!)).toBe('modified — src/a.ts')
   })
 })
 

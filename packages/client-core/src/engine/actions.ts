@@ -193,7 +193,14 @@ type ActionState = {
 type ActionName = (typeof UI_LOCAL_ACTIONS)[number] | (typeof COMMAND_ACTIONS)[number]
 export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick<
   Store<TApi>,
-  ActionName | 'readFileScoped' | 'listDir' | 'gitStatus' | 'gitLog' | 'gitDiffFile'
+  | ActionName
+  | 'readFileScoped'
+  | 'listDir'
+  | 'gitStatus'
+  | 'gitLog'
+  | 'gitDiffFile'
+  | 'gitCommitFiles'
+  | 'gitCommitDiffFile'
 > & { readonly replicatedLayout: ReplicatedLayoutController }
 
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
@@ -811,6 +818,9 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     gitStatus: ((args) => api.git.status.query(args)) as Store<TApi>['gitStatus'],
     gitLog: ((args) => api.git.log.query(args)) as Store<TApi>['gitLog'],
     gitDiffFile: ((args) => api.git.diffFile.query(args)) as Store<TApi>['gitDiffFile'],
+    gitCommitFiles: ((args) => api.git.commitFiles.query(args)) as Store<TApi>['gitCommitFiles'],
+    gitCommitDiffFile: ((args) =>
+      api.git.commitDiffFile.query(args)) as Store<TApi>['gitCommitDiffFile'],
     spawnDraftAgent: (args) => rt.spawnDraftAgent(args),
     killSession: async (sessionId) => {
       await api.sessions.kill.mutate({ sessionId }).catch(() => {})

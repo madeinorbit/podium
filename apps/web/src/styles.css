@@ -9454,6 +9454,12 @@ a.ref-link--session::before {
 .diff-tone-untracked {
   color: var(--text-faint);
 }
+/* A commit's files [POD-1289]: everything in a commit is committed, so there is
+   no axis for colour to separate. The badge stays a letter, dim — the colour in
+   this rail means "which side of the index", and history has no side. */
+.diff-tone-committed {
+  color: var(--text-dim);
+}
 .diff-file-name {
   min-width: 0;
   overflow: hidden;
@@ -9723,6 +9729,16 @@ a.ref-link--session::before {
   display: inline-flex;
   align-items: baseline;
   gap: 9px;
+  min-width: 0;
+}
+/* A commit subject is prose of unknown length in a fixed-width title slot: it
+   truncates so the sha beside it — the thing that identifies the commit — is
+   never the half pushed out of the sheet. */
+.diff-sheet-subject {
+  overflow: hidden;
+  max-width: 46ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .diff-sheet-branch {
   display: inline-flex;

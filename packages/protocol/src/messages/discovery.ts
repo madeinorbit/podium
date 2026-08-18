@@ -100,6 +100,12 @@ export const RepoOp = z.enum([
   // logPanel: parseable recent-commit list; diffFile: one file's diff vs HEAD.
   'logPanel',
   'diffFile',
+  // Unfolding a commit in that panel [POD-1289]: which files it touched, and
+  // one of those files' diff INSIDE the commit. `diffFile` answers about the
+  // working tree, which is a different question — after a commit lands it says
+  // "nothing changed", the exact answer that made a landed commit unreadable.
+  'commitFiles',
+  'commitDiffFile',
   // Composer @-file autocomplete (POD-412) — the checkout's TRACKED paths, so
   // the picker can rank them without a directory walk. Read-only and
   // --no-optional-locks like the probes above; NUL-separated because a path may

@@ -16,12 +16,17 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DiffSheet } from './DiffSheet'
-import { parseStatus } from './git-panel'
+import { parseCommitFiles, parseStatus } from './git-panel'
 
 const { entries } = parseStatus(
-  ['## issue/787-diff', 'M  src/a.ts', ' M src/deep/b.ts', '?? notes.md', '?? shot.png', '?? out/'].join(
-    '\n',
-  ),
+  [
+    '## issue/787-diff',
+    'M  src/a.ts',
+    ' M src/deep/b.ts',
+    '?? notes.md',
+    '?? shot.png',
+    '?? out/',
+  ].join('\n'),
 )
 
 const diffFor = (path: string): string =>
@@ -43,6 +48,10 @@ const gitDiffFile = vi.fn(async ({ path }: { path: string }) => ({
 }))
 // The real read refuses a binary blob by NAMING it — the sheet must not print
 // that refusal as a failure.
+const gitCommitDiffFile = vi.fn(async ({ path }: { sha: string; path: string }) => ({
+  ok: true,
+  output: diffFor(path),
+}))
 const readFileScoped = vi.fn(async (_scope: unknown, path: string) =>
   path.endsWith('.png')
     ? { ok: false, path, binary: true }
@@ -72,12 +81,14 @@ const uiState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useStoreSelector: (sel: (s: unknown) => unknown) => sel({ gitDiffFile, readFileScoped, uiState }),
+  useStoreSelector: (sel: (s: unknown) => unknown) =>
+    sel({ gitDiffFile, gitCommitDiffFile, readFileScoped, uiState }),
 }))
 
 afterEach(() => {
   cleanup()
   gitDiffFile.mockClear()
+  gitCommitDiffFile.mockClear()
   readFileScoped.mockClear()
   uiRows.clear()
 })
@@ -88,6 +99,23 @@ const open = (initialPath: string) =>
       cwd="/w/787"
       entries={entries}
       branch="issue/787-diff"
+      initialPath={initialPath}
+      refreshing={false}
+      onRefresh={() => {}}
+      onClose={() => {}}
+    />,
+  )
+
+const COMMIT = { sha: 'abc1234ffff0000', shortSha: 'abc1234', subject: 'Teach the dock history' }
+const commitEntries = parseCommitFiles(['M\tsrc/a.ts', 'A\tsrc/deep/b.ts'].join('\n'))
+
+/** The same sheet, opened from an unfolded commit row instead of the tree. */
+const openCommit = (initialPath: string) =>
+  render(
+    <DiffSheet
+      cwd="/w/787"
+      entries={commitEntries}
+      commit={COMMIT}
       initialPath={initialPath}
       refreshing={false}
       onRefresh={() => {}}
@@ -193,6 +221,39 @@ describe('DiffSheet', () => {
     open('src/a.ts')
     await screen.findByText('function shape() {')
     expect(screen.getByTitle(/Wrap long lines/).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  /**
+   * A COMMIT reads out of history [POD-1289]. The distinction the sheet has to
+   * hold is that `git diff HEAD` — the working-tree question — answers "nothing
+   * changed" about anything already committed, which is exactly the case the
+   * unfold exists to show.
+   */
+  it('reads a commit out of history, never through the working-tree diff', async () => {
+    openCommit('src/deep/b.ts')
+    expect(await screen.findByText('function shape() {')).toBeTruthy()
+
+    await waitFor(() => {
+      expect(gitCommitDiffFile.mock.calls.map((c) => c[0].path).sort()).toEqual([
+        'src/a.ts',
+        'src/deep/b.ts',
+      ])
+    })
+    expect(gitCommitDiffFile.mock.calls.every((c) => c[0].sha === COMMIT.sha)).toBe(true)
+    // Not one worktree question asked about a file that is already in history.
+    expect(gitDiffFile).not.toHaveBeenCalled()
+    expect(readFileScoped).not.toHaveBeenCalled()
+  })
+
+  it('the commit names itself, and offers no re-probe for something immutable', async () => {
+    openCommit('src/a.ts')
+    await screen.findByText('function shape() {')
+    // The reader came from ONE row of a log: the sheet says which.
+    expect(screen.getByText(COMMIT.subject)).toBeTruthy()
+    expect(screen.getByTitle(COMMIT.sha).textContent).toContain(COMMIT.shortSha)
+    expect(screen.queryByTitle(/Re-read the working tree/)).toBeNull()
+    // One axis, so a bare letter in the dim tone — never the staged colour.
+    expect(row('src/a.ts').querySelector('.diff-tone-committed')?.textContent).toBe('M')
   })
 
   it('walks the files with j and k', async () => {

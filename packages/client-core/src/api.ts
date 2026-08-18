@@ -257,6 +257,16 @@ export interface PodiumClientApi {
       { machineId?: MachineId; root: string; path: string },
       { ok: boolean; output: string }
     >
+    /** Unfolding a commit row [POD-1289]: the files it touched, then one of
+     *  those files' diff INSIDE it — history, not the working tree. */
+    commitFiles: ApiQuery<
+      { machineId?: MachineId; root: string; sha: string },
+      { ok: boolean; output: string }
+    >
+    commitDiffFile: ApiQuery<
+      { machineId?: MachineId; root: string; sha: string; path: string },
+      { ok: boolean; output: string }
+    >
   }
   settings: {
     get: ApiQuery<void, PodiumSettings>

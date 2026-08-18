@@ -70,38 +70,63 @@ export const SEARCH_QUERIES = {
 /** Working-tree status, recent commits, one file's diff. Same repo-root
  *  allowlist gate as `files`; each query maps to a fixed lock-free daemon repo
  *  op (never a shell string). */
-const repoOp = (op: 'statusProbe' | 'logPanel' | 'diffFile') =>
-  q(
+type GitPanelOp = 'statusProbe' | 'logPanel' | 'diffFile' | 'commitFiles' | 'commitDiffFile'
+
+/** Which extra arguments each op forwards to the daemon — one table rather than
+ *  a chain of per-op conditionals, so adding the commit ops [POD-1289] states
+ *  what they need instead of restating the branching twice. */
+const REPO_OP_ARGS: Record<GitPanelOp, ReadonlyArray<'path' | 'sha'>> = {
+  statusProbe: [],
+  logPanel: [],
+  diffFile: ['path'],
+  commitFiles: ['sha'],
+  commitDiffFile: ['sha', 'path'],
+}
+
+const repoOp = (op: GitPanelOp) => {
+  const needs = REPO_OP_ARGS[op]
+  return q(
     z.object({
       machineId: MachineIdField.optional(),
       root: z.string(),
-      ...(op === 'diffFile' ? { path: z.string() } : {}),
-      // Three ops, one schema, so the shape is asserted rather than inferred. The
+      ...(needs.includes('path') ? { path: z.string() } : {}),
+      // A sha is an object name, never a user-typed ref: hex only, so nothing
+      // that could parse as a git OPTION reaches the daemon's argv (which
+      // guards it a second time — this is the outer of the two gates).
+      ...(needs.includes('sha') ? { sha: z.string().regex(/^[0-9a-f]{7,40}$/) } : {}),
+      // Five ops, one schema, so the shape is asserted rather than inferred. The
       // INPUT parameter is spelled out and stays a bare `string`: a zod brand is
       // an OUTPUT-side type, and tRPC types a procedure's argument as `z.input`.
       // Collapsing this to the one-parameter form would publish `MachineId` as
       // what a CALLER must pass, which no caller can construct — and `store.tsx`
       // says so, since apps/web constrains the live client to `PodiumClientApi`.
     }) as z.ZodType<
-      { machineId?: MachineId | undefined; root: string; path?: string },
+      { machineId?: MachineId | undefined; root: string; path?: string; sha?: string },
       z.ZodTypeDef,
-      { machineId?: MachineId | undefined; root: string; path?: string }
+      { machineId?: MachineId | undefined; root: string; path?: string; sha?: string }
     >,
     (s, input) => {
       assertAllowedRoot(fileState(s), input.root)
+      const args: Record<string, string> = {}
+      if (needs.includes('path')) args.path = input.path as string
+      if (needs.includes('sha')) args.sha = input.sha as string
       return s.modules.rpc.repoOp(
         op,
         input.root,
-        op === 'diffFile' ? { path: input.path as string } : undefined,
+        needs.length > 0 ? args : undefined,
         input.machineId,
       )
     },
   )
+}
 
 export const GIT_QUERIES = {
   status: repoOp('statusProbe'),
   log: repoOp('logPanel'),
   diffFile: repoOp('diffFile'),
+  /** Unfolding a commit row [POD-1289]: its files, then one file's diff. */
+  commitFiles: repoOp('commitFiles'),
+  commitDiffFile: repoOp('commitDiffFile'),
 } as const
 
 // ---------------------------------------------------------------------------

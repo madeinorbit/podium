@@ -363,6 +363,20 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     root: string
     path: string
   }) => Promise<Awaited<ReturnType<TApi['git']['diffFile']['query']>>>
+  /** Unfolding a commit [POD-1289] — the files it touched, and one file's diff
+   *  INSIDE it. Not `gitDiffFile`: that asks about the working tree, which
+   *  answers "nothing" for anything already committed. */
+  gitCommitFiles: (args: {
+    machineId?: MachineId
+    root: string
+    sha: string
+  }) => Promise<Awaited<ReturnType<TApi['git']['commitFiles']['query']>>>
+  gitCommitDiffFile: (args: {
+    machineId?: MachineId
+    root: string
+    sha: string
+    path: string
+  }) => Promise<Awaited<ReturnType<TApi['git']['commitDiffFile']['query']>>>
   split: boolean
   /** Split the focused pane in two, or — when the layout is already split —
    *  collapse it back to one pane, merging every pane's tabs into the first.

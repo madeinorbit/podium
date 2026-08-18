@@ -1,10 +1,11 @@
 /**
  * Pure parsing for the Git dock panel [POD-114]: raw output of the read-only
- * repo ops (statusProbe / logPanel / diffFile) → render-ready rows. Rendering
- * lives in GitPanelView.tsx.
+ * repo ops (statusProbe / logPanel / diffFile / commitFiles) → render-ready
+ * rows. Rendering lives in GitPanelView.tsx.
  */
 
-/** One working-tree entry from `git status --porcelain=v1 -b`. */
+/** One changed file — from `git status --porcelain=v1 -b` for the working tree,
+ *  or from a commit's own file list (see `committed`). */
 export type StatusEntry = {
   /** Staged (index) status letter, ' ' when unstaged-only. */
   x: string
@@ -14,6 +15,15 @@ export type StatusEntry = {
   /** Rename/copy source (`R  old -> new`). */
   renamedFrom?: string
   untracked: boolean
+  /**
+   * This file is a line of a COMMIT, not of the working tree [POD-1289]. The
+   * panel and the sheet render both through the same row — same badge, same
+   * name, same diff pane — so the shape is shared; what the flag changes is the
+   * VOCABULARY. Inside a commit there is no staged/unstaged split to report,
+   * and the badge must not borrow the colour that means "staged": everything in
+   * a commit is committed, which is one state, not two.
+   */
+  committed?: boolean
 }
 
 export type StatusHeader = {
@@ -105,6 +115,32 @@ export function parseLog(output: string): LogEntry[] {
 }
 
 /**
+ * Parse `git show --format= --name-status -M` (the commitFiles op) into the same
+ * rows the working tree uses. Lines are `M\tpath` — or `R100\told\tnew` for a
+ * detected rename, where the digits are git's similarity score and carry nothing
+ * the reader of a file list needs.
+ */
+export function parseCommitFiles(output: string): StatusEntry[] {
+  const entries: StatusEntry[] = []
+  for (const line of output.split('\n')) {
+    if (line === '') continue
+    const parts = line.split('\t')
+    const code = parts[0]
+    if (!code || parts.length < 2) continue
+    const letter = code[0] ?? 'M'
+    // A rename/copy names both ends; everything else names one path.
+    const isPair = (letter === 'R' || letter === 'C') && parts.length >= 3
+    const path = unquotePath((isPair ? parts[2] : parts[1]) ?? '')
+    if (path === '') continue
+    const entry: StatusEntry = { x: letter, y: ' ', path, untracked: false, committed: true }
+    if (isPair) entry.renamedFrom = unquotePath(parts[1] ?? '')
+    entries.push(entry)
+  }
+  entries.sort((a, b) => a.path.localeCompare(b.path))
+  return entries
+}
+
+/**
  * Synthesize an all-added diff for an untracked file (git diff HEAD skips it).
  * The hunk header is part of the synthesis, not decoration: it is what lets an
  * untracked file render through the same parser — and be line-numbered — as a
@@ -143,12 +179,17 @@ export function statusWord(code: string): string {
 
 /** Two-letter badge for an entry — `??` for untracked, else trimmed XY. */
 export function entryBadge(e: StatusEntry): string {
+  if (e.committed) return e.x
   if (e.untracked) return '??'
   return `${e.x}${e.y}`.trim()
 }
 
 /** What happened to the file, in words: "modified (staged) + modified". */
 export function entryStatus(e: StatusEntry): string {
+  // A commit has one axis. `M` there means "this commit modified it", full stop
+  // — reporting it as "modified (staged)" would name an index that no longer
+  // has anything to say about a file already in history.
+  if (e.committed) return statusWord(e.x) || 'changed'
   if (e.untracked) return 'untracked'
   const parts: string[] = []
   if (e.x !== ' ') parts.push(`${statusWord(e.x)} (staged)`)
@@ -165,10 +206,12 @@ export function entryTitle(e: StatusEntry): string {
 /**
  * Which axis an entry lives on. Both surfaces tint the badge by it — the dock
  * in utilities, the sheet in its own stylesheet — so the RULE (staged reads
- * live, unstaged reads warning, untracked stays muted) is decided once here
+ * live, unstaged reads warning, untracked stays muted, a commit's files stay
+ * dim because "committed" is one state and needs no signal colour) is decided once here
  * rather than restated in two class lists that can drift apart.
  */
-export function entryTone(e: StatusEntry): 'staged' | 'unstaged' | 'untracked' {
+export function entryTone(e: StatusEntry): 'staged' | 'unstaged' | 'untracked' | 'committed' {
+  if (e.committed) return 'committed'
   if (e.untracked) return 'untracked'
   if (e.x !== ' ' && e.y === ' ') return 'staged'
   return 'unstaged'

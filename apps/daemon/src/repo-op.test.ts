@@ -72,6 +72,48 @@ describe('repoOpCommand', () => {
     })
     expect(repoOpCommand('diffFile', {})).toEqual({ error: 'missing args' })
   })
+  it('unfolds a commit against its first parent, so a merge answers too [POD-1289]', () => {
+    // `git show` on a merge prints an EMPTY diff by default: without `-m
+    // --first-parent` an unfolded merge row would list no files at all.
+    expect(repoOpCommand('commitFiles', { sha: 'abc1234' })).toEqual({
+      bin: 'git',
+      argv: [
+        '--no-optional-locks',
+        'show',
+        '--format=',
+        '--name-status',
+        '-M',
+        '-m',
+        '--first-parent',
+        'abc1234',
+        '--',
+      ],
+    })
+    expect(repoOpCommand('commitDiffFile', { sha: 'abc1234', path: 'src/a.ts' })).toEqual({
+      bin: 'git',
+      argv: [
+        '--no-optional-locks',
+        'show',
+        '--format=',
+        '-M',
+        '-m',
+        '--first-parent',
+        'abc1234',
+        '--',
+        'src/a.ts',
+      ],
+    })
+    // `show` has no `--` protecting its REV slot, so the sha is guarded; the
+    // path rides after `--` and is inert whatever it starts with.
+    expect(repoOpCommand('commitFiles', { sha: '--output=/tmp/x' })).toEqual({
+      error: expect.stringMatching(/unsafe sha/) as unknown as string,
+    })
+    expect(repoOpCommand('commitDiffFile', { sha: 'abc1234', path: '-D' })).toMatchObject({
+      argv: expect.arrayContaining(['--', '-D']) as unknown as string[],
+    })
+    expect(repoOpCommand('commitFiles', {})).toEqual({ error: 'missing args' })
+    expect(repoOpCommand('commitDiffFile', { sha: 'abc1234' })).toEqual({ error: 'missing args' })
+  })
   it('lists tracked paths NUL-separated for the composer @-menu [POD-412]', () => {
     // The server's `files.search` parses this output by splitting on NUL and
     // runs the identical argv in its own seam test — the two must not drift.
@@ -398,7 +440,17 @@ describe('repoOpCommand against a real git scratch repo (issue #81)', () => {
     try {
       git(['init', '-q', '-b', 'main'], other)
       // A commit that exists ONLY here.
-      git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'local-only'])
+      git([
+        '-c',
+        'user.email=t@t',
+        '-c',
+        'user.name=t',
+        'commit',
+        '-q',
+        '--allow-empty',
+        '-m',
+        'local-only',
+      ])
       const sha = git(['rev-parse', 'HEAD']).out.trim()
 
       // The target genuinely cannot see it — the precondition, asserted rather

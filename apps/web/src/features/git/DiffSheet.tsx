@@ -1,7 +1,7 @@
-import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { DIFF_SHEET_WRAP_KEY } from '@podium/client-core/ui-state'
-import { GitBranch, RefreshCw, WrapText } from 'lucide-react'
+import type { MachineId } from '@podium/model'
+import { GitBranch, GitCommitHorizontal, RefreshCw, WrapText } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
@@ -44,6 +44,7 @@ export function DiffSheet({
   machineId,
   entries,
   branch,
+  commit,
   initialPath,
   onClose,
   onRefresh,
@@ -55,6 +56,15 @@ export function DiffSheet({
   /** The working-tree inventory, in the dock's own order. */
   entries: StatusEntry[]
   branch?: string | null
+  /**
+   * The COMMIT these entries belong to [POD-1289], when the sheet was opened
+   * from an unfolded log row instead of from the working tree. It answers both
+   * halves of the difference: each file's diff is read out of this commit
+   * rather than out of the worktree (where a landed change reads as no change
+   * at all), and the title names the commit rather than the branch. History is
+   * immutable, so the re-probe control stands down with it.
+   */
+  commit?: { sha: string; shortSha: string; subject: string } | undefined
   /** The file the click was on — the sheet opens reading it. */
   initialPath: string
   onClose: () => void
@@ -73,7 +83,7 @@ export function DiffSheet({
 }): JSX.Element {
   const [selected, setSelected] = useState(initialPath)
   const [wrap, setWrap] = usePersistedUiState<boolean>(DIFF_SHEET_WRAP_KEY, readWrap, writeWrap)
-  const diffs = useDiffs({ entries, cwd, machineId, selected, sources })
+  const diffs = useDiffs({ entries, cwd, machineId, selected, sources, commit })
 
   // The inventory can change under the sheet (refresh, or an agent committing
   // while you read): fall back to the first file rather than an empty pane.
@@ -143,26 +153,49 @@ export function DiffSheet({
 
   return (
     <AppSheet
-      label="Working tree changes"
+      label={commit ? `Commit ${commit.shortSha}` : 'Working tree changes'}
       testId="diff-sheet"
       className="app-sheet-diff"
       title={
-        <span className="diff-sheet-title">
-          Changes
-          {branch && (
-            <span className="diff-sheet-branch" title={`on ${branch}`}>
-              <GitBranch size={11} aria-hidden="true" />
-              <bdi>{branch}</bdi>
+        // A commit already HAS a name — its subject — so the sheet wears that
+        // instead of the generic word, with the sha where the branch chip sits.
+        // The reader arrived here from one row of a log; the title has to say
+        // which row, or every commit's diff looks like the same sheet.
+        commit ? (
+          <span className="diff-sheet-title">
+            <span className="diff-sheet-subject" title={commit.subject}>
+              {commit.subject}
             </span>
-          )}
-        </span>
+            <span className="diff-sheet-branch" title={commit.sha}>
+              <GitCommitHorizontal size={11} aria-hidden="true" />
+              <bdi>{commit.shortSha}</bdi>
+            </span>
+          </span>
+        ) : (
+          <span className="diff-sheet-title">
+            Changes
+            {branch && (
+              <span className="diff-sheet-branch" title={`on ${branch}`}>
+                <GitBranch size={11} aria-hidden="true" />
+                <bdi>{branch}</bdi>
+              </span>
+            )}
+          </span>
+        )
       }
       toolbar={
         <span className="diff-sheet-toolbar">
           {/* The totals land when every file has: a figure that climbs while
               the fetches arrive is a progress bar wearing a number's clothes. */}
           {totals.pending === 0 && entries.length > 0 && (
-            <span className="diff-sheet-totals" title="Lines added and removed against HEAD">
+            <span
+              className="diff-sheet-totals"
+              title={
+                commit
+                  ? 'Lines added and removed by this commit'
+                  : 'Lines added and removed against HEAD'
+              }
+            >
               <span className="diff-count-add">+{totals.added}</span>
               <span className="diff-count-del">−{totals.removed}</span>
             </span>
@@ -179,7 +212,7 @@ export function DiffSheet({
           >
             <WrapText size={14} aria-hidden="true" />
           </button>
-          {!sources && (
+          {!sources && !commit && (
             <button
               data-pressable
               type="button"
@@ -188,7 +221,11 @@ export function DiffSheet({
               disabled={refreshing}
               onClick={onRefresh}
             >
-              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" />
+              <RefreshCw
+                size={14}
+                className={refreshing ? 'animate-spin' : ''}
+                aria-hidden="true"
+              />
             </button>
           )}
         </span>
@@ -239,7 +276,9 @@ export function DiffSheet({
           {current ? (
             <FilePane key={current.path} entry={current} state={diffs[current.path]} wrap={wrap} />
           ) : (
-            <div className="diff-empty">Working tree clean.</div>
+            <div className="diff-empty">
+              {commit ? 'This commit touched no files.' : 'Working tree clean.'}
+            </div>
           )}
         </div>
       </div>
@@ -441,17 +480,27 @@ function useDiffs({
   machineId,
   selected,
   sources,
+  commit,
 }: {
   entries: StatusEntry[]
   cwd: string
   machineId?: MachineId
   selected: string
   sources?: Record<string, string> | undefined
+  commit?: { sha: string } | undefined
 }): Record<string, DiffState> {
-  const { gitDiffFile, readFileScoped } = useStoreSelector(
-    (s) => ({ gitDiffFile: s.gitDiffFile, readFileScoped: s.readFileScoped }),
+  const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreSelector(
+    (s) => ({
+      gitDiffFile: s.gitDiffFile,
+      gitCommitDiffFile: s.gitCommitDiffFile,
+      readFileScoped: s.readFileScoped,
+    }),
     shallowEqual,
   )
+  // The sha, not the object: the caller builds its commit descriptor inline, so
+  // depending on the object would rebuild `load` on every render for a value
+  // that never changed.
+  const commitSha = commit?.sha
   const [diffs, setDiffs] = useState<Record<string, DiffState>>({})
   const inflight = useRef(new Set<string>())
   const running = useRef(0)
@@ -480,7 +529,20 @@ function useDiffs({
         let next: DiffState
         try {
           const given = sources?.[entry.path]
-          if (given !== undefined) {
+          if (commitSha) {
+            // Inside a commit every file is answered the same way — there is no
+            // untracked half, and no working tree to read: the object database
+            // already holds both sides.
+            const r = await gitCommitDiffFile({
+              machineId,
+              root: cwd,
+              sha: commitSha,
+              path: entry.path,
+            })
+            next = r.ok
+              ? { loading: false, parsed: parseDiff(r.output) }
+              : { loading: false, error: r.output || 'git could not diff this file.' }
+          } else if (given !== undefined) {
             // The caller already HAS the diff — a transcript's own record of what
             // a tool changed. Asking git for it would answer a different
             // question and, for anything already committed, answer "nothing".
@@ -518,7 +580,7 @@ function useDiffs({
         setDiffs((d) => ({ ...d, [entry.path]: next }))
       })()
     },
-    [cwd, machineId, gitDiffFile, readFileScoped, sources],
+    [cwd, machineId, gitDiffFile, gitCommitDiffFile, readFileScoped, sources, commitSha],
   )
 
   // The pump: re-entered on every arrival, so a finished fetch frees its slot
