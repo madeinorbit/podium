@@ -271,12 +271,18 @@ export function IssuesView(): JSX.Element {
    * than a second dialog of its own: `IssueBulkCloseDialog` hands a selection of
    * one straight to the single-issue guard, which is the dialog this row wants
    * anyway. A row picked from is not a row selected, so nothing here touches the
-   * selection.
+   * selection — and the guard follows POD-1278's rule: it is raised only when it
+   * has something to name.
    */
   const rowStatus = (id: IssueId, value: string): void => {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'close') {
+      const target = issues.find((issue) => issue.id === id)
+      if (target && !needsCloseGuard(target)) {
+        runMut(closeIssue(id, intent.reason))
+        return
+      }
       setBulkClose({ ids: [id], reason: intent.reason })
       return
     }

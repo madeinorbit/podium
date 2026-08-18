@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { JSX } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IssueStatusPicker } from './IssueStatusPicker'
 
