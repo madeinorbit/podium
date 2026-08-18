@@ -84,6 +84,11 @@ describe('SessionRegistry', () => {
     const nativeId = 'subagent-under-test'
     const stalePath = '/project/subagents/stale-name.jsonl'
     const seeded = new SessionStore(file, TEST_MACHINE)
+    const seededRegistry = new SessionRegistry(seeded, undefined, { instanceId: 'seed' })
+    const { sessionId } = seededRegistry.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/project',
+    })
     seeded.conversations.registry.ensure({
       machineId: TEST_MACHINE,
       nativeId,
@@ -91,14 +96,17 @@ describe('SessionRegistry', () => {
       path: stalePath,
     })
     expect(seeded.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
+    seededRegistry.dispose()
     seeded.close()
 
     const queryOnly = new SessionStore(file, TEST_MACHINE, { queryOnly: true })
+    expect(queryOnly.sessions.getSession(sessionId)).toBeDefined()
     const recovery = new SessionRegistry(queryOnly, undefined, {
       instanceId: 'recovery-only',
       recoveryOnly: true,
     })
     expect(queryOnly.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
+    expect(recovery.modules.sessions.listSessions()).toEqual([])
     recovery.dispose()
     queryOnly.close()
 

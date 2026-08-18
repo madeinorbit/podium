@@ -1223,7 +1223,9 @@ export class SessionRegistry {
     this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
     // Boot: hydrate sessions (and reconcile the restored state against the
     // write-seam ledger — boot reconciliation lives in the sessions module now).
-    sessionsSvc.loadFromStore()
+    // Recovery-only serves operations/history/action/health and holds a query-only
+    // store, so it neither needs nor may run session restoration's boot writers.
+    if (!recoveryOnly) sessionsSvc.loadFromStore()
     // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
