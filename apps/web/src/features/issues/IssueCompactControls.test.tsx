@@ -298,25 +298,40 @@ describe('IssueCompactControls', () => {
   })
 
   // The terminal statuses are reachable from the status menu, but never as a
-  // bare stage write: the entry hands off to the guard dialog so a reason is
-  // recorded.
+  // bare stage write: the entry records an ENDING. Whether the guard stands in
+  // between is POD-1278's question — it does when there is something to weigh.
+  const unresolved = { id: 'i', childCount: 1, childDoneCount: 0 } as const
+
   it('routes the status menu terminal entries through the guard dialog', async () => {
-    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+    render(<IssueCompactControls issue={makeIssue(unresolved)} />)
 
     fireEvent.click(screen.getByLabelText('Status'))
     fireEvent.click(await screen.findByText('Done'))
 
-    expect(await screen.findByText('Close this issue?')).toBeTruthy()
+    expect(await screen.findByText('This issue still needs attention')).toBeTruthy()
+    expect(closeIssue).not.toHaveBeenCalled()
   })
 
   it('confirms the close through the optimistic store action', async () => {
+    render(<IssueCompactControls issue={makeIssue(unresolved)} />)
+
+    fireEvent.click(screen.getByLabelText('Status'))
+    fireEvent.click(await screen.findByText('Done'))
+    fireEvent.click(await screen.findByText('Close anyway'))
+
+    expect(closeIssue).toHaveBeenCalledWith('i', 'done')
+  })
+
+  // POD-1278: a tidy task has nothing for the guard to list, and a dialog that
+  // rises to say so is asking again for the press just made.
+  it('records the ending on the press when nothing is unresolved', async () => {
     render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
 
     fireEvent.click(screen.getByLabelText('Status'))
     fireEvent.click(await screen.findByText('Done'))
-    fireEvent.click(await screen.findByText('Close issue'))
 
     expect(closeIssue).toHaveBeenCalledWith('i', 'done')
+    expect(screen.queryByText('Close this issue?')).toBeNull()
   })
 
   // POD-1074: cancelled and duplicate are their own endings, not one "wontfix".
@@ -325,7 +340,6 @@ describe('IssueCompactControls', () => {
 
     fireEvent.click(screen.getByLabelText('Status'))
     fireEvent.click(await screen.findByText('Cancelled'))
-    fireEvent.click(await screen.findByText('Close as cancelled'))
 
     expect(closeIssue).toHaveBeenCalledWith('i', 'cancelled')
   })
@@ -335,7 +349,6 @@ describe('IssueCompactControls', () => {
 
     fireEvent.click(screen.getByLabelText('Status'))
     fireEvent.click(await screen.findByText('Duplicate'))
-    fireEvent.click(await screen.findByText('Close as duplicate'))
 
     expect(closeIssue).toHaveBeenCalledWith('i', 'duplicate')
   })

@@ -29,7 +29,7 @@ import {
 import { IssuesKanban } from './IssuesKanban'
 import { type BoardFilter, clearChip } from './issue-board-filter'
 import { contextMenuTargets } from './issue-context-menu'
-import { IssueBulkCloseDialog, type IssueCloseReason } from './issue-lifecycle'
+import { IssueBulkCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import {
   DISPLAY_KEY,
   type IssuesDisplay,
@@ -81,6 +81,7 @@ export function IssuesView(): JSX.Element {
     null,
   )
   const [bulkClosing, setBulkClosing] = useState(false)
+  const needsCloseGuard = useIssueCloseGuard()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [showShortcuts, setShowShortcuts] = useState(false)
   const issueScrollPositions = useRef<{
@@ -247,6 +248,17 @@ export function IssuesView(): JSX.Element {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'close') {
+      // A selection of ONE is handed to the single-issue dialog by
+      // `IssueBulkCloseDialog`, so it follows the single-issue rule (POD-1278):
+      // the guard is raised only when it has something to name. A real batch
+      // still gets its dialog — its headline carries a count of what is about to
+      // close, which is a fact the bar has not otherwise shown.
+      const only =
+        selectedIds.length === 1 ? issues.find((i) => i.id === selectedIds[0]) : undefined
+      if (only && !needsCloseGuard(only)) {
+        runMut(closeIssue(only.id, intent.reason))
+        return
+      }
       setBulkClose({ ids: selectedIds, reason: intent.reason })
       return
     }

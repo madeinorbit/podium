@@ -87,6 +87,7 @@ describe('IssueContextMenu close guard (POD-1113)', () => {
   })
 
   it('closes with the reason the entry carried once the guard is confirmed', async () => {
+    state.sessions = [working()]
     const { onClose } = open()
     pickStatus(/^Cancelled/)
     fireEvent.click(screen.getByRole('button', { name: /Close as cancelled/ }))
@@ -95,11 +96,25 @@ describe('IssueContextMenu close guard (POD-1113)', () => {
   })
 
   it('keeps the issue open — and dismisses the menu — when the guard is declined', () => {
+    state.sessions = [working()]
     const { onClose } = open()
     pickStatus(/^Done/)
     fireEvent.click(screen.getByRole('button', { name: /Keep open/ }))
     expect(closeIssue).not.toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
+  })
+
+  // POD-1278. The guard used to rise on every close, and with nothing to list it
+  // said so — an amber warning about an issue that has nothing wrong with it,
+  // asking again for the press just made. It now behaves like every other menu
+  // command when it has nothing to name; the three cases above prove it still
+  // rises when it does.
+  it('closes on the press when nothing is unresolved, with no guard in between', async () => {
+    const { onClose } = open()
+    pickStatus(/^Done/)
+    expect(closeIssue).toHaveBeenCalledWith('i', 'done')
+    expect(screen.queryByTestId('issue-close-concerns')).toBeNull()
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 
   it('defers to a host that owns the dialog instead of mounting a second one', () => {

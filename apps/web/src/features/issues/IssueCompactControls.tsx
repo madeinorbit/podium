@@ -45,7 +45,7 @@ import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { IssueContextMenu } from './IssueContextMenu'
 import { StatusGlyph } from './issue-glyphs'
-import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
+import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
@@ -511,6 +511,7 @@ export function IssueCompactControls({
   const issues = useReplicaIssues()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
+  const needsCloseGuard = useIssueCloseGuard()
   const [closing, setClosing] = useState(false)
   const [starting, setStarting] = useState(false)
 
@@ -560,7 +561,7 @@ export function IssueCompactControls({
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'close') {
-      setCloseReason(intent.reason)
+      requestClose(intent.reason)
       return
     }
     updateIssue(issue.id, { stage: intent.stage }).catch((error: unknown) =>
@@ -578,11 +579,20 @@ export function IssueCompactControls({
       .finally(() => setClosing(false))
   }
 
+  /** The one way this panel asks for a close (POD-1278) — the status menu, the
+   *  Done button, and the context menu all land here. The guard is raised only
+   *  when it has something to name; otherwise the ending is recorded on the
+   *  press, which is what confirming would have done. */
+  const requestClose = (reason: IssueCloseReason): void => {
+    if (needsCloseGuard(issue)) setCloseReason(reason)
+    else confirmClose(reason)
+  }
+
   const runAction = (): void => {
     if (!action) return
     switch (action.kind) {
       case 'mark-done':
-        setCloseReason('done')
+        requestClose('done')
         return
       case 'start-work':
         startWork()
@@ -772,7 +782,7 @@ export function IssueCompactControls({
           anchor={menu}
           onClose={() => setMenu(null)}
           onOpen={openFull}
-          onRequestClose={setCloseReason}
+          onRequestClose={requestClose}
           surface="sidebar"
         />
       )}

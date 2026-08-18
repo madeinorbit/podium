@@ -47,7 +47,11 @@ import { openAddProject } from '@/app/desktop-menu'
 import { IssueReference } from '@/components/IssueReference'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
-import { IssueCloseDialog, type IssueCloseReason } from '@/features/issues/issue-lifecycle'
+import {
+  IssueCloseDialog,
+  type IssueCloseReason,
+  useIssueCloseGuard,
+} from '@/features/issues/issue-lifecycle'
 import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
@@ -163,6 +167,7 @@ export function CommandPalette(): JSX.Element {
   const [closeTarget, setCloseTarget] = useState<IssueViewModel | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
+  const needsCloseGuard = useIssueCloseGuard()
   const confirmClose = (reason: IssueCloseReason): void => {
     if (!closeTarget) return
     setClosing(true)
@@ -181,6 +186,14 @@ export function CommandPalette(): JSX.Element {
           onNewIssue={() => setNewIssueOpen(true)}
           onAddRepo={openAddProject}
           onRequestClose={(issue, reason) => {
+            // Raised only when it has something to name (POD-1278); a tidy task
+            // closes on the row's press like every other palette command.
+            if (!needsCloseGuard(issue)) {
+              void closeIssue(issue.id, reason).catch((error: unknown) =>
+                toast.error(error instanceof Error ? error.message : String(error)),
+              )
+              return
+            }
             setCloseTarget(issue)
             setCloseReason(reason)
           }}

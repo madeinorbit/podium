@@ -216,4 +216,23 @@ describe('CommandPalette', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close anyway' }))
     expect(fixture.store.closeIssue).toHaveBeenCalledWith('i1', 'done')
   })
+
+  // POD-1278: the guard is raised only when it has something to list. On a tidy
+  // task the row behaves like every other palette command — it runs.
+  it('closes a tidy task on the row press, with no guard in between', () => {
+    fixture.issues = [makeIssue({ id: 'i1', title: 'Merge lock lease expiry' })]
+    fixture.store.openIssueId = 'i1'
+    render(<CommandPalette />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'set status done' } })
+
+    const row = screen
+      .getAllByRole('option')
+      .find((option) => option.textContent?.includes('Set status · Done'))
+    if (!row) throw new Error('expected a status close row on the task')
+    fireEvent.click(row)
+
+    expect(fixture.store.closeIssue).toHaveBeenCalledWith('i1', 'done')
+    expect(screen.queryByTestId('issue-close-concerns')).toBeNull()
+    expect(screen.queryByText('Close this issue?')).toBeNull()
+  })
 })

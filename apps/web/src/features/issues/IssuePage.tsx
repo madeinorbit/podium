@@ -3,7 +3,7 @@ import type { CSSProperties, JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { issueColorHex } from '@/lib/issueColors'
-import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
+import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
 import { IssueBanners } from './issue-page/IssueBanners'
@@ -82,6 +82,14 @@ export function IssuePage({
   const [addingChild, setAddingChild] = useState(false)
   const [childTitle, setChildTitle] = useState('')
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
+  // Every close on this page goes through here (POD-1278). The guard is raised
+  // only when it has something to name; with nothing unresolved the ending is
+  // recorded on the press, which is all confirming would have done.
+  const needsCloseGuard = useIssueCloseGuard()
+  const requestClose = (reason: IssueCloseReason): void => {
+    if (needsCloseGuard(issue)) setCloseReason(reason)
+    else commands.selectStatus(`close:${reason}`)
+  }
 
   // Reset transient compose/edit state on issue switch so a half-typed comment or
   // an open editor never carries across to the next issue.
@@ -248,7 +256,7 @@ export function IssuePage({
                     busy={busy}
                     commands={commands}
                     onNavigate={onNavigate}
-                    onRequestClose={setCloseReason}
+                    onRequestClose={requestClose}
                   />
                 </div>
               </details>
@@ -281,7 +289,7 @@ export function IssuePage({
             busy={busy}
             commands={commands}
             onNavigate={onNavigate}
-            onRequestClose={setCloseReason}
+            onRequestClose={requestClose}
           />
         </aside>
       </div>

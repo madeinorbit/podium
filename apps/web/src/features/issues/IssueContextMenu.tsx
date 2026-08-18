@@ -59,7 +59,7 @@ import {
   toggleLabelAcross,
 } from './issue-context-menu'
 import { PriorityGlyph, StatusGlyph } from './issue-glyphs'
-import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
+import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import {
   createIssueMenuData,
   ISSUE_MENU_COLOR_NONE,
@@ -162,6 +162,7 @@ export function IssueContextMenu({
   // its own. Non-null means the panel has handed over to the dialog.
   const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
+  const needsCloseGuard = useIssueCloseGuard()
 
   // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two
   // other cursor-anchored panels (`use-cursor-menu.ts`). Dismissal is suspended
@@ -261,6 +262,16 @@ export function IssueContextMenu({
     if (onRequestClose) {
       onClose()
       onRequestClose(reason)
+      return
+    }
+    // The guard is raised only when it has something to list (POD-1278) —
+    // otherwise this is an ordinary menu command and behaves like one: the panel
+    // goes and the ending is recorded on the press.
+    if (!needsCloseGuard(first)) {
+      onClose()
+      closeIssue(first.id, reason).catch((e: unknown) =>
+        toast.error(e instanceof Error ? e.message : String(e)),
+      )
       return
     }
     // No `run()`: closing is never immediate. The panel gives way to the guard

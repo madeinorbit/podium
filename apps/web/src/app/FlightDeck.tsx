@@ -4,7 +4,6 @@ import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core
 import {
   agentLabel,
   archivedSessionsForIssue,
-  blockingCloseConcerns,
   buildFlightDeckRows,
   type CollapsedSummary,
   type DeckIssueState,
@@ -18,7 +17,6 @@ import {
   type IssueNote,
   isCoordinatorSession,
   issueAbandoned,
-  issueCloseConcerns,
   issueContinuation,
   issueNote,
   issueOwnContentUnread,
@@ -88,7 +86,7 @@ import {
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph, StatusGlyph } from '@/features/issues/issue-glyphs'
-import { IssueCloseDialog, issueMemberSessions } from '@/features/issues/issue-lifecycle'
+import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
 import {
   type AgentRowStatus,
   agentFleetStatus,
@@ -3084,6 +3082,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    */
   const rootFinished = Boolean(root && (root.closedReason || root.stage === 'done'))
   const [signpostClosing, setSignpostClosing] = useState(false)
+  const needsCloseGuard = useIssueCloseGuard()
   const closeAndTuckRoot = (): void => {
     if (!root) return
     const id = root.id
@@ -3101,12 +3100,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       void setIssueTucked(root.id, true)
       return
     }
-    const blockers = rootIssue
-      ? blockingCloseConcerns(
-          issueCloseConcerns(rootIssue, issueMemberSessions(rootIssue, sessions)),
-        )
-      : []
-    if (blockers.length > 0) {
+    // The same question every close path now asks before raising the guard
+    // (POD-1278) — this column has asked it since POD-1212, and the hook is where
+    // it lives now.
+    if (rootIssue && needsCloseGuard(rootIssue)) {
       setSignpostClosing(true)
       return
     }

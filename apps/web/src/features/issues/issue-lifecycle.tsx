@@ -55,6 +55,38 @@ export function issueMemberSessions(
   return sessions.filter((session) => memberIds.has(session.sessionId))
 }
 
+/**
+ * WHETHER THE GUARD HAS ANYTHING TO SAY — asked BEFORE it is raised [POD-1278].
+ *
+ * The dialog exists to name what a close would strand. When it finds nothing it
+ * rose anyway to report that: an amber triangle over "No unresolved decisions,
+ * active work, open sub-tasks, or attributable delivery work were found", asking
+ * again for the press that was already made. That is a tax on the most ordinary
+ * ending there is, and it teaches that the dialog is a formality — which is
+ * exactly what makes the one that DOES list something get clicked through.
+ *
+ * Neither of the surfaces that came later does this: the phone closes on the
+ * press when nothing is at stake (POD-1129) and the flight deck's signpost only
+ * interrupts when a close would strand something (POD-1212). This is that same
+ * question, spelled once here so the desktop's four close paths cannot answer it
+ * four ways.
+ *
+ * BLOCKERS, like the phone: `blockingCloseConcerns` is the seam that keeps
+ * "every concern is blocking today" an assertion rather than an assumption. A
+ * non-blocking concern would be worth showing beside a blocker and not worth
+ * interrupting for on its own.
+ *
+ * A callback rather than a value because the hosts do not all know WHICH issue
+ * is being closed until the press — the palette closes whatever the command was
+ * run against, the menu is mounted over a selection.
+ */
+export function useIssueCloseGuard(): (issue: IssueViewModel) => boolean {
+  const sessions = useStoreSelector((store) => store.sessions) ?? []
+  return (issue) =>
+    blockingCloseConcerns(issueCloseConcerns(issue, issueMemberSessions(issue, sessions))).length >
+    0
+}
+
 /** What a batch close is about to do, issue by issue. `flagged` keeps the input
  *  order so the list reads like the selection it came from. */
 export interface IssueBulkCloseSummary {

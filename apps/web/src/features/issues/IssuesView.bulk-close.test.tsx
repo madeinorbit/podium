@@ -135,6 +135,28 @@ describe('board bulk close guard (POD-1126)', () => {
     expect(closeIssue).not.toHaveBeenCalled()
   })
 
+  // POD-1278. A selection of one is handed to the SINGLE-issue dialog, so it
+  // follows the single-issue rule: the guard rises only when it has something to
+  // name. The batch above keeps its dialog either way — its headline carries a
+  // count of what is about to close.
+  it('closes a lone tidy task on the press, with no guard in between', () => {
+    render(<IssuesView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Select POD-2' }))
+    fireEvent.click(screen.getByRole('button', { name: /bulk done \(1\)/ }))
+
+    expect(closeIssue.mock.calls).toEqual([['b', 'done']])
+    expect(screen.queryByText('Close this issue?')).toBeNull()
+  })
+
+  it('still asks about a lone task that holds work', () => {
+    render(<IssuesView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Select POD-1' }))
+    fireEvent.click(screen.getByRole('button', { name: /bulk done \(1\)/ }))
+
+    expect(closeIssue).not.toHaveBeenCalled()
+    expect(screen.getByTestId('issue-close-concerns').textContent).toContain('still working')
+  })
+
   it('leaves the reversible lane arm immediate', () => {
     render(<IssuesView />)
     selectBoth()
