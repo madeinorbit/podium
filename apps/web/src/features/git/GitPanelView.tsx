@@ -56,7 +56,7 @@ function FileRow({
       title={`${entryTitle(entry)}\nOpen the diff`}
       onClick={onOpen}
       className={`group flex w-full cursor-pointer items-center gap-1.5 py-[3px] pr-3 text-left font-mono text-[11px] leading-[1.6] hover:bg-secondary/40 ${
-        indent ? 'pl-[30px]' : 'pl-3'
+        indent ? 'pl-[12px]' : 'pl-3'
       }`}
     >
       <span className={`w-[2.5ch] flex-none font-semibold ${badgeClass(entry)}`}>
@@ -327,14 +327,20 @@ export function GitPanelView({
                   </span>
                 </button>
                 {open && (
-                  <div className="pb-1" data-testid={`commit-files-${c.shortSha}`}>
+                  // A rule dropped from the twisty ties the files to the row
+                  // that opened them. Fourteen dim paths between two commits
+                  // otherwise read as a list that belongs to neither — and the
+                  // dock is 300px, so indentation alone is not enough distance
+                  // to say "these are inside that".
+                  <div
+                    className="mb-1 ml-[17px] border-l border-border pl-px"
+                    data-testid={`commit-files-${c.shortSha}`}
+                  >
                     {files?.error ? (
-                      <div className="px-3 pb-1 pl-[30px] text-[11px] text-destructive">
-                        {files.error}
-                      </div>
+                      <div className="py-1 pl-3 text-[11px] text-destructive">{files.error}</div>
                     ) : files?.entries ? (
                       files.entries.length === 0 ? (
-                        <div className="pb-1 pl-[30px] text-[11px] text-muted-foreground/70">
+                        <div className="py-1 pl-3 text-[11px] text-muted-foreground/70">
                           No files — this commit changed nothing on this branch.
                         </div>
                       ) : (
@@ -350,7 +356,7 @@ export function GitPanelView({
                     ) : (
                       // Loading is a shape (POD-394): the answer is a short list
                       // of paths, so the wait is drawn as short lines of paths.
-                      <div className="flex flex-col gap-[5px] py-1 pl-[30px]" aria-hidden="true">
+                      <div className="flex flex-col gap-[5px] py-[6px] pl-3" aria-hidden="true">
                         {FILE_SKELETON_WIDTHS.map((w) => (
                           <span
                             key={w}
