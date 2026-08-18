@@ -72,6 +72,8 @@ export const UI_STATE_KEYS = {
   issuesDisplay: 'podium.issues.display',
   /** Guided VPS onboarding lane; replicated so it survives the server-origin transfer. */
   onboardingVps: 'podium.onboarding.vps',
+  /** The mobile-handoff promo card, dismissed for good (POD-1320). */
+  mobilePromoDismissed: 'podium.mobile.promoDismissed',
 } as const
 
 export const VIEW_KEY = UI_STATE_KEYS.view
@@ -94,6 +96,7 @@ export const MD_MODE_MAP_KEY = UI_STATE_KEYS.mdmode
 export const JSON_MODE_MAP_KEY = UI_STATE_KEYS.jsonmode
 export const ISSUES_DISPLAY_KEY = UI_STATE_KEYS.issuesDisplay
 export const ONBOARDING_VPS_KEY = UI_STATE_KEYS.onboardingVps
+export const MOBILE_PROMO_DISMISSED_KEY = UI_STATE_KEYS.mobilePromoDismissed
 export const ONBOARDING_VPS_SERVER_DRAFT_KEY = 'podium.onboarding.vpsServerDraft'
 
 export type WorkspaceUiStateKey = (typeof UI_STATE_KEYS)[keyof typeof UI_STATE_KEYS]
@@ -202,6 +205,13 @@ export const UI_STATE_ROUTES = {
   [UI_STATE_KEYS.onboardingVps]: {
     home: 'per-user-replicated',
     reason: 'First-run VPS progress must survive restart and the server-origin transfer.',
+  },
+  [UI_STATE_KEYS.mobilePromoDismissed]: {
+    home: 'per-user-replicated',
+    // "No thanks" is an answer about the PERSON, not about this browser: asking
+    // again on the laptop after it was turned down on the desktop is the same
+    // pitch a second time, which is what "dismissible forever" rules out.
+    reason: 'Declining the phone pitch is a personal decision that must follow the user.',
   },
 } as const satisfies Record<WorkspaceUiStateKey, UiStateRoute>
 

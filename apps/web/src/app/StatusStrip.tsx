@@ -4,6 +4,7 @@ import { isAgentComputing } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
+import { MobileHandoffChip } from '@/features/mobile-handoff/MobileHandoffChip'
 import { UpdateIndicator } from '@/features/updates/UpdateIndicator'
 import { useUpdates } from '@/features/updates/updates-panel-context'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
@@ -105,6 +106,11 @@ export function StatusStrip(): JSX.Element {
           <ConnectionIndicator health={health} />
         </>
       )}
+      {/* Everything above is the machine's voice, read left to right. The phone
+          chip is an OFFER, not a reading, so it takes the far end on its own —
+          the slot the "⌘K commands" hint used to hold. */}
+      <span className="status-strip-spacer" aria-hidden="true" />
+      <MobileHandoffChip />
     </footer>
   )
 }

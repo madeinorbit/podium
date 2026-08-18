@@ -1497,6 +1497,177 @@ html[data-density="balanced"] .header-quota-pools {
   flex: none;
   color: var(--text-faint);
 }
+/* Pushes the phone chip to the far end. Nothing else in the strip is right-set:
+   the readings are one sentence read left to right, and the offer is not part
+   of it. */
+.status-strip-spacer {
+  flex: 1 1 auto;
+  min-width: 9px;
+}
+/* ---- "on your phone" (POD-1320, design 1a) ----
+   A chip rather than bare words: it is the one thing in the strip you can press,
+   and the ground says so before the pointer arrives. */
+.status-strip-phone {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--text) 6%, transparent);
+  color: var(--text-dim);
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+.status-strip-phone:hover,
+.status-strip-phone[data-popup-open] {
+  background: color-mix(in oklab, var(--text) 11%, transparent);
+  color: var(--text);
+}
+.mobile-handoff-sheet {
+  display: flex;
+  width: 296px;
+  flex-direction: column;
+  gap: 11px;
+  padding: 12px 13px 11px;
+  border: 1px solid var(--input);
+  border-radius: 12px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-popover);
+  /* The strip sets mono/micro on everything inside it; the sheet is a reading
+     surface and takes the shell's text back. */
+  font-family: var(--font-sans);
+  letter-spacing: normal;
+  white-space: normal;
+  user-select: text;
+  transform-origin: var(--transform-origin);
+  animation: mobile-handoff-sheet-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes mobile-handoff-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-handoff-sheet {
+    animation: none;
+  }
+}
+.mobile-handoff-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mobile-handoff-sheet-title {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.mobile-handoff-sheet-close {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.mobile-handoff-sheet-close:hover {
+  color: var(--text);
+}
+.mobile-handoff-sheet-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.mobile-handoff-sheet-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 7px;
+}
+.mobile-handoff-sheet-copy p {
+  margin: 0;
+  font-size: var(--shell-type-secondary);
+  line-height: 1.45;
+  color: var(--text);
+  text-wrap: pretty;
+}
+.mobile-handoff-sheet-url {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--live);
+  overflow-wrap: anywhere;
+}
+/* ---- the work column's phone card (POD-1320, design 1c) ----
+   Stands on the column floor over the tools row. Card ground, not band ground:
+   it is a thing sitting ON the column, not another rung of its chrome. */
+.mobile-promo-card {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 10px 2px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.mobile-promo-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+.mobile-promo-title {
+  font-size: var(--shell-type-secondary);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+}
+.mobile-promo-line {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+.mobile-promo-url {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--live);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-promo-dismiss {
+  display: inline-flex;
+  flex: none;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.mobile-promo-dismiss:hover {
+  color: var(--text);
+}
 /* ---- the update indicator (POD-2102, spec §6.1) ----
    The one place an update is always reachable from. It is deliberately the
    quietest thing in the strip while it is only an OFFER — a dot and a word —
@@ -2920,18 +3091,18 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
-.sync-loader-row[data-state='done'] .sync-loader-row-icon {
+.sync-loader-row[data-state="done"] .sync-loader-row-icon {
   color: var(--sync-acc);
 }
-.sync-loader-row[data-state='active'] .sync-loader-row-label {
+.sync-loader-row[data-state="active"] .sync-loader-row-label {
   color: var(--foreground);
 }
-.sync-loader-row[data-state='active'] .sync-loader-row-value {
+.sync-loader-row[data-state="active"] .sync-loader-row-value {
   color: var(--sync-acc);
 }
-.sync-loader-row[data-state='queued'] .sync-loader-row-icon,
-.sync-loader-row[data-state='queued'] .sync-loader-row-label,
-.sync-loader-row[data-state='queued'] .sync-loader-row-value {
+.sync-loader-row[data-state="queued"] .sync-loader-row-icon,
+.sync-loader-row[data-state="queued"] .sync-loader-row-label,
+.sync-loader-row[data-state="queued"] .sync-loader-row-value {
   opacity: 0.55;
 }
 .sync-loader-foot {
@@ -3787,7 +3958,6 @@ html[data-density="compact"] .brief-shelf {
   background: color-mix(in oklab, var(--foreground) 9%, transparent);
   color: var(--foreground);
 }
-
 
 /* ── The transcript map ───────────────────────────────────────────────────── */
 
@@ -4750,8 +4920,7 @@ html[data-density="compact"] .brief-shelf {
   }
   /* Not for a lone call and not for an unfolded run: both hide the deck, and a
      hidden deck must not animate itself back into view because a call landed. */
-  .work-line[data-push="true"]:not([data-open="true"]):not([data-single="true"])
-    .work-line-deck
+  .work-line[data-push="true"]:not([data-open="true"]):not([data-single="true"]) .work-line-deck
     i:first-child {
     animation: work-line-deck-push 260ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
   }
@@ -9370,7 +9539,7 @@ a.ref-link--session::before {
   mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);
 }
 .gauge-band-march::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
@@ -10175,7 +10344,9 @@ a.ref-link--session::before {
   color: var(--foreground);
   border: 1px solid var(--border-strong);
   align-self: center;
-  transition: background 150ms ease, color 150ms ease;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
 }
 [data-sonner-toast].cn-toast[data-styled="true"] [data-button]:hover {
   color: var(--text-strong, var(--foreground));

@@ -18,6 +18,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -100,6 +101,11 @@ export function SidebarUnified(): JSX.Element {
       >
         <WorkSections derivation={derivation} query={filter.query} />
       </div>
+      {/* The phone pitch stands on the column's FLOOR, outside the scroller and
+          directly over the tools row — the last thing you pass on the way out,
+          not a row among the work. It gates itself on the first task and
+          dismisses for good (POD-1320). */}
+      <MobilePromoCard />
       {/* Footer: the 3a design's 34px strip — 35 with its rule, which is
           outside the 34 in a content-box mock (POD-1253) — at the column's 13px inset, on the
           same `--muted` ground as the section bands — the column's two chrome
