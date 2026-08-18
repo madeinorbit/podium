@@ -1,5 +1,4 @@
 import { BlurView } from 'expo-blur'
-import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp } from 'lucide-react-native'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
@@ -35,9 +34,6 @@ import { PressableScale } from './PressableScale'
 
 /** The send target — 32pt of ink, 52pt of thumb once hitSlop is counted. */
 const SEND = 32
-/** The band above the composer where scrolling text dissolves into the canvas. */
-const SCRIM = 24
-
 /**
  * Chat composer — one floating rounded surface inset from the screen edges
  * [POD-502].
@@ -67,7 +63,6 @@ export function Composer({
   draftInsertion,
   below,
   bottomInset = 0,
-  scrimColor,
   onRestingHeight,
 }: {
   placeholder: string
@@ -89,13 +84,6 @@ export function Composer({
    * is the bottom-most thing on the screen and owns that inset itself.
    */
   bottomInset?: number
-  /**
-   * The canvas colour behind the composer, when it floats OVER scrolling
-   * content. Text passing underneath dissolves into this rather than being
-   * sliced by the capsule's top edge. Absent means the composer sits in the
-   * layout flow and has nothing to dissolve.
-   */
-  scrimColor?: string
   /**
    * The composer's total height whenever the field is at rest, so a list
    * underneath can end its content above it. Deliberately not reported while
@@ -197,13 +185,6 @@ export function Composer({
       pointerEvents="box-none"
       onLayout={onLayout}
     >
-      {scrimColor ? (
-        <LinearGradient
-          colors={[alpha(scrimColor, 0), scrimColor]}
-          style={styles.scrim}
-          pointerEvents="none"
-        />
-      ) : null}
       <BlurView
         intensity={32}
         tint="dark"
@@ -323,14 +304,6 @@ const styles = StyleSheet.create({
   /** Positioning only — the inset the capsule floats inside. */
   dock: {
     paddingHorizontal: space.lg,
-    paddingTop: SCRIM,
-  },
-  scrim: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: SCRIM,
   },
   surface: {
     borderRadius: radius.xxl,

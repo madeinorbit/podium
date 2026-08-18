@@ -13,8 +13,6 @@ import { readTranscriptPage, useHub, useIssues, useMobileStore, useSessions } fr
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { sendOfferAction } from '../lib/send-offer-action'
-import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
-import { color } from '../theme/theme'
 import { Composer } from './Composer'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
@@ -47,7 +45,7 @@ export function SessionConversation({
   onOpenTerminalRef,
 }: {
   session: SessionMeta
-  /** The task this session belongs to; drives the colour flow and the plan bridge. */
+  /** The task this session belongs to; drives task context and the plan bridge. */
   issue: IssueWire | undefined
   /** Where a tapped `POD-…` ref in the transcript should go when it is NOT this
    *  task — absent keeps the peek sheet, which is the default everywhere. */
@@ -196,7 +194,6 @@ export function SessionConversation({
         ...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {}),
       })
     : []
-  const accent = issue ? flow.paneBg(issueColorHex(issue.color) ?? FLOW_HEX) : color.bg
   const activity = chatActivity(session, false)
   // A parked or ended session is present but has no process. It gets the
   // recovery banner; when there is also no conversation to show, the banner is
@@ -299,11 +296,8 @@ export function SessionConversation({
           </PullToRefreshBoundary>
         </BootstrapCrossfade>
       )}
-      {/* The composer floats OVER the feed rather than ending it [POD-502]:
-          messages run under the capsule and dissolve into the scrim above it,
-          which is what makes it read as lifted off the page rather than welded
-          to the bottom edge. The feed pays for it with the composer's own
-          resting height. */}
+      {/* The composer floats OVER the feed rather than ending it [POD-502]. The
+          feed pays for it with the composer's own resting height. */}
       {readOnly && !hasTranscript ? null : (
         <View style={styles.composerLayer} pointerEvents="box-none">
           <Composer
@@ -311,7 +305,6 @@ export function SessionConversation({
             onSend={send}
             disabled={!composer.enabled}
             draftInsertion={draftInsertion}
-            scrimColor={accent}
             onRestingHeight={setComposerHeight}
           />
         </View>
