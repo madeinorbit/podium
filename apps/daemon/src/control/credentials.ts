@@ -1,16 +1,5 @@
-import { randomUUID } from 'node:crypto'
-import {
-  chmodSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { homedir, platform as currentPlatform, userInfo } from 'node:os'
+import { join } from 'node:path'
 import {
   declaredValue,
   hasValidClaudeCredential,
@@ -18,17 +7,26 @@ import {
   manifestFor,
 } from '@podium/harness'
 import type { PortableCredentialBundle, PortableCredentialKind } from '@podium/protocol'
-import type { ControlHandlers } from './context'
+import { ClaudeKeychainCredentialStore } from './claude-keychain-credential-store'
+import type { ClaudeStorageLockFactory } from './claude-keychain-lock'
+import type { SecurityRunner } from './claude-keychain-security'
+import {
+  FileCredentialStore,
+  MAX_CREDENTIAL_BYTES,
+  type PortableCredentialStore,
+} from './credential-store'
+import type { ControlHandlers, DaemonContext } from './context'
 import { reportInventory } from './inventory'
 
-const MAX_CREDENTIAL_BYTES = 1_000_000
-
-const PORTABLE_CREDENTIAL_PATHS: Record<PortableCredentialKind, (home: string) => string> = {
-  codex: (home) => join(process.env.CODEX_HOME?.trim() || join(home, '.codex'), 'auth.json'),
-  grok: (home) => join(process.env.GROK_HOME?.trim() || join(home, '.grok'), 'auth.json'),
+const PORTABLE_CREDENTIAL_PATHS: Record<
+  PortableCredentialKind,
+  (home: string, env: Readonly<Record<string, string | undefined>>) => string
+> = {
+  codex: (home, env) => join(env.CODEX_HOME?.trim() || join(home, '.codex'), 'auth.json'),
+  grok: (home, env) => join(env.GROK_HOME?.trim() || join(home, '.grok'), 'auth.json'),
   'claude-code-state': (home) => join(home, '.claude.json'),
-  'claude-code': (home) =>
-    join(process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'), '.credentials.json'),
+  'claude-code': (home, env) =>
+    join(env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'), '.credentials.json'),
 }
 
 const REAL_PORTABLE_CREDENTIAL_PATHS: Record<PortableCredentialKind, (home: string) => string> = {
@@ -49,19 +47,26 @@ const CREDENTIAL_VALIDATORS: Partial<Record<PortableCredentialKind, (value: stri
 }
 
 export interface PortableCredentialOptions {
-  /** Use the user's real native home, never a configured/managed redirect. */
+  /** Use the user's real native home, never a configured/managed file redirect. */
   realHome?: boolean
   /** Apply propagation-only validity, freshness, and CAS guards. */
   guarded?: boolean
+  platform?: NodeJS.Platform
+  env?: Readonly<Record<string, string | undefined>>
+  osUsername?: string
+  resolvedClaudeVersion?: string
+  securityRunner?: SecurityRunner
+  claudeLockFactory?: ClaudeStorageLockFactory
+  allowLegacyClaudeServiceFallback?: boolean
 }
 
 function credentialPath(
   kind: PortableCredentialKind,
   home: string,
-  options: PortableCredentialOptions = {},
+  options: PortableCredentialOptions,
 ): string {
   const paths = options.realHome ? REAL_PORTABLE_CREDENTIAL_PATHS : PORTABLE_CREDENTIAL_PATHS
-  return paths[kind](home)
+  return paths[kind](home, options.env ?? process.env)
 }
 
 function validCredential(kind: PortableCredentialKind, contents: string): boolean {
@@ -71,92 +76,6 @@ function validCredential(kind: PortableCredentialKind, contents: string): boolea
 function propagationComparator(kind: PortableCredentialKind) {
   const declared = manifestFor(kind)?.inventory.portableCredential
   return declared ? declaredValue(declared)?.compareFreshness : undefined
-}
-
-interface CredentialSnapshot {
-  exists: boolean
-  contents?: Buffer
-}
-
-function isMissingPath(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'ENOENT'
-  )
-}
-
-function snapshot(path: string): CredentialSnapshot {
-  try {
-    const stat = lstatSync(path)
-    if (!stat.isFile() || stat.size > MAX_CREDENTIAL_BYTES) return { exists: true }
-    return { exists: true, contents: readFileSync(path) }
-  } catch (error: unknown) {
-    // Only a genuinely absent path is an empty compare-and-swap value. A
-    // permissions error, directory race, or other read failure must not turn
-    // into permission to overwrite a file we could not inspect.
-    return isMissingPath(error) ? { exists: false } : { exists: true }
-  }
-}
-
-function sameSnapshot(a: CredentialSnapshot, b: CredentialSnapshot): boolean {
-  if (a.exists !== b.exists) return false
-  if (!a.exists) return true
-  if (a.contents === undefined || b.contents === undefined) return false
-  return a.contents.equals(b.contents)
-}
-
-function atomicInstall(path: string, content: Buffer): void {
-  const dir = dirname(path)
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
-  chmodSync(dir, 0o700)
-  const tmp = path + '.podium-' + process.pid + '-' + randomUUID()
-  try {
-    writeFileSync(tmp, content, { mode: 0o600, flag: 'wx' })
-    renameSync(tmp, path)
-    chmodSync(path, 0o600)
-  } finally {
-    try {
-      unlinkSync(tmp)
-    } catch {
-      // rename already consumed it (or write never created it)
-    }
-  }
-}
-
-function guardedInstall(bundle: PortableCredentialBundle, path: string, content: Buffer): boolean {
-  if (!PROPAGATABLE_CREDENTIAL_KINDS.has(bundle.kind)) {
-    throw new Error('credential propagation only supports native Codex and Claude files')
-  }
-  const before = snapshot(path)
-  if (before.contents && validCredential(bundle.kind, before.contents.toString('utf8'))) {
-    return false
-  }
-  if (before.exists) {
-    if (!before.contents) return false
-    const compare = propagationComparator(bundle.kind)
-    if (!compare || compare(content.toString('utf8'), before.contents.toString('utf8')) !== 1) {
-      return false
-    }
-  }
-
-  // The second read is the compare-and-swap fence. A local CLI rotation that
-  // landed after the first read wins; the propagation refuses to replace it.
-  const again = snapshot(path)
-  if (!sameSnapshot(before, again)) return false
-  if (again.contents && validCredential(bundle.kind, again.contents.toString('utf8'))) {
-    return false
-  }
-  if (again.exists) {
-    if (!again.contents) return false
-    const compare = propagationComparator(bundle.kind)
-    if (!compare || compare(content.toString('utf8'), again.contents.toString('utf8')) !== 1) {
-      return false
-    }
-  }
-  atomicInstall(path, content)
-  return true
 }
 
 function sanitizedClaudeState(value: unknown): Record<string, boolean | string> {
@@ -180,103 +99,179 @@ function sanitizedClaudeState(value: unknown): Record<string, boolean | string> 
   return result
 }
 
-export function readPortableCredential(
+function strictBase64(value: string): Buffer {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error('credential payload is not canonical base64')
+  }
+  return Buffer.from(value, 'base64')
+}
+
+function defaultUsername(): string | undefined {
+  try {
+    return userInfo().username
+  } catch {
+    return undefined
+  }
+}
+
+function credentialStore(
+  kind: PortableCredentialKind,
+  home: string,
+  options: PortableCredentialOptions,
+): PortableCredentialStore {
+  const platform = options.platform ?? currentPlatform()
+  if (kind === 'claude-code' && platform === 'darwin') {
+    return new ClaudeKeychainCredentialStore({
+      home,
+      env: options.env ?? process.env,
+      osUsername: options.osUsername ?? defaultUsername(),
+      resolvedClaudeVersion: options.resolvedClaudeVersion,
+      runner: options.securityRunner,
+      lockFactory: options.claudeLockFactory,
+      allowLegacyFallback: options.allowLegacyClaudeServiceFallback,
+    })
+  }
+  return new FileCredentialStore(credentialPath(kind, home, options))
+}
+
+export async function readPortableCredential(
   kind: PortableCredentialKind,
   home: string,
   options: PortableCredentialOptions = {},
-): PortableCredentialBundle | null {
+): Promise<PortableCredentialBundle | null> {
   if (options.guarded && !PROPAGATABLE_CREDENTIAL_KINDS.has(kind)) return null
-  const path = credentialPath(kind, home, options)
-  if (!existsSync(path)) return null
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_CREDENTIAL_BYTES) return null
-  let content = readFileSync(path)
-  const parsed = JSON.parse(content.toString('utf8')) // only valid JSON auth files cross the wire
-  if (options.guarded && !validCredential(kind, content.toString('utf8'))) return null
-  if (kind === 'claude-code-state') {
-    content = Buffer.from(JSON.stringify(sanitizedClaudeState(parsed)))
+  const read = await credentialStore(kind, home, options).read()
+  if (read.state === 'absent') return null
+  if (read.state === 'unavailable') throw new Error(`credential store unavailable: ${read.reason}`)
+  try {
+    if (read.contents.length <= 0 || read.contents.length > MAX_CREDENTIAL_BYTES) return null
+    const text = read.contents.toString('utf8')
+    const parsed = JSON.parse(text) as unknown
+    if (options.guarded && !validCredential(kind, text)) return null
+    const content =
+      kind === 'claude-code-state'
+        ? Buffer.from(JSON.stringify(sanitizedClaudeState(parsed)))
+        : read.contents
+    return { kind, contentBase64: content.toString('base64') }
+  } finally {
+    read.contents.fill(0)
   }
-  return { kind, contentBase64: content.toString('base64') }
 }
 
-export function installPortableCredential(
+export async function installPortableCredential(
   bundle: PortableCredentialBundle,
   home: string,
   options: PortableCredentialOptions = {},
-): boolean {
-  const content = Buffer.from(bundle.contentBase64, 'base64')
-  if (content.length <= 0 || content.length > MAX_CREDENTIAL_BYTES) {
-    throw new Error('credential payload has an invalid size')
-  }
-  const parsed = JSON.parse(content.toString('utf8'))
-  const path = credentialPath(bundle.kind, home, options)
-  if (options.guarded) {
-    if (!validCredential(bundle.kind, content.toString('utf8'))) {
-      throw new Error('credential propagation payload is not a valid native login')
+): Promise<boolean> {
+  const content = strictBase64(bundle.contentBase64)
+  try {
+    if (content.length <= 0 || content.length > MAX_CREDENTIAL_BYTES) {
+      throw new Error('credential payload has an invalid size')
     }
-    return guardedInstall(bundle, path, content)
-  }
+    const text = content.toString('utf8')
+    const parsed = JSON.parse(text) as unknown
+    const store = credentialStore(bundle.kind, home, options)
+    if (options.guarded) {
+      if (!PROPAGATABLE_CREDENTIAL_KINDS.has(bundle.kind)) {
+        throw new Error('credential propagation only supports native Codex and Claude files')
+      }
+      if (!validCredential(bundle.kind, text)) {
+        throw new Error('credential propagation payload is not a valid native login')
+      }
+      return await store.guardedInstall(content, {
+        valid: (current) => validCredential(bundle.kind, current),
+        compareFreshness: propagationComparator(bundle.kind),
+      })
+    }
 
-  const dir = dirname(path)
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
-  chmodSync(dir, 0o700)
-  const installedContent = (() => {
-    if (bundle.kind !== 'claude-code-state') return content
+    if (bundle.kind !== 'claude-code-state') return await store.install(content)
     const portable = sanitizedClaudeState(parsed)
-    let existing: Record<string, unknown> = {}
-    if (existsSync(path)) {
-      const stat = lstatSync(path)
-      if (stat.isFile() && stat.size > 0 && stat.size <= MAX_CREDENTIAL_BYTES) {
-        const value = JSON.parse(readFileSync(path, 'utf8')) as unknown
+    const existing = await store.read()
+    try {
+      let local: Record<string, unknown> = {}
+      if (existing.state === 'present' && existing.contents.length > 0) {
+        const value = JSON.parse(existing.contents.toString('utf8')) as unknown
         if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          existing = value as Record<string, unknown>
+          local = value as Record<string, unknown>
         }
       }
+      return await store.install(
+        Buffer.from(JSON.stringify({ ...local, ...portable }, null, 2) + '\n'),
+      )
+    } finally {
+      if (existing.state === 'present') existing.contents.fill(0)
     }
-    return Buffer.from(JSON.stringify({ ...existing, ...portable }, null, 2) + '\n')
-  })()
-  atomicInstall(path, installedContent)
-  return true
+  } finally {
+    content.fill(0)
+  }
 }
+
+async function runtimeOptions(ctx: DaemonContext): Promise<PortableCredentialOptions> {
+  const snapshot = await ctx.harnessRuntime?.current().catch(() => undefined)
+  return {
+    platform: currentPlatform(),
+    env: snapshot?.commandEnvironment.env ?? process.env,
+    resolvedClaudeVersion: snapshot?.executables.get('claude-code')?.version,
+  }
+}
+
+export async function handleCredentialExport(
+  ctx: DaemonContext,
+  msg: Parameters<NonNullable<ControlHandlers['credentialExportRequest']>>[1],
+): Promise<void> {
+  const home = ctx.homeDir ?? homedir()
+  const runtime = await runtimeOptions(ctx)
+  const bundles: PortableCredentialBundle[] = []
+  const unavailable: PortableCredentialKind[] = []
+  for (const kind of msg.kinds) {
+    try {
+      const bundle = await readPortableCredential(kind, home, {
+        ...runtime,
+        realHome: msg.propagation === true,
+        guarded: msg.propagation === true,
+      })
+      if (bundle) bundles.push(bundle)
+      else unavailable.push(kind)
+    } catch {
+      unavailable.push(kind)
+    }
+  }
+  ctx.send({ type: 'credentialExportResult', requestId: msg.requestId, bundles, unavailable })
+}
+
+export async function handleCredentialInstall(
+  ctx: DaemonContext,
+  msg: Parameters<NonNullable<ControlHandlers['credentialInstallRequest']>>[1],
+): Promise<void> {
+  const home = ctx.homeDir ?? homedir()
+  const runtime = await runtimeOptions(ctx)
+  const installed: PortableCredentialKind[] = []
+  const failed: PortableCredentialKind[] = []
+  for (const bundle of msg.bundles) {
+    try {
+      const didInstall = await installPortableCredential(bundle, home, {
+        ...runtime,
+        realHome: msg.propagation === true,
+        guarded: msg.propagation === true,
+      })
+      if (didInstall) installed.push(bundle.kind)
+      else failed.push(bundle.kind)
+    } catch {
+      failed.push(bundle.kind)
+    }
+  }
+  ctx.send({ type: 'credentialInstallResult', requestId: msg.requestId, installed, failed })
+  if (installed.length > 0) await reportInventory(ctx, { rebuild: true }).catch(() => {})
+}
+
 export const credentialHandlers: Pick<
   ControlHandlers,
   'credentialExportRequest' | 'credentialInstallRequest'
 > = {
   credentialExportRequest: (ctx, msg) => {
-    const home = ctx.homeDir ?? homedir()
-    const bundles: PortableCredentialBundle[] = []
-    const unavailable: PortableCredentialKind[] = []
-    for (const kind of msg.kinds) {
-      try {
-        const bundle = readPortableCredential(kind, home, {
-          realHome: msg.propagation === true,
-          guarded: msg.propagation === true,
-        })
-        if (bundle) bundles.push(bundle)
-        else unavailable.push(kind)
-      } catch {
-        unavailable.push(kind)
-      }
-    }
-    ctx.send({ type: 'credentialExportResult', requestId: msg.requestId, bundles, unavailable })
+    void handleCredentialExport(ctx, msg)
   },
   credentialInstallRequest: (ctx, msg) => {
-    const home = ctx.homeDir ?? homedir()
-    const installed: PortableCredentialKind[] = []
-    const failed: PortableCredentialKind[] = []
-    for (const bundle of msg.bundles) {
-      try {
-        const didInstall = installPortableCredential(bundle, home, {
-          realHome: msg.propagation === true,
-          guarded: msg.propagation === true,
-        })
-        if (didInstall) installed.push(bundle.kind)
-        else failed.push(bundle.kind)
-      } catch {
-        failed.push(bundle.kind)
-      }
-    }
-    ctx.send({ type: 'credentialInstallResult', requestId: msg.requestId, installed, failed })
-    if (installed.length > 0) void reportInventory(ctx, { rebuild: true })
+    void handleCredentialInstall(ctx, msg)
   },
 }
