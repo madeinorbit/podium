@@ -8,7 +8,12 @@
  * except the closed fold, which is history ordered by the moment of closing.
  */
 import { type IssueId, type IssueWire, isIssueDeferred } from '@podium/model'
-import { isClosedTopLevelIssue, issueAwaitingMerge, issueFinishedAt } from '../issues'
+import {
+  isClosedTopLevelIssue,
+  issueAbandoned,
+  issueAwaitingMerge,
+  issueFinishedAt,
+} from '../issues'
 import { rowWaitingCount } from './row-attention'
 import type { UnifiedIssueRow, UnifiedWorkRow } from './row-types'
 import { SIDEBAR_FINISHED_GRACE_MS } from './visibility'
@@ -55,9 +60,9 @@ export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is Unifi
 }
 
 /** POD-183 / POD-293 fold membership. Live asks outrank structure: needs-you
- * and awaiting-merge keep their full row. Finished top-level closures offer
+ * and awaiting-merge keep their full row. Completed top-level closures offer
  * "Tuck away" without requiring a read stamp or idle sessions — those gates
- * were for auto-fold-on-read / auto-bury; manual tuck is the dismiss path.
+ * were for auto-fold-on-read / auto-bury; cancelled outcomes fold directly.
  * A selected open finished row stays open until tuck, grace, or focus moves.
  * Pinned rows are removed before grouping, so pinning also wins. */
 
@@ -108,6 +113,12 @@ export function rowInClosedFold(
   now: number = Date.now(),
 ): row is UnifiedIssueRow {
   if (!finishedIssueSettled(row)) return false
+  // Cancelled outcomes (including duplicate, superseded and legacy wontfix)
+  // need no acknowledgement: the operator already dismissed the work by
+  // choosing its terminal outcome. Put them straight into Closed, even when
+  // the row was selected before closing, instead of asking for a second
+  // dismissal through "Tuck away".
+  if (issueAbandoned(row.issue)) return true
   // Explicit tuck always folds — even while the row is selected. Lane stickiness
   // ("selected open stays open until focus moves") only applies to passive
   // placement (grace auto-fold), not operator dismissal.
@@ -120,9 +131,10 @@ export function rowInClosedFold(
   return now - issueFinishedAt(row.issue) > SIDEBAR_FINISHED_GRACE_MS
 }
 
-/** A finished issue held OPEN in the live list for the operator to dismiss
+/** A completed issue held OPEN in the live list for the operator to dismiss
  *  (POD-293): settled and still inside the grace window, not yet tucked.
- *  Selection and read state do not hide the control — only tuck or grace does. */
+ *  Cancelled outcomes were already dismissed by their terminal action and do
+ *  not enter this state. Selection and read state do not hide the control. */
 export function rowAwaitsTuck(
   row: UnifiedWorkRow,
   _selectedIssueId: IssueId | null = null,
@@ -130,11 +142,12 @@ export function rowAwaitsTuck(
   now: number = Date.now(),
 ): row is UnifiedIssueRow {
   if (!finishedIssueSettled(row)) return false
+  if (issueAbandoned(row.issue)) return false
   return !issueTucked(row.issue) && now - issueFinishedAt(row.issue) <= SIDEBAR_FINISHED_GRACE_MS
 }
 
 /** A tucked row the operator can still take BACK OUT of the fold (POD-1188) —
- *  the mirror of `rowAwaitsTuck`, and for a settled finished row inside the grace
+ *  the mirror of `rowAwaitsTuck`, and for a settled completed row inside the grace
  *  window exactly one of the two holds: it is either waiting to be tucked away
  *  or waiting to be brought back.
  *
@@ -149,6 +162,7 @@ export function rowCanBringBack(
   now: number = Date.now(),
 ): row is UnifiedIssueRow {
   if (!finishedIssueSettled(row)) return false
+  if (issueAbandoned(row.issue)) return false
   return issueTucked(row.issue) && now - issueFinishedAt(row.issue) <= SIDEBAR_FINISHED_GRACE_MS
 }
 

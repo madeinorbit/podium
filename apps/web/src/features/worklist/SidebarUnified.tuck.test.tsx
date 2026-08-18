@@ -163,11 +163,9 @@ describe('tuck-away persistence (POD-333)', () => {
   it.each([
     'cancelled',
     'duplicate',
-  ] as const)('offers Tuck away on a %s ending whose branch never landed (POD-1263)', (closedReason) => {
-    // The row the operator was stuck with: work abandoned, three commits still
-    // sitting on its private branch. That used to read as a pending merge, and
-    // a row with a merge outstanding is neither foldable nor dismissable — so
-    // it stayed in the live list with nothing to press.
+  ] as const)('folds a %s ending without offering Tuck away', (closedReason) => {
+    // The terminal outcome is already the operator's dismissal. Even an
+    // abandoned private branch must not turn it into a second decision.
     state.closedReason = closedReason
     state.branch = 'issue/42-abandoned'
     state.gitState = {
@@ -181,9 +179,9 @@ describe('tuck-away persistence (POD-333)', () => {
 
     render(<SidebarUnified />)
 
-    expect(screen.queryByTestId('closed-issue-fold')).toBeNull()
-    fireEvent.click(screen.getByTestId('tuck-away'))
-    expect(setIssueTucked).toHaveBeenCalledWith('finished', true)
+    expect(screen.getByTestId('closed-issue-fold')).toBeTruthy()
+    expect(screen.queryByTestId('tuck-away')).toBeNull()
+    expect(setIssueTucked).not.toHaveBeenCalled()
   })
 
   it('hydrates the fold from the wire, so a fresh browser sees the same tuck', () => {

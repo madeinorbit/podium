@@ -190,11 +190,11 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     'duplicate',
     'superseded',
     'wontfix',
-  ] as const)('offers tuck away on a %s closure whose branch never landed (POD-1263)', (closedReason) => {
+  ] as const)('folds a %s closure without offering a second dismissal', (closedReason) => {
     // The commits on an abandoned branch are not a deliverable held up by a
-    // missing merge — they are the reason the branch wants deleting. Treating
-    // them as awaiting-merge held the row out of the fold AND out of the
-    // tuck-away control, so it sat in the live list with no way to dismiss it.
+    // missing merge — they are the reason the branch wants deleting. Choosing
+    // the terminal outcome already dismissed the work, so the sidebar must not
+    // leave it live and ask the operator to dismiss it again with Tuck away.
     const abandoned = row(
       issue({
         stage: 'done',
@@ -204,8 +204,11 @@ describe('issue/session lifecycle in the unified sidebar', () => {
         gitState: unlanded,
       }),
     )
-    expect(rowAwaitsTuck(abandoned, null, false, NOW)).toBe(true)
-    expect(rowInClosedFold(abandoned, null, false, NOW)).toBe(false)
+    expect(rowAwaitsTuck(abandoned, null, false, NOW)).toBe(false)
+    expect(rowInClosedFold(abandoned, null, false, NOW)).toBe(true)
+    // Cancelling the currently selected proposed issue is the reported path:
+    // selection stickiness must not turn the closed row into a tuck prompt.
+    expect(rowInClosedFold(abandoned, abandoned.issue.id, false, NOW)).toBe(true)
 
     // A COMPLETED close with the same unlanded branch still asks for the merge,
     // so it keeps its full row and offers no dismissal.
@@ -222,17 +225,19 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     expect(rowInClosedFold(done, null, false, NOW)).toBe(false)
   })
 
-  it('folds an abandoned unlanded closure once its grace window passes (POD-1263)', () => {
-    const stale = row(
+  it('does not offer bring-back for an abandoned closure with a legacy tuck stamp', () => {
+    const tucked = row(
       issue({
         stage: 'done',
         closedReason: 'duplicate',
-        closedAt: '2026-07-21T11:30:00.000Z',
+        closedAt: '2026-07-23T11:30:00.000Z',
         branch: 'issue/1-abandoned',
         gitState: unlanded,
+        tuckedAt: '2026-07-23T11:45:00.000Z',
       }),
     )
-    expect(rowInClosedFold(stale, null, false, NOW)).toBe(true)
+    expect(rowInClosedFold(tucked, null, false, NOW)).toBe(true)
+    expect(rowCanBringBack(tucked, NOW)).toBe(false)
   })
 
   it('stops offering the bring-back once the grace backstop owns the row (POD-1188)', () => {
