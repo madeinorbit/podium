@@ -88,7 +88,7 @@ import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { agentBrandText } from '@/lib/agent-tone'
+import { agentBrandText, agentIconFor } from '@/lib/agent-tone'
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -242,6 +242,8 @@ export function SidebarRail(): JSX.Element {
     spawn,
     persistDefaultAgent,
   } = useDefaultSpawn(derivation.sections)
+  // The tile's mark: the default harness's own glyph (POD-1281).
+  const DefaultMark = agentIconFor(defaultAgent)
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const commandPaletteEnabled = useFeature('command-palette')
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -402,12 +404,12 @@ export function SidebarRail(): JSX.Element {
   return (
     <>
       {/* THE SPAWN TILE. The wide row's main surface at rail scale — it carries
-          the agent's brand SWATCH, not its glyph, for the same reason the wide
-          row does (POD-725: a drawn logo competes with the identity marks below
-          it). Its other half, the dashed ⊞ that opens the agent → repo → machine
-          menu, is in the FOOTER now (POD-1279): that menu is the collapsed
-          spelling of the open column's "add", and the open column keeps add
-          next to search at the bottom. */}
+          the agent's own MARK in its brand tone, following the wide row
+          (POD-1281: the swatch alone named the harness by a colour nobody has
+          been taught). Its other half, the dashed ⊞ that opens the agent → repo
+          → machine menu, is in the FOOTER now (POD-1279): that menu is the
+          collapsed spelling of the open column's "add", and the open column
+          keeps add next to search at the bottom. */}
       <div className="flex flex-none flex-col items-center px-0 pt-[11px] pb-[10px]">
         <button
           data-pressable
@@ -415,7 +417,7 @@ export function SidebarRail(): JSX.Element {
           data-testid="rail-new-agent"
           className="flex size-[34px] flex-none cursor-pointer items-center justify-center rounded-[9px] border border-border-strong bg-chip transition-colors hover:border-text-faint hover:bg-accent disabled:opacity-50"
           disabled={!defaultRepo || defaultAgentStatus.reason !== undefined}
-          // At rail scale the tile is a swatch and nothing else, so the tooltip
+          // At rail scale the tile is a mark and nothing else, so the tooltip
           // is the ONLY place a refusal can be stated — which is exactly why the
           // reason replaces the invitation rather than sitting beside it.
           title={
@@ -430,13 +432,23 @@ export function SidebarRail(): JSX.Element {
             spawn(defaultAgent, defaultRepo)
           }
         >
-          <span
-            aria-hidden="true"
-            className={cn(
-              'size-[12px] flex-none rounded-[3px] bg-current',
-              agentBrandText(defaultAgent),
-            )}
-          />
+          {/* A harness with no mark in this build keeps the swatch — see the
+              note on the wide row. */}
+          {DefaultMark ? (
+            <DefaultMark
+              size={16}
+              aria-hidden="true"
+              className={cn('flex-none', agentBrandText(defaultAgent))}
+            />
+          ) : (
+            <span
+              aria-hidden="true"
+              className={cn(
+                'size-[12px] flex-none rounded-[3px] bg-current',
+                agentBrandText(defaultAgent),
+              )}
+            />
+          )}
         </button>
       </div>
       {newIssueOpen && (

@@ -24,7 +24,7 @@ import {
   agentFleetStatus,
   candidateFromAvailability,
 } from '@/lib/agent-capability'
-import { agentBrandText } from '@/lib/agent-tone'
+import { agentBrandText, agentIconFor } from '@/lib/agent-tone'
 import { MENU_HINT } from '@/lib/menu-surface'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
@@ -316,6 +316,8 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
     spawn,
     persistDefaultAgent,
   } = useDefaultSpawn(sections)
+  // The button's leading mark: the default harness's own glyph (POD-1281).
+  const DefaultMark = agentIconFor(defaultAgent)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
   // Anchor for the agent/repo menu: the WHOLE bordered button container, so the
   // dropdown opens directly under it, left-aligned, at the button's exact width
@@ -392,19 +394,33 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
             void spawn(defaultAgent, defaultRepo)
           }
         >
-          {/* An 11px rounded square in the agent's brand colour, not the agent's
-              glyph (POD-725). At 14px the glyph competed with the ID squares
-              two rows below it — three drawn marks in the same column, one of
-              which is not an issue. The design makes it a swatch: it names WHICH
-              agent by hue and nothing else, and the words beside it already say
-              the rest. 11px and radius 3 are the artboard's own numbers. */}
-          <span
-            aria-hidden="true"
-            className={cn(
-              'size-[11px] flex-none rounded-[3px] bg-current',
-              agentBrandText(defaultAgent),
-            )}
-          />
+          {/* THE HARNESS'S OWN MARK, IN ITS BRAND TONE (POD-1281).
+              POD-725 made this an 11px swatch — hue and nothing else — because a
+              drawn logo competed with the ID squares two rows below it. In the
+              shipped column it reads as an unexplained orange bubble instead: a
+              colour nobody has been taught, sitting where the menu this button
+              belongs to draws the Claude mark. The mark is the thing that says
+              WHICH harness, so the row now wears the same glyph its own menu
+              entry does, at the menu's 14px column, and the swatch's job is done
+              by the glyph's own colour.
+              A harness this build has no mark for keeps the swatch: inventing a
+              glyph would claim a brand, and an unknown harness must still render
+              something (see `agent-tone`). */}
+          {DefaultMark ? (
+            <DefaultMark
+              size={14}
+              aria-hidden="true"
+              className={cn('flex-none', agentBrandText(defaultAgent))}
+            />
+          ) : (
+            <span
+              aria-hidden="true"
+              className={cn(
+                'size-[11px] flex-none rounded-[3px] bg-current',
+                agentBrandText(defaultAgent),
+              )}
+            />
+          )}
           <span className="min-w-0 truncate">
             New {panelLabel(defaultAgent)} in {defaultTarget?.repoName ?? '…'}
           </span>
