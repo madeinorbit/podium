@@ -7,6 +7,12 @@ import type { ConfirmedVpsActivation } from './use-vps-activation'
 
 const scan = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }))
 
+const desktop = vi.hoisted(() => ({ launchMode: undefined as string | undefined }))
+
+vi.mock('@/lib/nativeDesktop', () => ({
+  nativeDesktopBridge: () => (desktop.launchMode ? { launchMode: desktop.launchMode } : undefined),
+}))
+
 vi.mock('./RepoScanFlow', () => ({
   RepoScanFlow: (props: Record<string, unknown>) => {
     scan.props = props
@@ -26,6 +32,7 @@ vi.mock('./RepoScanFlow', () => ({
 afterEach(() => {
   cleanup()
   scan.props = null
+  desktop.launchMode = undefined
   vi.clearAllMocks()
 })
 
@@ -133,5 +140,49 @@ describe('OnboardingWizard setup routes', () => {
     expect(onRouteChange).toHaveBeenCalledWith('agent')
     expect(onComplete).not.toHaveBeenCalled()
     expect(onEnterVps).not.toHaveBeenCalled()
+  })
+
+  // The desktop restarts onto the server it just connected to, and intake is the
+  // first screen there: closing it threw away the whole VPS lane (POD-1323).
+  it('closes remote project intake to the connection instead of the first question', () => {
+    desktop.launchMode = 'client'
+    const onRouteChange = vi.fn()
+    render(
+      <OnboardingWizard
+        route="local-project"
+        onRouteChange={onRouteChange}
+        onComplete={() => {}}
+        onConnectionConfigured={vi.fn()}
+        onEnterVps={vi.fn().mockResolvedValue(undefined)}
+        trpc={trpc()}
+        vps={vpsController()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close browser' }))
+    expect(onRouteChange).toHaveBeenCalledWith('server-connected')
+    expect(onRouteChange).not.toHaveBeenCalledWith('welcome')
+  })
+
+  it('reports the server the restart connected to, and leads on to a project', () => {
+    const onRouteChange = vi.fn()
+    render(
+      <OnboardingWizard
+        route="server-connected"
+        onRouteChange={onRouteChange}
+        onComplete={() => {}}
+        onConnectionConfigured={vi.fn()}
+        onEnterVps={vi.fn().mockResolvedValue(undefined)}
+        trpc={trpc()}
+        vps={vpsController()}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Podium runs on your server now.' })).toBeTruthy()
+    expect(screen.getByText(window.location.origin)).toBeTruthy()
+    // Nothing here reopens a topology question this desktop has already answered.
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Find a project' }))
+    expect(onRouteChange).toHaveBeenCalledWith('local-project')
   })
 })

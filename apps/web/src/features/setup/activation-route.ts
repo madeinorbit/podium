@@ -14,6 +14,7 @@ export const ACTIVATION_MODE_PARAM = 'activationMode'
  */
 export type ActivationRoute =
   | 'welcome'
+  | 'server-connected'
   | 'local-project'
   | 'agent'
   | 'first-task'
@@ -34,6 +35,7 @@ export const DEFAULT_ACTIVATION_STATE: ActivationState = {
 function isActivationRoute(value: string | null): value is ActivationRoute {
   return (
     value === 'welcome' ||
+    value === 'server-connected' ||
     value === 'local-project' ||
     value === 'agent' ||
     value === 'first-task' ||
@@ -94,9 +96,12 @@ export function isActivationEligible({
 
 /**
  * A native desktop that has just connected to a brand-new remote authority has already made its
- * topology choice. Continue at project intake instead of showing the server-choice screen again.
+ * topology choice. Continue at the connection confirmation instead of showing the server-choice
+ * screen again — and land there rather than in project intake, so the step the restart arrives on
+ * says the connection worked and project intake has something behind it to close back to
+ * (POD-1323).
  */
-export function shouldStartRemoteClientAtProjects({
+export function shouldStartRemoteClientAtHandoff({
   launchMode,
   loaded,
   repoCount,
@@ -122,6 +127,16 @@ export function shouldStartRemoteClientAtProjects({
     !hasActivationCheckpoint &&
     !hasVpsCheckpoint
   )
+}
+
+/**
+ * Where closing project intake goes. On a desktop that has handed itself to a
+ * remote server, the step behind intake is the confirmation that the handoff
+ * landed; `welcome` is a topology question that desktop has already answered,
+ * and returning to it read as the whole wizard rewinding (POD-1323).
+ */
+export function projectIntakeReturnRoute(launchMode: string | undefined): ActivationRoute {
+  return launchMode === 'client' ? 'server-connected' : 'welcome'
 }
 
 /**

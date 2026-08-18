@@ -1,13 +1,15 @@
-import { Laptop, Link2, Server, Terminal } from 'lucide-react'
+import { ArrowRight, Check, Laptop, Link2, Server, Terminal } from 'lucide-react'
 import type { JSX } from 'react'
-import type { Trpc } from '@/app/trpc'
+import { serverConfig, type Trpc } from '@/app/trpc'
+import { Button } from '@/components/ui/button'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import {
   ActivationBack,
   ActivationChoice,
   ActivationChoiceNote,
   ActivationShell,
 } from './ActivationShell'
-import type { ActivationRoute } from './activation-route'
+import { type ActivationRoute, projectIntakeReturnRoute } from './activation-route'
 import { ExistingPodiumActivation, isExistingPodiumRoute } from './ExistingPodiumActivation'
 import { FirstTaskActivation } from './FirstTaskActivation'
 import { RepoScanFlow } from './RepoScanFlow'
@@ -26,6 +28,12 @@ import { isVpsActivationRoute } from './vps-activation'
  * on it. Connecting to an existing installation used to be a third option on the
  * first screen, where it read as a peer choice to people who had nothing to
  * connect to yet.
+ *
+ * `server-connected` is the exception, and it is not a question: a desktop that
+ * has just restarted onto a remote server lands there. It reports the connection
+ * the restart made — the restart used to drop straight into project intake with
+ * no sign the connect had worked — and it is the step project intake closes back
+ * to (POD-1323).
  */
 export function OnboardingWizard({
   route,
@@ -76,9 +84,52 @@ export function OnboardingWizard({
     return (
       <RepoScanFlow
         onboarding
-        onClose={() => onRouteChange('welcome')}
+        onClose={() => onRouteChange(projectIntakeReturnRoute(nativeDesktopBridge()?.launchMode))}
         onDone={() => onRouteChange('agent')}
       />
+    )
+  }
+
+  if (route === 'server-connected') {
+    return (
+      <ActivationShell
+        eyebrow="Set up Podium · Connected"
+        title="Podium runs on your server now."
+        description="This app talks to it instead of running anything here. Agents keep going after you close this window, and you can reach them from any device."
+        icon={<Server aria-hidden="true" />}
+      >
+        <div className="max-w-[760px] space-y-4">
+          <section className="flex items-start gap-3.5 rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d] sm:p-6">
+            <span className="flex size-8 flex-none items-center justify-center rounded-[9px] bg-[#22321f] text-[#6fbc8c] shadow-[inset_0_0_0_1px_#31462f]">
+              <Check size={17} aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-[15px] font-semibold text-[#f2f3f5]">Connected</h2>
+              <p className="mt-1.5 font-mono text-[13px] leading-[1.55] break-all text-[#9ba1ab]">
+                {serverConfig(window.location).httpOrigin}
+              </p>
+            </div>
+          </section>
+
+          <section className="rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d] sm:p-6">
+            <h2 className="text-[15px] font-semibold text-[#f2f3f5]">
+              One step left: point it at a project
+            </h2>
+            <p className="mt-1.5 text-[13.5px] leading-[1.55] text-[#9ba1ab]">
+              Pick a repository that lives on the server. Agents work in it there — nothing is
+              copied from this computer.
+            </p>
+            <Button
+              type="button"
+              className="mt-5 h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+              onClick={() => onRouteChange('local-project')}
+            >
+              Find a project
+              <ArrowRight size={17} aria-hidden="true" />
+            </Button>
+          </section>
+        </div>
+      </ActivationShell>
     )
   }
 

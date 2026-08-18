@@ -12,7 +12,7 @@ import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-conte
 import {
   hasActivationState,
   isActivationEligible,
-  shouldStartRemoteClientAtProjects,
+  shouldStartRemoteClientAtHandoff,
 } from '@/features/setup/activation-route'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
@@ -324,7 +324,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   const hasActivationCheckpoint = hasActivationState(window.location.search)
   const shouldContinueRemoteActivation =
     vpsActivation.ready &&
-    shouldStartRemoteClientAtProjects({
+    shouldStartRemoteClientAtHandoff({
       launchMode: nativeDesktopBridge()?.launchMode,
       loaded: reposLoaded,
       repoCount: repos.length,
@@ -377,7 +377,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   }, [activationVisible])
 
   useEffect(() => {
-    if (shouldContinueRemoteActivation) reconcileActivation('local-project')
+    if (shouldContinueRemoteActivation) reconcileActivation('server-connected')
   }, [reconcileActivation, shouldContinueRemoteActivation])
 
   // A durable setup checkpoint may arrive after the URL; reconstruct the route it names.

@@ -4,8 +4,9 @@ import {
   DEFAULT_ACTIVATION_STATE,
   hasActivationState,
   isActivationEligible,
+  projectIntakeReturnRoute,
   readActivationState,
-  shouldStartRemoteClientAtProjects,
+  shouldStartRemoteClientAtHandoff,
 } from './activation-route'
 
 describe('activation route persistence', () => {
@@ -117,7 +118,7 @@ describe('activation route persistence', () => {
     expect(isActivationEligible({ ...midSetup, loaded: false })).toBe(false)
   })
 
-  it('continues a fresh native client at remote project intake', () => {
+  it('continues a fresh native client at the connection it just made', () => {
     const freshClient = {
       launchMode: 'client',
       loaded: true,
@@ -127,13 +128,26 @@ describe('activation route persistence', () => {
       hasActivationCheckpoint: false,
       hasVpsCheckpoint: false,
     }
-    expect(shouldStartRemoteClientAtProjects(freshClient)).toBe(true)
-    expect(shouldStartRemoteClientAtProjects({ ...freshClient, launchMode: 'all-in-one' })).toBe(
+    expect(shouldStartRemoteClientAtHandoff(freshClient)).toBe(true)
+    expect(shouldStartRemoteClientAtHandoff({ ...freshClient, launchMode: 'all-in-one' })).toBe(
       false,
     )
-    expect(shouldStartRemoteClientAtProjects({ ...freshClient, repoCount: 1 })).toBe(false)
+    expect(shouldStartRemoteClientAtHandoff({ ...freshClient, repoCount: 1 })).toBe(false)
     expect(
-      shouldStartRemoteClientAtProjects({ ...freshClient, hasActivationCheckpoint: true }),
+      shouldStartRemoteClientAtHandoff({ ...freshClient, hasActivationCheckpoint: true }),
     ).toBe(false)
+  })
+
+  it('restores the connection confirmation a client desktop lands on', () => {
+    expect(readActivationState('?activation=server-connected')).toEqual({
+      route: 'server-connected',
+    })
+  })
+
+  // Closing project intake used to rewind every setup screen at once (POD-1323).
+  it('closes project intake to the step that is actually behind it', () => {
+    expect(projectIntakeReturnRoute('client')).toBe('server-connected')
+    expect(projectIntakeReturnRoute('all-in-one')).toBe('welcome')
+    expect(projectIntakeReturnRoute(undefined)).toBe('welcome')
   })
 })

@@ -9,7 +9,9 @@
  * channel with nothing published on it) and `#vps-unread` (the query failed).
  * `#vps-restarting` and `#vps-restart-required` (POD-1292) carry it past the
  * moment its connection became durable — the two states that used to be one
- * error box telling the user to quit the app by hand.
+ * error box telling the user to quit the app by hand. `#connected` (POD-1323) is
+ * the step AFTER that restart: the screen a desktop lands on once it is a client
+ * of the server it just set up.
  * In a worktree, run `bun install` there first — otherwise vite follows the
  * workspace symlinks and renders the MAIN checkout's `@podium/*` sources.
  */
@@ -17,6 +19,7 @@
 import { createRoot } from 'react-dom/client'
 import type { Trpc } from '@/app/trpc'
 import { FirstTaskActivation } from '@/features/setup/FirstTaskActivation'
+import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
 import type { ShellRestart } from '@/features/setup/restart-shell'
 import type { ConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
 import { VpsFirstActivation } from '@/features/setup/VpsFirstActivation'
@@ -73,7 +76,17 @@ if (root) {
       })) as typeof fetch
   }
   createRoot(root).render(
-    hash.startsWith('vps') ? (
+    hash === 'connected' ? (
+      <OnboardingWizard
+        route="server-connected"
+        onRouteChange={() => {}}
+        onComplete={() => {}}
+        onConnectionConfigured={onConfigured}
+        onEnterVps={async () => {}}
+        trpc={vpsTrpc()}
+        vps={vps}
+      />
+    ) : hash.startsWith('vps') ? (
       <VpsFirstActivation
         trpc={vpsTrpc()}
         vps={vps}
