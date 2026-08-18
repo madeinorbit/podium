@@ -10,18 +10,18 @@ import { color, font, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
 import { PressableScale } from '../PressableScale'
 import { StageGlyph } from '../StageGlyph'
-import { Disclosure, SectionHeading } from './chrome'
+import { SectionHeading } from './chrome'
 
 /**
- * The sub-task list [POD-724], with the finished children folded away and an
- * inline add row.
+ * The sub-task list [POD-724], kept flat in the shared slice order with an
+ * inline add row. Finished children stay in place and step down one ink rung;
+ * the status glyph already says why.
  *
  * WHERE THE CHILDREN COME FROM. The list is `subIssuesOf` from the shared issues
  * slice, read once by the screen — not a `.filter(i => i.parentId === id)` here.
  * The slice's version is the one that keeps ARCHIVED children visible (POD-133),
- * and re-deriving it locally is how that decision silently gets lost on one
- * surface. The open/done partition below is a rendering split of that one list,
- * not a second derivation of it.
+ * and re-deriving or reordering it locally is how that decision silently gets
+ * lost on one surface.
  *
  * PARTIAL WORLD. This counts and lists what the replica HOLDS. A child the
  * principal cannot see is not listed and is not hinted at either — a count is an
@@ -29,11 +29,10 @@ import { Disclosure, SectionHeading } from './chrome'
  * desktop: say nothing rather than leak a number.
  *
  * The trailing word is derived from the WIRE alone — needs you, blocked,
- * proposed, or a subtree fraction. Proposed children sort first: they are the
- * decisions this page now owns, because the Tasks tab no longer unfolds them
- * [POD-947]. The desktop additionally ranks "N working" from the child's live
- * sessions; the phone leaves that slot out rather than joining the session
- * world per child row, and the row stays honest about what it does say.
+ * proposed, or a subtree fraction. The desktop additionally ranks "N working"
+ * from the child's live sessions; the phone leaves that slot out rather than
+ * joining the session world per child row, and the row stays honest about what
+ * it does say.
  */
 export function IssueSubIssues({
   issue,
@@ -50,14 +49,8 @@ export function IssueSubIssues({
 }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
-  const [doneOpen, setDoneOpen] = useState(false)
 
   const finished = (c: IssueWire) => c.stage === 'done' || c.closedReason != null
-  const done = subIssues.filter(finished)
-  // Proposed first: a child that still needs a call is why you opened the parent.
-  const open = subIssues
-    .filter((c) => !finished(c))
-    .sort((a, b) => Number(b.stage === 'proposed') - Number(a.stage === 'proposed') || a.seq - b.seq)
 
   const create = () => {
     const next = title.trim()
@@ -72,29 +65,12 @@ export function IssueSubIssues({
         label="Sub-tasks"
         count={issue.childCount > 0 ? `${issue.childDoneCount}/${issue.childCount}` : undefined}
       />
-      {open.map((child) => (
-        <SubTaskRow key={child.id} child={child} onOpen={onOpen} />
+      {subIssues.map((child) => (
+        <SubTaskRow key={child.id} child={child} onOpen={onOpen} muted={finished(child)} />
       ))}
-      {open.length === 0 && done.length === 0 ? (
+      {subIssues.length === 0 ? (
         <Text style={styles.empty}>No sub-tasks. Break the work down as it becomes clear.</Text>
       ) : null}
-
-      {/* A finished parent has nothing left to fold AWAY from — everything under
-          it is done, so hiding all of it would empty the section. */}
-      {done.length > 0 && !finished(issue) ? (
-        <Disclosure
-          label={`${done.length} done`}
-          open={doneOpen}
-          onToggle={() => setDoneOpen((v) => !v)}
-        >
-          {done.map((child) => (
-            <SubTaskRow key={child.id} child={child} onOpen={onOpen} muted />
-          ))}
-        </Disclosure>
-      ) : null}
-      {done.length > 0 && finished(issue)
-        ? done.map((child) => <SubTaskRow key={child.id} child={child} onOpen={onOpen} muted />)
-        : null}
 
       {adding ? (
         <View style={styles.addRow}>

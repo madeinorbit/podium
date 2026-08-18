@@ -181,16 +181,9 @@ export function issueCommands({
       update({ [field]: value })
     },
 
-    // ---- agent panel (todos ride issues.panel; 1-based index API) ----
-    toggleTodo: (index1: number, done: boolean): void => {
-      void run(() =>
-        trpc.issues.panelApply.mutate({
-          id,
-          op: done ? 'todo-done' : 'todo-undone',
-          index: index1,
-        }),
-      )
-    },
+    // No todo mutation here: task detail no longer renders an agent's private
+    // checklist. The panel API remains available to the agent-facing tools that
+    // own that workflow.
 
     // ---- sub-tasks ----
     createSubIssue: (title: string): void => {

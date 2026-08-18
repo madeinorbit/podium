@@ -8,8 +8,8 @@ import { IssueScreen } from '../../src/screens/IssueScreen'
  * showed more than the flat page did. That was true of the flat page: a chip
  * row, a description, a session list and comments. It is not true of the page
  * this route now renders, which carries the desktop task page's banners, status
- * strip, live-agent block, long-form spec fields, agent-published todos and
- * artifacts, sub-tasks, mail, properties and interleaved activity feed.
+ * strip, live-agent block, filled long-form spec fields, published artifacts,
+ * sub-tasks, mail, properties and interleaved activity feed.
  *
  * The two routes answer DIFFERENT questions and both are wanted: `/mission/[id]`
  * is the fleet view of a body of work (the deck, its children, who is on them);

@@ -1,4 +1,3 @@
-import { relativeTime } from '@podium/client-core/focus'
 import { groupRelations, ISSUE_STAGE_LABELS, sessionTitle } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -24,14 +23,15 @@ import { Disclosure, MachineLabel } from './chrome'
  * single-level sheets raised by the screen.
  *
  * The ORDER is the desktop's, which POD-591 ranked by the questions an operator
- * actually asks: what state is it in and whose is it (the bar above the fold),
+ * actually asks: what state and priority is it in (the bar above the fold),
  * who is working it, where is the branch, what does it touch, the long tail, and
- * provenance. Nothing was removed — the tail is folded, not dropped.
+ * provenance. Optional values render only when present; the tail is folded, not
+ * padded with empty-value copy.
  *
- * Stage / priority / type / assignee are NOT here. They live in the always-visible
- * property bar under the title, because they are the four an operator changes from
- * a phone, and burying the stage picker two taps deep is how a task sits in the
- * wrong lane all afternoon.
+ * Stage / priority / type are NOT here. Stage and priority live in the
+ * always-visible property bar under the title; a non-default type joins them
+ * only when it has something to say. Burying the stage picker two taps deep is
+ * how a task sits in the wrong lane all afternoon.
  */
 export function IssueProperties({
   issue,
@@ -62,7 +62,6 @@ export function IssueProperties({
 }) {
   const [label, setLabel] = useState('')
   const relations = groupRelations(issue)
-  const now = Date.now()
   // Merge axis only: a shared checkout's `ahead` is not this task's to land.
   const ahead = issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
 
@@ -123,7 +122,7 @@ export function IssueProperties({
             // inert and nothing is claimed about it.
             <Text style={styles.inert}>{issue.parentId}</Text>
           ) : (
-            <Text style={styles.none}>No parent</Text>
+            <Text style={styles.none}>None</Text>
           )}
           <Ghost
             label={parent || issue.parentId ? 'Change parent' : 'Set parent'}
@@ -136,7 +135,6 @@ export function IssueProperties({
         </Row>
 
         <Row label="Relations">
-          {relations.length === 0 ? <Text style={styles.none}>None</Text> : null}
           {relations.map((group) => (
             <View key={group.section} style={styles.relGroup}>
               <MachineLabel>{group.section}</MachineLabel>
@@ -219,25 +217,24 @@ export function IssueProperties({
           </Row>
         ) : null}
 
-        <Row label="Dates">
-          <Text style={styles.meta}>
-            {`created ${relativeTime(issue.createdAt, now)} · updated ${relativeTime(issue.updatedAt, now)}`}
-          </Text>
-          {issue.dueAt ? (
-            <Text style={styles.meta}>{`due ${new Date(issue.dueAt).toLocaleDateString()}`}</Text>
-          ) : null}
-          {issue.estimateMin != null ? (
-            <Text style={styles.meta}>{`estimate ${issue.estimateMin}m`}</Text>
-          ) : null}
-          {issue.deferUntil ? (
-            <>
-              <Text style={styles.meta}>
-                {`deferred until ${new Date(issue.deferUntil).toLocaleDateString()}`}
-              </Text>
-              <Ghost label="Undefer" busy={busy} onPress={commands.undefer} />
-            </>
-          ) : null}
-        </Row>
+        {issue.dueAt || issue.estimateMin != null || issue.deferUntil ? (
+          <Row label="Dates">
+            {issue.dueAt ? (
+              <Text style={styles.meta}>{`due ${new Date(issue.dueAt).toLocaleDateString()}`}</Text>
+            ) : null}
+            {issue.estimateMin != null ? (
+              <Text style={styles.meta}>{`estimate ${issue.estimateMin}m`}</Text>
+            ) : null}
+            {issue.deferUntil ? (
+              <>
+                <Text style={styles.meta}>
+                  {`deferred until ${new Date(issue.deferUntil).toLocaleDateString()}`}
+                </Text>
+                <Ghost label="Undefer" busy={busy} onPress={commands.undefer} />
+              </>
+            ) : null}
+          </Row>
+        ) : null}
 
         {issue.linearUrl || issue.linearIdentifier ? (
           <Row label="Linear">
@@ -249,18 +246,14 @@ export function IssueProperties({
           </Row>
         ) : null}
 
-        <Row label="About">
-          <Text style={styles.meta} numberOfLines={1}>
-            {issue.repoPath}
-          </Text>
-          {issue.worktreePath ? (
-            <Text style={styles.meta} numberOfLines={1}>
-              {issue.worktreePath}
-            </Text>
-          ) : null}
-          <Text style={styles.meta}>
-            {`${issue.origin === 'agent' ? 'agent-created' : 'human-created'} · for ${issue.audience === 'agent' ? 'agents' : 'you'}${issue.machineId ? ` · ${issue.machineId}` : ''}`}
-          </Text>
+        <Row label="Origin">
+          <Text
+            style={styles.meta}
+          >{`Created by ${issue.origin === 'agent' ? 'an agent' : 'a person'}`}</Text>
+          <Text
+            style={styles.meta}
+          >{`Written for ${issue.audience === 'agent' ? 'agents only' : 'people'}`}</Text>
+          {issue.machineId ? <Text style={styles.meta}>{`Machine ${issue.machineId}`}</Text> : null}
         </Row>
       </Disclosure>
     </View>
@@ -268,8 +261,10 @@ export function IssueProperties({
 }
 
 /**
- * The four properties an operator actually changes from a phone, always visible
- * under the title: stage, priority, type, assignee.
+ * The two everyday properties stay visible under the title: stage and priority.
+ * A non-default type renders beside them; the ordinary `task` value does not
+ * spend a chip merely to repeat what page this is. Assignee is intentionally
+ * absent: work is placed on agents in sessions, not on an assignee field.
  *
  * They are OUT of the fold on purpose. The desktop can afford to put stage in a
  * rail because the rail is never closed; here, a stage picker two taps deep is
@@ -282,13 +277,11 @@ export function PropertyBar({
   onStage,
   onPriority,
   onType,
-  onAssignee,
 }: {
   issue: IssueWire
   onStage: () => void
   onPriority: () => void
   onType: () => void
-  onAssignee: () => void
 }) {
   return (
     <View style={styles.bar}>
@@ -306,16 +299,13 @@ export function PropertyBar({
         onPress={onPriority}
         glyph={<PriorityGlyph priority={issue.priority} size={13} />}
       />
-      <Chip
-        label={issue.type}
-        accessibilityLabel={`Type ${issue.type} — change`}
-        onPress={onType}
-      />
-      <Chip
-        label={issue.assignee || 'Unassigned'}
-        accessibilityLabel={`Assignee ${issue.assignee || 'unassigned'} — change`}
-        onPress={onAssignee}
-      />
+      {issue.type !== 'task' ? (
+        <Chip
+          label={issue.type}
+          accessibilityLabel={`Type ${issue.type} — change`}
+          onPress={onType}
+        />
+      ) : null}
       {issue.needsHuman ? (
         <View style={[styles.chip, styles.chipNeedsYou]}>
           <Text style={[styles.chipText, styles.chipNeedsYouText]}>needs you</Text>

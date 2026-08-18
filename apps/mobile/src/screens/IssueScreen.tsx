@@ -63,13 +63,13 @@ import { color, space } from '../theme/theme'
  *
  * What this replaced was a thin page: a chip row, the description, a list of
  * sessions and a comment list. Everything else a task carries — its banners, its
- * agent-published todos and artifacts, its sub-tasks, its mail, its relations,
+ * agent-published artifacts, its sub-tasks, its mail, its relations,
  * its branch, its event history — was desk-only, which meant the phone could show
  * you that something needed you and then could not show you what it was.
  *
  * The section order is the desktop's, re-expressed for a 390pt one-handed screen:
  *
- *   banners → title → status strip → the four editable properties →
+ *   banners → title → status strip → the everyday properties →
  *   NOW (live agents + branch) → description → brief → long-form spec fields →
  *   the agent-published panel → sub-tasks → mail → Details (folded) → activity,
  *   with the comment composer PINNED below the scroll.
@@ -141,7 +141,6 @@ type OpenSheet =
   | { kind: 'stage' }
   | { kind: 'priority' }
   | { kind: 'type' }
-  | { kind: 'assignee' }
   | { kind: 'parent' }
   | { kind: 'relation-type' }
   | { kind: 'relation-target'; type: string }
@@ -226,10 +225,6 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         .filter((i) => i.repoPath === issue.repoPath && i.id !== issue.id && !i.deletedAt)
         .sort((a, b) => b.seq - a.seq),
     [issues, issue.repoPath, issue.id],
-  )
-  const assignees = useMemo(
-    () => [...new Set(issues.map((i) => i.assignee).filter((a) => !!a))].sort() as string[],
-    [issues],
   )
   const { prev, next } = useMemo(
     () => taskNeighbours(taskBoardOrder(issues), issue.id),
@@ -368,14 +363,13 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
           onStage={() => setSheet({ kind: 'stage' })}
           onPriority={() => setSheet({ kind: 'priority' })}
           onType={() => setSheet({ kind: 'type' })}
-          onAssignee={() => setSheet({ kind: 'assignee' })}
         />
 
         <IssueNow issue={issue} sessions={agents} onOpenSession={openSession} />
         <IssueDescription issue={issue} busy={busy} commands={commands} />
         <IssueBrief issue={issue} />
         <LongFormFields issue={issue} busy={busy} commands={commands} />
-        <IssueAgentPanel issue={issue} busy={busy} commands={commands} />
+        <IssueAgentPanel issue={issue} />
         <IssueSubIssues
           issue={issue}
           subIssues={children}
@@ -455,25 +449,6 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
           onPress: () => commands.update({ type: t }),
         }))}
         onClose={closeIf('type')}
-      />
-
-      <ActionSheet
-        visible={sheet?.kind === 'assignee'}
-        title="Assignee"
-        subtitle={assignees.length === 0 ? 'Nobody has been assigned anything yet.' : undefined}
-        actions={[
-          {
-            label: 'Unassigned',
-            selected: !issue.assignee,
-            onPress: () => commands.update({ assignee: '' }),
-          },
-          ...assignees.map((a) => ({
-            label: a,
-            selected: issue.assignee === a,
-            onPress: () => commands.update({ assignee: a }),
-          })),
-        ]}
-        onClose={closeIf('assignee')}
       />
 
       <ActionSheet

@@ -1,13 +1,10 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { type IssueWire, isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
-import { Plus } from 'lucide-react-native'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, mono, radius, sans, space, tracking } from '../../theme/theme'
-import { Icon } from '../Icon'
-import { PressableScale } from '../PressableScale'
 import { RichMarkdown } from '../RichMarkdown'
 import { Disclosure, InlineEditable, SectionHeading } from './chrome'
 
@@ -18,7 +15,7 @@ import { Disclosure, InlineEditable, SectionHeading } from './chrome'
  *
  * The DOSSIER RULE comes over from the desktop unchanged, because it is the rule
  * that keeps this page readable: the properties block owns ordinary editable
- * properties (stage, type, priority, assignee), and the strip under the title
+ * properties (stage, priority, and a non-default type), and the strip under the title
  * keeps recency plus EXCEPTIONS — draft, pinned, archived, agent-created,
  * internal, a stale hub mirror. A chip means "this one is not like the others";
  * nine chips of equal weight emphasise nothing.
@@ -139,13 +136,11 @@ const LONG_FORM = [
   { field: 'notes', label: 'Notes' },
 ] as const
 
-type LongFormField = (typeof LONG_FORM)[number]['field']
-
 /**
  * Design / Acceptance / Notes. Filled fields render as full sections with the
- * same tap-to-edit affordance as the description; empty ones collapse into one
- * quiet row of add chips, so a task with none of them costs three chips of
- * height instead of three empty sections.
+ * same tap-to-edit affordance as the description. Empty fields render nothing:
+ * these are agent-authored spec fields, not three standing calls to start a
+ * specification in the middle of the reading column.
  */
 export function LongFormFields({
   issue,
@@ -156,9 +151,9 @@ export function LongFormFields({
   busy: boolean
   commands: IssueCommands
 }) {
-  const [adding, setAdding] = useState<LongFormField | null>(null)
   const filled = LONG_FORM.filter(({ field }) => (issue[field] ?? '').trim() !== '')
-  const empty = LONG_FORM.filter(({ field }) => (issue[field] ?? '').trim() === '')
+
+  if (filled.length === 0) return null
 
   return (
     <View testID="long-form-fields">
@@ -175,45 +170,6 @@ export function LongFormFields({
           />
         </View>
       ))}
-      {empty.length > 0 ? (
-        <View style={styles.section}>
-          {adding ? (
-            <View>
-              <SectionHeading label={LONG_FORM.find((f) => f.field === adding)?.label ?? adding} />
-              <InlineEditable
-                // Keyed so switching which empty field is being added remounts
-                // the editor rather than carrying the previous draft across.
-                key={adding}
-                value=""
-                placeholder={`Add ${adding}…`}
-                ariaLabel={`Task ${adding}`}
-                busy={busy}
-                onCommit={(value) => {
-                  setAdding(null)
-                  commands.commitLongForm(adding, value)
-                }}
-              />
-            </View>
-          ) : (
-            <View style={styles.addRow}>
-              {empty.map(({ field, label }) => (
-                <PressableScale
-                  key={field}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Add ${label.toLowerCase()}`}
-                  accessibilityState={{ disabled: busy }}
-                  disabled={busy}
-                  onPress={() => setAdding(field)}
-                  style={({ pressed }) => [styles.addChip, pressed && styles.addChipPressed]}
-                >
-                  <Icon as={Plus} size={13} color={color.textDim} />
-                  <Text style={styles.addChipText}>{label}</Text>
-                </PressableScale>
-              ))}
-            </View>
-          )}
-        </View>
-      ) : null}
     </View>
   )
 }
@@ -260,29 +216,5 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     lineHeight: leading(font.small, 'prose'),
     paddingTop: space.xs,
-  },
-  addRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-  },
-  addChip: {
-    minHeight: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-  },
-  addChipPressed: {
-    backgroundColor: color.surfacePressed,
-  },
-  addChipText: {
-    ...sans(500),
-    color: color.textDim,
-    fontSize: font.tiny,
   },
 })

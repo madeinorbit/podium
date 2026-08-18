@@ -62,7 +62,7 @@ export function SectionHeading({
 
 /**
  * A fold. Used for everything the page holds but does not lead with — the agent
- * brief, the done todos, the done sub-tasks, the properties block.
+ * brief and the properties block.
  *
  * The chevron rotates on a spring and is the only motion; Reduce Motion turns
  * that into an instant flip rather than a slower one, because a rotation that
