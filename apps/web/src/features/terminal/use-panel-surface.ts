@@ -29,7 +29,11 @@ import {
   PANEL_MODE_DEFAULT_KEY,
   type PanelMode,
 } from '@podium/client-core/ui-state'
-import { defaultChatCapable, sessionTerminalOutlook } from '@podium/client-core/viewmodels'
+import {
+  defaultChatCapable,
+  type TerminalOutlook,
+  sessionTerminalOutlook,
+} from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -48,6 +52,10 @@ export interface PanelArbitration {
    *  unconditionally because viewState carries it for every visible session. */
   readonly mode: PanelMode
   readonly chatCapable: boolean
+  /** Three-valued "does this session have a terminal" — `unknown` until the
+   *  daemon has said. The panel needs the third value to tell an honest wait
+   *  from an ordinary one (POD-2290). */
+  readonly terminalOutlook: TerminalOutlook
   readonly pickMode: (mode: PanelMode) => void
 }
 
@@ -180,5 +188,5 @@ export function usePanelSurface(input: {
   })
   if (gates.modeSwitchOffered) switchOfferedRef.current.offered = true
 
-  return { surface, gates, mode, chatCapable, pickMode }
+  return { surface, gates, mode, chatCapable, terminalOutlook: terminal, pickMode }
 }

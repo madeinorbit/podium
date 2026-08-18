@@ -163,3 +163,64 @@ root is `/tmp/pod-2290` rather than `/tmp/pod-2290-drive` (abduco's socket path 
 `sun_path` hazard POD-2245's env script calls out), and the drive builds the web bundle with
 `build:dist` rather than `build` because the bundle-BUDGET check is red at the epic tip for
 reasons unrelated to this instance.
+
+---
+
+# Round three — the seam the reviewer drove
+
+Round two was verified live for the journey it was about and still had one window left, found by
+re-driving it rather than re-reading it: **`reconnecting`**.
+
+## What was wrong
+
+A server restart rehydrates persisted `live`/`starting` rows as `reconnecting`
+(`repository.ts` `sessionFromStoredRow`). Round two held the driver decision **in memory only**,
+so after a restart a headless row came back family-unknown — and `pending` is scoped to
+`starting`, so it fell through to `live`, where an unknown family reads as "assume a terminal".
+The reviewer held the daemon down and photographed the original bug: an OpenCode session on
+NATIVE, with the switcher, spinning.
+
+The `stalled` exit could not rescue it, and the reason is worth recording: the attach **had**
+confirmed — the server answers it without the daemon — so `ready` was true and the wait fell into
+`silent`, which has no exit. The screen read *"Starting OpenCode… / no output yet · 4:35 / Still
+attached — some CLIs update themselves…"*, and every clause of that was false at once.
+
+## Decisions
+
+**9. The decision is PERSISTED, not just held.** New `sessions.selected_driver_id` column
+(one-line migration) written when the daemon announces its choice and restored on rehydration.
+Deliberately not `driver_id`: that one names a *live handle* and must stay transient, or a
+restored row would send W4's migrated callers down the receipt path for a driver that is gone.
+A `bind` that reports a different driver overwrites the persisted value, because the durable fact
+has to describe what actually ran rather than the plan it abandoned.
+
+  *Not* widening `pending` to cover `reconnecting`, which was the other available lever: that
+  would blank every PTY panel on every server restart. The reviewer recommended against it and
+  the coordinator concurred.
+
+**10. A fourth overlay state, `awaiting-machine`.** For the legacy tail — rows written before the
+column, which have no family to restore — the overlay stops describing the harness and names the
+actual cause: *"Waiting for &lt;machine&gt; · Podium hasn't heard from the machine running this
+agent for M:SS."* No spinner, for the same reason `stalled` has none. Gated by the caller on
+`reconnecting` **and** family-unknown, so every row that carries its family — PTY included — keeps
+exactly the behaviour it had.
+
+## Gates
+
+Uncached whole-graph typecheck green (0/25 cached). Boundary lint at exactly the 6-line baseline.
+Server store shard 377/378, boundary shard `relay.test.ts` 166/166 including two new pins driven
+through the **real** rehydration path (a second registry over the same database file — a test that
+hand-built the row would have passed against the broken code). Web terminal lanes 179, client-core
+810, daemon integration 67, protocol golden 209 **unchanged** — this round adds a database column,
+not a wire field.
+
+Two failures are pre-existing and reproduce untouched at the branch point: `branded-ref.test.ts`
+(the schema has carried its 8 `.references(` since before this issue) and a `closed database`
+teardown flake in the shipping service, which the round-one reviewer disclosed independently.
+
+**Disclosed workaround.** POD-2316's `e4440f600` evaluates `fileURLToPath(new URL(…,
+import.meta.url))` eagerly in `test-hermetic-env.ts`; under `apps/web`'s vite transform that URL is
+not a `file:` one, so every web lane dies at import before a test loads. The web numbers above were
+taken with that single line made lazy **locally and uncommitted**; the file was restored
+byte-identical (verified by `git hash-object`) before the commit, and POD-2316 was mailed the
+diagnosis. Nothing of theirs is in this change.

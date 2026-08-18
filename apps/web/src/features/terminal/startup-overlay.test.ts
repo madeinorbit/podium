@@ -19,12 +19,17 @@ const overlayOf = (over: {
   outputSeen?: boolean
   ageMs?: number | null
   attachWaitMs?: number | null
+  awaitingMachineMs?: number | null
 }) =>
   startupOverlay({
     ready: over.ready ?? true,
     outputSeen: over.outputSeen ?? false,
     ageMs: over.ageMs === undefined ? 0 : over.ageMs,
     attachWaitMs: over.attachWaitMs === undefined ? 0 : over.attachWaitMs,
+    // NULL by default: the caller only dates this wait for a reconnecting
+    // session whose driver family nobody has stated, which is a narrow tail —
+    // every other case in this file is not in it.
+    awaitingMachineMs: over.awaitingMachineMs ?? null,
   })
 
 describe('startupOverlay', () => {
@@ -108,6 +113,14 @@ describe('startupOverlay', () => {
       expect(overlayOf({ ready: false, attachWaitMs: null })).toEqual({ kind: 'starting' })
     })
 
+    it('yields to the machine being away, which explains the attach it is describing', () => {
+      // Both clocks past their threshold: "we have not heard from the machine"
+      // is the cause and "the attach has not landed" is its symptom.
+      expect(
+        overlayOf({ ready: false, attachWaitMs: 60_000, awaitingMachineMs: 60_000 }),
+      ).toEqual({ kind: 'awaiting-machine', elapsedMs: 60_000 })
+    })
+
     it('is unreachable once the attach confirms, however long it took', () => {
       // `stalled` describes a wait in progress, not a slow one that ended: a
       // terminal that attaches on its 90th second is a working terminal.
@@ -134,5 +147,51 @@ describe('sessionAgeMs', () => {
   it('is unknown without a parsable timestamp', () => {
     expect(sessionAgeMs(undefined, 0)).toBeNull()
     expect(sessionAgeMs('not a date', 0)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-2290 ROUND 2 — the seam the reviewer DROVE. A server restart rehydrates
+// live rows as `reconnecting`; a headless row that came back with no driver
+// family sat on "Starting OpenCode… / no output yet · 4:35 / Still attached —
+// some CLIs update themselves…", every clause of which was false. `stalled`
+// could not rescue it, because the attach HAD confirmed (the server answers it
+// without the daemon), so the wait fell into `silent`, which has no exit.
+// ---------------------------------------------------------------------------
+
+describe('a session whose machine has not checked in', () => {
+  it('names the machine instead of the harness, once the wait is real', () => {
+    // The reviewer's exact screen: ready, no output, minutes elapsed.
+    expect(
+      overlayOf({ ready: true, outputSeen: false, ageMs: 275_000, awaitingMachineMs: 275_000 }),
+    ).toEqual({ kind: 'awaiting-machine', elapsedMs: 275_000 })
+  })
+
+  it('holds the ordinary silent wait while the absence could still be a blip', () => {
+    // A reconnecting session usually reconnects. Below the threshold this is an
+    // ordinary quiet start and must read as one, or every daemon hiccup becomes
+    // an alarm.
+    expect(
+      overlayOf({ ready: true, outputSeen: false, ageMs: 30_000, awaitingMachineMs: 30_000 }),
+    ).toMatchObject({ kind: 'silent' })
+  })
+
+  it('never fires for the sessions that are not in that window', () => {
+    // The caller dates this wait only for a reconnecting row with no known
+    // driver family. Everything else passes null and is untouched — which is
+    // what keeps every row written since the family became durable, PTY
+    // included, on exactly the behaviour it had.
+    expect(overlayOf({ ready: true, outputSeen: false, ageMs: 275_000 })).toMatchObject({
+      kind: 'silent',
+    })
+    expect(overlayOf({ ready: false, attachWaitMs: 60_000 })).toMatchObject({ kind: 'stalled' })
+  })
+
+  it('does not cover a terminal that has already painted', () => {
+    // The last frame is the truest thing on screen; an overlay over it would
+    // hide the work the session actually did before its machine went away.
+    expect(
+      overlayOf({ ready: true, outputSeen: true, awaitingMachineMs: 275_000 }),
+    ).toEqual({ kind: 'hidden' })
   })
 })

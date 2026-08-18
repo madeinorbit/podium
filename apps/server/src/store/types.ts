@@ -153,6 +153,21 @@ export interface SessionRow {
   conversationId: string | null
   resumeKind: string | null
   resumeValue: string | null
+  /**
+   * The driver the daemon DECIDED on for this session (POD-2290 round 2).
+   *
+   * Not the bound one: `driverId` belongs to a live handle and is transient by
+   * design, while this is the decision reported before the launch and is
+   * therefore a fact about how the session was started. Persisting it is what
+   * lets a server restart rehydrate a headless row still knowing it has no
+   * terminal — without it the row comes back `reconnecting` and family-unknown,
+   * which the panel reads as "assume a terminal" and renders as the original
+   * bug's dead pane.
+   *
+   * `null` = a row from before this column, or one whose daemon never reported
+   * a selection. Never backfilled.
+   */
+  selectedDriverId?: string | null
   status: SessionStatusPersisted
   exitCode: number | null
   /** Daemon-reported reason a spawn never started; null for ordinary exits. */

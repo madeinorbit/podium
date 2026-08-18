@@ -90,6 +90,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260816092917_operations-table", sql: "CREATE TABLE `operations` (\n\t`id` text PRIMARY KEY,\n\t`kind` text NOT NULL,\n\t`exclusion_group` text NOT NULL,\n\t`state` text NOT NULL,\n\t`created_at` integer NOT NULL,\n\t`updated_at` integer NOT NULL,\n\t`finished_at` integer,\n\t`payload` text NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX `idx_operations_group_state` ON `operations` (`exclusion_group`,`state`);--> statement-breakpoint\nCREATE INDEX `idx_operations_kind_created` ON `operations` (`kind`,`created_at`);" },
   { name: "20260816150512_issue-landing-stamp", sql: "ALTER TABLE `issues` ADD `landed_at` text;--> statement-breakpoint\nALTER TABLE `issues` ADD `landed_sha` text;" },
   { name: "20260816202210_add-message-delivery-deferral", sql: "ALTER TABLE `messages` ADD `delivery_deferred_at` text;--> statement-breakpoint\nALTER TABLE `messages` ADD `delivery_deferred_reason` text;" },
+  { name: "20260818012131_pod-2290-selected-driver", sql: "ALTER TABLE `sessions` ADD `selected_driver_id` text;" },
   { name: "20260818141127_login-shell-purpose", sql: "ALTER TABLE `sessions` ADD `login_harness` text;\n" },
 ]
 

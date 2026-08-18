@@ -91,6 +91,8 @@ export interface SessionInit {
   createdBy?: Attribution
   /** True for a headless harness session (no PTY; concierge unification). */
   headless?: boolean
+  /** The driver the daemon decided on, restored from the row (POD-2290). */
+  selectedDriverId?: string
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: IssueId
   /** Birth-issue nice-name fields (#474). Absent = not yet named. */
@@ -323,6 +325,10 @@ export class Session {
     this.workflowStepId = init.workflowStepId
     this.executionProfileId = init.executionProfileId
     this.headless = init.headless ?? false
+    // Restored from the row on a server restart, which is the entire point of
+    // persisting it: without this line the rehydrated session is family-unknown
+    // and the panel falls back to "assume a terminal" (POD-2290 round 2).
+    this.selectedDriverId = init.selectedDriverId
     this.issueId = init.issueId
     this.refIssueId = init.refIssueId ?? null
     this.refLetter = init.refLetter ?? null
@@ -642,6 +648,11 @@ export class Session {
       conversationId: this.origin.kind === 'resume' ? this.origin.conversationId : null,
       resumeKind: this.resume?.kind ?? null,
       resumeValue: this.resume?.value ?? null,
+      // The daemon's DECISION survives the process that made it (POD-2290 round
+      // 2). `driverId` deliberately does not appear here and must not: it names
+      // a live handle, and a row that claimed one across a restart would send
+      // W4's migrated callers down the receipt path for a driver that is gone.
+      selectedDriverId: this.selectedDriverId ?? null,
       status: this.status,
       exitCode: this.exitCode ?? null,
       spawnFailure: this.spawnFailure ?? null,

@@ -67,6 +67,11 @@ export type StartupOverlay =
   | { readonly kind: 'hidden' }
   | { readonly kind: 'starting' }
   | {
+      readonly kind: 'awaiting-machine'
+      /** ms this mount has been looking at a session whose machine is away. */
+      readonly elapsedMs: number
+    }
+  | {
       readonly kind: 'stalled'
       /** ms this mount has been waiting for its attach. */
       readonly elapsedMs: number
@@ -99,15 +104,46 @@ export function startupOverlay(input: {
    * would declare the attach stalled before it was even issued.
    */
   readonly attachWaitMs: number | null
+  /**
+   * How long this mount has been looking at a session whose MACHINE has not
+   * checked in — and only when nothing has said what kind of session it is.
+   * Null the rest of the time, which is almost always.
+   *
+   * THE SEAM ROUND TWO MISSED, found by driving it (POD-2290). A server restart
+   * rehydrates live rows as `reconnecting`, and the reviewer held the daemon
+   * down and watched a headless session sit on "Starting OpenCode… / no output
+   * yet · 4:35 / Still attached — some CLIs update themselves…". Every clause of
+   * that is false: nothing is starting, nothing is attached, and the reason is
+   * neither the harness nor the session. The `stalled` clock could not rescue it
+   * because the attach HAD confirmed — the server answers it without the daemon
+   * — so `ready` was true and the wait fell into `silent`, which has no exit.
+   *
+   * Scoped to family-unknown by the caller, deliberately: a row that carries its
+   * driver family has nothing to be confused about, and every row written after
+   * that fact became durable carries one. What lands here is the legacy tail.
+   */
+  readonly awaitingMachineMs: number | null
 }): StartupOverlay {
+  const awaiting =
+    input.awaitingMachineMs !== null && input.awaitingMachineMs >= ATTACH_STALLED_AFTER_MS
+      ? input.awaitingMachineMs
+      : null
   if (!input.ready) {
+    // The machine's absence outranks the attach's: it explains the attach, and
+    // "this isn't working" is a worse answer than "we haven't heard from the
+    // machine" when the second one is the actual cause.
+    if (awaiting !== null) return { kind: 'awaiting-machine', elapsedMs: awaiting }
     const waited = input.attachWaitMs
     if (waited !== null && waited >= ATTACH_STALLED_AFTER_MS) {
       return { kind: 'stalled', elapsedMs: waited }
     }
     return { kind: 'starting' }
   }
+  // A terminal that has painted keeps its screen even when the machine goes
+  // away — the last frame is still the truest thing to show — so `hidden` is
+  // checked before the machine's absence, not after.
   if (input.outputSeen) return { kind: 'hidden' }
+  if (awaiting !== null) return { kind: 'awaiting-machine', elapsedMs: awaiting }
   const age = input.ageMs
   if (age === null || age < SILENCE_ELAPSED_AFTER_MS) {
     return { kind: 'silent', elapsedMs: null, hint: false }

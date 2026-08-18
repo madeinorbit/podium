@@ -187,6 +187,10 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     conversationId: null,
     resumeKind: null,
     resumeValue: null,
+    // The daemon's driver DECISION, durable since POD-2290 round 2 — null here
+    // because nothing has reported one for this fixture, which is also what a
+    // row written before the column reads as.
+    selectedDriverId: null,
     name: null,
     // WHO named the session (#490): always projected; null = nobody named it.
     nameSource: null,

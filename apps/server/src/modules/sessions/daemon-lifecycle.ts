@@ -232,6 +232,12 @@ export class SessionDaemonLifecycle {
         const s = this.sessions.get(msg.sessionId)
         if (s) {
           s.selectedDriverId = msg.driverId
+          // PERSISTED, not merely held (POD-2290 round 2). Holding it in memory
+          // was the whole defect the reviewer drove: a server restart rehydrates
+          // live rows as `reconnecting`, and an in-memory-only selection is gone
+          // by then, so a headless session came back looking like it had a
+          // terminal. This write is what survives the restart.
+          this.persist(s)
           this.broadcastSessions()
         }
         break
@@ -251,6 +257,15 @@ export class SessionDaemonLifecycle {
           // The resolved driver comes from the daemon's live handle binding, not
           // from the requested override. Older daemons and legacy sessions omit it.
           s.driverId = msg.driverId
+          /**
+           * …and the DURABLE record follows the binding, not the plan (POD-2290
+           * round 2). Normally they agree. Where they can differ — a launch that
+           * fell back — the persisted fact has to describe what actually ran, or
+           * the next restart rehydrates the session as the family it failed to
+           * become. Guarded so an older daemon's bind, which carries no driver,
+           * cannot erase a selection this session already reported.
+           */
+          if (msg.driverId) s.selectedDriverId = msg.driverId
           // Present only for a permitted manifest/machine default degradation.
           // Reattach echoes it so daemon reconnects preserve the fact.
           s.requestedDriverId = msg.requestedDriverId

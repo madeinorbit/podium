@@ -456,6 +456,16 @@ export class SessionRepository {
       ...(r.resumeKind && r.resumeValue
         ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
         : {}),
+      /**
+       * THE FIX THIS COLUMN EXISTS FOR (POD-2290 round 2). `reloadStatus` above
+       * turns a persisted live/starting row into `reconnecting`, and a
+       * reconnecting row with no driver family is exactly where the panel falls
+       * back to "assume a terminal" — the original bug's screen, driven live by
+       * the reviewer with the daemon held down. `driverId` is deliberately NOT
+       * restored beside it: that one names a live handle, and this row has none
+       * until a daemon rebinds.
+       */
+      ...(r.selectedDriverId ? { selectedDriverId: r.selectedDriverId } : {}),
     })
     return session
   }

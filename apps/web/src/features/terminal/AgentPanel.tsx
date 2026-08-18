@@ -252,6 +252,7 @@ export function AgentPanel({
     gates,
     mode: effectiveMode,
     chatCapable,
+    terminalOutlook,
     pickMode,
   } = usePanelSurface({
     sessionId,
@@ -636,7 +637,13 @@ export function AgentPanel({
   // apart from a session whose screen we merely don't hold (POD-379's case,
   // where dropping the overlay at attach is right). The per-second clock runs
   // only while such a wait is actually on screen in this pane.
-  const silenceNow = useNow(1_000, gates.terminalActive && (!ready || !outputSeen))
+  // …and it also has to tick while a reconnecting session's machine is away,
+  // which is a wait with no output and no attach to end it [POD-2290 round 2].
+  const silenceNow = useNow(
+    1_000,
+    gates.terminalActive &&
+      (!ready || !outputSeen || session?.status === 'reconnecting'),
+  )
   // When THIS mount started waiting for its attach [POD-2290] — zero while
   // attached, restamped on the next wait, so a re-attach is judged on its own
   // window instead of inheriting the first one's age. A render-phase ref write,
@@ -645,6 +652,18 @@ export function AgentPanel({
   const attachWaitSinceRef = useRef(0)
   if (ready) attachWaitSinceRef.current = 0
   else if (attachWaitSinceRef.current === 0) attachWaitSinceRef.current = Date.now()
+  /**
+   * …and the second clock: how long this mount has been looking at a session
+   * whose MACHINE is away and whose driver family nobody has stated
+   * [POD-2290 round 2]. Both conditions, because either alone is ordinary — a
+   * reconnecting row usually reconnects, and a family-unknown row is usually a
+   * legacy one that is perfectly fine — while together they are the window the
+   * reviewer photographed the original bug in.
+   */
+  const machineAway = session?.status === 'reconnecting' && terminalOutlook === 'unknown'
+  const awaitingSinceRef = useRef(0)
+  if (!machineAway) awaitingSinceRef.current = 0
+  else if (awaitingSinceRef.current === 0) awaitingSinceRef.current = Date.now()
   const overlay = startupOverlay({
     ready,
     outputSeen,
@@ -653,6 +672,8 @@ export function AgentPanel({
       attachWaitSinceRef.current === 0
         ? null
         : Math.max(0, silenceNow - attachWaitSinceRef.current),
+    awaitingMachineMs:
+      awaitingSinceRef.current === 0 ? null : Math.max(0, silenceNow - awaitingSinceRef.current),
   })
 
   // Native-mode dictation: transcribed speech types straight into the PTY as
@@ -1123,7 +1144,7 @@ export function AgentPanel({
                     it is dropped the moment that claim stops being credible
                     [POD-2290] — a stalled mount says so in words instead of
                     animating over a wait that is not going to end. */}
-                    {overlay.kind !== 'stalled' && (
+                    {overlay.kind !== 'stalled' && overlay.kind !== 'awaiting-machine' && (
                       <span
                         className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
                         aria-hidden="true"

@@ -1673,6 +1673,83 @@ describe('SessionRegistry', () => {
     expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('live')
   })
 
+  /**
+   * POD-2290 ROUND 2, the seam the reviewer DROVE rather than read.
+   *
+   * A server restart rehydrates persisted live/starting rows as `reconnecting`.
+   * Round two held the driver decision in memory only, so after a restart a
+   * headless session came back with no driver family at all — and the web panel
+   * reads a family-unknown live row as "assume a terminal", which is the
+   * original bug's screen: the OpenCode session opened on NATIVE with a
+   * switcher and a spinner that could not end while the daemon was away.
+   *
+   * Driven through the REAL rehydration path (a second registry over the same
+   * database file), not by hand-building a row: the defect was that the fact
+   * never reached the row, and a test that constructed the row itself would
+   * have passed against the broken code.
+   */
+  it('carries the driver family across a server restart, with the daemon away', () => {
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
+    const store1 = new SessionStore(file, TEST_MACHINE)
+    const reg1 = new SessionRegistry(store1, undefined, { instanceId: 'default' })
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg1.modules.sessions.createSession({
+      agentKind: 'opencode',
+      cwd: '/a',
+    })
+    // The daemon announces its decision before it launches anything; it never
+    // gets as far as a bind here, which is also the case that used to lose it.
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      type: 'driverSelected',
+      sessionId,
+      driverId: 'opencode-server',
+    })
+    expect(reg1.modules.sessions.listSessions().at(0)?.driverFamily).toBe('server')
+    store1.close()
+
+    // Restart, and DO NOT attach a daemon — that is the window.
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
+    const restored = reg2.modules.sessions.listSessions().at(0)
+    expect(restored?.status).toBe('reconnecting')
+    expect(restored?.driverFamily).toBe('server')
+    // …and still no claim that a live handle exists, which is the other half:
+    // `driverId` names a driver we are currently driving through, and after a
+    // restart with the daemon away we are driving through nothing.
+    expect(restored?.driverId).toBeUndefined()
+  })
+
+  it('lets a bind correct the persisted decision when the launch fell back', () => {
+    // The durable fact has to describe what actually ran. A session that asked
+    // for a server driver and ended up on the terminal one must come back from
+    // a restart as a TERMINAL session, or the panel withholds a view it has.
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
+    const store1 = new SessionStore(file, TEST_MACHINE)
+    const reg1 = new SessionRegistry(store1, undefined, { instanceId: 'default' })
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg1.modules.sessions.createSession({
+      agentKind: 'opencode',
+      cwd: '/a',
+    })
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      type: 'driverSelected',
+      sessionId,
+      driverId: 'opencode-server',
+    })
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      agentKind: 'opencode',
+      driverId: 'generic-pty',
+    })
+    store1.close()
+
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
+    expect(reg2.modules.sessions.listSessions().at(0)?.driverFamily).toBe('terminal')
+  })
+
   it('reattachFailed marks the session exited', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = new SessionStore(file, TEST_MACHINE)

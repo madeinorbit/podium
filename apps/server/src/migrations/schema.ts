@@ -109,6 +109,25 @@ export const sessions = sqliteTable(
     conversationId: text('conversation_id'),
     resumeKind: text('resume_kind'),
     resumeValue: text('resume_value'),
+    /**
+     * THE DRIVER THE DAEMON DECIDED ON, DURABLE (POD-2290 round 2).
+     *
+     * Deliberately NOT `driver_id`. The BOUND driver belongs to a live handle
+     * and is transient by design; this is the DECISION the daemon reported
+     * before it launched, which is a fact about how the session was started and
+     * therefore survives the process that made it.
+     *
+     * It is here because dropping it broke the fix that needed it: a server
+     * restart rehydrates live rows as `reconnecting`, and with nothing
+     * persisted a headless session came back family-unknown — which the panel
+     * reads as "assume a terminal", which is the original bug's screen. Driven
+     * live by the reviewer with the daemon held down.
+     *
+     * NULL = a row written before this column, or one whose daemon never
+     * reported a selection. Never backfilled: inventing a driver for a row we
+     * were not told about is the guess this whole issue is about removing.
+     */
+    selectedDriverId: text('selected_driver_id'),
     status: text().notNull(),
     exitCode: integer('exit_code'),
     spawnFailure: text('spawn_failure'),

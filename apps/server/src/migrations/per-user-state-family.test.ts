@@ -288,6 +288,8 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
         'created_by_actor_kind',
         'created_by_actor_id',
         'created_by_on_behalf_of',
+        // Both fields are later additive migrations in the same chain.
+        'selected_driver_id',
         // Native login shells are purpose-marked by a later additive migration.
         'login_harness',
       ]),
