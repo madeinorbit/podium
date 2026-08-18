@@ -25,7 +25,7 @@
  * `branchRollup` note says the same thing about counts, since a count IS an
  * existence fact and §3.1.2 leaves that policy open.
  */
-import { type IssueId, issueStatusOf } from '@podium/model/browser'
+import type { IssueId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
@@ -33,8 +33,9 @@ import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { IssueStatusPicker } from '../IssueStatusPicker'
 import { issueIdTitle, issueStateWord } from '../issue-card'
-import { StatusGlyph } from '../issue-glyphs'
+import { useIssueStatusApply } from '../use-issue-status-apply'
 import { SectionHeading } from './chrome'
 
 /** A child is DONE for the fold when the issue slice's own finished predicate
@@ -64,9 +65,11 @@ const STATE_TONE = {
 function SubTaskRow({
   child,
   onNavigate,
+  onStatusPick,
 }: {
   child: IssueViewModel
   onNavigate: (id: IssueId) => void
+  onStatusPick: (value: string) => void
 }): JSX.Element {
   const state = issueStateWord(child)
   const finished = isFinished(child)
@@ -81,7 +84,10 @@ function SubTaskRow({
       title={issueIdTitle(child)}
       onClick={() => onNavigate(child.id)}
     >
-      <StatusGlyph status={issueStatusOf(child)} size={12} />
+      {/* The glyph is the child's status AND the door onto changing it — a
+          sub-task is most often moved from the parent you are reading, not from
+          its own page (POD-1271). */}
+      <IssueStatusPicker issue={child} onPick={onStatusPick} />
       <span className="w-[56px] flex-none font-mono shell-type-micro text-text-faint tabular-nums">
         {issueDisplayRef(child)}
       </span>
@@ -134,6 +140,7 @@ export function IssueSubIssues({
   onCreate: (title: string) => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
+  const status = useIssueStatusApply()
   return (
     <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">
       <SectionHeading
@@ -145,8 +152,18 @@ export function IssueSubIssues({
           heading's `n/m` is where the done COUNT is answered; the list itself
           answers what the children are. */}
       {subIssues.map((child) => (
-        <SubTaskRow key={child.id} child={child} onNavigate={onNavigate} />
+        <SubTaskRow
+          key={child.id}
+          child={child}
+          onNavigate={onNavigate}
+          onStatusPick={(value) => status.pick(child, value)}
+        />
       ))}
+      {/* The close guard for a CHILD, mounted beside the list rather than in
+          the row: the row it belongs to can repaint (or leave the list, once
+          closed) while the dialog stands. The page's own close guard is a
+          different dialog about a different issue. */}
+      {status.dialog}
       {addingChild ? (
         <Input
           autoFocus

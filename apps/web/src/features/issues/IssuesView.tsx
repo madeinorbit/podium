@@ -264,6 +264,24 @@ export function IssuesView(): JSX.Element {
     }
     runMut(Promise.all(selectedIds.map((id) => updateIssue(id, { stage: intent.stage }))))
   }
+  /**
+   * ONE ROW's status, picked from its glyph (POD-1271). Same two arms as
+   * `bulkStatus` — a lane move is a stage patch, an ending goes through the
+   * close guard — and deliberately through the SAME pending-close state rather
+   * than a second dialog of its own: `IssueBulkCloseDialog` hands a selection of
+   * one straight to the single-issue guard, which is the dialog this row wants
+   * anyway. A row picked from is not a row selected, so nothing here touches the
+   * selection.
+   */
+  const rowStatus = (id: IssueId, value: string): void => {
+    const intent = parseIssueStatusValue(value)
+    if (!intent) return
+    if (intent.kind === 'close') {
+      setBulkClose({ ids: [id], reason: intent.reason })
+      return
+    }
+    runMut(updateIssue(id, { stage: intent.stage }))
+  }
   const bulkCloseTargets = useMemo(
     () =>
       bulkClose
@@ -392,6 +410,7 @@ export function IssuesView(): JSX.Element {
           onToggleSelect={toggleSelectId}
           onToggleExpand={toggleExpand}
           onContextMenu={onIssueContextMenu}
+          onStatusPick={rowStatus}
           initialScrollTop={issueScrollPositions.current.list}
           onScrollTop={rememberListScroll}
         />

@@ -16,12 +16,12 @@ import {
   sessionNeedsHuman,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import {
-  type IssueComment,
-  type IssueId,
-  issueStatusOf,
-  type MachineId,
-  type SessionId,
+import type {
+  IssueComment,
+  IssueId,
+  MachineId,
+  SessionId,
+  SessionMeta,
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -60,8 +60,9 @@ import {
   isOpenSession,
   issueSessions,
 } from './IssueCompactControls'
+import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
-import { StatusGlyph } from './issue-glyphs'
+import { useIssueStatusApply } from './use-issue-status-apply'
 
 // Where the task's identity lives, since POD-743: the HEAD of this panel. The
 // dock title bar carried it between POD-516 and here, on the reasoning that the
@@ -194,9 +195,12 @@ function UnifiedRow({
   meta,
   needs = false,
   onOpen,
+  onStatusPick,
 }: {
   sub: IssueViewModel
   meta: string
+  /** The row's glyph is a status picker (POD-1271); the panel applies the pick. */
+  onStatusPick: (value: string) => void
   /** This row's work is stopped on the operator. The mark is the state word in
    *  attention ink — the SAME mark the sidebar's row (UnifiedIssueRow) and the
    *  Flight Deck's task line use, so one task never reads three ways in three
@@ -218,7 +222,7 @@ function UnifiedRow({
         sub.archived && 'opacity-60',
       )}
     >
-      <StatusGlyph status={issueStatusOf(sub)} size={12} />
+      <IssueStatusPicker issue={sub} onPick={onStatusPick} />
       <span className="min-w-0 truncate">
         {/* The ref is an address, not part of the sentence — mono, and the
             faintest ink on the row, so the title is what the eye lands on. */}
@@ -797,6 +801,9 @@ export function IssuePanelView({
     shallowEqual,
   )
   const issues = useReplicaIssues()
+  // Every task row in this column carries its own status door (POD-1271); the
+  // apply and its close guard are shared by all of them, once, here.
+  const rowStatus = useIssueStatusApply()
   const { setFocusedIssueId } = useOperatorFocus()
   const issue = useMemo(
     () =>
@@ -1018,6 +1025,7 @@ export function IssuePanelView({
                 sub={parent}
                 meta={parent.archived ? 'Archived' : 'Parent'}
                 onOpen={() => openLinked(parent)}
+                onStatusPick={(value) => rowStatus.pick(parent, value)}
               />
             ) : (
               <Hint>{issue.parentId}</Hint>
@@ -1041,6 +1049,7 @@ export function IssuePanelView({
                   meta={state.label}
                   needs={state.state === 'needs-you'}
                   onOpen={() => openLinked(sub)}
+                  onStatusPick={(value) => rowStatus.pick(sub, value)}
                 />
               )
             })}
@@ -1053,7 +1062,13 @@ export function IssuePanelView({
                 />
                 {showCompleted &&
                   doneChildren.map((sub) => (
-                    <UnifiedRow key={sub.id} sub={sub} meta="Done" onOpen={() => openLinked(sub)} />
+                    <UnifiedRow
+                      key={sub.id}
+                      sub={sub}
+                      meta="Done"
+                      onOpen={() => openLinked(sub)}
+                      onStatusPick={(value) => rowStatus.pick(sub, value)}
+                    />
                   ))}
               </>
             )}
@@ -1079,6 +1094,7 @@ export function IssuePanelView({
                       sub={target}
                       meta={entry.type}
                       onOpen={() => openLinked(target)}
+                      onStatusPick={(value) => rowStatus.pick(target, value)}
                     />
                   ) : (
                     <div
@@ -1144,6 +1160,9 @@ export function IssuePanelView({
         <CheckoutPart issue={issue} />
       </div>
       <DockCommentComposer issue={issue} />
+      {/* The close guard for a row picked from above — mounted at the column,
+          not in the row, because a row can repaint or leave the list under it. */}
+      {rowStatus.dialog}
     </div>
   )
 }

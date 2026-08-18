@@ -1,4 +1,4 @@
-import { type IssueId, type IssueStage, issueStatusOf } from '@podium/model/browser'
+import type { IssueId, IssueStage } from '@podium/model/browser'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import {
   type CSSProperties,
@@ -13,8 +13,9 @@ import { Badge } from '@/components/ui/badge'
 import { issueColorHex } from '@/lib/issueColors'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
+import { IssueStatusPicker } from './IssueStatusPicker'
 import { cardAge, issueCardModel, issueIdTitle, STAGE_LABELS } from './issue-card'
-import { AssigneeAvatar, PriorityGlyph, StageGlyph, StatusGlyph } from './issue-glyphs'
+import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { type IssueRow, isEpic } from './issue-hierarchy'
 import type { IssuesDisplay } from './issues-display'
 import { useBoundedVirtualList } from './use-bounded-virtual-list'
@@ -35,6 +36,7 @@ export function IssueListView({
   onToggleSelect,
   onToggleExpand,
   onContextMenu,
+  onStatusPick,
   initialScrollTop = 0,
   onScrollTop,
 }: {
@@ -47,6 +49,9 @@ export function IssueListView({
   onToggleSelect: (id: IssueId) => void
   onToggleExpand: (id: IssueId) => void
   onContextMenu: (id: IssueId, e: ReactMouseEvent) => void
+  /** One row's status glyph was picked from — the encoded menu value, applied
+   *  by the host so the close arm meets the same guard the board's does. */
+  onStatusPick: (id: IssueId, value: string) => void
   initialScrollTop?: number
   onScrollTop?: (top: number) => void
 }): JSX.Element {
@@ -114,6 +119,7 @@ export function IssueListView({
               onToggleSelect={onToggleSelect}
               onToggleExpand={onToggleExpand}
               onContextMenu={onContextMenu}
+              onStatusPick={onStatusPick}
               now={now}
             />
           </section>
@@ -134,6 +140,7 @@ function VirtualStageRows({
   onToggleSelect,
   onToggleExpand,
   onContextMenu,
+  onStatusPick,
   now,
 }: {
   stage: IssueStage
@@ -146,6 +153,7 @@ function VirtualStageRows({
   onToggleSelect: (id: IssueId) => void
   onToggleExpand: (id: IssueId) => void
   onContextMenu: (id: IssueId, e: ReactMouseEvent) => void
+  onStatusPick: (id: IssueId, value: string) => void
   now: number
 }): JSX.Element {
   const containerRef = useRef<HTMLUListElement | null>(null)
@@ -231,14 +239,18 @@ function VirtualStageRows({
                       <ChevronRight size={13} aria-hidden="true" />
                     )}
                   </span>
-                ) : (
-                  depth > 0 && (
-                    // Child rows show their own stage glyph — a nested child may
-                    // live in a different stage than the parent's group.
-                    <StatusGlyph status={issueStatusOf(issue)} size={12} />
-                  )
-                )}
+                ) : null}
               </span>
+              {/* THE STATUS GLYPH IS ON EVERY ROW NOW, AND IT IS THE PICKER.
+                  It used to appear on nested children only — a group header
+                  already names the stage, so a row inside one was thought to be
+                  restating it. That reasoning held while the mark was a
+                  readout; it does not hold once the mark is the control, and a
+                  door that exists on some rows and not others is worse than one
+                  that repeats what the header says. Children keep the reason
+                  they had it first: an expanded parent's child may live in a
+                  different stage than the group it rides under. */}
+              <IssueStatusPicker issue={issue} onPick={(value) => onStatusPick(issue.id, value)} />
               <PriorityGlyph priority={issue.priority} size={12} />
               {/* An ID is the machine talking about itself, so it is set in
                       the mono voice at the board's size and ink rather than in

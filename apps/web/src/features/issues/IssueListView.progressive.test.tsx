@@ -67,6 +67,7 @@ const baseProps = {
   onToggleSelect: vi.fn(),
   onToggleExpand: vi.fn(),
   onContextMenu: vi.fn(),
+  onStatusPick: vi.fn(),
 }
 
 describe('IssueListView bounded rendering', () => {

@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { operationalState } from '@podium/client-core/viewmodels'
-import { issueStatusOf, type SessionMeta } from '@podium/model/browser'
+import type { SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Search, X } from 'lucide-react'
 import type { JSX } from 'react'
@@ -9,9 +9,10 @@ import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/s
 import { GhostBar, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
 import { DOCK_ROW, DOCK_STAMP } from '../IssueCompactControls'
+import { IssueStatusPicker } from '../IssueStatusPicker'
 import { issueIdTitle } from '../issue-card'
-import { StatusGlyph } from '../issue-glyphs'
 import { useBoundedVirtualList } from '../use-bounded-virtual-list'
+import { useIssueStatusApply } from '../use-issue-status-apply'
 import { useIssueExplorer } from './explorer-context'
 import { defaultTab, EXPLORER_TABS, explorerCounts, explorerRows } from './explorer-list'
 
@@ -35,6 +36,9 @@ export function IssueExplorerList(): JSX.Element {
   } = useIssueExplorer()
   const sessions = useStoreSelector((s) => s.sessions)
   const issues = useReplicaIssues()
+  // One apply and one close guard for every row's status glyph (POD-1271) —
+  // held here rather than per row, which the virtualizer would unmount.
+  const rowStatus = useIssueStatusApply()
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
@@ -230,6 +234,7 @@ export function IssueExplorerList(): JSX.Element {
                     issue={issue}
                     state={operationalState(issue, rowSessions.get(issue.id) ?? [], byId)}
                     onOpen={() => push(issue.id)}
+                    onStatusPick={(value) => rowStatus.pick(issue, value)}
                   />
                 </li>
               )
@@ -237,6 +242,7 @@ export function IssueExplorerList(): JSX.Element {
           </ul>
         )}
       </div>
+      {rowStatus.dialog}
     </div>
   )
 }
@@ -319,10 +325,13 @@ function ExplorerRow({
   issue,
   state,
   onOpen,
+  onStatusPick,
 }: {
   issue: IssueViewModel
   state: { state: string; label: string }
   onOpen: () => void
+  /** The row's status glyph is its picker (POD-1271); the list applies the pick. */
+  onStatusPick: (value: string) => void
 }): JSX.Element {
   const closed = issue.stage === 'done' || Boolean(issue.closedReason)
   const needs = state.state === 'needs-you'
@@ -339,7 +348,7 @@ function ExplorerRow({
         'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-2.5 py-1 text-left hover:bg-accent/40',
       )}
     >
-      <StatusGlyph status={issueStatusOf(issue)} size={13} />
+      <IssueStatusPicker issue={issue} size={13} onPick={onStatusPick} />
       <span className="min-w-0 truncate">
         <span
           className="mr-1.5 font-mono shell-type-micro text-muted-foreground"

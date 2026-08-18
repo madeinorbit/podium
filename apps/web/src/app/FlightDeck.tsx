@@ -45,13 +45,7 @@ import {
   treeGuides,
 } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
-import {
-  type IssueId,
-  issueStatusOf,
-  type MachineId,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model/browser'
+import type { IssueId, MachineId, SessionId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,
@@ -84,9 +78,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
+import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
-import { StageGlyph, StatusGlyph } from '@/features/issues/issue-glyphs'
+import { StageGlyph } from '@/features/issues/issue-glyphs'
 import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
+import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
 import {
   type AgentRowStatus,
   agentFleetStatus,
@@ -1478,6 +1474,7 @@ const TaskRow = memo(
     onSelectNative,
     onMenu,
     onRenameIssue,
+    onStatusPick,
     renaming,
     onRenameDone,
   }: {
@@ -1511,6 +1508,8 @@ const TaskRow = memo(
     onSelectNative: (session: SessionMeta) => void
     /** Open the shared task menu at the cursor — right-click, or the ⋯ reveal. */
     onMenu: (event: ReactMouseEvent) => void
+    /** The strip's status glyph is a picker (POD-1271) — the deck applies it. */
+    onStatusPick: (value: string) => void
     /** Rename this task's title (POD-1077). Already trimmed and known-changed —
      *  the commit policy lives in the deck, next to the state that opens the
      *  editor, so the row has no rename decision of its own to get wrong. */
@@ -1704,8 +1703,10 @@ const TaskRow = memo(
               }}
             >
               {/* POD-1074's status glyph, kept: the strip states one status, not
-                a stage. Only the wrapper around this button is POD-1077's. */}
-              <StatusGlyph status={issueStatusOf(row.issue)} size={13} />
+                a stage. Only the wrapper around this button is POD-1077's — and
+                since POD-1271 the glyph is also the door onto changing it, which
+                is why the row's own click stops at its edge. */}
+              <IssueStatusPicker issue={row.issue} size={13} onPick={onStatusPick} />
               {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
               it is the only thing here that shrinks. Ref THEN title, in one
               truncating label — the ref is how the operator addresses the task
@@ -2600,6 +2601,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   // `EmptyDeck` for it rather than a header and a gauge over nothing (POD-1112).
   const root = selectedMissionRoot(issues, sessions, selectedIssueId)
   const rootIssue = root ? issues.find((issue) => issue.id === root.id) : undefined
+  // Every strip's status glyph is a picker (POD-1271). The deck holds the apply
+  // and its close guard once; a strip carries the id, and the REPLICA's model is
+  // what the guard is handed — the mission tree's own row model is a navigation
+  // shape, not the one `issueCloseConcerns` reads.
+  const rowStatus = useIssueStatusApply()
+  const pickRowStatus = (id: string, value: string): void => {
+    const issue = issues.find((candidate) => candidate.id === id)
+    if (issue) rowStatus.pick(issue, value)
+  }
   const computedRows = useMemo(
     () => (root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
     [issues, sessions, root, mode, allWorktreePaths],
@@ -3220,7 +3230,14 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             <div className="shell-type-micro flex min-h-8 flex-wrap items-center gap-x-1.5 py-1 pr-2 pl-4 font-mono text-text-dim">
               {/* Identity NEVER shrinks and never leaves line 1: the glyph, the
                   ref and the stage word are what this row is for. */}
-              <StatusGlyph status={issueStatusOf(root)} size={12} />
+              {rootIssue ? (
+                <IssueStatusPicker
+                  issue={rootIssue}
+                  onPick={(value) => rowStatus.pick(rootIssue, value)}
+                />
+              ) : (
+                <StageGlyph stage={root.stage} size={12} />
+              )}
               <span className="flex-none leading-[24px]">{issueDisplayRef(root)}</span>
               <span className="flex-none leading-[24px]">
                 {STAGE_LABELS[root.stage].toLowerCase()}
@@ -3492,6 +3509,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   selectSession(row.issue.id, session, { permanent: false, native: true })
                 }
                 onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
                 renaming={renamingIssueId === row.issue.id}
                 onRenameIssue={(title) => renameIssue(row.issue.id, title)}
                 onRenameDone={() => setRenamingIssueId(null)}
@@ -3671,6 +3689,9 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           onConfirm={closeAndTuckRoot}
         />
       )}
+      {/* The guard for an ending picked from a strip's glyph — the same dialog,
+          raised for whichever task was picked from rather than for the root. */}
+      {rowStatus.dialog}
     </aside>
   )
 }
