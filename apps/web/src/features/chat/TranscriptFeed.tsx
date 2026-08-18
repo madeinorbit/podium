@@ -763,17 +763,32 @@ export function TranscriptFeed({
           status line already says what the agent is doing, so the tail defers
           to it and falls back to the idle clock underneath — and it defers the
           same way to a run with a call in flight, which is already spinning,
-          already naming the call and already counting it (POD-747). */}
-      {(phase === 'ready' || activity?.tone === 'working') &&
-        !questionOwnsAttention &&
-        !runOwnsTail && (
-          <TranscriptTail
-            activity={overlay?.status ? null : activity}
-            since={session?.agentState?.since}
-            session={session}
-            lastRow={lastRow}
-          />
-        )}
+          already naming the call and already counting it (POD-747).
+
+          THE SLOT STANDS WHETHER OR NOT A TAIL IS DUE (POD-1290 follow-up).
+          The tail remounts on every phase change (key={kind}, the morph) and
+          is absent entirely when idle — both right visually, and each one a
+          height change at the very bottom of a pinned feed, which in release
+          Safari paints as a small hop: the compositor shows a frame of the
+          old offset before the corrective write lands, and an unmount invites
+          the engine to clamp up by the vanished height first. The slot never
+          changes size (min-height covers the tallest variant, styles.css), so
+          phase changes and idle transitions move NO geometry — and as the
+          feed's permanent last child it also gives the anchoring-engine
+          regime ([data-anchor-end] > :last-child) a node that survives every
+          phase to anchor to. */}
+      <div className="feed-tail-slot" data-testid="feed-tail-slot">
+        {(phase === 'ready' || activity?.tone === 'working') &&
+          !questionOwnsAttention &&
+          !runOwnsTail && (
+            <TranscriptTail
+              activity={overlay?.status ? null : activity}
+              since={session?.agentState?.since}
+              session={session}
+              lastRow={lastRow}
+            />
+          )}
+      </div>
     </div>
   )
 }

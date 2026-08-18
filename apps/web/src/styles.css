@@ -5561,7 +5561,17 @@ html[data-density="compact"] .brief-shelf {
 
 /* THE TAIL — where the transcript ENDS, in three weights. One shape (mark,
    phrase, mono figure, rule running out to the right edge); what changes is
-   what the state deserves. See TranscriptTail.tsx for the reasoning. */
+   what the state deserves. See TranscriptTail.tsx for the reasoning.
+
+   THE SLOT IT STANDS IN NEVER CHANGES SIZE (POD-1290 follow-up). The tallest
+   variant is the waiting keyline: 13px above, a 19.5px line in a 5px+5px
+   keyline box, 8px below — 50.5px. Every appearance, disappearance and phase
+   morph happens inside this constant box, so the end of a pinned feed stops
+   moving when the tail does; the working row's ~11px of slack underneath
+   reads as the end padding it effectively is. */
+.feed-tail-slot {
+  min-height: 51px;
+}
 .feed-tail {
   display: flex;
   align-items: center;
