@@ -537,6 +537,7 @@ export function TranscriptList({
   assetContext,
   collapseContext = false,
   pendingTurns,
+  pendingAsk,
   onRetryPending,
   onQuote,
   tail,
@@ -560,6 +561,14 @@ export function TranscriptList({
   collapseContext?: boolean
   /** Turns sent but not yet echoed by the server, appended at the tail. */
   pendingTurns?: readonly PendingTurn[]
+  /**
+   * A live question the transcript does not carry yet, drawn from agent state
+   * (`pendingAskFromState`) and rendered at the end of the feed — where the
+   * transcript's own item will land once Claude Code resolves the call. Passing
+   * it is how the phone can answer a question during the whole window the
+   * transcript is silent about it (POD-1273).
+   */
+  pendingAsk?: TranscriptItem | null
   /** Send a rejected turn again (only failed rows expose the affordance). */
   onRetryPending?: (turn: PendingTurn) => void
   /** Insert quoted markdown into the screen's composer. */
@@ -614,8 +623,20 @@ export function TranscriptList({
         pendingTurn: turn,
       })
     }
+    // The question Claude Code has not written down yet, after the optimistic
+    // turns because that is where its own item will arrive. It leaves on answer,
+    // when the session drops out of `needs_user` and the caller stops passing it.
+    if (pendingAsk) {
+      built.push({
+        key: transcriptItemKey(pendingAsk),
+        kind: 'question',
+        item: pendingAsk,
+        blockIndices: [],
+        turn: 'open',
+      })
+    }
     return built
-  }, [model.rows, pendingTurns])
+  }, [model.rows, pendingAsk, pendingTurns])
   const search = useMemo(
     () => searchMobileTranscript(model, findOpen ? query : '', cursor),
     [cursor, findOpen, model, query],
@@ -818,7 +839,14 @@ export function TranscriptList({
         )
       }
       case 'question': {
-        const isLivePending = live && pending != null && transcriptItemKey(pending) === row.key
+        // The state-drawn card is answerable on its own authority: it exists
+        // ONLY while the agent is waiting on this question, which the caller
+        // established from agent state — including on a session still `starting`,
+        // where `live` is false but the ask is every bit as real. The reader
+        // cannot tell (and must not need to tell) which source drew the card.
+        const stateDrawn = pendingAsk != null && transcriptItemKey(pendingAsk) === row.key
+        const isLivePending =
+          stateDrawn || (live && pending != null && transcriptItemKey(pending) === row.key)
         return <AskQuestionCard item={row.item} live={isLivePending} onAnswer={onAnswer} />
       }
       case 'receipt':

@@ -2,12 +2,14 @@ import {
   chatActivity,
   composerState,
   defaultChatCapable,
+  latestPendingQuestion,
   mergeTranscriptItems,
+  pendingAskFromState,
   prependTranscriptItems,
 } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import { readTranscriptPage, useHub, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
@@ -302,6 +304,18 @@ export function SessionConversation({
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = composerState({ session, headless: false, turnRunning: false, compact: false })
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
+  // A question Claude Code has not written into its transcript yet: the hook
+  // channel carries it from the moment the dialog opens, the transcript only
+  // once the call resolves (POD-1273). The transcript stays the better source
+  // the instant it has one, so this is consulted only while it has none.
+  const need = session.agentState?.need
+  const phase = session.agentState?.phase
+  const pendingAsk = useMemo(
+    () =>
+      pendingAskFromState(need, session.status, phase, latestPendingQuestion(items) !== null)
+        ?.item ?? null,
+    [items, need, phase, session.status],
+  )
 
   /**
    * ACCEPTING AN OFFER IS SENDING A MESSAGE, and it now looks like one.
@@ -365,6 +379,7 @@ export function SessionConversation({
               live={session.status === 'live'}
               assetContext={{ httpOrigin: store.httpOrigin, sessionId, cwd: session.cwd }}
               pendingTurns={pendingTurns}
+              pendingAsk={pendingAsk}
               onRetryPending={retry}
               onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
               bottomInset={composerHeight}

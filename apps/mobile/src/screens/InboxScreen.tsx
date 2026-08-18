@@ -1,5 +1,5 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
-import { sessionCardModel } from '@podium/client-core/viewmodels'
+import { pendingAskFromState, sessionCardModel } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { Inbox as InboxIcon, Settings } from 'lucide-react-native'
@@ -15,8 +15,8 @@ import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
-import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { CountPill } from '../components/StatusGlyphs'
+import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { EmptyState } from '../components/ui'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
@@ -40,7 +40,25 @@ function NeedsYouCard({
   const trpc = useTrpc()
   const continueSession = useMobileStore().continueSession
   const needsQuestion = session.agentState?.phase === 'needs_user'
-  const pending = usePendingQuestion(session.sessionId, needsQuestion, session.agentState?.since)
+  const fromTranscript = usePendingQuestion(
+    session.sessionId,
+    needsQuestion,
+    session.agentState?.since,
+  )
+  // Claude Code writes an AskUserQuestion into its transcript only once the call
+  // RESOLVES, so for the whole time the agent is actually waiting the fetch above
+  // finds nothing — and this card, the one surface built for answering from the
+  // phone, had nothing to draw (POD-1273). The hook channel announced the whole
+  // interview when the dialog opened; take it from state whenever the transcript
+  // is still silent. A daemon too old to carry `need.interview` yields nothing
+  // here and the fetch stays the only source, exactly as before.
+  const fromState = pendingAskFromState(
+    session.agentState?.need,
+    session.status,
+    session.agentState?.phase,
+    fromTranscript !== null,
+  )
+  const pending = fromTranscript ?? fromState?.item ?? null
   const retryable = session.agentState?.phase === 'errored' && session.agentState.error?.retryable
   const base = sessionCardModel(session, issue, now)
   // The inline question card repeats the summary verbatim — drop the quote then.
