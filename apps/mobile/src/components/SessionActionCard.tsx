@@ -267,9 +267,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    // Runners-up are text, so they need real space around them to read as
-    // separate targets rather than as one run of words.
-    columnGap: space.lg,
+    // Keep enough air between the filled recommendation and its quieter
+    // alternatives that the controls remain easy to scan as separate choices.
+    columnGap: space.sm,
     rowGap: space.xs,
     marginTop: space.md,
   },
@@ -287,11 +287,14 @@ const styles = StyleSheet.create({
   primary: {
     backgroundColor: color.accent,
   },
-  /** ONE BUTTON, THEN ALTERNATIVES. An outlined runner-up beside a filled
-   *  primary makes a row of near-equal objects, which is the "which do I press"
-   *  the recommendation exists to answer. */
+  /** ONE STRONG BUTTON, THEN QUIET BUTTONS. A low-contrast surface gives the
+   *  alternatives a visible tap shape without challenging the filled yellow
+   *  recommendation for priority. */
   textAction: {
     minHeight: 44,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.md,
+    backgroundColor: color.surface,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
