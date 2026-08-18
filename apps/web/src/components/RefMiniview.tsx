@@ -1,10 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  type IssueReferenceModel,
-  issueReferenceModel,
-  missionRootFor,
-} from '@podium/client-core/viewmodels'
+import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import {
@@ -20,9 +16,9 @@ import {
 } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { useOperatorFocus } from '@/app/operator-focus'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import {
@@ -62,27 +58,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
  */
 export function RefMiniviewHost(): JSX.Element | null {
   const issues = useReplicaIssues()
-  const {
-    trpc,
-    sessions,
-    setOpenIssueId,
-    setView,
-    setSelectedIssueId,
-    navigateToSession,
-    updateIssue,
-  } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      sessions: s.sessions,
-      setOpenIssueId: s.setOpenIssueId,
-      setView: s.setView,
-      setSelectedIssueId: s.setSelectedIssueId,
-      navigateToSession: s.navigateToSession,
-      updateIssue: s.updateIssue,
-    }),
-    shallowEqual,
-  )
-  const { setFocusedIssueId } = useOperatorFocus()
+  const { trpc, sessions, setOpenIssueId, setView, navigateToSession, updateIssue } =
+    useStoreSelector(
+      (s) => ({
+        trpc: s.trpc,
+        sessions: s.sessions,
+        setOpenIssueId: s.setOpenIssueId,
+        setView: s.setView,
+        navigateToSession: s.navigateToSession,
+        updateIssue: s.updateIssue,
+      }),
+      shallowEqual,
+    )
+  const { retarget } = useIssueExplorer()
 
   const openIssueFull = (issueId: IssueId): void => {
     setOpenIssueId(issueId)
@@ -95,16 +83,16 @@ export function RefMiniviewHost(): JSX.Element | null {
    * detail surface over the same `IssuePanelView` — the explorer already renders
    * that panel, with a trail the drawer never had.
    *
-   * The mission moves, not just the focus inside it: a ref in chat can name a
-   * task in another mission entirely, and focusing alone would be discarded by
-   * `resolveFocus` as not-in-mission and snap straight back. Selecting the
-   * MISSION ROOT rather than the task itself keeps the explorer's scope the same
-   * one the deck and sidebar use, so a subtask still opens in its epic's context.
+   * IN THE EXPLORER, AND NOWHERE ELSE (POD-1265). This used to get there by
+   * moving the shell — select the mission root, focus the task — because that
+   * was the only lever the explorer followed. But the shell selection is also
+   * what the sidebar highlights and what keys the tab area's workspace, so
+   * reading a ref in chat swapped the operator's whole workspace over to
+   * whatever task the message happened to mention. The explorer now takes a
+   * target directly, and the deck is left exactly where the work is.
    */
   const openInExplorer = (issueId: IssueId): void => {
-    const root = missionRootFor(issues, issueId)
-    setSelectedIssueId(root?.id ?? issueId)
-    setFocusedIssueId(issueId)
+    retarget(issueId)
     window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'issue' }))
   }
   // Register the activator: plain click opens the miniview; Cmd/Ctrl-click jumps

@@ -11,6 +11,9 @@ const hostStore = vi.hoisted(() => ({
   replicaIssues: [] as RefIssueLike[],
   legacyIssues: [] as RefIssueLike[],
   updateIssue: vi.fn(async () => {}),
+  setSelectedIssueId: vi.fn(),
+  setFocusedIssueId: vi.fn(),
+  retarget: vi.fn(),
 }))
 
 vi.mock('@/app/store', () => ({
@@ -28,10 +31,21 @@ vi.mock('@/app/store', () => ({
       sessions: [],
       setOpenIssueId: vi.fn(),
       setView: vi.fn(),
-      setSelectedIssueId: vi.fn(),
+      setSelectedIssueId: hostStore.setSelectedIssueId,
       navigateToSession: vi.fn(),
       updateIssue: hostStore.updateIssue,
     }),
+}))
+
+vi.mock('@/app/operator-focus', () => ({
+  useOperatorFocus: () => ({
+    focusedIssueId: null,
+    setFocusedIssueId: hostStore.setFocusedIssueId,
+  }),
+}))
+
+vi.mock('@/features/issues/explorer/explorer-context', () => ({
+  useIssueExplorer: () => ({ retarget: hostStore.retarget }),
 }))
 
 const parent: RefIssueLike = {
@@ -79,6 +93,9 @@ describe('RefMiniviewHost issue resolution', () => {
     closeMiniview()
     hostStore.legacyIssues = []
     hostStore.replicaIssues = []
+    hostStore.setSelectedIssueId.mockClear()
+    hostStore.setFocusedIssueId.mockClear()
+    hostStore.retarget.mockClear()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -98,6 +115,35 @@ describe('RefMiniviewHost issue resolution', () => {
     const dialog = document.body.querySelector('[role="dialog"]')
     expect(dialog?.textContent).toContain('Enrich the miniview')
     expect(dialog?.textContent).not.toContain('Reference not found')
+  })
+
+  // POD-1265: the escalation is a LOOK, not a move. Pointing the explorer used
+  // to run through the shell selection, which is also what the sidebar
+  // highlights and what keys the tab area's workspace — so reading a ref in
+  // chat dragged the whole workspace onto whatever task was mentioned.
+  it('points the explorer at the task without moving the shell', () => {
+    hostStore.replicaIssues = [rich, parent]
+    const panels: unknown[] = []
+    const onPanel = (event: Event): void => {
+      panels.push((event as CustomEvent).detail)
+    }
+    window.addEventListener('podium:open-right-panel', onPanel)
+    try {
+      act(() => root.render(<RefMiniviewHost />))
+      act(() => openMiniview('POD-517', { x: 100, y: 100 }))
+      const open = [...document.body.querySelectorAll('button')].find((b) =>
+        b.textContent?.includes('Open in explorer'),
+      )
+      expect(open).toBeDefined()
+      act(() => open?.click())
+
+      expect(hostStore.retarget).toHaveBeenCalledWith('iss_1')
+      expect(panels).toEqual(['issue'])
+      expect(hostStore.setSelectedIssueId).not.toHaveBeenCalled()
+      expect(hostStore.setFocusedIssueId).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('podium:open-right-panel', onPanel)
+    }
   })
 })
 

@@ -73,12 +73,24 @@ function DeckClick({ id }: { id: string }): JSX.Element {
   )
 }
 
+/** Stands in for the chat ref card's "Open in explorer" — it points the panel
+ *  without touching the shell selection at all (POD-1265). */
+function CardClick({ id }: { id: string }): JSX.Element {
+  const { retarget } = useIssueExplorer()
+  return (
+    <button type="button" onClick={() => retarget(id)}>
+      card: {id}
+    </button>
+  )
+}
+
 function mount(missionId: string | null = null, dockOpen = true): ReturnType<typeof render> {
   return render(
     <OperatorFocusProvider missionId={missionId}>
       <IssueExplorerProvider>
         <DeckClick id="c" />
         <DeckClick id="s" />
+        <CardClick id="s" />
         <IssueExplorerCrumbs />
         {dockOpen && <IssueExplorer cwd="/r" />}
       </IssueExplorerProvider>
@@ -287,6 +299,24 @@ describe('issue explorer navigation', () => {
     // a click in another column is not a step in it.
     const trail = screen.getByTestId('explorer-crumbs').textContent ?? ''
     expect(trail).not.toContain('#9')
+  })
+
+  it('takes a target from outside the mission without the shell moving (POD-1265)', () => {
+    state.selectedIssueId = 'p'
+    mount('p')
+    expect(detail().dataset.issueId).toBe('p')
+
+    // The focus route cannot land here: the stranger is not in mission `p`, so
+    // `resolveFocus` discards it and the panel stays on the root. That is why
+    // the ref card used to move the SELECTION — and why it no longer has to.
+    fireEvent.click(screen.getByText('deck: s'))
+    expect(detail().dataset.issueId).toBe('p')
+
+    fireEvent.click(screen.getByText('card: s'))
+    expect(detail().dataset.issueId).toBe('s')
+    expect(state.selectedIssueId).toBe('p')
+    // A reset, not a push: the card is another surface, not a step in this trail.
+    expect(screen.getByTestId('explorer-crumbs').textContent).not.toContain('#1')
   })
 
   it('keeps tracking while the panel is closed, and reopens on what you last touched', () => {

@@ -41,6 +41,16 @@ export interface IssueExplorerNav {
   push: (id: string) => void
   popTo: (depth: number) => void
   back: () => void
+  /**
+   * Point the explorer at a task WITHOUT moving the shell (POD-1265).
+   *
+   * The other way to arrive here is to move the selection and let the effect
+   * below follow it — which is right for a deck or sidebar click, and wrong for
+   * a ref card in chat: the reader asked to look at a task, not to switch the
+   * tab area and the sidebar over to it. Same reset semantics as an external
+   * retarget, because a card in another surface is not a step in this trail.
+   */
+  retarget: (id: string) => void
   /** Null until the operator picks one — the list resolves the default from the
    *  counts it already has, so the shell never pays for that pass. */
   tab: ExplorerTab | null
@@ -62,6 +72,7 @@ const IssueExplorerContext = createContext<IssueExplorerNav>({
   push: noop,
   popTo: noop,
   back: noop,
+  retarget: noop,
   tab: null,
   setTab: noop,
   query: '',
@@ -156,6 +167,16 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
     setMotion('pop')
     setSeq((n) => n + 1)
   }, [])
+  // Silent, like the shell-driven retarget above: the operator touched another
+  // surface, and a panel that slides whenever something elsewhere is clicked is
+  // a panel that is always moving. `lastTarget` is deliberately NOT written —
+  // the shell still points where it did, so if the selection later lands on this
+  // same task the effect above may still collapse a trail walked from here.
+  const retarget = useCallback((id: string): void => {
+    setStack((prev) => resetTo(prev, id))
+    setMotion(null)
+    setSeq((n) => n + 1)
+  }, [])
 
   const value = useMemo<IssueExplorerNav>(
     () => ({
@@ -166,6 +187,7 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
       push,
       popTo,
       back,
+      retarget,
       tab,
       setTab,
       query,
@@ -173,7 +195,19 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
       listScrollTop,
       rememberListScrollTop,
     }),
-    [stack, motion, seq, push, popTo, back, tab, query, listScrollTop, rememberListScrollTop],
+    [
+      stack,
+      motion,
+      seq,
+      push,
+      popTo,
+      back,
+      retarget,
+      tab,
+      query,
+      listScrollTop,
+      rememberListScrollTop,
+    ],
   )
   return <IssueExplorerContext.Provider value={value}>{children}</IssueExplorerContext.Provider>
 }
