@@ -212,7 +212,9 @@ describe('machine scope and the writer class', () => {
     // Twenty-three `onXResult(msg)` methods collapsed into one
     // `settleDaemonReply` (POD-318), plus `modelProbeResult` (POD-1466) and
     // `serverTransferStatusResult`, plus the shipping job, evidence and repair
-    // RPC replies. This
+    // RPC replies, plus the picker's `dirOpResult` (POD-1295). The count was
+    // one BEHIND the table when this was bumped — `githubCliResult` had been
+    // routed without moving the ratchet — so it is corrected here as well. This
     // pins that the collapse is total: no reply frame keeps a private door into
     // the rpc port, and none of them arrives anonymously. The count is the
     // ratchet — a new rpc reply must be added here DELIBERATELY, which is how
@@ -220,7 +222,7 @@ describe('machine scope and the writer class', () => {
     const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
       (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
     )
-    expect(rpcFrames.length).toBe(28)
+    expect(rpcFrames.length).toBe(30)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

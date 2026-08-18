@@ -80,6 +80,61 @@ export const BrowseDirsResultMessage = z.object({
 })
 export type BrowseDirsResultMessage = z.infer<typeof BrowseDirsResultMessage>
 
+// ---- Daemon <-> server: the picker's ONE write path (POD-1295) ----
+// A machine with nothing on its disk yet had no route through "Find a
+// repository": every other path assumes the checkout already exists. These ops
+// are the narrow counterpart to `browseDirs` — the same daemon, the same
+// per-machine `use` grant, three fixed effects and nothing else.
+
+/** `USE` — ADR 9 D6 M1's "read/write files", the write half. */
+export const DirOp = z.enum([
+  /** mkdir one folder. Registers nothing — for organising, not for work. */
+  'createFolder',
+  /** mkdir, `git init`, and SEED A COMMIT. The seed is not a nicety: an unborn
+   *  HEAD makes `git worktree add -b` fail, so a repo without it would register
+   *  cleanly and then break on the first task the user gives it. */
+  'createRepo',
+  /** Rename one folder in place. */
+  'renameFolder',
+])
+export type DirOp = z.infer<typeof DirOp>
+
+/**
+ * THE CALLER NEVER SENDS A JOINED PATH, which is the whole containment story:
+ * `parentPath` is a directory and `name` is ONE path segment, joined by the
+ * daemon after it has resolved the parent. A caller that could send
+ * `../../etc` as a path would be naming a location on someone else's disk; a
+ * caller that sends it as a `name` is refused by a segment check that has no
+ * filesystem semantics to get wrong.
+ */
+export const DirOpRequestMessage = z.object({
+  type: z.literal('dirOpRequest'),
+  requestId: z.string(),
+  op: DirOp,
+  /** Absolute (or `~`-relative) directory the op acts inside. */
+  parentPath: z.string(),
+  /** The new folder's name — one segment, no separators. */
+  name: z.string(),
+  /** `renameFolder` only: the existing segment inside `parentPath`. */
+  currentName: z.string().optional(),
+})
+export type DirOpRequestMessage = z.infer<typeof DirOpRequestMessage>
+
+/**
+ * `path` is set whenever the folder EXISTS at that location afterwards, and
+ * `error` whenever the op did not fully succeed — so both can be set at once.
+ * That combination is real rather than sloppy: `createRepo` can create the
+ * folder and then fail at `git init` on a machine with no git, and the picker
+ * has to show both the new folder and the reason it is not a repository.
+ */
+export const DirOpResultMessage = z.object({
+  type: z.literal('dirOpResult'),
+  requestId: z.string(),
+  path: z.string().optional(),
+  error: z.string().optional(),
+})
+export type DirOpResultMessage = z.infer<typeof DirOpResultMessage>
+
 // Constrained git operations the superagent may run on a dev machine. An
 // allowlisted enum (not a shell string) — the daemon maps each op to a fixed
 // git invocation.

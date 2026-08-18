@@ -22,6 +22,7 @@ import type {
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
   DirListResultMessage,
+  DirOp,
   FileAssetResultMessage,
   FileReadResultMessage,
   FileWriteResultMessage,
@@ -73,6 +74,9 @@ const FILE_RPC_TIMEOUT_MS = 10_000
 // machine — generous enough to ride that out, short enough that the picker's
 // spinner doesn't outlive the user's patience.
 const BROWSE_TIMEOUT_MS = 20_000
+// `createRepo` is four git invocations after the mkdir, and the first one on a
+// cold machine pays for git's own start-up. Still well short of the clone budget.
+const DIR_OP_INIT_TIMEOUT_MS = 60_000
 
 export interface ScanResult {
   conversations: ConversationSummaryWire[]
@@ -92,6 +96,14 @@ export type TranscriptReader = MemoryReader
 /** One machine's directory listing, or why it couldn't be read (POD-814). */
 export interface BrowseDirsResult {
   listing?: DirectoryListingWire
+  error?: string
+}
+
+/** Where the folder ended up, and/or why the op fell short (POD-1295). Both
+ *  fields can be set: `createRepo` may create the folder and still fail to make
+ *  it a repository. */
+export interface DirOpResult {
+  path?: string
   error?: string
 }
 
@@ -154,6 +166,7 @@ type Payload<M extends { type: string; requestId: string }> = Omit<M, 'type' | '
 const SCAN = daemonRequestKind<ScanResult>('r')
 const SCAN_REPOS = daemonRequestKind<ScanReposResult>('rr')
 const BROWSE_DIRS = daemonRequestKind<BrowseDirsResult>('bd')
+const DIR_OP = daemonRequestKind<DirOpResult>('dp')
 const GITHUB_CLI = daemonRequestKind<Payload<GitHubCliResultMessage>>('gh')
 const REPO_OP = daemonRequestKind<OpResult>('ro')
 const HARNESS_EXEC = daemonRequestKind<OpResult>('hx')
@@ -219,6 +232,11 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
   browseDirsResult: (broker, machineId, msg) =>
     void broker.settle(BROWSE_DIRS, msg.requestId, machineId, {
       ...(msg.listing === undefined ? {} : { listing: msg.listing }),
+      ...(msg.error === undefined ? {} : { error: msg.error }),
+    }),
+  dirOpResult: (broker, machineId, msg) =>
+    void broker.settle(DIR_OP, msg.requestId, machineId, {
+      ...(msg.path === undefined ? {} : { path: msg.path }),
       ...(msg.error === undefined ? {} : { error: msg.error }),
     }),
   githubCliResult: (broker, machineId, msg) =>
@@ -385,6 +403,33 @@ export class DaemonRpcService {
         requestId,
         ...(path === undefined ? {} : { path }),
         ...(opts.includeHidden === undefined ? {} : { includeHidden: opts.includeHidden }),
+      }),
+      machineId,
+    )
+  }
+
+  /** Create / rename ONE folder on `machineId`'s disk (POD-1295) — the write
+   *  counterpart to {@link browseDirs}. `name` is a single segment and the
+   *  daemon does the joining; nothing here ever sends it a composed path.
+   *  A refusal comes back in `error`, not as a rejection, exactly as a browse
+   *  failure does. `createRepo` also runs `git init` and seeds a commit, which
+   *  is why it gets the longer budget. */
+  dirOp(
+    op: DirOp,
+    machineId: MachineId,
+    input: { parentPath: string; name: string; currentName?: string },
+  ): Promise<DirOpResult> {
+    return this.request(
+      DIR_OP,
+      op === 'createRepo' ? DIR_OP_INIT_TIMEOUT_MS : BROWSE_TIMEOUT_MS,
+      () => ({ error: 'directory operation timed out' }),
+      (requestId) => ({
+        type: 'dirOpRequest',
+        requestId,
+        op,
+        parentPath: input.parentPath,
+        name: input.name,
+        ...(input.currentName === undefined ? {} : { currentName: input.currentName }),
       }),
       machineId,
     )

@@ -16,10 +16,12 @@
  * dependency does not drag the whole fleet module into the hub role.
  */
 
+import { join } from 'node:path'
+import type { MachineId, UpdateChannel, UserId } from '@podium/model'
 import { asMachineId, resolveMachineChannel } from '@podium/model'
-import type { UpdateChannel, UserId, MachineId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
+import { normalizeRepoPath } from '../../store'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
@@ -317,6 +319,82 @@ export const repoCloneGithubHandler = async ({
     `https://github.com/${input.repository}.git`,
   )
   return { path: result.path, repos: ctx.repos.list() }
+}
+
+/**
+ * THE PICKER'S WRITE PATH (POD-1295).
+ *
+ * Each of these is one `dirOp` round-trip to the machine that owns the disk.
+ * The daemon owns validation and containment — it is the only side that can see
+ * the filesystem — so these handlers do exactly two things the daemon cannot:
+ * turn its refusal into the right tRPC code, and (for `createRepo`) register the
+ * result, the way `repoCloneGithubHandler` registers a clone.
+ */
+const dirOpFailed = (message: string): never => {
+  throw new TRPCError({ code: 'BAD_REQUEST', message })
+}
+
+export const repoCreateFolderHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{ machineId: MachineId; parentPath: string; name: string }>) => {
+  const result = await mods(ctx).rpc.dirOp('createFolder', input.machineId, {
+    parentPath: input.parentPath,
+    name: input.name,
+  })
+  if (result.error || !result.path) dirOpFailed(result.error ?? 'Could not create the folder')
+  return { path: result.path as string }
+}
+
+export const repoCreateRepoHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{ machineId: MachineId; parentPath: string; name: string }>) => {
+  const result = await mods(ctx).rpc.dirOp('createRepo', input.machineId, {
+    parentPath: input.parentPath,
+    name: input.name,
+  })
+  // `path` WITH `error` is the real case where git could not run: the folder is
+  // on disk and the user will see it on the next listing, but it is not a
+  // repository, so registering it would hand them a row that breaks on first use.
+  if (result.error || !result.path) dirOpFailed(result.error ?? 'Could not create the repository')
+  const path = result.path as string
+  await ctx.repos.add(path, input.machineId)
+  return { path, repos: ctx.repos.list() }
+}
+
+export const repoRenameFolderHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{
+  machineId: MachineId
+  parentPath: string
+  currentName: string
+  name: string
+}>) => {
+  const source = normalizeRepoPath(join(input.parentPath, input.currentName))
+  // The folder itself, or anything registered BELOW it: both sets of rows point
+  // at paths the rename would invalidate.
+  const stranded = ctx.repos
+    .list(input.machineId)
+    .filter((repo) => repo === source || repo.startsWith(`${source}/`))
+  if (stranded.length > 0) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message:
+        stranded[0] === source
+          ? `${input.currentName} is registered in Podium. Remove it from your repositories first, then rename it.`
+          : `${input.currentName} holds a repository Podium has registered (${stranded[0]}). Remove it from your repositories first, then rename it.`,
+    })
+  }
+
+  const result = await mods(ctx).rpc.dirOp('renameFolder', input.machineId, {
+    parentPath: input.parentPath,
+    name: input.name,
+    currentName: input.currentName,
+  })
+  if (result.error || !result.path) dirOpFailed(result.error ?? 'Could not rename the folder')
+  return { path: result.path as string }
 }
 
 // ---------------------------------------------------------------------------

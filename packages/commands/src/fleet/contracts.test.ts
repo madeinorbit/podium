@@ -1,5 +1,5 @@
 /**
- * The L1 gate over the fifteen fleet contracts: classifications are TOTAL, the
+ * The L1 gate over the fleet contracts: classifications are TOTAL, the
  * `manage` / `use` partition is exact, the server-role split is exact, and the
  * visibility classes agree with ADR 1's matrix rather than with a literal
  * written twice.
@@ -24,7 +24,10 @@ import {
   fleetServerRoleOf,
 } from './contracts'
 
-const FIFTEEN: readonly FleetContractName[] = [
+// The roster, written out. Adding a contract without adding it here fails the
+// first assertion below — which is the point: a new fleet command must be
+// declared somewhere a reviewer reads, not merely somewhere the compiler does.
+const DECLARED: readonly FleetContractName[] = [
   'machines.rename',
   'machines.applyUpdate',
   'machines.setUpdateChannel',
@@ -40,6 +43,9 @@ const FIFTEEN: readonly FleetContractName[] = [
   'repos.remove',
   'repos.setPrefix',
   'repos.cloneGithub',
+  'repos.createFolder',
+  'repos.createRepo',
+  'repos.renameFolder',
   'discovery.refreshRepos',
   'discovery.scanFolder',
   'discovery.scanMachine',
@@ -61,9 +67,9 @@ const contracts = (): AnyCommandContract[] =>
 const isDeclaredMatrixRow = (row: string): boolean =>
   OWNERSHIP_MATRIX.some((r) => (r.id as string) === row)
 
-describe('the fifteen fleet contracts', () => {
-  it('declares exactly the fifteen fleet commands, and no sixteenth', () => {
-    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...FIFTEEN].sort())
+describe('the fleet contracts', () => {
+  it('declares exactly the fleet commands on the roster, and no extra', () => {
+    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...DECLARED].sort())
   })
 
   it('passes the classification lint with no unclassified field', () => {
@@ -140,6 +146,9 @@ describe('the fifteen fleet contracts', () => {
       'repos.remove': 'repo-prefix',
       'repos.setPrefix': 'repo-prefix',
       'repos.cloneGithub': 'repo-prefix',
+      'repos.createFolder': 'repo-prefix',
+      'repos.createRepo': 'repo-prefix',
+      'repos.renameFolder': 'repo-prefix',
       'discovery.refreshRepos': 'repo-prefix',
       'discovery.scanFolder': 'repo-prefix',
       'discovery.scanMachine': 'repo-prefix',
@@ -198,6 +207,9 @@ describe('the fifteen fleet contracts', () => {
       'repos.remove': 'manage',
       'repos.setPrefix': 'manage',
       'repos.cloneGithub': 'use',
+      'repos.createFolder': 'use',
+      'repos.createRepo': 'use',
+      'repos.renameFolder': 'use',
       'discovery.refreshRepos': 'use',
       'discovery.scanFolder': 'use',
       'discovery.scanMachine': 'use',
@@ -257,6 +269,9 @@ describe('the fifteen fleet contracts', () => {
       'repos.remove': 'core',
       'repos.setPrefix': 'core',
       'repos.cloneGithub': 'core',
+      'repos.createFolder': 'core',
+      'repos.createRepo': 'core',
+      'repos.renameFolder': 'core',
       'discovery.refreshRepos': 'core',
       'discovery.scanFolder': 'core',
       'discovery.scanMachine': 'core',
@@ -323,12 +338,12 @@ describe('the fifteen fleet contracts', () => {
     // D6 M1's "Owner + admins" unreachable for the owner themselves.
     const ADMIN_FLOOR = ['machines.pairingCode', 'machines.adopt', 'machines.transferServer']
     for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
-    for (const name of FIFTEEN.filter((n) => !ADMIN_FLOOR.includes(n))) {
+    for (const name of DECLARED.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])
     }
     // Non-vacuity: the admin set is a strict, non-empty subset. If a refactor
     // made every floor `admin` the loop above would pass and this would not.
-    expect(ADMIN_FLOOR.length).toBeLessThan(FIFTEEN.length)
+    expect(ADMIN_FLOOR.length).toBeLessThan(DECLARED.length)
     expect(Object.values(byFloor).some((f) => f === 'member')).toBe(true)
   })
 

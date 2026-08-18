@@ -7,9 +7,11 @@ import {
   EyeOff,
   Folder,
   FolderGit2,
+  FolderPlus,
   GitFork,
   HardDrive,
   Home,
+  Pencil,
   RefreshCw,
   Search,
 } from 'lucide-react'
@@ -60,6 +62,9 @@ export function RepoPickerModal({
   onPick,
   onScan,
   onCloneGithub,
+  onCreateFolder,
+  onCreateRepo,
+  onRenameFolder,
   initialSource = 'local',
   initialPath,
   onProgress,
@@ -76,6 +81,14 @@ export function RepoPickerModal({
   onScan?: (path: string) => Promise<void>
   /** Clone through this machine's existing GitHub CLI login, then register it. */
   onCloneGithub?: (repository: string, destination: string) => Promise<void>
+  /** Create a folder in the browsed directory (POD-1295). Registers nothing —
+   *  the dialog stays open and re-lists so the folder is there to step into. */
+  onCreateFolder?: (parentPath: string, name: string) => Promise<void>
+  /** Create a folder, initialise it as a repository, and register it. Completes
+   *  the dialog exactly as picking an existing repo does. */
+  onCreateRepo?: (parentPath: string, name: string) => Promise<void>
+  /** Rename a folder in the browsed directory. */
+  onRenameFolder?: (parentPath: string, currentName: string, name: string) => Promise<void>
   /** Local is the predictable default; GitHub is an explicit alternative source. */
   initialSource?: 'github' | 'local'
   /** Restored onboarding folder on the selected machine. */
@@ -101,6 +114,19 @@ export function RepoPickerModal({
   const [browserPath, setBrowserPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [source, setSource] = useState<'github' | 'local'>(initialSource)
+  // The one row that is being typed into, if any (POD-1295). `kind` says what
+  // Enter will do: a brand-new repo, a brand-new plain folder, or a rename of
+  // `from`. Only ever one at a time — this is a list, not a form.
+  // Three members rather than `kind: 'repo' | 'folder'` in one: a discriminant
+  // that is itself a union does not narrow, and `edit.from` stops resolving.
+  const [edit, setEdit] = useState<
+    | { kind: 'repo'; name: string }
+    | { kind: 'folder'; name: string }
+    | { kind: 'rename'; from: string; name: string }
+    | null
+  >(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [writingKind, setWritingKind] = useState<'repo' | 'folder' | 'rename' | null>(null)
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const historyRef = useRef<string[]>([])
@@ -195,8 +221,8 @@ export function RepoPickerModal({
   // `busy` gates actions needing the CURRENT LISTING (navigate, add, scan here);
   // `writing` gates the typed-path fallback, which stands on its own so an in-flight
   // listing (a read) never blocks it — that's exactly when you reach for it.
-  const busy = loading || saving || scanning
-  const writing = saving || scanning
+  const busy = loading || saving || scanning || writingKind !== null
+  const writing = saving || scanning || writingKind !== null
 
   // Standing INSIDE a repo, the per-entry "Use repository" buttons are all below you
   // and the typed-path row was the only way out — empty, so its button was dead
@@ -264,6 +290,61 @@ export function RepoPickerModal({
       setError(formatAppError(e, 'Could not scan folder'))
     } finally {
       setScanning(false)
+    }
+  }
+
+  /** Open the one editable row. Anything already being typed is dropped: two
+   *  open editors would leave the user guessing which one Enter belongs to. */
+  function startEdit(next: NonNullable<typeof edit>): void {
+    setEdit(next)
+    setEditError(null)
+    setError(null)
+  }
+
+  function cancelEdit(): void {
+    setEdit(null)
+    setEditError(null)
+  }
+
+  /**
+   * Commit the open row. Creating a REPO completes the dialog the way picking an
+   * existing one does (the parent registers it and closes); the other two leave
+   * the dialog open and re-list, because the user is still choosing.
+   */
+  async function commitEdit(): Promise<void> {
+    if (!edit || !listing) return
+    const name = edit.name.trim()
+    if (name === '') {
+      setEditError('Enter a name for the folder')
+      return
+    }
+    if (name.includes('/')) {
+      setEditError('A folder name cannot contain "/"')
+      return
+    }
+    if (edit.kind === 'rename' && name === edit.from) {
+      cancelEdit()
+      return
+    }
+
+    setWritingKind(edit.kind)
+    setEditError(null)
+    try {
+      if (edit.kind === 'repo') {
+        await onCreateRepo?.(listing.path, name)
+        onClose()
+        return
+      }
+      if (edit.kind === 'folder') await onCreateFolder?.(listing.path, name)
+      else await onRenameFolder?.(listing.path, edit.from, name)
+      setEdit(null)
+      await load(listing.path, undefined, 'preserve')
+    } catch (e) {
+      // Stays open with what the user typed: "already here" and "too long" are
+      // both fixed by editing the name, not by starting over.
+      setEditError(formatAppError(e, 'Could not save the folder'))
+    } finally {
+      setWritingKind(null)
     }
   }
 
@@ -474,6 +555,32 @@ export function RepoPickerModal({
                         {scanning ? 'Scanning…' : 'Scan this folder'}
                       </Button>
                     )}
+                    {/* The route a machine with nothing on its disk never had
+                        (POD-1295): make the repository here instead of finding one. */}
+                    {onCreateFolder && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-9 rounded-[9px] border-0 text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842]"
+                        disabled={!listing || busy}
+                        onClick={() => startEdit({ kind: 'folder', name: '' })}
+                        aria-label="New folder"
+                        title="New folder"
+                      >
+                        <FolderPlus size={17} />
+                      </Button>
+                    )}
+                    {onCreateRepo && (
+                      <Button
+                        size="sm"
+                        className="h-9 rounded-[9px] border-0 bg-[#e3ba52] px-[15px] text-[12.5px] font-semibold text-[#1a1408] hover:bg-[#efc964] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37]"
+                        disabled={!listing || busy}
+                        onClick={() => startEdit({ kind: 'repo', name: '' })}
+                      >
+                        <FolderGit2 size={16} />
+                        New repository
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
@@ -514,6 +621,34 @@ export function RepoPickerModal({
                 {machineReady && !loading && listing?.entries.length === 0 && (
                   <div className="p-3 text-xs text-muted-foreground/70">No directories.</div>
                 )}
+                {machineReady && edit?.kind !== 'rename' && edit && (
+                  <EditRow
+                    icon={
+                      edit.kind === 'repo' ? (
+                        <FolderGit2 size={19} className="flex-none text-[#e3ba52]" />
+                      ) : (
+                        <Folder size={19} className="flex-none text-[#8a9099]" />
+                      )
+                    }
+                    label={edit.kind === 'repo' ? 'New repository name' : 'New folder name'}
+                    placeholder={edit.kind === 'repo' ? 'my-project' : 'projects'}
+                    value={edit.name}
+                    busy={writingKind !== null}
+                    commitLabel={edit.kind === 'repo' ? 'Create repository' : 'Create folder'}
+                    error={editError}
+                    // Standing inside a checkout, a repo created here nests inside
+                    // it — legal, occasionally meant, and never what someone
+                    // expects to have done by accident.
+                    warning={
+                      edit.kind === 'repo' && listing?.isRepo === true
+                        ? `This will sit inside ${listing.path}, which is already a repository.`
+                        : null
+                    }
+                    onChange={(name) => setEdit({ ...edit, name })}
+                    onCommit={() => void commitEdit()}
+                    onCancel={cancelEdit}
+                  />
+                )}
                 {machineReady && !loading && listing?.parentPath && (
                   <button
                     type="button"
@@ -532,60 +667,107 @@ export function RepoPickerModal({
                 )}
                 {machineReady &&
                   !loading &&
-                  listing?.entries.map((entry) => (
-                    <div
-                      className="group flex min-h-[46px] items-center gap-[13px] border-t border-[#272b33] px-6 hover:bg-[#252a31]"
-                      key={entry.path}
-                    >
-                      <button
-                        type="button"
-                        data-pressable
-                        className="flex min-w-0 flex-1 items-center gap-[13px] py-[11px] text-left disabled:pointer-events-none disabled:opacity-50"
-                        onClick={() => void load(entry.path)}
-                        disabled={busy}
-                        aria-label={`Open folder ${entry.name}`}
+                  listing?.entries.map((entry) =>
+                    edit?.kind === 'rename' && edit.from === entry.name ? (
+                      <EditRow
+                        key={entry.path}
+                        icon={
+                          entry.isRepo ? (
+                            <FolderGit2 size={19} className="flex-none text-[#e3ba52]" />
+                          ) : (
+                            <Folder size={19} className="flex-none text-[#8a9099]" />
+                          )
+                        }
+                        label={`Rename folder ${entry.name}`}
+                        placeholder={entry.name}
+                        value={edit.name}
+                        busy={writingKind !== null}
+                        commitLabel="Rename"
+                        error={editError}
+                        warning={null}
+                        onChange={(name) => setEdit({ ...edit, name })}
+                        onCommit={() => void commitEdit()}
+                        onCancel={cancelEdit}
+                      />
+                    ) : (
+                      <div
+                        className="group flex min-h-[46px] items-center gap-[13px] border-t border-[#272b33] px-6 hover:bg-[#252a31]"
+                        key={entry.path}
                       >
-                        {entry.isRepo ? (
-                          <FolderGit2
-                            size={19}
-                            className="flex-none text-[#e3ba52]"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <Folder
-                            size={19}
-                            className="flex-none text-[#8a9099]"
-                            aria-hidden="true"
-                          />
-                        )}
-                        <span
-                          className={cn(
-                            'min-w-0 flex-1 truncate text-[14px]',
-                            entry.isRepo ? 'font-semibold text-[#f2f3f5]' : 'text-[#e6e8ec]',
-                          )}
-                        >
-                          {entry.name}
-                        </span>
-                        <ChevronRight
-                          size={18}
-                          className="flex-none text-[#6f757f]"
-                          aria-hidden="true"
-                        />
-                      </button>
-                      {entry.isRepo && (
                         <button
                           type="button"
                           data-pressable
-                          className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] group-hover:bg-[#e3ba52] group-hover:text-[#1a1408] group-hover:shadow-none"
+                          className="flex min-w-0 flex-1 items-center gap-[13px] py-[11px] text-left disabled:pointer-events-none disabled:opacity-50"
+                          onClick={() => void load(entry.path)}
+                          // F2 is the rename key everywhere a file list has one, and
+                          // it is the only rename gesture a keyboard user gets: the
+                          // row's click already means "open", so a double-click would
+                          // have navigated before the second click landed.
+                          onKeyDown={(event) => {
+                            if (event.key !== 'F2' || !onRenameFolder || busy) return
+                            event.preventDefault()
+                            startEdit({ kind: 'rename', from: entry.name, name: entry.name })
+                          }}
                           disabled={busy}
-                          onClick={() => void pickPath(entry.path)}
-                          aria-label={`Use repository ${entry.name}`}
+                          aria-label={`Open folder ${entry.name}`}
                         >
-                          Use repository
+                          {entry.isRepo ? (
+                            <FolderGit2
+                              size={19}
+                              className="flex-none text-[#e3ba52]"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <Folder
+                              size={19}
+                              className="flex-none text-[#8a9099]"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <span
+                            className={cn(
+                              'min-w-0 flex-1 truncate text-[14px]',
+                              entry.isRepo ? 'font-semibold text-[#f2f3f5]' : 'text-[#e6e8ec]',
+                            )}
+                          >
+                            {entry.name}
+                          </span>
+                          <ChevronRight
+                            size={18}
+                            className="flex-none text-[#6f757f]"
+                            aria-hidden="true"
+                          />
                         </button>
-                      )}
-                    </div>
-                  ))}
+                        {onRenameFolder && (
+                          <button
+                            type="button"
+                            data-pressable
+                            className="flex size-8 flex-none items-center justify-center rounded-[9px] text-[#5f656e] hover:bg-[#2f343d] hover:text-[#e6e8ec] disabled:pointer-events-none disabled:opacity-50"
+                            disabled={busy}
+                            onClick={() =>
+                              startEdit({ kind: 'rename', from: entry.name, name: entry.name })
+                            }
+                            aria-label={`Rename folder ${entry.name}`}
+                            title="Rename"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        )}
+                        {entry.isRepo && (
+                          <button
+                            type="button"
+                            data-pressable
+                            className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] group-hover:bg-[#e3ba52] group-hover:text-[#1a1408] group-hover:shadow-none"
+                            disabled={busy}
+                            onClick={() => void pickPath(entry.path)}
+                            aria-label={`Use repository ${entry.name}`}
+                          >
+                            Use repository
+                          </button>
+                        )}
+                      </div>
+                    ),
+                  )}
               </div>
               <div className="border-t border-[#2b2f37] bg-[#1f2329] px-6 pt-[18px] pb-[22px]">
                 <p className="text-[12.5px] leading-none font-semibold text-[#a8adb6]">
@@ -622,13 +804,24 @@ export function RepoPickerModal({
                 </div>
               </div>
             </div>
-            {(saving || scanning) && (
+            {/* Only the long writes take the overlay. Creating a plain folder or
+                renaming one is a single syscall and finishes before a curtain
+                would finish fading in. */}
+            {(saving || scanning || writingKind === 'repo') && (
               <SetupBusyOverlay
-                title={scanning ? 'Looking for repositories…' : 'Using this repository…'}
+                title={
+                  scanning
+                    ? 'Looking for repositories…'
+                    : writingKind === 'repo'
+                      ? 'Creating the repository…'
+                      : 'Using this repository…'
+                }
                 detail={
                   scanning
                     ? 'Podium is scanning this folder and will update this dialog when it finishes.'
-                    : `Podium is registering ${listing?.path ?? manualPath.trim()} and preparing the project list.`
+                    : writingKind === 'repo'
+                      ? `Podium is creating the folder, running git init, and registering it in ${listing?.path ?? ''}.`
+                      : `Podium is registering ${listing?.path ?? manualPath.trim()} and preparing the project list.`
                 }
               />
             )}
@@ -636,6 +829,94 @@ export function RepoPickerModal({
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * The one row being typed into (POD-1295) — a new folder, a new repository, or a
+ * rename. It reuses the listing's row geometry deliberately: naming happens in
+ * the list the user is already reading, not in a second dialog stacked on the
+ * first, so the name lands where the folder will appear.
+ */
+function EditRow({
+  icon,
+  label,
+  placeholder,
+  value,
+  busy,
+  commitLabel,
+  error,
+  warning,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  icon: ReactNode
+  label: string
+  placeholder: string
+  value: string
+  busy: boolean
+  commitLabel: string
+  error: string | null
+  warning: string | null
+  onChange: (value: string) => void
+  onCommit: () => void
+  onCancel: () => void
+}): JSX.Element {
+  return (
+    <div className="border-t border-[#272b33] bg-[#252a31] px-6 py-[9px]">
+      <div className="flex items-center gap-[13px]">
+        {icon}
+        <Input
+          autoFocus
+          aria-label={label}
+          className="h-8 min-w-0 flex-1 rounded-[7px] border-0 bg-[#15171b] px-[10px] font-mono text-[13px] text-[#f2f3f5] shadow-[inset_0_0_0_1.5px_#e3ba52] placeholder:text-[#6f757f]"
+          value={value}
+          placeholder={placeholder}
+          disabled={busy}
+          onChange={(event) => onChange(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              onCommit()
+            }
+            // Stop the Escape from reaching the dialog, which would close the
+            // whole picker over a mistyped folder name.
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              onCancel()
+            }
+          }}
+        />
+        <button
+          type="button"
+          data-pressable
+          className="h-8 flex-none rounded-[9px] bg-[#e3ba52] px-[13px] text-[12.5px] leading-none font-semibold text-[#1a1408] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37]"
+          disabled={busy || value.trim() === ''}
+          onClick={onCommit}
+        >
+          {commitLabel}
+        </button>
+        <button
+          type="button"
+          data-pressable
+          className="h-8 flex-none rounded-[9px] px-[11px] text-[12.5px] leading-none font-semibold text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] disabled:opacity-50"
+          disabled={busy}
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 pl-8 text-[12.5px] leading-[1.4] text-[#f0a58f]">
+          {error}
+        </p>
+      )}
+      {!error && warning && (
+        <p className="mt-2 pl-8 text-[12.5px] leading-[1.4] text-[#c8ab6a]">{warning}</p>
+      )}
+    </div>
   )
 }
 

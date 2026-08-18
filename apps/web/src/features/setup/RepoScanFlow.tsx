@@ -1,7 +1,7 @@
-import { asMachineId } from '@podium/model'
-import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { LOCAL_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
+import type { MachineId } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
@@ -185,6 +185,47 @@ export function RepoScanFlow({
     finish(1)
   }
 
+  /**
+   * Make the repository the fresh machine did not have (POD-1295). The server
+   * creates the folder, runs `git init` with its seed commit, and registers the
+   * result — so this completes activation exactly as adding an existing repo
+   * does, and the picker closes behind it.
+   */
+  async function createRepoHere(parentPath: string, name: string): Promise<void> {
+    if (!selectedMachineId) return
+    await trpc.repos.createRepo.mutate({
+      machineId: asMachineId(selectedMachineId),
+      parentPath,
+      name,
+    })
+    await refreshRepos()
+    finish(1)
+  }
+
+  /** A plain folder registers nothing; the picker re-lists and the user carries on. */
+  async function createFolderHere(parentPath: string, name: string): Promise<void> {
+    if (!selectedMachineId) return
+    await trpc.repos.createFolder.mutate({
+      machineId: asMachineId(selectedMachineId),
+      parentPath,
+      name,
+    })
+  }
+
+  async function renameFolderHere(
+    parentPath: string,
+    currentName: string,
+    name: string,
+  ): Promise<void> {
+    if (!selectedMachineId) return
+    await trpc.repos.renameFolder.mutate({
+      machineId: asMachineId(selectedMachineId),
+      parentPath,
+      currentName,
+      name,
+    })
+  }
+
   async function cloneFromGitHub(repository: string, destination: string): Promise<void> {
     if (!selectedMachineId) return
     await trpc.repos.cloneGithub.mutate({
@@ -236,6 +277,9 @@ export function RepoScanFlow({
       onPick={addThisFolder}
       onScan={scanFrom}
       onCloneGithub={cloneFromGitHub}
+      onCreateRepo={createRepoHere}
+      onCreateFolder={createFolderHere}
+      onRenameFolder={renameFolderHere}
       initialSource={draft.source ?? 'local'}
       initialPath={draft.browsePath}
       onProgress={persistDraft}

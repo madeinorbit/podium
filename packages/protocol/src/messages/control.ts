@@ -4,6 +4,7 @@ import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './b
 import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
 import {
   BrowseDirsRequestMessage,
+  DirOpRequestMessage,
   RepoOpRequestMessage,
   ScanReposRequestMessage,
   ScanRequestMessage,
@@ -114,6 +115,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ScanRequestMessage,
   ScanReposRequestMessage,
   BrowseDirsRequestMessage,
+  DirOpRequestMessage,
   InputMessage,
   ResizeMessage,
   RedrawMessage,

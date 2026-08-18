@@ -37,6 +37,9 @@ import {
   repoAddHandler,
   repoAddManyHandler,
   repoCloneGithubHandler,
+  repoCreateFolderHandler,
+  repoCreateRepoHandler,
+  repoRenameFolderHandler,
   repoRemoveHandler,
   repoSetPrefixHandler,
 } from './handlers'
@@ -108,6 +111,18 @@ export const FLEET_COMMANDS = {
   'repos.cloneGithub': {
     contract: FLEET_CONTRACTS['repos.cloneGithub'],
     handler: repoCloneGithubHandler,
+  },
+  'repos.createFolder': {
+    contract: FLEET_CONTRACTS['repos.createFolder'],
+    handler: repoCreateFolderHandler,
+  },
+  'repos.createRepo': {
+    contract: FLEET_CONTRACTS['repos.createRepo'],
+    handler: repoCreateRepoHandler,
+  },
+  'repos.renameFolder': {
+    contract: FLEET_CONTRACTS['repos.renameFolder'],
+    handler: repoRenameFolderHandler,
   },
   'discovery.refreshRepos': {
     contract: FLEET_CONTRACTS['discovery.refreshRepos'],

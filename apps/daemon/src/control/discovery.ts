@@ -9,6 +9,7 @@ import type {
   GitRepositoryWire,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { runDirOp } from '../dir-ops'
 import { sampleHostMemory } from '../host-metrics'
 import type { MemoryAttribution } from '../memory-breakdown'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -236,6 +237,31 @@ async function browseDirs(
   }
 }
 
+/** One create/rename on this machine's disk (POD-1295) — the picker's write
+ *  path. Like a browse, a refusal is a RESULT: the reason is what the user
+ *  reads, so it must not be lost to an RPC timeout. */
+async function dirOp(
+  ctx: DaemonContext,
+  requestId: string,
+  msg: Extract<ControlMessage, { type: 'dirOpRequest' }>,
+): Promise<void> {
+  const result = await runDirOp(
+    msg.op,
+    {
+      parentPath: msg.parentPath,
+      name: msg.name,
+      ...(msg.currentName === undefined ? {} : { currentName: msg.currentName }),
+    },
+    { homePath: browseHomeDir(ctx.homeDir), machine: hostname() },
+  )
+  ctx.send({
+    type: 'dirOpResult',
+    requestId,
+    ...(result.path === undefined ? {} : { path: result.path }),
+    ...(result.error === undefined ? {} : { error: result.error }),
+  })
+}
+
 async function memoryBreakdown(
   ctx: DaemonContext,
   requestId: string,
@@ -280,7 +306,11 @@ async function memoryBreakdown(
 
 export const discoveryHandlers: Pick<
   ControlHandlers,
-  'scanRequest' | 'scanReposRequest' | 'browseDirsRequest' | 'memoryBreakdownRequest'
+  | 'scanRequest'
+  | 'scanReposRequest'
+  | 'browseDirsRequest'
+  | 'dirOpRequest'
+  | 'memoryBreakdownRequest'
 > = {
   scanRequest: (ctx, msg) => {
     void scan(ctx, msg.requestId)
@@ -296,6 +326,9 @@ export const discoveryHandlers: Pick<
       ...(msg.path === undefined ? {} : { path: msg.path }),
       ...(msg.includeHidden === undefined ? {} : { includeHidden: msg.includeHidden }),
     })
+  },
+  dirOpRequest: (ctx, msg: Extract<ControlMessage, { type: 'dirOpRequest' }>) => {
+    void dirOp(ctx, msg.requestId, msg)
   },
   memoryBreakdownRequest: (ctx, msg) => {
     void memoryBreakdown(ctx, msg.requestId, msg.roots)

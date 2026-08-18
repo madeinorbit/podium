@@ -111,8 +111,8 @@ describe('the target table covers the contract table, in both directions', () =>
   it('every contract has an extractor and every extractor has a contract', () => {
     expect(Object.keys(FLEET_TARGETS).sort()).toEqual([...NAMES].sort())
     // Non-vacuity: if the family were empty this would pass trivially.
-    expect(NAMES).toHaveLength(18)
-    expect(MACHINE_COMMANDS).toHaveLength(17)
+    expect(NAMES).toHaveLength(21)
+    expect(MACHINE_COMMANDS).toHaveLength(20)
   })
 })
 

@@ -6,6 +6,7 @@ import { CredentialExportResultMessage, CredentialInstallResultMessage } from '.
 import {
   BrowseDirsResultMessage,
   ConversationsChangedMessage,
+  DirOpResultMessage,
   RepoOpResultMessage,
   ScanReposResultMessage,
   ScanResultMessage,
@@ -199,6 +200,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ConversationsChangedMessage,
   ScanReposResultMessage,
   BrowseDirsResultMessage,
+  DirOpResultMessage,
   TranscriptMirrorResultMessage,
   HostMetricsMessage,
   MachineDiagnosticMessage,

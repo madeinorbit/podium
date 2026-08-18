@@ -228,6 +228,31 @@ export const repoSetPrefixInput = z.object({
   machineId: machineSelector,
 })
 
+/**
+ * The picker's write ops (POD-1295) take a PARENT and a SEGMENT, never a
+ * composed path — the daemon does the joining after it has resolved the parent
+ * (see `apps/daemon/src/dir-ops.ts`). The schema says so rather than leaving it
+ * to the handler: a `name` that could contain a separator would make every
+ * containment argument downstream a matter of convention.
+ */
+const folderSegment = z.string().min(1).max(255)
+
+export const repoCreateFolderInput = z.object({
+  machineId: MachineIdField,
+  parentPath: z.string().min(1),
+  name: folderSegment,
+})
+
+export const repoCreateRepoInput = repoCreateFolderInput
+
+export const repoRenameFolderInput = z.object({
+  machineId: MachineIdField,
+  parentPath: z.string().min(1),
+  /** The folder's current name inside `parentPath`. */
+  currentName: folderSegment,
+  name: folderSegment,
+})
+
 export const repoCloneGithubInput = z.object({
   machineId: MachineIdField,
   repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u),
@@ -1138,6 +1163,126 @@ export const repoCloneGithubContract = {
     'The destination path is the arbitration key; GitHub CLI refuses an occupied checkout and registration is idempotent per (machineId, path)',
 } as const satisfies FleetCommandContract<typeof repoCloneGithubInput>
 
+/**
+ * ---------------------------------------------------------------------------
+ * THE PICKER'S WRITE OPS (POD-1295)
+ * ---------------------------------------------------------------------------
+ *
+ * All three run on the named machine's filesystem, so all three are `use` and
+ * not `manage` — ADR 9 D6 M1 puts "read/write files" in `use`, which is the same
+ * line `repos.cloneGithub` sits on and the reason `repos.add` sits on the other
+ * one (it edits inventory and executes nothing).
+ *
+ * They are three commands rather than one with flags because what they WRITE
+ * differs, and the ownership cell is where that shows: `createRepo` registers a
+ * repo row, the other two touch no row at all. Folding them together would force
+ * one contract to declare a creation that two thirds of its calls do not make.
+ */
+export const repoCreateFolderContract = {
+  name: 'repos.createFolder',
+  version: 1,
+  visibility: 'owned-compute',
+  input: repoCreateFolderInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'use',
+    confirmation: 'none',
+    rationale:
+      'Creates one directory on the named machine’s disk. Unambiguously `use` — ADR 9 D6 M1’s ' +
+      '"read/write files", the write half — and `owned-compute` because what it changes is a ' +
+      'per-machine fact that inherits that machine’s scoping (ADR 9 D3 rule 3). It registers ' +
+      'nothing: a folder is not a repository, and Podium learns about it only if the user goes on ' +
+      'to add one.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: [],
+    note: 'Creates a directory, not a row. `repos.createRepo` is the one that registers.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: USE_ERRORS,
+  serverRole: 'core',
+  cli: { summary: 'Create a folder on a machine' },
+  conflict: 'cmd',
+  conflictRule:
+    'The target path is the arbitration key; a concurrent create of the same name loses on mkdir EEXIST and is reported as "already here" rather than overwriting',
+} as const satisfies FleetCommandContract<typeof repoCreateFolderInput>
+
+/** Make a folder and make it usable: `git init` plus the seed commit that
+ *  `git worktree add -b` needs, then register it. */
+export const repoCreateRepoContract = {
+  name: 'repos.createRepo',
+  version: 1,
+  visibility: 'owned-compute',
+  input: repoCreateRepoInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'use',
+    confirmation: 'none',
+    rationale:
+      'Creates a directory, runs `git init` and a seed commit on the named machine, then registers ' +
+      'the result. Executes on owned compute AND writes its filesystem, so `use` is the operative ' +
+      'verb — the same reading as `repos.cloneGithub`, which this is the local-origin twin of. The ' +
+      'registered repository inherits that machine’s scope.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: REPO_ROW_OWNERSHIP(`Registers the newly initialised checkout. ${REPO_ROW_NOTE}`),
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: USE_ERRORS,
+  serverRole: 'core',
+  cli: { summary: 'Create and register a new repository on a machine' },
+  conflict: 'cmd',
+  conflictRule:
+    'The target path is the arbitration key; the create loses on mkdir EEXIST before any git runs, and registration is idempotent per (machineId, path)',
+} as const satisfies FleetCommandContract<typeof repoCreateRepoInput>
+
+/**
+ * Rename refuses on a REGISTERED root, and the refusal is the feature. Repo rows
+ * are keyed `(machine_id, path)`, so renaming a registered checkout — or any
+ * folder above one — would leave rows pointing at a path that no longer exists,
+ * with no event to tell anyone. The check lives in the handler because only the
+ * server holds the registry; the daemon cannot see it.
+ */
+export const repoRenameFolderContract = {
+  name: 'repos.renameFolder',
+  version: 1,
+  visibility: 'owned-compute',
+  input: repoRenameFolderInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'use',
+    confirmation: 'none',
+    rationale:
+      'Renames one directory on the named machine’s disk — "read/write files" again, so `use`. It ' +
+      'writes no row, and is REFUSED outright when the folder (or anything under it) is a registered ' +
+      'repo root, because a rename Podium cannot follow would silently strand those rows.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: [],
+    note: 'Renames a directory; registered roots are refused rather than re-registered.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: USE_ERRORS,
+  serverRole: 'core',
+  cli: { summary: 'Rename a folder on a machine' },
+  conflict: 'cmd',
+  conflictRule:
+    'The destination path is the arbitration key; a name already taken is reported as "already here" and the rename does not run',
+} as const satisfies FleetCommandContract<typeof repoRenameFolderInput>
+
 export const discoveryRefreshReposContract = {
   name: 'discovery.refreshRepos',
   version: 1,
@@ -1269,6 +1414,9 @@ export const FLEET_CONTRACTS = {
   'repos.remove': repoRemoveContract,
   'repos.setPrefix': repoSetPrefixContract,
   'repos.cloneGithub': repoCloneGithubContract,
+  'repos.createFolder': repoCreateFolderContract,
+  'repos.createRepo': repoCreateRepoContract,
+  'repos.renameFolder': repoRenameFolderContract,
   'discovery.refreshRepos': discoveryRefreshReposContract,
   'discovery.scanFolder': discoveryScanFolderContract,
   'discovery.scanMachine': discoveryScanMachineContract,

@@ -30,6 +30,9 @@ const browse = vi.fn(async (input?: { path?: string; machineId?: string }) => {
     ...(isRepo ? { isRepo: true, originUrl: 'git@github.com:lumenfall/myrepo.git' } : {}),
   }
 })
+const createRepo = vi.fn(async () => ({ path: '/home/vmi34/planner', repos: [] }))
+const createFolder = vi.fn(async () => ({ path: '/home/vmi34/projects' }))
+const renameFolder = vi.fn(async () => ({ path: '/home/vmi34/renamed' }))
 const refreshRepos = vi.fn(async () => undefined)
 const uiValues = new Map<string, string>()
 
@@ -56,6 +59,9 @@ const store = {
       addMany: { mutate: addMany },
       remove: { mutate: removeRepo },
       browse: { query: browse },
+      createRepo: { mutate: createRepo },
+      createFolder: { mutate: createFolder },
+      renameFolder: { mutate: renameFolder },
     },
     discovery: {
       scanMachine: { mutate: scanMachine },
@@ -261,5 +267,93 @@ describe('RepoScanFlow machine selection', () => {
         machineId: 'vmi34',
       }),
     )
+  })
+  /**
+   * POD-1295 — the route a machine with nothing on its disk never had. These
+   * assert the WHOLE trip: the button opens a row, the row's name is what the
+   * server is asked for, and creating a repository completes activation the way
+   * picking an existing one does.
+   */
+  it('creates a repository in the browsed folder and completes activation', async () => {
+    const onDone = vi.fn()
+    render(<RepoScanFlow onClose={() => {}} onDone={onDone} />)
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+    await screen.findByRole('button', { name: 'Open folder src' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New repository' }))
+    const field = await screen.findByLabelText('New repository name')
+    fireEvent.change(field, { target: { value: '  flight-planner  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create repository' }))
+
+    await waitFor(() =>
+      expect(createRepo).toHaveBeenCalledWith({
+        machineId: 'vmi34',
+        parentPath: '/home/vmi34',
+        name: 'flight-planner',
+      }),
+    )
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith(1))
+  })
+
+  it('creates a plain folder and stays open, re-listing so it can be stepped into', async () => {
+    const onDone = vi.fn()
+    render(<RepoScanFlow onClose={() => {}} onDone={onDone} />)
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+    await screen.findByRole('button', { name: 'Open folder src' })
+    browse.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+    fireEvent.change(await screen.findByLabelText('New folder name'), {
+      target: { value: 'projects' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create folder' }))
+
+    await waitFor(() =>
+      expect(createFolder).toHaveBeenCalledWith({
+        machineId: 'vmi34',
+        parentPath: '/home/vmi34',
+        name: 'projects',
+      }),
+    )
+    // A folder is not a repository, so nothing is registered and nothing finishes.
+    await waitFor(() => expect(browse).toHaveBeenCalled())
+    expect(onDone).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('renames a folder from its own row', async () => {
+    render(<RepoScanFlow onClose={() => {}} onDone={() => {}} />)
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename folder src' }))
+    const field = await screen.findByLabelText('Rename folder src')
+    fireEvent.change(field, { target: { value: 'sources' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+
+    await waitFor(() =>
+      expect(renameFolder).toHaveBeenCalledWith({
+        machineId: 'vmi34',
+        parentPath: '/home/vmi34',
+        currentName: 'src',
+        name: 'sources',
+      }),
+    )
+  })
+
+  it('takes Escape as cancelling the name, not as closing the picker', async () => {
+    const onClose = vi.fn()
+    render(<RepoScanFlow onClose={onClose} onDone={() => {}} />)
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+    await screen.findByRole('button', { name: 'Open folder src' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New repository' }))
+    const field = await screen.findByLabelText('New repository name')
+    fireEvent.change(field, { target: { value: 'oops' } })
+    fireEvent.keyDown(field, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByLabelText('New repository name')).toBeNull())
+    expect(createRepo).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeTruthy()
   })
 })

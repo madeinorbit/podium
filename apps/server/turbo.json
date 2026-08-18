@@ -697,6 +697,7 @@
         "src/modules/files/trpc.ts",
         "src/modules/fleet/authz.test.ts",
         "src/modules/fleet/authz.ts",
+        "src/modules/fleet/dir-ops.test.ts",
         "src/modules/fleet/handlers.ts",
         "src/modules/fleet/queries.ts",
         "src/modules/fleet/registry.ts",

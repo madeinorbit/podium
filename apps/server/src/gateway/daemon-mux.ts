@@ -185,6 +185,7 @@ const DISPATCH: Dispatcher = {
   // against the machine the request was sent to (POD-1175).
   scanReposResult: toRpc,
   browseDirsResult: toRpc,
+  dirOpResult: toRpc,
   githubCliResult: toRpc,
   repoOpResult: toRpc,
   harnessExecResult: toRpc,
