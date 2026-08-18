@@ -1,6 +1,7 @@
 import { isServerReadiness } from '@podium/model'
 import type { ConfigInspection, PodiumConfig } from '@podium/runtime/config'
 import { describe, expect, it } from 'vitest'
+import { isSetupBootstrapPath } from './readiness-boundary'
 import { createServerReadiness } from './server-readiness'
 
 const ok = (config: PodiumConfig): ConfigInspection => ({
@@ -47,6 +48,27 @@ describe('server readiness derivation', () => {
       reason: 'agent_unavailable',
       dataPlane: 'available',
     })
+  })
+
+  it('blocks the data plane the instant a live server is told it is now a client', () => {
+    // POD-1292, and the reason the desktop's VPS step could not clean up after
+    // itself: `setup.connect({mode:'client'})` writes the new mode into the SAME
+    // config this running all-in-one server re-reads per request, so every call
+    // after it — including the wizard's own checkpoint clear — meets a 503.
+    const readiness = createServerReadiness({
+      bootConfig: { mode: 'all-in-one' },
+      inspect: () => ok({ mode: 'client', serverUrl: 'wss://vps.example.com' }),
+      hasLiveAgentMachine: () => true,
+    })
+    expect(readiness()).toEqual({
+      state: 'activation_pending',
+      reason: 'restart_required',
+      dataPlane: 'blocked',
+    })
+    // Setup may still finish; ordinary UI state may not, and must not be
+    // smuggled in to make the wizard's bookkeeping survive the flip.
+    expect(isSetupBootstrapPath('/trpc/setup.connect')).toBe(true)
+    expect(isSetupBootstrapPath('/trpc/layout.clear')).toBe(false)
   })
 
   it('reports ready only after configuration and an agent machine are both live', () => {

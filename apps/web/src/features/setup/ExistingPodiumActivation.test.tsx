@@ -7,8 +7,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import {
-  existingPodiumJoinToken,
   ExistingPodiumActivation,
+  existingPodiumJoinToken,
   normalizeExistingPodiumUrl,
 } from './ExistingPodiumActivation'
 
@@ -108,6 +108,7 @@ describe('existing Podium activation', () => {
     const connect = vi.fn().mockResolvedValue({})
     const onConfigured = vi.fn(async () => {
       expect(uiValues.has(EXISTING_PODIUM_CLIENT_DRAFT_KEY)).toBe(false)
+      return 'started' as const
     })
     render(
       <ExistingPodiumActivation
@@ -194,7 +195,7 @@ describe('existing Podium activation', () => {
       name: 'Studio Mac',
       warning: 'This temporary URL will change when its tunnel restarts.',
     })
-    const onConfigured = vi.fn().mockResolvedValue(undefined)
+    const onConfigured = vi.fn().mockResolvedValue('started')
     render(
       <ExistingPodiumActivation
         route="existing-machine"
@@ -259,7 +260,7 @@ describe('existing Podium activation', () => {
         route="existing-machine"
         trpc={trpcWith({ join })}
         onRouteChange={vi.fn()}
-        onConfigured={vi.fn().mockResolvedValue(undefined)}
+        onConfigured={vi.fn().mockResolvedValue('started')}
       />,
     )
     expect((screen.getByLabelText('Join token or command') as HTMLInputElement).value).toBe(command)
@@ -269,14 +270,15 @@ describe('existing Podium activation', () => {
     expect(uiSet).toHaveBeenLastCalledWith(EXISTING_PODIUM_MACHINE_DRAFT_KEY, null)
   })
 
-  it('surfaces manual-relaunch guidance after configuration is already saved', async () => {
+  it('reports a shell that will not restart itself as success plus one button', async () => {
     const join = vi.fn().mockResolvedValue({ name: 'Studio Mac' })
+    const onConfigured = vi.fn().mockResolvedValue('unavailable')
     render(
       <ExistingPodiumActivation
         route="existing-machine"
         trpc={trpcWith({ join })}
         onRouteChange={vi.fn()}
-        onConfigured={vi.fn().mockRejectedValue(new Error('restart unavailable'))}
+        onConfigured={onConfigured}
       />,
     )
 
@@ -285,9 +287,13 @@ describe('existing Podium activation', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Join and restart' }))
 
-    expect((await screen.findByRole('alert')).textContent).toMatch(
-      /Studio Mac is connected — quit and reopen Podium/,
-    )
+    const panel = (await screen.findByText('Studio Mac is connected.')).closest('[role="status"]')
+    expect(panel?.textContent).toMatch(/Restart Podium to finish joining/)
+    // The machine IS joined: nothing here may be announced as a failure.
+    expect(screen.queryByRole('alert')).toBeNull()
     expect(uiSet).toHaveBeenLastCalledWith(EXISTING_PODIUM_MACHINE_DRAFT_KEY, null)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart Podium' }))
+    await waitFor(() => expect(onConfigured).toHaveBeenCalledTimes(2))
   })
 })

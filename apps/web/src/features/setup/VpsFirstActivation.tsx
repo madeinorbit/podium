@@ -1,4 +1,5 @@
 import { ONBOARDING_VPS_SERVER_DRAFT_KEY, type UiState } from '@podium/client-core/ui-state'
+import { createLogger } from '@podium/logger'
 import { isServerReadiness } from '@podium/model'
 import {
   buildVpsBootstrapCommand,
@@ -22,8 +23,12 @@ import { parseServerOrigin, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ActivationBack, ActivationShell } from './ActivationShell'
+import { ActivationHandoffPanel, useActivationHandoff } from './activation-handoff'
 import type { ActivationRoute } from './activation-route'
+import type { ShellRestart } from './restart-shell'
 import type { ConfirmedVpsActivation } from './use-vps-activation'
+
+const log = createLogger('web:setup')
 
 export function normalizeNewVpsUrl(
   value: string,
@@ -112,7 +117,7 @@ export function VpsFirstActivation({
   trpc: Trpc
   vps: ConfirmedVpsActivation
   onRouteChange: (route: ActivationRoute) => void
-  onConfigured: () => Promise<void>
+  onConfigured: () => Promise<ShellRestart>
 }): JSX.Element {
   const uiState = useStoreSelector((store) => store.uiState) as Pick<UiState, 'get' | 'set'>
   const [read, setRead] = useState<ChannelRead>({ status: 'reading' })
@@ -123,6 +128,7 @@ export function VpsFirstActivation({
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const handoff = useActivationHandoff(onConfigured)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const command = useMemo(
     () => (read.status === 'known' ? buildVpsBootstrapCommand(read.channel) : null),
@@ -179,6 +185,25 @@ export function VpsFirstActivation({
     )
   }
 
+  /**
+   * Bookkeeping that runs AFTER the connection is durable, and is expected to
+   * fail (POD-1292). `setup.connect` leaves this server activation-pending, and
+   * from that moment its readiness boundary answers 503 to everything outside
+   * the setup allowlist — including this checkpoint clear. It is housekeeping on
+   * a server the desktop is about to stop talking to, so it is attempted, its
+   * refusal is recorded, and it is never allowed to stand between the user and
+   * the restart that finishes the flow.
+   */
+  const retireCheckpoint = async (): Promise<void> => {
+    try {
+      await vps.clear()
+    } catch (cause) {
+      log.warn('VPS activation checkpoint outlived its flow', {
+        reason: cause instanceof Error ? cause.message : String(cause),
+      })
+    }
+  }
+
   const connect = async (): Promise<void> => {
     const normalized = normalizeNewVpsUrl(serverUrl)
     if (!normalized) {
@@ -187,24 +212,19 @@ export function VpsFirstActivation({
     }
     setBusy(true)
     setError(null)
-    let saved = false
     try {
       await probeNewVps(normalized.httpOrigin)
       await trpc.setup.connect.mutate({ mode: 'client', serverUrl: normalized.serverUrl })
-      saved = true
-      uiState.set(ONBOARDING_VPS_SERVER_DRAFT_KEY, null)
-      await vps.clear()
-      await onConfigured()
     } catch (cause) {
       setBusy(false)
-      setError(
-        saved
-          ? 'The VPS connection is saved. Quit and reopen Podium to finish connecting.'
-          : cause instanceof Error
-            ? cause.message
-            : String(cause),
-      )
+      setError(cause instanceof Error ? cause.message : String(cause))
+      return
     }
+    // PAST THIS LINE THE CONNECTION EXISTS. Nothing below may re-enter the
+    // failure path: the only question left is who restarts the app, and the
+    // handoff panel answers it as the success it is.
+    uiState.set(ONBOARDING_VPS_SERVER_DRAFT_KEY, null)
+    await handoff.begin(retireCheckpoint)
   }
 
   const goBack = async (): Promise<void> => {
@@ -326,39 +346,53 @@ export function VpsFirstActivation({
               </p>
             </div>
           </div>
-          <div className="mt-5 flex gap-3 max-sm:flex-col">
-            <Input
-              aria-label="New VPS Podium URL"
-              type="url"
-              inputMode="url"
-              autoComplete="url"
-              spellCheck={false}
-              placeholder="https://your-vps.example.com"
-              value={serverUrl}
-              disabled={busy}
-              className="h-[42px] flex-1 rounded-[10px] border-0 bg-[#15171b] px-3.5 font-mono text-[14px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
-              onChange={(event) => {
-                const value = event.currentTarget.value
-                setServerUrl(value)
-                uiState.set(ONBOARDING_VPS_SERVER_DRAFT_KEY, value || null)
-                if (error) setError(null)
-              }}
-            />
-            <Button
-              type="button"
-              pending={busy}
-              pendingLabel="Checking VPS…"
-              disabled={!serverUrl.trim()}
-              className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
-              onClick={() => void connect()}
-            >
-              Connect to VPS
-              <ArrowRight size={17} aria-hidden="true" />
-            </Button>
-          </div>
-          <div className="mt-3">
-            <ConnectionError error={error} />
-          </div>
+          {handoff.phase === 'idle' ? (
+            <>
+              <div className="mt-5 flex gap-3 max-sm:flex-col">
+                <Input
+                  aria-label="New VPS Podium URL"
+                  type="url"
+                  inputMode="url"
+                  autoComplete="url"
+                  spellCheck={false}
+                  placeholder="https://your-vps.example.com"
+                  value={serverUrl}
+                  disabled={busy}
+                  className="h-[42px] flex-1 rounded-[10px] border-0 bg-[#15171b] px-3.5 font-mono text-[14px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
+                  onChange={(event) => {
+                    const value = event.currentTarget.value
+                    setServerUrl(value)
+                    uiState.set(ONBOARDING_VPS_SERVER_DRAFT_KEY, value || null)
+                    if (error) setError(null)
+                  }}
+                />
+                <Button
+                  type="button"
+                  pending={busy}
+                  pendingLabel="Checking VPS…"
+                  disabled={!serverUrl.trim()}
+                  className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+                  onClick={() => void connect()}
+                >
+                  Connect to VPS
+                  <ArrowRight size={17} aria-hidden="true" />
+                </Button>
+              </div>
+              <div className="mt-3">
+                <ConnectionError error={error} />
+              </div>
+            </>
+          ) : (
+            <div className="mt-5">
+              <ActivationHandoffPanel
+                phase={handoff.phase}
+                title="Connected to your VPS."
+                restartingDetail="Restarting Podium to finish connecting…"
+                restartDetail="Restart Podium to finish connecting."
+                onRestart={() => void handoff.begin()}
+              />
+            </div>
+          )}
           <p className="mt-4 flex items-start gap-2 border-t border-[#2b2f37] pt-4 text-[12.5px] leading-[1.5] text-[#7f858f]">
             <ShieldCheck size={16} className="mt-0.5 flex-none text-[#6fbc8c]" aria-hidden="true" />
             Your VPS becomes the only Podium server. This computer starts in client-only mode; you
@@ -366,8 +400,16 @@ export function VpsFirstActivation({
           </p>
         </section>
 
-        <ActivationBack disabled={busy || vps.saving} onBack={() => void goBack()} />
-        {vps.error && <ConnectionError error={vps.error} />}
+        {/* Both are for a step still being MADE. Once the connection is durable
+            there is nothing to go back to and no controller error worth
+            reporting — the checkpoint clear is expected to be refused by the
+            server this desktop just stopped being (POD-1292). */}
+        {!handoff.handedOff && (
+          <>
+            <ActivationBack disabled={busy || vps.saving} onBack={() => void goBack()} />
+            {vps.error && <ConnectionError error={vps.error} />}
+          </>
+        )}
       </div>
     </ActivationShell>
   )

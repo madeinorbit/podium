@@ -68,7 +68,7 @@ function renderStep(trpc: Trpc): void {
       trpc={trpc}
       vps={vpsController()}
       onRouteChange={vi.fn()}
-      onConfigured={vi.fn(async () => undefined)}
+      onConfigured={vi.fn(async () => 'started' as const)}
     />,
   )
 }
@@ -114,7 +114,7 @@ describe('fresh VPS activation', () => {
   it('connects the desktop only after a current ready VPS answers', async () => {
     const connect = vi.fn(async () => undefined)
     const clear = vi.fn(async () => undefined)
-    const onConfigured = vi.fn(async () => undefined)
+    const onConfigured = vi.fn(async () => 'started' as const)
     const request = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(response({ state: 'ready', reason: null, dataPlane: 'available' }))
@@ -144,6 +144,93 @@ describe('fresh VPS activation', () => {
     expect(clear.mock.invocationCallOrder[0]).toBeLessThan(
       onConfigured.mock.invocationCallOrder[0]!,
     )
+  })
+
+  it('restarts even though the saved connection makes the checkpoint clear impossible', async () => {
+    // POD-1292: setup.connect leaves this server activation-pending, so its
+    // readiness boundary refuses layout.clear from the very next call onward.
+    // That refusal used to reach the catch, which reported a SAVED connection
+    // as "Could not connect yet" and never asked the shell to restart at all.
+    const clear = vi.fn().mockRejectedValue(new Error('server_not_ready'))
+    const onConfigured = vi.fn(async () => 'started' as const)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      response({ state: 'ready', reason: null, dataPlane: 'available' }),
+    )
+
+    render(
+      <VpsFirstActivation
+        trpc={trpcWith()}
+        vps={vpsController(clear)}
+        onRouteChange={vi.fn()}
+        onConfigured={onConfigured}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('New VPS Podium URL'), {
+      target: { value: 'https://vps.example.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect to VPS' }))
+
+    await waitFor(() => expect(onConfigured).toHaveBeenCalledOnce())
+    // Anchored on the handoff panel's own text: the channel row upstream is a
+    // `role="status"` too, so the role alone does not name this one.
+    expect(await screen.findByText('Connected to your VPS.')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText(/Quit and reopen/)).toBeNull()
+  })
+
+  it('offers one Restart Podium button when the shell will not restart itself', async () => {
+    const onConfigured = vi.fn().mockResolvedValue('unavailable')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      response({ state: 'ready', reason: null, dataPlane: 'available' }),
+    )
+
+    render(
+      <VpsFirstActivation
+        trpc={trpcWith()}
+        vps={vpsController()}
+        onRouteChange={vi.fn()}
+        onConfigured={onConfigured}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('New VPS Podium URL'), {
+      target: { value: 'https://vps.example.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect to VPS' }))
+
+    const panel = (await screen.findByText('Connected to your VPS.')).closest('[role="status"]')
+    expect(panel?.textContent).toMatch(/Restart Podium to finish connecting/)
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart Podium' }))
+    await waitFor(() => expect(onConfigured).toHaveBeenCalledTimes(2))
+  })
+
+  it('keeps reporting a connection that never saved as the error it is', async () => {
+    const connect = vi.fn().mockRejectedValue(new Error('client mode needs a server URL'))
+    const onConfigured = vi.fn(async () => 'started' as const)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      response({ state: 'ready', reason: null, dataPlane: 'available' }),
+    )
+
+    render(
+      <VpsFirstActivation
+        trpc={trpcWith(connect)}
+        vps={vpsController()}
+        onRouteChange={vi.fn()}
+        onConfigured={onConfigured}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('New VPS Podium URL'), {
+      target: { value: 'https://vps.example.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect to VPS' }))
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/client mode needs a server URL/)
+    expect(onConfigured).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('New VPS Podium URL')).toBeTruthy()
   })
 })
 

@@ -23,7 +23,9 @@ import { parseServerOrigin, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ActivationBack, ActivationChoice, ActivationShell } from './ActivationShell'
+import { ActivationHandoffPanel, useActivationHandoff } from './activation-handoff'
 import type { ActivationRoute } from './activation-route'
+import type { ShellRestart } from './restart-shell'
 
 export const EXISTING_PODIUM_ROUTES = [
   'existing-podium',
@@ -93,7 +95,7 @@ export function ExistingPodiumActivation({
   route: ExistingPodiumRoute
   trpc: Trpc
   onRouteChange: (route: ActivationRoute) => void
-  onConfigured: () => Promise<void>
+  onConfigured: () => Promise<ShellRestart>
 }): JSX.Element {
   const uiState = useStoreSelector((store) => store.uiState)
 
@@ -163,13 +165,14 @@ function ExistingClientStep({
   trpc: Trpc
   uiState: Pick<UiState, 'get' | 'set'>
   onBack: () => void
-  onConfigured: () => Promise<void>
+  onConfigured: () => Promise<ShellRestart>
 }): JSX.Element {
   const [serverUrl, setServerUrl] = useState(
     () => uiState.get(EXISTING_PODIUM_CLIENT_DRAFT_KEY) ?? '',
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const handoff = useActivationHandoff(onConfigured)
 
   const connect = async (): Promise<void> => {
     const normalized = normalizeExistingPodiumUrl(serverUrl)
@@ -181,17 +184,14 @@ function ExistingClientStep({
     setError(null)
     try {
       await trpc.setup.connect.mutate({ mode: 'client', serverUrl: normalized })
-      uiState.set(EXISTING_PODIUM_CLIENT_DRAFT_KEY, null)
-      try {
-        await onConfigured()
-      } catch {
-        setBusy(false)
-        setError('Connection saved — quit and reopen Podium to open the remote installation.')
-      }
     } catch (cause) {
       setBusy(false)
       setError(cause instanceof Error ? cause.message : String(cause))
+      return
     }
+    // Saved. What is left is a restart, not a failure — see activation-handoff.
+    uiState.set(EXISTING_PODIUM_CLIENT_DRAFT_KEY, null)
+    await handoff.begin()
   }
 
   return (
@@ -210,36 +210,48 @@ function ExistingClientStep({
           >
             Existing Podium URL
           </label>
-          <div className="mt-[11px] flex gap-3 max-sm:flex-col">
-            <Input
-              id="existing-podium-url"
-              className="h-[42px] flex-1 rounded-[10px] border-0 bg-[#15171b] px-3.5 font-mono text-[14px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
-              type="url"
-              inputMode="url"
-              autoComplete="url"
-              spellCheck={false}
-              placeholder="https://podium.example.com"
-              value={serverUrl}
-              disabled={busy}
-              onChange={(event) => {
-                const value = event.currentTarget.value
-                setServerUrl(value)
-                uiState.set(EXISTING_PODIUM_CLIENT_DRAFT_KEY, value || null)
-                if (error) setError(null)
-              }}
-            />
-            <Button
-              type="button"
-              className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
-              pending={busy}
-              pendingLabel="Saving connection…"
-              disabled={!serverUrl.trim()}
-              onClick={() => void connect()}
-            >
-              Save and restart
-              <ArrowRight size={17} aria-hidden="true" />
-            </Button>
-          </div>
+          {handoff.phase === 'idle' ? (
+            <div className="mt-[11px] flex gap-3 max-sm:flex-col">
+              <Input
+                id="existing-podium-url"
+                className="h-[42px] flex-1 rounded-[10px] border-0 bg-[#15171b] px-3.5 font-mono text-[14px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
+                type="url"
+                inputMode="url"
+                autoComplete="url"
+                spellCheck={false}
+                placeholder="https://podium.example.com"
+                value={serverUrl}
+                disabled={busy}
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  setServerUrl(value)
+                  uiState.set(EXISTING_PODIUM_CLIENT_DRAFT_KEY, value || null)
+                  if (error) setError(null)
+                }}
+              />
+              <Button
+                type="button"
+                className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+                pending={busy}
+                pendingLabel="Saving connection…"
+                disabled={!serverUrl.trim()}
+                onClick={() => void connect()}
+              >
+                Save and restart
+                <ArrowRight size={17} aria-hidden="true" />
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-[11px]">
+              <ActivationHandoffPanel
+                phase={handoff.phase}
+                title="Connection saved."
+                restartingDetail="Restarting Podium to open the remote installation…"
+                restartDetail="Restart Podium to open the remote installation."
+                onRestart={() => void handoff.begin()}
+              />
+            </div>
+          )}
           <ul className="mt-[18px] flex flex-col gap-[11px] border-t border-[#272b33] pt-4">
             <Consequence icon={<Ban />}>
               No agents run on this device in client-only mode.
@@ -253,12 +265,16 @@ function ExistingClientStep({
             </Consequence>
           </ul>
         </div>
-        <div className="mt-3">
-          <ConnectionError error={error} />
-        </div>
-        <div className="mt-5">
-          <ActivationBack disabled={busy} onBack={onBack} />
-        </div>
+        {!handoff.handedOff && (
+          <>
+            <div className="mt-3">
+              <ConnectionError error={error} />
+            </div>
+            <div className="mt-5">
+              <ActivationBack disabled={busy} onBack={onBack} />
+            </div>
+          </>
+        )}
       </div>
     </ActivationShell>
   )
@@ -273,7 +289,7 @@ function ExistingMachineStep({
   trpc: Trpc
   uiState: Pick<UiState, 'get' | 'set'>
   onBack: () => void
-  onConfigured: () => Promise<void>
+  onConfigured: () => Promise<ShellRestart>
 }): JSX.Element {
   const [joinCode, setJoinCode] = useState(
     () => uiState.get(EXISTING_PODIUM_MACHINE_DRAFT_KEY) ?? '',
@@ -282,16 +298,11 @@ function ExistingMachineStep({
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
   const [machineName, setMachineName] = useState('this machine')
+  const handoff = useActivationHandoff(onConfigured)
 
-  const restart = async (connectedMachineName = machineName): Promise<void> => {
-    setBusy(true)
+  const restart = async (): Promise<void> => {
     setError(null)
-    try {
-      await onConfigured()
-    } catch {
-      setBusy(false)
-      setError(`${connectedMachineName} is connected — quit and reopen Podium to finish joining.`)
-    }
+    await handoff.begin()
   }
 
   const join = async (): Promise<void> => {
@@ -312,7 +323,7 @@ function ExistingMachineStep({
         setBusy(false)
         return
       }
-      await restart(result.name)
+      await restart()
     } catch (cause) {
       setBusy(false)
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -346,47 +357,59 @@ function ExistingMachineStep({
               </p>
             </div>
           </div>
-          <div className="mt-3.5 flex gap-3 max-sm:flex-col">
-            <Input
-              id="existing-podium-join"
-              className="h-[42px] flex-1 rounded-[10px] border-0 bg-[#15171b] px-3.5 font-mono text-[13.5px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Paste the join token or one-line command"
-              value={joinCode}
-              disabled={busy || warning !== null}
-              onChange={(event) => {
-                const value = event.currentTarget.value
-                setJoinCode(value)
-                uiState.set(EXISTING_PODIUM_MACHINE_DRAFT_KEY, value || null)
-                if (error) setError(null)
-              }}
-            />
-            {warning ? (
-              <Button
-                type="button"
-                className="h-[42px] rounded-[10px] px-4"
-                pending={busy}
-                pendingLabel="Restarting…"
-                onClick={() => void restart()}
-              >
-                Continue anyway
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
-                pending={busy}
-                pendingLabel="Joining machine…"
-                disabled={!joinCode.trim()}
-                onClick={() => void join()}
-              >
-                Join and restart
-                <ArrowRight size={17} aria-hidden="true" />
-              </Button>
-            )}
-          </div>
+          {handoff.phase === 'idle' ? (
+            <div className="mt-3.5 flex gap-3 max-sm:flex-col">
+              <Input
+                id="existing-podium-join"
+                className="h-[42px] flex-1 rounded-[10px] border-0 bg-[#15171b] px-3.5 font-mono text-[13.5px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Paste the join token or one-line command"
+                value={joinCode}
+                disabled={busy || warning !== null}
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  setJoinCode(value)
+                  uiState.set(EXISTING_PODIUM_MACHINE_DRAFT_KEY, value || null)
+                  if (error) setError(null)
+                }}
+              />
+              {warning ? (
+                <Button
+                  type="button"
+                  className="h-[42px] rounded-[10px] px-4"
+                  pending={busy}
+                  pendingLabel="Restarting…"
+                  onClick={() => void restart()}
+                >
+                  Continue anyway
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+                  pending={busy}
+                  pendingLabel="Joining machine…"
+                  disabled={!joinCode.trim()}
+                  onClick={() => void join()}
+                >
+                  Join and restart
+                  <ArrowRight size={17} aria-hidden="true" />
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="mt-3.5">
+              <ActivationHandoffPanel
+                phase={handoff.phase}
+                title={`${machineName} is connected.`}
+                restartingDetail="Restarting Podium to finish joining…"
+                restartDetail="Restart Podium to finish joining."
+                onRestart={() => void handoff.begin()}
+              />
+            </div>
+          )}
           <ul className="mt-[18px] flex flex-col gap-[11px] border-t border-[#272b33] pt-4">
             <Consequence icon={<Timer />}>
               The code is a short-lived, single-use machine credential — not your Podium login
@@ -408,12 +431,16 @@ function ExistingMachineStep({
             <p className="settings-prose mt-1">{warning}</p>
           </div>
         )}
-        <div className="mt-3">
-          <ConnectionError error={error} />
-        </div>
-        <div className="mt-5">
-          <ActivationBack disabled={busy} onBack={onBack} />
-        </div>
+        {!handoff.handedOff && (
+          <>
+            <div className="mt-3">
+              <ConnectionError error={error} />
+            </div>
+            <div className="mt-5">
+              <ActivationBack disabled={busy} onBack={onBack} />
+            </div>
+          </>
+        )}
       </div>
     </ActivationShell>
   )

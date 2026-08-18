@@ -11,6 +11,7 @@ import type { ActivationRoute } from './activation-route'
 import { ExistingPodiumActivation, isExistingPodiumRoute } from './ExistingPodiumActivation'
 import { FirstTaskActivation } from './FirstTaskActivation'
 import { RepoScanFlow } from './RepoScanFlow'
+import type { ShellRestart } from './restart-shell'
 import type { ConfirmedVpsActivation } from './use-vps-activation'
 import { VpsFirstActivation } from './VpsFirstActivation'
 import { isVpsActivationRoute } from './vps-activation'
@@ -38,7 +39,7 @@ export function OnboardingWizard({
   route: ActivationRoute
   onRouteChange: (route: ActivationRoute) => void
   onComplete: () => void
-  onConnectionConfigured: () => Promise<void>
+  onConnectionConfigured: () => Promise<ShellRestart>
   onEnterVps: () => Promise<void>
   trpc: Trpc
   vps: ConfirmedVpsActivation

@@ -653,7 +653,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                   // The saved topology survives a restart; the old setup URL must not.
                   // Retire it synchronously before Tauri or reload can terminate this page.
                   clearActivation()
-                  await restartPodiumShell()
+                  return restartPodiumShell()
                 }}
                 onEnterVps={enterVpsActivation}
                 trpc={trpc}
