@@ -104,7 +104,9 @@ export interface HarnessLaunchOptions {
   /** Reasoning-effort override; absent (or 'auto') = the CLI's own default. */
   effort?: string
   /** A first prompt handed as a trailing positional argv token where the CLI
-   *  supports it (capabilities.argvPrompt); ignored otherwise. */
+   *  supports it (capabilities.argvPrompt); ignored otherwise. Adapters MUST
+   *  emit it through `promptArgv`, which guards the `--` boundary so an
+   *  option-like prompt is not parsed as a flag. */
   initialPrompt?: string
   /** Attributed machine-authored context. The adapter must keep this out of the
    * visible user turn and use its harness-native instruction/rules channel. */
@@ -636,6 +638,28 @@ export type HarnessAdapter = AgentManifest
 /** 'auto' (or empty) is the sentinel for "no override" — the CLI decides. */
 export function isSet(value: string | undefined): value is string {
   return !!value && value !== 'auto'
+}
+
+/**
+ * The trailing argv tokens that hand an argv-capable CLI its initial prompt.
+ *
+ * The `--` is load-bearing: every CLI Podium launches parses argv with a
+ * conventional parser (commander for claude, clap for codex/grok), and a prompt
+ * whose first character is `-` — a bullet list, a diff hunk, a flag the user
+ * quoted — is read as an option instead of the positional prompt. Claude 2.1.234
+ * given a description starting `- remove` died in ~1s with
+ * `error: unknown option '- remove …'`, before any conversation or transcript
+ * existed; clap prints the same fix as its own tip ("to pass '- ' as a value,
+ * use '-- - '"). `--` ends option parsing, so the prompt reaches the agent
+ * verbatim whatever it contains [POD-1317].
+ *
+ * A blank or whitespace-only prompt yields no tokens at all — a bare launch
+ * stays bare, and no stray `--` reaches the CLI. The prompt itself is passed
+ * UNTRIMMED: only the emptiness test trims, so leading indentation the user
+ * wrote survives.
+ */
+export function promptArgv(initialPrompt: string | undefined): string[] {
+  return initialPrompt?.trim() ? ['--', initialPrompt] : []
 }
 
 /** Shared by the file-chain adapters' `chainPaths` existence checks. */

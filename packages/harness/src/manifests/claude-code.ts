@@ -16,6 +16,7 @@ import {
   type AgentManifest,
   fileTranscript,
   isSet,
+  promptArgv,
   supported,
   type TranscriptSourceInput,
   unsupported,
@@ -134,7 +135,10 @@ export const claudeCodeManifest: AgentManifest = {
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['--effort', opts.effort] : []),
         ...(instructions ? ['--append-system-prompt', instructions] : []),
-        ...(opts.initialPrompt?.trim() ? [opts.initialPrompt] : []),
+        // `--` LAST, immediately before the prompt: it ends option parsing so a
+        // prompt starting with `-` reaches Claude as the prompt, not as an unknown
+        // option [POD-1317]. Nothing may be appended after it.
+        ...promptArgv(opts.initialPrompt),
       ],
       cwd: opts.cwd,
     }

@@ -23,6 +23,7 @@ import {
   fileTranscript,
   type HarnessObservationLease,
   isSet,
+  promptArgv,
   supported,
   type TranscriptSourceInput,
 } from '../manifest.js'
@@ -266,7 +267,10 @@ export const codexManifest: AgentManifest = {
         // `podium issue` in the same session worked fine.
         '-c',
         'sandbox_workspace_write.network_access=true',
-        ...(opts.initialPrompt?.trim() ? [opts.initialPrompt] : []),
+        // `--` ends clap's option parsing; without it a prompt starting with `-`
+        // dies as "unexpected argument" before the TUI ever opens [POD-1317].
+        // Keep this last — a later arg would be parsed as another positional.
+        ...promptArgv(opts.initialPrompt),
       ],
       cwd: opts.cwd,
     }

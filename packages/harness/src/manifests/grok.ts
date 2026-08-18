@@ -12,6 +12,7 @@ import {
   accountIdentity,
   fileTranscript,
   isSet,
+  promptArgv,
   supported,
   type TranscriptSourceInput,
   unsupported,
@@ -176,7 +177,10 @@ export const grokManifest: AgentManifest = {
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['--effort', opts.effort] : []),
         ...(instructions ? ['--rules', instructions] : []),
-        ...(opts.initialPrompt?.trim() ? [opts.initialPrompt] : []),
+        // `--` ends clap's option parsing; without it a prompt starting with `-`
+        // dies as "unexpected argument" before the TUI ever opens [POD-1317].
+        // Keep this last — a later arg would be parsed as another positional.
+        ...promptArgv(opts.initialPrompt),
       ],
       cwd: opts.cwd,
       // Grok imports compatible Claude hooks and validates their referenced env vars.

@@ -163,7 +163,7 @@ describe('agentLaunchCommand', () => {
         agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: 'do the thing' }),
       ).toEqual({
         cmd: 'claude',
-        args: ['do the thing'],
+        args: ['--', 'do the thing'],
         cwd: '/w',
       })
     })
@@ -173,7 +173,7 @@ describe('agentLaunchCommand', () => {
         agentLaunchCommand('claude-code', { cwd: '/w', model: 'opus', initialPrompt: 'fix login' }),
       ).toEqual({
         cmd: 'claude',
-        args: ['--model', 'opus', 'fix login'],
+        args: ['--model', 'opus', '--', 'fix login'],
         cwd: '/w',
       })
     })
@@ -181,12 +181,12 @@ describe('agentLaunchCommand', () => {
     it('appends the prompt as a positional arg for codex and grok', () => {
       expect(agentLaunchCommand('codex', { cwd: '/w', initialPrompt: 'do X' })).toEqual({
         cmd: 'codex',
-        args: [...CODEX_NETWORK_ARGS, 'do X'],
+        args: [...CODEX_NETWORK_ARGS, '--', 'do X'],
         cwd: '/w',
       })
       expect(agentLaunchCommand('grok', { cwd: '/w', initialPrompt: 'do X' })).toEqual({
         cmd: 'grok',
-        args: ['do X'],
+        args: ['--', 'do X'],
         cwd: '/w',
       })
     })
@@ -194,6 +194,7 @@ describe('agentLaunchCommand', () => {
     it('preserves multi-line prompts as a single argv token', () => {
       const prompt = 'line one\nline two'
       expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: prompt }).args).toEqual([
+        '--',
         prompt,
       ])
     })
@@ -209,6 +210,75 @@ describe('agentLaunchCommand', () => {
       expect(agentLaunchCommand('opencode', { cwd: '/w', initialPrompt: 'x' }).args).toEqual([])
       expect(agentLaunchCommand('cursor', { cwd: '/w', initialPrompt: 'x' }).args).toEqual([])
       expect(agentLaunchCommand('shell', { cwd: '/w', initialPrompt: 'x' }).args).toEqual([])
+    })
+
+    // POD-1317: a description that opens with a bullet ("- remove …") is a
+    // PROMPT, not a flag. Claude 2.1.234 without the `--` boundary printed
+    // `error: unknown option '- remove …'` and exited 1 in ~1s — two output
+    // frames, no conversation, no transcript, nothing for the user to resume.
+    // clap (codex/grok) fails the same way with "unexpected argument", and its
+    // own tip is this fix. Every argv-capable agent is asserted here so a new
+    // manifest cannot reintroduce the bare-token form.
+    describe('option-like prompts (POD-1317)', () => {
+      const OPTION_LIKE = [
+        '- remove the dead code path\n- then run the tests',
+        '--help',
+        '-p',
+        '--model=opus is what broke it',
+        '-',
+      ]
+
+      for (const prompt of OPTION_LIKE) {
+        it(`delivers ${JSON.stringify(prompt)} as a positional, never an option`, () => {
+          for (const kind of ['claude-code', 'codex', 'grok'] as const) {
+            const args = agentLaunchCommand(kind, { cwd: '/w', initialPrompt: prompt }).args
+            // The prompt survives byte-for-byte as the FINAL token...
+            expect(args.at(-1)).toBe(prompt)
+            // ...and the token immediately before it is the `--` boundary, so the
+            // CLI's parser stops reading options before it ever sees the prompt.
+            expect(args.at(-2)).toBe('--')
+          }
+        })
+      }
+
+      it('keeps the boundary last even with resume + model + effort + instructions', () => {
+        const args = agentLaunchCommand('claude-code', {
+          cwd: '/w',
+          resume: { kind: 'claude-session', value: 'abc' },
+          model: 'opus',
+          effort: 'high',
+          instructions: [{ source: 'podium:workflow', content: 'Follow the pinned workflow.' }],
+          initialPrompt: '- remove the dead code path',
+        }).args
+        expect(args).toEqual([
+          '--resume',
+          'abc',
+          '--model',
+          'opus',
+          '--effort',
+          'high',
+          '--append-system-prompt',
+          'Follow the pinned workflow.',
+          '--',
+          '- remove the dead code path',
+        ])
+      })
+
+      it('emits NO `--` when there is no prompt (a bare launch stays bare)', () => {
+        for (const kind of ['claude-code', 'codex', 'grok'] as const) {
+          expect(agentLaunchCommand(kind, { cwd: '/w' }).args).not.toContain('--')
+          expect(agentLaunchCommand(kind, { cwd: '/w', initialPrompt: '  ' }).args).not.toContain(
+            '--',
+          )
+        }
+      })
+
+      it('passes the prompt UNTRIMMED — only the emptiness test trims', () => {
+        const prompt = '  - keep my indentation  '
+        expect(
+          agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: prompt }).args,
+        ).toEqual(['--', prompt])
+      })
     })
 
     it('agentSupportsInitialPrompt: argv-capable agents only', () => {
@@ -229,7 +299,7 @@ describe('agentLaunchCommand', () => {
         agentLaunchCommand('claude-code', { cwd: '/w', instructions, initialPrompt: 'fix it' }),
       ).toEqual({
         cmd: 'claude',
-        args: ['--append-system-prompt', 'Follow the pinned workflow.', 'fix it'],
+        args: ['--append-system-prompt', 'Follow the pinned workflow.', '--', 'fix it'],
         cwd: '/w',
       })
     })
@@ -244,9 +314,9 @@ describe('agentLaunchCommand', () => {
 
     it('never places the stable Podium row id into Codex developer context', () => {
       const sessionId = 'f439e012-7cd1-4d39-a07e-5843caf35f0c'
-      expect(agentLaunchCommand('codex', { cwd: '/w', podiumSessionId: asSessionId(sessionId) }).args).toEqual(
-        CODEX_NETWORK_ARGS,
-      )
+      expect(
+        agentLaunchCommand('codex', { cwd: '/w', podiumSessionId: asSessionId(sessionId) }).args,
+      ).toEqual(CODEX_NETWORK_ARGS)
     })
 
     it('uses Grok rules', () => {
