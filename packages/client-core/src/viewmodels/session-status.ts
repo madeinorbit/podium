@@ -87,11 +87,29 @@ const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
  * open; reaps fail closed. The two questions have the same subject and opposite
  * safe directions, which is why they do not share an answer.
  */
+export type TerminalOutlook = 'terminal' | 'none' | 'unknown'
+
+export function sessionTerminalOutlook(
+  session: Pick<SessionMeta, 'driverFamily'> | undefined,
+): TerminalOutlook {
+  const family = session?.driverFamily
+  if (family === undefined) return 'unknown'
+  return family === 'terminal' ? 'terminal' : 'none'
+}
+
+/**
+ * The two-valued reading, for the callers that must commit either way.
+ *
+ * `unknown` resolves to TRUE here, and that is the fail-open direction argued
+ * above: a legacy session, an older daemon and a row whose daemon has not
+ * reconnected all land on it, and every one of them has a terminal. The callers
+ * that must NOT commit during the unknown window — which is the whole of
+ * POD-2290's second round — ask {@link sessionTerminalOutlook} instead and wait.
+ */
 export function sessionHasTerminal(
   session: Pick<SessionMeta, 'driverFamily'> | undefined,
 ): boolean {
-  const family = session?.driverFamily
-  return family === undefined || family === 'terminal'
+  return sessionTerminalOutlook(session) !== 'none'
 }
 
 // The agent's `/color` identity accent (Claude's named colours) → a vivid,

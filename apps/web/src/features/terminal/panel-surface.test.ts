@@ -1,3 +1,4 @@
+import type { TerminalOutlook } from '@podium/client-core/viewmodels'
 import type { SessionStatus } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { panelGates, panelSurface } from './panel-surface'
@@ -13,12 +14,17 @@ const surfaceOf = (over: {
   inTransit?: boolean
   chatCapable?: boolean
   mode?: 'chat' | 'native'
+  terminal?: TerminalOutlook
 }) =>
   panelSurface({
     status: over.status,
     inTransit: over.inTransit ?? false,
     chatCapable: over.chatCapable ?? true,
     mode: over.mode ?? 'native',
+    // Default KNOWN-terminal: every pre-POD-2290 case in this file is about a
+    // session whose driver family has already landed, and `unknown` would route
+    // half of them into `pending` and prove nothing about the states they name.
+    terminal: over.terminal ?? 'terminal',
   })
 
 describe('panelSurface', () => {
@@ -70,6 +76,7 @@ const gatesFor = (
     spawnConfirmed?: boolean
     chatCapable?: boolean
     terminalCapable?: boolean
+    switchAlreadyOffered?: boolean
   } = {},
 ) =>
   panelGates(surface, {
@@ -77,6 +84,7 @@ const gatesFor = (
     spawnConfirmed: over.spawnConfirmed ?? true,
     chatCapable: over.chatCapable ?? true,
     terminalCapable: over.terminalCapable ?? true,
+    switchAlreadyOffered: over.switchAlreadyOffered ?? false,
   })
 
 describe('panelGates', () => {
@@ -209,5 +217,102 @@ describe('panelGates', () => {
       expect(g.terminalMounted).toBe(false)
       expect(g.nativePaneRendered).toBe(true)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-2290 ROUND TWO — the operator's live retest of round one. Two complaints,
+// and neither was about a rule this file already had: the panel COMMITTED to a
+// view before anything had told it which one (twelve measured seconds of the
+// original bug), and then TOOK THE SWITCHER AWAY when the answer arrived.
+// ---------------------------------------------------------------------------
+
+describe('a session whose driver family has not arrived yet', () => {
+  it('holds neutral while it is still starting', () => {
+    // The exact window the operator saw: a row exists, it says `starting`, and
+    // nobody has said whether there is a terminal. Committing either way here is
+    // a guess, and the guess that reads `unknown` as `terminal` is the bug.
+    expect(surfaceOf({ status: 'starting', terminal: 'unknown' })).toEqual({ kind: 'pending' })
+    expect(surfaceOf({ status: undefined, terminal: 'unknown' })).toEqual({ kind: 'pending' })
+  })
+
+  it('offers nothing at all while it holds', () => {
+    // Nothing to mount, nothing to switch to, and above all nothing to withdraw
+    // a moment later — a control that appears and vanishes is the second half of
+    // the complaint.
+    const g = gatesFor(surfaceOf({ status: 'starting', terminal: 'unknown' }))
+    expect(g.terminalMounted).toBe(false)
+    expect(g.nativePaneRendered).toBe(false)
+    expect(g.modeSwitchOffered).toBe(false)
+    expect(g.terminalActive).toBe(false)
+  })
+
+  it('does NOT hold a live session neutral — that is a legacy row, and it has a terminal', () => {
+    // The scoping that keeps this from swallowing every pre-driver-family
+    // session: an older daemon, a legacy row, and a daemon that has not
+    // reconnected since a server restart are all `live` with no family, none of
+    // them is waiting for anything, and all of them have a PTY.
+    expect(surfaceOf({ status: 'live', terminal: 'unknown', mode: 'native' })).toEqual({
+      kind: 'live',
+      view: 'native',
+    })
+    expect(gatesFor(surfaceOf({ status: 'live', terminal: 'unknown' })).terminalMounted).toBe(true)
+  })
+
+  it('leaves the read-only states alone — they never consult it', () => {
+    // A parked or exited session shows its transcript whatever drove it, and the
+    // veil owns the pane during a move. `pending` must not have taken those.
+    expect(surfaceOf({ status: 'hibernated', terminal: 'unknown' }).kind).toBe('parked')
+    expect(surfaceOf({ status: 'exited', terminal: 'unknown' }).kind).toBe('ended')
+    expect(surfaceOf({ status: 'starting', terminal: 'unknown', inTransit: true }).kind).toBe(
+      'transit',
+    )
+  })
+})
+
+describe('the switcher, once offered, is never withdrawn', () => {
+  it('keeps the switch on a session that stopped having a terminal', () => {
+    // The operator's words: "the native and chat button vanished?!". A control
+    // disappearing under the cursor cannot be read as anything but a fault, so
+    // the panel keeps its promise even when the fact behind it changes — which a
+    // re-spawn onto a different driver genuinely can do.
+    const g = gatesFor(surfaceOf({ status: 'live' }), {
+      terminalCapable: false,
+      switchAlreadyOffered: true,
+    })
+    expect(g.modeSwitchOffered).toBe(true)
+  })
+
+  it('does not make the PANE sticky with it — the switch lands somewhere honest', () => {
+    // What stickiness costs is a switch to a pane with no PTY behind it, and the
+    // answer to that is a pane that says so, not a spinner and not a blank.
+    const g = gatesFor(surfaceOf({ status: 'live', mode: 'native' }), {
+      terminalCapable: false,
+      switchAlreadyOffered: true,
+    })
+    expect(g.terminalMounted).toBe(false)
+    expect(g.nativePaneRendered).toBe(false)
+    expect(g.noTerminalPaneShown).toBe(true)
+  })
+
+  it('still never offers it on a session that has never had one', () => {
+    // Stickiness is a promise not to take something back, not a reason to give
+    // it out: a headless session that was never offered the switch stays without
+    // it, which is what makes the affordance readable from t=0.
+    expect(
+      gatesFor(surfaceOf({ status: 'live' }), {
+        terminalCapable: false,
+        switchAlreadyOffered: false,
+      }).modeSwitchOffered,
+    ).toBe(false)
+  })
+
+  it('shows no no-terminal pane while chat is the view', () => {
+    // It is the NATIVE view's honest state, not a banner: a headless session
+    // sitting in chat has nothing to explain.
+    expect(
+      gatesFor(surfaceOf({ status: 'live', mode: 'chat' }), { terminalCapable: false })
+        .noTerminalPaneShown,
+    ).toBe(false)
   })
 })

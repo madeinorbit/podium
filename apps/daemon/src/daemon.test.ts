@@ -320,6 +320,39 @@ describe('daemon multi-bridge', () => {
     }
   }
 
+  /**
+   * POD-2290: the DECISION has to reach the server before the LAUNCH does.
+   *
+   * `bind` already carries the driver and carries it too late — it is the frame
+   * that marks a session live, so on the drive instance an `opencode` session
+   * went twelve seconds with no driver fact at all while its server booted. The
+   * web panel has to choose a view during that window, and with nothing to go on
+   * it chose the terminal, which for a server-family session is a pane that can
+   * never attach.
+   *
+   * Asserted as an ORDER, not a presence: a `driverSelected` that arrived after
+   * `bind` would satisfy every "is the field there" check and fix nothing.
+   */
+  it('announces the selected driver BEFORE the bind that follows it', async () => {
+    send({ type: 'spawn', sessionId: 'sel1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sel1'))
+    const order = received
+      .filter(
+        (m) =>
+          (m.type === 'driverSelected' || m.type === 'bind') &&
+          (m as { sessionId?: string }).sessionId === 'sel1',
+      )
+      .map((m) => m.type)
+    expect(order[0]).toBe('driverSelected')
+    const selected = received.find(
+      (m) => m.type === 'driverSelected' && (m as { sessionId?: string }).sessionId === 'sel1',
+    ) as { driverId?: string } | undefined
+    // Claude Code declares no server driver, so it never reaches a probe: the
+    // answer is its terminal driver and it is knowable without starting
+    // anything, which is why this arrives first.
+    expect(selected?.driverId).toBe('claude-pty')
+  })
+
   it('spawns independent bridges and tags bind + frames by sessionId', async () => {
     send({ type: 'spawn', sessionId: 's1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     send({ type: 'spawn', sessionId: 's2', agentKind: 'claude-code', cwd: '/tmp', geometry: G })

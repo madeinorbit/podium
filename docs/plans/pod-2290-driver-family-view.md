@@ -89,3 +89,77 @@ The two spellings of the taxonomy (`DriverFamily` in `@podium/harness`, the zod 
 `@podium/model`, which may not import harness) are reconciled by exactly one thing: the
 assignment in `toMeta()`, where a `DriverFamily` flows into the enum's type. A fourth family
 added to the manifests fails there, at typecheck.
+
+---
+
+# Round two — what the operator's live retest found
+
+Round one passed an adversarial code review and **broke within minutes of the operator touching
+it**. Both of its findings are the same lesson from different ends: the fix was verified by
+people reading code, and the failure was a thing you can only see by looking at a screen.
+
+## What was still wrong
+
+**1. The fix had nothing to read during the window that mattered.** `driverFamily` was projected
+from `driverId`, and `driverId` arrives on the `bind` frame — the frame that marks a session
+LIVE. Measured on this issue's own drive instance: an `opencode` session sat `starting` with **no
+driver fact at all for twelve seconds** while `opencode serve` booted. Rule 2 above ("absent
+means unknown, and unknown means assume a terminal") is correct for a legacy row and exactly
+wrong for a session that has not started yet, so for twelve seconds the operator got the original
+bug, unchanged.
+
+**2. And then it moved under them.** When the fact finally landed, the view yanked from native to
+chat and the switcher disappeared — the operator's words: *"the native and chat button
+vanished?!"*. A control that vanishes under the cursor is not a state change a person can read as
+anything but a fault.
+
+## Decisions
+
+**6. The daemon announces the driver it has DECIDED on, before it starts anything.** New
+`driverSelected` daemon→server frame, emitted at each point where the decision exists and the
+thing decided upon has not been started: after `resolveRuntimeDriver` returns, and — for a
+harness that declares no server driver at all, so never reaches a probe — immediately. The server
+records it as `selectedDriverId` and projects `driverFamily` from `driverId ?? selectedDriverId`;
+the bind still wins, because a launch that failed and fell back must not be described by the plan
+it abandoned.
+
+  This is a DECISION, not a prediction. It is emitted after the policy has run against this
+  machine's real probe and login state. Measured on the drive instance, before → after:
+
+  | harness | family known at | binds |
+  |---|---|---|
+  | opencode | 12s → **0.07s** | `opencode-server` |
+  | codex | — → **0.06s** | `codex-app-server` |
+  | grok | — → **0.32s** | `grok-acp` |
+  | claude-code | — → **0.03s** | `claude-pty` (legacy path, never reports a `driverId` at all) |
+
+**7. A fifth panel state: `pending`.** Where the family is genuinely unknown AND the session is
+still `starting`, the panel commits to nothing — one placeholder, no switcher, no PTY mount, no
+chat mount. Scoped to `starting` deliberately: a LIVE session with no family is a legacy row, an
+older daemon, or a daemon that has not reconnected since a server restart, and every one of those
+has a terminal, so they fall through to `live` and behave exactly as before.
+
+**8. The switcher is monotone per session.** Once offered, never withdrawn — even if a late fact
+says the terminal is gone, which a re-spawn onto a different driver genuinely can do. What that
+costs is a switch to a pane with no PTY, which is why decision 4's deferred "honest pane" is no
+longer deferred: it is the landing place that makes stickiness safe, and it says the agent has no
+terminal instead of spinning.
+
+## Driven, not just tested
+
+`docs/evidence/pod-2290/` is this issue's own isolated instance (`p2290`, ports 19807/46807/46808,
+state `/tmp/pod-2290`), cut from POD-2245's recipe. `drive.ts` walks the operator's exact journey
+— *Choose agent and repo → New OpenCode*, then look — in a real browser against real drivers, and
+photographs the panel at ~1s (still starting) and at ~19s (live). Shots in
+`docs/evidence/pod-2290/shots/`:
+
+- **opencode / codex / grok**: neutral "Starting <Harness>…" with no switcher → the chat view with
+  its composer, still no switcher. Nothing appears, nothing vanishes.
+- **claude-code** (the control group): the live terminal with real CLI output and the
+  **Chat | Native** switcher present, Native selected. The PTY family is untouched.
+
+Deviations from the coordinator's suggested setup, both recorded rather than silent: the state
+root is `/tmp/pod-2290` rather than `/tmp/pod-2290-drive` (abduco's socket path budget — the same
+`sun_path` hazard POD-2245's env script calls out), and the drive builds the web bundle with
+`build:dist` rather than `build` because the bundle-BUDGET check is red at the epic tip for
+reasons unrelated to this instance.

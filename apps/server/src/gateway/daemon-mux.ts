@@ -112,6 +112,7 @@ const toRpc = (ports: DaemonFeaturePorts, principal: MachinePrincipal, msg: RpcD
 
 const DISPATCH: Dispatcher = {
   // ---- sessions ----
+  driverSelected: toSessions,
   bind: toSessions,
   agentFrame: toSessions,
   agentFrameBatch: toSessions,

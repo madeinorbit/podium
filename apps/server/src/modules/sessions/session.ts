@@ -282,6 +282,17 @@ export class Session {
    * `runtimeContract`: the live handle owns this fact, so it is re-established
    * by every bind and is never reconstructed from the spawn request. */
   driverId: string | undefined = undefined
+  /**
+   * The driver the daemon DECIDED on, reported before it started anything
+   * (POD-2290). Transient in the same way `driverId` is, and strictly weaker:
+   * `driverId` overwrites the family this projects the moment a bind lands.
+   *
+   * It exists because `driverId` arrives too late to choose a view with. A
+   * measured `opencode` spawn sat twelve seconds between "the row exists" and
+   * "the daemon bound a driver", and a client that has to render during those
+   * twelve seconds either guesses or is told. This is being told.
+   */
+  selectedDriverId: string | undefined = undefined
   /** Manifest-default or machine-wide server preference that degraded to
    * driverId. Transient and re-established by daemon bind/reattach. */
   requestedDriverId: string | undefined = undefined
@@ -680,7 +691,12 @@ export class Session {
    * signature does not change.
    */
   toMeta(overlay: SessionUserOverlay): SessionMeta {
-    const driverFamily = this.driverId ? driverFamilyForId(this.driverId) : undefined
+    // BOUND WINS OVER SELECTED, and both beat nothing (POD-2290). The selection
+    // is what the daemon decided before it started the harness; the binding is
+    // what it ended up with. They agree on every path that works, and where
+    // they can differ — a launch that failed and fell back — the one that
+    // describes a running session has to win.
+    const driverFamily = driverFamilyForId(this.driverId ?? this.selectedDriverId ?? '')
     return {
       sessionId: this.sessionId,
       agentKind: this.agentKind,

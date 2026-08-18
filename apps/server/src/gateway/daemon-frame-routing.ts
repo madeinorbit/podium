@@ -43,6 +43,7 @@ export type DaemonPortId = (typeof DAEMON_PORT_IDS)[number]
  */
 export const DAEMON_FRAME_PORTS = {
   // ---- session-owned: session-keyed runtime, lifecycle and host callbacks ----
+  driverSelected: ['sessions'],
   bind: ['sessions'],
   agentFrame: ['sessions'],
   agentFrameBatch: ['sessions'],

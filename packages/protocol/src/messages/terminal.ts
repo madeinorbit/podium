@@ -548,6 +548,33 @@ export const SessionPriorityMessage = z.object({
 export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: SessionIdField })
 
 // daemon -> server
+/**
+ * THE DRIVER THIS DAEMON HAS DECIDED TO USE, SENT BEFORE IT LAUNCHES ANYTHING
+ * (POD-2290).
+ *
+ * `bind` already reports the driver — but `bind` is the frame that marks a
+ * session LIVE, so it cannot arrive until the harness is up. Measured on the
+ * POD-2290 drive instance: an `opencode` session sat `starting` with no driver
+ * fact for TWELVE SECONDS while `opencode serve` booted. Twelve seconds is not
+ * a paint glitch; it is long enough for the operator to open the session, read
+ * the wrong pane, and watch it change under them.
+ *
+ * That window is not information the clients lack — it is information nobody
+ * SENT. The daemon knows which driver it will use the moment
+ * `resolveRuntimeDriver` answers, which is before the probe's subject is even
+ * started. This frame carries that decision at that moment.
+ *
+ * A DECISION, NOT A PREDICTION. It is emitted after the policy has run against
+ * this machine's real probe and login state, so it is what the daemon WILL do,
+ * not what the manifest would prefer. `bind` still reports the bound driver
+ * afterwards and still wins: a launch that fails and falls back must not be
+ * described by the plan it abandoned.
+ */
+export const DriverSelectedMessage = z.object({
+  type: z.literal('driverSelected'),
+  sessionId: SessionIdField,
+  driverId: z.string().min(1),
+})
 export const BindMessage = z.object({
   type: z.literal('bind'),
   sessionId: SessionIdField,

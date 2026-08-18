@@ -980,7 +980,26 @@ export function AgentPanel({
         </div>
       )}
       {handover && <HandoverPane view={handover} background={termBg} />}
-      {surface.kind === 'transit' ? (
+      {surface.kind === 'pending' ? (
+        // WAITING TO BE TOLD WHICH VIEW THIS SESSION HAS [POD-2290]. One
+        // placeholder, no controls: the panel does not know yet whether there
+        // is a terminal behind this agent, and the honest thing during a wait
+        // that ends by itself is to say the session is starting and offer
+        // nothing it might have to take away a second later.
+        <div
+          className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
+          style={{ backgroundColor: termBg }}
+          data-testid="panel-pending"
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
+            aria-hidden="true"
+          />
+          <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
+        </div>
+      ) : surface.kind === 'transit' ? (
         // The veil owns this window; underneath it only the pane's own surface
         // shows, so a mid-move status change (live → parked) never repaints a
         // view the operator didn't ask for.
@@ -1033,6 +1052,39 @@ export function AgentPanel({
         // rendered as a sibling overlay on top when in chat mode.
         <>
           {effectiveMode === 'chat' && <ChatView sessionId={sessionId} active={active} />}
+          {/* THE ONE HONEST NATIVE PANE [POD-2290]. Reachable only through the
+              switcher's stickiness — a session that once had a terminal and
+              stopped having one — because the switch is never withdrawn under
+              the operator's cursor. What it must not do is what the original
+              bug did: animate a spinner over an attach that is never coming.
+              It names the reason and points at the view that works. */}
+          {gates.noTerminalPaneShown && (
+            <div
+              className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center"
+              style={{ backgroundColor: termBg }}
+              data-testid="no-terminal-pane"
+              role="status"
+            >
+              <SquareTerminal size={22} className="text-zinc-600" aria-hidden="true" />
+              <span className="text-[13px] text-zinc-400">
+                {session ? panelLabel(session.agentKind) : 'This agent'} is running without a
+                terminal
+              </span>
+              <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                It is driven over its own protocol rather than a shell, so there is no screen to
+                attach to. Everything it does shows up in Chat.
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="mt-1"
+                onClick={() => pickModeWithTrace('chat')}
+              >
+                <MessageSquareText size={13} aria-hidden="true" /> Open Chat
+              </Button>
+            </div>
+          )}
           {/* …but a session with NO terminal keeps nothing warm [POD-2290]: the
               container below never gets a PTY, and the startup overlay inside
               it would paint a spinner over a wait that has no end. `hidden`

@@ -219,6 +219,23 @@ export class SessionDaemonLifecycle {
         this.browserOpen.onOpenUrlResult(machineId, msg)
         break
       }
+      /**
+       * The daemon has DECIDED which driver this session gets and has not yet
+       * started it (POD-2290). Recorded and broadcast immediately, because the
+       * whole value of the frame is arriving before `bind` does — a client
+       * choosing a view during the launch window is the reason it exists.
+       *
+       * Deliberately does NOT mark the session live or touch `driverId`: a
+       * decision is not a binding, and the row must not claim a handle exists.
+       */
+      case 'driverSelected': {
+        const s = this.sessions.get(msg.sessionId)
+        if (s) {
+          s.selectedDriverId = msg.driverId
+          this.broadcastSessions()
+        }
+        break
+      }
       case 'bind': {
         this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
         const s = this.sessions.get(msg.sessionId)

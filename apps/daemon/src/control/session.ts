@@ -735,6 +735,30 @@ export function reportDriverPreferenceDegrade(input: {
   return dropped
 }
 
+/**
+ * TELL THE SERVER WHICH DRIVER THIS SESSION IS GETTING, BEFORE STARTING IT
+ * (POD-2290).
+ *
+ * `bind` carries the same fact and carries it too late: it is the frame that
+ * marks the session live, so on the drive instance an `opencode` session went
+ * twelve seconds with no driver fact at all while `opencode serve` booted. The
+ * web panel has to choose a view during those twelve seconds, and with nothing
+ * to go on it chose the terminal — which for this family is a pane that can
+ * never attach.
+ *
+ * Called at each point where the DECISION exists and before the thing decided
+ * upon is started. Never called on a refusal path: a spawn that is about to
+ * error has no driver, and announcing one would leave the row describing a
+ * session that never ran.
+ */
+function announceDriverSelection(
+  ctx: DaemonContext,
+  sessionId: SpawnControl['sessionId'],
+  driverId: string,
+): void {
+  ctx.send({ type: 'driverSelected', sessionId, driverId })
+}
+
 async function launchServerDriverSession(
   ctx: DaemonContext,
   msg: SpawnControl,
@@ -744,7 +768,16 @@ async function launchServerDriverSession(
     perSpawn: msg.runtimeContract,
     machineDefault: runtimeDriverByEnv(),
   })
-  if (!preferred) return { handled: false }
+  if (!preferred) {
+    // No server driver is even in play for this harness (Claude Code, cursor, a
+    // shell): the answer is the terminal one and it is known without probing
+    // anything, so say so now rather than leaving the clients to infer it from
+    // a `bind` that is still seconds away. `terminalProfileFor` is undefined
+    // only for a kind with no manifest — a shell — which has no driver to name.
+    const terminal = terminalProfileFor(msg.agentKind)
+    if (terminal) announceDriverSelection(ctx, msg.sessionId, terminal.driverId)
+    return { handled: false }
+  }
   /**
    * WHAT *THIS SPAWN* SAID, as opposed to what the machine was configured to
    * prefer. `requested` has the env default folded in and cannot tell them
@@ -818,6 +851,15 @@ async function launchServerDriverSession(
     ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: resolution.reason })
     return { handled: true }
   }
+  /**
+   * THE DECISION, ANNOUNCED HERE AND NOT LOWER DOWN (POD-2290). Everything
+   * below this line either refuses or starts a process, and starting one is the
+   * slow part the clients were left guessing through. This covers BOTH exits
+   * that follow: the server launch, and the degrade where `resolution.driverId`
+   * is itself the terminal driver and the spawn falls through to the PTY path.
+   * The refusals above deliberately precede it.
+   */
+  announceDriverSelection(ctx, msg.sessionId, resolution.driverId)
   /**
    * THIS SPAWN NAMED A SERVER DRIVER AND DID NOT GET IT — REFUSED (POD-2113).
    *

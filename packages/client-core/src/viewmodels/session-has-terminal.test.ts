@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sessionHasTerminal } from './session-status'
+import { sessionHasTerminal, sessionTerminalOutlook } from './session-status'
 
 // ---------------------------------------------------------------------------
 // POD-2290 — "does the native view have anything behind it". Three lines of
@@ -34,5 +34,37 @@ describe('sessionHasTerminal', () => {
     expect(sessionHasTerminal({})).toBe(true)
     expect(sessionHasTerminal({ driverFamily: undefined })).toBe(true)
     expect(sessionHasTerminal(undefined)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-2290 ROUND TWO. The operator retested the two-valued version live and it
+// still showed the dead pane, because collapsing `unknown` into `true` is right
+// for a legacy row and wrong for a session that has not started yet — and a
+// measured opencode spawn spends TWELVE SECONDS there.
+// ---------------------------------------------------------------------------
+
+describe('sessionTerminalOutlook', () => {
+  it('keeps "nobody has said yet" as its own answer', () => {
+    // The distinction the two-valued predicate could not express, and the one
+    // the panel needs in order to wait instead of guessing.
+    expect(sessionTerminalOutlook(undefined)).toBe('unknown')
+    expect(sessionTerminalOutlook({})).toBe('unknown')
+    expect(sessionTerminalOutlook({ driverFamily: undefined })).toBe('unknown')
+  })
+
+  it('answers the two known families', () => {
+    expect(sessionTerminalOutlook({ driverFamily: 'terminal' })).toBe('terminal')
+    expect(sessionTerminalOutlook({ driverFamily: 'server' })).toBe('none')
+    expect(sessionTerminalOutlook({ driverFamily: 'embedded' })).toBe('none')
+  })
+
+  it('is what the two-valued reading is built from, so they cannot disagree', () => {
+    for (const family of ['terminal', 'server', 'embedded', undefined] as const) {
+      const session = family === undefined ? {} : { driverFamily: family }
+      expect(sessionHasTerminal(session), String(family)).toBe(
+        sessionTerminalOutlook(session) !== 'none',
+      )
+    }
   })
 })

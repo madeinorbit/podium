@@ -29,7 +29,7 @@ import {
   PANEL_MODE_DEFAULT_KEY,
   type PanelMode,
 } from '@podium/client-core/ui-state'
-import { defaultChatCapable, sessionHasTerminal } from '@podium/client-core/viewmodels'
+import { defaultChatCapable, sessionTerminalOutlook } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -74,10 +74,12 @@ export function usePanelSurface(input: {
   )
   const { sessionId, session, paneActive, spawnConfirmed, inTransit, onEnterNative } = input
   const chatCapable = panelChatCapable(session, defaultChatCapable)
-  // Does the native view have anything behind it (POD-2290)? The daemon-reported
-  // driver family, read through the shared predicate so "absent = assume a
-  // terminal" is decided once. Server- and embedded-driven sessions have no PTY.
-  const terminalCapable = sessionHasTerminal(session)
+  // Does the native view have anything behind it (POD-2290)? Three-valued, and
+  // the third value is the whole of round two: `unknown` is not "probably a
+  // terminal", it is "the daemon has not said yet", and `panelSurface` holds the
+  // panel neutral rather than committing to a pane it may have to take back.
+  const terminal = sessionTerminalOutlook(session)
+  const terminalCapable = terminal !== 'none'
 
   // Fetch the startScreen setting once; default to 'native' while loading. This
   // drives the configurable default mode for sessions the user has never toggled.
@@ -150,8 +152,33 @@ export function usePanelSurface(input: {
     inTransit,
     chatCapable,
     mode,
+    terminal,
   })
-  const gates = panelGates(surface, { paneActive, spawnConfirmed, chatCapable, terminalCapable })
+  /**
+   * THE SWITCHER IS MONOTONE PER SESSION (POD-2290 round two).
+   *
+   * The operator watched it disappear mid-session — "the native and chat button
+   * vanished?!" — when a late driver fact turned a terminal session into a
+   * headless one under them. A ref, not state: it only ever latches true, and a
+   * render that latches it has already computed the gate that reads it, so
+   * there is nothing to re-render for. Keyed on the session so a panel reused
+   * for a different session starts clean.
+   */
+  const switchOfferedRef = useRef<{ sessionId: SessionId; offered: boolean }>({
+    sessionId,
+    offered: false,
+  })
+  if (switchOfferedRef.current.sessionId !== sessionId) {
+    switchOfferedRef.current = { sessionId, offered: false }
+  }
+  const gates = panelGates(surface, {
+    paneActive,
+    spawnConfirmed,
+    chatCapable,
+    terminalCapable,
+    switchAlreadyOffered: switchOfferedRef.current.offered,
+  })
+  if (gates.modeSwitchOffered) switchOfferedRef.current.offered = true
 
   return { surface, gates, mode, chatCapable, pickMode }
 }

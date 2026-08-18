@@ -476,6 +476,32 @@
       "encoded": "{\"type\":\"draftTarget\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
     },
     {
+      "schema": "DriverSelectedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "driverSelected",
+        "sessionId": "sessionId",
+        "driverId": "driverId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"driverSelected\",\"sessionId\":\"sessionId\",\"driverId\":\"driverId\"}"
+    },
+    {
+      "schema": "DriverSelectedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "driverSelected",
+        "sessionId": "sessionId",
+        "driverId": "driverId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"driverSelected\",\"sessionId\":\"sessionId\",\"driverId\":\"driverId\"}"
+    },
+    {
       "schema": "DurableSessionCensusMessage",
       "variant": "minimal",
       "wire": {

@@ -1173,6 +1173,24 @@ describe('driver family on the wire (POD-2290)', () => {
     expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
   })
 
+  it('answers from the SELECTED driver before any bind has happened', () => {
+    /**
+     * The measurement that reopened this issue (POD-2290 round two): on the
+     * drive instance an `opencode` session sat `starting` with no `driverId`
+     * for TWELVE SECONDS while `opencode serve` booted, and the web panel had
+     * to choose a view in that window. The daemon knew the answer the whole
+     * time; it now says so before it launches anything, and this is where that
+     * lands.
+     */
+    const s = makeSession()
+    s.selectedDriverId = 'opencode-server'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('server')
+    // …and the bind that follows is still what wins, because a launch that
+    // failed and fell back must not be described by the plan it abandoned.
+    s.driverId = 'generic-pty'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
+  })
+
   it('is ABSENT rather than guessed when there is nothing to derive it from', () => {
     // `driverId` is transient — an older daemon, a legacy session, and a row
     // that has not bound yet all have none. Absent means unknown, and every
