@@ -701,6 +701,65 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(card.textContent).toContain('Safari transcript scroll position is where it carried on.')
   })
 
+  /**
+   * POD-1268 — the OTHER ending, which had no card at all.
+   *
+   * A mission whose work simply stopped here (no continuation to point at) drew
+   * `presenceNote`'s bare "Cancelled · session retired" as faint grey text in an
+   * empty column, and the only decision left on it — the fold — was not on the
+   * screen at all.
+   */
+  const retiredRoot = (over: Record<string, unknown> = {}): unknown[] => [
+    issue('root', {
+      seq: 1261,
+      displayRef: 'POD-1261',
+      title: 'Eager bundle budget is red on main',
+      stage: 'done',
+      closedReason: 'cancelled',
+      ...over,
+    }),
+  ]
+
+  it('gives a retired mission the signpost box and a direct tuck', () => {
+    harness.issues = retiredRoot()
+    harness.sessions = []
+
+    deck()
+
+    const card = screen.getByTestId('flight-retired')
+    expect(card.textContent).toContain('This task was cancelled.')
+    expect(card.textContent).toContain('No session remains on it.')
+    // The status line it replaces is gone, not printed twice.
+    expect(screen.queryByText('Cancelled · session retired')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Tuck away/ }))
+    expect(harness.setIssueTucked).toHaveBeenCalledWith('root', true)
+    // Already closed, so the fold is the whole decision — nothing is re-closed.
+    expect(harness.closeIssue).not.toHaveBeenCalled()
+  })
+
+  it('says finished over work that completed, cancelled over work that did not', () => {
+    harness.issues = retiredRoot({ closedReason: 'done' })
+    harness.sessions = []
+
+    deck()
+
+    expect(screen.getByTestId('flight-retired').textContent).toContain('This task is finished.')
+  })
+
+  /** The card is the CLOSED ending only. Every other empty-spine note is a state
+   *  to read and leave alone, and none of them can be tucked — `setTucked`
+   *  refuses an unfinished issue. */
+  it('leaves a vacated but unfinished mission as a status line', () => {
+    harness.issues = retiredRoot({ stage: 'in_progress', closedReason: null })
+    harness.sessions = []
+
+    deck()
+
+    expect(screen.queryByTestId('flight-retired')).toBeNull()
+    expect(screen.getByText('Agent left · choose a handoff')).toBeTruthy()
+  })
+
   describe('continuationPresenceLine', () => {
     it('leaves both empty-task sentences exactly as they were', () => {
       expect(continuationPresenceLine('duplicate', [])).toBe(

@@ -17,6 +17,7 @@ import {
   type IssueNavigationModel,
   type IssueNote,
   isCoordinatorSession,
+  issueAbandoned,
   issueCloseConcerns,
   issueContinuation,
   issueNote,
@@ -2122,6 +2123,58 @@ export function continuationPresenceLine(
 }
 
 /**
+ * THE SIGNPOST BOX — one panel for "this mission is over", however it ended
+ * (POD-1268).
+ *
+ * Two cards say that now, in the same slot of the same column: the continuation
+ * ("work carried on in POD-815") and the retirement ("finished, nobody left
+ * here"). They are the same kind of statement, so the frame is written once and
+ * the words are the only thing that differs between them — an operator who has
+ * read one should not have to re-learn the layout to read the other.
+ *
+ * Presentational only: it holds no lifecycle opinion, which is what keeps the
+ * two callers free to name their own action.
+ */
+function SignpostBox({
+  icon,
+  headline,
+  aside = null,
+  detail,
+  actions,
+  testId,
+}: {
+  icon: ReactNode
+  headline: string
+  /** The state word folded in off a departure tick, where there is one. */
+  aside?: ReactNode
+  detail: string
+  actions: ReactNode
+  testId: string
+}): JSX.Element {
+  return (
+    <div className="rounded-[8px] border border-border bg-card/55 p-3" data-testid={testId}>
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex size-[22px] flex-none items-center justify-center rounded-full bg-muted text-text-dim">
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <p className="shell-type-secondary min-w-0 flex-1 font-semibold text-text-strong">
+              {headline}
+            </p>
+            {aside}
+          </div>
+          <p className="shell-type-micro mt-1 text-text-dim">{detail}</p>
+        </div>
+      </div>
+      {/* WRAPPING, because this column resizes down to 300px and two labels
+          together do not fit there. A clipped action is worse than a stacked one. */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-[30px]">{actions}</div>
+    </div>
+  )
+}
+
+/**
  * A resolved empty task is not an empty mission. It is a signpost.
  *
  * This stays in the spine instead of becoming a toast: the destination must
@@ -2175,55 +2228,93 @@ export function ContinuationCard({
 }): JSX.Element {
   const target = continuation.target
   return (
-    <div
-      className="rounded-[8px] border border-border bg-card/55 p-3"
-      data-testid="flight-continuation"
-    >
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex size-[22px] flex-none items-center justify-center rounded-full bg-muted text-text-dim">
-          <ArrowRight size={12} aria-hidden="true" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <p className="shell-type-secondary min-w-0 flex-1 font-semibold text-text-strong">
-              {continuation.full}
-            </p>
-            {state && <DepartedState state={state} />}
-          </div>
-          <p className="shell-type-micro mt-1 text-text-dim">
-            {continuationPresenceLine(continuation.kind, sessions)}
-            {target ? ` ${target.title} is where it carried on.` : ''}
-          </p>
-        </div>
-      </div>
-      {/* WRAPPING, because this column resizes down to 300px and the two labels
-          together do not fit there. A clipped action is worse than a stacked one. */}
-      <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-[30px]">
-        {target && (
-          <Button type="button" size="sm" className="h-[26px]" onClick={() => onOpen(target)}>
-            Open {issueDisplayRef(target)}
-          </Button>
-        )}
-        {finished ? (
-          <Button type="button" variant="outline" size="sm" className="h-[26px]" onClick={onTuck}>
-            <ArrowDown size={12} aria-hidden="true" /> Tuck away
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-[26px]"
-            title={`Record this task as done — the work carried on in ${
-              target ? issueDisplayRef(target) : 'another task'
-            } — and tuck it down into Closed.`}
-            onClick={onTuck}
-          >
-            <Check size={12} aria-hidden="true" /> Done &amp; tuck
-          </Button>
-        )}
-      </div>
-    </div>
+    <SignpostBox
+      testId="flight-continuation"
+      icon={<ArrowRight size={12} aria-hidden="true" />}
+      headline={continuation.full}
+      aside={state ? <DepartedState state={state} /> : null}
+      detail={`${continuationPresenceLine(continuation.kind, sessions)}${
+        target ? ` ${target.title} is where it carried on.` : ''
+      }`}
+      actions={
+        <>
+          {target && (
+            <Button type="button" size="sm" className="h-[26px]" onClick={() => onOpen(target)}>
+              Open {issueDisplayRef(target)}
+            </Button>
+          )}
+          {finished ? (
+            <Button type="button" variant="outline" size="sm" className="h-[26px]" onClick={onTuck}>
+              <ArrowDown size={12} aria-hidden="true" /> Tuck away
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-[26px]"
+              title={`Record this task as done — the work carried on in ${
+                target ? issueDisplayRef(target) : 'another task'
+              } — and tuck it down into Closed.`}
+              onClick={onTuck}
+            >
+              <Check size={12} aria-hidden="true" /> Done &amp; tuck
+            </Button>
+          )}
+        </>
+      }
+    />
+  )
+}
+
+/**
+ * A CLOSED MISSION WITH NOBODY LEFT ON IT (POD-1268).
+ *
+ * The other ending. Work that carried on elsewhere gets {@link ContinuationCard}
+ * — a destination and a way back to it — but work that simply ENDED here used
+ * to get `presenceNote`'s bare status line ("Cancelled · session retired") in
+ * faint grey, floating alone in an otherwise empty column. Two things are wrong
+ * with that: it reads as a caption on nothing, and the one decision left on the
+ * task — put it away — was nowhere on this screen, so the operator had to go
+ * find the row in the sidebar to act on what the deck had just told them.
+ *
+ * So the same box says it, in the same slot, with the fold attached. The two
+ * ways a mission can be over now read as one family.
+ *
+ * THE TUCK IS DIRECT, never {@link ContinuationCard}'s "Done & tuck": this card
+ * draws only where `presenceNote` reached `done`, which it reaches only through
+ * `issueClosed`. There is no ending left to record, so `issues.setTucked` cannot
+ * refuse it and the button may promise the plain fold.
+ */
+export function RetiredSignpost({
+  abandoned,
+  onTuck,
+}: {
+  /** Cancelled or won't-fix rather than completed — the one word that changes.
+   *  "Finished" over a task the operator withdrew would be the deck telling a
+   *  small lie about their own decision. */
+  abandoned: boolean
+  onTuck: () => void
+}): JSX.Element {
+  return (
+    <SignpostBox
+      testId="flight-retired"
+      icon={abandoned ? <X size={12} aria-hidden="true" /> : <Check size={12} aria-hidden="true" />}
+      headline={abandoned ? 'This task was cancelled.' : 'This task is finished.'}
+      detail="No session remains on it. Tuck it away to fold it into Closed."
+      actions={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-[26px]"
+          title="Tuck this finished task down into Closed — it stays reachable there (click to reopen, or start an agent to pick it back up). Nothing is killed or closed."
+          onClick={onTuck}
+        >
+          <ArrowDown size={12} aria-hidden="true" /> Tuck away
+        </Button>
+      }
+    />
   )
 }
 
@@ -2631,6 +2722,16 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const rootSeat = rootRow
     ? seatFor(presenceNote(rootRow.issue, rootRow.sessions, byId, sessions))
     : null
+  /**
+   * Why the spine is empty, when it is — and the root's OWN sessions answer it,
+   * never the view-narrowed `rootSessions`. A "nobody is here" drawn because you
+   * filtered the column down to working agents is the POD-1233 bug in a new
+   * costume; a parked agent still holds the task and this must keep saying so.
+   */
+  const rootEmptyNote = root ? presenceNote(root, rootRow?.sessions ?? [], byId, sessions) : null
+  /** `done` is the note's word for "closed, and nobody is on it" — the one
+   *  empty-spine state that still has a decision left in it. */
+  const rootRetired = rootEmptyNote?.kind === 'done'
   /**
    * PROPOSALS LEAVE THE TREE (POD-710 §4.4).
    *
@@ -3409,10 +3510,17 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               // where the work went, and it says it once. This branch used to
               // draw the continuation card itself, which is half of why the same
               // destination appeared twice.
-              rootContinuation || rootSessions.length > 0 ? null : (
+              rootContinuation || rootSessions.length > 0 ? null : rootRetired ? (
+                // THE MISSION ENDED HERE — a card, not a caption (POD-1268).
+                // Every other note below is a state the operator reads and
+                // leaves alone; this one is the only one still asking for a
+                // decision, and the decision is the fold.
+                <div className="py-4 pr-2" style={{ paddingLeft: GUTTER }}>
+                  <RetiredSignpost abandoned={issueAbandoned(root)} onTuck={tuckResolvedRoot} />
+                </div>
+              ) : (
                 <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                  {presenceNote(root, rootRow?.sessions ?? [], byId, sessions)?.text ||
-                    'No sessions or sub-tasks are attached.'}
+                  {rootEmptyNote?.text || 'No sessions or sub-tasks are attached.'}
                 </p>
               ))}
             {/* THE SECTIONS BELOW THE TREE. Siblings, in a flat stack, so the

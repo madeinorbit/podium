@@ -265,6 +265,30 @@ const MISSIONS = {
     state.selectedIssueId = 'root'
     state.paneA = null
   },
+  /**
+   * THE MISSION THAT IS SIMPLY OVER (POD-1268) — the filed screenshot: a task
+   * withdrawn, its session retired, no sub-task and no destination. The spine
+   * has nothing to draw, which is exactly why the ending has to be a card in it
+   * rather than a caption under it.
+   */
+  retired: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1261',
+        title: 'Eager bundle budget is red on main',
+        description:
+          'Not a real defect — withdrawn. The red budget was measured against origin/main, which is not this host\u2019s landing line; local main already carries the bundle paydown that fixes it.',
+        stage: 'done',
+        closedReason: 'cancelled',
+        deps: [{ id: 'origin', type: 'discovered-from' }],
+      }),
+      issue('origin', { id: 'origin', displayRef: 'POD-1257', title: 'Bundle paydown' }),
+    ]
+    state.sessions = []
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
 } as const
 
 function Harness(): JSX.Element {
