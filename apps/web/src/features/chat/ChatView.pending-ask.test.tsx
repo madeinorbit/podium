@@ -38,7 +38,7 @@ interface ReadCall {
 }
 
 const reads: ReadCall[] = []
-const answerMutate = vi.fn(async () => ({ ok: true }))
+const answerMutate = vi.fn(async (_input: unknown) => ({ ok: true }))
 const fakeTrpc = {
   sessions: {
     transcriptRead: {
