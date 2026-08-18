@@ -35,9 +35,11 @@ export const ISSUE_SYSTEM_POINTER =
   'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue. ' +
   // Issue artifacts: reviewable deliverables live ON the issue, not only in chat.
   'Any reviewable deliverable you produce for your issue (UX shots, mockups, concept docs, HTML/MD proposals) ' +
-  'must ALSO be attached to the issue so it shows in its sidebar: save it to a durable path inside the ' +
-  'worktree/repo (never a scratchpad or /tmp — those paths do not render), then ' +
-  '`podium issue artifact <id> --add <path> --title "…"`. Re-add each significant iteration; the issue ' +
+  'must ALSO be attached to the issue so it shows in its sidebar: save it under your issue worktree ' +
+  '(a scratchpad or /tmp path is outside it and is refused), then ' +
+  '`podium issue artifact <id> --add <path> --title "…"`. Adding COPIES the bytes to the server, so the ' +
+  'artifact keeps working uncommitted and outlives the worktree — never commit a screenshot or a scratch ' +
+  'doc just to attach it. Re-add each significant iteration; the issue ' +
   'artifact list is how the human finds and reviews visual work later, even after the chat scrolls away. ' +
   // Agent action offer [spec:SP-c7f1]: suggested next actions the user can click.
   'When you finish a turn and there are natural next actions the user might pick, offer them: ' +

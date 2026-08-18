@@ -4670,21 +4670,15 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     expect(snapshot).not.toHaveBeenCalled()
   })
 
-  it('surfaces untracked evidence and blocks review until a tracked re-add', async () => {
+  it('lets uncommitted evidence through review — the store holds the bytes (POD-1284)', async () => {
     const { svc, repoOp } = artifactHarness()
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    repoOp.mockResolvedValueOnce({ ok: true, output: '' })
-    const untracked = await svc.panelArtifactAdd(w.id, { path: 'evidence/review.md' })
-    expect(untracked.panel?.artifacts[0]).toMatchObject({
-      path: 'evidence/review.md',
-      tracking: 'untracked',
-      untrackedPaths: ['evidence/review.md'],
-    })
-    expect(() => svc.update(w.id, { stage: 'review' })).toThrow(/untracked evidence/)
-
-    repoOp.mockResolvedValueOnce({ ok: true, output: 'evidence/review.md\0' })
-    await svc.panelArtifactAdd(w.id, { path: 'evidence/review.md' })
+    const added = await svc.panelArtifactAdd(w.id, { path: 'evidence/review.md' })
+    expect(added.panel?.artifacts[0]).toMatchObject({ path: 'evidence/review.md' })
+    expect(added.panel?.artifacts[0]?.tracking).toBeUndefined()
+    // No Git probe at all: whether the source file is committed is not our business.
+    expect(repoOp).not.toHaveBeenCalled()
     expect(svc.update(w.id, { stage: 'review' }).stage).toBe('review')
   })
 

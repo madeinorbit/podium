@@ -100,8 +100,6 @@ export type IssuePanelOp =
       entry?: string
       files?: { path: string; size: number }[]
       sourcePaths?: string[]
-      tracking?: 'tracked' | 'untracked' | 'unknown'
-      untrackedPaths?: string[]
     }
   | { op: 'artifact-remove'; index: number }
   | { op: 'deferred-add'; text: string }

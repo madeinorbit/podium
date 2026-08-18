@@ -172,9 +172,12 @@ export const IssuePanelArtifact = z.object({
   files: z.array(z.object({ path: z.string(), size: z.number() })).optional(),
   /** Worktree-relative source files captured by the snapshot. */
   sourcePaths: z.array(z.string()).optional(),
-  /** Git-index state observed when the snapshot was added. Legacy artifacts omit it. */
+  /** @deprecated Git-index state observed when the snapshot was added. No longer
+   *  written or shown (POD-1284): the permanent store holds the bytes, so whether
+   *  the source file is committed says nothing about the artifact. Kept so panels
+   *  written before that still parse. */
   tracking: z.enum(['tracked', 'untracked', 'unknown']).optional(),
-  /** Exact worktree-relative evidence paths absent from the Git index. */
+  /** @deprecated Companion to `tracking` — see above. */
   untrackedPaths: z.array(z.string()).optional(),
 })
 export type IssuePanelArtifact = z.infer<typeof IssuePanelArtifact>

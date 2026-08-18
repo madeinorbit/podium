@@ -1053,7 +1053,7 @@ describe('panel commands (todo / artifact / deferred)', () => {
     })
   })
 
-  it('artifact output makes untracked evidence visible', async () => {
+  it('artifact output lists evidence without scolding about Git tracking', async () => {
     const art = mockClient({
       get: {
         seq: 1,
@@ -1062,7 +1062,9 @@ describe('panel commands (todo / artifact / deferred)', () => {
           artifacts: [
             {
               path: 'shots/review.png',
+              title: 'Review shot',
               addedAt: 't',
+              // A legacy row may still carry the retired tracking verdict.
               tracking: 'untracked',
               untrackedPaths: ['shots/review.png'],
             },
@@ -1071,8 +1073,8 @@ describe('panel commands (todo / artifact / deferred)', () => {
         },
       },
     })
-    expect((await cmd('artifact').run(art.client, { id: '1' })).text).toContain(
-      '⚠ untracked: shots/review.png',
-    )
+    const { text } = await cmd('artifact').run(art.client, { id: '1' })
+    expect(text).toBe('1. Review shot — shots/review.png')
+    expect(text).not.toContain('⚠')
   })
 })

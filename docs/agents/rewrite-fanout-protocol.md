@@ -88,7 +88,8 @@ of `issue/279-integration`) and say so explicitly rather than letting it read as
 
 UI or interaction behavior you changed needs **runtime** verification against a running stack, not
 just a unit assertion. Attach screenshots as issue artifacts:
-`podium issue artifact <id> --add <path-inside-the-repo> --title "…"`.
+`podium issue artifact <id> --add <path-inside-your-worktree> --title "…"` — the server copies the
+bytes, so the screenshot does not need to be committed.
 
 ## 5. Stay inside your scope
 

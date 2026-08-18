@@ -1748,7 +1748,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'artifact',
     summary:
-      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--remove n] [--get <n|path> [--file <rel>] [--out <path>]]. Added paths must live inside the owning issue worktree; untracked evidence is surfaced and blocks review until re-added after tracking. --get reads a stored artifact BACK (any agent, any machine, even after the worktree is gone): text prints, anything else needs --out. No flags = print the list.',
+      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--remove n] [--get <n|path> [--file <rel>] [--out <path>]]. Adding COPIES the bytes to the server, so the artifact survives even if the file is never committed and the worktree is later deleted — do NOT commit screenshots or scratch docs just to attach them. The path must live inside the owning issue worktree (that is the only requirement). --get reads a stored artifact BACK (any agent, any machine, even after the worktree is gone): text prints, anything else needs --out. No flags = print the list.',
     args: z.strictObject({
       id: idArg,
       add: z.string().optional(),
@@ -1785,25 +1785,15 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
             path: string
             title?: string
             addedAt: string
-            tracking?: 'tracked' | 'untracked' | 'unknown'
-            untrackedPaths?: string[]
           }[]
         }
       } | null
       if (!i) throw new Error(`unknown issue ${a.id}`)
       const arts = i.panel?.artifacts ?? []
+      // Git tracking is deliberately not reported (POD-1284): the bytes live in
+      // the server's permanent store, so an uncommitted source file is normal.
       const text = arts.length
-        ? arts
-            .map((x, n) => {
-              const tracking =
-                x.tracking === 'untracked'
-                  ? ` ⚠ untracked: ${(x.untrackedPaths ?? [x.path]).join(', ')}`
-                  : x.tracking === 'unknown' || x.tracking == null
-                    ? ' ⚠ Git tracking not verified'
-                    : ''
-              return `${n + 1}. ${x.title ? `${x.title} — ` : ''}${x.path}${tracking}`
-            })
-            .join('\n')
+        ? arts.map((x, n) => `${n + 1}. ${x.title ? `${x.title} — ` : ''}${x.path}`).join('\n')
         : '(no artifacts)'
       return { text, data: arts }
     },

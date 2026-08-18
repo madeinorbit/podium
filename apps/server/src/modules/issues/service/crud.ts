@@ -343,8 +343,6 @@ export class IssueCrudModule {
           ...(op.entry ? { entry: op.entry } : {}),
           ...(op.files ? { files: op.files } : {}),
           ...(op.sourcePaths ? { sourcePaths: op.sourcePaths } : {}),
-          ...(op.tracking ? { tracking: op.tracking } : {}),
-          ...(op.untrackedPaths?.length ? { untrackedPaths: op.untrackedPaths } : {}),
         }
         const existing = panel.artifacts.findIndex((a) => a.path === op.path)
         if (existing >= 0) panel.artifacts[existing] = next
@@ -416,7 +414,6 @@ export class IssueCrudModule {
         path: sourcePath,
         ...title,
         sourcePaths: [sourcePath, ...(extraPaths ?? [])],
-        tracking: 'unknown',
       })
     }
     // Owning machine is the issue's machine; the invoking session is only a
@@ -433,16 +430,6 @@ export class IssueCrudModule {
       ...(extraPaths?.length ? { extraPaths } : {}),
     })
     const sourcePaths = [...new Set(snap.sourcePaths ?? [sourcePath, ...(extraPaths ?? [])])]
-    const tracked = await this.store.deps
-      .repoOp('lsFiles', root, undefined, machineId)
-      .catch(() => ({ ok: false, output: '' }))
-    const trackedPaths = new Set(tracked.ok ? tracked.output.split('\0').filter(Boolean) : [])
-    const untrackedPaths = tracked.ok ? sourcePaths.filter((path) => !trackedPaths.has(path)) : []
-    const tracking: 'tracked' | 'untracked' | 'unknown' = !tracked.ok
-      ? 'unknown'
-      : untrackedPaths.length
-        ? 'untracked'
-        : 'tracked'
     const oldId = existing?.artifactId
     const wire = this.panelApply(row.id, {
       op: 'artifact-add',
@@ -452,8 +439,6 @@ export class IssueCrudModule {
       entry: snap.entry,
       files: snap.files,
       sourcePaths,
-      tracking,
-      ...(untrackedPaths.length ? { untrackedPaths } : {}),
     })
     if (oldId) void store.remove(row.id, oldId).catch(() => {})
     return wire
@@ -1063,9 +1048,13 @@ export class IssueCrudModule {
   }
 
   /** Review is the first point at which evidence is presented as durable truth.
-   *  Refuse the transition while any artifact is outside the owning worktree or
-   *  was not proven present in Git. Re-adding after `git add`/commit refreshes
-   *  the snapshot and its tracking observation. */
+   *  The bytes themselves are already safe — `panelArtifactAdd` snapshots them
+   *  into the permanent store ([spec:SP-0fc9]), so evidence never has to be
+   *  committed to the repo to survive. What review still requires is that each
+   *  artifact PATH resolves inside the owning worktree, so the sidebar entry
+   *  names a file on this issue rather than in some other checkout. Git tracking
+   *  is deliberately NOT a gate (POD-1284): demanding it made agents commit
+   *  screenshots and scratch docs the repo was never meant to carry. */
   private assertReviewArtifactOwnership(row: IssueRow): void {
     const artifacts = this.store.parsePanel(row).artifacts
     if (artifacts.length === 0) return
@@ -1080,14 +1069,6 @@ export class IssueCrudModule {
       if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
         throw new Error(
           `review blocked: artifact '${artifact.path}' is outside the owning issue worktree ${row.worktreePath}; re-add it from that worktree`,
-        )
-      }
-      if (artifact.tracking !== 'tracked') {
-        const detail = artifact.untrackedPaths?.length
-          ? `untracked evidence: ${artifact.untrackedPaths.join(', ')}`
-          : 'Git tracking was not verified'
-        throw new Error(
-          `review blocked: ${detail}. Track the evidence in the issue branch, then re-add the artifact before review`,
         )
       }
     }
