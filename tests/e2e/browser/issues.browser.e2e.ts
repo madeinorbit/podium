@@ -368,11 +368,12 @@ test('issues composer: selected agent persists to deferred issue start dropdown'
   await expect(menu.getByRole('menuitem').filter({ hasText: '(default)' })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await expect(dialog.getByRole('button', { name: 'Claude Code (default)' })).toBeVisible()
-  await dialog.getByRole('button', { name: 'Claude Code (default)' }).click({ timeout: 10_000 })
-  await expect(menu.getByRole('menuitem', { name: 'Claude Code', exact: true })).toHaveCount(0)
-  await menu.locator('input').first().fill('Cursor')
-  await menu.getByRole('menuitem').filter({ hasText: 'Cursor' }).click({ timeout: 10_000 })
+  const agentPicker = dialog.getByRole('button', { name: 'Agent' })
+  await expect(agentPicker).toContainText('Claude Code')
+  await expect(agentPicker).not.toContainText('default')
+  await agentPicker.click({ timeout: 10_000 })
+  await expect(menu.getByRole('menuitem', { name: 'Claude Code', exact: true })).toBeVisible()
+  await menu.getByRole('menuitem', { name: 'Cursor', exact: true }).click({ timeout: 10_000 })
   await expect(dialog.getByRole('button', { name: 'Cursor' })).toBeVisible()
 
   const title = `E2E agent default ${Date.now()}`

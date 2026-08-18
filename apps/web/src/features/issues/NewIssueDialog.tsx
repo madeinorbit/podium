@@ -11,19 +11,10 @@ import {
   resolveTargetMachineForAgent,
 } from '@podium/model/browser'
 import { resolveRole } from '@podium/runtime'
-import {
-  ArrowRight,
-  ChevronDown,
-  ChevronRight,
-  FolderGit2,
-  Link2,
-  Server,
-  X,
-  Zap,
-} from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -37,7 +28,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { capabilityHint, capabilityReason } from '@/lib/agent-capability'
+import {
+  agentFleetStatus,
+  candidateFromAvailability,
+  CapabilityAgentItem,
+  capabilityHint,
+  capabilityReason,
+} from '@/lib/agent-capability'
 import { AUTO } from '@/lib/agent-models'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import {
@@ -69,51 +66,19 @@ import { PriorityGlyph, StageGlyph } from './issue-glyphs'
  *   WHERE  the header — repo, then stage. Both scope the task; neither is a
  *          property OF it.
  *   WHAT   the body — title, description, priority. The task itself.
- *   HOW    the runs-on band — agent · model · effort, and the machine. None of
+ *   HOW    the start-work band — agent · model · effort, and the machine. None of
  *          it means anything until work starts, so it lives UNDER `Start work
  *          now` and collapses to one line when that is off.
  *
- * Type, labels, assignee and branch left the composer entirely: they are set on
- * the issue after it exists, and the server already falls back to
- * `repo.branch || settings.gitWorkflow.defaultParentBranch || 'main'` for the
- * parent branch. Linear import lost its search panel with the `<details>` — the
- * capability survives as a url you paste (into the description, or into the
- * pill's own field), which is how the link is actually obtained in practice.
+ * Type, labels, assignee, branch and Linear linking left the composer entirely:
+ * they are set on the issue after it exists, and the server already falls back
+ * to `repo.branch || settings.gitWorkflow.defaultParentBranch || 'main'` for the
+ * parent branch.
  */
-
-/** A Linear issue url — `https://linear.app/<workspace>/issue/<TEAM-123>/<slug>`.
- *  The identifier is the one part of a hit the composer needs; the rest of the
- *  old search panel's `LinearHit` was only ever used to fill the title. */
-const LINEAR_URL =
-  /https?:\/\/(?:www\.)?linear\.app\/[^/\s]+\/issue\/([A-Za-z][A-Za-z0-9]*-\d+)(?:\/[^\s]*)?/
-
-/** The Linear link carried by any text the composer holds, or `undefined`. */
-export function linearLinkIn(text: string): { identifier: string; url: string } | undefined {
-  const hit = LINEAR_URL.exec(text)
-  if (!hit?.[1]) return undefined
-  return { identifier: hit[1].toUpperCase(), url: hit[0] }
-}
 
 /** The repo basename, falling back to the full path — repos are shown by name. */
 function repoLabel(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
-}
-
-/**
- * The ref the next issue will most likely wear (`POD-1042`), from the highest
- * seq the replica has seen. A FORECAST, and labelled as one on the row: the
- * server mints the real seq, so a create that races another one lands on the
- * number after this. Empty until the replica carries a ref to learn the prefix
- * from — a bare `#1042` would name a different thing than the board does.
- */
-function nextIssueRef(issues: { seq: number; displayRef?: string }[]): string {
-  let maxSeq = 0
-  let prefix = ''
-  for (const issue of issues) {
-    if (issue.seq > maxSeq) maxSeq = issue.seq
-    if (!prefix) prefix = /^([A-Za-z]+)-\d+$/.exec(issue.displayRef ?? '')?.[1] ?? ''
-  }
-  return prefix && maxSeq ? `${prefix}-${String(maxSeq + 1)}` : ''
 }
 
 /**
@@ -242,6 +207,39 @@ function MachineMenu({
   )
 }
 
+/** The harness picker uses the same fleet status and refusal rows as every
+ * other spawn surface. A harness stays visible when unavailable, with the
+ * reason on the row, and is accepted when any candidate host can run it. */
+function AgentMenu({
+  trigger,
+  options,
+  selectedValue,
+  onSelect,
+}: {
+  trigger: ReactNode
+  options: Array<PropertyOption & { status: ReturnType<typeof agentFleetStatus> }>
+  selectedValue: string
+  onSelect: (value: string) => void
+}): JSX.Element {
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger render={trigger as JSX.Element} />
+      <DropdownMenuContent align="start" className="w-56">
+        {options.map((option) => (
+          <CapabilityAgentItem
+            key={option.value}
+            icon={option.icon}
+            label={option.label}
+            status={option.status}
+            selected={option.value === selectedValue}
+            onSelect={() => onSelect(option.value)}
+          />
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 export function NewIssueDialog({
   onClose,
   initialStage,
@@ -261,7 +259,6 @@ export function NewIssueDialog({
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
   const isMobile = useIsMobile()
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
@@ -284,7 +281,6 @@ export function NewIssueDialog({
   const [machineChoice, setMachineChoice] = useState('')
   const [startNow, setStartNow] = useState(true)
   const [createMore, setCreateMore] = useState(false)
-  const [linear, setLinear] = useState<{ identifier: string; url: string } | undefined>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -327,7 +323,6 @@ export function NewIssueDialog({
     label: `P${p}`,
     icon: <PriorityGlyph priority={p} />,
   }))
-  const agentOptions: PropertyOption[] = issueAgentOptions(defaultAgent)
   // Model + effort are scoped to the effective agent; changing agent resets both
   // (a model/effort valid for one CLI is usually meaningless for another).
   const agentKind = issueDefaultAgentKind(agent || defaultAgent)
@@ -346,6 +341,24 @@ export function NewIssueDialog({
     [repos, repoPath],
   )
   const repoMachines = repoView ? machinesForRepoOrClone(repoView, machines) : []
+  const agentOptions = issueAgentOptions(defaultAgent).map((option) => {
+    const kind = issueDefaultAgentKind(option.value || defaultAgent)
+    const label = issueAgentLabel(kind)
+    const candidates = repoMachines.map((machine) =>
+      candidateFromAvailability(
+        machine,
+        machine.use === 'denied' ? 'unauthorized' : machine.online ? 'available' : 'unreachable',
+        kind,
+      ),
+    )
+    return {
+      ...option,
+      // Selection already identifies the default; repeating "default" in the
+      // label adds no information and makes the control read like a setting.
+      label,
+      status: repoMachines.length > 0 ? agentFleetStatus(candidates, label) : {},
+    }
+  })
   const eligibleIds = new Set(
     (repoView ? onlineMachinesForRepoOrClone(repoView, machines) : [])
       .filter((m) => agentCapabilityRejection(m, agentKind) === undefined)
@@ -363,16 +376,7 @@ export function NewIssueDialog({
   const pinnedUnavailable =
     pinnedMachine !== undefined && !eligibleIds.has(pinnedMachine.id) ? pinnedMachine : undefined
   const effectiveMachine = pinnedUnavailable ? undefined : pinnedMachine
-  const nextRef = useMemo(() => nextIssueRef(issues), [issues])
-
   const canSubmit = Boolean(title.trim()) && Boolean(repoPath) && !busy
-
-  /** Description edits carry the Linear link: pasting an issue url links it. */
-  const editDescription = (next: string) => {
-    setDescription(next)
-    const found = linearLinkIn(next)
-    if (found) setLinear(found)
-  }
 
   const submit = async () => {
     if (!canSubmit) return
@@ -395,7 +399,6 @@ export function NewIssueDialog({
               ...(effectiveMachine ? { machineId: effectiveMachine.id } : {}),
             }
           : {}),
-        ...(linear ? { linear } : {}),
         // Omit fields at their defaults so a bare issue stays bare.
         ...(priority !== 2 ? { priority } : {}),
       })
@@ -408,7 +411,6 @@ export function NewIssueDialog({
         // Keep the chosen properties; clear only the per-issue text and refocus.
         setTitle('')
         setDescription('')
-        setLinear(undefined)
         setBusy(false)
         titleRef.current?.focus()
       } else {
@@ -534,28 +536,13 @@ export function NewIssueDialog({
             className="h-auto border-none bg-transparent px-0 py-0 font-medium text-[17px] tracking-[-0.015em] shadow-none focus-visible:ring-0 dark:bg-transparent"
           />
 
-          {/* The placeholder is two voices — the invitation and the note about
-              what the field accepts — so it is drawn rather than set: one
-              `placeholder` attribute can only be one of them. */}
-          <div className="relative">
-            <Textarea
-              aria-label="Description"
-              value={description}
-              onChange={(e) => editDescription(e.target.value)}
-              className="min-h-[104px] resize-none border-none bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
-            />
-            {!description && (
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 top-2 flex flex-wrap items-baseline gap-x-2 text-base text-muted-foreground md:text-sm"
-              >
-                <span>Add description…</span>
-                <span className="font-mono text-[11px] text-text-faint">
-                  md, paste a Linear url to link it
-                </span>
-              </div>
-            )}
-          </div>
+          <Textarea
+            aria-label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Add description…"
+            className="min-h-[104px] resize-none border-none bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+          />
 
           <div className="flex items-center gap-[7px]">
             <PropertyMenu
@@ -570,33 +557,6 @@ export function NewIssueDialog({
               selectedValue={String(priority)}
               onSelect={(v) => setPriority(Number(v))}
             />
-            {/* What is left of Linear import: the url, which is what a person
-                actually has in hand. Typed here or pasted into the description,
-                both land in the same `linear` field on create. */}
-            <PropertyMenu
-              trigger={
-                <PillButton
-                  icon={<Link2 size={15} aria-hidden="true" />}
-                  label={linear ? linear.identifier : 'Link a Linear issue'}
-                  chevron={false}
-                  variant="ghost"
-                  className={linear ? undefined : 'text-text-faint'}
-                />
-              }
-              options={[]}
-              allowFreeText
-              placeholder="Paste a Linear url…"
-              onSelect={(v) => {
-                const found = linearLinkIn(v)
-                if (found) setLinear(found)
-                else setError('That is not a Linear issue url.')
-              }}
-            />
-            {nextRef && (
-              <span className="ml-auto font-mono text-[10.5px] text-text-faint">
-                {nextRef} next
-              </span>
-            )}
           </div>
 
           {error && <p className="text-[12px] text-destructive">{error}</p>}
@@ -609,11 +569,7 @@ export function NewIssueDialog({
               <Checkbox checked={startNow} onCheckedChange={(c) => setStartNow(c === true)} />
               Start work now
             </Label>
-            {startNow ? (
-              <span className="font-mono shell-type-micro tracking-[.16em] text-text-faint uppercase">
-                runs on
-              </span>
-            ) : (
+            {!startNow && (
               <span className="font-mono text-[11px] text-text-faint">
                 off — agent, model and machine are chosen when you start it
               </span>
@@ -634,7 +590,7 @@ export function NewIssueDialog({
                   segments' own left border so a harness with no effort ladder
                   (EffortPicker renders nothing) cannot leave a hanging rule. */}
               <div className="inline-flex h-[26px] max-w-full flex-none items-stretch overflow-hidden rounded-[7px] bg-[var(--well-floor)] shadow-[inset_0_0_0_1px_var(--hairline-bar)]">
-                <PropertyMenu
+                <AgentMenu
                   trigger={
                     <button
                       type="button"
@@ -644,9 +600,6 @@ export function NewIssueDialog({
                     >
                       {issueAgentIcon(agent || defaultAgent, 12)}
                       {agentName}
-                      {!agent && (
-                        <span className="font-mono text-[10px] text-text-faint">default</span>
-                      )}
                     </button>
                   }
                   options={agentOptions}

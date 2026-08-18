@@ -7,6 +7,7 @@ import { NewIssueDialog } from './NewIssueDialog'
 // Typed input so the assertions below can read back the payload create received.
 const create = vi.fn(async (_input: Record<string, unknown>) => makeIssue({ id: 'new-issue' }))
 const update = vi.fn(async () => ({}))
+const { machines } = vi.hoisted(() => ({ machines: [] as Array<Record<string, unknown>> }))
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
@@ -14,6 +15,7 @@ vi.mock('@/app/store', () => {
       {
         path: '/repo',
         branch: 'main',
+        machineId: 'mine',
         worktrees: [
           { path: '/repo/.worktrees/feature-auth', branch: 'feature-auth' },
           { path: '/repo/.worktrees/bugfix-login', branch: 'bugfix-login' },
@@ -23,6 +25,7 @@ vi.mock('@/app/store', () => {
       { path: '/repo/.worktrees/side', kind: 'worktree', branch: 'side', worktrees: [] },
     ],
     issues: [],
+    machines,
     trpc: {
       settings: {
         get: {
@@ -67,16 +70,18 @@ afterEach(() => {
   cleanup()
   create.mockClear()
   update.mockClear()
+  machines.length = 0
 })
 
-describe('NewIssueDialog runs-on band', () => {
+describe('NewIssueDialog start-work band', () => {
   it('preselects the default agent and sends the one you pick', async () => {
     render(<NewIssueDialog onClose={vi.fn()} />)
 
     const agentTrigger = screen.getByRole('button', { name: 'Agent' })
     expect(agentTrigger.textContent).toContain('Claude Code')
+    expect(agentTrigger.textContent).not.toContain('default')
     fireEvent.click(agentTrigger)
-    expect(screen.queryByRole('menuitem', { name: 'Claude Code' })).toBeNull()
+    expect(await screen.findByRole('menuitem', { name: 'Claude Code' })).toBeTruthy()
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Cursor' }))
 
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Cursor task' } })
@@ -91,6 +96,32 @@ describe('NewIssueDialog runs-on band', () => {
         }),
       ),
     )
+  })
+
+  it('greys out harnesses unavailable on every repo host', async () => {
+    machines.push({
+      id: 'mine',
+      name: 'mine',
+      hostname: 'mine',
+      online: true,
+      inventory: {
+        agents: [
+          { kind: 'claude-code', installed: true, login: { state: 'in' } },
+          { kind: 'cursor', installed: false, login: { state: 'unknown' } },
+        ],
+      },
+    })
+    render(<NewIssueDialog onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
+    const cursor = await screen.findByRole('menuitem', { name: /Cursor/ })
+    expect(cursor.textContent).toContain('not installed')
+    expect(cursor.getAttribute('data-refused')).toBe('true')
+    fireEvent.click(cursor)
+    expect(screen.getByRole('button', { name: 'Agent' }).textContent).toContain('Claude Code')
+
+    const claude = screen.getByRole('menuitem', { name: 'Claude Code' })
+    expect(claude.getAttribute('data-refused')).toBeNull()
   })
 
   it('collapses the band and files a bare ticket when start-now is off', async () => {
@@ -185,26 +216,23 @@ describe('NewIssueDialog runs-on band', () => {
     expect(screen.queryByRole('button', { name: 'task' })).toBeNull()
   })
 
-  it('links a Linear issue from a url pasted into the description', async () => {
+  it('keeps pasted URLs as plain description text and has no Linear control', async () => {
     render(<NewIssueDialog onClose={vi.fn()} />)
 
+    expect(screen.queryByRole('button', { name: /Linear/ })).toBeNull()
     fireEvent.change(screen.getByLabelText('Description'), {
       target: { value: 'context: https://linear.app/acme/issue/ENG-412/fix-the-login' },
     })
-    expect(screen.getByRole('button', { name: /ENG-412/ })).toBeTruthy()
 
-    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Imported' } })
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Context link' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
-    await waitFor(() =>
-      expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          linear: {
-            identifier: 'ENG-412',
-            url: 'https://linear.app/acme/issue/ENG-412/fix-the-login',
-          },
-        }),
-      ),
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(create.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        description: 'context: https://linear.app/acme/issue/ENG-412/fix-the-login',
+      }),
     )
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('linear')
   })
 })

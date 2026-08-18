@@ -39,6 +39,7 @@ import type {
   HandoffMachine,
 } from '@podium/model/browser'
 import { agentLoginCondition, harnessRejection } from '@podium/model/browser'
+import { Check } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -255,11 +256,14 @@ export function CapabilityAgentItem({
   icon,
   label,
   status,
+  selected = false,
   onSelect,
 }: {
   icon: ReactNode
   label: string
   status: AgentRowStatus
+  /** Marks a current choice when this shared refusal row is used as a picker. */
+  selected?: boolean
   onSelect: () => void
 }): JSX.Element {
   const { reason, warning, hint } = status
@@ -283,6 +287,7 @@ export function CapabilityAgentItem({
           {label}
         </span>
         {hint && <span className={MENU_HINT}>{hint}</span>}
+        {selected && <Check className="size-3 flex-none text-text-faint" aria-hidden="true" />}
       </DropdownMenuItem>
     </CapabilityTooltip>
   )
