@@ -76,6 +76,31 @@ describe('GitHub project intake', () => {
     expect(await screen.findByText('Signed in as octocat')).toBeTruthy()
   })
 
+  it('does not check again when a successful machine snapshot is refreshed', async () => {
+    githubList
+      .mockResolvedValueOnce({ status: { state: 'logged-out' }, repositories: [] })
+      .mockResolvedValue({ status: { state: 'ready', login: 'octocat' }, repositories: [] })
+    const view = render(
+      <GitHubProjectIntake machine={machine} homePath="/Users/me" onClone={vi.fn()} />,
+    )
+
+    expect(await screen.findByText('Sign in to GitHub CLI')).toBeTruthy()
+    fireEvent.focus(window)
+    expect(await screen.findByText('Signed in as octocat')).toBeTruthy()
+    expect(githubList).toHaveBeenCalledTimes(2)
+
+    view.rerender(
+      <GitHubProjectIntake
+        machine={{ ...machine, inventory: { ...machine.inventory } }}
+        homePath="/Users/me"
+        onClone={vi.fn()}
+      />,
+    )
+
+    expect(githubList).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('Signed in as octocat')).toBeTruthy()
+  })
+
   it('keeps a logged-out GitHub CLI recoverable without discarding the draft', async () => {
     values.set(
       GITHUB_PROJECT_INTAKE_DRAFT_KEY,
