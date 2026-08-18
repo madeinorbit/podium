@@ -163,8 +163,9 @@ export function MissionScreen() {
     [root, store.trpc],
   )
 
-  /** The same capability reading as the desktop deck: an installed harness is
-   * offered, a signed-out one stays live with a hint, and a refusal says why. */
+  /** The same host-capability reading as the desktop deck. This launch sheet
+   * cannot become a login pane after the pick, so its signed-out warning is a
+   * disabled row here; the visible hint still says how to repair it. */
   const launchHosts = useMemo(() => {
     if (!root) return []
     const views = machineViewsFromWire(store.machines)
@@ -190,7 +191,7 @@ export function MissionScreen() {
         return {
           label,
           ...(status.hint ? { hint: status.hint } : {}),
-          disabled: status.reason !== undefined,
+          disabled: status.reason !== undefined || status.warning !== undefined,
           onPress: () => launch(kind),
         }
       }),

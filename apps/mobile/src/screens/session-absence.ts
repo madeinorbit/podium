@@ -19,27 +19,31 @@ import { type ReferentState, resolveReferent } from '@podium/client-core/viewmod
 import type { SessionId, SessionMeta } from '@podium/model'
 
 export interface SessionAbsence {
+  readonly state: ReferentState
   readonly title: string
   readonly body: string
 }
 
 /**
- * The copy per state. Four entries, and `pending` is deliberately TERMINAL
- * prose rather than a loader: `pending` is the only state waiting is correct
- * for, but a replica that keeps no exit record answers `undefined` forever, so
- * a spinner here would be the never-resolves defect the same rule forbids.
+ * The copy per state. A `pending` row may also wear a loader while the local
+ * optimistic-spawn set proves that a launch is in flight. The copy itself stays
+ * complete because an arbitrary absent route can remain `pending` forever when
+ * a replica does not retain exit records.
  */
 export const SESSION_ABSENCE: Record<ReferentState, SessionAbsence> = {
-  present: { title: 'Session', body: '' },
+  present: { state: 'present', title: 'Session', body: '' },
   'not-visible': {
+    state: 'not-visible',
     title: 'You do not have access to this session.',
     body: 'It exists, but it has not been shared with you. Ask its owner for access.',
   },
   removed: {
+    state: 'removed',
     title: 'Session deleted.',
     body: 'It was removed on the server.',
   },
   pending: {
+    state: 'pending',
     title: 'Session not here yet.',
     body: 'It has not arrived on this device. It may appear in a moment.',
   },
@@ -60,4 +64,9 @@ export function sessionAbsence(
 ): SessionAbsence {
   const resolution = resolveReferent(sessionId, () => session, exitOf)
   return SESSION_ABSENCE[resolution.state]
+}
+
+/** Motion is licensed by a real spawn in flight, not absence by itself. */
+export function sessionAbsenceShowsLoader(absence: SessionAbsence, spawnPending: boolean): boolean {
+  return absence.state === 'pending' && spawnPending
 }

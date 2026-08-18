@@ -10,7 +10,14 @@ import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/mode
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
-import { useBooting, useIssue, useMobileStore, useSession, useSessions } from '../client/hooks'
+import {
+  useBooting,
+  useIssue,
+  useMobileStore,
+  useSession,
+  useSessions,
+  useSpawnPending,
+} from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
@@ -19,10 +26,11 @@ import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { EmptyState } from '../components/ui'
+import { WorkingMark } from '../components/WorkingMark'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { color } from '../theme/theme'
-import { sessionAbsence } from './session-absence'
+import { sessionAbsence, sessionAbsenceShowsLoader } from './session-absence'
 
 const WORK_STATES: (WorkState | null)[] = [
   'planning',
@@ -58,6 +66,7 @@ export function SessionScreen() {
   const store = useMobileStore()
   const allSessions = useSessions()
   const session = useSession(sessionId)
+  const spawnPending = useSpawnPending(sessionId)
   const issue = useIssue(session?.issueId)
   const booting = useBooting()
 
@@ -143,14 +152,24 @@ export function SessionScreen() {
     // render all three as "it may have been removed on the server", which is the
     // exact defect `resolveReferent` exists to prevent: an eviction rendered as
     // a deletion. `pending` says "not yet" without spinning forever, and every
-    // state is terminal copy rather than a loader.
+    // state is terminal copy. Only the genuinely pending state moves: removed
+    // and not-visible are settled facts, so animating either would imply that
+    // waiting can change the answer.
     const absence = sessionAbsence(sessionId, session, (id) =>
       store.replica.exitKind?.('session', id),
     )
     return (
       <Screen title="Session" onBack={goBack} safeBottom>
         <BootstrapCrossfade resolved={!booting} placeholder={<DetailSkeleton />}>
-          <EmptyState title={absence.title} body={absence.body} />
+          <EmptyState
+            title={absence.title}
+            body={absence.body}
+            icon={
+              sessionAbsenceShowsLoader(absence, spawnPending) ? (
+                <WorkingMark size={24} label="Waiting for session" />
+              ) : undefined
+            }
+          />
         </BootstrapCrossfade>
       </Screen>
     )

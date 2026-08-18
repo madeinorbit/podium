@@ -16,7 +16,7 @@
 import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SESSION_ABSENCE, sessionAbsence } from './session-absence'
+import { SESSION_ABSENCE, sessionAbsence, sessionAbsenceShowsLoader } from './session-absence'
 
 const ID = asSessionId('sess-1')
 const NO_EXIT = () => undefined
@@ -43,6 +43,7 @@ describe('why a session is not on screen', () => {
     // facade does not yet project exits.
     const absence = sessionAbsence(ID, undefined, NO_EXIT)
     expect(absence).toBe(SESSION_ABSENCE.pending)
+    expect(absence.state).toBe('pending')
     expect(`${absence.title} ${absence.body}`).not.toMatch(/delet|remov|access/i)
   })
 
@@ -50,6 +51,13 @@ describe('why a session is not on screen', () => {
     // Order matters: a row that was evicted and later re-shared is present, and
     // its leftover exit record must not make it read as invisible.
     expect(sessionAbsence(ID, PRESENT, () => 'evicted')).toBe(SESSION_ABSENCE.present)
+  })
+
+  it('loads only while an optimistic session is genuinely arriving', () => {
+    expect(sessionAbsenceShowsLoader(SESSION_ABSENCE.pending, true)).toBe(true)
+    expect(sessionAbsenceShowsLoader(SESSION_ABSENCE.pending, false)).toBe(false)
+    expect(sessionAbsenceShowsLoader(SESSION_ABSENCE.removed, true)).toBe(false)
+    expect(sessionAbsenceShowsLoader(SESSION_ABSENCE['not-visible'], true)).toBe(false)
   })
 
   it('every state has copy — a missing row would render an empty screen', () => {
