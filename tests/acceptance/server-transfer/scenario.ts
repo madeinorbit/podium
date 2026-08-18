@@ -412,11 +412,14 @@ async function lostReplyCase(
 }
 
 async function waitForTargetDone(operationId: string) {
-  return eventually(
+  const history = await eventually(
     () => api(targetUrl).operations.history.query({ kind: 'server-move', limit: 20 }),
-    (history) => history.find((entry) => entry.id === operationId && entry.state === 'done'),
+    (rows) => rows.find((entry) => entry.id === operationId && entry.state === 'done'),
     'target operation completion',
   )
+  const done = history.find((entry) => entry.id === operationId && entry.state === 'done')
+  assert(done, 'target operation was not done after completion wait')
+  return done
 }
 
 async function waitForSourceDaemon() {
