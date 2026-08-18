@@ -24,7 +24,7 @@ const linuxArtifact = {
 }
 const macArtifact = {
   target: 'darwin-aarch64' as const,
-  artifactName: 'Podium.app.tar.gz',
+  artifactName: 'Podium_0.2.0-edge.1_aarch64.app.tar.gz',
   signature: 'MAC-SIGNATURE',
 }
 const releaseArtifacts = [linuxArtifact, macArtifact]
@@ -46,7 +46,7 @@ describe('desktop release manifest', () => {
           signature: 'LINUX-SIGNATURE',
         },
         'darwin-aarch64': {
-          url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium.app.tar.gz',
+          url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium_0.2.0-edge.1_aarch64.app.tar.gz',
           signature: 'MAC-SIGNATURE',
         },
       },
@@ -136,11 +136,11 @@ describe('desktop release manifest', () => {
 
     expect(result.artifactPaths.map((path) => basename(path))).toEqual([
       'Podium_0.2.0_amd64.AppImage',
-      'Podium.app.tar.gz',
+      'Podium_0.2.0_aarch64.app.tar.gz',
     ])
     expect(result.signaturePaths.map((path) => basename(path))).toEqual([
       'Podium_0.2.0_amd64.AppImage.sig',
-      'Podium.app.tar.gz.sig',
+      'Podium_0.2.0_aarch64.app.tar.gz.sig',
     ])
     expect(result.downloadPaths.map((path) => basename(path))).toEqual(['Podium_0.2.0_aarch64.dmg'])
     expect(readFileSync(result.downloadPaths[0] ?? '', 'utf8')).toBe('DMG')
@@ -150,37 +150,41 @@ describe('desktop release manifest', () => {
       signature: 'LINUX-SIGNATURE',
     })
     expect(manifest.platforms['darwin-aarch64']).toEqual({
-      url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium.app.tar.gz',
+      url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_aarch64.app.tar.gz',
       signature: 'MAC-SIGNATURE',
     })
   })
 
   it('lists desktop assets from earlier edge builds as stale', () => {
-    // Version-named DMG/AppImage pairs are never clobbered, so each edge publish leaves the
-    // previous build's installers behind — including ones from before macOS notarization.
+    // Version-named desktop pairs are never clobbered, so each edge publish leaves the previous
+    // build's installers and updater archives behind — including pre-notarization installers.
     const existing = [
       'Podium_0.1.2-edge.1_aarch64.dmg',
       'Podium_0.1.4-edge.3_amd64.AppImage',
       'Podium_0.1.4-edge.3_amd64.AppImage.sig',
+      'Podium_0.1.4-edge.3_aarch64.app.tar.gz',
+      'Podium_0.1.4-edge.3_aarch64.app.tar.gz.sig',
       'Podium_0.1.4-edge.4_aarch64.dmg',
       'Podium_0.1.4-edge.4_amd64.AppImage',
       'Podium_0.1.4-edge.4_amd64.AppImage.sig',
-      'Podium.app.tar.gz',
-      'Podium.app.tar.gz.sig',
+      'Podium_0.1.4-edge.4_aarch64.app.tar.gz',
+      'Podium_0.1.4-edge.4_aarch64.app.tar.gz.sig',
       'latest.json',
     ]
     const current = [
       'Podium_0.1.4-edge.4_aarch64.dmg',
       'Podium_0.1.4-edge.4_amd64.AppImage',
       'Podium_0.1.4-edge.4_amd64.AppImage.sig',
-      'Podium.app.tar.gz',
-      'Podium.app.tar.gz.sig',
+      'Podium_0.1.4-edge.4_aarch64.app.tar.gz',
+      'Podium_0.1.4-edge.4_aarch64.app.tar.gz.sig',
       'latest.json',
     ]
     expect(staleDesktopAssets(existing, current)).toEqual([
       'Podium_0.1.2-edge.1_aarch64.dmg',
       'Podium_0.1.4-edge.3_amd64.AppImage',
       'Podium_0.1.4-edge.3_amd64.AppImage.sig',
+      'Podium_0.1.4-edge.3_aarch64.app.tar.gz',
+      'Podium_0.1.4-edge.3_aarch64.app.tar.gz.sig',
     ])
   })
 

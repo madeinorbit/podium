@@ -92,6 +92,8 @@ async function assertArtifactsFetchable(
   artifacts: Array<{ place: string; url: string }>,
   fetchImpl: typeof fetch,
 ): Promise<void> {
+  // HEAD proves only that the named URL is reachable now. It cannot prove immutable bytes;
+  // rolling-release artifact names must still include the version they were signed for.
   await Promise.all(
     artifacts.map(async ({ place, url }) => {
       let response: Response

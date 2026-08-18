@@ -34,6 +34,7 @@ type DesktopManifest = {
 type TargetBundle = {
   target: DesktopReleaseTarget
   updaterSuffix: string
+  publishedUpdaterName?: (version: string) => string
   requiredDownloadSuffixes: string[]
 }
 
@@ -42,6 +43,7 @@ const targetBundles: TargetBundle[] = [
   {
     target: 'darwin-aarch64',
     updaterSuffix: '.app.tar.gz',
+    publishedUpdaterName: (version) => `Podium_${version}_aarch64.app.tar.gz`,
     requiredDownloadSuffixes: ['.dmg'],
   },
 ]
@@ -53,9 +55,9 @@ const desktopAssetSuffixes = targetBundles
   .flatMap((suffix) => [suffix, `${suffix}.sig`])
 
 /**
- * Desktop assets on the release that this publish does not replace. DMG and AppImage names
- * embed the version, so `gh release upload --clobber` accumulates one pair per edge build —
- * including pre-notarization installers — unless the publish step deletes the leftovers.
+ * Desktop assets on the release that this publish does not replace. DMG, AppImage, and macOS
+ * updater archive names embed the version, so `gh release upload --clobber` accumulates one pair
+ * per edge build — including pre-notarization installers — unless publish deletes the leftovers.
  */
 export function staleDesktopAssets(existingAssets: string[], currentAssets: string[]): string[] {
   const current = new Set(currentAssets)
@@ -201,8 +203,8 @@ export function prepareDesktopRelease(input: {
 } {
   const files = filesBelow(input.bundleDir)
   const artifacts: DesktopReleaseArtifact[] = []
-  const updaterSources: string[] = []
-  const signatureSources: string[] = []
+  const updaterSources: Array<{ source: string; name: string }> = []
+  const signatureSources: Array<{ source: string; name: string }> = []
   const downloadSources: string[] = []
 
   for (const bundle of targetBundles) {
@@ -218,11 +220,12 @@ export function prepareDesktopRelease(input: {
     const signature = readFileSync(signatureSource, 'utf8').trim()
     if (!signature) throw new Error(`detached signature is empty: ${signatureSource}`)
 
-    updaterSources.push(updaterSource)
-    signatureSources.push(signatureSource)
+    const artifactName = bundle.publishedUpdaterName?.(input.version) ?? basename(updaterSource)
+    updaterSources.push({ source: updaterSource, name: artifactName })
+    signatureSources.push({ source: signatureSource, name: `${artifactName}.sig` })
     artifacts.push({
       target: bundle.target,
-      artifactName: basename(updaterSource),
+      artifactName,
       signature,
     })
     for (const suffix of bundle.requiredDownloadSuffixes) {
@@ -249,15 +252,17 @@ export function prepareDesktopRelease(input: {
 
   rmSync(input.outputDir, { recursive: true, force: true })
   mkdirSync(input.outputDir, { recursive: true })
-  const copySources = (sources: string[]): string[] =>
-    sources.map((source) => {
-      const destination = join(input.outputDir, basename(source))
+  const copyNamedSources = (sources: Array<{ source: string; name: string }>): string[] =>
+    sources.map(({ source, name }) => {
+      const destination = join(input.outputDir, name)
       copyFileSync(source, destination)
       return destination
     })
-  const artifactPaths = copySources(updaterSources)
-  const signaturePaths = copySources(signatureSources)
-  const downloadPaths = copySources(downloadSources)
+  const artifactPaths = copyNamedSources(updaterSources)
+  const signaturePaths = copyNamedSources(signatureSources)
+  const downloadPaths = copyNamedSources(
+    downloadSources.map((source) => ({ source, name: basename(source) })),
+  )
   const manifestPath = join(input.outputDir, 'latest.json')
   writeFileSync(manifestPath, manifest)
 

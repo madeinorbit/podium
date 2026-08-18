@@ -64,9 +64,9 @@ describe('desktop release workflow', () => {
   })
 
   it('prunes stale desktop assets from the rolling edge release after uploading', () => {
-    // DMG/AppImage names embed the version, so --clobber never replaces them: without
-    // pruning, every past edge build — including pre-notarization installers — stays
-    // downloadable from the release page.
+    // All desktop asset names embed the version, so --clobber never replaces them: without
+    // pruning, every past edge build — including pre-notarization installers and updater
+    // archives — stays downloadable from the release page.
     expect(desktopWorkflow).toContain('--list-stale')
     expect(desktopWorkflow).toContain('gh release delete-asset edge "$asset" --yes')
     // Only the rolling edge release accumulates; stable releases are immutable per-tag cuts.
