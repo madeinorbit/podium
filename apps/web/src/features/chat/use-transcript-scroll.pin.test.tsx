@@ -202,6 +202,36 @@ describe('the brief the shelf carries', () => {
     expect(api?.pinnedBrief?.key).toBe('1')
   })
 
+  /**
+   * THE SHELF CARRIES THE READER'S WORDS, NOT THEIR ATTACHMENTS (POD-1290).
+   *
+   * The brief's html was the whole row body, verbatim — including the
+   * attachment strip with its live lazy-loading <img> thumbnails. Inside the
+   * shelf's three-line overflow clamp a lazy image is content whose measured
+   * size changes ON ITS OWN, which is the one thing the answer-independent
+   * measurement in PinnedBrief cannot defend against: instrumented live, the
+   * content number flapped, `data-clipped` flipped every ~100ms, and the
+   * shelf breathed 56px<->65px forever. The strip's collapsed remnant also
+   * sat invisibly under a one-line brief, 8px of dead height that pushed the
+   * words off the shelf's centre. The words are the brief; the images are one
+   * scroll away in the row itself.
+   */
+  it('lifts only the markdown, never the attachment strip', () => {
+    mount()
+    scroller().getBoundingClientRect = () => ({ top: 100, bottom: 800 }) as DOMRect
+    const p1 = host.querySelector('[data-testid="p1"]') as HTMLElement
+    const body = p1.querySelector('.transcript-you-body') as HTMLElement
+    body.innerHTML =
+      '<div class="chat-md"><p>[Image #1]why does 1222 show a 2</p></div>' +
+      '<div class="mt-1.5 flex"><button type="button"><img alt="shot.png" loading="lazy" src="/files/asset?x"></button></div>'
+    place(p1, 20)
+    place(host.querySelector('[data-testid="p2"]') as HTMLElement, 400)
+    sync()
+    expect(api?.pinnedBrief?.html).toContain('why does 1222 show a 2')
+    expect(api?.pinnedBrief?.html).not.toContain('<img')
+    expect(api?.pinnedBrief?.html).not.toContain('chat-md')
+  })
+
   it('carries nothing at all when the preference is off', () => {
     mount(false)
     scroller().getBoundingClientRect = () => ({ top: 100, bottom: 800 }) as DOMRect

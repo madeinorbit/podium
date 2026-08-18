@@ -3274,7 +3274,10 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   gap: 14px;
   align-items: flex-start;
   width: 100%;
-  padding: 11px 14px 12px;
+  /* Equal above and below (POD-1290): the commonest brief is ONE line, and a
+     one-line brief in an 11px/12px frame sits visibly high of centre — there
+     is no descender row or second line to spend the extra pixel on. */
+  padding: 11px 14px;
   border: 1px solid var(--chat-bubble-rim);
   border-radius: 13px;
   /* OPAQUE (POD-993 round 3). It was translucent over a blur, on the argument
