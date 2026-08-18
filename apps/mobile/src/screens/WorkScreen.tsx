@@ -3,12 +3,14 @@ import { useSlice } from '@podium/client-core/react'
 import {
   draftIssueLabel,
   formatClock,
+  type IssueNavigationModel,
   isDraftAgentVessel,
   type MotionPhase,
   missionProgress,
   pendingDecisionLabel,
   planReorderKeys,
   rowAwaitsTuck,
+  rowCanBringBack,
   rowHasWorkingSession,
   rowMotionPhase,
   rowMotionTiming,
@@ -29,19 +31,11 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import {
-  AlarmClock,
-  ArrowDownToLine,
-  ArrowUp,
-  ChevronDown,
-  ChevronRight,
-  Pin,
-} from 'lucide-react-native'
+import { AlarmClock, ArrowDownToLine, ChevronDown, ChevronRight, Pin } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { useMobileShell } from '../client/shell'
-import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare, type IdSquareState } from '../components/IdSquare'
 import { IssueColorSheet } from '../components/IssueColorSheet'
@@ -52,6 +46,7 @@ import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
+import { WorkIssueMenu, type WorkIssueMenuTarget } from '../components/WorkIssueMenu'
 import { WorkingMark } from '../components/WorkingMark'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
 import { useCollapsed } from '../hooks/useCollapsed'
@@ -153,7 +148,7 @@ export function WorkScreen() {
   // the phone and the desk cannot disagree about whether a snooze has lapsed.
   const { pinned, groups, allWorktreePaths, now } = useSlice(worklistSlice)
   const [peek, setPeek] = useState<IssueWire | null>(null)
-  const [menuIssue, setMenuIssue] = useState<IssueWire | null>(null)
+  const [menuTarget, setMenuTarget] = useState<WorkIssueMenuTarget | null>(null)
   const [colorIssue, setColorIssue] = useState<IssueWire | null>(null)
 
   const { sections, issueCount, agentCount } = useMemo(() => {
@@ -208,6 +203,17 @@ export function WorkScreen() {
     [store.markIssueRead, router],
   )
 
+  /** Desktop's context-menu Open goes to the task page. The row tap still opens
+   * the mission transcript; keeping those as separate verbs is why Peek remains
+   * useful on a phone rather than turning Open into a second name for the tap. */
+  const openIssuePage = useCallback(
+    (issue: IssueWire) => {
+      void store.markIssueRead(issue.id)
+      router.push(`/issue/${encodeURIComponent(issue.id)}`)
+    },
+    [router, store.markIssueRead],
+  )
+
   /**
    * Manual order, from the phone, in the SHARED key space [POD-168].
    *
@@ -241,37 +247,15 @@ export function WorkScreen() {
     [issues, sections, store.trpc],
   )
 
-  const menuActions = useMemo<SheetAction[]>(() => {
-    const issue = menuIssue
-    if (!issue) return []
-    return [
-      { label: 'Open', hint: 'Transcript, with the flight deck', onPress: () => openIssue(issue) },
-      {
-        label: 'Peek',
-        hint: 'The task inspector, without leaving Work',
-        onPress: () => setPeek(issue),
-      },
-      { label: 'Colour…', onPress: () => setColorIssue(issue) },
-      { label: issue.pinned ? 'Unpin' : 'Pin to top', onPress: () => togglePin(issue) },
-      { label: 'Move to top', onPress: () => move(issue, 'top') },
-      { label: 'Move up', onPress: () => move(issue, 'up') },
-      { label: 'Move down', onPress: () => move(issue, 'down') },
-      ...(issue.tuckedAt != null
-        ? [
-            {
-              label: 'Bring back from Closed',
-              onPress: () => void store.setIssueTucked(issue.id, false),
-            },
-          ]
-        : []),
-    ]
-
-    function togglePin(target: IssueWire) {
-      void store.trpc.issues.update
-        .mutate({ id: target.id, patch: { pinned: !target.pinned } })
-        .catch(() => {})
-    }
-  }, [menuIssue, move, openIssue, store.trpc, store.setIssueTucked])
+  const menuMoves = useMemo(() => {
+    if (menuTarget?.lane !== 'live') return { top: false, up: false, down: false }
+    const section = sections.find((candidate) =>
+      candidate.data.some((row) => rowIssueId(row) === menuTarget.issue.id),
+    )
+    const index = section?.data.findIndex((row) => rowIssueId(row) === menuTarget.issue.id) ?? -1
+    const length = section?.data.length ?? 0
+    return { top: index > 0, up: index > 0, down: index >= 0 && index < length - 1 }
+  }, [menuTarget, sections])
 
   return (
     <Screen
@@ -316,7 +300,7 @@ export function WorkScreen() {
                 now={now}
                 onOpenIssue={openIssue}
                 onOpenSession={(sessionId) => router.push(sessionHref(sessionId, '/work'))}
-                onLongPress={(issue) => setMenuIssue(issue)}
+                onLongPress={(issue) => setMenuTarget({ issue, lane: 'live' })}
                 onPickColour={(issue) => setColorIssue(issue)}
                 onTuck={
                   item.kind === 'issue' && rowAwaitsTuck(item, null, false, now)
@@ -335,7 +319,7 @@ export function WorkScreen() {
                     lane="snoozed"
                     now={now}
                     onOpen={openIssue}
-                    onLongPress={setMenuIssue}
+                    onLongPress={(row) => setMenuTarget({ issue: row.issue, lane: 'snoozed' })}
                   />
                 ) : null}
                 {section.closedRows.length > 0 ? (
@@ -346,7 +330,13 @@ export function WorkScreen() {
                     lane="closed"
                     now={now}
                     onOpen={openIssue}
-                    onLongPress={setMenuIssue}
+                    onLongPress={(row) =>
+                      setMenuTarget({
+                        issue: row.issue,
+                        lane: 'closed',
+                        canBringBack: rowCanBringBack(row, now),
+                      })
+                    }
                   />
                 ) : null}
               </View>
@@ -379,12 +369,18 @@ export function WorkScreen() {
           router.push(sessionHref(session.sessionId, '/work'))
         }}
       />
-      <ActionSheet
-        visible={menuIssue !== null}
-        title={menuIssue ? `${issueDisplayRef(menuIssue)} ${menuIssue.title}` : ''}
-        actions={menuActions}
-        onClose={() => setMenuIssue(null)}
-      />
+      {menuTarget ? (
+        <WorkIssueMenu
+          target={menuTarget}
+          issues={issues}
+          sessions={sessionsAll}
+          moves={menuMoves}
+          onOpen={openIssuePage}
+          onPeek={setPeek}
+          onMove={move}
+          onClose={() => setMenuTarget(null)}
+        />
+      ) : null}
       <IssueColorSheet issue={colorIssue} onClose={() => setColorIssue(null)} />
     </Screen>
   )
@@ -411,7 +407,7 @@ function Fold({
   lane: 'closed' | 'snoozed'
   now: number
   onOpen: (issue: IssueWire) => void
-  onLongPress: (issue: IssueWire) => void
+  onLongPress: (row: UnifiedIssueRow) => void
 }) {
   const [collapsed, toggle] = useCollapsed(storageKey, true)
   return (
@@ -435,7 +431,7 @@ function Fold({
               accessibilityRole="button"
               accessibilityLabel={`${issueDisplayRef(row.issue)} ${row.issue.title}`}
               onPress={() => onOpen(row.issue)}
-              onLongPress={() => onLongPress(row.issue)}
+              onLongPress={() => onLongPress(row)}
               delayLongPress={350}
               style={({ pressed }) => [styles.foldedRow, pressed && styles.pressed]}
             >
@@ -476,7 +472,7 @@ function WorkRow({
   now: number
   onOpenIssue: (issue: IssueWire) => void
   onOpenSession: (sessionId: SessionId) => void
-  onLongPress: (issue: IssueWire) => void
+  onLongPress: (issue: IssueNavigationModel) => void
   onPickColour: (issue: IssueWire) => void
   onTuck?: (() => void) | undefined
 }) {

@@ -20,6 +20,8 @@ export function PromptSheet({
   hint,
   placeholder,
   confirmLabel,
+  initialValue = '',
+  multiline = true,
   onConfirm,
   onClose,
 }: {
@@ -28,14 +30,18 @@ export function PromptSheet({
   hint?: string
   placeholder: string
   confirmLabel: string
+  /** Seed editable prompts such as Rename; omitted for compose-new prompts. */
+  initialValue?: string
+  multiline?: boolean
   onConfirm: (value: string) => void
   onClose: () => void
 }) {
   const [value, setValue] = useState('')
-  // A sheet reopened for a second flag must not carry the first one's text.
+  // A reopened compose prompt must not carry its prior text; an edit prompt
+  // starts from the current value each time it opens.
   useEffect(() => {
-    if (visible) setValue('')
-  }, [visible])
+    if (visible) setValue(initialValue)
+  }, [initialValue, visible])
 
   return (
     <BottomSheet
@@ -56,9 +62,9 @@ export function PromptSheet({
         accessibilityLabel={title}
         placeholder={placeholder}
         placeholderTextColor={color.textMicro}
-        multiline
+        multiline={multiline}
         autoFocus
-        style={styles.field}
+        style={[styles.field, !multiline && styles.singleLineField]}
       />
       <View style={styles.bar}>
         <PressableScale
@@ -119,6 +125,9 @@ const styles = StyleSheet.create({
     borderColor: color.borderStrong,
     paddingHorizontal: space.md,
     paddingVertical: space.sm + 2,
+  },
+  singleLineField: {
+    minHeight: 44,
   },
   bar: {
     flexDirection: 'row',
