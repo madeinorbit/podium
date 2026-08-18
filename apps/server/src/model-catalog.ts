@@ -1,5 +1,5 @@
 import type { MachineId } from '@podium/model'
-import type { ModelChoiceWire } from '@podium/protocol'
+import { MODEL_CATALOG_MAX_AGE_MS, type ModelChoiceWire } from '@podium/protocol'
 
 /** Bumped whenever the probe's output SHAPE changes (e.g. per-model `efforts`
  *  added, or the snapshot becoming machine-keyed) OR a probe fix means an older
@@ -78,8 +78,8 @@ export class ModelCatalog {
   }
 
   private isStale(snapshot: ModelCatalogSnapshot): boolean {
-    const ttlMs = this.opts.ttlMs ?? 60 * 60 * 1000
-    return snapshot.fetchedAt === 0 || this.now() - snapshot.fetchedAt > ttlMs
+    const ttlMs = this.opts.ttlMs ?? MODEL_CATALOG_MAX_AGE_MS
+    return snapshot.fetchedAt === 0 || this.now() - snapshot.fetchedAt >= ttlMs
   }
 
   /** Seed (or return) the in-memory entry for `machineId`. Only a persisted
@@ -90,9 +90,7 @@ export class ModelCatalog {
     if (cached) return cached
     const persisted = this.opts.load?.(machineId)
     const seeded =
-      persisted &&
-      persisted.version === MODEL_CATALOG_VERSION &&
-      persisted.machineId === machineId
+      persisted && persisted.version === MODEL_CATALOG_VERSION && persisted.machineId === machineId
         ? persisted
         : emptySnapshot(machineId)
     this.snapshots.set(machineId, seeded)

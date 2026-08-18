@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { machineViewsFromWire } from '@podium/client-core/viewmodels'
-import type { AutomationSessionMode } from '@podium/model/browser'
+import type { AutomationSessionMode, MachineId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -136,6 +136,7 @@ export function NewAutomationDialog({
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const targetMachineId = repos.find((repo) => repo.path === state.target)?.machineId
 
   const patch = (next: Partial<AutomationFormState>): void =>
     setState((prev) => ({ ...prev, ...next }))
@@ -188,6 +189,7 @@ export function NewAutomationDialog({
         field={field}
         state={state}
         ctx={ctx}
+        machineId={targetMachineId}
         onChange={patch}
         onAgentChange={(agent) => patch({ agent, model: AUTO, effort: AUTO })}
       />
@@ -283,12 +285,14 @@ function AutomationField({
   field,
   state,
   ctx,
+  machineId,
   onChange,
   onAgentChange,
 }: {
   field: AutomationFieldConfig
   state: AutomationFormState
   ctx: AutomationFormContext
+  machineId?: MachineId
   onChange: (next: Partial<AutomationFormState>) => void
   onAgentChange: (agent: ReturnType<typeof issueDefaultAgentKind>) => void
 }): JSX.Element | null {
@@ -347,12 +351,14 @@ function AutomationField({
         <div className="flex items-end gap-1.5 pb-0.5">
           <ModelPicker
             agentKind={state.agent}
+            machineId={machineId}
             value={state.model}
             // Effort is per-model — reset it whenever the model changes.
             onChange={(m) => onChange({ model: m, effort: AUTO })}
           />
           <EffortPicker
             agentKind={state.agent}
+            machineId={machineId}
             model={state.model}
             value={state.effort}
             onChange={(effort) => onChange({ effort })}

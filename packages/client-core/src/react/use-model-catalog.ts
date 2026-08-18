@@ -1,5 +1,5 @@
 import type { MachineId } from '@podium/model'
-import type { ModelChoiceWire } from '@podium/protocol'
+import { MODEL_CATALOG_MAX_AGE_MS, type ModelChoiceWire } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import type { PodiumClientApi } from '../api'
 import { useStoreSelector } from './provider'
@@ -15,8 +15,6 @@ interface Snapshot {
 
 const DEFAULT_MACHINE = '__default__'
 const EMPTY_CATALOG: ModelCatalog = {}
-const CLIENT_TTL_MS = 5 * 60 * 1000
-
 const cache = new Map<string, Snapshot>()
 /** When this client last checked, distinct from when the server last probed. */
 const checkedAt = new Map<string, number>()
@@ -33,8 +31,8 @@ function publish(key: string, snapshot: Snapshot): void {
   for (const subscriber of subscribers.get(key) ?? []) subscriber()
 }
 
-function isEmpty(byAgent: ModelCatalog): boolean {
-  return Object.values(byAgent).every((models) => !models || models.length === 0)
+function needsRefresh(snapshot: Snapshot): boolean {
+  return snapshot.fetchedAt === 0 || Date.now() - snapshot.fetchedAt >= MODEL_CATALOG_MAX_AGE_MS
 }
 
 async function fetchCatalog(
@@ -50,9 +48,11 @@ async function fetchCatalog(
       const input = machineId ? { machineId } : undefined
       const snapshot = await api.catalog.query(input)
       publish(key, snapshot)
-      // The server's first SWR read can be empty while its probe is running.
-      // Join that probe so the currently-open picker fills in without a remount.
-      if (isEmpty(snapshot.byAgent)) publish(key, await api.refresh.mutate(input))
+      // A stale server read starts an SWR probe and returns the old value immediately.
+      // Join that same in-flight probe so this mounted picker receives the result now,
+      // rather than waiting for the next interval. The shared max age keeps the client
+      // and server on the same definition of stale.
+      if (needsRefresh(snapshot)) publish(key, await api.refresh.mutate(input))
     } catch {
       // Keep the last good catalog, but record the check so an unavailable server
       // does not create a tight retry loop across several mounted pickers.
@@ -88,13 +88,13 @@ export function useModelCatalog<TApi extends PodiumClientApi = PodiumClientApi>(
     const revalidate = (): void => {
       const lastCheck = checkedAt.get(key) ?? 0
       const api = (trpc as Partial<PodiumClientApi>).models
-      if (api && Date.now() - lastCheck >= CLIENT_TTL_MS) {
+      if (api && Date.now() - lastCheck >= MODEL_CATALOG_MAX_AGE_MS) {
         void fetchCatalog(api, machineId)
       }
     }
 
     revalidate()
-    const timer = setInterval(revalidate, CLIENT_TTL_MS)
+    const timer = setInterval(revalidate, MODEL_CATALOG_MAX_AGE_MS)
     return () => {
       clearInterval(timer)
       listeners.delete(subscriber)

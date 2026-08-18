@@ -1,4 +1,5 @@
 import { asMachineId } from '@podium/model'
+import { MODEL_CATALOG_MAX_AGE_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { MODEL_CATALOG_VERSION, ModelCatalog } from './model-catalog'
 
@@ -68,6 +69,20 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     expect(probe).toHaveBeenCalledTimes(1) // still fresh
     t += 6000 // past TTL
     cat.get(asMachineId(M)) // kicks a bg refresh
+    await cat.refresh(asMachineId(M))
+    expect(probe).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses the selector freshness bound as its default TTL', async () => {
+    let t = 1000
+    const probe = vi.fn(async () => ({ codex: [] }))
+    const cat = new ModelCatalog(probe, { now: () => t })
+    await cat.refresh(asMachineId(M))
+    t += MODEL_CATALOG_MAX_AGE_MS - 1
+    cat.get(asMachineId(M))
+    expect(probe).toHaveBeenCalledTimes(1)
+    t += 1
+    cat.get(asMachineId(M))
     await cat.refresh(asMachineId(M))
     expect(probe).toHaveBeenCalledTimes(2)
   })

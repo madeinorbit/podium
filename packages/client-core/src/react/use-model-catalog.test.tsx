@@ -1,4 +1,5 @@
 import { asMachineId } from '@podium/model'
+import { MODEL_CATALOG_MAX_AGE_MS } from '@podium/protocol'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -31,26 +32,27 @@ describe('useModelCatalog', () => {
 
   it('revalidates while a picker stays mounted', async () => {
     const machineId = asMachineId('27942783-fbcc-45d4-a613-d0ee7759143d')
-    catalog
-      .mockResolvedValueOnce({
-        machineId,
-        byAgent: { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] },
-        fetchedAt: 1,
-      })
-      .mockResolvedValue({
-        machineId,
-        byAgent: { codex: [{ value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' }] },
-        fetchedAt: 2,
-      })
+    const firstFetchedAt = Date.now()
+    catalog.mockResolvedValue({
+      machineId,
+      byAgent: { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] },
+      fetchedAt: firstFetchedAt,
+    })
+    refresh.mockImplementation(async () => ({
+      machineId,
+      byAgent: { codex: [{ value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' }] },
+      fetchedAt: Date.now(),
+    }))
 
     render(<Probe />)
     await act(async () => {})
     expect(screen.getByText('GPT-5.5')).toBeTruthy()
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+      await vi.advanceTimersByTimeAsync(MODEL_CATALOG_MAX_AGE_MS)
     })
     expect(screen.getByText('GPT-5.6-Sol')).toBeTruthy()
     expect(catalog).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenCalledTimes(1)
   })
 })

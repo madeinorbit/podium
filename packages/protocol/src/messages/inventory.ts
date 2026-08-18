@@ -1,6 +1,16 @@
 import { Inventory, MachineIdField } from '@podium/model'
 import { z } from 'zod'
 
+/**
+ * Maximum age of a model list shown in a selector.
+ *
+ * Shared by the server SWR cache and every web/mobile client so one layer cannot
+ * quietly keep a catalog "fresh" longer than another layer promises to recheck it.
+ * Probing shells out to every installed harness, so five minutes keeps new models
+ * prompt without turning each menu open into a process fan-out.
+ */
+export const MODEL_CATALOG_MAX_AGE_MS = 5 * 60_000
+
 // AgentInventory / ToolInventory / Inventory live in @podium/model (POD-300),
 // inside the per-machine fact group. What stays here is the FRAMES.
 
