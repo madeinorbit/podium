@@ -518,6 +518,11 @@ interface MissionIssueIndex {
    * would silently shrink `missionSessions` for anything it started in turn.
    */
   startedCandidates: Array<{ id: string; startedBySession: SessionId }>
+  /** Child id → parent id, for walking UP the formal tree. `children` answers
+   *  "what is under this"; {@link staffedSubtreeIds} needs the other direction,
+   *  and rebuilding it per call would undo exactly what this index is for —
+   *  `SidebarRail` asks for `missionProgress` once per visible row. */
+  parents: Map<string, string>
 }
 
 let missionIndexBuilds = 0
@@ -554,6 +559,7 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
   if (cached) return cached
   missionIndexBuilds += 1
   const children = new Map<string, IssueNavigationModel[]>()
+  const parents = new Map<string, string>()
   const startedCandidates: Array<{ id: string; startedBySession: SessionId }> = []
   for (const issue of issues) {
     if (issue.startedBySession && !hasLeftMission(issue)) {
@@ -563,8 +569,9 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
     const siblings = children.get(issue.parentId) ?? []
     siblings.push(issue)
     children.set(issue.parentId, siblings)
+    parents.set(issue.id, issue.parentId)
   }
-  const index: MissionIssueIndex = { children, startedCandidates }
+  const index: MissionIssueIndex = { children, parents, startedCandidates }
   missionIndexes.set(issues, index)
   return index
 }
@@ -821,16 +828,18 @@ export function missionProgress(
  *
  * Built once per call rather than walked per unit: a mission's units are its
  * whole formal subtree, so the per-unit walk is quadratic on exactly the deep
- * missions this is asked about most. One pass marks the issues that hold a
- * session, a second walks each marked issue's ancestor chain — which stops at
- * the first already-marked ancestor, so the whole thing is linear in the tree.
+ * missions this is asked about most. One pass over the SESSIONS walks each
+ * staffed issue's ancestor chain, stopping at the first already-marked
+ * ancestor, so the whole thing is linear in the crew — and the parent edges
+ * come off the shared {@link missionIssueIndex}, which is memoised on the issue
+ * slice's identity, so a sidebar asking for one mission per row does not
+ * rebuild them per row.
  */
 function staffedSubtreeIds(
   issues: readonly IssueNavigationModel[],
   sessions: readonly SessionMeta[],
 ): Set<string> {
-  const parents = new Map<string, string>()
-  for (const issue of issues) if (issue.parentId) parents.set(issue.id, issue.parentId)
+  const { parents } = missionIssueIndex(issues)
   const staffed = new Set<string>()
   for (const session of sessions) {
     if (!session.issueId || !openSession(session)) continue
