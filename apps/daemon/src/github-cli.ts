@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
-import { isAbsolute, dirname } from 'node:path'
+import { dirname, isAbsolute } from 'node:path'
 import { promisify } from 'node:util'
 import {
-  GitHubRepositoryWire,
   type GitHubCliResultMessage,
   type GitHubCliStatusWire,
+  GitHubRepositoryWire,
 } from '@podium/protocol'
 
 const execFileAsync = promisify(execFile)
@@ -56,6 +56,23 @@ export async function githubCliStatus(exec: GitHubExec = liveExec): Promise<GitH
   }
 }
 
+/**
+ * One repository per line, because `--paginate` runs the `--jq` filter once per
+ * PAGE. `--slurp` would join the pages into one array first, but it is the one
+ * flag that cannot be relied on: `gh` older than 2.44 has never heard of it, and
+ * the versions after that refused it in the same command as `--jq` — either way
+ * the whole listing fails on a perfectly good CLI (POD-1323). `@json` makes each
+ * repository a string, which `gh` prints raw, so a description containing a
+ * newline still arrives on a single line.
+ */
+export function parseGitHubRepositoryLines(stdout: string): unknown[] {
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as unknown)
+}
+
 export async function githubCliList(exec: GitHubExec = liveExec): Promise<Result> {
   const status = await githubCliStatus(exec)
   if (status.state !== 'ready') return { status }
@@ -66,7 +83,6 @@ export async function githubCliList(exec: GitHubExec = liveExec): Promise<Result
       '--method',
       'GET',
       '--paginate',
-      '--slurp',
       '-f',
       'per_page=100',
       '-f',
@@ -74,9 +90,9 @@ export async function githubCliList(exec: GitHubExec = liveExec): Promise<Result
       '-f',
       'affiliation=owner,collaborator,organization_member',
       '--jq',
-      'flatten | map({nameWithOwner: .full_name, description, isPrivate: .private, url: .html_url, pushedAt: .pushed_at})',
+      '.[] | {nameWithOwner: .full_name, description, isPrivate: .private, url: .html_url, pushedAt: .pushed_at} | @json',
     ])
-    const repositories = GitHubRepositoryWire.array().parse(JSON.parse(stdout))
+    const repositories = GitHubRepositoryWire.array().parse(parseGitHubRepositoryLines(stdout))
     return { status, repositories }
   } catch (error) {
     return { status, error: `Could not list GitHub repositories: ${errorText(error)}` }
