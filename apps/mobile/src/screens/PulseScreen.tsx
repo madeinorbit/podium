@@ -99,23 +99,8 @@ export function PulseScreen() {
     [feed.quota, feed.buckets, feed.hosts, feed.loadPerCore, feed.nowMs],
   )
 
-  const hostCount = feed.hosts.length
-  const stamp = feed.failed
-    ? 'Last read'
-    : cold
-      ? 'Reading'
-      : `Live · ${hostCount} ${hostCount === 1 ? 'host' : 'hosts'}`
-
   return (
-    <Screen
-      title="Pulse"
-      large
-      right={
-        <Text style={styles.stamp} numberOfLines={1}>
-          {stamp}
-        </Text>
-      }
-    >
+    <Screen title="Pulse" large>
       <ModeSwitch mode={mode} onChange={setMode} />
       <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
         <ScrollView
@@ -673,11 +658,6 @@ const markBorder = (agent: AgentKind): string =>
 const styles = StyleSheet.create({
   content: {
     paddingBottom: space.xl,
-  },
-  stamp: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: font.micro,
   },
   buildStamp: {
     ...mono(400),
