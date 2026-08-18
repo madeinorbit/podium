@@ -268,8 +268,8 @@ export function VpsFirstActivation({
             ) : (
               <div role="alert" className="px-4 py-3.5 text-[12.5px] leading-[1.6] text-[#e7a3a8]">
                 Could not read which release train this Podium installs from, so there is no command
-                yet. The installer lives at a different address per channel, and the wrong one is
-                not slower — it does not exist.
+                yet. The installer lives at a different address per channel, and the wrong address
+                downloads nothing at all.
                 <button
                   type="button"
                   data-pressable
@@ -289,11 +289,13 @@ export function VpsFirstActivation({
               exists, and keeps updating on it.
             </p>
           )}
-          <p className="mt-3 text-[12.5px] leading-[1.55] text-[#7f858f]">
-            The shorter <code className="font-mono text-[#a8adb6]">curl … | sh</code> command only
-            installs Podium and exits. This complete command also installs the supported agents and
-            starts the interactive VPS setup while your SSH terminal is still attached.
-          </p>
+          {command !== null && (
+            <p className="mt-3 text-[12.5px] leading-[1.55] text-[#7f858f]">
+              The shorter <code className="font-mono text-[#a8adb6]">curl … | sh</code> command only
+              installs Podium and exits. This complete command also installs the supported agents
+              and starts the interactive VPS setup while your SSH terminal is still attached.
+            </p>
+          )}
         </section>
 
         <section className="rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d] sm:p-6">
