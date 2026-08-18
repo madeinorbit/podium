@@ -329,3 +329,12 @@ around it. On 2026-08-17 three concurrent heavy gates from this epic's workers d
 6-CPU/11-GiB host past load 100 and 22 GiB of swap, watchdog-crashed the dev daemon, and
 killed two worker sessions mid-landing. Omitting the lock from a brief is how it happens:
 workers comply with exactly what the brief says. One heavy gate machine-wide, always.
+
+### Lesson: a killed `lock acquire --wait` leaves a zombie queue entry
+A `podium lock acquire --wait` whose process is killed or times out KEEPS its queue
+entry; the lease is later granted to a process that no longer exists and burns the
+full TTL looking like a live holder (this blocked POD-2278/POD-2292 for ~25 min).
+If you background a lock wait, `podium lock cancel <name> --repo-path …` withdraws
+your entry and is safe to run speculatively on abandon. Diagnosing staleness: check
+the holder SESSION's liveness *and* whether any process of it still runs — an
+[alive] session with a dead wait process is exactly the zombie shape.
