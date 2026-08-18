@@ -52,6 +52,10 @@ const server = Bun.serve<ProxyPeer>({
   websocket: {
     open(downstream) {
       const upstream = new WebSocket('ws://source:18787/daemon')
+      const restartDownstream = (): void => {
+        if (downstream.readyState !== WebSocket.OPEN) return
+        downstream.close(1012, 'upstream source restarting')
+      }
       downstream.data.upstream = upstream
       upstream.addEventListener('open', () => {
         for (const frame of downstream.data.queued.splice(0)) upstream.send(frame)
@@ -117,8 +121,8 @@ const server = Bun.serve<ProxyPeer>({
         }
         downstream.send(raw)
       })
-      upstream.addEventListener('close', () => downstream.close())
-      upstream.addEventListener('error', () => downstream.close())
+      upstream.addEventListener('close', restartDownstream)
+      upstream.addEventListener('error', restartDownstream)
     },
     message(downstream, message) {
       const raw = textOf(message as WireData)
