@@ -10,6 +10,7 @@ import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/mode
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
+import { StyleSheet, View } from 'react-native'
 import {
   useBooting,
   useIssue,
@@ -19,6 +20,7 @@ import {
   useSpawnPending,
 } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
+import { HarnessChip } from '../components/AgentMark'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
@@ -188,23 +190,34 @@ export function SessionScreen() {
       // No `safeBottom`: the floating composer is the bottom-most thing on this
       // screen and pays that inset itself, so it can drop it when the keyboard
       // takes the bottom edge [POD-502].
+      // WHO IS TALKING, next to WHAT THEY ARE ON. The task square is coloured by
+      // the TASK — a green square over a Claude thread is the task's colour, not
+      // the harness's — so on its own it says nothing about who is in the chat,
+      // and the harness was left to a word in the subtitle. The real mark sits
+      // beside it now [POD-1355]; a square and a brand mark are different kinds
+      // of object, so the pair reads as two facts rather than two buttons.
       leading={
-        issue ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`Task ${issue.seq} — open the mission`}
-            onPress={() => router.push(`/mission/${encodeURIComponent(issue.id)}`)}
-            hitSlop={8}
-          >
-            <IdSquare
-              issue={issue}
-              state={
-                issue.needsHuman || sessionDotTone(session) === 'attention' ? 'waiting' : 'working'
-              }
-              size={18}
-            />
-          </PressableScale>
-        ) : undefined
+        <View style={styles.ident}>
+          {issue ? (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={`Task ${issue.seq} — open the mission`}
+              onPress={() => router.push(`/mission/${encodeURIComponent(issue.id)}`)}
+              hitSlop={8}
+            >
+              <IdSquare
+                issue={issue}
+                state={
+                  issue.needsHuman || sessionDotTone(session) === 'attention'
+                    ? 'waiting'
+                    : 'working'
+                }
+                size={18}
+              />
+            </PressableScale>
+          ) : null}
+          <HarnessChip kind={session.agentKind} size={18} />
+        </View>
       }
       right={
         <>
@@ -239,3 +252,7 @@ export function SessionScreen() {
     </Screen>
   )
 }
+
+const styles = StyleSheet.create({
+  ident: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+})

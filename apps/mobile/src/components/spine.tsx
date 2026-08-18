@@ -13,6 +13,7 @@ import Svg, { Line } from 'react-native-svg'
 import { alpha } from '../theme/mix'
 import { stageColor } from '../theme/stage'
 import { color, font, mono, radius, sans, space, tracking } from '../theme/theme'
+import { HarnessChip } from './AgentMark'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
@@ -120,49 +121,6 @@ export function railFor(tone: RailTone, accent: string): Rail {
   if (tone === 'mission') return { color: alpha(accent, 0.45), width: 2 }
   if (tone === 'task') return { color: alpha(accent, 0.22), width: 2 }
   return HAIRLINE
-}
-
-export const KIND_TONE: Record<string, { fg: string; bg: string; ch: string }> = {
-  'claude-code': { fg: '#ffffff', bg: color.claude, ch: 'C' },
-  codex: { fg: color.text, bg: 'rgba(243,243,248,0.10)', ch: 'X' },
-  grok: { fg: '#09090b', bg: '#ffffff', ch: 'G' },
-  opencode: { fg: color.working, bg: color.workingSoft, ch: 'O' },
-  cursor: { fg: color.working, bg: color.workingSoft, ch: 'U' },
-  shell: { fg: color.textFaint, bg: 'rgba(108,118,144,0.14)', ch: '$' },
-}
-export function kindTone(kind: AgentKind | string | undefined) {
-  return KIND_TONE[kind ?? ''] ?? { fg: color.textDim, bg: 'rgba(154,154,168,0.14)', ch: '·' }
-}
-
-/** The harness square — the phone's icon for "what kind of thing is this". */
-function HarnessChip({
-  kind,
-  size = 20,
-  dimmed = false,
-}: {
-  kind: AgentKind | string | undefined
-  size?: number
-  dimmed?: boolean
-}) {
-  const tone = kindTone(kind)
-  return (
-    <View
-      style={[
-        styles.kind,
-        {
-          width: size,
-          height: size,
-          borderRadius: size >= 20 ? radius.xs : 4,
-          backgroundColor: tone.bg,
-          opacity: dimmed ? 0.45 : 1,
-        },
-      ]}
-    >
-      <Text style={[styles.kindCh, { color: tone.fg, fontSize: size >= 20 ? 9 : 8 }]}>
-        {tone.ch}
-      </Text>
-    </View>
-  )
 }
 
 /** Past this the icons stop being a census and start being a texture. */
@@ -938,8 +896,6 @@ const styles = StyleSheet.create({
   // The one agent row with a fill: square and open to the left, because it is
   // still an agent row and not a card.
   leadFill: { position: 'absolute', top: 0, bottom: 0, right: 0 },
-  kind: { alignItems: 'center', justifyContent: 'center' },
-  kindCh: { ...mono(600) },
   bandText: { flex: 1, minWidth: 0 },
   bandNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   bandName: {

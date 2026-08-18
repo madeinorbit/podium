@@ -5,6 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useIssue, useSession } from '../../../src/client/hooks'
+import { HarnessChip } from '../../../src/components/AgentMark'
 import { IdSquare } from '../../../src/components/IdSquare'
 import { PressableScale } from '../../../src/components/PressableScale'
 import { Screen } from '../../../src/components/Screen'
@@ -62,22 +63,31 @@ export default function TerminalRoute() {
       backLabel="Chat"
       accent={accent}
       safeBottom
+      // Identity resolves exactly as the chat resolves it, harness mark included
+      // [POD-1355] — same session, same pair of facts, same order.
       leading={
-        issue && session ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`Task ${issueDisplayRef(issue)} — open`}
-            onPress={() => router.push(`/issue/${encodeURIComponent(issue.id)}`)}
-            hitSlop={8}
-          >
-            <IdSquare
-              issue={issue}
-              state={
-                issue.needsHuman || sessionDotTone(session) === 'attention' ? 'waiting' : 'working'
-              }
-              size={18}
-            />
-          </PressableScale>
+        session ? (
+          <View style={styles.ident}>
+            {issue ? (
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={`Task ${issueDisplayRef(issue)} — open`}
+                onPress={() => router.push(`/issue/${encodeURIComponent(issue.id)}`)}
+                hitSlop={8}
+              >
+                <IdSquare
+                  issue={issue}
+                  state={
+                    issue.needsHuman || sessionDotTone(session) === 'attention'
+                      ? 'waiting'
+                      : 'working'
+                  }
+                  size={18}
+                />
+              </PressableScale>
+            ) : null}
+            <HarnessChip kind={session.agentKind} size={18} />
+          </View>
         ) : undefined
       }
       // Offered only once the mount is attached: a control request before the
@@ -99,6 +109,7 @@ export default function TerminalRoute() {
 }
 
 const styles = StyleSheet.create({
+  ident: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   pane: {
     flex: 1,
     // The terminal paints its own dark canvas, so this shows only in the crop

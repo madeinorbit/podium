@@ -8,7 +8,7 @@ import type { IssueGitState, SessionMeta } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, space } from '../theme/theme'
-import { kindTone } from './spine'
+import { AgentMark, kindTone, markSize } from './AgentMark'
 
 /**
  * The three pieces of row furniture the desktop sidebar row carries and the
@@ -21,8 +21,11 @@ import { kindTone } from './spine'
 /** The ghost a PARKED harness wears (POD-756): its process was stopped to free
  *  memory, the agent is still on the task. One tone for every kind — the fact
  *  being drawn is "this one is asleep", not which harness it is. The kind's own
- *  letter stays: a parked Codex is still a Codex. */
+ *  mark stays: a parked Codex is still a Codex. */
 const PARKED_TONE = { fg: color.textFaint, bg: alpha(color.textDim, 0.1) }
+
+/** The stacked tile's edge. Named because the mark inside is sized from it. */
+const FLEET_TILE = 19
 
 /**
  * The mission's execution presence: a stack of real harness-kind tiles, the
@@ -62,7 +65,7 @@ export function FleetSummary({
                 { zIndex: index + 1 },
               ]}
             >
-              <Text style={[styles.tileCh, { color: t.fg }]}>{t.ch}</Text>
+              <AgentMark kind={kind} size={markSize(FLEET_TILE)} ink={t.fg} />
             </View>
           )
         })}
@@ -167,8 +170,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tile: {
-    width: 19,
-    height: 19,
+    width: FLEET_TILE,
+    height: FLEET_TILE,
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
@@ -176,10 +179,6 @@ const styles = StyleSheet.create({
   },
   tileOverlap: {
     marginLeft: -5,
-  },
-  tileCh: {
-    ...mono(600),
-    fontSize: 9,
   },
   fleetTotal: {
     ...mono(400),

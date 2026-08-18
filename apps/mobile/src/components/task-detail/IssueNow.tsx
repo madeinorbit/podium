@@ -4,12 +4,15 @@ import { ChevronRight } from 'lucide-react-native'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
+import { AgentMark, kindTone, markSize } from '../AgentMark'
 import { Icon } from '../Icon'
 import { PressableScale } from '../PressableScale'
-import { kindTone } from '../spine'
 import { WorkingMark } from '../WorkingMark'
 import { GitStampLine } from '../WorkRowParts'
 import { MachineLabel } from './chrome'
+
+/** The session tile on this panel. Named because the mark is sized from it. */
+const NOW_TILE = 22
 
 /**
  * NOW — what is true about this task at this second [POD-724, the phone's answer
@@ -131,7 +134,7 @@ export function IssueNow({
             ]}
           >
             <View style={[styles.tile, { backgroundColor: t.bg, borderColor: alpha(t.fg, 0.4) }]}>
-              <Text style={[styles.tileCh, { color: t.fg }]}>{t.ch}</Text>
+              <AgentMark kind={session.agentKind} size={markSize(NOW_TILE)} ink={t.fg} />
             </View>
             <Text style={styles.name} numberOfLines={1}>
               {sessionTitle(session)}
@@ -203,16 +206,12 @@ const styles = StyleSheet.create({
     backgroundColor: color.surfacePressed,
   },
   tile: {
-    width: 22,
-    height: 22,
+    width: NOW_TILE,
+    height: NOW_TILE,
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  tileCh: {
-    ...mono(600),
-    fontSize: 10,
   },
   name: {
     ...sans(500),

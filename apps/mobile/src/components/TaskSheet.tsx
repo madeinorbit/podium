@@ -38,6 +38,7 @@ import {
   tracking,
 } from '../theme/theme'
 import { ActionSheet } from './ActionSheet'
+import { AgentMark, kindTone, markSize } from './AgentMark'
 import { ArtifactViewer } from './ArtifactViewer'
 import { BottomSheet } from './BottomSheet'
 import { Composer } from './Composer'
@@ -46,7 +47,9 @@ import { IdSquare } from './IdSquare'
 import { IssueCloseSheet } from './IssueCloseSheet'
 import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
-import { kindTone } from './spine'
+
+/** The session row's harness chip. Named because the mark is sized from it. */
+const SESSION_CHIP = 20
 
 /**
  * THE TASK INSPECTOR — one sheet, two detents [POD-592, POD-724].
@@ -400,7 +403,7 @@ function SheetBody({
                 style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
               >
                 <View style={[styles.kind, { backgroundColor: tone.bg }]}>
-                  <Text style={[styles.kindCh, { color: tone.fg }]}>{tone.ch}</Text>
+                  <AgentMark kind={session.agentKind} size={markSize(SESSION_CHIP)} ink={tone.fg} />
                 </View>
                 <Text numberOfLines={1} style={styles.rowTitle}>
                   {sessionTitle(session)}
@@ -568,13 +571,12 @@ const styles = StyleSheet.create({
   rowTitle: { ...sans(400), flex: 1, fontSize: font.tiny, color: color.body },
   rowStamp: { ...mono(400), fontSize: font.micro, color: color.textMicro },
   kind: {
-    width: 20,
-    height: 20,
+    width: SESSION_CHIP,
+    height: SESSION_CHIP,
     borderRadius: radius.xs,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  kindCh: { ...mono(600), fontSize: 9 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.accent },
 
   branch: { ...mono(400), fontSize: font.micro, color: color.accentTint },
