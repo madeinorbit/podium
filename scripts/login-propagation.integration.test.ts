@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -100,6 +101,38 @@ describe('real daemon-to-daemon login propagation', () => {
   afterEach(() => {
     if (root) rmSync(root, { recursive: true, force: true })
     root = undefined
+  })
+
+  it('models Claude 2.1.222 version and auth status from fixture credentials', () => {
+    root = mkdtempSync(join(tmpdir(), 'podium-login-propagation-'))
+    const loggedInHome = join(root, 'logged-in-home')
+    const loggedOutHome = join(root, 'logged-out-home')
+    mkdirSync(loggedInHome)
+    mkdirSync(loggedOutHome)
+    installClaudeFixture(loggedInHome, true)
+    installClaudeFixture(loggedOutHome, false)
+
+    const runFixture = (home: string, args: string[]) =>
+      spawnSync(join(home, '.local', 'bin', 'claude'), args, {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home },
+      })
+
+    expect(runFixture(loggedInHome, ['--version'])).toMatchObject({
+      status: 0,
+      stdout: 'claude 2.1.222\n',
+      stderr: '',
+    })
+    expect(runFixture(loggedInHome, ['auth', 'status'])).toMatchObject({
+      status: 0,
+      stdout: '{"loggedIn":true,"email":"propagation@example.test"}\n',
+      stderr: '',
+    })
+    expect(runFixture(loggedOutHome, ['auth', 'status'])).toMatchObject({
+      status: 1,
+      stdout: '{"loggedIn":false}\n',
+      stderr: '',
+    })
   })
 
   it('copies a logged-in native file across two authenticated daemons and preserves a later local login', async () => {
