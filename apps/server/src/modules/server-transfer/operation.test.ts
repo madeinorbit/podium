@@ -269,18 +269,39 @@ describe('server-move operation', () => {
     })
   })
 
-  it('clears a stale seal only for an exact resumable pre-fence journal', () => {
+  it('defers only an exact resumable source journal while its target is offline', () => {
+    const exact = journal('validated')
+    expect(
+      reconcileServerMoveOperation(operation(), {
+        journal: exact,
+        machineId: 'source-1',
+        targetOnline: false,
+        now: 100,
+      }),
+    ).toBe(ADOPTION_DEFERRED)
+
     const resumed = reconcileServerMoveOperation(operation(), {
-      journal: journal('validated'),
-      now: 100,
+      journal: exact,
+      machineId: 'source-1',
+      targetOnline: true,
+      now: 101,
     })
     expect(resumed.state).toBe('running')
     expect(resumed.details).not.toHaveProperty('_handoff')
 
-    const mismatched = journal('validated')
-    mismatched.record = { ...mismatched.record, port: 8443 }
-    expect(
-      reconcileServerMoveOperation(operation(), { journal: mismatched, now: 100 }),
-    ).toMatchObject({ state: 'failed', error: { code: 'handoff-orphaned' } })
+    for (const mismatched of [
+      { ...exact, record: { ...exact.record, operationId: 'operation-other' } },
+      { ...exact, record: { ...exact.record, sourceMachineId: asMachineId('source-other') } },
+      { ...exact, record: { ...exact.record, port: 8443 } },
+    ]) {
+      expect(
+        reconcileServerMoveOperation(operation(), {
+          journal: mismatched,
+          machineId: 'source-1',
+          targetOnline: false,
+          now: 102,
+        }),
+      ).toMatchObject({ state: 'failed', error: { code: 'handoff-orphaned' } })
+    }
   })
 })

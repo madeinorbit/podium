@@ -849,25 +849,38 @@ export async function startServer(
   const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
   if (!recoveryOnly)
     await registry.modules.operations.engine.adoptOnBoot(
-      (row) =>
-        row.kind === 'server-move'
-          ? {
-              promoted: bootTargetPromotion?.state === 'promoted' ? bootTargetPromotion : null,
-              promoting: bootTargetPromotion?.state === 'promoting' ? bootTargetPromotion : null,
-              journal: registry.modules.serverTransfer.status(),
-              machineId: hostMachineId,
-              now: Date.now(),
-            }
-          : {
-              appVersion,
-              servedWebDigest: websiteDigestReader(
-                () => servedWebSourceDigest(desktopWebDir()),
-                () => servedWebIdentity(phoneWebDir()),
-              )?.(),
-              machineDirectory: registry.modules.updates.fleet(),
-              ...(parentReport ? { parentReport } : {}),
-              now: Date.now(),
-            },
+      (row) => {
+        if (row.kind === 'server-move') {
+          const details = row.operation?.details
+          const targetMachineId =
+            details &&
+            typeof details === 'object' &&
+            typeof details.targetMachineId === 'string'
+              ? details.targetMachineId
+              : undefined
+          return {
+            promoted: bootTargetPromotion?.state === 'promoted' ? bootTargetPromotion : null,
+            promoting: bootTargetPromotion?.state === 'promoting' ? bootTargetPromotion : null,
+            journal: registry.modules.serverTransfer.status(),
+            machineId: hostMachineId,
+            targetOnline:
+              targetMachineId !== undefined &&
+              registry.modules.machines.hasDaemon(asMachineId(targetMachineId)),
+            now: Date.now(),
+          }
+        }
+        return {
+          appVersion,
+          servedWebDigest: websiteDigestReader(
+            () => servedWebSourceDigest(desktopWebDir()),
+            () => servedWebIdentity(phoneWebDir()),
+          )?.(),
+          machineDirectory: registry.modules.updates.fleet(),
+          ...(parentReport ? { parentReport } : {}),
+          now: Date.now(),
+        }
+      },
+
       (row) => {
         if (row.kind !== 'server-move') return updateOperationBoot()
         const details = row.operation?.details
@@ -910,6 +923,23 @@ export async function startServer(
       },
     )
   if (!recoveryOnly && parentReport) clearParentOutcome()
+
+  const deferredSourceJournal = registry.modules.serverTransfer.status()
+  const deferredSourceMove =
+    deferredSourceJournal &&
+    ['preparing', 'staged', 'validated', 'fence-pending'].includes(
+      deferredSourceJournal.state,
+    ) &&
+    deferredSourceJournal.record.sourceMachineId === hostMachineId &&
+    registry.modules.operations.engine.isAdoptionDeferred(
+      deferredSourceJournal.record.operationId,
+    )
+      ? {
+          operationId: deferredSourceJournal.record.operationId,
+          transferId: deferredSourceJournal.record.transferId,
+          targetMachineId: deferredSourceJournal.record.targetMachineId,
+        }
+      : undefined
 
   const deferredPromotion =
     bootTargetPromotion?.state === 'promoting' &&
@@ -958,6 +988,68 @@ export async function startServer(
     // Read immediately, then keep retrying while deferred. This closes both the
     // write-before-poll window and a transient reconciliation failure.
     void settle()
+  }
+
+  let startDeferredSourceMovePoll = (): void => {}
+  let stopDeferredSourceMovePoll = (): void => {}
+  if (deferredSourceMove) {
+    let poll: ReturnType<typeof setInterval> | undefined
+    let settling = false
+    let stopped = false
+    const settle = async (): Promise<void> => {
+      if (settling || stopped) return
+      if (
+        !registry.modules.operations.engine.isAdoptionDeferred(
+          deferredSourceMove.operationId,
+        )
+      ) {
+        stopDeferredSourceMovePoll()
+        return
+      }
+      const targetOnline = registry.modules.machines.hasDaemon(
+        deferredSourceMove.targetMachineId,
+      )
+      if (!targetOnline) return
+      settling = true
+      try {
+        await registry.modules.operations.engine.resumeDeferredAdoption(
+          deferredSourceMove.operationId,
+          {
+            journal: registry.modules.serverTransfer.status(),
+            machineId: hostMachineId,
+            targetOnline,
+            now: Date.now(),
+          },
+        )
+        if (
+          !registry.modules.operations.engine.isAdoptionDeferred(
+            deferredSourceMove.operationId,
+          )
+        )
+          stopDeferredSourceMovePoll()
+      } catch (error) {
+        log.warn('deferred source server move adoption retry failed', {
+          operationId: deferredSourceMove.operationId,
+          transferId: deferredSourceMove.transferId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        settling = false
+      }
+    }
+    startDeferredSourceMovePoll = () => {
+      if (poll || stopped) return
+      poll = setInterval(() => {
+        void settle()
+      }, 50)
+      poll.unref?.()
+      void settle()
+    }
+    stopDeferredSourceMovePoll = () => {
+      stopped = true
+      if (poll) clearInterval(poll)
+      poll = undefined
+    }
   }
 
   const requestPeerAddresses = new WeakMap<Request, string>()
@@ -1319,6 +1411,7 @@ export async function startServer(
       if (settled) return
       settled = true
       stopDeferredPromotionPoll()
+      stopDeferredSourceMovePoll()
       messaging.stop()
       registry.dispose()
       // THE SECOND CLOSE PATH (POD-2148). Boot adoption has already run by
@@ -1392,6 +1485,7 @@ export async function startServer(
           return compressHttpResponse(request, await app.fetch(observedRequest))
         },
       })
+      startDeferredSourceMovePoll()
     } catch (err) {
       void ws.close()
       failListen(err)
@@ -1616,6 +1710,7 @@ export async function startServer(
             persist: [
               ['messaging.stop', () => messaging.stop()],
               ['serverMove.stopDeferredPromotionPoll', stopDeferredPromotionPoll],
+              ['serverMove.stopDeferredSourceMovePoll', stopDeferredSourceMovePoll],
               // An armed refresh timer that outlives the server would resolve a
               // target against a service whose store is already closed.
               ['updates.stopTargetRefresh', () => targetRefresh.stop()],
@@ -1651,6 +1746,7 @@ export async function startServer(
               ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
               ['registry.dispose', () => registry.dispose()],
               ['store.close', () => store.close()],
+
 
             ],
           }),

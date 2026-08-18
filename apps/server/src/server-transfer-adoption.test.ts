@@ -1,11 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from './migrations'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { OperationStore } from './modules/operations/store'
+import { TransferJournal } from './modules/server-transfer/journal'
+import type { TransferRecord } from './modules/server-transfer/types'
 import { startServer, type ServerHandle } from './server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
@@ -178,5 +181,108 @@ describe('target server deferred move adoption', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ dataPlane: 'available' })
     expect(handle.registry.modules.operations.engine.get(operation.id)?.state).toBe('done')
+  })
+})
+
+describe('source server deferred move adoption', () => {
+  it('keeps HTTP available and resumes the exact move only after the target connects', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-source-move-adoption-'))
+    let handle: ServerHandle | undefined
+    process.env.PODIUM_STATE_DIR = root
+    try {
+      writeFileSync(
+        join(root, 'config.json'),
+        JSON.stringify({
+          configVersion: 2,
+          mode: 'server',
+          persistence: 'detached',
+          publicUrl: 'https://podium.example.com',
+        }),
+      )
+      writeFileSync(join(root, 'machine.id'), 'source-1')
+
+      const { _handoff: _staleSeal, ...sourceDetails } = operation.details
+      const sourceOperation = {
+        ...operation,
+        steps: [
+          { id: 'preflight', title: 'Checking the move', state: 'done' as const },
+          {
+            id: 'stage',
+            title: 'Copying server state',
+            state: 'running' as const,
+            attempts: 1,
+            startedAt: 2,
+            lastProgressAt: 10,
+          },
+          { id: 'validate', title: 'Verifying the copy', state: 'pending' as const },
+          { id: 'fence', title: 'Pausing this server', state: 'pending' as const },
+          { id: 'cutover', title: 'Switching servers', state: 'pending' as const },
+        ],
+        details: sourceDetails,
+      }
+      const db = openDatabase(join(root, 'podium.db'))
+      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      new OperationStore(db).insert(sourceOperation)
+      db.close()
+
+      const packageDir = join(root, '.server-transfer', 'snapshots', operation.id, 'initial')
+      mkdirSync(packageDir, { recursive: true })
+      const record: TransferRecord = {
+        operationId: operation.id,
+        phase: 'copying',
+        bytesCopied: 0,
+        totalBytes: 0,
+        transferId: sourceDetails.transferId,
+        targetMachineId: asMachineId(sourceDetails.targetMachineId),
+        publicUrl: sourceDetails.publicUrl,
+        port: sourceDetails.port,
+        sourceMachineId: asMachineId(sourceDetails.sourceMachineId),
+        sourceInstanceId: 'source-instance',
+        packageDir,
+        manifest: {
+          formatVersion: 1,
+          operationId: operation.id,
+          transferId: sourceDetails.transferId,
+          sourceInstanceId: 'source-instance',
+          sourceMachineId: sourceDetails.sourceMachineId,
+          targetMachineId: sourceDetails.targetMachineId,
+          sourceFeedId: 'feed-1',
+          sourceFeedEpoch: 'epoch-1',
+          appVersion: 'test',
+          schemaVersion: 'schema-1',
+          packageBytes: 0,
+          files: [],
+          digest: sourceDetails.manifestDigest,
+        },
+        idempotencyKey: sourceDetails.transferId,
+        targetProof: false,
+        sourceConnected: false,
+      }
+      new TransferJournal(join(root, '.server-transfer')).begin(record)
+
+      handle = await startServer({ port: 0 })
+      const engine = handle.registry.modules.operations.engine
+      const deferred = engine.get(operation.id)?.operation
+      expect(engine.isAdoptionDeferred(operation.id)).toBe(true)
+      expect(deferred?.updatedAt).toBe(10)
+      expect(deferred?.steps?.find((step) => step.id === 'stage')?.attempts).toBe(1)
+
+      const response = await fetch('http://127.0.0.1:' + handle.port + '/version')
+      expect(response.status).toBe(200)
+
+      handle.registry.modules.machines.attach(asMachineId('target-1'), () => {})
+      const resumed = await eventually(
+        async () => engine.get(operation.id)?.operation,
+        (current) =>
+          (current?.steps?.find((step) => step.id === 'stage')?.attempts ?? 0) > 1,
+      )
+      expect(engine.isAdoptionDeferred(operation.id)).toBe(false)
+      expect(resumed?.id).toBe(operation.id)
+      expect(resumed?.details).toMatchObject({ transferId: sourceDetails.transferId })
+    } finally {
+      await handle?.close()
+      process.env.PODIUM_STATE_DIR = priorStateDir
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

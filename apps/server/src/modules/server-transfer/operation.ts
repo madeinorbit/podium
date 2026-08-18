@@ -54,6 +54,7 @@ export interface ServerMoveReality {
     port: number
   } | null
   machineId?: string
+  targetOnline?: boolean
   journal?: TransferJournalEntry
   now: number
 }
@@ -217,15 +218,19 @@ export function reconcileServerMoveOperation(
   }
   const journal = reality.journal
   const journalDigest = journal?.record.manifest?.digest
-  if (
+  const exactResumableSource =
     journal &&
     ['preparing', 'staged', 'validated', 'fence-pending'].includes(journal.state) &&
+    journal.record.operationId === operation.id &&
     journal.record.transferId === details.transferId &&
+    journal.record.sourceMachineId === details.sourceMachineId &&
     journal.record.targetMachineId === details.targetMachineId &&
     journal.record.publicUrl === details.publicUrl &&
     journal.record.port === details.port &&
-    journalDigest === details.manifestDigest
-  ) {
+    journalDigest === details.manifestDigest &&
+    reality.machineId === details.sourceMachineId
+  if (exactResumableSource) {
+    if (reality.targetOnline === false) return ADOPTION_DEFERRED
     const { _handoff: _staleSeal, ...adoptedDetails } = details
     return { ...operation, state: 'running', details: adoptedDetails }
   }
