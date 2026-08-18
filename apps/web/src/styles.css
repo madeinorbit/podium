@@ -10027,6 +10027,13 @@ a.ref-link--session::before {
 [data-sonner-toast].cn-toast[data-styled="true"] [data-title] {
   color: var(--text-strong, var(--popover-foreground));
   font-weight: 500;
+  /* A COMMAND'S OWN LINES STAY ITS OWN LINES (POD-1266). Errors from the shell
+     arrive as several lines with the verdict on the last one, and collapsing
+     them ran `fatal: a branch named … already exists` into the tail of the git
+     invocation that produced it. `pre-line` keeps the breaks the message was
+     written with and still collapses runs of spaces and wraps normally — a
+     one-line receipt is drawn exactly as before. */
+  white-space: pre-line;
 }
 
 /* The hierarchy, the right way up. Sonner's stock description is a literal

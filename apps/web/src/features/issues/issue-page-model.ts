@@ -1,5 +1,5 @@
 /**
- * Viewmodel for the issue page (P5d, issue #264): the busy/toast mutation
+ * Viewmodel for the issue page (P5d, issue #264): the busy/error mutation
  * runner, the lazy comment thread, the event-log drain, and the pure
  * "what to show" derivations — everything IssuePage renders but none of the
  * JSX. Extracted verbatim from IssuePage.tsx; behavior is unchanged.
@@ -16,8 +16,9 @@ import {
 import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
-import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { toast } from 'sonner'
 import type { Store } from '@/app/store'
+import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import { issueNeighbors } from './issue-page'
@@ -50,8 +51,7 @@ export interface IssuePageModel {
   >
   issues: IssueViewModel[]
   busy: boolean
-  toast: string
-  /** Run a mutation, surfacing any thrown error verbatim as an inline toast. */
+  /** Run a mutation, surfacing any thrown error verbatim as an error toast. */
   run: RunMutation
   prev?: IssueId
   next?: IssueId
@@ -106,18 +106,16 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<IssueEvent[]>([])
   const [comments, setComments] = useState<ActivityComment[]>([])
   const [mail, setMail] = useState<IssueMailMessage[]>([])
 
-  // Reset the toast on issue switch and seed comments from the (legacy,
-  // pre-#175) embedded thread if the wire still carries one; the lazy fetch
-  // below replaces it with server truth.
+  // Seed comments on issue switch from the (legacy, pre-#175) embedded thread if
+  // the wire still carries one; the lazy fetch below replaces it with server
+  // truth.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {
-    setToast('')
     setComments(issue.comments ?? [])
   }, [issue.id])
 
@@ -216,13 +214,21 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     }
   }, [issue.id, issue.repoPath])
 
+  // A REFUSED WRITE IS AN ALERT, NOT A FOOTNOTE (POD-1266). This used to set a
+  // string that IssuePage drew as a muted strip pinned under the whole page —
+  // so `Start work` failing on an existing branch answered three hundred pixels
+  // below the button, in the grey reserved for captions, in the one place the
+  // eye is not after pressing something. It goes through the app's own
+  // `<Toaster/>` now, which is where every other refusal in the app already
+  // lands (IssueCompactControls fires the SAME start error that way) and which
+  // is already cut for this content: `.cn-toast` sizes to the message and wraps
+  // a worktree path without shredding it.
   const run: RunMutation = async (fn) => {
     setBusy(true)
-    setToast('')
     try {
       await fn()
     } catch (e) {
-      setToast(e instanceof Error ? e.message : String(e))
+      toast.error(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
@@ -243,7 +249,6 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     },
     issues,
     busy,
-    toast,
     run,
     prev,
     next,

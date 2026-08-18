@@ -1,7 +1,7 @@
 /**
  * Named commands for the issue page (P5d, issue #264): every tRPC call site the
  * page fires lives here as a verb over the store surface — server-only `trpc`,
- * optimistic issue-write actions, plus the page's toast-wrapping mutation
+ * optimistic issue-write actions, plus the page's error-reporting mutation
  * runner — so `IssuePage.tsx` and
  * `issue-page-properties.tsx` stay composition + JSX. Curation callbacks
  * (`onDeleted`, `onDeferred`) now follow overlay publication rather than the
@@ -20,7 +20,7 @@ import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 
 /** The page's mutation runner: busy-gates and surfaces thrown errors verbatim
- *  as the inline toast (owned by `useIssuePageModel`). */
+ *  as an error toast (owned by `useIssuePageModel`). */
 export type RunMutation = (fn: () => Promise<unknown>) => Promise<void>
 
 export type MergeStyle = 'ff-only' | 'pr' | 'ask'

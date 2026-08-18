@@ -1,7 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePage } from './IssuePage'
+
+// The page's mutation runner reports a refused write through the app's shared
+// <Toaster/>, which lives in AppShell and is not mounted around this page.
+vi.mock('sonner', () => ({
+  toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), info: vi.fn() }),
+}))
 
 const addSession = vi.fn(async () => ({}))
 const addShell = vi.fn(async () => ({}))
@@ -53,6 +60,7 @@ afterEach(() => {
   addShell.mockClear()
   start.mockClear()
   update.mockClear()
+  vi.mocked(toast.error).mockClear()
 })
 
 describe('IssuePage agent start controls', () => {
@@ -105,5 +113,29 @@ describe('IssuePage agent start controls', () => {
         patch: { defaultModel: 'sonnet', defaultEffort: 'auto' },
       }),
     )
+  })
+
+  // POD-1266: a refused start used to land as a muted grey strip pinned under
+  // the whole page — below the activity feed and the comment composer, hundreds
+  // of pixels from the button that was pressed, in the type reserved for
+  // captions. `git worktree add` failing on a branch that already exists is the
+  // ordinary way this happens, and it read as page furniture rather than as an
+  // answer to the click. It is an alert now, and NOTHING is written into the
+  // page body.
+  it('reports a refused start as an alert, not as text at the foot of the page', async () => {
+    const message =
+      "worktree add failed: fatal: a branch named 'issue/1262-main-red-on-typecheck' already exists"
+    start.mockRejectedValueOnce(new Error(message))
+    const issue = makeIssue({ id: 'i-1', defaultAgent: 'claude-code', worktreePath: null })
+    render(
+      <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
+    )
+
+    const startButton = screen.getAllByRole('button', { name: 'Start work' }).at(0)
+    if (!startButton) throw new Error('missing start-work button')
+    fireEvent.click(startButton)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(message))
+    expect(screen.queryByText(message)).toBeNull()
   })
 })

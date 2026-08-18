@@ -3,7 +3,6 @@ import type { CSSProperties, JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { issueColorHex } from '@/lib/issueColors'
-import { cn } from '@/lib/utils'
 import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
@@ -69,7 +68,7 @@ export function IssuePage({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const model = useIssuePageModel(issue, orderedIds)
-  const { busy, toast, run, prev, next, repoName, feed, mail, children, issues } = model
+  const { busy, run, prev, next, repoName, feed, mail, children, issues } = model
   const { memberSessions, openSession } = model
   const commands = issuePageCommands({ trpc: model.trpc, issue, run, ...model.issueWrites })
 
@@ -294,18 +293,6 @@ export function IssuePage({
         onOpenChange={(open) => !open && setCloseReason(null)}
         onConfirm={(reason) => commands.selectStatus(`close:${reason}`)}
       />
-
-      {toast && (
-        <div
-          className={cn(
-            'border-border border-t px-4 py-2 text-[12px]',
-            'whitespace-pre-wrap break-words text-muted-foreground',
-          )}
-          role="status"
-        >
-          {toast}
-        </div>
-      )}
     </div>
   )
 }
