@@ -516,6 +516,9 @@ export class SessionRegistry {
           userCommandPrincipal(asUserId(principal.user), principal.role),
         ),
     })
+    // Hosts is composed below the transfer service. The callback is rebound once
+    // it exists; transfer actions cannot run until this constructor completes.
+    let resumeHostPressureAfterTransferFence = (): void => {}
     // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
     // this registry mints names a machine (POD-318), and a machine id with no row is
     // a machine nobody may use — so the row has to exist before the registry can be
@@ -926,6 +929,8 @@ export class SessionRegistry {
         memory.resumeMirroringAfterTransfer()
         portableStateFence.release()
         this.localDaemonPortableState?.resume()
+        machines.resumeAfterTransferFence()
+        resumeHostPressureAfterTransferFence()
       },
       demoteSource: ({ transferId, publicUrl }) => {
         prepareSourceDaemonCutover({ transferId, serverUrl: publicUrl })
@@ -1117,6 +1122,7 @@ export class SessionRegistry {
     const hosts = new HostsService(
       {
         getSettings: () => this.store.settings.getSettings(),
+        transferFenceActive: () => this.store.transferFenceActive,
         clients: () => clientRegistry.values(),
         machineName: (id) => machines.machineName(id),
         sessions: () => {
@@ -1173,6 +1179,7 @@ export class SessionRegistry {
       },
       this.bus,
     )
+    resumeHostPressureAfterTransferFence = () => hosts.resumeAfterTransferFence()
     const headless = sessionsSvc.headless
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
     this.bus.on('machine.metadataChanged', ({ machineId }) => {

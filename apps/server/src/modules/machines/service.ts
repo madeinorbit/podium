@@ -226,6 +226,14 @@ export class MachinesService {
   // `toMachine` and never learns whether a message went out or was parked.
   private readonly pendingByMachine = new Map<string, ControlMessage[]>()
   /**
+   * Latest durable inventory report received while the server-transfer fence owns
+   * SQLite. Inventory is a replaceable machine fact, so one entry per machine is
+   * sufficient: an abort flushes the newest report after writability returns; a
+   * committed handoff leaves the sealed source untouched and the daemon reports
+   * again when it reconnects to the promoted target.
+   */
+  private readonly deferredInventoryByMachine = new Map<MachineId, string>()
+  /**
    * In-memory mirror of the machines table. listSessions() resolves machineName
    * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
    * a fresh SQLite prepare+all on the hottest path in the process — the profiled
@@ -863,7 +871,29 @@ export class MachinesService {
 
   /** Persist a daemon's inventoryReport (#222) on its machine row. */
   recordInventory(machineId: MachineId, inventory: Inventory): void {
-    this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
+    const inventoryJson = JSON.stringify(inventory)
+    if (this.deps.store.transferFenceActive) {
+      this.deferredInventoryByMachine.set(machineId, inventoryJson)
+      return
+    }
+    this.persistInventory(machineId, inventoryJson)
+  }
+
+  /** Reconcile daemon inventory after a recoverable transfer abort releases SQLite. */
+  resumeAfterTransferFence(): void {
+    if (this.deps.store.transferFenceActive) return
+    for (const [machineId, inventoryJson] of this.deferredInventoryByMachine) {
+      this.persistInventory(machineId, inventoryJson)
+      // A synchronous projection callback could have received a newer report.
+      // Only remove the exact value just persisted so newest-wins remains true.
+      if (this.deferredInventoryByMachine.get(machineId) === inventoryJson) {
+        this.deferredInventoryByMachine.delete(machineId)
+      }
+    }
+  }
+
+  private persistInventory(machineId: MachineId, inventoryJson: string): void {
+    this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
     else this.deps.sessionsChangedForMachine?.(machineId)

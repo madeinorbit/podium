@@ -300,6 +300,33 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(store.machines.getMachine(MACHINE)?.hostname).toBe('vmi-renamed')
   })
 
+  test('coalesces inventory while the transfer fence is read-only and resumes after abort', () => {
+    const { svc, store } = makeStoreService()
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'vmi',
+      hostname: 'vmi',
+      tokenHash: 'x',
+      ownerUserId: asUserId('user:sole'),
+    })
+    const latest: Inventory = {
+      ...INV,
+      podiumVersion: '10.0.1',
+    }
+
+    store.beginTransferFence()
+    expect(() => svc.recordInventory(MACHINE, INV)).not.toThrow()
+    expect(() => svc.recordInventory(MACHINE, latest)).not.toThrow()
+    expect(store.machines.getMachine(MACHINE)?.inventory).toBeUndefined()
+    // Reconciliation cannot weaken or bypass the physical fence.
+    svc.resumeAfterTransferFence()
+    expect(store.machines.getMachine(MACHINE)?.inventory).toBeUndefined()
+
+    store.endTransferFence()
+    svc.resumeAfterTransferFence()
+    expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(latest)
+  })
+
   test('records the native identity fingerprint selected on the target machine', () => {
     const { svc, store } = makeStoreService()
     store.machines.upsertMachine({

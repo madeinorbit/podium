@@ -84,6 +84,8 @@ export interface HostSessionView {
 
 export interface HostsDeps {
   getSettings(): PodiumSettings
+  /** Physical SQLite transfer fence; live metrics continue, lifecycle writes wait. */
+  transferFenceActive(): boolean
   /** Connected client fan-out (hostMetricsChanged — live-only, message-class). */
   clients(): Iterable<{ send(msg: LiveServerMessage): void }>
   /** Display name for a machineId — stamps inbound samples. */
@@ -129,6 +131,8 @@ export class HostsService {
   // Latest health sample per daemon host, keyed by machineId — each connected
   // machine reports its own sample, scoped to it so a detach drops only its row.
   private readonly latestHostMetrics = new Map<string, HostMetricsWire>()
+  /** Machines whose latest sample arrived while lifecycle effects were fenced. */
+  private readonly deferredPressureMachines = new Set<MachineId>()
   // At most one hibernation per cooldown window PER MACHINE — memory readings need
   // time to reflect the previous kill before deciding to take down another agent.
   // Each machine has its own memory budget, so the cooldown and the candidate pool
@@ -161,9 +165,31 @@ export class HostsService {
       machineId,
       name: this.deps.machineName(machineId),
     }
+    if (this.deps.transferFenceActive()) {
+      this.deferredPressureMachines.add(machineId)
+      this.latestHostMetrics.set(machineId, tagged)
+      this.broadcastHostMetrics()
+      return
+    }
+    this.deferredPressureMachines.delete(machineId)
     const idleCapUnmet = this.maybeAutoHibernate(machineId, tagged)
     this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
     this.broadcastHostMetrics()
+  }
+
+  /** Reconsider the newest fenced sample after a recoverable transfer abort. */
+  resumeAfterTransferFence(): void {
+    if (this.deps.transferFenceActive()) return
+    let changed = false
+    for (const machineId of this.deferredPressureMachines) {
+      const sample = this.latestHostMetrics.get(machineId)
+      this.deferredPressureMachines.delete(machineId)
+      if (!sample) continue
+      const idleCapUnmet = this.maybeAutoHibernate(machineId, sample)
+      this.latestHostMetrics.set(machineId, { ...sample, idleCapUnmet })
+      changed = true
+    }
+    if (changed) this.broadcastHostMetrics()
   }
 
   hostMetricsMessage(): LiveServerMessage {

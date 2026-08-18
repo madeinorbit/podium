@@ -3341,6 +3341,80 @@ describe('hibernation', () => {
     return sessionId
   }
 
+  it('defers daemon inventory and idle-pressure writes across the transfer fence', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-18T00:00:00.000Z'))
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      store.settings.setSettings({
+        ...store.settings.getSettings(),
+        hibernation: {
+          enabled: true,
+          memoryPct: 80,
+          loadPerCore: null,
+          maxIdleSessions: null,
+          idleMinutes: 30,
+          idleShellMinutes: 1,
+          backstopMinutes: null,
+        },
+      })
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/w',
+      })
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      vi.advanceTimersByTime(2 * 60_000)
+      const clearReadAt = vi.spyOn(store.sessions, 'clearAllReadAt')
+
+      store.beginTransferFence()
+      expect(() =>
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          type: 'inventoryReport',
+          machineId: reg.sessionStore.hostMachineId,
+          inventory: {
+            os: 'linux',
+            arch: 'x64',
+            podiumVersion: 'fenced-report',
+            agents: [],
+            tools: [],
+          },
+        }),
+      ).not.toThrow()
+      expect(() =>
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          type: 'hostMetrics',
+          hostname: 'box',
+          sampledAt: new Date().toISOString(),
+          memory: {
+            totalBytes: 100,
+            availableBytes: 90,
+            swapTotalBytes: 0,
+            swapFreeBytes: 0,
+          },
+        }),
+      ).not.toThrow()
+      expect(store.machines.getMachine(reg.sessionStore.hostMachineId)?.inventory).toBeUndefined()
+      expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
+      expect(clearReadAt).not.toHaveBeenCalled()
+
+      store.endTransferFence()
+      reg.modules.machines.resumeAfterTransferFence()
+      reg.modules.hosts.resumeAfterTransferFence()
+      expect(store.machines.getMachine(reg.sessionStore.hostMachineId)?.inventory).toMatchObject({
+        podiumVersion: 'fenced-report',
+      })
+      expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+      expect(clearReadAt).toHaveBeenCalledOnce()
+    } finally {
+      reg.dispose()
+      store.close()
+      vi.useRealTimers()
+    }
+  })
+
   it('does not write the DB on every output frame — coalesces to the flush', () => {
     const store = new SessionStore(':memory:', TEST_MACHINE)
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
