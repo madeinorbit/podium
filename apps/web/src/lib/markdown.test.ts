@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   linkifyCodePaths,
@@ -135,10 +136,65 @@ describe('linkifyRefs (#474)', () => {
     expect(linkifyRefs('ZZZ-9 unknown')).toBe('ZZZ-9 unknown')
   })
 
-  it('never links inside an existing anchor or code span', () => {
+  it('never links inside an existing anchor', () => {
     setKnownRefPrefixes(['POD'])
     expect(linkifyRefs('<a href="x">POD-13</a>')).toBe('<a href="x">POD-13</a>')
-    expect(linkifyRefs('<code>POD-13</code>')).toBe('<code>POD-13</code>')
+  })
+
+  it('unwraps a code span that is nothing but a ref', () => {
+    setKnownRefPrefixes(['POD'])
+    expect(linkifyRefs('filed as <code>POD-13</code> today')).toBe(
+      'filed as <a class="ref-link ref-link--issue" href="#POD-13" data-ref="POD-13">POD-13</a> today',
+    )
+  })
+
+  it('leaves a ref quoted inside a longer code span literal', () => {
+    setKnownRefPrefixes(['POD'])
+    const cmd = '<code>podium issue close POD-13</code>'
+    expect(linkifyRefs(cmd)).toBe(cmd)
+  })
+
+  it('leaves an unregistered prefix wrapped in its code span', () => {
+    setKnownRefPrefixes(['POD'])
+    expect(linkifyRefs('<code>ZZZ-9</code>')).toBe('<code>ZZZ-9</code>')
+  })
+
+  it('never touches a fenced block, even one holding only a ref', () => {
+    setKnownRefPrefixes(['POD'])
+    const block = '<pre><code>POD-13</code></pre>'
+    expect(linkifyRefs(block)).toBe(block)
+    const langBlock = '<pre><code class="language-ts">POD-13 here</code></pre>'
+    expect(linkifyRefs(langBlock)).toBe(langBlock)
+  })
+
+  it('keeps linkifying prose after an unwrapped code span', () => {
+    setKnownRefPrefixes(['POD'])
+    const out = linkifyRefs('<code>POD-13</code> blocks POD-14')
+    expect(out).toContain('data-ref="POD-13"')
+    expect(out).toContain('data-ref="POD-14"')
+    expect(out).not.toContain('<code>')
+  })
+
+  it('carries live stage attributes onto an unwrapped code span', () => {
+    setKnownRefPrefixes(['POD'])
+    const model: IssueReferenceModel = {
+      ref: 'POD-13',
+      issueId: null,
+      title: 'Ref chips',
+      stage: 'in_progress',
+      availability: 'present',
+      accessibleLabel: 'POD-13 in progress',
+    }
+    const out = linkifyRefs('<code>POD-13</code>', new Map([['POD-13', model]]))
+    expect(out).toContain('data-issue-stage="in_progress"')
+    expect(out).toContain('aria-label="POD-13 in progress"')
+  })
+
+  it('renderMarkdown linkifies a backticked ref', () => {
+    setKnownRefPrefixes(['POD'])
+    const html = renderMarkdown('filed as `POD-13` with an edge')
+    expect(html).toContain('data-ref="POD-13"')
+    expect(html).not.toContain('<code>')
   })
 
   it('renderMarkdown wires the ref pass end-to-end', () => {

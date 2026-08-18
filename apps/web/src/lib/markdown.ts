@@ -64,9 +64,16 @@ export function isKnownRefPrefix(prefix: string): boolean {
 /**
  * Turn `PREFIX-N` / `PREFIX-N-LETTER` / `PREFIX-DRAFT-N` tokens into ref anchors
  * (#474), analogous to {@link linkifyCodePaths}. Runs on sanitized HTML and only
- * rewrites TEXT nodes — never inside an existing `<a>` or `<code>`, and never a
- * tag's own attributes — so it can't double-link or corrupt markup. Only tokens
- * whose prefix is a registered repo prefix become links.
+ * rewrites TEXT nodes — never inside an existing `<a>`, never inside a fenced
+ * block, and never a tag's own attributes — so it can't double-link or corrupt
+ * markup. Only tokens whose prefix is a registered repo prefix become links.
+ *
+ * An inline code span whose WHOLE content is a single ref is unwrapped into the
+ * chip: `POD-13` in backticks is how the ref is written everywhere — the agent
+ * instructions spell it that way — so treating the backticks as "leave this
+ * literal" cost most refs in chat their stage colour and their popup. A ref
+ * quoted inside a longer span (a command line, a path) stays literal: there the
+ * backticks really are quoting text. Fenced blocks are never touched.
  *
  * Emits a real in-page anchor so keyboard activation and WebView hit testing use
  * native link behavior. The delegated click handler prevents the hash fallback
@@ -75,30 +82,59 @@ export function isKnownRefPrefix(prefix: string): boolean {
  */
 export type IssueReferenceLookup = ReadonlyMap<string, IssueReferenceModel>
 
+/** The chip anchor for one already-validated ref token, or null if the token is
+ *  not a ref of a registered prefix. */
+function refAnchor(tok: string, issueReferences?: IssueReferenceLookup): string | null {
+  const ref = parseAnyRef(tok)
+  if (!ref || !knownRefPrefixes.has(ref.prefix)) return null
+  const issue = ref.kind === 'issue' ? issueReferences?.get(tok) : undefined
+  const liveAttrs = issue
+    ? ` data-issue-stage="${issue.stage ?? ''}" data-issue-availability="${issue.availability}" aria-label="${escapeHtml(issue.accessibleLabel)}"`
+    : ''
+  return `<a class="ref-link ref-link--${ref.kind}" href="#${tok}" data-ref="${tok}"${liveAttrs}>${tok}</a>`
+}
+
+/** Whether the text is exactly one ref token and nothing else. */
+function soleRefToken(text: string): string | null {
+  const tok = text.trim()
+  if (!tok) return null
+  const m = anyRefMatcher().exec(tok)
+  return m && m[0] === tok ? tok : null
+}
+
 export function linkifyRefs(html: string, issueReferences?: IssueReferenceLookup): string {
   if (knownRefPrefixes.size === 0) return html
   const parts = html.split(/(<[^>]+>)/)
   let inAnchor = 0
   let inCode = 0
+  let inPre = 0
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i]!
     if (p.startsWith('<')) {
       if (/^<a\b/i.test(p)) inAnchor++
       else if (/^<\/a>/i.test(p)) inAnchor = Math.max(0, inAnchor - 1)
-      else if (/^<code\b/i.test(p)) inCode++
-      else if (/^<\/code>/i.test(p)) inCode = Math.max(0, inCode - 1)
+      else if (/^<pre\b/i.test(p)) inPre++
+      else if (/^<\/pre>/i.test(p)) inPre = Math.max(0, inPre - 1)
+      else if (/^<code\b/i.test(p)) {
+        inCode++
+        // `<code>` + text + `</code>` where the text is nothing but a ref: drop
+        // the code wrapper and let the chip stand on its own, rather than
+        // nesting chip chrome inside mono chrome.
+        const tok = inPre === 0 && inAnchor === 0 ? soleRefToken(parts[i + 1] ?? '') : null
+        const anchor =
+          tok && /^<\/code>/i.test(parts[i + 2] ?? '') ? refAnchor(tok, issueReferences) : null
+        if (anchor) {
+          parts[i] = ''
+          parts[i + 1] = anchor
+          parts[i + 2] = ''
+          inCode--
+          i += 2
+        }
+      } else if (/^<\/code>/i.test(p)) inCode = Math.max(0, inCode - 1)
       continue
     }
-    if (inAnchor > 0 || inCode > 0 || p === '') continue
-    parts[i] = p.replace(anyRefMatcher(), (tok) => {
-      const ref = parseAnyRef(tok)
-      if (!ref || !knownRefPrefixes.has(ref.prefix)) return tok
-      const issue = ref.kind === 'issue' ? issueReferences?.get(tok) : undefined
-      const liveAttrs = issue
-        ? ` data-issue-stage="${issue.stage ?? ''}" data-issue-availability="${issue.availability}" aria-label="${escapeHtml(issue.accessibleLabel)}"`
-        : ''
-      return `<a class="ref-link ref-link--${ref.kind}" href="#${tok}" data-ref="${tok}"${liveAttrs}>${tok}</a>`
-    })
+    if (inAnchor > 0 || inCode > 0 || inPre > 0 || p === '') continue
+    parts[i] = p.replace(anyRefMatcher(), (tok) => refAnchor(tok, issueReferences) ?? tok)
   }
   return parts.join('')
 }
