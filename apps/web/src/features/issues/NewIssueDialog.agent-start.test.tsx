@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { NewIssueDialog } from './NewIssueDialog'
 
-const create = vi.fn(async () => makeIssue({ id: 'new-issue' }))
+// Typed input so the assertions below can read back the payload create received.
+const create = vi.fn(async (_input: Record<string, unknown>) => makeIssue({ id: 'new-issue' }))
 const update = vi.fn(async () => ({}))
-const linearSearch = vi.fn(async () => [])
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
@@ -35,7 +35,6 @@ vi.mock('@/app/store', () => {
       issues: {
         create: { mutate: create },
         update: { mutate: update },
-        linearSearch: { query: linearSearch },
       },
     },
   })
@@ -68,33 +67,66 @@ afterEach(() => {
   cleanup()
   create.mockClear()
   update.mockClear()
-  linearSearch.mockClear()
 })
 
-describe('NewIssueDialog agent start selection', () => {
-  it('preselects the default agent and saves a deferred ticket with a selected agent', async () => {
+describe('NewIssueDialog runs-on band', () => {
+  it('preselects the default agent and sends the one you pick', async () => {
     render(<NewIssueDialog onClose={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: 'Claude Code (default)' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Claude Code (default)' }))
+    const agentTrigger = screen.getByRole('button', { name: 'Agent' })
+    expect(agentTrigger.textContent).toContain('Claude Code')
+    fireEvent.click(agentTrigger)
     expect(screen.queryByRole('menuitem', { name: 'Claude Code' })).toBeNull()
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Cursor' }))
 
-    const startNow = screen.getByRole('checkbox', { name: 'Start work now' }) as HTMLInputElement
-    fireEvent.click(startNow)
-    expect(startNow.checked).toBe(false)
-    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Deferred cursor task' } })
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Cursor task' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: 'Deferred cursor task',
+          title: 'Cursor task',
           defaultAgent: 'cursor',
-          startNow: false,
+          startNow: true,
         }),
       ),
     )
+  })
+
+  it('collapses the band and files a bare ticket when start-now is off', async () => {
+    render(<NewIssueDialog onClose={vi.fn()} />)
+
+    // Chosen while the band is open…
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Cursor' }))
+
+    const startNow = screen.getByRole('checkbox', { name: 'Start work now' }) as HTMLInputElement
+    fireEvent.click(startNow)
+    expect(startNow.checked).toBe(false)
+    // …and gone with the band, which says so in as many words.
+    expect(screen.queryByRole('button', { name: 'Agent' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Machine' })).toBeNull()
+    expect(screen.getByText(/chosen when you start it/)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Deferred task' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(create.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ title: 'Deferred task', startNow: false }),
+    )
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('defaultAgent')
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('machineId')
+  })
+
+  it('toggles the band with ⌥S', () => {
+    render(<NewIssueDialog onClose={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Agent' })).toBeTruthy()
+    fireEvent.keyDown(screen.getByLabelText('Title'), { code: 'KeyS', altKey: true })
+    expect(screen.queryByRole('button', { name: 'Agent' })).toBeNull()
+    fireEvent.keyDown(screen.getByLabelText('Title'), { code: 'KeyS', altKey: true })
+    expect(screen.getByRole('button', { name: 'Agent' })).toBeTruthy()
   })
 
   it('lets you pick a model and passes it to create', async () => {
@@ -121,20 +153,18 @@ describe('NewIssueDialog agent start selection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus' }))
     // Switch agent → the model pill falls back to Auto (Opus is a Claude alias).
-    fireEvent.click(screen.getByRole('button', { name: 'Claude Code (default)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Cursor' }))
 
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Switched agent' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
-    await waitFor(() =>
-      expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({ defaultAgent: 'cursor', defaultModel: undefined }),
-      ),
-    )
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(create.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ defaultAgent: 'cursor' }))
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('defaultModel')
   })
 
-  it('splits repo and branch selection into scoped menus with icons', async () => {
+  it('scopes the header to repo and stage — branch, type, labels and assignee are gone', async () => {
     render(<NewIssueDialog onClose={vi.fn()} />)
 
     const repoButton = screen.getByRole('button', { name: 'repo' })
@@ -147,14 +177,34 @@ describe('NewIssueDialog agent start selection', () => {
 
     fireEvent.keyDown(document.body, { key: 'Escape' })
 
-    const branchButton = screen.getByRole('button', { name: 'main (default)' })
-    expect(branchButton.querySelector('svg')).toBeTruthy()
-    fireEvent.click(branchButton)
-    expect(await screen.findByRole('menuitem', { name: 'main (default)' })).toBeTruthy()
-    expect(screen.getByRole('menuitem', { name: 'feature-auth' })).toBeTruthy()
-    expect(screen.getByRole('menuitem', { name: 'bugfix-login' })).toBeTruthy()
-    expect(screen.getByRole('menuitem', { name: 'New' })).toBeTruthy()
-    expect(screen.queryByRole('menuitem', { name: 'repo' })).toBeNull()
-    expect(screen.queryByRole('menuitem', { name: 'other' })).toBeNull()
+    // The glyph carries its own label, so the stage pill's name doubles it.
+    expect(screen.getByRole('button', { name: /Backlog/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'main (default)' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Assignee' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'task' })).toBeNull()
+  })
+
+  it('links a Linear issue from a url pasted into the description', async () => {
+    render(<NewIssueDialog onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'context: https://linear.app/acme/issue/ENG-412/fix-the-login' },
+    })
+    expect(screen.getByRole('button', { name: /ENG-412/ })).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Imported' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          linear: {
+            identifier: 'ENG-412',
+            url: 'https://linear.app/acme/issue/ENG-412/fix-the-login',
+          },
+        }),
+      ),
+    )
   })
 })
