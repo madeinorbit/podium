@@ -8,7 +8,8 @@ import {
   spawnedByParentSessionId,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { sessionPresentOnTask } from './fleet'
+import { sessionParked, sessionPresentOnTask } from './fleet'
+import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase } from './session-status'
 import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './slices/issues'
@@ -1109,8 +1110,7 @@ export function buildFlightDeckRows(
         // child in `planning` or `shipping` counted it in `tasks` and in neither
         // tier, which paints picked-up work into the trough.
         run: hidden.filter(
-          (child) =>
-            !child.closedReason && (UNDERWAY.has(child.stage) || child.stage === 'review'),
+          (child) => !child.closedReason && (UNDERWAY.has(child.stage) || child.stage === 'review'),
         ).length,
         kinds: [...new Set(subtreeSessions.filter(openSession).map((s) => s.agentKind))].slice(
           0,
@@ -1577,6 +1577,24 @@ export function issueContinuation(
     full: `Work continued in ${ref}`,
     line: `continued · ${ref}`,
   }
+}
+
+/** The session sentence underneath a continuation signpost. Kept shared so a
+ * phone never claims a duplicate is empty while its parked agent is in view. */
+export function continuationPresenceLine(
+  kind: IssueContinuation['kind'],
+  sessions: readonly SessionMeta[],
+): string {
+  const present = sessions.filter(sessionPresentOnTask)
+  if (present.length === 0) {
+    return kind === 'spinoff'
+      ? 'No session remains here.'
+      : 'No session remains on this closed task.'
+  }
+  if (present.length > 1) return `${present.length} sessions are still on this task.`
+  const only = present[0] as SessionMeta
+  const who = agentLabel(only.agentKind)
+  return sessionParked(only) ? `${who} is parked on this task.` : `${who} is still on this task.`
 }
 
 /**

@@ -2,16 +2,21 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
-  agentLabel,
   archivedSessionsForIssue,
   buildFlightDeckRows,
+  continuationPresenceLine as sharedContinuationPresenceLine,
   type CollapsedSummary,
   type DeckIssueState,
   type DeckState,
   deckIssueState,
   deckSessions,
+  type FlightDeckFoldMap,
+  type FlightDeckFoldState,
   type FlightDeckMode,
   type FlightDeckRow,
+  flightDeckRowDefaultFolded,
+  flightDeckRowHasPayload,
+  flightDeckRowIsFolded,
   type IssueContinuation,
   type IssueNavigationModel,
   type IssueNote,
@@ -31,18 +36,18 @@ import {
   type PresenceNote,
   presenceNote,
   reposToViews,
+  readFlightDeckFolds,
   reuseFlightDeckRows,
   type SessionRole,
   selectedMissionRoot,
   sessionAsksOnIssue,
   sessionNeedsHuman,
-  sessionParked,
-  sessionPresentOnTask,
   sessionRole,
   sessionSettled,
   sessionUnreadEmphasized,
   subtreeUnread,
   treeGuides,
+  writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId, SessionMeta } from '@podium/model/browser'
@@ -416,54 +421,16 @@ const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? nu
  * without rewriting everyone's saved state, and what stops "fold everything" and
  * "I closed this one" from being the same fact.
  */
-export type FoldState = 'open' | 'closed'
-export type FoldMap = ReadonlyMap<string, FoldState>
-
-const EMPTY_FOLDS: FoldMap = new Map<string, FoldState>()
-
-const idsIn = (value: unknown): string[] =>
-  Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
-
-/** Total, like every persisted reader here: a malformed or older blob falls back
- *  to "nothing explicit" rather than throwing. The v1 format was a bare array of
- *  collapsed ids — every one of those WAS an explicit fold, so it migrates to
- *  `closed` rather than being dropped. */
-export const readFolds = (raw: string | null): FoldMap => {
-  if (!raw) return EMPTY_FOLDS
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return EMPTY_FOLDS
-  }
-  if (Array.isArray(parsed)) {
-    const legacy = idsIn(parsed)
-    return legacy.length === 0
-      ? EMPTY_FOLDS
-      : new Map(legacy.map((id): [string, FoldState] => [id, 'closed']))
-  }
-  if (!parsed || typeof parsed !== 'object') return EMPTY_FOLDS
-  const blob = parsed as { open?: unknown; closed?: unknown }
-  const folds = new Map<string, FoldState>()
-  for (const id of idsIn(blob.open)) folds.set(id, 'open')
-  for (const id of idsIn(blob.closed)) folds.set(id, 'closed')
-  return folds.size === 0 ? EMPTY_FOLDS : folds
-}
-
-export const writeFolds = (folds: FoldMap): string | null => {
-  if (folds.size === 0) return null
-  const open: string[] = []
-  const closed: string[] = []
-  for (const [id, state] of folds) (state === 'open' ? open : closed).push(id)
-  return JSON.stringify({ v: 2, open, closed })
-}
-
+export type FoldState = FlightDeckFoldState
+export type FoldMap = FlightDeckFoldMap
+export const readFolds = readFlightDeckFolds
+export const writeFolds = writeFlightDeckFolds
 type FoldableRow = Pick<FlightDeckRow, 'issue' | 'descendantIds' | 'sessions'>
 
 /** Whether a task has anything to fold at all. A payload-less strip draws no
  *  chevron and never enters the fold map. */
 export function hasPayload(row: Pick<FlightDeckRow, 'descendantIds' | 'sessions'>): boolean {
-  return row.descendantIds.length > 0 || row.sessions.length > 0
+  return flightDeckRowHasPayload(row)
 }
 
 /**
@@ -473,14 +440,11 @@ export function hasPayload(row: Pick<FlightDeckRow, 'descendantIds' | 'sessions'
  * strip; folding a branch hides work.
  */
 export function defaultFolded(row: Pick<FlightDeckRow, 'descendantIds' | 'sessions'>): boolean {
-  return row.descendantIds.length === 0 && row.sessions.length === 1
+  return flightDeckRowDefaultFolded(row)
 }
 
 /** The effective fold: an explicit value wins, else the default rule. */
-export function isFolded(row: FoldableRow, folds: FoldMap): boolean {
-  const explicit = folds.get(row.issue.id)
-  return explicit === undefined ? defaultFolded(row) : explicit === 'closed'
-}
+export const isFolded = flightDeckRowIsFolded
 
 /**
  * Unread for a task strip. Working agents suppress the mark (the spinner
@@ -2138,18 +2102,7 @@ export function continuationPresenceLine(
   kind: IssueContinuation['kind'],
   sessions: readonly SessionMeta[],
 ): string {
-  const present = sessions.filter(sessionPresentOnTask)
-  if (present.length === 0) {
-    return kind === 'spinoff'
-      ? 'No session remains here.'
-      : 'No session remains on this closed task.'
-  }
-  if (present.length > 1) return `${present.length} sessions are still on this task.`
-  // Named, not counted: one agent is a WHO, and the roster row right below this
-  // card already says which harness it is.
-  const only = present[0] as SessionMeta
-  const who = agentLabel(only.agentKind)
-  return sessionParked(only) ? `${who} is parked on this task.` : `${who} is still on this task.`
+  return sharedContinuationPresenceLine(kind, sessions)
 }
 
 /**

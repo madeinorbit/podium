@@ -1,4 +1,8 @@
-import type { FlightDeckRow } from '@podium/client-core/viewmodels'
+import {
+  type FlightDeckFoldMap,
+  type FlightDeckRow,
+  flightDeckRowIsFolded,
+} from '@podium/client-core/viewmodels'
 
 /**
  * The Flight Deck's one phone-only display rule [POD-592].
@@ -28,16 +32,15 @@ import type { FlightDeckRow } from '@podium/client-core/viewmodels'
  */
 export function applyFolds(
   rows: readonly FlightDeckRow[],
-  folded: ReadonlySet<string>,
+  folds: FlightDeckFoldMap,
 ): FlightDeckRow[] {
-  if (folded.size === 0) return [...rows]
   const out: FlightDeckRow[] = []
   let hideBelow: number | null = null
   for (const row of rows) {
     if (hideBelow !== null && row.depth > hideBelow) continue
     hideBelow = null
     out.push(row)
-    if (folded.has(row.issue.id)) hideBelow = row.depth
+    if (flightDeckRowIsFolded(row, folds)) hideBelow = row.depth
   }
   return out
 }

@@ -1,12 +1,16 @@
 import { useSlice } from '@podium/client-core/react'
 import {
   agentBadge,
+  agentFleetStatus,
+  candidateFromAvailability,
   isSessionWorking,
+  machineViewsFromWire,
   type MissionProgress,
   missionCrewLabel,
   missionProgress,
   missionRootFor,
   missionSessions as missionSessionsOf,
+  reposToViews,
   sessionNeedsHuman,
   sessionTitle,
   worklistSlice,
@@ -14,6 +18,7 @@ import {
 import {
   type AgentKind,
   asIssueId,
+  type IssueId,
   type IssueWire,
   type SessionId,
   type SessionMeta,
@@ -30,6 +35,7 @@ import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueColorSheet } from '../components/IssueColorSheet'
+import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionDeck } from '../components/MissionDeck'
 import { PressableScale } from '../components/PressableScale'
@@ -40,6 +46,7 @@ import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { mostRelevantSession } from '../lib/mission-session'
+import { issueCloseBlockers } from '../lib/issue-close'
 import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, space, spring } from '../theme/theme'
@@ -110,6 +117,7 @@ export function MissionScreen() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
   const [colorOpen, setColorOpen] = useState(false)
+  const [fileRootPending, setFileRootPending] = useState(false)
 
   // An explicit pick from the deck outranks the automatic one, but only while it
   // still names a session on THIS mission — a mission you return to hours later
@@ -154,6 +162,61 @@ export function MissionScreen() {
     },
     [root, store.trpc],
   )
+
+  /** The same capability reading as the desktop deck: an installed harness is
+   * offered, a signed-out one stays live with a hint, and a refusal says why. */
+  const launchHosts = useMemo(() => {
+    if (!root) return []
+    const views = machineViewsFromWire(store.machines)
+    if (root.machineId) return views.filter((view) => view.machine.id === root.machineId)
+    const repo = reposToViews(store.repos).find((candidate) => candidate.path === root.repoPath)
+    const ids = new Set((repo?.machines ?? []).map((machine) => machine.machineId))
+    return views.filter((view) => ids.has(view.machine.id))
+  }, [root, store.machines, store.repos])
+  const launchActions = useMemo<SheetAction[]>(
+    () =>
+      LAUNCHABLE.map(({ kind, label }) => {
+        // No recorded hosts means inventory has not arrived; keep the option
+        // offered, matching the desktop's fail-open rule for unknown inventory.
+        const status =
+          launchHosts.length === 0
+            ? {}
+            : agentFleetStatus(
+                launchHosts.map((view) =>
+                  candidateFromAvailability(view.machine, view.availability, kind),
+                ),
+                label,
+              )
+        return {
+          label,
+          ...(status.hint ? { hint: status.hint } : {}),
+          disabled: status.reason !== undefined,
+          onPress: () => launch(kind),
+        }
+      }),
+    [launch, launchHosts],
+  )
+
+  const closeAndTuckRoot = useCallback(() => {
+    if (!root) return
+    setFileRootPending(false)
+    void store
+      .closeIssue(root.id, 'done')
+      .then(() => store.setIssueTucked(root.id, true))
+      .catch(() => {})
+  }, [root, store])
+  const fileRoot = useCallback(() => {
+    if (!root) return
+    if (root.closedReason || root.stage === 'done') {
+      void store.setIssueTucked(root.id, true).catch(() => {})
+      return
+    }
+    if (issueCloseBlockers(root, sessions).length > 0) {
+      setFileRootPending(true)
+      return
+    }
+    closeAndTuckRoot()
+  }, [closeAndTuckRoot, root, sessions, store])
 
   const menuActions = useMemo<SheetAction[]>(() => {
     if (!root) return []
@@ -249,6 +312,11 @@ export function MissionScreen() {
             onOpenSession={openSession}
             onOpenTask={setPeek}
             onLaunchAgent={() => setLaunchOpen(true)}
+            onTuckRoot={() => {
+              void store.setIssueTucked(root.id, true).catch(() => {})
+            }}
+            onFileRoot={fileRoot}
+            onOpenDeparture={(issueId) => router.push(`/mission/${encodeURIComponent(issueId)}`)}
           />
         ) : (
           <EmptyState title="Mission not found." />
@@ -280,16 +348,22 @@ export function MissionScreen() {
             ? 'Joins this task’s existing worktree.'
             : 'Creates the task’s branch and worktree first.'
         }
-        actions={LAUNCHABLE.map(({ kind, label }) => ({
-          label,
-          onPress: () => launch(kind),
-        }))}
+        actions={launchActions}
         onClose={() => setLaunchOpen(false)}
       />
       <IssueColorSheet
         issue={colorOpen ? (root ?? null) : null}
         onClose={() => setColorOpen(false)}
       />
+      {root ? (
+        <IssueCloseSheet
+          issue={root}
+          sessions={sessions}
+          reason={fileRootPending ? 'done' : null}
+          onConfirm={closeAndTuckRoot}
+          onClose={() => setFileRootPending(false)}
+        />
+      ) : null}
     </Screen>
   )
 }
@@ -319,6 +393,9 @@ function MissionBody({
   onOpenSession,
   onOpenTask,
   onLaunchAgent,
+  onTuckRoot,
+  onFileRoot,
+  onOpenDeparture,
 }: {
   root: IssueWire
   issues: readonly IssueWire[]
@@ -335,6 +412,9 @@ function MissionBody({
   onOpenSession: (session: SessionMeta) => void
   onOpenTask: (issue: IssueWire) => void
   onLaunchAgent: () => void
+  onTuckRoot: () => void
+  onFileRoot: () => void
+  onOpenDeparture: (issueId: IssueId) => void
 }) {
   const panelHeight = Math.round(Dimensions.get('window').height * PANEL_FRACTION)
   const y = useRef(new Animated.Value(-panelHeight)).current
@@ -453,6 +533,18 @@ function MissionBody({
               onLaunchAgent()
               settle(false)
             }}
+            onTuckRoot={() => {
+              onTuckRoot()
+              settle(false)
+            }}
+            onFileRoot={() => {
+              onFileRoot()
+              settle(false)
+            }}
+            onOpenDeparture={(issueId) => {
+              onOpenDeparture(issueId)
+              settle(false)
+            }}
           />
           {/* The panel's own grab edge, so closing it is the same gesture as
               opening it rather than a hunt for the bar underneath. */}
@@ -502,7 +594,7 @@ function MissionBar({
       accessibilityRole="button"
       accessibilityState={{ expanded: open }}
       accessibilityLabel="Flight deck"
-      accessibilityHint={`${progress.done} of ${progress.total} tasks done, ${crew}${attention > 0 ? `, ${attention} asking` : ''}`}
+      accessibilityHint={`${progress.done} of ${progress.total} tasks done, ${crew}${progress.stall > 0 ? `, ${progress.stall} stalled` : ''}${attention > 0 ? `, ${attention} asking` : ''}`}
       onPress={onToggle}
       scaleTo={0.995}
       haptic={false}

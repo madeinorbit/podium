@@ -90,10 +90,10 @@ export const BAND_H = 44
  */
 const TICK_W = 3
 const TICK_H = 18
-/** Offsets from the row's own rail: selection just inside it, attention just
- *  outside — so attention is always the leftmost thing on the row. */
-const TICK_SELECTED_X = 4
-const TICK_ATTENTION_X = -6
+/** Selection stands on the rail and leaves its gutter to the elbow. Attention
+ *  stays on the far side, so the two marks never merge into a pair of bars. */
+const TICK_SELECTED_X = -1
+const TICK_ATTENTION_X = -RAIL_INSET
 
 /**
  * THE LEAD RAIL.
@@ -357,6 +357,7 @@ export function TaskStrip({
   folded,
   liveWord,
   selected,
+  context,
   foldable,
   onPress,
   onLongPress,
@@ -380,6 +381,8 @@ export function TaskStrip({
   /** Live state in words while folded (`2 running`), replacing the state word. */
   liveWord?: string
   selected: boolean
+  /** This row only preserves the path to a Needs-you match below it. */
+  context: boolean
   foldable: boolean
   onPress: () => void
   onLongPress?: () => void
@@ -402,7 +405,7 @@ export function TaskStrip({
         stops={stops}
       />
       {/* Both marks stand BESIDE the strip rather than on it: attention outside
-          the rail, selection inside it, so a selected task that also has
+          the rail, selection on it, so a selected task that also has
           somebody asking shows two ticks and neither has to become the other. */}
       {state.attention ? (
         <View
@@ -425,17 +428,26 @@ export function TaskStrip({
       <PressableScale
         onPress={onPress}
         onLongPress={onLongPress}
-        accessibilityLabel={stripLabel({ displayRef, title, state, word, seat, census })}
+        accessibilityLabel={stripLabel({
+          displayRef,
+          title,
+          state,
+          word,
+          seat,
+          census,
+          context,
+        })}
         style={[
           styles.strip,
           {
             marginLeft: bandLeft,
             height: STRIP_H,
-            borderColor: selected ? color.borderStrong : color.hairline,
+            borderColor: selected ? color.borderStrong : context ? 'transparent' : color.hairline,
+            backgroundColor: context ? 'transparent' : color.surface,
           },
         ]}
       >
-        {state.state === 'blocked' ? <Hatch /> : null}
+        {state.state === 'blocked' && !context ? <Hatch /> : null}
         {/* THE DISCLOSURE MOVED INTO THE STRIP (POD-758). It used to stand in
             the rail gutter, as the tree's node marker, which is what kept four
             depths inside 393pt. The gutter is now where the selection and
@@ -464,6 +476,7 @@ export function TaskStrip({
               numberOfLines={1}
               style={[
                 styles.stripTitle,
+                context ? styles.stripTitleContext : null,
                 selected ? styles.stripTitleSelected : null,
                 // Cancelled settles exactly the way done does — the work has
                 // stopped either way, and the WORD in the state column is what
@@ -475,24 +488,26 @@ export function TaskStrip({
             >
               {title}
             </Text>
-            {seat ? <SeatChip note={seat} /> : null}
-            {census.length > 0 ? <CrewCensus crew={census} /> : null}
+            {seat && !context ? <SeatChip note={seat} /> : null}
+            {census.length > 0 && !context ? <CrewCensus crew={census} /> : null}
           </View>
           <View style={styles.subline}>
             <Text style={styles.ref}>{displayRef}</Text>
-            <Text style={styles.sep}>·</Text>
+            {!context ? <Text style={styles.sep}>·</Text> : null}
             {/* The one mark this slot keeps is the one that MOVES. Every static
                 state is already carried on the left by the stage glyph, the
                 hatch, or the issue note naming the blocker. */}
-            {state.state === 'working' && liveWord === undefined ? (
+            {!context && state.state === 'working' && liveWord === undefined ? (
               <WorkingMark size={11} tint={color.working} />
             ) : null}
-            <Text numberOfLines={1} style={[styles.state, stateStyle(state)]}>
-              {word}
-            </Text>
+            {!context ? (
+              <Text numberOfLines={1} style={[styles.state, stateStyle(state)]}>
+                {word}
+              </Text>
+            ) : null}
             {/* Two channels, never merged: the state says `Blocked`, the note
                 says by what. `issueNote().short` is the module's own short form. */}
-            {note ? (
+            {note && !context ? (
               <>
                 <Text style={styles.sep}>·</Text>
                 <Text numberOfLines={1} style={[styles.note, stateStyle(state)]}>
@@ -524,6 +539,7 @@ function stripLabel({
   word,
   seat,
   census,
+  context,
 }: {
   displayRef: string
   title: string
@@ -531,8 +547,10 @@ function stripLabel({
   word: string
   seat: PresenceNote | null
   census: readonly SessionMeta[]
+  context: boolean
 }): string {
-  const parts = [`${displayRef} ${title}`, word]
+  const parts = [`${displayRef} ${title}`]
+  if (!context) parts.push(word)
   if (seat) parts.push(seat.text)
   if (census.length > 0)
     parts.push(`${census.length} agent${census.length === 1 ? '' : 's'} inside`)
@@ -558,7 +576,7 @@ function stateStyle(state: DeckIssueState) {
  * fill says exactly that and nothing else.
  *
  * Even the asking row stays unfilled. Attention is a MARK in this system — amber
- * type, an amber inner rule, the `!` disc — never a surface.
+ * type, an amber tick outside the rail, the `!` disc — never a surface.
  *
  * There is deliberately NO answer button here. The decision lives on the offer
  * card in the transcript, one tap away; putting it on the band too would give
@@ -615,8 +633,8 @@ export function SessionBand({
   const pad = BAND_PAD(depth)
   const ownX = BAND_RAIL(depth)
   const mid = BAND_H / 2
-  // The fill and the inner rule start where the row's content does, not at the
-  // rail: the rail belongs to the branch, and the row opens onto it.
+  // The coordinator fill starts where the row's content does, not at the rail:
+  // the rail belongs to the branch, and the row opens onto it.
   const fillLeft = pad - 10
   const railTone = rails[depth] ?? null
   return (
@@ -632,9 +650,9 @@ export function SessionBand({
         // THE LEAD'S OWN ELBOW IS THE ONLY COLOURED ONE. Everybody in the block
         // hangs on the same coloured line; only the agent the line is ABOUT is
         // joined to it in that colour, so the branch names one agent instead of
-        // tinting the roster. An asking row overrides it — amber outranks
-        // provenance, because one of them is a job for the operator.
-        elbowColor={asking ? color.accent : lead ? railFor(railTone, accent).color : color.hairline}
+        // tinting the roster. Attention has its own tick outside the rail, so
+        // the elbow remains provenance instead of becoming a second ask mark.
+        elbowColor={lead ? railFor(railTone, accent).color : color.hairline}
       />
       {coordinator ? (
         <View
@@ -642,9 +660,21 @@ export function SessionBand({
           style={[styles.leadFill, { left: fillLeft, backgroundColor: alpha(accent, 0.08) }]}
         />
       ) : null}
-      {asking ? <View pointerEvents="none" style={[styles.askRule, { left: fillLeft }]} /> : null}
+      {asking ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.tick,
+            {
+              left: ownX + TICK_ATTENTION_X,
+              top: mid - TICK_H / 2,
+              backgroundColor: color.accent,
+            },
+          ]}
+        />
+      ) : null}
       {/* THE SESSION YOU ARE IN takes the same square accent tick a selected
-          task takes, in the row's own gutter. Extending the mark rather than
+          task takes, on the row's rail. Extending the mark rather than
           reaching for a fill is the whole point of the tick: "this one" is one
           device in this column, whatever kind of row it lands on. */}
       {current ? (
@@ -704,7 +734,10 @@ export function SessionBand({
           ) : null}
           {asking ? <Text style={styles.asking}>Needs you</Text> : null}
           {right ? (
-            <Text style={[styles.bandStamp, working ? { color: color.working } : null]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.bandStamp, working ? { color: color.working } : null]}
+            >
               {right}
             </Text>
           ) : null}
@@ -866,6 +899,7 @@ const styles = StyleSheet.create({
     color: color.text,
   },
   stripTitleSelected: { ...sans(600) },
+  stripTitleContext: { color: color.textDim },
   stripTitleDone: { color: color.textFaint },
   subline: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
   ref: { ...mono(400), fontSize: 10, color: color.textMicro },
@@ -904,7 +938,6 @@ const styles = StyleSheet.create({
   // The one agent row with a fill: square and open to the left, because it is
   // still an agent row and not a card.
   leadFill: { position: 'absolute', top: 0, bottom: 0, right: 0 },
-  askRule: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: color.accent },
   kind: { alignItems: 'center', justifyContent: 'center' },
   kindCh: { ...mono(600) },
   bandText: { flex: 1, minWidth: 0 },

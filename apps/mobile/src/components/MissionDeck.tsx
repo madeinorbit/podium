@@ -1,29 +1,42 @@
 import { relativeTime } from '@podium/client-core/focus'
+import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   buildFlightDeckRows,
+  continuationPresenceLine,
   deckIssueState,
   deckSessions,
+  type FlightDeckFoldMap,
+  type FlightDeckFoldState,
   type FlightDeckMode,
   type FlightDeckRow,
+  flightDeckRowHasPayload,
+  flightDeckRowIsFolded,
   formatClock,
   isCoordinatorSession,
+  issueAbandoned,
+  type IssueContinuation,
+  issueContinuation,
   issueNote,
   motionPhase,
+  missionDepartures,
   presenceNote,
   sessionAsksOnIssue,
   sessionRole,
   sessionSettled,
   sessionTitle,
   treeGuides,
+  readFlightDeckFolds,
+  writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionId, SessionMeta, IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { ChevronsDownUp, Plus } from 'lucide-react-native'
-import { useCallback, useMemo, useState } from 'react'
+import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from 'lucide-react-native'
+import { useCallback, useMemo } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { applyFolds } from '../lib/deck-rows'
+import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { stageColor } from '../theme/stage'
-import { color, font, radius, sans, space } from '../theme/theme'
+import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import {
@@ -78,8 +91,11 @@ const MODES: Array<{ id: FlightDeckMode; label: string }> = [
 
 /** Whether a task has anything to fold at all. A payload-less strip draws no
  *  chevron, so "collapse all" must not claim to have folded it either. */
-const hasPayload = (row: FlightDeckRow): boolean =>
-  row.descendantIds.length > 0 || row.sessions.length > 0
+const hasPayload = flightDeckRowHasPayload
+
+const readMode = (raw: string | null): FlightDeckMode =>
+  raw === 'active' || raw === 'needs-you' ? raw : 'full'
+const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
 
 export function MissionDeck({
   root,
@@ -91,6 +107,9 @@ export function MissionDeck({
   onOpenSession,
   onOpenTask,
   onLaunchAgent,
+  onTuckRoot,
+  onFileRoot,
+  onOpenDeparture,
 }: {
   root: IssueWire
   issues: readonly IssueWire[]
@@ -104,16 +123,27 @@ export function MissionDeck({
   onOpenSession: (session: SessionMeta) => void
   onOpenTask: (issue: IssueWire) => void
   onLaunchAgent: () => void
+  onTuckRoot: () => void
+  onFileRoot: () => void
+  onOpenDeparture: (issueId: IssueId) => void
 }) {
-  const [mode, setMode] = useState<FlightDeckMode>('full')
-  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
+  const [mode, setMode] = usePersistedUiState<FlightDeckMode>(
+    FLIGHT_DECK_MODE_KEY,
+    readMode,
+    writeMode,
+  )
+  const [folds, setFolds] = usePersistedUiState<FlightDeckFoldMap>(
+    FLIGHT_DECK_FOLDS_KEY,
+    readFlightDeckFolds,
+    writeFlightDeckFolds,
+  )
 
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const rows = useMemo(
     () => buildFlightDeckRows([...issues], [...sessions], root.id, mode, allWorktreePaths),
     [issues, sessions, root.id, mode, allWorktreePaths],
   )
-  const shown = useMemo(() => applyFolds(rows, folded), [rows, folded])
+  const shown = useMemo(() => applyFolds(rows, folds), [rows, folds])
   /**
    * PROPOSALS SINK. A childless proposal leaves the sibling order and collects
    * in a tail at the bottom of the spine: work being offered to the operator is
@@ -217,18 +247,44 @@ export function MissionDeck({
     [sessions],
   )
 
-  const toggleFold = useCallback((id: string) => {
-    setFolded((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
+  const toggleFold = useCallback(
+    (row: FlightDeckRow) => {
+      const next = new Map(folds)
+      next.set(row.issue.id, flightDeckRowIsFolded(row, folds) ? 'open' : 'closed')
+      setFolds(next)
+    },
+    [folds, setFolds],
+  )
 
   // `matched: true` for the same reason the web deck does it: the root is the
   // mission's own header, not one of the rows the view filters (POD-1245).
   const rootSessions = rootRow ? deckSessions({ ...rootRow, matched: true }, mode) : []
+  const foldable = useMemo(
+    () =>
+      rows.filter(
+        (row) => row.issue.id !== root.id && !proposalIds.has(row.issue.id) && hasPayload(row),
+      ),
+    [proposalIds, root.id, rows],
+  )
+  const allFolded =
+    foldable.length > 0 && foldable.every((row) => flightDeckRowIsFolded(row, folds))
+  const rootEmptyNote = rootRow
+    ? presenceNote(rootRow.issue, rootRow.sessions, byId, sessions)
+    : null
+  const rootRetired = rootEmptyNote?.kind === 'done'
+  const rootContinuation = issueContinuation(root, byId, sessions)
+  const allDepartures = useMemo(
+    () => missionDepartures(issues, sessions, root.id, allWorktreePaths),
+    [allWorktreePaths, issues, root.id, sessions],
+  )
+  const continuationTargetId = rootContinuation?.target?.id
+  const departures = useMemo(
+    () => allDepartures.filter((departure) => departure.issue.id !== continuationTargetId),
+    [allDepartures, continuationTargetId],
+  )
+  const continuationState =
+    allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
+  const rootFinished = Boolean(root.closedReason || root.stage === 'done')
 
   return (
     <View style={styles.panel}>
@@ -255,15 +311,25 @@ export function MissionDeck({
         </View>
         <PressableScale
           onPress={() =>
-            setFolded((prev) =>
-              prev.size > 0 ? new Set() : new Set(rows.filter(hasPayload).map((r) => r.issue.id)),
+            setFolds(
+              new Map(
+                foldable.map((row): [string, FlightDeckFoldState] => [
+                  row.issue.id,
+                  allFolded ? 'open' : 'closed',
+                ]),
+              ),
             )
           }
           accessibilityRole="button"
-          accessibilityLabel="Collapse all"
+          accessibilityLabel={allFolded ? 'Expand every branch' : 'Fold every branch'}
+          disabled={foldable.length === 0}
           style={styles.ctlBtn}
         >
-          <Icon as={ChevronsDownUp} size={15} color={color.textFaint} />
+          <Icon
+            as={allFolded ? ChevronsUpDown : ChevronsDownUp}
+            size={15}
+            color={color.textFaint}
+          />
         </PressableScale>
         {/* ICON ONLY, and the label is the reason. "+ Agent" cost about 50pt of
             a 390pt row, which is exactly what "Needs you" needed to stay on one
@@ -287,8 +353,8 @@ export function MissionDeck({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* The rail crosses the list's own top padding, so the mission bar's
-            descent meets the first thing under it without a gap. */}
+        {/* The rail crosses the list's own top padding, joining the first visible
+            member without borrowing a line from the controls above the tree. */}
         <View style={styles.topRail}>
           <View
             style={[
@@ -333,7 +399,17 @@ export function MissionDeck({
           : null}
 
         {spineRows.length === 0 && rootSessions.length === 0 && proposals.length === 0 ? (
-          <EmptyState title={mode === 'full' ? 'No subtasks yet.' : 'Nothing matches this view.'} />
+          rootContinuation ? null : rootRetired ? (
+            <RetiredSignpost abandoned={issueAbandoned(root)} onTuck={onTuckRoot} />
+          ) : (
+            <EmptyState
+              title={
+                mode === 'full'
+                  ? rootEmptyNote?.text || 'No sessions or sub-tasks are attached.'
+                  : 'Nothing matches this view.'
+              }
+            />
+          )
         ) : null}
 
         {spineRows.map((row, index) => (
@@ -348,9 +424,9 @@ export function MissionDeck({
             mode={mode}
             byId={byId}
             nameOf={nameOf}
-            folded={folded.has(row.issue.id)}
+            folded={flightDeckRowIsFolded(row, folds)}
             currentSessionId={currentSessionId}
-            onToggleFold={() => toggleFold(row.issue.id)}
+            onToggleFold={() => toggleFold(row)}
             onOpenTask={onOpenTask}
             onOpenSession={onOpenSession}
           />
@@ -366,6 +442,34 @@ export function MissionDeck({
                 author={authorOf(row.issue)}
                 selected={false}
                 onPress={() => onOpenTask(row.issue)}
+              />
+            ))}
+          </DeckSection>
+        ) : null}
+
+        {rootContinuation || departures.length > 0 ? (
+          <DeckSection
+            label="Where the work went"
+            count={departures.length + (rootContinuation ? 1 : 0)}
+          >
+            {rootContinuation ? (
+              <ContinuationSignpost
+                continuation={rootContinuation}
+                state={continuationState?.label ?? null}
+                finished={rootFinished}
+                sessions={rootRow?.sessions ?? []}
+                onOpen={(id) => onOpenDeparture(id)}
+                onFile={onFileRoot}
+              />
+            ) : null}
+            {departures.map((departure) => (
+              <DepartureRow
+                key={departure.issue.id}
+                displayRef={issueDisplayRef(departure.issue)}
+                title={departure.issue.title}
+                state={departure.state.label}
+                attention={departure.state.attention}
+                onPress={() => onOpenDeparture(departure.issue.id)}
               />
             ))}
           </DeckSection>
@@ -410,12 +514,15 @@ function SpineRow({
   onOpenSession: (s: SessionMeta) => void
 }) {
   const state = deckIssueState(row.issue, row.sessions, byId)
-  const note = issueNote(row.issue, byId, row.sessions)
+  const context = mode === 'needs-you' && !row.matched
+  const note = context ? null : issueNote(row.issue, byId, row.sessions)
   const bands = folded ? [] : deckSessions(row, mode)
   // The seat is held for work that could be picked up — never under a proposal,
   // and never to restate a dependency the strip has already named above it.
   const seat =
-    row.issue.stage === 'proposed' ? null : seatFor(presenceNote(row.issue, row.sessions, byId))
+    context || row.issue.stage === 'proposed'
+      ? null
+      : seatFor(presenceNote(row.issue, row.sessions, byId))
   // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload:
   // "2 running" is the thing the fold is hiding, and `3 tasks` is printed on the
   // same line beside it.
@@ -449,6 +556,7 @@ function SpineRow({
         folded={folded}
         liveWord={liveWord}
         selected={selected}
+        context={context}
         foldable={hasPayload(row)}
         onPress={() => onOpenTask(row.issue)}
         onToggleFold={onToggleFold}
@@ -528,6 +636,137 @@ function Band({
       right={current ? 'reading' : stamp(session, phase, working, asking)}
       onPress={onPress}
     />
+  )
+}
+
+function ContinuationSignpost({
+  continuation,
+  state,
+  finished,
+  sessions,
+  onOpen,
+  onFile,
+}: {
+  continuation: IssueContinuation
+  state: string | null
+  finished: boolean
+  sessions: readonly SessionMeta[]
+  onOpen: (issueId: IssueId) => void
+  onFile: () => void
+}) {
+  const target = continuation.target
+  return (
+    <View style={styles.signpost}>
+      <View style={styles.signpostHead}>
+        <View style={styles.signpostIcon}>
+          <Icon as={ArrowDown} size={13} color={color.textDim} />
+        </View>
+        <View style={styles.signpostCopy}>
+          <View style={styles.signpostTitleRow}>
+            <Text numberOfLines={2} style={styles.signpostTitle}>
+              {continuation.full}
+            </Text>
+            {state ? <Text style={styles.signpostState}>{state.toLowerCase()}</Text> : null}
+          </View>
+          <Text style={styles.signpostDetail}>
+            {continuationPresenceLine(continuation.kind, sessions)}
+            {target ? ` ${target.title} is where it carried on.` : ''}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.signpostActions}>
+        {target ? (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${issueDisplayRef(target)}`}
+            onPress={() => onOpen(target.id)}
+            style={({ pressed }) => [
+              styles.signpostAction,
+              styles.signpostActionPrimary,
+              pressed && styles.signpostActionPressed,
+            ]}
+          >
+            <Text style={styles.signpostActionPrimaryText}>Open {issueDisplayRef(target)}</Text>
+          </PressableScale>
+        ) : null}
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={
+            finished ? 'Tuck this task away' : 'Mark this task done and tuck it away'
+          }
+          onPress={onFile}
+          style={({ pressed }) => [styles.signpostAction, pressed && styles.signpostActionPressed]}
+        >
+          <Icon as={finished ? ArrowDown : Check} size={13} color={color.textDim} />
+          <Text style={styles.signpostActionText}>{finished ? 'Tuck away' : 'Done & tuck'}</Text>
+        </PressableScale>
+      </View>
+    </View>
+  )
+}
+
+function DepartureRow({
+  displayRef,
+  title,
+  state,
+  attention,
+  onPress,
+}: {
+  displayRef: string
+  title: string
+  state: string
+  attention: boolean
+  onPress: () => void
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`${displayRef} ${title}, ${state}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.departure, pressed && styles.signpostActionPressed]}
+    >
+      <Text style={styles.departureArrow}>↗</Text>
+      <Text style={styles.departureRef}>{displayRef}</Text>
+      <Text numberOfLines={1} style={styles.departureTitle}>
+        {title}
+      </Text>
+      {attention ? <View style={styles.departureAttention} /> : null}
+      <Text numberOfLines={1} style={styles.departureState}>
+        {state.toLowerCase()}
+      </Text>
+    </PressableScale>
+  )
+}
+
+/** A finished, empty mission is a lifecycle signpost, not generic empty copy. */
+function RetiredSignpost({ abandoned, onTuck }: { abandoned: boolean; onTuck: () => void }) {
+  return (
+    <View style={styles.signpost}>
+      <View style={styles.signpostHead}>
+        <View style={styles.signpostIcon}>
+          <Icon as={abandoned ? X : Check} size={13} color={color.textDim} />
+        </View>
+        <View style={styles.signpostCopy}>
+          <Text style={styles.signpostTitle}>
+            {abandoned ? 'This task was cancelled.' : 'This task is finished.'}
+          </Text>
+          <Text style={styles.signpostDetail}>
+            No session remains on it. Tuck it away to fold it into Closed.
+          </Text>
+        </View>
+      </View>
+      <View style={styles.signpostActions}>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Tuck this finished task away"
+          onPress={onTuck}
+          style={({ pressed }) => [styles.signpostAction, pressed && styles.signpostActionPressed]}
+        >
+          <Icon as={ArrowDown} size={13} color={color.textDim} />
+          <Text style={styles.signpostActionText}>Tuck away</Text>
+        </PressableScale>
+      </View>
+    </View>
   )
 }
 
@@ -624,4 +863,68 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: space.xl },
   topRail: { height: space.sm },
   topRailLine: { position: 'absolute', top: 0, bottom: 0 },
+  signpost: {
+    marginHorizontal: space.lg,
+    marginVertical: space.lg,
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    backgroundColor: color.surface,
+  },
+  signpostHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+  signpostIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.bgSunken,
+  },
+  signpostCopy: { flex: 1, minWidth: 0 },
+  signpostTitleRow: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm },
+  signpostTitle: { ...sans(600), fontSize: font.small, color: color.text },
+  signpostState: { ...sans(500), flexShrink: 0, fontSize: font.micro, color: color.textFaint },
+  signpostDetail: {
+    ...sans(400),
+    marginTop: 3,
+    fontSize: font.tiny,
+    lineHeight: 18,
+    color: color.textDim,
+  },
+  signpostAction: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 32,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.borderStrong,
+    backgroundColor: color.bgSunken,
+  },
+  signpostActionPressed: { opacity: 0.78 },
+  signpostActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+    marginTop: space.sm,
+    marginLeft: 32,
+  },
+  signpostActionPrimary: { backgroundColor: color.text },
+  signpostActionPrimaryText: { ...sans(600), fontSize: font.tiny, color: color.bg },
+  signpostActionText: { ...sans(500), fontSize: font.tiny, color: color.text },
+  departure: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.xs,
+  },
+  departureArrow: { ...mono(500), fontSize: font.tiny, color: color.textFaint },
+  departureRef: { ...mono(400), flexShrink: 0, fontSize: font.micro, color: color.textFaint },
+  departureTitle: { ...sans(400), flex: 1, minWidth: 0, fontSize: font.tiny, color: color.textDim },
+  departureAttention: { width: 5, height: 5, borderRadius: 3, backgroundColor: color.accent },
+  departureState: { ...mono(400), flexShrink: 0, fontSize: font.micro, color: color.textFaint },
 })
