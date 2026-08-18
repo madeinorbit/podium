@@ -45,6 +45,7 @@ import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { agentLaunchProcedure } from '../lib/agent-launch'
 import { mostRelevantSession } from '../lib/mission-session'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
@@ -150,14 +151,13 @@ export function MissionScreen() {
   const launch = useCallback(
     (agentKind?: AgentKind) => {
       if (!root) return
-      // Started issues take another agent into the SAME worktree; an unstarted
-      // one has to be started first, which is what creates the branch and the
-      // checkout. The desktop's own menu makes exactly this split.
-      const started = Boolean(root.worktreePath ?? root.branch)
       const input = agentKind ? { id: root.id, agentKind } : { id: root.id }
-      const call = started
-        ? store.trpc.issues.addSession.mutate(input)
-        : store.trpc.issues.start.mutate(input)
+      // A preserved branch is not an active checkout. `start` knows how to
+      // reattach it; `addSession` only works while the worktree is live.
+      const call =
+        agentLaunchProcedure(root) === 'addSession'
+          ? store.trpc.issues.addSession.mutate(input)
+          : store.trpc.issues.start.mutate(input)
       void call.catch(() => {})
     },
     [root, store.trpc],
@@ -345,9 +345,11 @@ export function MissionScreen() {
         visible={launchOpen}
         title="Launch an agent"
         subtitle={
-          root && (root.worktreePath ?? root.branch)
+          root?.worktreePath
             ? 'Joins this task’s existing worktree.'
-            : 'Creates the task’s branch and worktree first.'
+            : root?.branch
+              ? 'Restores this task’s worktree first.'
+              : 'Creates the task’s branch and worktree first.'
         }
         actions={launchActions}
         onClose={() => setLaunchOpen(false)}
