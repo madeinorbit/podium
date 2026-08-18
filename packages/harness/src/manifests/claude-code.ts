@@ -74,7 +74,11 @@ export const claudeCodeManifest: AgentManifest = {
 
   inventory: {
     executable: { names: ['claude'], versionArgs: ['--version'] },
-    loginCommand: supported({ cmd: 'claude', args: ['login'] }),
+    // `claude auth login`, NOT `claude login`: the CLI has no `login` subcommand, so a
+    // bare `login` argument is parsed as the PROMPT — the login terminal came up with
+    // Claude answering the word "login" and no auth flow ever ran. `claude auth login`
+    // is the real sign-in entry point [POD-1307].
+    loginCommand: supported({ cmd: 'claude', args: ['auth', 'login'] }),
     loginIdentity: supported((homeDir) => {
       try {
         const raw = JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')) as {

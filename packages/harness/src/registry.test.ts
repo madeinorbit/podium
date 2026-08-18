@@ -100,6 +100,29 @@ describe('agent manifest registry', () => {
     }
   })
 
+  // A LOGIN COMMAND IS ARGV, NOT PROSE (POD-1307). `claude login` shipped here and
+  // never signed anyone in: the Claude CLI has no `login` subcommand, so the word
+  // parses as a PROMPT and starts an ordinary chat turn — the login terminal looked
+  // alive while no auth flow existed. Nothing downstream can catch that (the daemon
+  // spawns whatever argv it is handed, and the turn exits 0), so the declaration
+  // itself is pinned here. Change a line only against that CLI's own `--help`.
+  it("declares each harness's real native login command", () => {
+    const declared = Object.fromEntries(
+      BUILTIN_HARNESS_KINDS.map((kind) => {
+        const command = declaredValue(AGENT_MANIFESTS[kind].inventory.loginCommand)
+        return [kind, command ? [command.cmd, ...command.args].join(' ') : null]
+      }),
+    )
+    expect(declared).toEqual({
+      'claude-code': 'claude auth login',
+      codex: 'codex login',
+      grok: 'grok login',
+      opencode: 'opencode auth login',
+      // Cursor declares no native login; the UI tells the operator to run it by hand.
+      cursor: null,
+    })
+  })
+
   it('declares truthful state channels in preference order', () => {
     expect(
       Object.fromEntries(
