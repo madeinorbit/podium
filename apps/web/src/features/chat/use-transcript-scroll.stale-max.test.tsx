@@ -52,6 +52,8 @@ const TRUE_MAX = 4500
 /** What the engine will actually scroll to until its geometry is refreshed. */
 let engineMax = 4385 // 115px short, as measured
 let top = 0
+/** Every value the app wrote to scrollTop, in order. */
+let writes: number[] = []
 /** Every offsetHeight read made while the scroller's geometry was genuinely
  *  changed (padding set) — the signature of a real invalidation. */
 let heals = 0
@@ -98,6 +100,7 @@ beforeEach(() => {
   engineMax = 4385
   top = engineMax
   heals = 0
+  writes = []
   // Mount UNPINNED: a pinned mount starts the settle loop against the real
   // (un-stubbed) element, and with rAF inert its leftover frame budget makes
   // every later settle call renew-and-return instead of writing. The pin goes
@@ -134,6 +137,9 @@ beforeEach(() => {
     configurable: true,
     get: () => top,
     set: (v: number) => {
+      writes.push(Math.round(v))
+      // Safari 26.4, as caught live: a write past the stale maximum is not
+      // refused, it SETS the position to that maximum — even from below it.
       top = Math.max(0, Math.min(engineMax, v))
     },
   })
@@ -143,7 +149,8 @@ beforeEach(() => {
     configurable: true,
     get: () => {
       if (el.style.paddingBottom !== '') {
-        engineMax = TRUE_MAX
+        // A real geometry pass re-commits the maximum for the CURRENT content.
+        engineMax = el.scrollHeight - 500
         heals++
       }
       return 500
@@ -294,6 +301,80 @@ describe('pushing down against a frozen offset is arriving', () => {
  * scrolling raises real intent through its own listener, and the search jump
  * releases the pin deliberately before it navigates.
  */
+/**
+ * A BOTTOM-WRITER FIRST DOES NO HARM (round 5, the trace that ended the hunt,
+ * 2026-08-18 evening).
+ *
+ * The operator's decisive observation: a manual scroll HELD the true bottom
+ * for 3-5 seconds before the jump, while the Jump button snapped back
+ * instantly. The watcher probe then caught the actor: six of OUR OWN
+ * `scrollTop = scrollHeight` writes, 16ms apart — and the position after
+ * them was 242px UP. In Safari 26.4 a programmatic write past the engine's
+ * stale maximum is not refused, it SETS the position to that stale maximum:
+ * writing "go down" teleports the reader up. User input scrolls against the
+ * true maximum; script writes against the stale one. Every pinned writer —
+ * settle, observers, heals, the fight — was the yank it was trying to cure,
+ * and the 3-5 seconds was merely the time until the next one fired.
+ *
+ * So the discipline inverts:
+ *   - at the bottom, WRITE NOTHING — the reader who is there needs no help,
+ *     and in the wedge any write is the only thing that can move them;
+ *   - a write that lands ABOVE where the reader was is the poison, once —
+ *     record that stale maximum and go silent while the reader is beyond it;
+ *   - at or below the stale maximum a write is harmless — keep retrying
+ *     (with the heal), and forget the record the moment one truly lands.
+ */
+describe('a bottom-writer first does no harm', () => {
+  const ro = (): void => {
+    act(() => (globalThis as { __ro?: () => void }).__ro?.())
+  }
+
+  it('writes nothing at all for a reader already at the bottom', () => {
+    engineMax = TRUE_MAX
+    top = TRUE_MAX
+    act(() => api?.onScroll())
+    const before = writes.length
+    ro()
+    expect(writes.length).toBe(before)
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
+  })
+
+  it('never yanks a reader the engine let past its own stale write-clamp', () => {
+    // The wedge: the reader REACHED the true bottom by gesture (user input
+    // scrolls against the real maximum), the write-clamp is stale below
+    // them, and content grows. One write teleports them up — the poison is
+    // permitted once, recorded, and then the writers go silent.
+    top = TRUE_MAX
+    act(() => api?.onScroll())
+    Object.defineProperty(scroller(), 'scrollHeight', { value: 5100, configurable: true })
+    ro() // gap 100: a write is due, lands at the stale clamp — recorded
+    expect(scroller().scrollTop).toBe(4385)
+    top = 4600 // the reader climbs back down by hand, past the stale clamp
+    act(() => api?.onScroll())
+    Object.defineProperty(scroller(), 'scrollHeight', { value: 5200, configurable: true })
+    const before = writes.length
+    ro() // more growth: a write is due, and would teleport — SILENCE instead
+    expect(writes.length).toBe(before)
+    expect(scroller().scrollTop).toBe(4600)
+  })
+
+  it('keeps retrying from the parked spot and forgets the record when one lands', () => {
+    top = TRUE_MAX
+    act(() => api?.onScroll())
+    Object.defineProperty(scroller(), 'scrollHeight', { value: 5100, configurable: true })
+    ro() // poisoned once: parked at 4385, stale max recorded
+    expect(scroller().scrollTop).toBe(4385)
+    ro() // parked retries are harmless, and the heal runs with them...
+    // ...and the heal fixed the engine (the harness heals engineMax on a real
+    // geometry pass), so the retry landed, the record is forgotten, and the
+    // NEXT growth is followed normally.
+    expect(scroller().scrollTop).toBe(5100 - 500)
+    Object.defineProperty(scroller(), 'scrollHeight', { value: 5150, configurable: true })
+    ro()
+    expect(scroller().scrollTop).toBe(5150 - 500)
+  })
+})
+
 /**
  * THE ENGINE REVERTING OUR OWN WRITE IS NOT A DRAG (round 4, the trace of
  * 2026-08-18 afternoon).

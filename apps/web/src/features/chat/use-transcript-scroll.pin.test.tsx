@@ -294,7 +294,7 @@ describe('content that arrives after the rows', () => {
     const el = scroller()
     held.pinnedToBottom.current = true
     stubHeights(el, 1000)
-    el.scrollTop = 1000
+    el.scrollTop = 600 // the bottom of a 1000px document in a 400px viewport
 
     // The tail arrives on an activity commit: taller document, no row change.
     const tail = document.createElement('div')
@@ -320,7 +320,7 @@ describe('content that arrives after the rows', () => {
     expect(el.scrollTop).toBe(200)
   })
 
-  it('re-pins when that element goes away again', async () => {
+  it('leaves the engine\'s own clamp alone when that element goes away again', async () => {
     mount()
     const el = scroller()
     held.pinnedToBottom.current = true
@@ -328,12 +328,18 @@ describe('content that arrives after the rows', () => {
     stubHeights(el, 1050)
     el.appendChild(tail)
     await settle()
+    expect(el.scrollTop).toBe(1050)
 
+    // On unmount the ENGINE clamps the offset to the new maximum itself
+    // (jsdom does not, so the clamp is played by hand). Round 5: the app
+    // writes nothing on top of it — a reader at the bottom is not written to,
+    // because in the Safari 26.4 wedge our own re-assertion was the jump.
     stubHeights(el, 1000)
     tail.remove()
+    el.scrollTop = 600
     await settle()
 
-    expect(el.scrollTop).toBe(1000)
+    expect(el.scrollTop).toBe(600)
   })
 })
 

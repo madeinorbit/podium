@@ -179,13 +179,55 @@ const settling = new WeakMap<HTMLElement, number>()
  * streaming hot path (where writes land) never sees the extra layout.
  */
 function writeBottom(el: HTMLElement): void {
+  const gap = (): number => el.scrollHeight - el.scrollTop - el.clientHeight
+  // AT THE BOTTOM, WRITE NOTHING (round 5, the trace that ended the hunt).
+  // Caught live: the operator held the true bottom by hand for three quiet
+  // seconds — until six of our own bottom writes fired and the position was
+  // 242px UP. In Safari 26.4 a programmatic write past the engine's stale
+  // write-clamp is not refused, it SETS the position to that clamp: writing
+  // "go down" teleports a reader the ENGINE was happy to let sit at the true
+  // bottom (user input scrolls against the real maximum; script writes
+  // against the stale one). A reader already at the bottom needs no help,
+  // and in that wedge our help is the only thing that can move them.
+  if (gap() <= 4) return
+  const stale = knownStaleWriteMax.get(el)
+  const before = el.scrollTop
+  // ...and beyond a recorded stale clamp, SILENCE: any write from up there
+  // can only teleport the reader back to it. Recovery happens from parked.
+  if (stale !== undefined && before > stale + 4) return
   el.scrollTop = el.scrollHeight
   lastBottomWriteAt.set(el, performance.now())
-  if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) return
+  if (el.scrollTop < before - 1) {
+    // The write moved the reader UP: that is the poison, once — remember the
+    // clamp it revealed and stop before the heal writes again.
+    knownStaleWriteMax.set(el, el.scrollTop)
+    return
+  }
+  if (gap() <= 4) {
+    knownStaleWriteMax.delete(el)
+    return
+  }
   healGeometry(el)
+  const beforeRetry = el.scrollTop
   el.scrollTop = el.scrollHeight
   lastBottomWriteAt.set(el, performance.now())
+  if (el.scrollTop < beforeRetry - 1) {
+    knownStaleWriteMax.set(el, el.scrollTop)
+    return
+  }
+  if (gap() <= 4) knownStaleWriteMax.delete(el)
+  // Healed and still short: the synchronous clamp mode. The landing spot IS
+  // the stale clamp — record it so writers from above stay silent, while
+  // parked retries (each with a fresh heal) keep probing for recovery.
+  else knownStaleWriteMax.set(el, el.scrollTop)
 }
+
+/**
+ * The stale write-clamp Safari 26.4 SETS positions to (see `writeBottom`) —
+ * recorded when one of our writes lands above where the reader was or short
+ * of the bottom, forgotten the moment a write genuinely arrives.
+ */
+const knownStaleWriteMax = new WeakMap<HTMLElement, number>()
 
 /** One frame of genuinely changed scrollable overflow — the only thing that
  *  makes WebKit's scrolling tree re-commit its cached maximum. A forced
@@ -211,9 +253,15 @@ const lastBottomWriteAt = new WeakMap<HTMLElement, number>()
  *  read-back that would trigger `writeBottom`'s conditional heal is exactly
  *  what the engine defeats. */
 function forceBottom(el: HTMLElement): void {
+  if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) return
+  const stale = knownStaleWriteMax.get(el)
+  const before = el.scrollTop
+  if (stale !== undefined && before > stale + 4) return
   healGeometry(el)
   el.scrollTop = el.scrollHeight
   lastBottomWriteAt.set(el, performance.now())
+  if (el.scrollTop < before - 1) knownStaleWriteMax.set(el, el.scrollTop)
+  else if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) knownStaleWriteMax.delete(el)
 }
 
 /** A wheel over a scrollable region inside the feed chains to the feed only

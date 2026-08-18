@@ -149,13 +149,17 @@ describe('the arrival claims the scroll', () => {
     expect(writes).toEqual([])
   })
 
-  it('writes the bottom itself, once per frame, while it holds', () => {
+  it('writes the bottom once, then stands down until the bottom moves', () => {
+    // Round 5 (do no harm): a reader already at the bottom is not written to —
+    // in the Safari 26.4 wedge our own re-assertions were the jump. The claim
+    // still owns the scroll; it simply has nothing to write until the row's
+    // growth moves the bottom (covered in the stale-max suite).
     act(() => api?.claimScrollForArrival(260))
     expect(writes).toEqual([5000])
     tick()
-    expect(writes).toEqual([5000, 5000])
+    expect(writes).toEqual([5000])
     tick()
-    expect(writes).toEqual([5000, 5000, 5000])
+    expect(writes).toEqual([5000])
   })
 
   it('lets the observers write again once the claim expires', () => {
