@@ -51,7 +51,7 @@ export class MemoryService {
 
   constructor(
     private readonly deps: MemoryServiceDeps,
-    options: { mirrorLakeDir?: string } = {},
+    options: { mirrorLakeDir?: string; repairSubagentSegmentPaths?: boolean } = {},
   ) {
     this.visibility = new MemoryVisibilityPolicy(deps.store)
     this.searcher = new MemorySearchService(deps.store, this.visibility)
@@ -64,7 +64,12 @@ export class MemoryService {
       options,
     )
     // The repair is memory-owned now, rather than a SessionStore boot side effect.
-    deps.store.conversations.registry.repairSubagentSegmentPaths()
+    // Recovery-only assembly holds a query-only connection, so its composition
+    // root explicitly disables this boot writer; every writable boot keeps the
+    // default and repairs before serving conversation reads.
+    if (options.repairSubagentSegmentPaths !== false) {
+      deps.store.conversations.registry.repairSubagentSegmentPaths()
+    }
   }
 
   forReader(reader: MemoryReader): MemoryReaderView {

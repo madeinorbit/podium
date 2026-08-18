@@ -79,6 +79,36 @@ const bind = (sessionId: SessionId) =>
   }) as const
 
 describe('SessionRegistry', () => {
+  it('assembles recovery-only over a query-only store without running writable boot repairs', () => {
+    const file = join(trackTmp('podium-recovery-only-'), 'podium.db')
+    const nativeId = 'subagent-under-test'
+    const stalePath = '/project/subagents/stale-name.jsonl'
+    const seeded = new SessionStore(file, TEST_MACHINE)
+    seeded.conversations.registry.ensure({
+      machineId: TEST_MACHINE,
+      nativeId,
+      providerId: 'codex',
+      path: stalePath,
+    })
+    expect(seeded.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
+    seeded.close()
+
+    const queryOnly = new SessionStore(file, TEST_MACHINE, { queryOnly: true })
+    const recovery = new SessionRegistry(queryOnly, undefined, {
+      instanceId: 'recovery-only',
+      recoveryOnly: true,
+    })
+    expect(queryOnly.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
+    recovery.dispose()
+    queryOnly.close()
+
+    const writable = new SessionStore(file, TEST_MACHINE)
+    const ordinary = new SessionRegistry(writable, undefined, { instanceId: 'writable' })
+    expect(writable.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBeUndefined()
+    ordinary.dispose()
+    writable.close()
+  })
+
   it('create spawns via the daemon and lists the session as starting', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []

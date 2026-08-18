@@ -835,7 +835,10 @@ export class SessionRegistry {
         // wrapping a not-yet-built service in a closure.
         daemonRequest: requestBroker,
       },
-      options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
+      {
+        ...(options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {}),
+        repairSubagentSegmentPaths: !recoveryOnly,
+      },
     )
     const rpc = new DaemonRpcService({
       broker: requestBroker,
