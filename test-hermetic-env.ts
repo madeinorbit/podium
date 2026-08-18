@@ -34,7 +34,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   markTestRunRootOwned,
@@ -157,7 +157,11 @@ if (!withState[HERMETIC_TMP_STATE]) {
 }
 const tmpState = withState[HERMETIC_TMP_STATE]
 
-const GUARDIAN_ENTRY = fileURLToPath(new URL('./scripts/test-run-guardian.mjs', import.meta.url))
+// Vite's happy-dom environment replaces the global URL constructor and resolves a file:
+// base through its http://localhost/@fs shim. Parse import.meta.url with Node directly so
+// merely loading the shared setup cannot fail before a web test is collected.
+const HERMETIC_ENV_DIR = dirname(fileURLToPath(import.meta.url))
+const GUARDIAN_ENTRY = join(HERMETIC_ENV_DIR, 'scripts', 'test-run-guardian.mjs')
 
 function procStartTime(pid: number): string | undefined {
   try {
@@ -193,7 +197,7 @@ function guardRun(containerDir: string): void {
     process.execPath,
     [GUARDIAN_ENTRY, String(process.pid), startTime, canonicalContainerDir],
     {
-      cwd: resolve(fileURLToPath(new URL('.', import.meta.url))),
+      cwd: resolve(HERMETIC_ENV_DIR),
       env: process.env,
       stdio: 'ignore',
       detached: true,
