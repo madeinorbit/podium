@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Needs-you controls in the task inspector</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #131313;
+        --card: #1a1a1a;
+        --line: #2c2c2c;
+        --ink: #e8e6e3;
+        --dim: #9a9793;
+        --faint: #6d6a66;
+        --amber: #e5a642;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: 40px 24px 72px;
+      }
+      main { max-width: 980px; margin: 0 auto; }
+      h1 { font-size: 24px; letter-spacing: -0.01em; margin: 0 0 6px; }
+      .lede { color: var(--dim); margin: 0 0 36px; max-width: 62ch; }
+      section { margin: 0 0 40px; }
+      h2 { font-size: 16px; margin: 0 0 4px; }
+      h2 .n {
+        font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--amber);
+        margin-right: 8px;
+        vertical-align: 2px;
+      }
+      p.why { color: var(--dim); margin: 0 0 16px; max-width: 68ch; font-size: 14px; }
+      .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      @media (max-width: 720px) { .pair { grid-template-columns: 1fr; } }
+      figure {
+        margin: 0;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+      }
+      figcaption {
+        font: 600 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--faint);
+        margin-bottom: 10px;
+      }
+      figure.after figcaption { color: var(--amber); }
+      img { display: block; width: 100%; height: auto; border-radius: 6px; }
+      .trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+      @media (max-width: 720px) { .trio { grid-template-columns: 1fr; } }
+      footer {
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+        color: var(--faint);
+        font-size: 13px;
+      }
+      code { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Needs-you controls in the task inspector</h1>
+      <p class="lede">
+        The same task (POD-1273, an agent waiting on a decision) photographed in the Tasks
+        panel on main and on this branch. Same API, same data, two builds.
+      </p>
+
+      <section>
+        <h2><span class="n">01</span>The Answer button is gone</h2>
+        <p class="why">
+          Three things said the same thing: the amber band named the decision, the waiting
+          session wore an attention rule, and a filled yellow Answer button sat above both —
+          which only navigated. The band still states the obligation; the answering happens in
+          the conversation.
+        </p>
+        <div class="pair">
+          <figure>
+            <figcaption>Before — Answer, and a grey "Show in deck" link</figcaption>
+            <img src="head-before.png" alt="Task head with Review status, an Answer button and a Show in deck link" />
+          </figure>
+          <figure class="after">
+            <figcaption>After — one crossing, no second voice</figcaption>
+            <img src="head-after.png" alt="Task head with Planning status and a Work on this button" />
+          </figure>
+        </div>
+      </section>
+
+      <section>
+        <h2><span class="n">02</span>"Show in deck" is now a Work on this button</h2>
+        <p class="why">
+          Same destination it always had — the work tool, with the task selected in the sidebar
+          and its agent open in the pane — promoted from an 11px grey link on the ref line to a
+          button in the control strip. It appears only inside the explorer (the workspace dock
+          is already there) and only while the task is still workable.
+        </p>
+        <div class="trio">
+          <figure class="after">
+            <figcaption>Needs you — the crossing is the filled chip</figcaption>
+            <img src="head-after.png" alt="Work on this filled amber beside the status pill" />
+          </figure>
+          <figure class="after">
+            <figcaption>Not started — Start work leads, crossing follows</figcaption>
+            <img src="head-not-started.png" alt="Start work filled, Work on this as an outline button below" />
+          </figure>
+          <figure class="after">
+            <figcaption>Closed — no crossing at all</figcaption>
+            <img src="head-closed.png" alt="A closed task showing only status and Reopen issue" />
+          </figure>
+        </div>
+      </section>
+
+      <section>
+        <h2><span class="n">03</span>The session roster raises a flag, not a card</h2>
+        <p class="why">
+          Under "Agents &amp; sessions" a waiting agent used to unfold its whole offer —
+          headline, three buttons — inside a list whose job is to say who is on this task. Now
+          it wears a badge; the offer is read and answered one click away, in the conversation.
+        </p>
+        <div class="pair">
+          <figure>
+            <figcaption>Before — the offer card, in the roster</figcaption>
+            <img src="session-row-before.png" alt="Session row unfolding a question and three answer buttons" />
+          </figure>
+          <figure class="after">
+            <figcaption>After — a Needs you badge</figcaption>
+            <img src="session-row-after.png" alt="Session row with a Needs you badge" />
+          </figure>
+        </div>
+      </section>
+
+      <section>
+        <h2><span class="n">04</span>Where Work on this lands</h2>
+        <p class="why">
+          Clicked from the explorer: the work tool, POD-1273 selected in the sidebar, its
+          mission on the deck, and the waiting agent's conversation in the pane — with the
+          offer's own buttons where they belong.
+        </p>
+        <figure class="after">
+          <figcaption>After the click</figcaption>
+          <img src="work-on-this-lands.png" alt="The full shell after clicking Work on this" />
+        </figure>
+      </section>
+
+      <section>
+        <h2><span class="n">05</span>The whole panel</h2>
+        <div class="pair">
+          <figure>
+            <figcaption>Before</figcaption>
+            <img src="panel-before.png" alt="The whole inspector panel on main" />
+          </figure>
+          <figure class="after">
+            <figcaption>After</figcaption>
+            <img src="panel-after.png" alt="The whole inspector panel on this branch" />
+          </figure>
+        </div>
+      </section>
+
+      <footer>
+        Shot against the live instance (main) and this branch's vite dev server, both on the
+        same API. <code>apps/web/e2e/pod1269-shot.ts</code>
+      </footer>
+    </main>
+  </body>
+</html>

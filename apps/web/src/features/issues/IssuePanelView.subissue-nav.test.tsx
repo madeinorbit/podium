@@ -62,6 +62,17 @@ const EMPTY_DRAFT = makeIssue({
   worktreePath: undefined,
 })
 
+/** Finished and filed. The deck can still show it; there is simply no work left
+ *  to sit down to, which is what "Work on this" offers (POD-1269). */
+const FINISHED = makeIssue({
+  id: 'f',
+  repoPath: '/r',
+  seq: 5,
+  title: 'Shipped last week',
+  stage: 'done',
+  closedReason: 'done',
+})
+
 vi.mock('@/app/store', () => {
   const state = () =>
     ({
@@ -74,7 +85,7 @@ vi.mock('@/app/store', () => {
       httpOrigin: '',
       openFileInWorktree: vi.fn(),
       uiState: { get: () => null, set: vi.fn() },
-      issues: [PARENT, CHILD, RELATED, EMPTY_DRAFT],
+      issues: [PARENT, CHILD, RELATED, EMPTY_DRAFT, FINISHED],
       sessions: [CHILD_SESSION],
       setPane,
       setView,
@@ -129,10 +140,10 @@ describe('IssuePanelView subissue rows', () => {
     expect(setView).not.toHaveBeenCalled()
   })
 
-  // ...and "Show in deck" is the one control that still does move it.
-  it('moves the shell from Show in deck, and only offers it inside the explorer', () => {
+  // ...and "Work on this" is the one control that still does move it.
+  it('moves the shell from Work on this, and only offers it inside the explorer', () => {
     const { unmount } = render(<IssuePanelView cwd="/r" />)
-    expect(screen.queryByTestId('dock-show-in-deck')).toBeNull()
+    expect(screen.queryByTestId('task-work-on-this')).toBeNull()
     unmount()
 
     render(
@@ -140,7 +151,7 @@ describe('IssuePanelView subissue rows', () => {
         <IssuePanelView cwd="/r" onNavigate={vi.fn()} />
       </OperatorFocusProvider>,
     )
-    fireEvent.click(screen.getByTestId('dock-show-in-deck'))
+    fireEvent.click(screen.getByTestId('task-work-on-this'))
     expect(setView).toHaveBeenCalledWith('workspace')
   })
 
@@ -157,7 +168,7 @@ describe('IssuePanelView subissue rows', () => {
         <IssuePanelView cwd="/r" issueId={'c' as never} onNavigate={vi.fn()} />
       </OperatorFocusProvider>,
     )
-    fireEvent.click(screen.getByTestId('dock-show-in-deck'))
+    fireEvent.click(screen.getByTestId('task-work-on-this'))
 
     // The MISSION is the parent — that is the row the sidebar can highlight —
     // while the pane still opens the child's own session, so the operator lands
@@ -175,7 +186,18 @@ describe('IssuePanelView subissue rows', () => {
     )
     // The mission resolves to nothing, so the deck would answer this jump with
     // its empty state. A link that lands nowhere is worse than no link.
-    expect(screen.queryByTestId('dock-show-in-deck')).toBeNull()
+    expect(screen.queryByTestId('task-work-on-this')).toBeNull()
+  })
+
+  it('offers no crossing on a task that is no longer workable', () => {
+    render(
+      <OperatorFocusProvider missionId="f">
+        <IssuePanelView cwd="/r" issueId={'f' as never} onNavigate={vi.fn()} />
+      </OperatorFocusProvider>,
+    )
+    // Closed with a reason: the deck could show it, but "Work on this" would be
+    // an invitation to work that is over.
+    expect(screen.queryByTestId('task-work-on-this')).toBeNull()
   })
 
   it('shows the target status icon in relation rows', () => {

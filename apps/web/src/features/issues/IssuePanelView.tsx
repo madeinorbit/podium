@@ -439,14 +439,15 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
  */
 function InspectHead({
   issue,
-  onShowInDeck,
+  onWorkOnThis,
 }: {
   issue: IssueViewModel
   /** Point the rest of the shell at this task. The ONE control on this surface
    *  that moves the app: the explorer syncs INWARD, so browsing a stranger's
    *  task must never drag the deck along with it, and the operator who does
-   *  want to go there needs one obvious way to say so. */
-  onShowInDeck?: () => void
+   *  want to go there needs one obvious way to say so. It is a BUTTON in the
+   *  control strip since POD-1269, not a text link on the ref line. */
+  onWorkOnThis?: () => void
 }): JSX.Element {
   return (
     <header className="flex-none px-3.5 pt-2.5 pb-3" data-testid="dock-inspect-head">
@@ -462,18 +463,6 @@ function InspectHead({
         >
           {issueDisplayRef(issue)}
         </button>
-        {onShowInDeck && (
-          <button
-            data-pressable
-            type="button"
-            onClick={onShowInDeck}
-            data-testid="dock-show-in-deck"
-            title="Point the Flight Deck and workspace at this task"
-            className="ml-auto rounded px-1 py-0.5 hover:bg-accent/60 hover:text-foreground"
-          >
-            Show in deck
-          </button>
-        )}
       </div>
       <h2
         className="shell-type-reading mt-1.5 line-clamp-2 font-semibold text-secondary-foreground"
@@ -482,7 +471,7 @@ function InspectHead({
       >
         {issue.title}
       </h2>
-      <IssueCompactControls issue={issue} />
+      <IssueCompactControls issue={issue} onWorkOnThis={onWorkOnThis} />
     </header>
   )
 }
@@ -987,6 +976,12 @@ export function IssuePanelView({
     setView('issues')
   }
 
+  // WORKABLE: the same predicate the control strip closes on — a closure with a
+  // reason, or an archive, is the end of the work. `deckDestinationFor` already
+  // refuses an archived or deleted target; this adds the outcome half, which it
+  // has no reason to know about.
+  const workable = !issue.closedReason && !issue.archived
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* TWO BOXES, and only two. Everything above the scroll lives in this
@@ -998,11 +993,13 @@ export function IssuePanelView({
       <div className="flex-none border-b border-border/60" data-testid="dock-fixed">
         {/* Offered only where it can arrive: inside the explorer, which has a
             trail to leave, and only for a task the deck can put on screen. A
-            control that lands nowhere is worse than no control (POD-1151). */}
+            control that lands nowhere is worse than no control (POD-1151) — and
+            since POD-1269, only for a task there is still work to do on. A
+            finished or archived task has a history to read, not a seat to take. */}
         <InspectHead
           issue={issue}
-          onShowInDeck={
-            onNavigate && deckDestinationFor(issues, sessions, issue.id)
+          onWorkOnThis={
+            onNavigate && workable && deckDestinationFor(issues, sessions, issue.id)
               ? () => showInDeck(issue)
               : undefined
           }

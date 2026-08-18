@@ -70,6 +70,7 @@ let mockIssues = [ROOT]
 let mockSessions: SessionMeta[] = []
 const sendText = vi.fn(async () => ({}))
 const navigateToSession = vi.fn()
+const setPane = vi.fn()
 
 vi.mock('@/app/store', () => {
   const state = () => ({
@@ -93,7 +94,7 @@ vi.mock('@/app/store', () => {
     sessions: mockSessions,
     repos: [],
     machines: [],
-    setPane: vi.fn(),
+    setPane,
     setSelectedIssueId: vi.fn(),
     setView: vi.fn(),
     setOpenIssueId: vi.fn(),
@@ -193,7 +194,7 @@ describe('the task dock scrolls', () => {
 })
 
 describe('needs-you lives on the session that asked', () => {
-  it('marks the waiting session and folds its answers underneath it', () => {
+  it('badges the waiting session instead of unfolding its offer', () => {
     mockSessions = [session({ sessionId: 'quiet', name: 'Quiet agent' }), offering('ask', 'Asker')]
     render(<IssuePanelView cwd="/r" />)
 
@@ -204,36 +205,31 @@ describe('needs-you lives on the session that asked', () => {
     expect(within(rows[0] as HTMLElement).getByText('Asker')).toBeTruthy()
     expect(rows[1]?.dataset.needsYou).toBeUndefined()
 
-    const answer = within(rows[0] as HTMLElement).getByTestId('dock-session-answer')
-    expect(answer.textContent).toContain('Asker asks: land this?')
-    expect(within(answer).getByText('Land it')).toBeTruthy()
-  })
-
-  it('sends a one-click answer to that session', () => {
-    mockSessions = [offering('ask', 'Asker')]
-    render(<IssuePanelView cwd="/r" />)
-
-    fireEvent.click(screen.getByText('Land it'))
-    expect(sendText).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'ask', text: 'Land it' }),
-    )
-  })
-
-  it('hands an answer that needs prose to the conversation instead of growing a field', () => {
-    mockSessions = [offering('ask', 'Asker')]
-    render(<IssuePanelView cwd="/r" />)
-
-    fireEvent.click(screen.getByText('Send back'))
+    // POD-1269: a badge, and nothing else. The headline and its one-click
+    // answers were a whole conversation transplanted into a roster.
+    const badge = within(rows[0] as HTMLElement).getByTestId('dock-session-needs-you')
+    expect(badge.textContent).toBe('Needs you')
+    expect(within(rows[0] as HTMLElement).queryByTestId('dock-session-answer')).toBeNull()
+    expect(rows[0]?.textContent).not.toContain('Asker asks: land this?')
+    expect(within(rows[0] as HTMLElement).queryByText('Land it')).toBeNull()
     expect(sendText).not.toHaveBeenCalled()
-    expect(navigateToSession).toHaveBeenCalledWith('ask')
   })
 
-  it('leaves a working session unmarked', () => {
+  it('opens the conversation from the row, which is where the answer is given', () => {
+    mockSessions = [offering('ask', 'Asker')]
+    render(<IssuePanelView cwd="/r" />)
+
+    fireEvent.click(screen.getByText('Asker'))
+    expect(setPane).toHaveBeenCalledWith('A', 'ask')
+  })
+
+  it('leaves a working session unbadged, wearing its state word', () => {
     mockSessions = [session()]
     render(<IssuePanelView cwd="/r" />)
 
     const row = screen.getByTestId('dock-session-row')
     expect(row.dataset.needsYou).toBeUndefined()
-    expect(within(row).queryByTestId('dock-session-answer')).toBeNull()
+    expect(within(row).queryByTestId('dock-session-needs-you')).toBeNull()
+    expect(row.textContent).toContain('Idle')
   })
 })

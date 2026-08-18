@@ -88,12 +88,13 @@ afterEach(() => {
 // of the issue's own state — the operator never has to choose between three
 // buttons to find the next move.
 describe('resolveTaskAction', () => {
-  it('answers when the task needs a human', () => {
-    expect(resolveTaskAction(makeIssue({ needsHuman: true }), [session()])).toEqual({
-      kind: 'answer',
-      label: 'Answer',
-      warn: true,
-    })
+  it('offers nothing when the task needs a human — the band already says so', () => {
+    // POD-1269: this used to resolve to an "Answer" chip that jumped to whoever
+    // was waiting. Three things on this surface already carry that obligation —
+    // the amber decision band, the waiting session's attention rule, and the row
+    // that opens its conversation — and a filled yellow button that only
+    // navigates read as the place the answer gets typed.
+    expect(resolveTaskAction(makeIssue({ needsHuman: true }), [session()])).toBeNull()
   })
 
   it('offers to close a handed-off origin rather than answer it', () => {
@@ -154,36 +155,54 @@ describe('resolveTaskAction', () => {
 })
 
 describe('IssueCompactControls', () => {
-  it('gives the needs-you action the panel’s one filled chip', () => {
+  it('carries no chip at all when the task needs a human', () => {
+    mockSessions = [session({ sessionId: 'coord' })]
     render(<IssueCompactControls issue={makeIssue({ id: 'i', needsHuman: true })} />)
 
-    const action = screen.getByTestId('task-primary-action')
-    expect(action.dataset.action).toBe('answer')
-    expect(action.textContent).toBe('Answer')
-    // POD-725: the needs-you variant is the SOLID primary, not an ochre-tinted
-    // outline. `primaryAction()` returns exactly one action, so nothing competes
-    // with it — and on paper the old `bg-attention/15` was 15% ochre over
-    // near-white, a washed tan that read quieter than the neutral status pill
-    // beside it. Backwards for the one control asking something of the operator.
-    expect(action.className).not.toContain('bg-attention/15')
-    expect(action.className).toContain('btn-primary-rim')
+    expect(screen.queryByTestId('task-primary-action')).toBeNull()
   })
 
-  it('answers into the coordinator when no single session raised the flag', () => {
-    // The issue asked, not a session, so Answer has to pick a room to open:
-    // the coordinator, then the most recently active member.
-    mockSessions = [
-      session({ sessionId: 'old', lastActiveAt: '2026-08-01T00:00:00.000Z' }),
-      session({ sessionId: 'coord' }),
-    ]
+  it('takes the filled chip for Work on this when the state resolved no action', () => {
+    // The panel keeps its one-filled-object rule: with no primary action of its
+    // own — the needs-you case, now that Answer is gone — the crossing into the
+    // work tool is the thing to press, so it is the thing that is filled.
+    const onWorkOnThis = vi.fn()
     render(
       <IssueCompactControls
-        issue={makeIssue({ id: 'i', needsHuman: true, coordinatorSessionId: 'coord' })}
+        issue={makeIssue({ id: 'i', needsHuman: true })}
+        onWorkOnThis={onWorkOnThis}
       />,
     )
 
-    fireEvent.click(screen.getByTestId('task-primary-action'))
-    expect(navigateToSession).toHaveBeenCalledWith('coord')
+    const work = screen.getByTestId('task-work-on-this')
+    expect(work.className).toContain('btn-primary-rim')
+    fireEvent.click(work)
+    expect(onWorkOnThis).toHaveBeenCalledTimes(1)
+  })
+
+  it('stands the work crossing down beside a real action, and hides it on a closed task', () => {
+    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} onWorkOnThis={vi.fn()} />)
+    // Nothing is on this task, so Start work is the filled chip and the crossing
+    // is the outline beside it.
+    expect(screen.getByTestId('task-primary-action').textContent).toBe('Start work')
+    expect(screen.getByTestId('task-work-on-this').className).not.toContain('btn-primary-rim')
+
+    cleanup()
+    render(
+      <IssueCompactControls
+        issue={makeIssue({ id: 'i', closedReason: 'done' })}
+        onWorkOnThis={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('task-work-on-this')).toBeNull()
+  })
+
+  it('offers no crossing where there is nowhere to go', () => {
+    // The workspace's own dock hands in no callback: it is already the work
+    // tool, so a button pointing at it would land where you stand.
+    render(<IssueCompactControls issue={makeIssue({ id: 'i', needsHuman: true })} />)
+
+    expect(screen.queryByTestId('task-work-on-this')).toBeNull()
   })
 
   it('carries no primary chip while sessions are working the task', () => {

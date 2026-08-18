@@ -1,4 +1,3 @@
-import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   discoveredPlacement,
@@ -18,6 +17,7 @@ import {
   type SessionMeta,
 } from '@podium/model/browser'
 import {
+  ArrowRight,
   ArrowUpRight,
   Check,
   ChevronDown,
@@ -39,8 +39,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { OfferBar } from '@/features/chat/OfferBar'
-import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
@@ -97,25 +95,6 @@ export function issueSessions(
 }
 
 /** Newest-active first, so "the session on this task" is a stable pick. */
-function byRecency(a: SessionMeta, b: SessionMeta): number {
-  return b.lastActiveAt.localeCompare(a.lastActiveAt)
-}
-
-/**
- * The session that speaks for the issue: its coordinator when one is named,
- * else the most recently active live session. Same fallback order the selection
- * contract states (coordinator → lone member → most recently active member).
- */
-export function coordinatorSession(
-  issue: IssueViewModel,
-  active: readonly SessionMeta[],
-): SessionMeta | undefined {
-  return (
-    active.find((session) => session.sessionId === issue.coordinatorSessionId) ??
-    [...active].sort(byRecency)[0]
-  )
-}
-
 /** The agent-state word a dock session row wears — the vocabulary the rest of
  *  the shell already uses, not a second one. */
 export function sessionStateLabel(session: SessionMeta): string {
@@ -131,7 +110,7 @@ export function sessionStateLabel(session: SessionMeta): string {
   return 'Idle'
 }
 
-export type TaskActionKind = 'answer' | 'mark-done' | 'start-work'
+export type TaskActionKind = 'mark-done' | 'start-work'
 
 export interface TaskAction {
   kind: TaskActionKind
@@ -142,9 +121,16 @@ export interface TaskAction {
 
 /**
  * The one primary action the task head offers, resolved from the issue's own
- * state: needs-you → Answer (or Mark done on a handed-off origin, where the
- * work has left and closing is the only decision left); else nobody on it →
- * Start work.
+ * state: a handed-off origin that needs a decision → Mark done, where the work
+ * has left and closing is the only decision left; else nobody on it → Start
+ * work.
+ *
+ * NEEDS-YOU RESOLVES TO NO ACTION (POD-1269). An `Answer` chip sat here and
+ * jumped to whoever was waiting — but the same obligation was already stated
+ * three times on this surface: the amber band names the decision, the waiting
+ * session wears an attention rule, and its row opens the conversation where the
+ * answer is actually given. A yellow button whose only job is to scroll the
+ * shell somewhere else read as the place to answer, and it was not.
  *
  * Sessions already working it resolve to NO action and the head renders no chip.
  * An "Open coordinator" chip sat here until POD-1151: its job was to jump to the
@@ -160,9 +146,7 @@ export function resolveTaskAction(
   if (issueNeedsHuman(issue, active)) {
     const handedOff =
       active.length === 0 && (issue.dependents ?? []).some((dep) => dep.type === 'discovered-from')
-    return handedOff
-      ? { kind: 'mark-done', label: 'Mark done', warn: true }
-      : { kind: 'answer', label: 'Answer', warn: true }
+    return handedOff ? { kind: 'mark-done', label: 'Mark done', warn: true } : null
   }
   if (active.length > 0) return null
   return { kind: 'start-work', label: 'Start work', warn: false }
@@ -218,89 +202,23 @@ export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element
   )
 }
 
-/**
- * The answer affordance, folded into the session that asked (POD-516 r2 #7).
+/** The obligation, said ONCE per session row (POD-1269).
  *
- * It used to be a stack of `OfferBar` cards wedged between the fixed head and
- * the single scroll — which is what made the dock unscrollable, because that
- * region grew one full card per offer and the scroll only ever gets what is
- * left. It also put the question on the TASK, when what stopped is a SESSION.
- *
- * So the offer's headline and its one-click answers hang off the session row
- * itself. Anything that needs a paragraph typed hands off to the conversation
- * (the composer is where prose belongs) rather than growing a textarea inside a
- * dock section.
+ *  This badge replaces the offer card that used to unfold here — the agent's
+ *  headline plus its one-click answers, hanging off the row that asked. That
+ *  card was a whole conversation transplanted into a roster: three lines and a
+ *  button row per waiting session, in a list whose job is to say who is on this
+ *  task. The roster now only raises the flag; the offer itself is read and
+ *  answered in the conversation, one click away on the row.
  */
-function SessionAnswer({ session }: { session: SessionMeta }): JSX.Element | null {
-  const { trpc, navigateToSession } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, navigateToSession: s.navigateToSession }),
-    shallowEqual,
-  )
-  const [sending, setSending] = useState<number | null>(null)
-  const offer = session.offer
-  if (!offer) return null
-  const headline = offer.message.split('\n', 1)[0]?.trim()
-
-  const send = (index: number, prompt: string): void => {
-    if (sending !== null) return
-    setSending(index)
-    trpc.sessions.sendText
-      .mutate({ sessionId: session.sessionId, text: prompt, mutationId: randomUUID() })
-      .then((result) => {
-        // Substrate refuses with HTTP 200 + ok:false — surface it (POD-552).
-        assertSendAccepted(result)
-      })
-      .catch((error: unknown) =>
-        toast.error(error instanceof Error ? error.message : String(error)),
-      )
-      .finally(() => setSending(null))
-  }
-
+function SessionNeedsYou(): JSX.Element {
   return (
-    // Indented to the session's NAME (4px row pad + 20px harness chip + 8px
-    // gap), so the question reads as that agent speaking, not as a new section.
-    <div className="pt-0.5 pb-2 pl-8" data-testid="dock-session-answer">
-      {headline && <p className={cn(DOCK_BODY, 'line-clamp-2 text-foreground/85')}>{headline}</p>}
-      {offer.actions.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {offer.actions.map((action, index) => (
-            <button
-              data-pressable
-              key={`${action.label}:${action.prompt}`}
-              type="button"
-              data-answer-action={action.input === true ? 'compose' : 'send'}
-              disabled={sending !== null}
-              title={
-                action.input === true
-                  ? `${action.prompt} — opens the conversation so you can add your reply`
-                  : action.prompt
-              }
-              onClick={() =>
-                action.input === true
-                  ? navigateToSession(session.sessionId)
-                  : send(index, action.prompt)
-              }
-              className={cn(
-                'inline-flex h-[22px] items-center gap-1 rounded-md px-2 text-[11px] font-medium disabled:opacity-50',
-                // ONE fill in the obligation channel, and it is the control
-                // that actually discharges the obligation — the head's Answer
-                // and the decision band both stay tinted outlines above it.
-                index === 0
-                  ? 'bg-attention text-attention-foreground hover:opacity-85'
-                  : 'border border-border-strong bg-chip text-foreground hover:bg-muted',
-              )}
-            >
-              {sending === index ? 'Sending…' : action.label}
-              {action.input === true && (
-                <span aria-hidden="true" className="shell-type-micro opacity-70">
-                  ✎
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <span
+      className="shell-type-micro flex-none rounded-full border border-attention/45 bg-attention/10 px-1.5 py-[2px] font-semibold text-attention"
+      data-testid="dock-session-needs-you"
+    >
+      Needs you
+    </span>
   )
 }
 
@@ -311,9 +229,10 @@ function SessionAnswer({ session }: { session: SessionMeta }): JSX.Element | nul
  * pair.
  *
  * A session that stopped and asked wears the obligation: a 2px attention rule
- * down its left edge and its state word in attention ink, with the question and
- * its answers folded in underneath. Colour for obligation — the rule appears
- * nowhere else on this surface.
+ * down its left edge and a "Needs you" badge where its state word goes. Colour
+ * for obligation — the rule appears nowhere else on this surface. The question
+ * itself, and the buttons that answer it, live in the conversation the row
+ * opens (POD-1269).
  */
 export function IssueSessionRow({
   session,
@@ -366,15 +285,16 @@ export function IssueSessionRow({
             <WorkerLabel session={session} chip />
           </button>
         )}
-        <span
-          className={cn(
-            DOCK_STAMP,
-            'flex-none',
-            needs ? 'font-semibold text-attention' : 'text-text-faint',
-          )}
-        >
-          {sessionStateLabel(session)}
-        </span>
+        {/* The badge SUPPLANTS the state word rather than sitting beside it:
+            "Waiting on you" and "Needs you" are the same fact in two
+            vocabularies, and the row has one slot for how this session stands. */}
+        {needs ? (
+          <SessionNeedsYou />
+        ) : (
+          <span className={cn(DOCK_STAMP, 'flex-none text-text-faint')}>
+            {sessionStateLabel(session)}
+          </span>
+        )}
         <button
           data-pressable
           type="button"
@@ -389,7 +309,6 @@ export function IssueSessionRow({
           <MoreHorizontal size={13} aria-hidden="true" />
         </button>
       </div>
-      {needs && <SessionAnswer session={session} />}
       {menu && (
         <Suspense fallback={null}>
           <SessionContextMenu
@@ -567,20 +486,28 @@ function PlacementMenu({
  * issue's state resolves to, and the shared issue context menu. Every other
  * lifecycle affordance lives in that menu rather than competing for the row.
  */
-export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.Element {
-  const { trpc, sessions, setOpenIssueId, setView, navigateToSession, updateIssue, closeIssue } =
-    useStoreSelector(
-      (s) => ({
-        trpc: s.trpc,
-        sessions: s.sessions,
-        setOpenIssueId: s.setOpenIssueId,
-        setView: s.setView,
-        navigateToSession: s.navigateToSession,
-        updateIssue: s.updateIssue,
-        closeIssue: s.closeIssue,
-      }),
-      shallowEqual,
-    )
+export function IssueCompactControls({
+  issue,
+  onWorkOnThis,
+}: {
+  issue: IssueViewModel
+  /** Take the whole shell to this task: the work tool, with the task selected
+   *  in the sidebar and its agent in the pane. Passed only by a surface that
+   *  can actually go somewhere — the explorer — and only for a task that is
+   *  still workable; see {@link IssuePanelView}. */
+  onWorkOnThis?: () => void
+}): JSX.Element {
+  const { trpc, sessions, setOpenIssueId, setView, updateIssue, closeIssue } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      sessions: s.sessions,
+      setOpenIssueId: s.setOpenIssueId,
+      setView: s.setView,
+      updateIssue: s.updateIssue,
+      closeIssue: s.closeIssue,
+    }),
+    shallowEqual,
+  )
   const issues = useReplicaIssues()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
@@ -654,15 +581,6 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
   const runAction = (): void => {
     if (!action) return
     switch (action.kind) {
-      case 'answer': {
-        // Go to whoever is actually waiting; the issue page is the fallback for
-        // a flag raised with no session behind it.
-        const target =
-          active.find((session) => sessionNeedsHuman(session)) ?? coordinatorSession(issue, active)
-        if (target) navigateToSession(target.sessionId)
-        else openFull()
-        return
-      }
       case 'mark-done':
         setCloseReason('done')
         return
@@ -701,7 +619,12 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
   }
 
   return (
-    <div className="mt-2.5 flex items-center gap-2">
+    // WRAPS, since POD-1269. The strip can now hold four objects — status, the
+    // resolved action, its placement fork, the crossing into the work tool — and
+    // the dock is 300px wide at its narrowest. Wrapping is safe where a clamp
+    // would not be: the head must not grow with DATA, and a line break here is a
+    // function of width, not of how much this task has to say.
+    <div className="mt-2.5 flex flex-wrap items-center gap-2">
       {/* STATUS, exposed as a first-class dock action. Built from the shell's
           own dropdown rather than a native <select>, which exists nowhere in
           this chrome. One flat Linear-shaped list (POD-1074): the open lanes,
@@ -801,6 +724,33 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           {placement && <PlacementMenu placement={placement} busy={starting} onStart={startWork} />}
         </div>
       ) : null}
+      {/* WHERE THE WORK HAPPENS (POD-1269). The explorer is a place to read
+          tasks; the work tool is where you sit with one. This is the crossing,
+          and it replaces the "Show in deck" text link that used to hide on the
+          ref line above — a link set in 11px grey, next to nothing, for the one
+          control on this surface that moves the whole shell.
+
+          It takes the PRIMARY fill exactly when the state machine resolved no
+          action of its own, which keeps the panel's one-filled-chip rule and
+          means the needs-you case — where the head is now otherwise bare — has
+          an obvious thing to press. */}
+      {onWorkOnThis && !closed && (
+        <Button
+          type="button"
+          size="sm"
+          variant={action ? 'outline' : 'default'}
+          data-testid="task-work-on-this"
+          title="Open this task in the work tool"
+          className={cn(
+            'h-7 gap-1.5 px-2.5 text-[11.5px] font-semibold',
+            !action && 'btn-primary-rim border',
+          )}
+          onClick={onWorkOnThis}
+        >
+          Work on this
+          <ArrowRight size={12} aria-hidden="true" />
+        </Button>
+      )}
       <Button
         type="button"
         variant="ghost"
