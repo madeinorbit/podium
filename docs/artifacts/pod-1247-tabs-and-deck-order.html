@@ -247,6 +247,37 @@
     </ul>
   </section>
 
+  <section>
+    <h2>5 &middot; What comes back after a reload</h2>
+
+    <div class="card">
+      <h3>The layout is saved, per device</h3>
+      <p>The whole workspace map is written to this browser's local storage on every change, under the signed-in user. It is deliberately <strong>not</strong> synced: a phone should not inherit a desktop's split.</p>
+    </div>
+
+    <div class="card">
+      <h3>What is restored</h3>
+      <ul class="plain">
+        <li><b>Every mission's strip</b>, not just the one you were on.</li>
+        <li><b>Tab order</b> per pane, and which tab was active in each.</li>
+        <li><b>Splits</b> &mdash; the tree, the axis, and the drag sizes.</li>
+        <li><b>The focused pane</b>, and even the italic preview tab.</li>
+      </ul>
+      <p>A broken or older-shaped blob restores as empty rather than as a layout nothing can render.</p>
+    </div>
+
+    <div class="card flag">
+      <span class="eyebrow">The one gap</span>
+      <h3>File tabs do not come back</h3>
+      <p>Open file buffers are not saved. Their slots survive in the layout for 20&nbsp;seconds, then get cleaned up as tabs that name nothing. The last 30 paths stay in Recent files, so you reopen from the &plus; menu.</p>
+    </div>
+
+    <div class="card">
+      <h3>Tabs that name nothing</h3>
+      <p>The same 20-second rule covers sessions killed elsewhere or gone since last time: an id that fails to resolve for that long is dropped, so a dead tab cannot be persisted forever. The delay is there because a session may just be arriving late.</p>
+    </div>
+  </section>
+
   <footer>
     Read from the shipped code: the workspace key and pruning rules, the deck's tab-open contract, and the mission row builder.
   </footer>
