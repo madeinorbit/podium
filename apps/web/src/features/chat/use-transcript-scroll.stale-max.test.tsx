@@ -294,6 +294,93 @@ describe('pushing down against a frozen offset is arriving', () => {
  * scrolling raises real intent through its own listener, and the search jump
  * releases the pin deliberately before it navigates.
  */
+/**
+ * THE ENGINE REVERTING OUR OWN WRITE IS NOT A DRAG (round 4, the trace of
+ * 2026-08-18 afternoon).
+ *
+ * This state is the stale maximum's second mode. In the morning's mode the
+ * clamp was SYNCHRONOUS: a write read back short, `writeBottom` saw the
+ * shortfall and healed. In this mode Safari accepts the write on the main
+ * thread — the read-back says gap 0, so the heal never runs — and the
+ * compositor reverts it 16ms later as one silent upward scroll event, to the
+ * same stale offset every time. Round 3's fight-breaker then read the SECOND
+ * revert, arriving inside the concede window, as a human dragging — and
+ * surrendered to the engine. Traced live: two writes per Jump click, a
+ * 16ms visit to the true bottom, and silence 213px short.
+ *
+ * The discriminator no gesture can fake: a revert lands moments after OUR
+ * OWN write, on the SAME spot as the last one. A dragging hand progresses;
+ * a stale maximum is a constant. So same-spot post-write reverts are fought
+ * — with the geometry heal FORCED, because the synchronous read-back is the
+ * thing this mode defeats — capped so a truly wedged engine parks the feed
+ * instead of spinning, while progressing spots still concede as round 3
+ * conceded.
+ */
+describe('the engine reverting our own write is not a drag', () => {
+  /** This mode ACCEPTS writes — the stale clamp lives on the compositor, so
+   *  the test lets `scrollTop` land and plays the engine's revert by hand. */
+  function acceptWrites(): void {
+    engineMax = TRUE_MAX
+  }
+
+  function pinAtBottom(): void {
+    top = TRUE_MAX
+    act(() => api?.onScroll())
+  }
+
+  /** The compositor's silent revert: no wheel, no write, one scroll event
+   *  back to the stale offset. */
+  function revertTo(staleTop: number, ms = 16): void {
+    clock += ms
+    top = staleTop
+    act(() => api?.onScroll())
+  }
+
+  it('fights a same-spot revert of its own write instead of conceding', () => {
+    acceptWrites()
+    pinAtBottom()
+    act(() => api?.jumpToBottom())
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
+    revertTo(4385) // 16ms later: inside round 3's concede window, deliberately
+    expect(held.pinnedToBottom.current).toBe(true)
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
+    revertTo(4385, 50) // the second revert is what round 3 surrendered to
+    expect(held.pinnedToBottom.current).toBe(true)
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
+  })
+
+  it('forces the geometry heal even though the write read back as landed', () => {
+    acceptWrites()
+    pinAtBottom()
+    act(() => api?.jumpToBottom())
+    expect(heals).toBe(0) // the blind spot: sync read-back said gap 0
+    revertTo(4385)
+    expect(heals).toBeGreaterThan(0)
+  })
+
+  it('parks instead of spinning when the engine never yields', () => {
+    acceptWrites()
+    pinAtBottom()
+    act(() => api?.jumpToBottom())
+    for (let i = 0; i < 12; i++) revertTo(4385, 30)
+    // The cap: a wedged engine wins the position, but the feed PARKS — pill
+    // on, latch set — rather than writing forever.
+    expect(held.pinnedToBottom.current).toBe(false)
+    expect(scroller().scrollTop).toBe(4385)
+  })
+
+  it('still concedes to a hand that PROGRESSES, write or no write', () => {
+    acceptWrites()
+    pinAtBottom()
+    clock += 1000
+    revertTo(4300, 0) // first uninvited move: healed once, as in round 3
+    expect(held.pinnedToBottom.current).toBe(true)
+    revertTo(4200, 50) // a different spot moments later: a hand, let go
+    expect(held.pinnedToBottom.current).toBe(false)
+    expect(scroller().scrollTop).toBe(4200)
+  })
+})
+
 describe("an uninvited upward move while pinned is the engine's", () => {
   /** The production shape: engine rested past its own stale max, then snaps
    *  back to it. Prime the direction tracker at the resting spot. */

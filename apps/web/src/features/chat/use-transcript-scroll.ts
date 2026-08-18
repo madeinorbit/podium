@@ -114,6 +114,15 @@ const WHEEL_GESTURE_MS = 300
  * can.
  */
 const SNAP_CONCEDE_MS = 400
+/** How long after our own bottom write an upward move still reads as the
+ *  compositor reverting that write (observed live: 16ms). */
+const WRITE_REVERT_MS = 150
+/** A stale maximum is a constant; a dragging hand progresses. Two pixels of
+ *  tolerance for fractional offsets. */
+const SAME_SPOT_PX = 2
+/** How many same-spot reverts to fight before conceding that the engine is
+ *  wedged and parking the feed (pill on, latch set) instead of spinning. */
+const REVERT_FIGHT_CAP = 6
 
 /**
  * Grant or revoke the ENGINE's end-of-feed anchor (POD-1160).
@@ -171,11 +180,40 @@ const settling = new WeakMap<HTMLElement, number>()
  */
 function writeBottom(el: HTMLElement): void {
   el.scrollTop = el.scrollHeight
+  lastBottomWriteAt.set(el, performance.now())
   if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) return
+  healGeometry(el)
+  el.scrollTop = el.scrollHeight
+  lastBottomWriteAt.set(el, performance.now())
+}
+
+/** One frame of genuinely changed scrollable overflow — the only thing that
+ *  makes WebKit's scrolling tree re-commit its cached maximum. A forced
+ *  reflow that changes nothing commits nothing. */
+function healGeometry(el: HTMLElement): void {
   el.style.paddingBottom = '1px'
   void el.offsetHeight
   el.style.paddingBottom = ''
+}
+
+/**
+ * When each scroller last had its bottom written, so `onScroll` can tell the
+ * engine reverting OUR write from a reader moving (round 4). In the stale
+ * maximum's second mode Safari accepts the write on the main thread — the
+ * synchronous read-back in `writeBottom` says gap 0, so its heal never runs —
+ * and the compositor reverts it ~16ms later as one silent upward scroll
+ * event. The write timestamp is the first half of recognizing that; the
+ * revert landing on the SAME spot every time is the other.
+ */
+const lastBottomWriteAt = new WeakMap<HTMLElement, number>()
+
+/** The write for the fight path: heal FIRST, because in the second mode the
+ *  read-back that would trigger `writeBottom`'s conditional heal is exactly
+ *  what the engine defeats. */
+function forceBottom(el: HTMLElement): void {
+  healGeometry(el)
   el.scrollTop = el.scrollHeight
+  lastBottomWriteAt.set(el, performance.now())
 }
 
 /** A wheel over a scrollable region inside the feed chains to the feed only
@@ -299,6 +337,11 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
    *  inside `SNAP_CONCEDE_MS` of this is a drag, not a snap. -Infinity so the
    *  first one is always read as a snap, whatever the clock says. */
   const lastSnapHealAt = useRef(Number.NEGATIVE_INFINITY)
+  /** Where the last uninvited upward move landed, and how many times in a row
+   *  we have fought it (round 4): a revert to the SAME spot moments after our
+   *  own write is the compositor, however many arrive — a hand progresses. */
+  const lastRevertTop = useRef<number | null>(null)
+  const revertFights = useRef(0)
   /**
    * The ELEMENT currently on the shelf, not its index.
    *
@@ -684,6 +727,8 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
         stuckNotches.current = 0
         stuckNotchTop.current = null
         releasedByIntent.current = false
+        revertFights.current = 0
+        lastRevertTop.current = null
         pinnedToBottom.current = true
         setAnchorEnd(el, true)
         settleToBottom(el, pinnedToBottom)
@@ -750,19 +795,51 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     // held drag (see SNAP_CONCEDE_MS): let go, and latch like any leave.
     if (!goingDown && pinnedToBottom.current && !releasedByIntent.current && gap > 4) {
       const now = performance.now()
-      if (now - lastSnapHealAt.current >= SNAP_CONCEDE_MS) {
+      // THE ENGINE REVERTING OUR OWN WRITE IS NOT A DRAG (round 4). In the
+      // stale maximum's second mode the compositor reverts an accepted write
+      // ~16ms later, to the same stale offset every time — which round 3's
+      // persistence rule then read as a human dragging, and surrendered to.
+      // No gesture lands on the same pixel twice moments after our own
+      // write, so THAT signature is fought — heal first, because the
+      // synchronous read-back that would trigger `writeBottom`'s own heal is
+      // exactly what this mode defeats — and capped, so a wedged engine
+      // parks the feed instead of spinning it. A move that PROGRESSES is
+      // still a hand, and still concedes as round 3 conceded.
+      const afterOurWrite =
+        now - (lastBottomWriteAt.get(el) ?? Number.NEGATIVE_INFINITY) <= WRITE_REVERT_MS
+      const sameSpot =
+        lastRevertTop.current !== null &&
+        Math.abs(el.scrollTop - lastRevertTop.current) <= SAME_SPOT_PX
+      const enginesRevert = lastRevertTop.current === null ? afterOurWrite : sameSpot
+      const firstUnknown = now - lastSnapHealAt.current >= SNAP_CONCEDE_MS
+      if ((enginesRevert || firstUnknown) && revertFights.current < REVERT_FIGHT_CAP) {
+        revertFights.current += 1
+        lastRevertTop.current = el.scrollTop
         lastSnapHealAt.current = now
-        writeBottom(el)
+        forceBottom(el)
         lastScrollTop.current = el.scrollTop
         setAtBottom(true)
         syncStickyPromptPositions()
         return
       }
       lastSnapHealAt.current = Number.NEGATIVE_INFINITY
+      lastRevertTop.current = null
+      revertFights.current = 0
       pinnedToBottom.current = false
       releasedByIntent.current = true
       setAnchorEnd(el, false)
     } else {
+      // Genuine downward movement outside our own write's shadow ends any
+      // revert fight: the reader (or fresh content) is moving, not the
+      // compositor replaying its constant.
+      if (
+        goingDown &&
+        performance.now() - (lastBottomWriteAt.get(el) ?? Number.NEGATIVE_INFINITY) >
+          WRITE_REVERT_MS
+      ) {
+        lastRevertTop.current = null
+        revertFights.current = 0
+      }
       // NEAR THE END AND FOLLOWING IT ARE TWO QUESTIONS. `near` decides
       // whether to offer the jump affordance, and has always been generous on
       // purpose. The PIN is whether to keep writing the bottom under the
@@ -826,6 +903,8 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     if (!el) return
     pinnedToBottom.current = true
     releasedByIntent.current = false
+    revertFights.current = 0
+    lastRevertTop.current = null
     setAnchorEnd(el, true)
     // ONE WRITE IS NOT ENOUGH, because "the bottom" is a number that is still
     // moving when the click lands. `scrollHeight` is whatever has laid out SO
@@ -849,6 +928,8 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   const pinToBottom = useCallback(() => {
     pinnedToBottom.current = true
     releasedByIntent.current = false
+    revertFights.current = 0
+    lastRevertTop.current = null
     const el = scrollerRef.current
     if (el) setAnchorEnd(el, true)
     setAtBottom(true)
