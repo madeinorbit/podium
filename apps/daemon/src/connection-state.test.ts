@@ -3,12 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asSessionId } from '@podium/model'
-import {
-  type DaemonMessage,
-  type PeerHello,
-  type PeerHelloReply,
-  WIRE_VERSION,
-} from '@podium/protocol'
+import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'

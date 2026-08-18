@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto'
+import { request } from 'node:http'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
@@ -103,6 +105,44 @@ function attempt(url: string, headers?: Record<string, string>): Promise<'open' 
   })
 }
 
+/** Read a rejected WebSocket upgrade as the HTTP response it really is.
+ *
+ * Bun's `ws` compatibility layer does not emit `unexpected-response`, so a test
+ * waiting on that Node-only event hangs even though the server already returned
+ * the correct 503. The raw node:http upgrade request observes the same network
+ * boundary on both runners and retains the status/body evidence this case needs.
+ */
+function rejectedHandshake(url: string): Promise<{ status: number; body: string }> {
+  const target = new URL(url)
+  return new Promise((resolve, reject) => {
+    const req = request({
+      hostname: target.hostname,
+      port: target.port,
+      path: `${target.pathname}${target.search}`,
+      headers: {
+        Connection: 'Upgrade',
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
+        'Sec-WebSocket-Version': '13',
+      },
+    })
+    req.once('response', (incoming) => {
+      let body = ''
+      incoming.setEncoding('utf8')
+      incoming.on('data', (chunk) => {
+        body += chunk
+      })
+      incoming.on('end', () => resolve({ status: incoming.statusCode ?? 0, body }))
+    })
+    req.once('upgrade', (_incoming, socket) => {
+      socket.destroy()
+      reject(new Error('blocked-readiness WebSocket unexpectedly upgraded'))
+    })
+    req.once('error', reject)
+    req.end()
+  })
+}
+
 async function until(check: () => boolean, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!check()) {
@@ -146,17 +186,7 @@ describe('/client WS auth gate', () => {
 
   test('rejects a blocked-readiness client with an explicit 503 handshake', async () => {
     const url = await startNotReady()
-    const response = await new Promise<{ status: number; body: string }>((resolve) => {
-      const ws = new WebSocket(url)
-      ws.on('unexpected-response', (_request, incoming) => {
-        let body = ''
-        incoming.on('data', (chunk) => {
-          body += String(chunk)
-        })
-        incoming.on('end', () => resolve({ status: incoming.statusCode ?? 0, body }))
-      })
-      ws.on('error', () => {})
-    })
+    const response = await rejectedHandshake(url)
     expect(response.status).toBe(503)
     expect(JSON.parse(response.body)).toEqual({
       error: 'server_not_ready',
@@ -205,7 +235,12 @@ describe('/client WS auth gate', () => {
       clearInterval() {},
     }
     let valid = true
-    const url = await start(() => true, 'expiring-mobile-hash', () => valid, timers)
+    const url = await start(
+      () => true,
+      'expiring-mobile-hash',
+      () => valid,
+      timers,
+    )
     const socket = new WebSocket(url)
     await new Promise<void>((resolve, reject) => {
       socket.once('open', resolve)

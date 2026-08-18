@@ -3,12 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { actorAgent, asAgentIdentityId, FIRST_ADMIN_USER_ID, type MachineId } from '@podium/model'
-import {
-  type ControlMessage,
-  type PeerHelloReply,
-  parseControlMessage,
-  WIRE_VERSION,
-} from '@podium/protocol'
+import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { SessionRegistry } from '../../server/src/relay'

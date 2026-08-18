@@ -13,7 +13,7 @@ import {
   HOST_EDGE_FRAMES,
   type MachinePrincipal,
 } from '@podium/protocol'
-import { type DaemonMessage } from '@podium/protocol/daemon'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import {
@@ -188,7 +188,12 @@ describe('machine scope and the writer class', () => {
     // queue never typed, and what it triggers is a TERMINAL write to those durable
     // rows. Session-owned with the ownership check earning its keep: a machine that
     // does not hold the session must not be able to dead-letter its mail.
-    expect(sessionFrames.length).toBe(26)
+    //
+    // 27 since POD-2292. `driverSelected` announces the daemon's driver decision
+    // before bind so the session view can select the correct surface during launch.
+    // It names one session and mutates that session's durable selection, so it
+    // carries the same ownership boundary as bind and the runtime frames above.
+    expect(sessionFrames.length).toBe(27)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

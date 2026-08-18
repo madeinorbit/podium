@@ -328,6 +328,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       'setLabels',
       'setPlacement',
       'setTucked',
+      'start',
       'undefer',
       'update',
     ])

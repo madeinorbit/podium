@@ -26,7 +26,8 @@
 
 import type { ActingPrincipal, PendingInteraction, RuntimeEvent } from '@podium/agent-runtime'
 import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
-import type { AgentObservation, DaemonMessage } from '@podium/protocol'
+import type { AgentObservation } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   RUNTIME_CONTRACT_ENV,

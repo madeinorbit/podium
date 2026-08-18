@@ -101,12 +101,8 @@ import type {
   TranscriptItem,
 } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import type {
-  AgentObservation,
-  DaemonMessage,
-  ObservationProvenance,
-  ProviderCursor,
-} from '@podium/protocol'
+import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { SpawnControl } from '../session-observers'
 
 const log = createLogger('daemon:terminal-driver')

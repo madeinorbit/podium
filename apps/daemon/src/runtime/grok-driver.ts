@@ -11,7 +11,7 @@ import {
 } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { grokAcpProcessKey } from './grok-acp-server.js'
 
 const log = createLogger('daemon:grok-driver')

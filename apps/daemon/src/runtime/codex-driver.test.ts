@@ -21,7 +21,7 @@
 
 import type { CodexRuntimeHost, CodexTransport } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { createDaemonCodexRuntime } from './codex-driver'
 

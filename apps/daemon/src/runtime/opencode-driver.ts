@@ -46,7 +46,7 @@ import {
 } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 
 const log = createLogger('daemon:opencode-driver')
 

@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asMachineId, FIRST_ADMIN_USER_ID, type UpdateChannel } from '@podium/model'
 import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +9,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 
 const target = (version = '0.4.2'): UpdateTarget =>
@@ -25,6 +29,7 @@ interface HarnessOptions {
     bundleReady: boolean
     failureDetail?: string
   }
+  sessionStore?: SessionStore
 }
 
 function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
@@ -32,7 +37,7 @@ function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
     typeof requestCoordinatorRestart === 'function'
       ? { requestCoordinatorRestart }
       : (requestCoordinatorRestart ?? {})
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'updates-test' })
+  const registry = new SessionRegistry(opts.sessionStore, undefined, { instanceId: 'updates-test' })
   const hostMachineId = registry.sessionStore.hostMachineId
   registry.gateway.attachDaemon(hostMachineId, () => {})
   registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
@@ -62,6 +67,22 @@ function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
       : {}),
   })
   return { registry, caller }
+}
+
+/** A real file is part of the server-restart contract: production snapshots the
+ * database before it asks the process to replace itself (POD-2270). */
+function snapshotHarness(options: HarnessOptions) {
+  const root = mkdtempSync(join(tmpdir(), 'podium-update-router-'))
+  const store = new SessionStore(join(root, 'podium.db'))
+  const built = harness({ ...options, sessionStore: store })
+  return {
+    ...built,
+    dispose: () => {
+      built.registry.dispose()
+      store.close()
+      rmSync(root, { recursive: true, force: true })
+    },
+  }
 }
 
 afterEach(() => {
@@ -880,7 +901,7 @@ describe('updates tRPC', () => {
           finish = resolve
         }),
     )
-    const { registry, caller } = harness({
+    const { registry, caller, dispose } = snapshotHarness({
       requestCoordinatorRestart,
       requestDestBundle,
       servedWebDigest: '47a01e3',
@@ -897,8 +918,34 @@ describe('updates tRPC', () => {
       artifacts: { web: { digest: '47a01e3' } },
     })
 
+    // The coordinator itself can take a source update and must not force a pack
+    // (POD-2198). A bundle-only remote is the place this test says is waiting on
+    // packaging; without it there is correctly no prepare step anymore.
+    const bundleMachine = asMachineId('bundle-machine')
+    const grants: unknown[] = []
+    registry.sessionStore.machines.upsertMachine({
+      id: bundleMachine,
+      name: 'Bundle machine',
+      hostname: 'bundle-machine',
+      tokenHash: 'bundle-machine-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(bundleMachine, 'dev')
+    registry.modules.machines.setMachineBuild(
+      bundleMachine,
+      { appVersion: 'dev+aaaaaaa' },
+      ['update.delivery.bundle'],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon(bundleMachine, (message) => grants.push(message))
+
     await caller.updates.converge()
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+    expect(
+      registry.modules.operations.engine
+        .active('lifecycle')
+        ?.operation?.steps?.map((step) => step.id),
+    ).toContain('prepare')
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
 
@@ -923,20 +970,41 @@ describe('updates tRPC', () => {
       },
     })
     finish?.()
-    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+    await vi.waitFor(() =>
+      expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
+    )
+    await vi.waitFor(() => {
+      const granted = registry.modules.operations.engine.active('lifecycle')?.operation
+      expect(granted?.steps?.find((step) => step.id === 'machines')).toMatchObject({
+        state: 'running',
+      })
+    })
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
 
-    // The one machine reports the target, so the wave is done and the plan
-    // reaches the step that replaces this process.
+    // Both machine places report the target: the remote took the bundle, while
+    // the host daemon finished before the coordinating server process restarts.
+    // Only then may the plan reach the snapshotted server step.
     registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
       [],
       '2026-08-13T00:00:01.000Z',
     )
-    registry.bus.emit('machine.connected', { machineId: registry.sessionStore.hostMachineId })
-    await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
-    registry.dispose()
+    registry.modules.machines.setMachineBuild(
+      bundleMachine,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:01.000Z',
+    )
+    registry.bus.emit('machine.connected', { machineId: bundleMachine })
+    await vi.waitFor(() => {
+      const latest = registry.modules.operations.engine.active('lifecycle')?.operation
+      expect(latest?.steps?.find((step) => step.id === 'server')).toMatchObject({
+        state: 'running',
+      })
+    })
+    expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
+    dispose()
   })
 
   it('still refuses when server, web stamp, and fleet all match', async () => {
@@ -1121,7 +1189,7 @@ describe('updates tRPC', () => {
   it('returns an in-progress wave after the human authorizes convergence', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const requestCoordinatorRestart = vi.fn()
-    const { registry, caller } = harness(requestCoordinatorRestart)
+    const { registry, caller, dispose } = snapshotHarness({ requestCoordinatorRestart })
     registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
@@ -1140,7 +1208,7 @@ describe('updates tRPC', () => {
     expect(result.fleet.targetVersion).toBe('0.4.2')
     expect(result.fleet.machines.length).toBeGreaterThanOrEqual(1)
     expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
-    registry.dispose()
+    dispose()
   })
 
   it('does not count or grant a machine selected onto another channel', async () => {

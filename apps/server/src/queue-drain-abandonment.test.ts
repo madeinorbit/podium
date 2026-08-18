@@ -20,8 +20,8 @@
  * the session being refused.
  */
 
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { asMachineId, asUserId, type SessionId } from '@podium/model'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -61,9 +61,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
   })
 
   const acksFor = (reportId: string): ControlMessage[] =>
-    toDaemon.filter(
-      (m) => m.type === 'runtimeQueueDrainAbandonedAck' && m.reportId === reportId,
-    )
+    toDaemon.filter((m) => m.type === 'runtimeQueueDrainAbandonedAck' && m.reportId === reportId)
 
   /** A session this machine owns, plus one message durably queued for it. */
   function queuedMessageFor(body: string): { sessionId: SessionId; messageId: string } {
@@ -80,27 +78,27 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     return { sessionId, messageId: sent.message.id }
   }
 
-  it.each(['never-live', 'teardown'] as const)(
-    'a %s frame from the owning machine ends the queued receipt',
-    (reason) => {
-      const { sessionId, messageId } = queuedMessageFor(`abandoned by ${reason}`)
+  it.each([
+    'never-live',
+    'teardown',
+  ] as const)('a %s frame from the owning machine ends the queued receipt', (reason) => {
+    const { sessionId, messageId } = queuedMessageFor(`abandoned by ${reason}`)
 
-      registry.gateway.routeDaemonFrame(MACHINE, {
-        type: 'runtimeQueueDrainAbandoned',
-        sessionId,
-        turnIds: [messageId],
-        reason,
-      })
+    registry.gateway.routeDaemonFrame(MACHINE, {
+      type: 'runtimeQueueDrainAbandoned',
+      sessionId,
+      turnIds: [messageId],
+      reason,
+    })
 
-      // Read straight from the store, not from the service that wrote it.
-      expect(store.messages.getMessage(messageId)).toMatchObject({
-        status: 'dead_letter',
-        deliveryDeferredReason: reason,
-        deliveredTo: sessionId,
-      })
-      expect(store.messages.getMessage(messageId)?.deadLetteredAt).not.toBeNull()
-    },
-  )
+    // Read straight from the store, not from the service that wrote it.
+    expect(store.messages.getMessage(messageId)).toMatchObject({
+      status: 'dead_letter',
+      deliveryDeferredReason: reason,
+      deliveredTo: sessionId,
+    })
+    expect(store.messages.getMessage(messageId)?.deadLetteredAt).not.toBeNull()
+  })
 
   it('an at-least-once replay corrects the same receipt once, and is re-acked', () => {
     const { sessionId, messageId } = queuedMessageFor('reported twice')

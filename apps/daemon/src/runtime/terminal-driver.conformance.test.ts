@@ -38,7 +38,8 @@ import { TERMINAL_PERMITTED_FAILURES } from '@podium/agent-runtime'
 import type { ConformanceControl, ConformanceTarget } from '@podium/agent-runtime/testing'
 import { defaultAskFor, runConformance } from '@podium/agent-runtime/testing'
 import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
-import type { AgentObservation, DaemonMessage } from '@podium/protocol'
+import type { AgentObservation } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import {
   createTerminalRuntime,
   type TerminalHarnessProfile,

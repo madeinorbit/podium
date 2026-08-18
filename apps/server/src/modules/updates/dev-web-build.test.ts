@@ -226,7 +226,11 @@ describe('development web build', () => {
         sourceSha: '2eed672',
       }),
     )
-    expect(readDevPhoneDist(root)).toEqual({ present: true, digest: '2eed672' })
+    expect(readDevPhoneDist(root)).toEqual({
+      present: true,
+      appVersion: 'dev+2eed672',
+      digest: '2eed672',
+    })
     expect(phoneDistBehindHead(readDevPhoneDist(root), '2eed672')).toBe(false)
     expect(phoneDistBehindHead(readDevPhoneDist(root), 'aaaaaaa')).toBe(true)
   })

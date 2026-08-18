@@ -19,7 +19,7 @@
 
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../control/context'
 import { sessionHandlers, stopSessionProcess } from '../control/session'

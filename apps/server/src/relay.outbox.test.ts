@@ -2,10 +2,10 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  asMutationId,
   actorAgent,
   asAgentIdentityId,
   asMachineId,
+  asMutationId,
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
@@ -14,7 +14,7 @@ import {
   SOLE_USER_ID,
 } from '@podium/model'
 import { asDelegationRef, type MetadataChange, type ServerMessage } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 
 /** One host across the simulated restart: storeA writes rows under this id and storeB
@@ -22,6 +22,7 @@ import { describe, expect, it, vi } from 'vitest'
  *  pinning it each store would mint its own (POD-318) and the restart would look like
  *  a different computer. */
 const TEST_MACHINE = asMachineId('machine-under-test')
+
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -79,6 +80,14 @@ function settle(reg: SessionRegistry, sessionId: string): void {
     })
     vi.advanceTimersByTime(200)
   }
+  // A resumed CLI is ready when its harness reports state for THIS process,
+  // not merely when its boot paint goes quiet (POD-1100). This is the proof the
+  // real harness emits after bind and the old fixture omitted.
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    type: 'agentState',
+    sessionId: asSessionId(sessionId),
+    state: { phase: 'idle', since: new Date(Date.now()).toISOString(), nativeSubagentCount: 0 },
+  })
   vi.advanceTimersByTime(1400)
 }
 
@@ -318,8 +327,8 @@ describe('queueText (durable outbox sends)', () => {
       const daemonB: ControlMessage[] = []
       regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (m) => daemonB.push(m))
       regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
-      // Silent respawn: no output at all — the READY_MAX fallback (6s) delivers.
-      await vi.advanceTimersByTimeAsync(7_000)
+      // Silent respawn: no harness state at all — the 10s wake grace then falls back.
+      await vi.advanceTimersByTimeAsync(11_000)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
       expect(regB.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
       expect(
