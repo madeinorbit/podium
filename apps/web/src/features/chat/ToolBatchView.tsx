@@ -129,6 +129,7 @@ export function ToolBatchView({
   dimmed,
   forceOpen,
   live = false,
+  ownsTail = live,
   endsFeed = false,
   waiting,
   arrived = false,
@@ -144,6 +145,10 @@ export function ToolBatchView({
   forceOpen: boolean
   /** True only for the trailing run of a turn with a call actually in flight. */
   live?: boolean
+  /** True once this live row is visible enough to take the transcript's one
+   *  working mark. A newly arriving row remains live but yields this ownership
+   *  to TranscriptTail for its 260ms unroll (POD-1334). */
+  ownsTail?: boolean
   /** This run is the last thing in the feed and the transcript tail has stood
    *  down for it (POD-747), so the row takes the tail's rule out to the right
    *  edge — the transcript still has to END somewhere visible. */
@@ -260,11 +265,13 @@ export function ToolBatchView({
   const failed = toolRunFailures(row.blocks)
   // One interval per work line, and only a live one ticks — a settled
   // transcript full of them must not re-render every second.
-  const computing = live && !waiting
-  const now = useNow(live ? LIVE_TICK_MS : IDLE_TICK_MS)
-  const elapsedMs = toolRunElapsedMs(row.blocks, live ? now : undefined)
+  const activeWaiting = ownsTail ? waiting : undefined
+  const active = live && ownsTail
+  const computing = active && !activeWaiting
+  const now = useNow(active ? LIVE_TICK_MS : IDLE_TICK_MS)
+  const elapsedMs = toolRunElapsedMs(row.blocks, active ? now : undefined)
   const showElapsed =
-    elapsedMs !== undefined && (live || (count > 1 && elapsedMs >= MIN_SETTLED_SPAN_MS))
+    elapsedMs !== undefined && (active || (!live && count > 1 && elapsedMs >= MIN_SETTLED_SPAN_MS))
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = row.blocks[count - 1]!.item
   const settling = useSettleFlash(computing)
@@ -275,11 +282,19 @@ export function ToolBatchView({
         className={cn('work-line-glyph', failed > 0 && !live && 'work-line-glyph--err')}
         aria-hidden="true"
       >
-        {computing ? <WorkingMark size={15} /> : waiting ? '◇' : failed > 0 ? '✕' : '✓'}
+        {computing ? (
+          <WorkingMark size={15} />
+        ) : activeWaiting ? (
+          '◇'
+        ) : live ? null : failed > 0 ? (
+          '✕'
+        ) : (
+          '✓'
+        )}
       </span>
       <span className="work-line-phrase">
-        {waiting
-          ? `${waiting.label}${waiting.detail ? ` · ${waiting.detail}` : ''}`
+        {activeWaiting
+          ? `${activeWaiting.label}${activeWaiting.detail ? ` · ${activeWaiting.detail}` : ''}`
           : live
             ? toolCallPhrase(lastItem)
             : row.title}
@@ -301,7 +316,7 @@ export function ToolBatchView({
       <div className="transcript-body">
         <div
           className="work-line"
-          data-state={waiting ? 'wait' : live ? 'live' : 'done'}
+          data-state={activeWaiting ? 'wait' : active ? 'live' : live ? 'handoff' : 'done'}
           data-open={expanded ? 'true' : 'false'}
           data-single={count === 1 ? 'true' : undefined}
           data-settle={settling ? 'true' : undefined}

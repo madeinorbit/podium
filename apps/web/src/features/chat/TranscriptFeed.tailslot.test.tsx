@@ -2,7 +2,7 @@ import type { ChatActivity, RenderableRow } from '@podium/client-core/viewmodels
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults } from './chat'
 import { TranscriptFeed } from './TranscriptFeed'
 
@@ -31,6 +31,16 @@ let root: Root
 const say = (id: string, text: string): TranscriptItem =>
   ({ id, role: 'assistant', text }) as TranscriptItem
 
+const tool = (toolResult?: string): TranscriptItem => ({
+  id: 'tool-1',
+  role: 'tool',
+  text: '',
+  toolName: 'Read',
+  toolUseId: 'use-1',
+  ts: '2026-08-18T12:00:00.000Z',
+  ...(toolResult === undefined ? {} : { toolResult }),
+})
+
 function rowsFor(items: TranscriptItem[]): RenderableRow[] {
   return buildChatRows(pairToolResults(items)).map((row, index) => ({
     row,
@@ -39,8 +49,10 @@ function rowsFor(items: TranscriptItem[]): RenderableRow[] {
   })) as RenderableRow[]
 }
 
-function render(activity: ChatActivity | null): void {
-  const items = [say('a1', 'an answer')]
+function render(
+  activity: ChatActivity | null,
+  items: TranscriptItem[] = [say('a1', 'an answer')],
+): void {
   const blocks = pairToolResults(items)
   act(() => {
     root.render(
@@ -97,6 +109,7 @@ afterEach(() => {
     root.unmount()
   })
   host.remove()
+  vi.useRealTimers()
 })
 
 describe('the tail stands in a slot of constant height', () => {
@@ -125,5 +138,39 @@ describe('the tail stands in a slot of constant height', () => {
     render({ tone: 'working', label: 'Working' } as ChatActivity)
     const feed = slot()?.parentElement as HTMLElement
     expect(feed.lastElementChild).toBe(slot())
+  })
+
+  it('hands one working mark to an arriving tool row after its unroll', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.parse('2026-08-18T12:00:01.000Z'))
+    const working = { tone: 'working', label: 'Working' } as ChatActivity
+    const prose = say('a1', 'an answer')
+
+    render(working, [prose])
+    expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
+    expect(tailRow()?.dataset.tail).toBe('working')
+
+    render(working, [prose, tool()])
+    const line = (): HTMLElement | null => host.querySelector('[data-testid="work-line"]')
+    expect(line()?.dataset.state).toBe('handoff')
+    expect(line()?.querySelector('.pod-mark')).toBeNull()
+    expect(tailRow()?.dataset.tail).toBe('working')
+    expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
+
+    act(() => vi.advanceTimersByTime(259))
+    expect(tailRow()?.dataset.tail).toBe('working')
+    expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(tailRow()).toBeNull()
+    expect(line()?.dataset.state).toBe('live')
+    expect(line()?.querySelectorAll('.pod-mark')).toHaveLength(1)
+    expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
+
+    render(working, [prose, tool('done')])
+    expect(line()?.dataset.state).toBe('done')
+    expect(line()?.querySelector('.pod-mark')).toBeNull()
+    expect(tailRow()?.dataset.tail).toBe('working')
+    expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
   })
 })

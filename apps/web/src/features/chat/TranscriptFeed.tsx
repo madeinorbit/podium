@@ -180,6 +180,42 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
 const UNROLL_MS = 260
 
 /**
+ * KEEP ONE LIVE MARK THROUGH THE FIRST TOOL ROW'S ARRIVAL (POD-1334).
+ *
+ * An unresolved trailing run normally owns the tail immediately. When that run
+ * is a newly appended row, however, its whole box is still opening from zero
+ * height for UNROLL_MS. Removing the generic tail in the same render leaves no
+ * visible working mark until enough of the row has been revealed.
+ *
+ * Hold ownership in the generic tail for that one-shot window. ToolBatchView
+ * can already render the arriving call without claiming the live mark; at the
+ * end of the window one state update swaps the mark and timer to the run. The
+ * arrival latch survives transcript polls, so remember the row whose opening
+ * has completed rather than restarting the hold on every render. Reduced
+ * motion opens the row immediately and therefore needs no bridge.
+ */
+function useTrailingRunTailOwnership(
+  runIsLive: boolean,
+  lastRow: ChatRow | undefined,
+  arriving: ReadonlySet<string>,
+): boolean {
+  const arrivingRunId =
+    lastRow?.kind === 'tools' && arriving.has(rowIdentity(lastRow)) ? rowIdentity(lastRow) : null
+  const [openedRunId, setOpenedRunId] = useState<string | null>(null)
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const opening =
+    runIsLive && !reducedMotion && arrivingRunId !== null && openedRunId !== arrivingRunId
+
+  useEffect(() => {
+    if (arrivingRunId === null || reducedMotion || openedRunId === arrivingRunId) return undefined
+    const timer = window.setTimeout(() => setOpenedRunId(arrivingRunId), UNROLL_MS)
+    return () => window.clearTimeout(timer)
+  }, [arrivingRunId, openedRunId, reducedMotion])
+
+  return runIsLive && !opening
+}
+
+/**
  * THE TURN OPENS (POD-1158). Give every row that ARRIVED — not every row that
  * mounted; `useFeedArrivals` already draws that line — its measured height, and
  * let CSS run it from zero.
@@ -359,7 +395,15 @@ export function TranscriptFeed({
   const tailState = transcriptTailState(activity, session, lastRow)
   // The trailing run has a call in flight, so it IS the end of the feed and the
   // tail stands down rather than spinning a second time beside it (POD-747).
-  const runOwnsTail = trailingRunIsLive(activity, lastRow)
+  // A newly arriving run waits out its own zero-height unroll first: until the
+  // row is visible, the generic tail remains the one live owner (POD-1334).
+  const trailingRunLive = trailingRunIsLive(activity, lastRow)
+  const runOwnsTail = useTrailingRunTailOwnership(trailingRunLive, lastRow, arriving)
+  // Keep the SAME generic working state during the bridge. If the arriving call
+  // is a shell/agent dependency, giving its still-hidden row to TranscriptTail
+  // would morph the animated mark into a static wait diamond before the row can
+  // take that wait itself — visually the same missing beat this bridge closes.
+  const tailLastRow = trailingRunLive && !runOwnsTail ? undefined : lastRow
   // A live question is already the attention surface. Repeating the same
   // yellow signal in the tail weakens both objects, so the card owns it alone.
   // A state-drawn card is the same object and stands down the tail the same way
@@ -519,7 +563,8 @@ export function TranscriptFeed({
               // the bounded trailing window and `idx` is the ABSOLUTE index into
               // the full row list, so the last mounted row is
               // `pos === rows.length - 1`.
-              live={runOwnsTail && pos === rows.length - 1}
+              live={trailingRunLive && pos === rows.length - 1}
+              ownsTail={runOwnsTail && pos === rows.length - 1}
               // The run that owns the tail also takes the tail's rule, so the
               // feed still ends on a line rather than trailing off mid-column.
               endsFeed={runOwnsTail && pos === rows.length - 1}
@@ -785,7 +830,7 @@ export function TranscriptFeed({
               activity={overlay?.status ? null : activity}
               since={session?.agentState?.since}
               session={session}
-              lastRow={lastRow}
+              lastRow={tailLastRow}
             />
           )}
       </div>
