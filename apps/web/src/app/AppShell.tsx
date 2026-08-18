@@ -43,6 +43,7 @@ import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { OperatorFocusProvider } from './operator-focus'
+import { ReplicaFailureScreen } from './ReplicaFailureScreen'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
@@ -179,10 +180,17 @@ export function AppShell(): JSX.Element {
     )
   }
 
+  // Not one screen: the gate's failure is a category, and a browser with no
+  // session gets the sign-in screen rather than an error about a replica it was
+  // never going to be allowed to open (POD-1304).
   if (kernel.status === 'failed') {
     return (
       <TooltipProvider>
-        <AppErrorPage title="Podium could not open its private replica" message={kernel.failure} />
+        <ReplicaFailureScreen
+          cause={kernel.cause}
+          detail={kernel.failure}
+          httpOrigin={config.httpOrigin}
+        />
       </TooltipProvider>
     )
   }
@@ -196,8 +204,13 @@ export function AppShell(): JSX.Element {
       <UpdatesProvider httpOrigin={config.httpOrigin}>
         {appError ? (
           <AppErrorPage
-            title="Podium could not connect"
-            message={appError}
+            title={'Podium lost its\nline to the server.'}
+            eyebrow="Connection / dropped"
+            message="Your board is open on the host and your agents are still running there; this window just cannot reach it. The exact fault is below."
+            detail={appError}
+            trace={{ from: 'this browser', to: 'server' }}
+            fields={[{ label: 'Server', value: config.httpOrigin }]}
+            retryLabel="Reconnect"
             onRetry={() => setAppError(null)}
           />
         ) : (

@@ -60,13 +60,13 @@ describe('AppErrorPage', () => {
     render(<AppErrorPage detail="TypeError: e.kind" />)
     // The default marker is suppressed (the label is mono small-caps and the
     // triangle sat wrong against it), so the affordance has to be drawn: an
-    // icon inside the summary that turns with `group-open`. Without it the row
-    // is indistinguishable from the section headings above it [POD-1298].
+    // icon inside the summary, turned by the open state. Without it the row is
+    // indistinguishable from the section labels above it [POD-1298]. The turn
+    // is a CSS rule on `.boot-detail[open]` since POD-1304, so what is asserted
+    // here is the icon and the hook it turns on, not a utility class.
     const summary = container.querySelector('summary')
-    const chevron = summary?.querySelector('svg')
-    expect(chevron).not.toBeNull()
-    expect(chevron?.getAttribute('class')).toContain('group-open:rotate-90')
-    expect(container.querySelector('details')?.className).toContain('group')
+    expect(summary?.querySelector('svg')).not.toBeNull()
+    expect(container.querySelector('details')?.className).toContain('boot-detail')
   })
 
   it('reloads on R, so the crash screen is exit-able without a mouse', () => {

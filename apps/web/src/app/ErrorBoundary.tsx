@@ -55,7 +55,17 @@ export class ErrorBoundary extends Component<
           // The headline carries the reassurance, because the operator's real
           // question is "did I just lose the work?" and the answer is no. The
           // error itself is evidence, not the news [POD-1004].
-          title="The interface stopped. Your agents did not."
+          title={'The interface stopped.\nYour agents did not.'}
+          eyebrow="Interface / crashed"
+          // The console carries the reassurance as facts rather than as more
+          // prose, because "did I just lose the work?" is answered by a list of
+          // what is still standing, and only the last line is the bad news.
+          trace={{ from: 'agents', to: 'this window' }}
+          fields={[
+            { label: 'Agents', value: 'still running' },
+            { label: 'Your work', value: 'safe on the host' },
+            { label: 'This window', value: 'needs a reload', tone: 'fault' },
+          ]}
           detail={`The Podium interface hit an error while rendering: ${this.state.message}`}
           retryLabel="Try rendering again"
           onRetry={() => {

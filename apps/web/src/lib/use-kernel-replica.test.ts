@@ -144,6 +144,9 @@ describe('private replica boot failure', () => {
       expect(result.current).toEqual({
         status: 'failed',
         failure: 'IndexedDB is blocked',
+        // The principal resolved, so the fault is the browser's own store and
+        // not anything upstream of it — which is a different screen (POD-1304).
+        cause: { kind: 'replica-blocked' },
       })
     })
     expect(globalThis.__podiumReplicaPath).toBeUndefined()

@@ -61,7 +61,10 @@ describe('ErrorBoundary', () => {
       )
     })
 
-    expect(container.textContent).toContain('The interface stopped. Your agents did not.')
+    // Two lines since POD-1304 — the shared boot screen breaks the headline —
+    // so the reassurance is asserted as its own half rather than as one run.
+    expect(container.textContent).toContain('The interface stopped.')
+    expect(container.textContent).toContain('Your agents did not.')
     // The error is evidence, not the headline: it lives inside the disclosure.
     expect(container.querySelector('details')?.textContent).toContain('render exploded')
     expect(onError).toHaveBeenCalledWith(expect.stringContaining('render exploded'))

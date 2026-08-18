@@ -17,14 +17,22 @@ import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replic
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { KERNEL_SIDE_CACHE_PREFIX, type KernelAssembly, openKernelAssembly } from './kernelReplica'
+import {
+  classifyAuthStatus,
+  type ReplicaFailure,
+  ReplicaGateError,
+  replicaFailureOf,
+} from './replica-failure'
 
 const log = createLogger('web:replica')
 
 export type KernelReplicaGate =
   /** Still deciding. The caller must render its loading screen. */
   | { readonly status: 'resolving' }
-  /** Fatal: the supported private replica could not be opened. */
-  | { readonly status: 'failed'; readonly failure: string }
+  /** The replica could not be opened. `failure` is the raw fault text, for the
+   *  disclosure and the log; `cause` is what the screen is chosen from — and not
+   *  every cause is fatal, since "no session" is a sign-in [POD-1304]. */
+  | { readonly status: 'failed'; readonly failure: string; readonly cause: ReplicaFailure }
   | {
       readonly status: 'kernel'
       /** The authenticated principal this gate resolved and opened for — the
@@ -85,27 +93,38 @@ export async function resolveReplicaPrincipal(
         }))
     const identities = [...new Set(inspect())]
     if (identities.length === 1 && identities[0] !== undefined) return identities[0]
-    throw new Error(
-      identities.length === 0
-        ? 'offline replica has no authenticated principal namespace'
-        : 'offline replica principal is ambiguous on this shared device',
-    )
+    throw identities.length === 0
+      ? new ReplicaGateError('offline replica has no authenticated principal namespace', {
+          kind: 'offline-unknown',
+        })
+      : new ReplicaGateError('offline replica principal is ambiguous on this shared device', {
+          kind: 'offline-ambiguous',
+          count: identities.length,
+        })
   }
 
-  if (!response.ok) throw new Error('authenticated account is unavailable')
+  // A refusal is authoritative, and its SHAPE is information the operator needs:
+  // the route emits 400 for exactly one thing — a bearer credential offered over
+  // a link that is not secure — and that is a different sentence from a server
+  // that simply said no [POD-1304].
+  if (!response.ok) {
+    throw new ReplicaGateError(
+      'authenticated account is unavailable',
+      response.status === 400 ? { kind: 'auth-insecure' } : { kind: 'auth-refused', status: response.status },
+    )
+  }
   // A 200 whose body is not JSON (an SPA fallback or a proxy's HTML page) is a
   // backend that cannot vouch for an account. Same fail-closed answer as a
   // refusal — never a raw parse error, and never a fall back to device data.
-  let status: { userId?: unknown }
+  let status: { userId?: unknown; needsAuth?: unknown; readiness?: unknown }
   try {
     status = (await response.json()) as { userId?: unknown }
   } catch {
-    throw new Error('authenticated account is unavailable')
+    throw new ReplicaGateError('authenticated account is unavailable', { kind: 'auth-intercepted' })
   }
-  if (typeof status.userId !== 'string' || status.userId.length === 0) {
-    throw new Error('authenticated account is unavailable')
-  }
-  return status.userId
+  const outcome = classifyAuthStatus(status)
+  if ('principal' in outcome) return outcome.principal
+  throw new ReplicaGateError('authenticated account is unavailable', outcome)
 }
 
 export function recordIdentityEvidence(principal: string): LegacyIdentityEvidence {
@@ -167,6 +186,13 @@ export function useKernelReplica(args: {
               notice = report.notice
             }
           },
+        }).catch((error: unknown) => {
+          // The principal resolved, so whatever went wrong here is the browser's
+          // own store refusing to open — a private window, a full disk, blocked
+          // site data. A different sentence from anything upstream of it.
+          throw new ReplicaGateError(error instanceof Error ? error.message : String(error), {
+            kind: 'replica-blocked',
+          })
         })
         if (!alive) {
           void assembly.dispose()
@@ -181,13 +207,16 @@ export function useKernelReplica(args: {
           ...(notice === undefined ? {} : { notice }),
         })
       } catch (error) {
-        // Fatal and visible: there is no compatibility replica to fall back to.
+        // Visible, and never silently degraded: there is no compatibility replica
+        // to fall back to. What the operator SEES depends on the cause — see
+        // `replica-failure.ts` — but the store never mounts either way.
         log.error('private replica unavailable', { err: error })
         if (alive) {
           globalThis.__podiumReplicaPath = undefined
           setGate({
             status: 'failed',
             failure: error instanceof Error ? error.message : String(error),
+            cause: replicaFailureOf(error),
           })
         }
       }
