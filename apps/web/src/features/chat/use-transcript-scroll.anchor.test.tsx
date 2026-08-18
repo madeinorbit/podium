@@ -156,7 +156,12 @@ describe('the end anchor follows intent', () => {
   })
 
   it('is revoked by a scrollbar drag up, which raises no wheel intent', () => {
-    scrolledTo(4300) // up 200px: past the 80px band, the pin drops on distance
+    // A drag is SUSTAINED upward motion (round 3): one uninvited upward move
+    // is indistinguishable from the engine snapping to a stale maximum, so a
+    // single event is healed, and it is the second, moments later, that says
+    // a human is pulling. Model the drag as it actually arrives: a stream.
+    scrolledTo(4300)
+    scrolledTo(4200)
     expect(held.pinnedToBottom.current).toBe(false)
     expect(granted()).toBe(false)
   })
@@ -182,8 +187,12 @@ describe('the end anchor follows intent', () => {
       scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true }))
     })
     scrolledTo(3000) // a big clamp inside the same gesture raises no fresh intent
-    expect(held.pinnedToBottom.current).toBe(false)
+    // Round 3 goes further than keeping the grant: an uninvited upward move
+    // while pinned is the engine's, so the pin survives and the view is
+    // healed straight back to the bottom the reader never asked to leave.
+    expect(held.pinnedToBottom.current).toBe(true)
     expect(granted()).toBe(true)
+    expect(scroller().scrollTop).toBe(4500)
   })
 
   it('survives an upward CLAMP while pinned — the tail-unmount case', () => {

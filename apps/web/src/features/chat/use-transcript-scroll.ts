@@ -102,6 +102,18 @@ const REVOKE_TRAVEL_PX = 160
  *  gesture (its own clamp or rubber-band retraction) rather than to fresh
  *  intent. */
 const WHEEL_GESTURE_MS = 300
+/**
+ * A snap and a drag are told apart by PERSISTENCE (round 3, the trace of
+ * 2026-08-18). The engine's post-gesture snap to a stale maximum is ONE
+ * discrete scroll event — instrumented live: 400ms of quiet at gap 0, then a
+ * single 115px move with no wheel, no touch and no write. A held scrollbar
+ * thumb keeps producing upward events for as long as the hand pulls. So the
+ * first uninvited upward move while pinned is healed, and a second inside
+ * this window means a human — concede and latch. Size cannot discriminate
+ * (the staleness is the height of whatever mounted late, unbounded); cadence
+ * can.
+ */
+const SNAP_CONCEDE_MS = 400
 
 /**
  * Grant or revoke the ENGINE's end-of-feed anchor (POD-1160).
@@ -283,6 +295,10 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   const stuckNotchTop = useRef<number | null>(null)
   const stuckNotchAt = useRef(0)
   const stuckNotches = useRef(0)
+  /** When an engine snap was last healed — a second uninvited upward move
+   *  inside `SNAP_CONCEDE_MS` of this is a drag, not a snap. -Infinity so the
+   *  first one is always read as a snap, whatever the clock says. */
+  const lastSnapHealAt = useRef(Number.NEGATIVE_INFINITY)
   /**
    * The ELEMENT currently on the shelf, not its index.
    *
@@ -675,9 +691,21 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     // Touch has no direction until the finger moves, and a drag that turns out
     // to go down re-pins through `onScroll` a frame later at no cost.
     el.addEventListener('touchstart', release, { passive: true })
+    // Keys that scroll UP are intent too (round 3): without this, the snap
+    // branch in `onScroll` would read a PageUp as the engine's move and heal
+    // it straight back — a keyboard reader could never leave the bottom.
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') {
+        release()
+        stuckNotches.current = 0
+        stuckNotchTop.current = null
+      }
+    }
+    el.addEventListener('keydown', onKeyDown)
     return () => {
       el.removeEventListener('wheel', onWheel)
       el.removeEventListener('touchstart', release)
+      el.removeEventListener('keydown', onKeyDown)
     }
   }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions])
 
@@ -697,31 +725,58 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const goingDown = el.scrollTop > lastScrollTop.current
     lastScrollTop.current = el.scrollTop
     if (goingDown) setAnchorEnd(el, true)
-    // NEAR THE END AND FOLLOWING IT ARE TWO QUESTIONS. `near` decides whether to
-    // offer the jump affordance, and has always been generous on purpose. The
-    // PIN is whether to keep writing the bottom under the reader, and after they
-    // have asked to leave, "nearly there" is not consent to be taken back — see
-    // the intent listeners above. Only arriving at the end re-pins them, within
-    // the pixel or so of fractional residue WebKit reports at a true bottom.
-    pinnedToBottom.current = releasedByIntent.current ? gap <= 4 : near
-    if (pinnedToBottom.current) releasedByIntent.current = false
-    // ...and UPWARD movement that has genuinely left the bottom revokes it —
-    // the scrollbar-drag case, which raises no wheel or touch intent. Never
-    // while pinned: a clamp after content below unmounts also reads as an
-    // upward move, and the pin is exactly what should survive that. And never
-    // for ENGINE motion (round 2): a rubber band settling onto release
-    // Safari's stale maximum is an upward move inside the stale-clamp band,
-    // moments after the reader's own wheel-down — reading it as a drag
-    // revoked the re-arm mid-gesture, every gesture, which is what kept the
-    // arm from ever surviving to a layout pass. Only travel clearly past the
-    // band, outside any wheel gesture, is a drag.
-    if (
-      !goingDown &&
-      !pinnedToBottom.current &&
-      gap > REVOKE_TRAVEL_PX &&
-      performance.now() - lastWheelDownAt.current > WHEEL_GESTURE_MS
-    ) {
+    // AN UNINVITED UPWARD MOVE WHILE PINNED IS THE ENGINE'S (round 3, the
+    // trace of 2026-08-18). Instrumented live: the reader at gap 0 for 400ms
+    // of quiet, zero app writes — then ONE scroll event 115px up, WebKit
+    // repositioning to its stale maximum as the post-gesture settle. The old
+    // recompute below read that as leaving (`near` was false by then), the
+    // pin fell to the engine's own move, every writer was then forbidden, and
+    // the feed rested short with the affordance on — and a jump was snapped
+    // back out from under the re-pinned reader the same way ("the button does
+    // nothing"). The reader expressed no intent — wheel-up, touch and keys
+    // all raise it through the listeners above — so the pin SURVIVES and the
+    // answer is a healed write back, which also refreshes the geometry the
+    // snap came from. A second uninvited move inside the concede window is a
+    // held drag (see SNAP_CONCEDE_MS): let go, and latch like any leave.
+    if (!goingDown && pinnedToBottom.current && !releasedByIntent.current && gap > 4) {
+      const now = performance.now()
+      if (now - lastSnapHealAt.current >= SNAP_CONCEDE_MS) {
+        lastSnapHealAt.current = now
+        writeBottom(el)
+        lastScrollTop.current = el.scrollTop
+        setAtBottom(true)
+        syncStickyPromptPositions()
+        return
+      }
+      lastSnapHealAt.current = Number.NEGATIVE_INFINITY
+      pinnedToBottom.current = false
+      releasedByIntent.current = true
       setAnchorEnd(el, false)
+    } else {
+      // NEAR THE END AND FOLLOWING IT ARE TWO QUESTIONS. `near` decides
+      // whether to offer the jump affordance, and has always been generous on
+      // purpose. The PIN is whether to keep writing the bottom under the
+      // reader, and after they have asked to leave, "nearly there" is not
+      // consent to be taken back — see the intent listeners above. Only
+      // arriving at the end re-pins them, within the pixel or so of
+      // fractional residue WebKit reports at a true bottom.
+      pinnedToBottom.current = releasedByIntent.current ? gap <= 4 : near
+      if (pinnedToBottom.current) releasedByIntent.current = false
+      // ...and UPWARD movement that has genuinely left the bottom revokes it —
+      // the scrollbar-drag case, which raises no wheel or touch intent. Never
+      // for ENGINE motion (round 2): a rubber band settling onto release
+      // Safari's stale maximum is an upward move inside the stale-clamp band,
+      // moments after the reader's own wheel-down — reading it as a drag
+      // revoked the re-arm mid-gesture, every gesture. Only travel clearly
+      // past the band, outside any wheel gesture, is a drag.
+      if (
+        !goingDown &&
+        !pinnedToBottom.current &&
+        gap > REVOKE_TRAVEL_PX &&
+        performance.now() - lastWheelDownAt.current > WHEEL_GESTURE_MS
+      ) {
+        setAnchorEnd(el, false)
+      }
     }
     setAtBottom(near)
     syncStickyPromptPositions()
@@ -791,11 +846,20 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
 
   const scrollToBlock = useCallback(
     (index: number) => {
-      scrollerRef.current
-        ?.querySelector(`[data-block="${index}"]`)
-        ?.scrollIntoView({ block: 'center' })
+      const el = scrollerRef.current
+      if (!el) return
+      const row = el.querySelector(`[data-block="${index}"]`)
+      if (!row) return
+      // A deliberate navigation away from the tail (round 3): release the pin
+      // FIRST, or the upward motion this causes reads as an uninvited engine
+      // move and the snap branch heals the reader straight back to the bottom
+      // they just asked to leave.
+      pinnedToBottom.current = false
+      releasedByIntent.current = true
+      setAnchorEnd(el, false)
+      row.scrollIntoView({ block: 'center' })
     },
-    [scrollerRef],
+    [scrollerRef, pinnedToBottom],
   )
 
   return {

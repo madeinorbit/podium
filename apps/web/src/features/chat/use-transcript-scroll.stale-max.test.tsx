@@ -270,3 +270,102 @@ describe('pushing down against a frozen offset is arriving', () => {
     expect(held.pinnedToBottom.current).toBe(false)
   })
 })
+
+/**
+ * AN UNINVITED UPWARD MOVE WHILE PINNED IS THE ENGINE'S (round 3, the trace of
+ * 2026-08-18).
+ *
+ * Instrumented live: the reader sat at the true bottom, gap 0, for 400ms of
+ * decaying momentum — zero app writes — and then ONE scroll event moved the
+ * view 115px up. No wheel, no touch, no write: WebKit repositioning to its
+ * stale maximum as the post-gesture settle. Under the old contract that snap
+ * UNSEATED the pin (`pinned = near`, and near was false by then), so every
+ * writer was forbidden and the feed rested short with the affordance on —
+ * and a jump was snapped back out from under the re-pinned reader the same
+ * way, which read as "the button does nothing".
+ *
+ * The contract this suite pins: the reader expressed no intent to leave — no
+ * wheel-up, no touch, no key — so the pin SURVIVES the engine's move and the
+ * response is a healed write back to the bottom, which also refreshes the
+ * geometry the snap came from. A genuine drag is told apart by PERSISTENCE,
+ * not size: a snap is one discrete event, a held scrollbar drag keeps
+ * producing upward events, so a second uninvited move inside the concede
+ * window means a human is pulling — concede, latch, let them go. Keyboard
+ * scrolling raises real intent through its own listener, and the search jump
+ * releases the pin deliberately before it navigates.
+ */
+describe("an uninvited upward move while pinned is the engine's", () => {
+  /** The production shape: engine rested past its own stale max, then snaps
+   *  back to it. Prime the direction tracker at the resting spot. */
+  function restAtBottomThenSnap(): void {
+    top = TRUE_MAX
+    act(() => api?.onScroll())
+    top = engineMax // the engine's settle: no wheel, no write, one scroll event
+    act(() => api?.onScroll())
+  }
+
+  it('keeps the pin and heals the view back to the bottom', () => {
+    restAtBottomThenSnap()
+    expect(held.pinnedToBottom.current).toBe(true)
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
+    expect(heals).toBe(1)
+  })
+
+  it('survives however large the staleness is', () => {
+    engineMax = 3714 // a 786px late row: the staleness is the row, not a band
+    restAtBottomThenSnap()
+    expect(held.pinnedToBottom.current).toBe(true)
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
+  })
+
+  it('concedes to a SECOND uninvited move inside the window — that is a drag', () => {
+    restAtBottomThenSnap()
+    clock += 100
+    top = 4300 // still moving up 100ms later: a held thumb, not a settle
+    act(() => api?.onScroll())
+    expect(held.pinnedToBottom.current).toBe(false)
+    expect(scroller().scrollTop).toBe(4300)
+    // ...and the concession latches like any leave: near the end is not back.
+    top = 4460
+    act(() => api?.onScroll())
+    expect(held.pinnedToBottom.current).toBe(false)
+  })
+
+  it('heals a snap again once the window has passed', () => {
+    restAtBottomThenSnap()
+    clock += 1000
+    top = engineMax
+    act(() => api?.onScroll())
+    expect(held.pinnedToBottom.current).toBe(true)
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
+  })
+
+  it('lets a keyboard reader leave — keys are intent, not engine motion', () => {
+    top = TRUE_MAX
+    act(() => api?.onScroll())
+    act(() => {
+      scroller().dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    })
+    expect(held.pinnedToBottom.current).toBe(false)
+    top = 3600
+    act(() => api?.onScroll())
+    expect(held.pinnedToBottom.current).toBe(false)
+    expect(scroller().scrollTop).toBe(3600)
+  })
+
+  it('is released deliberately by the search jump before it navigates', () => {
+    top = TRUE_MAX
+    act(() => api?.onScroll())
+    const block = document.createElement('div')
+    block.setAttribute('data-block', '7')
+    ;(block as HTMLElement & { scrollIntoView: () => void }).scrollIntoView = () => {}
+    scroller().appendChild(block)
+    act(() => api?.scrollToBlock(7))
+    expect(held.pinnedToBottom.current).toBe(false)
+    // The navigation's own upward motion is then the reader's, not healed.
+    top = 2000
+    act(() => api?.onScroll())
+    expect(scroller().scrollTop).toBe(2000)
+  })
+})
+
