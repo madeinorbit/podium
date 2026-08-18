@@ -295,6 +295,99 @@ const MISSIONS = {
     state.paneA = null
   },
   /**
+   * THE FILED CASE FOR POD-1314 — one task, in progress, its only agent exited.
+   *
+   * Four devices on one header, three of them right: a `no agent` seat, a
+   * `0 agents` crew chip, a row reading `Retired · 6m ago` — and a gauge across
+   * the middle of them reading `1 UNDERWAY`. It is also the row whose state cell
+   * wrapped to two lines, so this one fixture carries both halves of the issue.
+   */
+  stalled: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1310',
+        title: 'New Task modal in Task tool',
+        description:
+          'remove "default" behind default model, remove "RUNS ON" from start work, make sure the harness selector greys out unavailable harnesses.',
+        stage: 'in_progress',
+        memberSessionIds: ['s1'],
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'POD-1310-A',
+        name: 'New session',
+        title: 'New session',
+        status: 'exited',
+        // Six minutes before the stub's `now`, so the stamp is the filed one.
+        lastActiveAt: '2026-01-01T00:24:00.000Z',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
+  /**
+   * The same split with something to compare it against: a task an agent is
+   * genuinely working, a task whose agent left, a blocked task and an untouched
+   * one — so `UNDERWAY`, `STALLED`, `BLOCKED` and `TO GO` are on one track and
+   * the new band has to hold its own beside the three it sits between.
+   */
+  stalledMix: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1310',
+        title: 'New Task modal in Task tool',
+        stage: 'in_progress',
+      }),
+      issue('t1', {
+        parentId: 'root',
+        displayRef: 'POD-1311',
+        title: 'Harness selector greying',
+        memberSessionIds: ['s1'],
+      }),
+      issue('t2', {
+        parentId: 'root',
+        displayRef: 'POD-1312',
+        title: 'Default model chip',
+        memberSessionIds: ['s2'],
+      }),
+      issue('t3', {
+        parentId: 'root',
+        displayRef: 'POD-1313',
+        title: 'Linear link removal',
+        blocked: true,
+      }),
+      issue('t4', {
+        parentId: 'root',
+        displayRef: 'POD-1315',
+        title: 'Start-work copy',
+        stage: 'backlog',
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 't1',
+        displayRef: 'POD-1311-A',
+        name: 'Selector pass',
+        title: 'Selector pass',
+        agentState: { phase: 'working', since: '2026-01-01T00:22:00.000Z' },
+      }),
+      session('s2', {
+        issueId: 't2',
+        displayRef: 'POD-1312-A',
+        name: 'New session',
+        title: 'New session',
+        status: 'exited',
+        lastActiveAt: '2026-01-01T00:24:00.000Z',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
+  /**
    * THE MISSION THAT IS SIMPLY OVER (POD-1268) — the filed screenshot: a task
    * withdrawn, its session retired, no sub-task and no destination. The spine
    * has nothing to draw, which is exactly why the ending has to be a card in it

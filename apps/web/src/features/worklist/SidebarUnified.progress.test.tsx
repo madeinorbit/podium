@@ -237,9 +237,14 @@ describe('per-entry progress in the worklist (POD-516 round 3)', () => {
     // a mission whose only `in_progress` issue was the root draws no run segment
     // at all — and this test would have been asserting stillness against an
     // empty segment, which passes for the wrong reason.
+    //
+    // The AGENT has to be on that member too (POD-1314): a started task with
+    // nobody on it is `stall`, not `run`, so parking the crew on the root would
+    // empty the segment again the same way. Present but idle is exactly the
+    // state this test is about — the task is running, the agent is not.
     const running = MISSION.map((i) => (i.id === 'd' ? { ...i, stage: 'in_progress' } : i))
     setUp(
-      [sess('lead', 'root', { agentState: { phase: 'idle', since: '2026-07-06T12:00:00.000Z' } })],
+      [sess('lead', 'd', { agentState: { phase: 'idle', since: '2026-07-06T12:00:00.000Z' } })],
       running,
     )
     const idle = render(<SidebarUnified />)
@@ -249,7 +254,7 @@ describe('per-entry progress in the worklist (POD-516 round 3)', () => {
     expect(widthsOf(parked)[1]).toBe((1 / 4) * 100)
     cleanup()
 
-    setUp([sess('lead', 'root')], running)
+    setUp([sess('lead', 'd')], running)
     const live = render(<SidebarUnified />)
     const moving = meterOf(live.container, 'root') as HTMLElement
     expect(moving.getAttribute('data-working')).toBe('true')

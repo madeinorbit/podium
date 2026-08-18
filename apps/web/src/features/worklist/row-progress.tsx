@@ -85,6 +85,14 @@
  * belongs at this scale. The count survives in the meter's own tooltip, and the
  * Flight Deck names which task is blocked and by what — one fact, one place.
  *
+ * STALLED gets none either, on the same rule, and the RUN SEGMENT SHRANK TO PAY
+ * FOR IT (POD-1314). Started work with nobody on it used to be inside the blue,
+ * so this rule ran a live-blue segment across a mission whose every agent had
+ * exited — the row's own status word six pixels above it saying `Retired` at the
+ * same time. It is not moving, so it belongs in the trough with the rest of what
+ * is not moving; the blue is now only ever work something is actually on. The
+ * count is in the tooltip and the Flight Deck names which task lost its agent.
+ *
  * The UNDERWAY segment — every stage that says work has begun (POD-1181) —
  * carries a slow sheen travelling along it, which is the part the operator asked
  * to move. It is gated on the same predicate as the braille spinner — an agent on
@@ -125,6 +133,7 @@ export function rowProgressLabel(progress: MissionProgress): string {
     `${progress.done} done`,
     `${progress.run} underway`,
     ...(progress.review > 0 ? [`${progress.review} in review`] : []),
+    ...(progress.stall > 0 ? [`${progress.stall} stalled`] : []),
     ...(progress.block > 0 ? [`${progress.block} blocked`] : []),
     `${progress.wait} waiting`,
   ].join(' · ')

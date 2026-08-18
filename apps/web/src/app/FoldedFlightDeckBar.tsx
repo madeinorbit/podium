@@ -41,7 +41,9 @@ import { useReplicaIssues, useStoreSelector } from './store'
  *   THE GAUGE. One tick per task, top-down, in the open gauge's own state order
  *   (done → in review → underway → blocked → to go) so review-stage work
  *   never reads as active execution when the deck folds. The column itself
- *   becomes the meter; the exact datum sits under it.
+ *   becomes the meter; the exact datum sits under it. `stalled` — started work
+ *   with nobody on it (POD-1314) — is one of those states, so the folded rail
+ *   cannot claim execution the open gauge has stopped claiming.
  *
  *   THE FOOT. What wants you, at the bottom where the thumb rests — amber ONLY
  *   when something is actually asking — and then fleet presence. A stack with
@@ -50,7 +52,7 @@ import { useReplicaIssues, useStoreSelector } from './store'
  */
 
 /** Top-down state order, identical to the open gauge's bands. */
-const TICK_ORDER = ['done', 'review', 'run', 'block', 'wait'] as const
+const TICK_ORDER = ['done', 'review', 'run', 'stall', 'block', 'wait'] as const
 
 /**
  * Where one-tick-per-task stops being a reading and becomes a texture.
@@ -88,11 +90,12 @@ const NO_COLOUR_PICK = (_color: IssueColorSlot | null): void => {}
  *  here against the gauge's `in progress` for the same bucket, which is exactly
  *  the drift that claim exists to forbid; both say `underway` now (POD-1181). */
 function reading(progress: MissionProgress): string {
-  const { total, done, run, review, block, wait } = progress
+  const { total, done, run, review, stall, block, wait } = progress
   return [
     `${done} of ${total} task${total === 1 ? '' : 's'} done`,
     run > 0 ? `${run} underway` : null,
     review > 0 ? `${review} in review` : null,
+    stall > 0 ? `${stall} stalled` : null,
     block > 0 ? `${block} blocked` : null,
     wait > 0 ? `${wait} to go` : null,
   ]
@@ -108,8 +111,8 @@ function SpineGauge({
   progress: MissionProgress
   onExpand: () => void
 }): JSX.Element {
-  const { total, done, run, review, block, wait } = progress
-  const counts = { done, run, review, block, wait }
+  const { total, done, run, review, stall, block, wait } = progress
+  const counts = { done, run, review, stall, block, wait }
   const perTask = total <= TICK_LIMIT
   const marks = perTask
     ? TICK_ORDER.flatMap((state) =>

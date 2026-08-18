@@ -2348,6 +2348,13 @@ html[data-density="balanced"] .header-quota-pools {
 .deck-tick[data-s="review"] {
   background: var(--attention);
 }
+/* Started work with nobody on it (POD-1314). Half the run tick's blue: the tick
+   is 15px of a 2px column and cannot carry the open gauge's dotted rule, so the
+   one thing it can say — this is run-lineage work at half strength — is what it
+   says. The exact count is on the rail's own tooltip either way. */
+.deck-tick[data-s="stall"] {
+  background: color-mix(in srgb, var(--live) 30%, transparent);
+}
 .deck-tick[data-s="block"] {
   background: color-mix(in srgb, var(--foreground) 34%, transparent);
 }
@@ -8986,6 +8993,23 @@ a.ref-link--session::before {
   width: calc(var(--deck-state-col) + var(--deck-role-col) + var(--deck-cell-gap));
 }
 
+/* A RETIRED ROW SPENDS IT THE SAME WAY (POD-1314), and for the same reason.
+   `Retired · 6m ago` is 16 characters of 9px mono — 86px where the column is 80
+   — so it WRAPPED, and a 45px row under an elbow drawn at the 28px row's mid
+   point is exactly the failure the ladder above was built to end. It is an
+   overrun of six pixels; the fix is not to widen the shared column by twenty
+   (which every name on every row would pay for, at every width) but to let the
+   row that has the overrun take the cell it is not using.
+   The role word goes with it, and that is the right trade in this direction
+   too: a retired session's role is provenance about a process that is gone,
+   the row's tooltip still carries it, and the alternative is a wrap. */
+.deck-agent-row[data-retired="true"] .deck-agent-role {
+  display: none;
+}
+.deck-agent-row[data-retired="true"] .deck-agent-state {
+  width: calc(var(--deck-state-col) + var(--deck-role-col) + var(--deck-cell-gap));
+}
+
 /* An AGENT row gives way on the same principle, and it is FOUR RIGID COLUMNS —
    name · ref · role · state — so the roster reads down its edges instead of
    ragging. The name takes the slack and is the only shrinker; the ref parks at
@@ -9070,10 +9094,15 @@ a.ref-link--session::before {
   .deck-agent-role {
     display: none;
   }
-  .deck-agent-row[data-needs-you="true"] .deck-agent-state {
+  .deck-agent-row[data-needs-you="true"] .deck-agent-state,
+  .deck-agent-row[data-retired="true"] .deck-agent-state {
     width: var(--deck-state-col);
   }
-  .deck-agent-row[data-needs-you="true"] .deck-agent-elapsed {
+  /* `Retired` alone is 44px and fits the 80px column; the stamp is what does
+     not, so the stamp is what drops — the least load-bearing datum on the row,
+     and on its tooltip either way. Exactly the asking row's rung. */
+  .deck-agent-row[data-needs-you="true"] .deck-agent-elapsed,
+  .deck-agent-row[data-retired="true"] .deck-agent-elapsed {
     display: none;
   }
 }
@@ -9189,6 +9218,25 @@ a.ref-link--session::before {
   box-shadow: inset 0 -2px 0 var(--attention);
   color: var(--text-strong);
 }
+/* STALLED — started work with an empty seat (POD-1314).
+   The run band's material, drained: half its blue in the ground so the band
+   still reads as started work, and a DOTTED floor rule where run has a solid
+   one. Dotted is the spine's single reserved meaning — a session belongs here
+   and there is not one — which is the rim the `no agent` chip in the same header
+   wears, so this borrows the column's vocabulary rather than spending a sixth
+   colour on it. The rule is a background image, not a `box-shadow`: a shadow
+   cannot be dashed, and a real border would take 2px out of a 22px band's
+   content box and shift the count off the centre every other band shares.
+   No march, ever: motion is licensed by an agent computing (MissionGauge.tsx),
+   and this band's whole claim is that there is not one. */
+.gauge-band[data-s="stall"] {
+  background-color: color-mix(in srgb, var(--live) 13%, transparent);
+  background-image: repeating-linear-gradient(to right, var(--live) 0 3px, transparent 3px 6px);
+  background-repeat: no-repeat;
+  background-position: bottom left;
+  background-size: 100% 2px;
+  color: var(--text-dim);
+}
 /* Blocked's ground is `.gauge-hatch`; its floor rule is the theme's own
    foreground, never a hue. */
 .gauge-band[data-s="block"] {
@@ -9246,6 +9294,9 @@ a.ref-link--session::before {
 }
 @container gauge-band (min-width: 64px) {
   .gauge-band[data-s="review"] .gauge-band-word,
+  /* `STALLED` is `BLOCKED`'s measure to the character, so it is the same rung
+     rather than a second literal a character-count apart from it. */
+  .gauge-band[data-s="stall"] .gauge-band-word,
   .gauge-band[data-s="block"] .gauge-band-word {
     display: inline;
   }

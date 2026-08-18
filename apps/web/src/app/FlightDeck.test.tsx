@@ -834,6 +834,32 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(document.querySelector('[data-flight-session="gone"]')).not.toBeNull()
   })
 
+  // POD-1314: `Retired · 6m ago` is 86px of 9px mono in an 80px state column, so
+  // the cell wrapped and the row grew to two lines under an elbow drawn at the
+  // 28px row's mid point. The row takes the role cell instead, exactly as an
+  // asking row does — and the stamp it sheds at the narrow rung is on the
+  // tooltip, so nothing is ever only half-said.
+  it('gives a retired row the role cell rather than wrapping its stamp', () => {
+    harness.sessions = [
+      ...harness.sessions,
+      session('gone', { issueId: 't1', status: 'exited', name: 'Retired agent' }),
+    ]
+    harness.issues = harness.issues.map((raw) => {
+      const candidate = raw as Issue
+      return candidate.id === 't1' ? { ...candidate, memberSessionIds: ['s1', 'gone'] } : candidate
+    })
+    deck()
+    const row = document.querySelector('[data-flight-session="gone"]')
+    expect(row).not.toBeNull()
+    expect(row?.getAttribute('data-retired')).toBe('true')
+    const state = row?.querySelector('.deck-agent-state')
+    expect(state?.textContent).toContain('Retired')
+    // The stamp is a shed-able cell of its own, and the word is not: what the
+    // narrow rung hides is the elapsed, never `Retired`.
+    expect(state?.querySelector('.deck-agent-elapsed')).not.toBeNull()
+    expect(row?.querySelector('[title]')?.getAttribute('title')).toContain('Retired · ')
+  })
+
   it('offers session lifecycle from the row itself', () => {
     deck()
     expect(screen.getByRole('button', { name: 'Session actions for s2' })).toBeTruthy()

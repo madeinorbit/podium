@@ -1090,6 +1090,9 @@ function SessionRow({
     session.displayRef,
     label,
     needs ? `Needs you${waited ? ` · ${waited}` : ''}` : null,
+    // The stamp the narrow rung takes off a retired row (POD-1314) — the same
+    // contract the asking row's elapsed keeps: shed from the cell, kept here.
+    retired ? `Retired · ${stamp}` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -1115,6 +1118,9 @@ function SessionRow({
       style={{ marginLeft: flat ? 0 : AGENT_INDENT }}
       data-flight-session={session.sessionId}
       data-needs-you={needs ? 'true' : undefined}
+      // A retired row spends its role cell on its stamp, exactly as an asking
+      // row spends it on the ask — see the ladder in styles.css.
+      data-retired={retired ? 'true' : undefined}
       data-pointed={pointed ? 'true' : undefined}
     >
       {/* THE SESSION YOU ARE IN takes the same square accent tick a selected
@@ -1290,7 +1296,17 @@ function SessionRow({
                 )}
               </>
             ) : retired ? (
-              <span className="shell-type-micro font-mono text-text-faint">Retired · {stamp}</span>
+              <span className="shell-type-micro font-mono whitespace-nowrap text-text-faint">
+                Retired
+                {/* The staleness, and the only half of this the ladder can take
+                    back: `Retired · 6m ago` is 86px where the state column is
+                    80, so at 80 the row WRAPPED — two lines under an elbow drawn
+                    for one, which is the geometry the roster's ladder exists to
+                    forbid. Wide, it takes the role cell like the asking row;
+                    narrow, the word survives alone and the stamp is on the row's
+                    tooltip. */}
+                <span className="deck-agent-elapsed"> · {stamp}</span>
+              </span>
             ) : starting ? (
               <span className="shell-type-micro font-mono text-text-dim">Starting</span>
             ) : phase === 'working' && Number.isFinite(since) ? (

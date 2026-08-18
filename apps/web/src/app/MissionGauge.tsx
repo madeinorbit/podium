@@ -23,9 +23,9 @@ import { cn } from '@/lib/utils'
  * half lives in `missionProgress` (one unit of work is one task; the root is
  * the container being measured, not a segment of it).
  *
- * Bands run done → in review → underway → blocked → to go, so review-stage work
- * cannot masquerade as execution when the fleet chip correctly says zero agents.
- * The track fills from the left as work lands.
+ * Bands run done → in review → underway → stalled → blocked → to go, so
+ * review-stage work cannot masquerade as execution when the fleet chip correctly
+ * says zero agents. The track fills from the left as work lands.
  *
  * ---------------------------------------------------------------------------
  * THE NARROW LADDER — the deck starts at 300px, so this is routine
@@ -82,6 +82,22 @@ import { cn } from '@/lib/utils'
  * designing in it. A band covering three stages cannot wear one stage's label, so
  * it takes the word all three have in common and none of them owns.
  *
+ * `STALLED` IS `UNDERWAY` WITH THE SEAT EMPTY (POD-1314). A task whose stage says
+ * work began but which has no open session anywhere under it is not executing,
+ * and this bar said `1 UNDERWAY` about one beside a chip reading `0 agents`, a
+ * strip reading `Retired` and a `no agent` seat — four devices on one header,
+ * three of them right. It is its own band rather than a shade of the run band
+ * because it is a different state of the WORK, not a different intensity of the
+ * same one: `presenceNote` already reads it as `Agent left · choose a handoff`.
+ *
+ * ITS MATERIAL IS THE RUN BAND'S, DRAINED, ON A DOTTED FLOOR RULE. Half the blue
+ * in the ground says "this is started work"; the DOTTED rule is the spine's one
+ * reserved meaning for an empty seat — the same rim the `no agent` chip wears
+ * six pixels above it (`SeatChip`, FlightDeck.tsx) — so the gauge borrows the
+ * column's vocabulary instead of inventing a sixth colour. It carries no march:
+ * motion is licensed by an agent computing, and the whole claim of this band is
+ * that there is not one.
+ *
  * BLOCKED TAKES NO HUE AT ALL. `--warning` IS `--attention` (#f5c518) in
  * Superade, so a warning-toned band would spend the one signal colour on work
  * that is asking nothing of the operator. It wears the same 135° diagonal a
@@ -137,7 +153,7 @@ export function MissionGauge({
   live: number
   working: number
 }): JSX.Element {
-  const { total, done, run, review, block, wait } = progress
+  const { total, done, run, review, stall, block, wait } = progress
   const crew = missionCrewLabel(live, working)
   const work =
     total === 0
@@ -146,6 +162,7 @@ export function MissionGauge({
           `${done} of ${total} task${total === 1 ? '' : 's'} done`,
           run > 0 ? `${run} underway` : null,
           review > 0 ? `${review} in review` : null,
+          stall > 0 ? `${stall} stalled` : null,
           block > 0 ? `${block} blocked` : null,
           wait > 0 ? `${wait} to go` : null,
         ]
@@ -164,6 +181,7 @@ export function MissionGauge({
             ['done', 'done', done],
             ['review', 'in review', review],
             ['run', 'underway', run],
+            ['stall', 'stalled', stall],
             ['block', 'blocked', block],
             ['wait', 'to go', wait],
           ] as const

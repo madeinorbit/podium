@@ -18,7 +18,7 @@ describe('Flight Deck mission gauge', () => {
     // (DESIGN.md §5). The gate is now the one `RowProgressMeter` uses.
     const view = render(
       <MissionGauge
-        progress={{ total: 5, done: 2, run: 2, review: 0, block: 1, wait: 0 }}
+        progress={{ total: 5, done: 2, run: 2, review: 0, stall: 0, block: 1, wait: 0 }}
         live={4}
         working={0}
       />,
@@ -39,7 +39,7 @@ describe('Flight Deck mission gauge', () => {
 
     view.rerender(
       <MissionGauge
-        progress={{ total: 5, done: 2, run: 2, review: 0, block: 1, wait: 0 }}
+        progress={{ total: 5, done: 2, run: 2, review: 0, stall: 0, block: 1, wait: 0 }}
         live={4}
         working={2}
       />,
@@ -54,7 +54,7 @@ describe('Flight Deck mission gauge', () => {
     // sweep, so the gauge is completely still.
     view.rerender(
       <MissionGauge
-        progress={{ total: 5, done: 4, run: 0, review: 0, block: 1, wait: 0 }}
+        progress={{ total: 5, done: 4, run: 0, review: 0, stall: 0, block: 1, wait: 0 }}
         live={4}
         working={2}
       />,
@@ -66,7 +66,7 @@ describe('Flight Deck mission gauge', () => {
   it('gives a band to every state that has work and to no state that has none', () => {
     const view = render(
       <MissionGauge
-        progress={{ total: 1, done: 0, run: 1, review: 0, block: 0, wait: 0 }}
+        progress={{ total: 1, done: 0, run: 1, review: 0, stall: 0, block: 0, wait: 0 }}
         live={1}
         working={1}
       />,
@@ -80,7 +80,7 @@ describe('Flight Deck mission gauge', () => {
 
     view.rerender(
       <MissionGauge
-        progress={{ total: 8, done: 3, run: 2, review: 0, block: 1, wait: 2 }}
+        progress={{ total: 8, done: 3, run: 2, review: 0, stall: 0, block: 1, wait: 2 }}
         live={5}
         working={5}
       />,
@@ -103,7 +103,7 @@ describe('Flight Deck mission gauge', () => {
   it('the chip says who is computing, never "live"', () => {
     const view = render(
       <MissionGauge
-        progress={{ total: 3, done: 0, run: 1, review: 0, block: 0, wait: 0 }}
+        progress={{ total: 3, done: 0, run: 1, review: 0, stall: 0, block: 0, wait: 0 }}
         live={3}
         working={1}
       />,
@@ -114,7 +114,7 @@ describe('Flight Deck mission gauge', () => {
 
     view.rerender(
       <MissionGauge
-        progress={{ total: 3, done: 0, run: 0, review: 0, block: 0, wait: 1 }}
+        progress={{ total: 3, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 1 }}
         live={3}
         working={0}
       />,
@@ -128,7 +128,7 @@ describe('Flight Deck mission gauge', () => {
   it('says NO TASKS rather than painting an empty groove', () => {
     render(
       <MissionGauge
-        progress={{ total: 0, done: 0, run: 0, review: 0, block: 0, wait: 0 }}
+        progress={{ total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }}
         live={0}
         working={0}
       />,
@@ -143,10 +143,52 @@ describe('Flight Deck mission gauge', () => {
     )
   })
 
+  // POD-1314: the reported reading, at the bar. The mission had one task in
+  // progress, no live agent and a session that had exited six minutes earlier —
+  // and the band said `1 UNDERWAY` beside a chip saying `0 agents`.
+  it('says stalled, not underway, when the started work has nobody on it', () => {
+    render(
+      <MissionGauge
+        progress={{ total: 1, done: 0, run: 0, review: 0, stall: 1, block: 0, wait: 0 }}
+        live={0}
+        working={0}
+      />,
+    )
+
+    const gauge = screen.getByTestId('mission-gauge')
+    expect(bands().map((band) => band.getAttribute('data-s'))).toEqual(['stall'])
+    expect(label(bands()[0])).toBe('1 stalled')
+    expect(gauge.getAttribute('aria-label')).toBe('0 of 1 task done, 1 stalled · 0 agents')
+    // It is not the blocked band wearing another word: no hatch, and it keeps
+    // its own ground.
+    expect(bands()[0]?.className).not.toContain('gauge-hatch')
+    // And it never marches. The march is licensed by an agent computing, which
+    // is the one thing this band exists to say there is not.
+    expect(screen.getByTestId('mission-gauge-track').querySelector('.gauge-band-march')).toBeNull()
+  })
+
+  it('orders stalled after underway and before blocked, and reads both', () => {
+    render(
+      <MissionGauge
+        progress={{ total: 4, done: 0, run: 1, review: 0, stall: 2, block: 1, wait: 0 }}
+        live={1}
+        working={1}
+      />,
+    )
+
+    expect(bands().map((band) => band.getAttribute('data-s'))).toEqual(['run', 'stall', 'block'])
+    expect(screen.getByTestId('mission-gauge').getAttribute('title')).toBe(
+      '0 of 4 tasks done, 1 underway, 2 stalled, 1 blocked · 1 working',
+    )
+    // The march belongs to the run band alone, even with both on the track.
+    expect(bands()[0]?.querySelector('.gauge-band-march')).not.toBeNull()
+    expect(bands()[1]?.querySelector('.gauge-band-march')).toBeNull()
+  })
+
   it('calls an unstaffed review task in review instead of running', () => {
     render(
       <MissionGauge
-        progress={{ total: 1, done: 0, run: 0, review: 1, block: 0, wait: 0 }}
+        progress={{ total: 1, done: 0, run: 0, review: 1, stall: 0, block: 0, wait: 0 }}
         live={0}
         working={0}
       />,
