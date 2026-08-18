@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Setting up a new VPS could show an install command for the `stable` channel, which has
+  no release published, so pasting it into the VPS downloaded nothing. The command now
+  appears only once Podium knows which release train to install from, and says so when
+  that is not the channel this Podium updates on.
 - Updating from the downloaded disk image failed with a generic "could not install"
   message. Podium now recognises that it is running from its disk image and says so
   before downloading anything: move it to Applications and open it from there.

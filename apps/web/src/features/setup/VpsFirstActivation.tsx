@@ -1,7 +1,11 @@
 import { ONBOARDING_VPS_SERVER_DRAFT_KEY, type UiState } from '@podium/client-core/ui-state'
 import { isServerReadiness } from '@podium/model'
-import { buildVpsBootstrapCommand, type VpsReleaseChannel } from '@podium/runtime/vps-bootstrap'
-import { ArrowRight, Check, Copy, Server, ShieldCheck, Terminal } from 'lucide-react'
+import {
+  buildVpsBootstrapCommand,
+  type VpsReleaseChannel,
+  vpsInstallerChannel,
+} from '@podium/runtime/vps-bootstrap'
+import { ArrowRight, Check, Copy, RefreshCw, Server, ShieldCheck, Terminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -58,6 +62,25 @@ export async function probeNewVps(
   }
 }
 
+/**
+ * The channel the SERVER resolved, mapped onto the two release trains a VPS can
+ * install from. An unfamiliar or missing answer stays UNREAD (POD-1288): the
+ * installer URL differs per channel, so guessing one publishes a 404 to paste.
+ */
+export function vpsChannelOf(result: unknown): VpsReleaseChannel | undefined {
+  const selected =
+    typeof result === 'string' ? result : (result as { channel?: unknown } | undefined)?.channel
+  if (selected === 'dev' || selected === 'edge') return 'edge'
+  if (selected === 'stable') return 'stable'
+  return undefined
+}
+
+/** Reading the channel is a step of its own: there is no command before it lands. */
+type ChannelRead =
+  | { status: 'reading' }
+  | { status: 'known'; channel: VpsReleaseChannel }
+  | { status: 'unread' }
+
 function ConnectionError({ error }: { error: string | null }): JSX.Element | null {
   if (!error) return null
   return (
@@ -83,7 +106,8 @@ export function VpsFirstActivation({
   onConfigured: () => Promise<void>
 }): JSX.Element {
   const uiState = useStoreSelector((store) => store.uiState) as Pick<UiState, 'get' | 'set'>
-  const [channel, setChannel] = useState<VpsReleaseChannel>('stable')
+  const [read, setRead] = useState<ChannelRead>({ status: 'reading' })
+  const [attempt, setAttempt] = useState(0)
   const [serverUrl, setServerUrl] = useState(
     () => uiState.get(ONBOARDING_VPS_SERVER_DRAFT_KEY) ?? '',
   )
@@ -91,23 +115,45 @@ export function VpsFirstActivation({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const command = useMemo(() => buildVpsBootstrapCommand(channel), [channel])
+  const command = useMemo(
+    () => (read.status === 'known' ? buildVpsBootstrapCommand(read.channel) : null),
+    [read],
+  )
+  // The instance updates on a channel the VPS cannot install from yet; the command
+  // says the other train, and so must the page. Never a silent substitution.
+  const substituted = read.status === 'known' && vpsInstallerChannel(read.channel) !== read.channel
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is the deliberate re-read trigger
   useEffect(() => {
     let alive = true
+    setRead({ status: 'reading' })
     void trpc.setup.channel.query().then(
       (result) => {
-        if (alive) setChannel(result.channel === 'stable' ? 'stable' : 'edge')
+        if (!alive) return
+        const channel = vpsChannelOf(result)
+        setRead(channel ? { status: 'known', channel } : { status: 'unread' })
       },
-      () => {},
+      () => {
+        // The transport already replays this idempotent read across a server restart.
+        // A rejection that survives it is a genuine failure, and no permission to pick
+        // a channel: the step says so and offers the read again.
+        if (alive) setRead({ status: 'unread' })
+      },
     )
     return () => {
       alive = false
-      if (copyTimer.current) clearTimeout(copyTimer.current)
     }
-  }, [trpc])
+  }, [trpc, attempt])
+
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+    },
+    [],
+  )
 
   const copyCommand = (): void => {
+    if (!command) return
     if (copyTimer.current) clearTimeout(copyTimer.current)
     setCopyState('idle')
     const clipboard = navigator.clipboard
@@ -192,24 +238,57 @@ export function VpsFirstActivation({
               <span className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.14em] text-[#8a9099] uppercase">
                 <Terminal size={14} aria-hidden="true" /> VPS terminal
               </span>
-              <button
-                type="button"
-                data-pressable
-                onClick={copyCommand}
-                className="inline-flex h-7 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-semibold text-[#e3ba52] hover:bg-[#e3ba52]/10"
-              >
-                {copyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
-                {copyState === 'copied'
-                  ? 'Copied'
-                  : copyState === 'failed'
-                    ? 'Copy failed'
-                    : 'Copy'}
-              </button>
+              {command !== null && (
+                <button
+                  type="button"
+                  data-pressable
+                  onClick={copyCommand}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-semibold text-[#e3ba52] hover:bg-[#e3ba52]/10"
+                >
+                  {copyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
+                  {copyState === 'copied'
+                    ? 'Copied'
+                    : copyState === 'failed'
+                      ? 'Copy failed'
+                      : 'Copy'}
+                </button>
+              )}
             </div>
-            <code className="block max-h-[132px] overflow-auto whitespace-pre-wrap break-all px-4 py-3.5 font-mono text-[12px] leading-[1.6] text-[#d7dae0] [scrollbar-width:thin]">
-              {command}
-            </code>
+            {command !== null ? (
+              <code className="block max-h-[132px] overflow-auto whitespace-pre-wrap break-all px-4 py-3.5 font-mono text-[12px] leading-[1.6] text-[#d7dae0] [scrollbar-width:thin]">
+                {command}
+              </code>
+            ) : read.status === 'reading' ? (
+              <p
+                role="status"
+                className="px-4 py-3.5 text-[12.5px] leading-[1.6] text-[#8a9099] italic"
+              >
+                Reading which release train this Podium installs from…
+              </p>
+            ) : (
+              <div role="alert" className="px-4 py-3.5 text-[12.5px] leading-[1.6] text-[#e7a3a8]">
+                Could not read which release train this Podium installs from, so there is no command
+                yet. The installer lives at a different address per channel, and the wrong one is
+                not slower — it does not exist.
+                <button
+                  type="button"
+                  data-pressable
+                  onClick={() => setAttempt((previous) => previous + 1)}
+                  className="mt-2 -ml-2.5 flex h-7 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-semibold text-[#e3ba52] hover:bg-[#e3ba52]/10"
+                >
+                  <RefreshCw size={14} aria-hidden="true" /> Try again
+                </button>
+              </div>
+            )}
           </div>
+          {substituted && (
+            <p className="mt-3 text-[12.5px] leading-[1.55] text-[#9ba1ab]">
+              This Podium updates on <code className="font-mono text-[#a8adb6]">stable</code>, but
+              no stable release is published yet — so the VPS installs the{' '}
+              <code className="font-mono text-[#a8adb6]">edge</code> build, the only train that
+              exists, and keeps updating on it.
+            </p>
+          )}
           <p className="mt-3 text-[12.5px] leading-[1.55] text-[#7f858f]">
             The shorter <code className="font-mono text-[#a8adb6]">curl … | sh</code> command only
             installs Podium and exits. This complete command also installs the supported agents and
