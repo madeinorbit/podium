@@ -33,8 +33,10 @@ import {
   spawnAbducoAgent,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
+import { foreignCredentialEnv } from './control/session-env.js'
 import {
   buildHeadlessExec,
+  headlessChildEnv,
   type HeadlessEmit,
   HeadlessTurnError,
   type HeadlessTurnHandle,
@@ -223,7 +225,7 @@ function cursorSessionId(
   const output = execFileSync(resolvedHarnessPath(snapshot, 'cursor'), ['create-chat'], {
     encoding: 'utf8',
     timeout: 60_000,
-    env: { ...process.env, ...env },
+    env: headlessChildEnv('cursor', env),
   })
   const id = output.split('\n').at(-1)?.trim() ?? ''
   if (!/^[0-9a-f-]{36}$/i.test(id)) {
@@ -698,6 +700,11 @@ export function runDurableHeadlessTurn(
           cols: 120,
           rows: 40,
           ...(Object.keys(spawnEnv).length > 0 ? { env: spawnEnv } : {}),
+          // The durable shell inherits the daemon environment before it execs
+          // the harness. Delete manifest-declared account overrides at that
+          // process boundary; explicit per-turn credentials remain because the
+          // helper excludes keys present in spawnEnv.
+          stripEnv: foreignCredentialEnv(spec.agent, spawnEnv),
         })
       }
       if (disposed) {

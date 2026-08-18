@@ -102,6 +102,43 @@ alone:
 9. **Client-core baseline.** The required driver-family tests pass. The full
    client-core suite has one mark-read throttle-tail failure in code
    byte-identical to `origin/main`; it is tracked separately as POD-2329.
+10. **POD-1204 draft eligibility versus receipt delivery.** Main's
+    `MessageDeliveryService.attemptDelivery` checks `draftHoldActive(target)`
+    before choosing any transport or calling `injectAndMark`; the sessions
+    wiring supplies that value from `bag.state.draftSyncEnabled()`. When draft
+    injection is disabled the message remains eligible, then the same
+    `injectAndMark` call selects either the epic's `receiptSend` path or the
+    legacy interrupt/send/queue path. The queued path carries
+    `sourceMessageId` into `SessionInbox`, whose `drain` re-authorizes before
+    delivery and, for server-driven sessions, calls `contractDeliver`; only an
+    accepted or queued receipt removes the row. I checked those call sites in
+    `apps/server/src/modules/messages/service.ts`,
+    `apps/server/src/modules/sessions/session-wiring.ts`, and
+    `apps/server/src/modules/sessions/inbox.ts`, plus the live-toggle and drain
+    coverage in `apps/server/src/modules/messages/service.test.ts`. Ruling:
+    benign composition. POD-1204's eligibility gate remains upstream of both
+    delivery families, and the epic neither bypasses nor weakens it.
+11. **No-tools policy versus credential precedence.** Main's POD-833 contract
+    makes `HarnessHeadless.noTools` produce `HeadlessExecOptions.toolPolicy =
+    'none'`, with server and daemon launchers failing closed when a harness
+    cannot enforce it. The epic's POD-2296 contract independently declares
+    `HarnessInventory.foreignCredentialEnv` and removes inherited provider
+    keys from terminal and server-driver children so a stray daemon credential
+    cannot override the selected account home. I checked the manifest flow in
+    `apps/server/src/modules/superagent/headless.ts` and
+    `apps/daemon/src/control/headless.ts`, the actual child boundaries in
+    `apps/daemon/src/headless-drivers.ts` and
+    `apps/daemon/src/durable-headless.ts`, and the existing terminal/server
+    enforcement in `apps/daemon/src/control/session.ts` and `packages/pty`.
+    Ruling: not benign as auto-merged. Both nondurable headless children and
+    durable allocation/shell children still inherited `process.env`, allowing
+    a provider key to defeat account-home selection on a no-tools custody turn.
+    The reconciliation now constructs every headless child environment from
+    the manifest: inherited foreign credentials are removed, while an
+    explicitly selected per-turn credential is retained. Main's fail-closed
+    tool-policy behavior is unchanged. Unit coverage pins both removal and the
+    explicit-value exception; the durable abduco lifecycle test observes the
+    real detached child environment.
 
 ## Commit and trailer preservation
 
@@ -119,9 +156,15 @@ messages, authorship, and `Podium-Issue` trailers:
 This preserves the epic's complete attribution without reverting newer main
 contracts or duplicating generated data.
 
+The finalized intent-preserving rebase range, before this adversarial-review
+follow-up, is exactly 141 commits: all 140 original commits are represented
+with their metadata and `Podium-Issue` trailers preserved, plus reconciliation
+commit `8eb49f7b5`. The credential-boundary correction and this expanded
+evidence are a subsequent review-fix commit, not another replayed epic commit.
+
 ## Validation evidence
 
-All heavy work ran while holding `test:heavy`; the lease was released
+All successful heavy validation ran while holding `test:heavy`; the lease was released
 immediately after the last gate.
 
 | Lane | Result |
@@ -139,6 +182,19 @@ immediately after the last gate.
 | Server boundary shard | 76 files passed; 1,287 passed, 1 skipped |
 | Focused WebSocket auth + issue revision | 2 files passed; 171 passed |
 | Focused update router packaging | Passed |
+| Review-fix lean gate | Whole-graph typecheck 25/25 passed, 0 cached; boot wiring 74/74 passed |
+| Review-fix headless credential boundary (`test:heavy`) | 2 files passed; 21 passed, including the real detached abduco child |
+
+The review-fix `bun run test:integration` command could not reach its Vitest
+phase because the unchanged web build reported 7,852,052 parsed eager source
+bytes against a 7,800,000 budget; the existing POD-2288 tracks that independent
+baseline. I also attempted the complete Vitest phase directly under
+`test:heavy` with its temp root on the workspace filesystem to avoid the host's
+exhausted `/tmp` user quota. That run was non-authoritative: the long temp prefix
+violated the suite's explicit Unix-socket path budget and cascaded into setup and
+readiness failures. The affected daemon unit and durable-process files were
+therefore rerun together under `test:heavy` with a short, quota-free temp root;
+all 21 tests passed.
 
 No browser drive was used: the changes are import, protocol, persistence, and
 test-contract reconciliation, and the affected behavior is covered at its

@@ -18,6 +18,7 @@ import {
 } from '@podium/harness'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
+import { foreignCredentialEnv } from './control/session-env.js'
 
 const DEFAULT_TURN_TIMEOUT_MS = 600_000
 
@@ -93,6 +94,24 @@ export interface HeadlessTurnIdentity {
   accountId: AccountId
 }
 
+/**
+ * The complete environment for a headless harness child.
+ *
+ * Headless processes are another way to launch the same CLI, so the manifest's
+ * stored-login precedence rule applies here exactly as it does to terminal and
+ * server-driver children (POD-2296). Explicit per-turn values are managed
+ * credentials selected by Podium and therefore win; only inherited daemon
+ * values are removed.
+ */
+export function headlessChildEnv(
+  agent: HarnessAgent,
+  explicit?: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const env = { ...process.env, ...explicit } as Record<string, string>
+  for (const key of foreignCredentialEnv(agent, explicit)) delete env[key]
+  return env
+}
+
 const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const PERMISSION_MODES = new Set([
   'default',
@@ -145,8 +164,7 @@ export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
     // without it every headless turn on a root-run daemon dies with exit code 1.
     // Options.env REPLACES the subprocess env, so process.env must be spread in.
     env: {
-      ...process.env,
-      ...spec.env,
+      ...headlessChildEnv(spec.agent, spec.env),
       ...(mode === 'bypassPermissions' && process.getuid?.() === 0 ? { IS_SANDBOX: '1' } : {}),
     } as Record<string, string>,
     ...(spec.model && spec.model !== 'auto' ? { model: spec.model } : {}),
@@ -281,6 +299,7 @@ export function buildHeadlessExec(
 }
 
 function runChild<T>(
+  agent: HarnessAgent,
   cmd: string,
   args: string[],
   cwd: string,
@@ -291,7 +310,7 @@ function runChild<T>(
   const child = spawn(cmd, args, {
     cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, ...env },
+    env: headlessChildEnv(agent, env),
   })
   child.stdin?.end()
   let timedOut = false
@@ -368,6 +387,7 @@ function runCodexTurn(
   )
   emit({ kind: 'status', status: 'starting' })
   const { child, done } = runChild(
+    spec.agent,
     cmd,
     args,
     spec.cwd,
@@ -469,28 +489,36 @@ function runResumeExecTurn(
   if (headless.outputFormat === 'opencode-jsonl') {
     // This protocol mints its own session id in the JSON event stream.
     const { cmd, args } = buildHeadlessExec(spec.agent, common, snapshot)
-    const { child, done } = runChild(cmd, args, spec.cwd, timeoutMs, spec.env, async (child) => {
-      const stderrTail = collectStderr(child)
-      let sessionId = spec.resumeValue ?? ''
-      let output = ''
-      const rl = createInterface({ input: child.stdout as NodeJS.ReadableStream })
-      rl.on('line', (line) => {
-        let ev: { type?: string; sessionID?: string; part?: { type?: string; text?: string } }
-        try {
-          ev = JSON.parse(line)
-        } catch {
-          return
-        }
-        if (ev.sessionID && !sessionId) {
-          sessionId = ev.sessionID
-          emit({ kind: 'status', status: 'running', harnessSessionId: sessionId })
-        }
-        if (ev.type === 'text' && ev.part?.type === 'text') output += ev.part.text ?? ''
-      })
-      await childExit(child, stderrTail)
-      if (!sessionId) throw new Error('opencode turn ended without reporting a session id')
-      return { harnessSessionId: sessionId, output: output.trim() }
-    })
+    const { child, done } = runChild(
+      spec.agent,
+      cmd,
+      args,
+      spec.cwd,
+      timeoutMs,
+      spec.env,
+      async (child) => {
+        const stderrTail = collectStderr(child)
+        let sessionId = spec.resumeValue ?? ''
+        let output = ''
+        const rl = createInterface({ input: child.stdout as NodeJS.ReadableStream })
+        rl.on('line', (line) => {
+          let ev: { type?: string; sessionID?: string; part?: { type?: string; text?: string } }
+          try {
+            ev = JSON.parse(line)
+          } catch {
+            return
+          }
+          if (ev.sessionID && !sessionId) {
+            sessionId = ev.sessionID
+            emit({ kind: 'status', status: 'running', harnessSessionId: sessionId })
+          }
+          if (ev.type === 'text' && ev.part?.type === 'text') output += ev.part.text ?? ''
+        })
+        await childExit(child, stderrTail)
+        if (!sessionId) throw new Error('opencode turn ended without reporting a session id')
+        return { harnessSessionId: sessionId, output: output.trim() }
+      },
+    )
     return { done, interrupt: () => child.kill('SIGKILL') }
   }
 
@@ -514,6 +542,7 @@ function runResumeExecTurn(
         sessionId = randomUUID()
       } else if (headless.resumeIdAllocation === 'create-chat') {
         const alloc = runChild(
+          spec.agent,
           resolvedHarnessPath(snapshot, 'cursor'),
           ['create-chat'],
           spec.cwd,
@@ -534,7 +563,7 @@ function runResumeExecTurn(
       }
     }
     const { cmd, args } = buildHeadlessExec(spec.agent, { ...common, sessionId }, snapshot)
-    const turn = runChild(cmd, args, spec.cwd, timeoutMs, spec.env, readAllStdout)
+    const turn = runChild(spec.agent, cmd, args, spec.cwd, timeoutMs, spec.env, readAllStdout)
     interrupt = () => turn.child.kill('SIGKILL')
     emit({ kind: 'status', status: 'running' })
     const output = await turn.done

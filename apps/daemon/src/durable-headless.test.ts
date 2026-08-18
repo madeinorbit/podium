@@ -164,8 +164,13 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
     mkdirSync(socketDir, { recursive: true })
     const grok = join(binDir, 'grok')
     // Keep the fake agent alive long enough that the dispose→reattach→assert
-    // sequence below cannot race its natural exit under CI load.
-    writeFileSync(grok, '#!/bin/sh\nsleep 2\nprintf "reply:%s\\n" "$*"\n')
+    // sequence below cannot race its natural exit under CI load. It also
+    // observes the real detached process environment: a manifest-declared
+    // provider key inherited by the daemon must be absent in the harness.
+    writeFileSync(
+      grok,
+      '#!/bin/sh\nif [ -n "${XAI_API_KEY+x}" ]; then echo "leaked XAI_API_KEY" >&2; exit 42; fi\nsleep 2\nprintf "reply:%s\\n" "$*"\n',
+    )
     chmodSync(grok, 0o755)
 
     const previous = {
@@ -173,12 +178,14 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
       ABDUCO_SOCKET_DIR: process.env.ABDUCO_SOCKET_DIR,
       PODIUM_NO_SCOPE: process.env.PODIUM_NO_SCOPE,
+      XAI_API_KEY: process.env.XAI_API_KEY,
     }
     process.env.PATH = `${binDir}:${previous.PATH ?? ''}`
     const snapshot = testHarnessSnapshot({ grok: join(binDir, 'grok') })
     process.env.PODIUM_STATE_DIR = join(root, 'state')
     process.env.ABDUCO_SOCKET_DIR = socketDir
     process.env.PODIUM_NO_SCOPE = '1'
+    process.env.XAI_API_KEY = 'inherited-daemon-key'
 
     const sessionId = asSessionId(randomUUID().slice(0, 8)) // short: label feeds the socket path
     const turnId = randomUUID()
@@ -266,6 +273,8 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       else process.env.ABDUCO_SOCKET_DIR = previous.ABDUCO_SOCKET_DIR
       if (previous.PODIUM_NO_SCOPE === undefined) delete process.env.PODIUM_NO_SCOPE
       else process.env.PODIUM_NO_SCOPE = previous.PODIUM_NO_SCOPE
+      if (previous.XAI_API_KEY === undefined) delete process.env.XAI_API_KEY
+      else process.env.XAI_API_KEY = previous.XAI_API_KEY
     }
   }, 60_000)
 })

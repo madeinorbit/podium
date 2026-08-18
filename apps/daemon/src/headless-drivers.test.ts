@@ -1,6 +1,11 @@
 import { asAccountId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
-import { buildClaudeSdkOptions, buildHeadlessExec, runHeadlessTurn } from './headless-drivers.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  buildClaudeSdkOptions,
+  buildHeadlessExec,
+  headlessChildEnv,
+  runHeadlessTurn,
+} from './headless-drivers.js'
 import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
 
 const snapshot = testHarnessSnapshot()
@@ -8,6 +13,10 @@ const identity = {
   accountId: asAccountId('native:claude-code:test'),
   requestDigest: 'a'.repeat(64),
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 describe('buildHeadlessExec argv shapes', () => {
   it('reapplies the current system prompt when resuming a Claude SDK thread', () => {
@@ -53,6 +62,33 @@ describe('buildHeadlessExec argv shapes', () => {
     ).toThrow(/cannot enforce a no-tools headless turn/)
   })
 
+  it('removes inherited account overrides while preserving a managed credential', () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'inherited-daemon-key')
+    vi.stubEnv('OPENAI_API_KEY', 'inherited-openai-key')
+
+    const claude = buildClaudeSdkOptions({
+      agent: 'claude-code',
+      ...identity,
+      cwd: '/repo',
+      prompt: 'repair',
+      toolPolicy: 'none',
+      env: { HOME: '/accounts/claude' },
+    })
+    expect(claude.env).not.toHaveProperty('ANTHROPIC_API_KEY')
+    expect(claude.env).toMatchObject({ HOME: '/accounts/claude' })
+
+    const codex = headlessChildEnv('codex', { HOME: '/accounts/codex' })
+    expect(codex).not.toHaveProperty('OPENAI_API_KEY')
+
+    const managed = headlessChildEnv('claude-code', {
+      HOME: '/accounts/managed',
+      ANTHROPIC_API_KEY: 'server-selected-key',
+    })
+    expect(managed).toMatchObject({
+      HOME: '/accounts/managed',
+      ANTHROPIC_API_KEY: 'server-selected-key',
+    })
+  })
   it('codex first turn: exec --json with positional prompt, no resume subcommand', () => {
     const { cmd, args } = buildHeadlessExec('codex', { prompt: 'hi there' }, snapshot)
     expect(cmd).toBe('/opt/codex')
