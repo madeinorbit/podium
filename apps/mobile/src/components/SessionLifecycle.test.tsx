@@ -59,7 +59,7 @@ describe('mobile session lifecycle surface', () => {
   it.each([
     ['hibernated', 'parked'],
     ['exited', 'ended'],
-  ] as const)('paints the %s bar in chrome, not in a signal fill', (status) => {
+  ] as const)('paints the %s bar in chrome, not in a signal fill', (status, _word) => {
     render(
       <MobileSessionLifecycle
         session={session({ status })}
