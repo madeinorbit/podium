@@ -15,6 +15,7 @@ import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
+import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { CountPill } from '../components/StatusGlyphs'
 import { EmptyState } from '../components/ui'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
@@ -96,7 +97,7 @@ export function InboxScreen() {
     useRefreshableList()
   const booting = useBooting()
   const outboxSize = useMobileStore().outboxSize
-  const { error, notice } = useMobileShell()
+  const { error } = useMobileShell()
   const now = Date.now()
 
   const groups = useMemo(() => groupSessions(withoutShells(sessions)), [sessions])
@@ -135,7 +136,7 @@ export function InboxScreen() {
       {/* Never silent (ADR 6 D4.4): queued work a storage migration could not
           attribute to this account, and storage degradation, are both things the
           user is owed rather than log lines. */}
-      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+      <StorageNoticeAlert />
       <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
@@ -232,12 +233,6 @@ const styles = StyleSheet.create({
   },
   error: {
     color: color.danger,
-    fontSize: font.small,
-    paddingHorizontal: space.xl,
-    paddingBottom: space.sm,
-  },
-  notice: {
-    color: color.textDim,
     fontSize: font.small,
     paddingHorizontal: space.xl,
     paddingBottom: space.sm,

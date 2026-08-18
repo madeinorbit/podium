@@ -862,7 +862,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // when the provider re-renders for another reason (see ./shell).
   const erase = openedReplica?.erase
   const shell = useMemo<MobileShell>(
-    () => ({ error, notice, eraseLocalData: erase ?? (async () => {}) }),
+    () => ({
+      error,
+      notice: notice === null ? null : { message: notice, dismiss: () => setNotice(null) },
+      eraseLocalData: erase ?? (async () => {}),
+    }),
     [error, notice, erase],
   )
   // A boot that failed, or one the watchdog says has been going too long, is

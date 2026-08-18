@@ -35,7 +35,6 @@ import { AlarmClock, ArrowDownToLine, ChevronDown, ChevronRight, Pin } from 'luc
 import { useCallback, useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
-import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
 import { IdSquare, type IdSquareState } from '../components/IdSquare'
 import { IssueColorSheet } from '../components/IssueColorSheet'
@@ -44,6 +43,7 @@ import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
+import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu, type WorkIssueMenuTarget } from '../components/WorkIssueMenu'
@@ -138,7 +138,6 @@ export function WorkScreen() {
   const sessionsAll = useSessions()
   const issues = useIssues()
   const booting = useBooting()
-  const { notice } = useMobileShell()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('work')
   const tabBarInset = useTabBarInset()
@@ -266,7 +265,7 @@ export function WorkScreen() {
     >
       {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
           a log line. Outside the crossfade so the skeleton cannot hide it. */}
-      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+      <StorageNoticeAlert />
       {/* Crossfade OUTSIDE the refresh boundary: while the replica is still
           resolving there is nothing to pull-to-refresh, so the skeleton should
           cover the refresh affordance too rather than invite a gesture that
@@ -646,12 +645,6 @@ const styles = StyleSheet.create({
   listContent: {
     flexGrow: 1,
     paddingHorizontal: space.sm + 2,
-  },
-  notice: {
-    color: color.textDim,
-    fontSize: font.small,
-    paddingHorizontal: space.xl,
-    paddingBottom: space.sm,
   },
   groupLabel: {
     flexDirection: 'row',

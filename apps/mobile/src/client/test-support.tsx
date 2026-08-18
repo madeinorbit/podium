@@ -143,7 +143,8 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
       <MobileShellProvider
         value={{
           error: fixture.error ?? null,
-          notice: fixture.notice ?? null,
+          notice:
+            fixture.notice == null ? null : { message: fixture.notice, dismiss: () => undefined },
           eraseLocalData: async () => {},
         }}
       >

@@ -11,8 +11,9 @@
  *    field it can read back off a snapshot.
  *  - `notice` is the STORAGE degradation channel (ADR 6 D4.4's never-silent
  *    posture): a degraded SQLite store, a legacy migration that could not carry
- *    queued work across, a discarded cursor. All three are produced while the
- *    replica is being ASSEMBLED — before a store exists at all.
+ *    queued work across, a discarded cursor. It carries its own dismissal so a
+ *    warning acknowledged on one tab stays gone on the others. All three are
+ *    produced while the replica is being ASSEMBLED — before a store exists at all.
  *  - `eraseLocalData` erases this principal's SQLite + AsyncStorage namespace.
  *    It belongs to the assembly that opened them, and sign-out must be able to
  *    call it after the store is gone.
@@ -28,7 +29,7 @@ export interface MobileShell {
   /** Fatal store error, or null. Rendered as a screen-local strip. */
   readonly error: string | null
   /** Storage degradation / migration loss the user is owed, or null. */
-  readonly notice: string | null
+  readonly notice: { readonly message: string; dismiss(): void } | null
   /** Default sign-out policy: erase this principal's complete local namespace. */
   eraseLocalData(): Promise<void>
 }
