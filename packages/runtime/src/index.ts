@@ -19,6 +19,7 @@
  */
 
 export type { PodiumConfig, PodiumMode } from './config'
+export * from './harness-defaults'
 // run-registry (node:fs) lives behind the `@podium/runtime/run-registry` subpath; types only here.
 export type { RunRecord, RunRole } from './run-registry'
 export * from './settings'

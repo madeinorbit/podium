@@ -127,6 +127,7 @@ import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
+import { SuperagentDefaultSeeder } from './modules/settings/superagent-default'
 import {
   CompatibilityShippingPolicyResolver,
   ShippingService,
@@ -541,6 +542,42 @@ export class SessionRegistry {
       ...(options.modelProbe ? { modelProbe: options.modelProbe } : {}),
       now: this.now,
     })
+    /**
+     * THE SUPERAGENT'S BACKEND, PICKED FOR SOMEONE WHO HAS NOT PICKED (POD-1313).
+     *
+     * Wired here because it is the first point where both halves exist: the
+     * machines that report what is installed, and the settings service that owns
+     * the per-user write. It reads `listMachines()` with NO `use` resolver — the
+     * single-operator reading this build already takes everywhere else — so the
+     * seed sees exactly the machines the spawn path would consider.
+     */
+    const superagentDefaults = new SuperagentDefaultSeeder({
+      // An install that has never created an account row still has a person: this
+      // build authenticates one shared password as FIRST_ADMIN_USER_ID, and that
+      // is the very install this seed exists for. Falling back to it here rather
+      // than inside the seeder keeps the "who is this for" question at the
+      // composition root, where POD-315 will replace it with real principals.
+      users: () => {
+        const rows = this.store.users.list().map((row) => asUserId(row.id))
+        return rows.length > 0 ? rows : [FIRST_ADMIN_USER_ID]
+      },
+      settingsFor: (userId) => settings.getSettingsFor(userId),
+      machines: () => machines.listMachines(),
+      updatePreferences: (userId, values) => {
+        settings.updatePreferences(userId, values)
+      },
+    })
+    // An inventory report is the ONLY moment new availability becomes known, and
+    // a daemon that connects minutes after boot is the ordinary case — so the
+    // seed runs on the report rather than once at startup. `inventory` is the
+    // flag `recordInventory` sets; a rename or a machine name change must not
+    // re-run it.
+    this.bus.on('machine.metadataChanged', ({ inventory }) => {
+      if (inventory) superagentDefaults.seed()
+    })
+    // …and once now, for the install whose daemon reported before this process
+    // started. Cheap and idempotent: the guard reads the fields the write fills.
+    superagentDefaults.seed()
     // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
     // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
     // and broadcasts triggered during load must find the publisher in place.
