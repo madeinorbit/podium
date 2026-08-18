@@ -93,6 +93,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   const acceptor = createDaemonAcceptor({
     machines: registry.modules.machines,
     connectionId: `daemon-${nextDaemonConnectionId()}`,
+    verifyOnly: registry.recoveryOnly,
   })
   ws.on('message', (raw) => {
     if (principal === undefined) {

@@ -404,10 +404,11 @@ export class MachinesService {
    */
   authenticateDaemon(
     frame: DaemonHandshake,
+    options: credentials.DaemonAuthenticationOptions = {},
   ):
     | { ok: true; machineId: MachineId; name: string; token?: string; pairingGrant?: PairingGrant }
     | { ok: false; reason: string } {
-    return credentials.authenticateDaemon(this.enrollmentHost, frame)
+    return credentials.authenticateDaemon(this.enrollmentHost, frame, options)
   }
 
   /** Project ledger owners and revocations onto the machines table (D19.4d).

@@ -1535,6 +1535,7 @@ export async function startServer(
         const acceptor = createDaemonAcceptor({
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
+          verifyOnly: registry.recoveryOnly,
         })
         const outcome = receiveDaemonFrame(acceptor, JSON.stringify(hello))
         if (outcome.kind !== 'established') {
@@ -1545,13 +1546,20 @@ export async function startServer(
           return { established: false as const, reply }
         }
         const { principal } = outcome
-        recordHelloBuild(registry.modules.machines, outcome.machineId, {
-          build: outcome.build,
-          caps: outcome.offeredCaps,
-          at: new Date().toISOString(),
-        })
+        if (!registry.recoveryOnly) {
+          recordHelloBuild(registry.modules.machines, outcome.machineId, {
+            build: outcome.build,
+            caps: outcome.offeredCaps,
+            at: new Date().toISOString(),
+          })
+        }
         const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
-        registry.gateway.attachDaemon(principal, send)
+        if (registry.recoveryOnly) {
+          registry.modules.machines.attach(principal.machine, send)
+          registry.modules.machines.flushQueued(principal.machine)
+        } else {
+          registry.gateway.attachDaemon(principal, send)
+        }
         return {
           established: true as const,
           reply: PeerHelloReply.parse(outcome.reply),
@@ -1559,8 +1567,14 @@ export async function startServer(
           // `inventoryReport` used to be special-cased at both socket call
           // sites; it is a row in the gateway's routing table now, so this
           // link routes the WHOLE daemon union through one seam.
-          deliver: (msg) => queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg)),
-          close: () => registry.gateway.detachDaemon(principal, send),
+          deliver: (msg) => {
+            if (registry.recoveryOnly && msg.type !== 'serverTransferResult') return
+            queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg))
+          },
+          close: () => {
+            if (registry.recoveryOnly) registry.modules.machines.detach(principal.machine, send)
+            else registry.gateway.detachDaemon(principal, send)
+          },
         }
       },
     }

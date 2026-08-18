@@ -37,14 +37,17 @@ export interface MachineAuthenticator {
    *  written as a constant here: the directory must not be a second opinion about who
    *  the host is, and there is no id in this process that is not minted material. */
   readonly hostMachineId: MachineId
-  authenticateDaemon(frame: {
-    type: 'pair' | 'hello'
-    code?: string
-    machineId: MachineId
-    token?: string
-    hostname: string
-    name?: string
-  }):
+  authenticateDaemon(
+    frame: {
+      type: 'pair' | 'hello'
+      code?: string
+      machineId: MachineId
+      token?: string
+      hostname: string
+      name?: string
+    },
+    options?: { readonly verifyOnly?: boolean },
+  ):
     | {
         ok: true
         machineId: MachineId
@@ -78,7 +81,14 @@ const resolved = (
   ...(pairingGrant === undefined ? {} : { directoryContext: pairingGrant }),
 })
 
-export const createMachineDirectory = (machines: MachineAuthenticator): MachineDirectory => ({
+export interface MachineDirectoryOptions {
+  readonly verifyOnly?: boolean
+}
+
+export const createMachineDirectory = (
+  machines: MachineAuthenticator,
+  options: MachineDirectoryOptions = {},
+): MachineDirectory => ({
   /**
    * ADR 5 D5 row 2. The host machine's shared secret IS its stored credential
    * (`ensureHostMachine` registers this host with it at startup), so verifying the
@@ -88,15 +98,17 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
    * server checking the credential are talking about the same row by construction.
    */
   verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null {
-    const auth = machines.authenticateDaemon({
-      type: 'hello',
-      machineId: machines.hostMachineId,
-      token: secret,
-      hostname: observed?.hostname ?? machines.hostMachineId,
-    })
-    return auth.ok
-      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
-      : null
+    const auth = machines.authenticateDaemon(
+      {
+        type: 'hello',
+        machineId: machines.hostMachineId,
+        token: secret,
+        hostname: observed?.hostname ?? machines.hostMachineId,
+      },
+      options,
+    )
+    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations) : null
+
   },
 
   /**
@@ -113,15 +125,17 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
     observed?: PeerObservations,
   ): ResolvedMachine | null {
     if (machineHint === undefined) return null
-    const auth = machines.authenticateDaemon({
-      type: 'hello',
-      machineId: asMachineId(machineHint),
-      token,
-      hostname: observed?.hostname ?? machineHint,
-    })
-    return auth.ok
-      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
-      : null
+    const auth = machines.authenticateDaemon(
+      {
+        type: 'hello',
+        machineId: asMachineId(machineHint),
+        token,
+        hostname: observed?.hostname ?? machineHint,
+      },
+      options,
+    )
+    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations) : null
+
   },
 
   /**
@@ -136,14 +150,17 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
     // A brand-new machine has no prior identity to authenticate, so it proposes
     // one. `MachinesService` decides what row results; this adapter passes the
     // proposal through and reports back whatever came out (or null on refuse).
-    if (request?.machineId === undefined) return null
-    const auth = machines.authenticateDaemon({
-      type: 'pair',
-      code,
-      machineId: request.machineId,
-      hostname: request.hostname ?? request.machineId,
-      ...(request.name === undefined ? {} : { name: request.name }),
-    })
+    if (options.verifyOnly || request?.machineId === undefined) return null
+    const auth = machines.authenticateDaemon(
+      {
+        type: 'pair',
+        code,
+        machineId: request.machineId,
+        hostname: request.hostname ?? request.machineId,
+        ...(request.name === undefined ? {} : { name: request.name }),
+      },
+      options,
+    )
     if (!auth.ok || auth.token === undefined) return null
     return {
       ...resolved(

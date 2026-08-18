@@ -65,9 +65,15 @@ export function sha256(s: string): string {
  * returning a boolean is sufficient. The client-facing reason is byte-identical
  * in every denial so none of this is an existence oracle.
  */
+export interface DaemonAuthenticationOptions {
+  /** Authenticate existing durable identity without mutating its projection. */
+  readonly verifyOnly?: boolean
+}
+
 export function authenticateDaemon(
   host: EnrollmentHost,
   frame: DaemonHandshake,
+  options: DaemonAuthenticationOptions = {},
 ):
   | {
       ok: true
@@ -81,6 +87,10 @@ export function authenticateDaemon(
   | { ok: false; reason: string } {
   const deps = host.deps
   if (frame.type === 'pair') {
+    // Recovery-only holds a query-only database. Pairing necessarily redeems a
+    // code, appends enrollment, and creates a row, so verify-only fails closed
+    // before any of those effects can begin.
+    if (options.verifyOnly) return { ok: false, reason: HELLO_DENIED_REASON }
     // No pairing manager = node role: this server is not a rendezvous point,
     // so new machines can't join it. Returning daemons (`hello`) still work.
     if (!deps.pairing) return { ok: false, reason: 'pairing is disabled on this server' }
@@ -130,11 +140,13 @@ export function authenticateDaemon(
       logVerdict(host, 'revoked', frame.machineId)
       return { ok: false, reason: HELLO_DENIED_REASON }
     }
-    deps.store.machines.touchMachine(frame.machineId, frame.hostname)
-    host.invalidateMachineCache()
-    const name =
-      deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ??
-      frame.hostname
+    const row = deps.store.machines.getMachine(frame.machineId)
+    if (!row) return { ok: false, reason: HELLO_DENIED_REASON }
+    if (!options.verifyOnly) {
+      deps.store.machines.touchMachine(frame.machineId, frame.hostname)
+      host.invalidateMachineCache()
+    }
+    const name = row.name ?? frame.hostname
     const updatePubkey = deps.updatePubkey?.()
     const updateKeyRotations = deps.updateKeyRotations?.()
     return {
@@ -146,6 +158,8 @@ export function authenticateDaemon(
     }
   }
   // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
+  // Verify-only may authenticate durable reality but may not reconstruct it.
+  if (options.verifyOnly) return { ok: false, reason: HELLO_DENIED_REASON }
   return helloMissingRow(host, frame)
 }
 
