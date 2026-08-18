@@ -94,6 +94,12 @@ const INTERACTION_ONLY_MODULES = [
   'SessionContextMenu.tsx',
 ] as const
 
+/** Heavy leaf renderers whose callers deliberately load them after the shell. */
+const DEFERRED_FIRST_PAINT_MODULES = [
+  'src/features/mobile-handoff/MobileHandoffQr.tsx',
+  'src/features/chat/TranscriptFeed.tsx',
+] as const
+
 /**
  * MODULES A BROWSER CANNOT EVALUATE (POD-2206), as opposed to merely large ones.
  *
@@ -217,6 +223,9 @@ const report = {
       matchingSources(eagerChunks, `src/features/updates/${module}`),
     ),
     interactionOnlySources: INTERACTION_ONLY_MODULES.flatMap((module) =>
+      matchingSources(eagerChunks, module),
+    ),
+    deferredFirstPaintSources: DEFERRED_FIRST_PAINT_MODULES.flatMap((module) =>
       matchingSources(eagerChunks, module),
     ),
   },
@@ -389,6 +398,11 @@ if (checkBudget) {
     errors.push(
       `first paint pays for a gesture nobody has made yet — import these through ` +
         `lazy(() => import(...)) as their other call sites do: ${report.eager.interactionOnlySources.join(', ')}`,
+    )
+
+  if (report.eager.deferredFirstPaintSources.length > 0)
+    errors.push(
+      `deferred leaf renderer is back in first paint: ${report.eager.deferredFirstPaintSources.join(', ')}`,
     )
 
   const allowedSettingsCommandSources = new Set([

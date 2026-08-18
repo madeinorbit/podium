@@ -135,7 +135,7 @@ describe('the address the code resolves to', () => {
     withOneTask()
     fixture.infoQuery.mockResolvedValue({ publicUrl: 'https://podium.example.com' })
     render(<MobilePromoCard />)
-    const plate = screen.getByTestId('mobile-handoff-qr')
+    const plate = await screen.findByTestId('mobile-handoff-qr')
     await waitFor(() =>
       expect(plate.getAttribute('aria-label')).toBe('Opens podium.example.com/mobile'),
     )

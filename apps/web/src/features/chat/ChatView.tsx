@@ -5,7 +5,7 @@ import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useReplicaIssues, useSessionDraft } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { handleChatMdClick } from './ChatBlockView'
@@ -14,9 +14,12 @@ import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
 import { ImageLightbox } from './ImageLightbox'
 import { PinnedBrief } from './PinnedBrief'
-import { TranscriptFeed } from './TranscriptFeed'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatSurface } from './use-chat-surface'
+
+const TranscriptFeed = lazy(() =>
+  import('./TranscriptFeed').then((module) => ({ default: module.TranscriptFeed })),
+)
 
 /**
  * CHAT (POD-405) — the SHELL, and nothing else.
@@ -300,50 +303,52 @@ export function ChatView({
           up under the panel header instead of resizing it — the feed keeps its
           box, so nothing here re-renders or loses its scroll (POD-1068). */}
       <div className="offer-lift-region relative flex min-h-0 flex-1">
-        <TranscriptFeed
-          scrollerRef={chat.scrollerRef}
-          scrollerEpoch={chat.scroll.scrollerEpoch}
-          onScroll={chat.scroll.onScroll}
-          claimScrollForArrival={chat.scroll.claimScrollForArrival}
-          compact={compact}
-          superagent={superThread !== undefined}
-          phase={chat.phase}
-          rows={chat.rowsToRender}
-          blocks={chat.blocks}
-          markdownHtml={chat.markdownHtml}
-          search={chat.search}
-          moreAbove={chat.moreAbove}
-          loadingOlder={chat.loadingOlder}
-          loadOlder={chat.loadOlder}
-          sessionId={sessionId}
-          cwd={chat.cwd}
-          session={chat.session}
-          httpOrigin={chat.httpOrigin}
-          openFile={chat.openFile}
-          onOpenImage={chat.setLightbox}
-          onAnswerAsk={chat.answerAsk}
-          livePendingAskIndex={chat.livePendingAskIndex}
-          pendingAskBlock={chat.pendingAskBlock}
-          lastAnswerBlockIndex={chat.lastAnswerBlockIndex}
-          ctxSeq={chat.ctxSeq}
-          collapseContext={chat.headless}
-          stickyEnabled={chat.stickyEnabled}
-          isOperatorPromptRow={chat.isOperatorPromptRow}
-          pending={chat.pending}
-          restoredQueued={chat.restoredQueued}
-          onRetractQueued={chat.retractQueuedMessage}
-          overlay={chat.headless ? chat.headlessTurn.overlay : null}
-          activity={chat.activity}
-          attribution={chat.attribution}
-          expandRuns={chat.expandRuns}
-          // Per-message Quote (POD-376): the feed builds the blockquote, the
-          // shell owns the draft. Appended rather than replacing, so quoting
-          // twice — or quoting into a half-written reply — never eats text.
-          onQuote={(markdown) => {
-            quoteDraftRef.current?.(markdown)
-          }}
-          issueReferences={issueReferences}
-        />
+        <Suspense fallback={null}>
+          <TranscriptFeed
+            scrollerRef={chat.scrollerRef}
+            scrollerEpoch={chat.scroll.scrollerEpoch}
+            onScroll={chat.scroll.onScroll}
+            claimScrollForArrival={chat.scroll.claimScrollForArrival}
+            compact={compact}
+            superagent={superThread !== undefined}
+            phase={chat.phase}
+            rows={chat.rowsToRender}
+            blocks={chat.blocks}
+            markdownHtml={chat.markdownHtml}
+            search={chat.search}
+            moreAbove={chat.moreAbove}
+            loadingOlder={chat.loadingOlder}
+            loadOlder={chat.loadOlder}
+            sessionId={sessionId}
+            cwd={chat.cwd}
+            session={chat.session}
+            httpOrigin={chat.httpOrigin}
+            openFile={chat.openFile}
+            onOpenImage={chat.setLightbox}
+            onAnswerAsk={chat.answerAsk}
+            livePendingAskIndex={chat.livePendingAskIndex}
+            pendingAskBlock={chat.pendingAskBlock}
+            lastAnswerBlockIndex={chat.lastAnswerBlockIndex}
+            ctxSeq={chat.ctxSeq}
+            collapseContext={chat.headless}
+            stickyEnabled={chat.stickyEnabled}
+            isOperatorPromptRow={chat.isOperatorPromptRow}
+            pending={chat.pending}
+            restoredQueued={chat.restoredQueued}
+            onRetractQueued={chat.retractQueuedMessage}
+            overlay={chat.headless ? chat.headlessTurn.overlay : null}
+            activity={chat.activity}
+            attribution={chat.attribution}
+            expandRuns={chat.expandRuns}
+            // Per-message Quote (POD-376): the feed builds the blockquote, the
+            // shell owns the draft. Appended rather than replacing, so quoting
+            // twice — or quoting into a half-written reply — never eats text.
+            onQuote={(markdown) => {
+              quoteDraftRef.current?.(markdown)
+            }}
+            issueReferences={issueReferences}
+          />
+        </Suspense>
         {/* The brief that scrolled off the top, held over the column rather than
             in it — see PinnedBrief for why the pin left the flow. It sits inside
             the same relative box the rail does and stops short of it, so the

@@ -3,7 +3,7 @@ import { Smartphone, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
-import { MobileHandoffQr } from './MobileHandoffQr'
+import { DeferredMobileHandoffQr } from './DeferredMobileHandoffQr'
 import { useHasFirstTask, useMobileHandoffUrl } from './mobile-handoff'
 
 /**
@@ -58,7 +58,7 @@ export function MobileHandoffChip(): JSX.Element | null {
               </Popover.Close>
             </div>
             <div className="mobile-handoff-sheet-body">
-              <MobileHandoffQr url={url} size={92} />
+              <DeferredMobileHandoffQr url={url} size={92} />
               <div className="mobile-handoff-sheet-copy">
                 <p>Point your phone's camera at the code to carry on with your tasks there.</p>
               </div>

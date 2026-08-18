@@ -1,7 +1,7 @@
 import { X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useStoreSelector } from '@/app/store'
-import { MobileHandoffQr } from './MobileHandoffQr'
+import { DeferredMobileHandoffQr } from './DeferredMobileHandoffQr'
 import { useHasFirstTask, useMobileHandoffUrl, useMobilePromoDismissed } from './mobile-handoff'
 
 /**
@@ -28,7 +28,7 @@ export function MobilePromoCard(): JSX.Element | null {
   if (!hasFirstTask || dismissed) return null
   return (
     <div className="mobile-promo-card" data-testid="mobile-promo-card">
-      <MobileHandoffQr url={url} size={56} />
+      <DeferredMobileHandoffQr url={url} size={56} />
       <div className="mobile-promo-copy">
         <span className="mobile-promo-title">Podium in your pocket</span>
         <span className="mobile-promo-line">
