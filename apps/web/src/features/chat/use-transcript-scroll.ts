@@ -247,6 +247,17 @@ const healFailures = new WeakMap<HTMLElement, number>()
 /** Elements already declared wedged — asked-for-rebirth once, never again. */
 const wedgedEls = new WeakSet<HTMLElement>()
 
+/** WebKit is the only engine observed to wedge, and the only mainstream
+ *  engine without `overflow-anchor` — the cleanest feature-scent for it.
+ *  Fails toward caution (treat as wedgable) when the probe cannot run. */
+function wedgableEngine(): boolean {
+  try {
+    return typeof CSS === 'undefined' || !CSS.supports('overflow-anchor: none')
+  } catch {
+    return true
+  }
+}
+
 /**
  * The stale write-clamp Safari 26.4 SETS positions to (see `writeBottom`) —
  * recorded when one of our writes lands above where the reader was or short
@@ -401,7 +412,14 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
    * reach.
    */
   const [scrollerEpoch, setScrollerEpoch] = useState(0)
+  /** Rebirth asks inside the last minute — past two, stand down: an element
+   *  churn that is not curing anything must not become its own jitter. */
+  const rebirthAsks = useRef<number[]>([])
   const onWedged = useCallback(() => {
+    const now = performance.now()
+    rebirthAsks.current = rebirthAsks.current.filter((t) => now - t < 60_000)
+    if (rebirthAsks.current.length >= 2) return
+    rebirthAsks.current.push(now)
     setScrollerEpoch((e) => e + 1)
   }, [])
   /**
@@ -452,6 +470,9 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
    *  own write is the compositor, however many arrive — a hand progresses. */
   const lastRevertTop = useRef<number | null>(null)
   const revertFights = useRef(0)
+  /** The previous `active` value — activation rebirth fires on the false→true
+   *  transition only, never on mount (a mounting pane is already fresh). */
+  const prevActive = useRef(active)
   /**
    * The ELEMENT currently on the shelf, not its index.
    *
@@ -583,21 +604,42 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
 
   // The reborn element (round 6): after the feed remounts the scroller under
   // the new key, settle the fresh node to the bottom the wedged one could not
-  // reach. Runs after the commit, so the ref already holds the new element —
-  // which starts outside every stale-clamp record by construction.
+  // reach — or, for a reader who was up in the transcript, carry them to the
+  // position they were reading at. Runs after the commit, so the ref already
+  // holds the new element — which starts outside every stale-clamp record by
+  // construction.
   // biome-ignore lint/correctness/useExhaustiveDependencies: fires on rebirth only
   useEffect(() => {
     if (scrollerEpoch === 0) return
     const el = scrollerRef.current
     if (!el) return
-    lastScrollTop.current = 0
     if (pinnedToBottom.current) {
+      lastScrollTop.current = 0
       setAnchorEnd(el, true)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => settleToBottom(el, pinnedToBottom, onWedged))
       })
+    } else {
+      el.scrollTop = lastScrollTop.current
     }
   }, [scrollerEpoch])
+
+  // A FRESH ELEMENT ON EVERY ACTIVATION (round 7), in the engine that wedges.
+  // The frozen snapshot the node restores to IS open/hidden-time state — the
+  // panes that "open already sitting at the wrong position" were wedged
+  // before the reader ever touched them, by content that streamed in while
+  // the deck held them hidden. A pane becoming visible therefore starts on a
+  // fresh element, whose node is built from current layout. Only where the
+  // defect lives: engines with scroll anchoring (its feature-scent) have
+  // never wedged, and get no churn.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires on the activation transition only
+  useEffect(() => {
+    const was = prevActive.current
+    prevActive.current = active
+    if (!active || was) return
+    if (!wedgableEngine()) return
+    onWedged()
+  }, [active])
 
   // Scroll-anchor for prepends: after older blocks are inserted at the top (window
   // widened or a disk page prepended), the content the user was reading shifts down
@@ -942,8 +984,23 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       const firstUnknown = now - lastSnapHealAt.current >= SNAP_CONCEDE_MS
       if ((enginesRevert || firstUnknown) && revertFights.current < REVERT_FIGHT_CAP) {
         revertFights.current += 1
+        const secondSameSpot = sameSpot && revertFights.current >= 2
         lastRevertTop.current = el.scrollTop
         lastSnapHealAt.current = now
+        // THE YANK IS THE PROOF (round 7). In the newest wedge mode writes
+        // LAND, so the heal-failure proof never accumulates — what remains is
+        // the node restoring its open-time snapshot, one to three seconds
+        // after every arrival, always to the same pixel. No gesture repeats a
+        // pixel uninvited: the second same-spot yank convicts the node, and
+        // the answer is a fresh element (the one repair the clone experiment
+        // proved), not another round of a fight the node always wins.
+        if (secondSameSpot && !wedgedEls.has(el)) {
+          wedgedEls.add(el)
+          onWedged()
+          setAtBottom(true)
+          syncStickyPromptPositions()
+          return
+        }
         forceBottom(el, onWedged)
         lastScrollTop.current = el.scrollTop
         setAtBottom(true)

@@ -65,10 +65,10 @@ const held = {
   prependAnchor: { current: null },
 }
 
-function Harness(): JSX.Element {
+function Harness({ active = true }: { active?: boolean }): JSX.Element {
   api = useTranscriptScroll({
     scrollerRef: held.scrollerRef,
-    active: true,
+    active,
     blockCount: 3,
     renderStart: 0,
     stickyEnabled: false,
@@ -302,6 +302,98 @@ describe('pushing down against a frozen offset is arriving', () => {
  * releases the pin deliberately before it navigates.
  */
 /**
+ * THE YANK IS THE PROOF (round 7, the strategy synthesis of 2026-08-18).
+ *
+ * The newest trace changed the wedge's face again: writes LAND now, so round
+ * 6's proof — two failed heal-backed writes — never accumulates. What remains
+ * is the restore itself: the frozen scrolling node returns the reader to its
+ * remembered spot (the pane-open position — 434 + clientHeight = the
+ * scrollHeight at open, to the pixel) one to three seconds after every
+ * arrival, with no input and no write anywhere near it. No gesture produces
+ * that signature: an uninvited upward move to the SAME spot, twice, IS the
+ * node confessing. So the second same-spot yank asks for rebirth instead of
+ * another round of the fight — and because the frozen snapshot is taken at
+ * open/hidden time, a pane ACTIVATION in an engine without scroll anchoring
+ * support (WebKit — the only engine that wedges) preemptively births a fresh
+ * element too, which is what cures "opens at the wrong position".
+ */
+describe('the yank is the proof', () => {
+  function pinAtBottom(): void {
+    engineMax = TRUE_MAX
+    top = TRUE_MAX
+    act(() => api?.onScroll())
+  }
+  /** The node restoring its snapshot: no wheel, no write, one scroll event. */
+  function yank(to: number, ms = 2000): void {
+    clock += ms
+    top = to
+    act(() => api?.onScroll())
+  }
+
+  it('births a new element on the second same-spot yank', () => {
+    pinAtBottom()
+    yank(4385) // first: healed and written back, as round 4 does
+    expect(api?.scrollerEpoch).toBe(0)
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
+    yank(4385) // the same pixel again, uninvited: the node confessed
+    expect(api?.scrollerEpoch).toBe(1)
+    expect(held.pinnedToBottom.current).toBe(true)
+  })
+
+  it('does not mistake a progressing hand for the node', () => {
+    pinAtBottom()
+    yank(4300)
+    yank(4200, 50) // a different spot moments later: a drag — concede, no birth
+    expect(api?.scrollerEpoch).toBe(0)
+    expect(held.pinnedToBottom.current).toBe(false)
+  })
+
+  it('births a fresh element when the pane is activated in a wedgable engine', () => {
+    vi.stubGlobal('CSS', { supports: () => false }) // no overflow-anchor: WebKit
+    act(() => root.render(<Harness active={false} />))
+    expect(api?.scrollerEpoch).toBe(0)
+    act(() => root.render(<Harness active={true} />))
+    expect(api?.scrollerEpoch).toBe(1)
+  })
+
+  it('never churns elements in an engine that does not wedge', () => {
+    vi.stubGlobal('CSS', { supports: () => true }) // anchoring engine: healthy
+    act(() => root.render(<Harness active={false} />))
+    act(() => root.render(<Harness active={true} />))
+    expect(api?.scrollerEpoch).toBe(0)
+  })
+
+  it('carries an unpinned reader to their old position, not to the bottom', () => {
+    vi.stubGlobal('CSS', { supports: () => false })
+    held.pinnedToBottom.current = false
+    top = 300
+    act(() => api?.onScroll())
+    act(() => root.render(<Harness active={false} />))
+    act(() => root.render(<Harness active={true} />))
+    expect(api?.scrollerEpoch).toBe(1)
+    expect(scroller().scrollTop).toBe(300)
+    expect(held.pinnedToBottom.current).toBe(false)
+  })
+
+  it('stops birthing when rebirth itself is not curing anything', () => {
+    pinAtBottom()
+    yank(4385)
+    yank(4385)
+    expect(api?.scrollerEpoch).toBe(1)
+    // The harness never actually replaces the element, so the "new" element
+    // is the same wedged one: the next proven yank pair births once more...
+    yank(4385)
+    yank(4385)
+    expect(api?.scrollerEpoch).toBeLessThanOrEqual(2)
+    // ...and past the cap the feed parks rather than cycling forever.
+    yank(4385)
+    yank(4385)
+    yank(4385)
+    expect(api?.scrollerEpoch).toBeLessThanOrEqual(2)
+  })
+})
+
+/**
  * A BOTTOM-WRITER FIRST DOES NO HARM (round 5, the trace that ended the hunt,
  * 2026-08-18 evening).
  *
@@ -483,9 +575,11 @@ describe('the engine reverting our own write is not a drag', () => {
     revertTo(4385) // 16ms later: inside round 3's concede window, deliberately
     expect(held.pinnedToBottom.current).toBe(true)
     expect(scroller().scrollTop).toBe(TRUE_MAX)
-    revertTo(4385, 50) // the second revert is what round 3 surrendered to
+    // The second same-spot revert no longer buys another write: it is the
+    // yank-proof (round 7), and the answer is rebirth — pin held, fight over.
+    revertTo(4385, 50)
     expect(held.pinnedToBottom.current).toBe(true)
-    expect(scroller().scrollTop).toBe(TRUE_MAX)
+    expect(api?.scrollerEpoch).toBe(1)
   })
 
   it('forces the geometry heal even though the write read back as landed', () => {
