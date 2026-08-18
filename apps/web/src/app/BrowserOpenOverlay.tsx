@@ -30,6 +30,27 @@ function displayHost(url: string): string {
 }
 
 /**
+ * Open `url` in a new tab by clicking a synthesized anchor.
+ *
+ * NOT `window.open(url, '_blank', 'noopener,noreferrer')`: with `noopener` in the
+ * feature string the spec REQUIRES a null return even when the tab opened, so its
+ * value cannot tell a blocked popup from a successful one. Reading it as "blocked"
+ * skipped the revoke below, and the still-pending request was then re-offered on
+ * every reconnect for the rest of its TTL [POD-1283]. An anchor click also carries
+ * the desktop shell's link shim, which diverts a `_blank` link to the OS browser.
+ */
+function openNewTab(url: string): void {
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.target = '_blank'
+  anchor.rel = 'noopener noreferrer'
+  anchor.style.display = 'none'
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+}
+
+/**
  * Confirm-first browser opening plus the persistent callback paste-back
  * affordance. The daemon remains the authority for callback validation and
  * loopback execution; this component only forwards explicit user actions.
@@ -48,13 +69,7 @@ export function BrowserOpenOverlay(): JSX.Element | null {
       hub.dismissOpenUrl(request.sessionId, request.requestId)
     }
     const open = (request: SessionOpenUrlMessage): void => {
-      const opened = window.open(request.url, '_blank', 'noopener,noreferrer')
-      if (!opened) {
-        toast.error('Browser blocked the new tab', {
-          description: 'Allow popups for Podium, then retry Open.',
-        })
-        return
-      }
+      openNewTab(request.url)
       toast.dismiss(`browser-open-${requestKey(request)}`)
       // A plain link is done once opened — revoke the daemon-side request so
       // it neither replays nor lingers. Logins stay pending for the callback.
@@ -150,16 +165,7 @@ export function BrowserOpenOverlay(): JSX.Element | null {
               type="button"
               size="sm"
               className="mt-3 w-full"
-              onClick={() => {
-                const opened = window.open(item.request.url, '_blank', 'noopener,noreferrer')
-                if (!opened) {
-                  setPending((current) => {
-                    const next = new Map(current)
-                    next.set(key, { ...item, error: 'Browser blocked the new tab.' })
-                    return next
-                  })
-                }
-              }}
+              onClick={() => openNewTab(item.request.url)}
             >
               <ExternalLink size={14} aria-hidden="true" />
               Open login page

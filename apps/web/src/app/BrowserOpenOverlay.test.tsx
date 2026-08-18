@@ -30,7 +30,9 @@ vi.mock('./store', () => ({
   useStoreSelector: (selector: (store: unknown) => unknown) =>
     selector({
       hub: h.hub,
-      sessions: [{ sessionId: asSessionId('s1'), name: 'Remote Codex', title: '', agentKind: 'codex' }],
+      sessions: [
+        { sessionId: asSessionId('s1'), name: 'Remote Codex', title: '', agentKind: 'codex' },
+      ],
     }),
 }))
 
@@ -55,14 +57,35 @@ const request: SessionOpenUrlMessage = {
   expiresAt: Date.now() + 60_000,
 }
 
+/**
+ * What a click actually opens. The component must NOT go through `window.open`:
+ * with `noopener` in the feature string it returns null even on success, and the
+ * old code read that as a blocked popup and skipped the revoke [POD-1283]. So the
+ * anchor click is intercepted here (happy-dom would otherwise try to navigate),
+ * and `window.open` is spied on only to assert it stays untouched.
+ */
+function captureOpens(): {
+  opened: { href: string; target: string; rel: string }[]
+  windowOpen: ReturnType<typeof vi.spyOn>
+} {
+  const opened: { href: string; target: string; rel: string }[] = []
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    opened.push({ href: this.href, target: this.target, rel: this.rel })
+  })
+  return { opened, windowOpen: vi.spyOn(window, 'open').mockReturnValue(null) }
+}
+
 describe('BrowserOpenOverlay', () => {
   beforeEach(() => {
     h.handlers.clear()
     vi.clearAllMocks()
+    vi.restoreAllMocks()
   })
 
   it('requires a user click to open and keeps the callback paste-back affordance', () => {
-    const open = vi.spyOn(window, 'open').mockReturnValue({} as Window)
+    const { opened, windowOpen } = captureOpens()
     render(<BrowserOpenOverlay />)
     emit('openUrl', request)
 
@@ -70,10 +93,12 @@ describe('BrowserOpenOverlay', () => {
       'Remote Codex wants to open auth.example',
       expect.objectContaining({ action: expect.objectContaining({ label: 'Open' }) }),
     )
-    expect(open).not.toHaveBeenCalled()
+    expect(opened).toEqual([])
 
     fireEvent.click(screen.getByRole('button', { name: 'Open login page' }))
-    expect(open).toHaveBeenCalledWith(request.url, '_blank', 'noopener,noreferrer')
+    expect(opened).toEqual([{ href: request.url, target: '_blank', rel: 'noopener noreferrer' }])
+    expect(windowOpen).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByLabelText('Paste the localhost callback URL')).not.toBeNull()
 
     fireEvent.change(screen.getByLabelText('Paste the localhost callback URL'), {
@@ -122,7 +147,7 @@ describe('BrowserOpenOverlay', () => {
   })
 
   it('shows no login card for a plain link and revokes the request on open', () => {
-    const open = vi.spyOn(window, 'open').mockReturnValue({} as Window)
+    const { opened, windowOpen } = captureOpens()
     render(<BrowserOpenOverlay />)
     const link: SessionOpenUrlMessage = {
       type: 'sessionOpenUrl',
@@ -139,12 +164,18 @@ describe('BrowserOpenOverlay', () => {
 
     const options = h.toast.mock.calls[0]?.[1] as { action: { onClick: () => void } }
     act(() => options.action.onClick())
-    expect(open).toHaveBeenCalledWith(link.url, '_blank', 'noopener,noreferrer')
+    expect(opened).toEqual([{ href: link.url, target: '_blank', rel: 'noopener noreferrer' }])
     expect(h.hub.dismissOpenUrl).toHaveBeenCalledWith('s1', 'open-2')
+    // The revoke is what stops the server re-offering this request on every
+    // reconnect, so it must not hang off anything the browser can withhold —
+    // `window.open`'s return value least of all. [POD-1283]
+    expect(windowOpen).not.toHaveBeenCalled()
+    expect(h.toast.error).not.toHaveBeenCalled()
+    expect(h.toast.dismiss).toHaveBeenCalledWith('browser-open-s1:open-2')
   })
 
   it('keeps a login request pending after opening (fallback: callbackTarget implies login)', () => {
-    vi.spyOn(window, 'open').mockReturnValue({} as Window)
+    captureOpens()
     render(<BrowserOpenOverlay />)
     emit('openUrl', request)
     const options = h.toast.mock.calls[0]?.[1] as { action: { onClick: () => void } }
