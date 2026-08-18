@@ -1748,7 +1748,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'artifact',
     summary:
-      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--remove n] [--get <n|path> [--file <rel>] [--out <path>]]. Adding COPIES the bytes to the server, so the artifact survives even if the file is never committed and the worktree is later deleted — do NOT commit screenshots or scratch docs just to attach them. The path must live inside the owning issue worktree (that is the only requirement). --get reads a stored artifact BACK (any agent, any machine, even after the worktree is gone): text prints, anything else needs --out. No flags = print the list.',
+      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--remove n] [--get <n|path> [--file <rel>] [--out <path>]]. Adding COPIES the bytes to the server, so the artifact survives even if the file is never committed and the worktree is later deleted — do NOT commit screenshots or scratch docs just to attach them. The path must live inside the owning issue worktree (that is the only requirement), and it only has to exist AT ADD TIME — delete the file afterwards if it does not belong in the repo. --get reads a stored artifact BACK (any agent, any machine, even after the worktree is gone): text prints, anything else needs --out. No flags = print the list.',
     args: z.strictObject({
       id: idArg,
       add: z.string().optional(),

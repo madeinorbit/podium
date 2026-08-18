@@ -90,9 +90,10 @@ The artifact renders in the issue's sidebar and survives across sessions. Two ru
   issue's worktree (e.g. an `e2e/` or `.design/` directory); paths outside it, including
   scratchpads and `/tmp`, are refused. Adding copies the bytes into the server's permanent
   store, so an artifact keeps rendering and reading back even though the file was never
-  `git add`ed and even after the worktree is deleted. Do **not** commit screenshots, scratch
-  docs, or one-off explainers just to attach them — that pollutes the repo for no gain. Track a
-  file only when it belongs in the codebase on its own merits.
+  `git add`ed and even after the worktree is deleted. The file only has to exist *at add time*:
+  delete it once it is attached and the sidebar keeps rendering it. Do **not** commit screenshots,
+  scratch docs, or one-off explainers just to attach them — that pollutes the repo for no gain.
+  Track a file only when it belongs in the codebase on its own merits.
 - **Post each significant iteration** with a title that names it. The artifact list doubles as
   the review trail for visual work; publishing somewhere else (chat upload, external artifact
   link) does not replace attaching it here.

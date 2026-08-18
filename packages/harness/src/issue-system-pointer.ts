@@ -39,7 +39,8 @@ export const ISSUE_SYSTEM_POINTER =
   '(a scratchpad or /tmp path is outside it and is refused), then ' +
   '`podium issue artifact <id> --add <path> --title "…"`. Adding COPIES the bytes to the server, so the ' +
   'artifact keeps working uncommitted and outlives the worktree — never commit a screenshot or a scratch ' +
-  'doc just to attach it. Re-add each significant iteration; the issue ' +
+  'doc just to attach it, and delete the file after adding it if it does not belong in the repo. ' +
+  'Re-add each significant iteration; the issue ' +
   'artifact list is how the human finds and reviews visual work later, even after the chat scrolls away. ' +
   // Agent action offer [spec:SP-c7f1]: suggested next actions the user can click.
   'When you finish a turn and there are natural next actions the user might pick, offer them: ' +
