@@ -4,6 +4,7 @@
  */
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 
@@ -52,7 +53,14 @@ vi.mock('../components/BottomSheet', () => ({
     ) : null,
 }))
 vi.mock('../components/TranscriptList', () => ({
-  TranscriptList: () => <div>transcript</div>,
+  TranscriptList: ({ tail }: { tail?: { label: string; tone: string } }) => (
+    <div>
+      transcript
+      {tail?.tone === 'working' ? (
+        <span data-testid="superagent-working-indicator">{tail.label}</span>
+      ) : null}
+    </div>
+  ),
 }))
 vi.mock('../components/Composer', () => ({
   Composer: ({
@@ -78,7 +86,7 @@ vi.mock('../components/PullToRefreshBoundary', () => ({
   PullToRefreshBoundary: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 vi.mock('../components/WorkingMark', () => ({
-  WorkingMark: () => null,
+  WorkingMark: () => <span data-testid="superagent-working-indicator" />,
 }))
 
 const { SuperagentScreen } = await import('./SuperagentScreen')
@@ -117,5 +125,41 @@ describe('SuperagentScreen chrome', () => {
         }),
       ),
     )
+  })
+
+  it('shows one working indicator immediately while the send is still in flight', async () => {
+    let rejectSend: ((reason: Error) => void) | undefined
+    const sendTurn = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectSend = reject
+        }),
+    )
+    await renderWithMobileStore(<SuperagentScreen />, {
+      api: {
+        superagent: {
+          listThreads: {
+            query: async () => [{ id: 'global', kind: 'global', turnRunning: false }],
+          },
+          sendTurn: { mutate: sendTurn },
+          clear: { mutate: async () => {} },
+          interruptTurn: { mutate: async () => {} },
+        },
+      },
+    })
+
+    fireEvent.click(screen.getByText('send'))
+
+    await waitFor(() => {
+      const indicators = screen.getAllByTestId('superagent-working-indicator')
+      expect(indicators).toHaveLength(1)
+      expect(indicators[0]?.textContent).toBe('Sending')
+    })
+
+    await act(async () => {
+      rejectSend?.(new Error('offline'))
+      await Promise.resolve()
+    })
+    expect(screen.queryByTestId('superagent-working-indicator')).toBeNull()
   })
 })

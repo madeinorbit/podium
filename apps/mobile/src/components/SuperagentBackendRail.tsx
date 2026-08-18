@@ -203,6 +203,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
     paddingTop: space.sm,
+    // Keep this prompt-specific rail visually separate from the floating tab
+    // bar below it instead of letting the two capsules read as one cluster.
+    paddingBottom: space.sm,
   },
   pill: {
     minHeight: 32,

@@ -20,7 +20,6 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
-import { WorkingMark } from '../components/WorkingMark'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import {
@@ -30,7 +29,7 @@ import {
   superagentTurnChoice,
 } from '../lib/superagent-backend'
 import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
-import { color, font, mono, sans, space } from '../theme/theme'
+import { color, font, sans, space } from '../theme/theme'
 
 /**
  * The Superagent — the phone half of the engraved column's chat [POD-338].
@@ -78,6 +77,16 @@ export function SuperagentScreen() {
   const [liveText, setLiveText] = useState('')
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
+  // The hand-off is already visible work. Keep it separate from the server's
+  // query-backed flag so an old `turnRunning: false` snapshot cannot erase the
+  // mark between pressing Send and the first turn-start frame (web calls this
+  // narrow state `justSent`).
+  const [justSent, setJustSent] = useState(false)
+  const working = running || justSent
+  // A query `false` is authoritative only after this mount has first observed
+  // `true`. Before that it is usually the pre-send snapshot, not proof that the
+  // new turn already ended.
+  const querySawRunning = useRef(false)
   const [error, setError] = useState<string | null>(null)
   // The thread's headless session: the slice's answer, until a turn's ack hands
   // back a fresher one (the FIRST turn learns its session from the ack alone).
@@ -121,11 +130,24 @@ export function SuperagentScreen() {
     }
   }, [store.refreshSuperThreads])
 
-  // Opening the tab mid-turn shows the spinner: the thread carries a
-  // query-backed running flag for exactly this late-join case, because
-  // headlessActivity frames are ephemeral.
+  // Opening the tab mid-turn shows the mark: the thread carries a query-backed
+  // running flag for exactly this late-join case, because headlessActivity
+  // frames are ephemeral. A later false clears a missed turn-end only when this
+  // mount first saw the corresponding true; a stale pre-send false must not
+  // cancel the optimistic hand-off above.
   useEffect(() => {
-    if (superagent.active?.turnRunning) setRunning(true)
+    if (superagent.active?.turnRunning === true) {
+      querySawRunning.current = true
+      setRunning(true)
+      setJustSent(false)
+      return
+    }
+    if (superagent.active?.turnRunning === false && querySawRunning.current) {
+      querySawRunning.current = false
+      setRunning(false)
+      setLiveText('')
+      setStatusLabel(null)
+    }
   }, [superagent.active?.turnRunning])
 
   // The conversation itself, read and streamed from the thread's headless
@@ -195,10 +217,13 @@ export function SuperagentScreen() {
     return hub.subscribeHeadless(podiumSid, (event) => {
       if (event.kind === 'turn-start') {
         setRunning(true)
+        setJustSent(false)
         setLiveText('')
         setStatusLabel('starting')
       } else if (event.kind === 'turn-end') {
         setRunning(false)
+        setJustSent(false)
+        querySawRunning.current = false
         setLiveText('')
         setStatusLabel(null)
         if (event.error) {
@@ -229,20 +254,12 @@ export function SuperagentScreen() {
   // is the late-joiner truth; it only ever CLEARS a stuck spinner here, so it
   // cannot race a turn that was just dispatched.
   useEffect(() => {
-    if (!running) return
+    if (!working) return
     // Refresh the STORE's thread list rather than querying a private copy: the
     // slice above then reports the flag, and one refetch serves every reader.
     const id = setInterval(() => void store.refreshSuperThreads().catch(() => {}), 5000)
     return () => clearInterval(id)
-  }, [running, store.refreshSuperThreads])
-
-  useEffect(() => {
-    if (running && superagent.active?.turnRunning === false) {
-      setRunning(false)
-      setLiveText('')
-      setStatusLabel(null)
-    }
-  }, [running, superagent.active?.turnRunning])
+  }, [working, store.refreshSuperThreads])
 
   // The settled conversation IS the session transcript — see superagent-transcript.ts
   // for why the legacy buffer is not folded in.
@@ -254,13 +271,20 @@ export function SuperagentScreen() {
     setPendingTurns((prev) => dropEchoedTurns(prev, settled) as PendingTurn[])
   }, [settled, pendingTurns.length])
 
+  // Once the transcript has echoed the optimistic row, transport is complete.
+  // Real computation keeps its own `running` mark; a very fast completed turn
+  // simply settles back to Idle without leaving a local loader stuck behind.
+  useEffect(() => {
+    if (justSent && pendingTurns.length === 0) setJustSent(false)
+  }, [justSent, pendingTurns.length])
+
   // One dispatch, keyed by the optimistic row it owns. A rejection marks THAT
   // row "not sent" with the reason and leaves the words on screen to retry
   // (POD-346) — the old path only set a banner, which reads as "nothing
   // happened" when the reason is a stuck turn or an offline server.
   const dispatch = useCallback(
     (id: string, text: string) => {
-      setRunning(true)
+      setJustSent(true)
       void trpc.superagent.sendTurn
         .mutate({ threadId: THREAD_ID, text, ...superagentTurnChoice(backend) })
         .then((ack) => {
@@ -270,6 +294,7 @@ export function SuperagentScreen() {
         .catch((e: unknown) => {
           const message = e instanceof Error ? e.message : String(e)
           setRunning(false)
+          setJustSent(false)
           setPendingTurns((prev) =>
             prev.map((turn) => (turn.id === id ? { ...turn, failed: message } : turn)),
           )
@@ -307,6 +332,8 @@ export function SuperagentScreen() {
     try {
       await trpc.superagent.interruptTurn.mutate({ threadId: THREAD_ID })
       setRunning(false)
+      setJustSent(false)
+      querySawRunning.current = false
     } catch {
       // already stopped
     }
@@ -323,6 +350,9 @@ export function SuperagentScreen() {
       void store.refreshSuperThreads().catch(() => {})
       setPendingTurns([])
       setLiveText('')
+      setRunning(false)
+      setJustSent(false)
+      querySawRunning.current = false
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -338,7 +368,7 @@ export function SuperagentScreen() {
   // screen reads the same store and the same published slices as the web.
   const transcriptResolved = podiumSid ? transcriptLoaded || rendered.length > 0 : threadsLoaded
   const resolved = !booting && transcriptResolved
-  const empty = resolved && rendered.length === 0 && pendingTurns.length === 0 && !running
+  const empty = resolved && rendered.length === 0 && pendingTurns.length === 0 && !working
 
   return (
     <Screen
@@ -376,7 +406,7 @@ export function SuperagentScreen() {
             >
               <TranscriptList
                 items={rendered}
-                live={running}
+                live={working}
                 collapseContext
                 assetContext={
                   podiumSid && transcriptSession
@@ -392,8 +422,12 @@ export function SuperagentScreen() {
                 onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
                 streaming={running && liveText.trim().length > 0}
                 tail={{
-                  label: running ? (statusLabel ?? 'Thinking') : 'Idle',
-                  tone: running ? 'working' : 'idle',
+                  label: working
+                    ? justSent && !running
+                      ? 'Sending'
+                      : (statusLabel ?? 'Working')
+                    : 'Idle',
+                  tone: working ? 'working' : 'idle',
                 }}
                 onLoadOlder={loadOlder}
                 refreshControl={refreshControl}
@@ -418,12 +452,6 @@ export function SuperagentScreen() {
               />
             </PullToRefreshBoundary>
           </BootstrapCrossfade>
-          {running && !liveText.trim() ? (
-            <View style={styles.statusRow}>
-              <WorkingMark size={13} />
-              <Text style={styles.status}>{statusLabel ?? 'thinking'}</Text>
-            </View>
-          ) : null}
           {/* The tab bar floats over the content now, so the composer has to
               hold itself above it — it is the one thing on this screen that
               must never be scrolled under [POD-420]. The bar's measured inset
@@ -465,18 +493,6 @@ const styles = StyleSheet.create({
     ...sans(700),
     color: color.danger,
     fontSize: font.small,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: space.lg,
-    paddingBottom: space.xs,
-  },
-  status: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: font.tiny,
   },
   error: {
     ...sans(400),
