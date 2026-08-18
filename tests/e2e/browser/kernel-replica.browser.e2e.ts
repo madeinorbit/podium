@@ -140,11 +140,17 @@ test.describe('the web engine on the kernel replica', () => {
     })
     await page.goto('/?server=' + RELAY + '&e2e=1')
 
-    await expect(
-      page.getByRole('heading', { name: 'Podium could not open its private replica' }),
-    ).toBeVisible({ timeout: 60_000 })
+    // The principal resolved and the browser's own store refused — which since
+    // POD-1304 is its own named screen, not the one sentence every boot failure
+    // used to share. The exception is real but disclosed: the operator reads
+    // their problem, and `IndexedDB is blocked` waits inside "What happened".
+    await expect(page.getByRole('heading', { name: 'open Podium’s store' })).toBeVisible({
+      timeout: 60_000,
+    })
+    await expect(page.getByText('IndexedDB is blocked')).toBeHidden()
+    await page.locator('summary').click()
     await expect(page.getByText('IndexedDB is blocked')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Reload interface' })).toBeVisible()
     await shot(page, 'fatal-private-replica')
     expect(await replicaPath(page)).toBeUndefined()
   })
