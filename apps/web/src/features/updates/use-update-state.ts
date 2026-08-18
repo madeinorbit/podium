@@ -32,7 +32,7 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { makeTrpc } from '@/app/trpc'
+import { isServerUnavailable, makeTrpc } from '@/app/trpc'
 import { pageBuildVersion } from '@/lib/logging/build-version'
 import {
   isNativeDesktopUpdateError,
@@ -56,7 +56,9 @@ import {
 import {
   cancelOperation,
   errorCode,
+  errorDetail,
   errorMessage,
+  isMissingProcedure,
   readActiveOperation,
   readLatestOperation,
   retryUpdate,
@@ -118,7 +120,8 @@ export interface UseUpdateStateOptions {
 
 export interface UpdateStateResult {
   view: UpdatePanelView
-  operation: Operation | null
+  /** `undefined` until the first successful operation read. */
+  operation: Operation | null | undefined
   server: ServerVersion
   fleet: UpdateFleetState
   pending: PanelActionKind | null
@@ -188,25 +191,38 @@ function phoneBehind(server: ServerVersion, expectedDigest: string): boolean {
 }
 
 /** The channel the SERVER decides (spec §5: resolved in exactly one place). */
-function desktopChannelOf(channel: unknown): NativeDesktopUpdateChannel {
+export function desktopChannelOf(channel: unknown): NativeDesktopUpdateChannel | undefined {
   const selected =
     typeof channel === 'string' ? channel : (channel as { channel?: string } | undefined)?.channel
-  return selected === 'dev' || selected === 'edge' ? 'edge' : 'stable'
+  if (selected === 'dev' || selected === 'edge') return 'edge'
+  if (selected === 'stable') return 'stable'
+  return undefined
+}
+
+const UNKNOWN_DESKTOP_CHANNEL = 'The desktop update channel could not be determined.'
+
+/**
+ * Leave restart recovery to the query transport: it waits for readiness and
+ * replays this idempotent read. A failure or an unfamiliar payload stays
+ * unread; neither is permission to choose a feed.
+ */
+async function readDesktopChannel(
+  queryChannel: () => Promise<unknown>,
+): Promise<NativeDesktopUpdateChannel> {
+  const channel = desktopChannelOf(await queryChannel())
+  if (channel === undefined) throw new Error(UNKNOWN_DESKTOP_CHANNEL)
+  return channel
 }
 
 async function readDesktopUpdate(
-  queryChannel: () => Promise<unknown>,
-): Promise<{ info?: DesktopUpdateInfo; channel: NativeDesktopUpdateChannel }> {
-  const channel = desktopChannelOf(await queryChannel().catch(() => 'stable'))
+  channel: NativeDesktopUpdateChannel,
+): Promise<DesktopUpdateInfo | undefined> {
   const check = nativeDesktopBridge()?.checkUpdate
-  if (!check) return { channel }
+  if (!check) return undefined
   const next = await check(channel)
-  return {
-    channel,
-    ...(next
-      ? { info: { version: next.version, critical: next.critical, notes: next.notes } }
-      : {}),
-  }
+  return next
+    ? { version: next.version, critical: next.critical, notes: next.notes }
+    : undefined
 }
 
 /**
@@ -216,11 +232,26 @@ async function readDesktopUpdate(
  * on the first one that broke. Catches a synchronous throw too, because a
  * transport that is not there yet throws rather than rejecting.
  */
-async function safely<T>(read: () => Promise<T | null>): Promise<T | null> {
+async function safely<T>(read: () => Promise<T>): Promise<T | undefined> {
   try {
     return await read()
   } catch {
-    return null
+    return undefined
+  }
+}
+
+/**
+ * Old servers genuinely have no operations endpoint; that is a confirmed
+ * "none". Every other failure leaves the fact unknown so a restart-cut request
+ * cannot manufacture an offer.
+ */
+async function safelyReadOperation(
+  read: () => Promise<Operation | null>,
+): Promise<Operation | null | undefined> {
+  try {
+    return await read()
+  } catch (error) {
+    return isMissingProcedure(error) ? null : undefined
   }
 }
 
@@ -363,19 +394,20 @@ function toActionError(error: unknown): ActionError {
   if (isNativeDesktopUpdateError(error)) return { code: error.code, message: error.message }
   const code = errorCode(error)
   const message = errorMessage(error)
+  const detail = errorDetail(error)
   return {
     ...(code ? { code } : {}),
     ...(message ? { message } : {}),
-    ...(error instanceof Error && error.stack ? { detail: error.stack.split('\n')[0] } : {}),
+    ...(detail ? { detail } : {}),
   }
 }
 
 export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResult {
   const [server, setServer] = useState<ServerVersion>({})
   const [localBuild, setLocalBuild] = useState<LocalBuild>({})
-  const [fleetState, setFleetState] = useState<UpdateFleetState>(options.fleet ?? EMPTY_FLEET)
-  const [live, setOperation] = useState<Operation | null>(null)
-  const [latest, setLatest] = useState<Operation | null>(null)
+  const [fleetState, setFleetState] = useState<UpdateFleetState | undefined>(options.fleet)
+  const [live, setOperation] = useState<Operation | null | undefined>()
+  const [latest, setLatest] = useState<Operation | null | undefined>()
   /**
    * Operations THIS tab watched run. A completion is only news to those — and
    * the seed is what carries that across a shell restart (see `watchedHandoff`).
@@ -384,7 +416,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     new Set(watchedHandoff((options.now ?? Date.now)())),
   )
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
-  const [desktopChannel, setDesktopChannel] = useState<NativeDesktopUpdateChannel>('stable')
+  const [desktopChannel, setDesktopChannel] = useState<NativeDesktopUpdateChannel | undefined>()
   const [desktopProgress, setDesktopProgress] = useState<NativeDesktopUpdateProgress | undefined>()
   const [actionError, setActionError] = useState<ActionError | undefined>()
   const [note, setNote] = useState<string | undefined>()
@@ -402,11 +434,12 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     if (claim) void claim().catch(() => {})
 
     let cancelled = false
-    void readDesktopUpdate(queryChannel)
-      .then(({ info, channel }) => {
+    void readDesktopChannel(queryChannel)
+      .then(async (channel) => {
         if (cancelled) return
-        setDesktopUpdate(info)
         setDesktopChannel(channel)
+        const info = await readDesktopUpdate(channel)
+        if (!cancelled) setDesktopUpdate(info)
       })
       .catch(() => {})
 
@@ -421,9 +454,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const active = isOperationActive(live)
 
   const query = usePolledQuery<{
-    operation: Operation | null
-    latest: Operation | null
-    fleet: UpdateFleetState | null
+    operation: Operation | null | undefined
+    latest: Operation | null | undefined
+    fleet: UpdateFleetState | undefined
     serverRaw: unknown
     buildRaw: unknown
   }>({
@@ -433,19 +466,21 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     // rather than rejecting the batch, so an unreachable fleet never costs the
     // panel the operation it could read.
     read: async () => {
-      const live = await safely<Operation>(() => readActiveOperation(trpc))
+      const live = await safelyReadOperation(() => readActiveOperation(trpc))
       const [latest, fleet, serverRaw, buildRaw] = await Promise.all([
         // The OUTCOME, which `active` cannot carry: it filters terminal states
         // out by design, so "done" and "failed" would blink out of existence at
         // the moment they became true. Only asked when nothing is running.
-        live ? Promise.resolve(null) : safely<Operation>(() => readLatestOperation(trpc)),
+        live === null
+          ? safelyReadOperation(() => readLatestOperation(trpc))
+          : Promise.resolve(undefined),
         // The fleet snapshot only feeds the OFFER's place rows. While an
         // operation exists the operation's own steps say where it is, so this
         // stops asking rather than becoming a second opinion (P2). A caller
         // that supplied its own fleet is not asked either.
-        live || options.fleet !== undefined
-          ? Promise.resolve(null)
-          : safely<UpdateFleetState>(() => trpc.updates.fleet.query()),
+        live === null && options.fleet === undefined
+          ? safely(() => trpc.updates.fleet.query())
+          : Promise.resolve(undefined),
         readJson(`${options.httpOrigin}/version`),
         readJson(`${options.httpOrigin}/${BUILD_STAMP_FILE}`),
       ])
@@ -460,11 +495,13 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         watched.current.add(live.id)
         rememberWatched(live.id, at)
       }
-      setOperation(live)
-      setLatest(latest)
+      // A failed arm is not a negative answer. Keep the last fact — including
+      // the initial unknown — until that arm itself succeeds.
+      if (live !== undefined) setOperation(live)
+      if (latest !== undefined) setLatest(latest)
       if (serverRaw !== undefined) setServer(parseServerVersion(serverRaw))
       if (buildRaw !== undefined) setLocalBuild(localBuildFrom(buildRaw))
-      if (fleet !== null) setFleetState(fleet)
+      if (fleet !== undefined) setFleetState(fleet)
       setNow(at)
     },
   })
@@ -483,12 +520,16 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   // What the panel is about right now: the running operation if there is one,
   // otherwise the outcome of the last one while it is still the user's business.
   const operation =
-    live ??
-    terminalToShow(latest, {
-      watched: watched.current,
-      ...(acknowledged ? { acknowledged } : {}),
-      now,
-    })
+    live === undefined
+      ? undefined
+      : (live ??
+        (latest === undefined
+          ? undefined
+          : terminalToShow(latest, {
+              watched: watched.current,
+              ...(acknowledged ? { acknowledged } : {}),
+              now,
+            })))
 
   // A NEW OPERATION CLEARS THE LAST ONE'S WRECKAGE. Retry creates a new
   // operation (§3.2), so a stale action-error hanging over it would report the
@@ -502,7 +543,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     setNote(undefined)
   }, [operationId])
 
-  const fleet = options.fleet ?? fleetState
+  const fleetFact = options.fleet ?? fleetState
+  // The concrete fallback keeps the public result and pure offer computation
+  // ergonomic; `fleetFact` below decides whether those values are established
+  // facts and therefore renderable.
+  const fleet = fleetFact ?? EMPTY_FLEET
   const surface = options.surface ?? surfaceFromDesktopBridge()
   const localVersion = pageBuildVersion()
   const target = server.target
@@ -546,12 +591,14 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * why it is not part of `describeUpdate`.
    */
   const described = describeUpdate(offerInput)
-  const offer: UpdateView =
-    pending === 'check'
-      ? { state: 'checking' }
-      : checkedAt !== undefined && described.state === 'none'
-        ? { state: 'current', version: localVersion }
-        : described
+  const offer: UpdateView | null =
+    operation === undefined || (operation === null && fleetFact === undefined)
+      ? null
+      : pending === 'check'
+        ? { state: 'checking' }
+        : checkedAt !== undefined && described.state === 'none'
+          ? { state: 'current', version: localVersion }
+          : described
 
   /**
    * THE ONE LOCAL FACT (§3.5). Deliberately about the build running THIS PAGE —
@@ -590,6 +637,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     (operation?.awaiting ?? []).some((ask) => ask.surface === surface)
   const canInstallDesktop =
     typeof installUpdate === 'function' &&
+    desktopChannel !== undefined &&
     (desktopUpdate !== undefined || desktopTargeted || desktopAsked)
 
   /**
@@ -642,6 +690,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           case 'restart-app': {
             const install = nativeDesktopBridge()?.installUpdate
             if (!install) break
+            if (desktopChannel === undefined) throw new Error(UNKNOWN_DESKTOP_CHANNEL)
             await install(desktopChannel)
             /**
              * REACHING THIS LINE IS ITSELF THE FAILURE (POD-2152).
@@ -670,7 +719,17 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         // EVERY rejection lands here. This is the catch the old `runAction`
         // never had: a refused `installUpdate` used to stop a spinner and say
         // nothing at all.
-        setActionError(toActionError(error))
+        if ((kind === 'start' || kind === 'retry') && isServerUnavailable(error)) {
+          /**
+           * Starting an update can cut its own mutation response: the durable
+           * operation has already requested the server restart. Never replay
+           * the write and never paint that expected handoff as a second,
+           * contradictory failure; poll the operation that owns the progress.
+           */
+          refresh()
+        } else {
+          setActionError(toActionError(error))
+        }
       } finally {
         setPending(null)
         setDesktopProgress(undefined)
@@ -682,11 +741,13 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const checkNow = useCallback(async (): Promise<void> => {
     setPending('check')
     setActionError(undefined)
+    setDesktopChannel(undefined)
     try {
       await trpc.updates.checkNow.mutate().catch(() => {})
-      const { info, channel } = await readDesktopUpdate(queryChannel)
-      setDesktopUpdate(info)
+      const channel = await readDesktopChannel(queryChannel)
       setDesktopChannel(channel)
+      const info = await readDesktopUpdate(channel)
+      setDesktopUpdate(info)
       setCheckedAt(clock())
       refresh()
     } catch (error) {

@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { buildHarnessExec, type HarnessBins } from './harness-exec.js'
+import { buildHarnessExec } from './harness-exec.js'
 
-const bins: HarnessBins = { opencode: () => '/bin/opencode', cursor: () => '/bin/agent' }
 
 describe('buildHarnessExec', () => {
   it('injects the system prompt via --append-system-prompt for Claude (prompt on stdin)', () => {
     const { cmd, args, stdin } = buildHarnessExec(
       'claude-code',
       { prompt: 'list my sessions', systemPrompt: 'You are Podium.' },
-      bins,
     )
     expect(cmd).toBe('claude')
     const i = args.indexOf('--append-system-prompt')
@@ -24,7 +22,6 @@ describe('buildHarnessExec', () => {
     const { cmd, args } = buildHarnessExec(
       'grok',
       { prompt: 'do the thing', systemPrompt: 'SYS' },
-      bins,
     )
     expect(cmd).toBe('grok')
     expect(args).not.toContain('--append-system-prompt')
@@ -34,13 +31,13 @@ describe('buildHarnessExec', () => {
 
   it('omits the model flag when model is auto or unset', () => {
     expect(
-      buildHarnessExec('claude-code', { prompt: 'p', model: 'auto' }, bins).args,
+      buildHarnessExec('claude-code', { prompt: 'p', model: 'auto' }).args,
     ).not.toContain('--model')
-    expect(buildHarnessExec('grok', { prompt: 'p' }, bins).args).not.toContain('--model')
+    expect(buildHarnessExec('grok', { prompt: 'p' }).args).not.toContain('--model')
   })
 
   it('passes the model flag when set', () => {
-    const { args } = buildHarnessExec('claude-code', { prompt: 'p', model: 'opus' }, bins)
+    const { args } = buildHarnessExec('claude-code', { prompt: 'p', model: 'opus' })
     expect(args).toContain('--model')
     expect(args[args.indexOf('--model') + 1]).toBe('opus')
   })
@@ -53,7 +50,6 @@ describe('buildHarnessExec', () => {
         mcpConfigPath: '/tmp/mcp.json',
         allowedTools: ['Read', 'mcp__podium__list_sessions'],
       },
-      bins,
     )
     expect(args[args.indexOf('--mcp-config') + 1]).toBe('/tmp/mcp.json')
     expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,mcp__podium__list_sessions')
@@ -67,7 +63,6 @@ describe('buildHarnessExec', () => {
     const { args } = buildHarnessExec(
       'grok',
       { prompt: 'go', mcpConfigPath: '/tmp/mcp.json', mcpConfig: '{}', allowedTools: ['Read'] },
-      bins,
     )
     expect(args).not.toContain('--mcp-config')
     expect(args).not.toContain('--allowedTools')
@@ -90,7 +85,6 @@ describe('buildHarnessExec', () => {
         }),
         allowedTools: ['Read'],
       },
-      bins,
     )
     expect(cmd).toBe('codex')
     expect(args[0]).toBe('exec')
@@ -111,23 +105,23 @@ describe('buildHarnessExec', () => {
   })
 
   it('codex without an MCP config stays a plain exec (chat-only)', () => {
-    const { args } = buildHarnessExec('codex', { prompt: 'p' }, bins)
+    const { args } = buildHarnessExec('codex', { prompt: 'p' })
     expect(args).toEqual(['exec', '--skip-git-repo-check', 'p'])
   })
 
   it('codex REFUSES a malformed MCP config rather than running tool-less (throws)', () => {
-    expect(() => buildHarnessExec('codex', { prompt: 'p', mcpConfig: 'not json' }, bins)).toThrow(
+    expect(() => buildHarnessExec('codex', { prompt: 'p', mcpConfig: 'not json' })).toThrow(
       /malformed MCP config/,
     )
   })
 
   it('resolves opencode/cursor bins and uses their run flags', () => {
-    expect(buildHarnessExec('opencode', { prompt: 'p' }, bins)).toEqual({
-      cmd: '/bin/opencode',
+    expect(buildHarnessExec('opencode', { prompt: 'p' })).toEqual({
+      cmd: 'opencode',
       args: ['run', 'p'],
     })
-    expect(buildHarnessExec('cursor', { prompt: 'p' }, bins)).toEqual({
-      cmd: '/bin/agent',
+    expect(buildHarnessExec('cursor', { prompt: 'p' })).toEqual({
+      cmd: 'agent',
       args: ['-p', '--model', 'auto', 'p'],
     })
   })
@@ -141,10 +135,9 @@ describe('buildHarnessExec', () => {
           model: 'opencode/deepseek-v4-flash-free',
           effort: 'high',
         },
-        bins,
       ),
     ).toEqual({
-      cmd: '/bin/opencode',
+      cmd: 'opencode',
       args: ['run', '-m', 'opencode/deepseek-v4-flash-free', '--variant', 'high', 'p'],
     })
   })

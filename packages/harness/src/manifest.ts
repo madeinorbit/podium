@@ -158,12 +158,6 @@ export interface HarnessExecSpec {
   env?: Record<string, string>
 }
 
-/** Bin resolvers for agents whose executable path isn't a fixed name. */
-export interface HarnessBins {
-  opencode: () => string
-  cursor: () => string
-}
-
 // ---------------------------------------------------------------------------
 // Machine inventory — install and login discovery.
 // ---------------------------------------------------------------------------
@@ -189,14 +183,21 @@ export interface HarnessLogin {
   freshness?: number
 }
 
-export interface HarnessInventory {
-  /** Candidate executable paths in probe order for this machine/home. */
-  binCandidates(homeDir: string): string[]
+export interface HarnessExecutableDeclaration {
+  /** Bare executable names in PATH precedence order. */
+  names: readonly string[]
+  /** Harness-owned locations outside generic command-environment fallbacks. */
+  fallbackCandidates?: (machineHome: string) => readonly string[]
+  versionArgs: readonly string[]
   /** Optional stronger identity probe for ambiguous executable names. */
   identityProbe?: {
     args: readonly string[]
     accepts(output: string): boolean
   }
+}
+
+export interface HarnessInventory {
+  executable: HarnessExecutableDeclaration
   /** Read-only local credential/profile detection. Uneven support is explicit. */
   detectLogin(homeDir: string): HarnessLogin
   /** Native interactive authentication entry point. The daemon launches this in
@@ -264,10 +265,7 @@ export interface HarnessHeadless {
    *  merged over the child's environment — codex passes its MCP bearer token here
    *  (POD-1021). */
   buildExec: Declared<
-    (
-      opts: HeadlessExecOptions,
-      bins: HarnessBins,
-    ) => { cmd: string; args: string[]; env?: Record<string, string> }
+    (opts: HeadlessExecOptions) => { cmd: string; args: string[]; env?: Record<string, string> }
   >
 }
 
@@ -524,7 +522,7 @@ export interface AgentManifest {
   discovery: ConversationProvider
   /** One-shot full-harness turn (`claude -p` / `codex exec` …). Unsupported ⇒ the
    *  harness cannot serve superagent/work-LLM turns; callers pick another. */
-  exec: Declared<(opts: HarnessExecOptions, bins: HarnessBins) => HarnessExecSpec>
+  exec: Declared<(opts: HarnessExecOptions) => HarnessExecSpec>
   /** Persistent headless sessions. Unsupported ⇒ no headless driver; the session
    *  must run interactively over a PTY. */
   headless: Declared<HarnessHeadless>

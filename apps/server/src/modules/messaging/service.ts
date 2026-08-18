@@ -99,7 +99,10 @@ export interface MessagingDeps {
   /** Issue list for /issues slash commands. */
   issues?: { list(): IssueWire[] }
   /** Sessions held by this server, resolved by explicit issueId membership. */
-  sessions?: { listSessions(): SessionMeta[] }
+  sessions?: {
+    listSessions(): SessionMeta[]
+    listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): SessionMeta[]
+  }
   /** Forum-topic bindings (SQLite). */
   topics?: MessagingTopicsPort
   /** Session → explicit issue attachment for notice topic routing. */
@@ -372,7 +375,11 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   private resolveIssueThread(issue: IssueWire, ownerUserId: UserId): ThreadId {
-    const session = pickIssueSession(issue, this.deps.sessions?.listSessions() ?? [])
+    const sessions =
+      this.deps.sessions?.listSessionsForIssue?.(issue.worktreePath ?? null, issue.id) ??
+      this.deps.sessions?.listSessions() ??
+      []
+    const session = pickIssueSession(issue, sessions)
     if (session) {
       return this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId })
         .threadId
@@ -382,7 +389,11 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   private issueThreadNote(issue: IssueWire): string {
-    const session = pickIssueSession(issue, this.deps.sessions?.listSessions() ?? [])
+    const sessions =
+      this.deps.sessions?.listSessionsForIssue?.(issue.worktreePath ?? null, issue.id) ??
+      this.deps.sessions?.listSessions() ??
+      []
+    const session = pickIssueSession(issue, sessions)
     if (session) {
       return `Agent session ${session.name ?? session.title} is wired to this topic.`
     }

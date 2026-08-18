@@ -42,6 +42,7 @@ import type { UserId, UserRole } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   type ClientMessage,
+  type FeedCursorField,
   type PresenceRoomClientMessage,
 } from '@podium/protocol'
 import {
@@ -309,7 +310,7 @@ export class ClientMux {
     // acts on for itself beyond the routing table, and it acts on the two
     // transport facts `hello` carries: the wire version and the delta capability.
     if (msg.type === 'hello') {
-      this.renegotiate(conn, msg.wireVersion)
+      this.renegotiate(conn, msg.wireVersion, msg.feedCursor)
     }
   }
 
@@ -324,14 +325,26 @@ export class ClientMux {
    * control-plane traffic still works) and receives no entity frames at all
    * until it reloads into a supported build.
    */
-  private renegotiate(conn: ClientConn, announced: number | undefined): void {
+  private renegotiate(
+    conn: ClientConn,
+    announced: number | undefined,
+    feedCursor: FeedCursorField | undefined,
+  ): void {
     // ABSENT MEANS 1. A pre-cutover client cannot send a field it was never built
     // with, so the absence is the advertisement.
     conn.wireVersion = announced ?? 1
+    // FORWARDED, NEVER INTERPRETED (POD-2061). Whether a position can be resumed
+    // from is a question about the change log's retention and the feed's
+    // identity, and both live in `FeedServing`; a gateway that pre-screened it
+    // here would be a second answer to a question with one. What this layer does
+    // is what it does for every other `hello` field — hand it to the port that
+    // owns it. An absent cursor is a client that wants a world, which is exactly
+    // the pre-POD-2061 behaviour of every client.
     const refusal = this.deps.feed.renegotiate(
       this.peerOf(conn),
       feedPrincipalOf(conn.principal),
       conn.principal,
+      feedCursor,
     )
     if (refusal === null) return
     // DROPPED FROM THE SERVING SET, not merely un-resolvable. Until `hello` a

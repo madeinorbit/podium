@@ -73,7 +73,7 @@ export const claudeCodeManifest: AgentManifest = {
   resumeKind: 'claude-session',
 
   inventory: {
-    binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'claude'), 'claude'],
+    executable: { names: ['claude'], versionArgs: ['--version'] },
     loginCommand: supported({ cmd: 'claude', args: ['login'] }),
     loginIdentity: supported((homeDir) => {
       try {

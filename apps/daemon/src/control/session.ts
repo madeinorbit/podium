@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { delimiter, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
+  bindHarnessLaunch,
   agentStateProviderFor,
   declaredValue,
   harnessCapabilitiesFor,
@@ -115,25 +116,6 @@ export function spawnEnv(opts: {
     ...(opts.harnessEnv ?? {}),
     ...opts.podiumEnv,
   }
-  const home = merged.HOME
-  if (!home) return merged
-
-  // Detached installs inherit the setup process's non-login PATH. On bare images
-  // that PATH does not contain ~/.local/bin, even though install.sh puts every
-  // requested harness there. Inventory deliberately finds those binaries by
-  // absolute path, so without the matching spawn invariant a machine reports
-  // "Codex installed + logged in" and then fails every session with execvp ENOENT.
-  // Keep custom/system entries, but make the same user install roots used by the
-  // systemd unit authoritative for every spawned agent.
-  const inherited = merged.PATH ?? process.env.PATH ?? ''
-  merged.PATH = [
-    join(home, '.local', 'bin'),
-    join(home, '.bun', 'bin'),
-    join(home, '.opencode', 'bin'),
-    ...inherited.split(delimiter),
-  ]
-    .filter((entry, index, entries) => entry && entries.indexOf(entry) === index)
-    .join(delimiter)
   return merged
 }
 
@@ -261,20 +243,28 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     if (msg.loginHarness && !loginCommand) {
       throw new Error(`${msg.loginHarness} does not declare a native login command`)
     }
+    const launchOptions = {
+      cwd: msg.cwd,
+      podiumSessionId: msg.sessionId,
+      ...(msg.resume ? { resume: msg.resume } : {}),
+      ...(newSessionId ? { newSessionId } : {}),
+      ...(msg.model ? { model: msg.model } : {}),
+      ...(msg.effort ? { effort: msg.effort } : {}),
+      ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
+      ...(msg.instructions ? { instructions: msg.instructions } : {}),
+      runtimeDir,
+      ...(msg.env ? { env: msg.env } : {}),
+    }
     const cmd = loginCommand
-      ? { cmd: loginCommand.cmd, args: [...loginCommand.args], cwd: msg.cwd }
-      : ctx.launch(msg.agentKind, {
-          cwd: msg.cwd,
-          podiumSessionId: msg.sessionId,
-          ...(msg.resume ? { resume: msg.resume } : {}),
-          ...(newSessionId ? { newSessionId } : {}),
-          ...(msg.model ? { model: msg.model } : {}),
-          ...(msg.effort ? { effort: msg.effort } : {}),
-          ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
-          ...(msg.instructions ? { instructions: msg.instructions } : {}),
-          runtimeDir,
-          ...(msg.env ? { env: msg.env } : {}),
-        })
+      ? ctx.harnessRuntime
+        ? bindHarnessLaunch(await ctx.harnessRuntime.current(), msg.loginHarness!, {
+            args: [...loginCommand.args],
+            cwd: msg.cwd,
+          })
+        : { cmd: loginCommand.cmd, args: [...loginCommand.args], cwd: msg.cwd }
+      : ctx.harnessRuntime
+        ? await ctx.harnessRuntime.launch(msg.agentKind, launchOptions)
+        : ctx.launch(msg.agentKind, launchOptions)
     materializeLaunchFiles(cmd.files)
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const provider = agentStateProviderFor(msg.agentKind)

@@ -3499,6 +3499,34 @@
       "encoded": "{\"type\":\"feedRescope\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"seq\":1,\"cause\":\"rights-changed\",\"reason\":\"reason\"}"
     },
     {
+      "schema": "FeedResumeMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "feedResume",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "seq": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedResume\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"seq\":1}"
+    },
+    {
+      "schema": "FeedResumeMessage",
+      "variant": "full",
+      "wire": {
+        "type": "feedResume",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "seq": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"feedResume\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"seq\":1}"
+    },
+    {
       "schema": "FeedResyncRequiredMessage",
       "variant": "minimal",
       "wire": {

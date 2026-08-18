@@ -64,14 +64,20 @@ export const SERVER_PLANE_CLASS = {
   // feed's frame: see `./feed.ts`.
   metadataDelta: 'control.entity',
 
-  // WIRE v2 (POD-308) — the scoped feed on the wire. All four are control.entity
-  // and none may ever be stream: a lost rescope or a lost watermark is a
-  // permanent invisible gap, which is the failure ADR 2 D2 documents and ADR 7
-  // Amendment 1 D16.3 classifies against.
+  // WIRE v2 (POD-308) — the scoped feed on the wire. All of them are
+  // control.entity and none may ever be stream: a lost rescope or a lost
+  // watermark is a permanent invisible gap, which is the failure ADR 2 D2
+  // documents and ADR 7 Amendment 1 D16.3 classifies against.
   feedDelta: 'control.entity',
   feedBootstrap: 'control.entity',
   feedRescope: 'control.entity',
   feedResyncRequired: 'control.entity',
+  // POD-2061's resume grant. Connection-scoped like `welcome`, and classified
+  // with the feed family rather than with it: it is the frame that stands in the
+  // BOOTSTRAP's place on a resumed connection, so it is ordered against the
+  // deltas of the same connection and dropped under load only if a bootstrap
+  // would be — which is never.
+  feedResume: 'control.entity',
 
   // Connection-scoped handshake/keepalive frames (single client, not fan-out).
   welcome: 'stream.live',

@@ -251,7 +251,7 @@ describe('POD-376 divergence matrix', () => {
 
   /** Bring a client online, deliver that socket's mandatory world, and settle. */
   async function online(client: Client): Promise<void> {
-    client.sink.connected()
+    client.sink.connected(true)
     // Production FeedServing pushes one world on every admitted socket without
     // waiting for a client request. Model that contract explicitly: the cold
     // ladder must consume this in-flight world without replacing the socket to

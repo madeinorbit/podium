@@ -1,6 +1,7 @@
 import { parseOperation } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { errorCode, errorMessage } from './operations-client'
+import { SERVER_UNAVAILABLE_MESSAGE } from '@/app/trpc'
+import { errorCode, errorDetail, errorMessage } from './operations-client'
 import {
   cancelRefusalSentence,
   formatDuration,
@@ -106,6 +107,33 @@ describe('operationView — the seven states', () => {
     expect(result.primary).toMatchObject({ kind: 'start', label: 'Update Podium' })
     expect(result.indicator).toBe('idle-dot')
     expect(result.indicatorLabel).toBe('Podium 0.4.3 is available')
+  })
+
+  /**
+   * THE UNREAD OPERATION, WITH AN OFFER ALREADY IN HAND (POD-2307).
+   *
+   * The sibling assertions in `use-update-state` cannot reach this: there, the
+   * offer and the operation become known in the same batch, so "no operation
+   * yet" never coexists with a renderable offer and the guard below is never
+   * asked anything. A reloaded page DOES reach it — the fleet snapshot arrives
+   * from the store while `operations.active` is still in flight — which is the
+   * state that offered the user an update the server was already running.
+   *
+   * Proven able to fail: with the `operation === undefined` guard removed, this
+   * renders the offer and the assertion reddens. Without it, every other test in
+   * both files still passes, which is why it is written here and not there.
+   */
+  it('says nothing while the operation is unread, even holding an offer', () => {
+    const result = operationView({
+      operation: undefined,
+      offer: OFFER,
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+    })
+    expect(result.state).toBe('none')
+    expect(result.primary).toBeUndefined()
+    expect(result.indicator).toBe('none')
   })
 
   it('offers a reload when only this page is stale and no operation exists', () => {
@@ -593,6 +621,30 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
     expect(result.state).toBe('waiting-you')
     expect(result.primary).toMatchObject({ kind: 'reload' })
     expect(JSON.stringify(result)).not.toContain('TRPCClientError')
+  })
+
+  it('replaces parser failures with temporary-unavailability copy everywhere visible', () => {
+    const raw = new Error(
+      'TRPCClientError: Failed to execute json on Response: Unexpected end of JSON input',
+    )
+    raw.name = 'TRPCClientError'
+    const message = errorMessage(raw)
+    const detail = errorDetail(raw)
+    const result = operationView({
+      operation: null,
+      offer: OFFER,
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+      actionError: {
+        ...(message ? { message } : {}),
+        ...(detail ? { detail } : {}),
+      },
+    })
+
+    expect(message).toBe(SERVER_UNAVAILABLE_MESSAGE)
+    expect(detail).toBeUndefined()
+    expect(JSON.stringify(result)).not.toMatch(/JSON|TRPCClientError/i)
   })
 
   it('maps every desktop error code to three layers', () => {

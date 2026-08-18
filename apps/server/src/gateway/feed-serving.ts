@@ -46,6 +46,28 @@
  * between the two was covered by hope.
  *
  * ---------------------------------------------------------------------------
+ * A REPLICA THAT ALREADY HAS THE WORLD IS NOT SENT ANOTHER (POD-2061)
+ * ---------------------------------------------------------------------------
+ *
+ * Until POD-2061 the paragraph above described EVERY admission, including the
+ * one that happens after a Wi-Fi flap on a client whose cache is seconds old:
+ * the whole visible world, read and serialized and transferred, so that a
+ * replica could throw away a copy it already held. The reconnect review measured
+ * that as the single largest bandwidth and CPU cost on this server, and worst on
+ * the clients that reconnect most.
+ *
+ * So a `hello` may now present `feedCursor` — the position the replica holds —
+ * and {@link FeedServing.admit} answers it with `feedResume` and a publisher
+ * framed from there, no world at all. The one-pass argument above is unchanged
+ * where it still applies (a rejected cursor takes exactly the old path); what
+ * replaces it on the resume path is the replica's own rung-1 heal, which covers
+ * `(cursor, head]` over `sync.feedChangesSince` and is a read every reconnecting
+ * client was already performing. The server's half of the contract is only that
+ * the publisher starts framing from the position it granted, so the first live
+ * delta chains onto what the replica holds rather than onto a head it has never
+ * seen.
+ *
+ * ---------------------------------------------------------------------------
  * A PEER'S VERSION IS KNOWN AT `hello`, NOT AT SOCKET ATTACH
  * ---------------------------------------------------------------------------
  *
@@ -78,8 +100,10 @@ import {
   asSubscriberId,
   type FeedBootstrapMessage,
   type FeedChange,
+  type FeedCursorField,
   type FeedDeltaMessage,
   type FeedRescopeMessage,
+  type FeedResumeMessage,
   type FeedResyncRequiredMessage,
   type Principal,
   principalRoutingId,
@@ -130,7 +154,18 @@ export const FEED_BOOTSTRAP_CHUNK_ROWS = 200
 /** Bound retained principal worlds: reuse is a latency optimisation, never authority. */
 const FEED_WORLD_CACHE_MAX_PRINCIPALS = 8
 
-type BootstrapCause = 'attach' | 'hello' | 'version-change'
+type BootstrapCause = 'attach' | 'hello' | 'version-change' | 'cursor-rejected'
+
+/**
+ * The minimum wire version a resume grant may be given at (POD-2061).
+ *
+ * A cursor is wire-v2 vocabulary and `feedResume` is a wire-v2 frame; v1's
+ * adapter can only answer it with silence. A v1 `hello` carrying a cursor is
+ * therefore a peer asking for something its own wire cannot express, and the
+ * honest answer is the world — which is also what it would have received before
+ * anyone thought to ask.
+ */
+const MIN_RESUME_WIRE_VERSION = 2
 
 interface CachedWorld {
   throughSeq: number
@@ -215,13 +250,127 @@ export class FeedServing {
     peer: FeedPeer,
     principal: Principal,
     routingPrincipal: Principal,
+    resumeFrom?: FeedCursorField,
   ): UpgradeRequired | null {
     const refusal = this.edge.attach(peer)
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
     if (this.connections.has(peer.id)) return null
-    this.serveWorld(peer, principal, routingPrincipal, 'attach')
+    this.admit(peer, principal, routingPrincipal, 'attach', resumeFrom)
     return null
+  }
+
+  /**
+   * Give a connection its position — by resuming the one it brought, or by
+   * serving it the world (POD-2061).
+   *
+   * THE ONE PLACE THE CHOICE IS MADE, and it is made where the world would
+   * otherwise have been read. Both entry points ({@link attach} and {@link
+   * renegotiate}) route through here, so a cursor cannot be honoured on one path
+   * and forgotten on the other — which matters more than it reads: on a
+   * per-principal server the pre-`hello` attach is refused outright and EVERY
+   * world is served from `renegotiate`, so a check placed only on the attach path
+   * would be dead code that looks live.
+   */
+  private admit(
+    peer: FeedPeer,
+    principal: Principal,
+    routingPrincipal: Principal,
+    cause: BootstrapCause,
+    resumeFrom: FeedCursorField | undefined,
+  ): void {
+    if (resumeFrom === undefined) {
+      this.serveWorld(peer, principal, routingPrincipal, cause)
+      return
+    }
+    if (!this.canResume(peer, resumeFrom)) {
+      // NAMED, so the traces can tell a client that could not be resumed from one
+      // that never asked. A rising `cursor-rejected` rate is a retention or epoch
+      // problem; a rising `hello` rate is just cold clients.
+      this.serveWorld(peer, principal, routingPrincipal, 'cursor-rejected')
+      return
+    }
+    this.serveResume(peer, principal, routingPrincipal, resumeFrom)
+  }
+
+  /**
+   * May this connection be framed from the position it presented?
+   *
+   * Two questions, and both have to be answered here rather than downstream: the
+   * publisher will frame from any seq it is given, and a range the log cannot
+   * serve is a gap the replica would discover one frame later, having already
+   * been told it was resumed.
+   */
+  private canResume(peer: FeedPeer, cursor: FeedCursorField): boolean {
+    if (peer.wireVersion < MIN_RESUME_WIRE_VERSION) return false
+    // IDENTITY FIRST (ADR 2 D1). A seq from another feed, or one presented against
+    // an epoch this server has rolled past, is not a smaller number — it is a
+    // position in a sequence that no longer exists.
+    const identity = this.deps.identity.current()
+    if (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch) return false
+    // A cursor from the FUTURE is not resumable either: the replica claims to hold
+    // rows this authority has not written, which on a restored/reset database is
+    // exactly what happens.
+    if (cursor.seq > this.deps.authority.cursor()) return false
+    // RETENTION, in `change-log.ts`'s exact spelling: the log can serve a cursor
+    // iff every change in `(cursor, max]` is retained, i.e. iff
+    // `cursor + 1 >= minAvailableSeq`. ADR 2 D7 rung 2's shorthand
+    // (`cursor < minAvailableSeq`) is the same rule off by one and costs a
+    // needless world at exactly `cursor === min - 1`; both are safe, and the
+    // exact form is free.
+    return cursor.seq + 1 >= (this.deps.retention.minAvailableSeq() ?? 0)
+  }
+
+  /**
+   * Grant the resume: one small frame, and a publisher positioned at the client's
+   * own cursor.
+   *
+   * NO WORLD, AND NO GAP FILL EITHER. The rows in `(cursor, head]` are not
+   * streamed here, and that is the division of labour this whole path is for: the
+   * replica heals that range over `sync.feedChangesSince` — the rung-1 read it
+   * already performs on every reconnect — while this server does the one thing
+   * only it can do, which is to start framing live deliveries from a position the
+   * replica can chain onto.
+   *
+   * FRAMED FROM `cursor.seq`, NOT FROM THE HEAD. Positioning at the head would
+   * make the gap the heal's ONLY route, so a heal that fails or is slow would
+   * leave the replica accepting frames it cannot chain. From the client's own
+   * position, the first live delta certifies `(cursor.seq, …]` and chains
+   * exactly — the socket alone can carry the replica forward, and the heal
+   * becomes the shortcut it should be rather than the mechanism.
+   */
+  private serveResume(
+    peer: FeedPeer,
+    principal: Principal,
+    routingPrincipal: Principal,
+    cursor: FeedCursorField,
+  ): void {
+    const t0 = performance.now()
+    const perfKey = perfPrincipal(principal)
+    const identity = this.deps.identity.current()
+    const resume: FeedResumeMessage = {
+      type: 'feedResume',
+      feedId: identity.feedId,
+      epoch: identity.epoch,
+      seq: cursor.seq,
+    }
+    this.edge.publishTo(peer, resume)
+    this.servedVersion.set(peer.id, peer.wireVersion)
+    this.connections.set(peer.id, this.publisher.connect(peer.id, cursor.seq, principal))
+    this.retainPrincipal(peer.id, principal, routingPrincipal)
+    const durationMs = performance.now() - t0
+    // The counterpart of `feedBootstrap.total`, under its own name: a resumed
+    // admission that showed up as a bootstrap would make the bootstrap numbers
+    // improve for the wrong reason.
+    perf.record('phase', 'feedResume.total', durationMs, perfKey)
+    traceFeedPeer({
+      event: 'resume',
+      peerId: peer.id,
+      wireVersion: peer.wireVersion,
+      fromSeq: cursor.seq,
+      headSeq: this.deps.authority.cursor(),
+      durationMs,
+    })
   }
 
   /** Read the world, send it, and start framing from the position it was read
@@ -435,12 +584,16 @@ export class FeedServing {
     peer: FeedPeer,
     principal: Principal,
     routingPrincipal: Principal,
+    resumeFrom?: FeedCursorField,
   ): UpgradeRequired | null {
     const refusal = this.edge.attach(peer)
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
     if (!this.connections.has(peer.id)) {
-      this.serveWorld(peer, principal, routingPrincipal, 'hello')
+      // THE PATH EVERY PRODUCTION ADMISSION TAKES — see this file's header: the
+      // pre-`hello` attach is refused on a per-principal server, so this is where
+      // a reconnecting replica's cursor is honoured (POD-2061).
+      this.admit(peer, principal, routingPrincipal, 'hello', resumeFrom)
       return null
     }
     // THE VERSION IT ACTUALLY SPEAKS, OR NOTHING. A connection is admitted at
@@ -471,6 +624,10 @@ export class FeedServing {
     // be done instead is bootstrapping only at `hello`, which withholds the
     // world from every peer that never sends one — the pre-cutover bug.
     if (this.servedVersion.get(peer.id) === peer.wireVersion) return null
+    // NO RESUME ON THIS ARM, cursor or not: the connection already HAS a position
+    // — the one its v1 world was served at — and the thing that is wrong with it
+    // is the dialect, not the seq. Honouring a cursor here would move a
+    // connection's position for a reason that has nothing to do with where it is.
     this.serveWorld(peer, principal, routingPrincipal, 'version-change')
     return null
   }

@@ -71,7 +71,7 @@ describe('buildInventory', () => {
     const claude = inv.agents.find((a) => a.kind === 'claude-code')!
     expect(claude.installed).toBe(true)
     expect(claude.version).toBe('2.1.9 (Claude Code)') // trimmed
-    expect(claude.path).toBe(join(home, '.local', 'bin', 'claude')) // first candidate wins
+    expect(claude.path).toBe('claude') // injected exec keeps the legacy argv-only test seam
   })
 
   it("does not mistake Grok's generic agent alias for Cursor", async () => {
@@ -96,7 +96,7 @@ describe('buildInventory', () => {
     expect(inv.agents.find((agent) => agent.kind === 'cursor')).toMatchObject({
       installed: true,
       version: '2026.07.22',
-      path: join(home, '.local', 'bin', 'agent'),
+      path: 'agent',
     })
   })
 
@@ -202,7 +202,7 @@ describe('buildInventory', () => {
     const gh = inv.tools.find((t) => t.name === 'gh')!
     expect(gh.installed).toBe(true)
     expect(gh.version).toBe('gh version 2.40.0 (2024-01-01)') // first line, trimmed
-    expect(gh.path).toBe(join(home, '.local', 'bin', 'gh')) // first candidate wins
+    expect(gh.path).toBe('gh') // injected exec keeps the legacy argv-only test seam
   })
   it('extracts a non-secret fingerprint and freshness from the Codex id token', () => {
     const email = 'mike' + '@example.com'

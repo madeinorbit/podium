@@ -93,7 +93,9 @@ import {
   type StoreNotices,
   type StoreServerConfig,
 } from '../engine/types'
+import type { VisibilitySource } from '../engine/visibility'
 import type { CreateEngineOutbox } from '../engine/wiring'
+import type { OnlineEvents } from '../outbox'
 import type { ClientPrincipal } from '../principal'
 import { samePrincipal } from '../principal'
 import type { FeedSinkPort } from '../socket-transport'
@@ -156,6 +158,15 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   feed?: FeedSinkPort
   /** Platform queue factory paired with the replica assembly. */
   createOutboxFn?: CreateEngineOutbox
+  /**
+   * PLATFORM SEAMS (POD-2055 WP-C). Every one of these has a browser default
+   * that is wrong on React Native; the mobile composition root supplies the
+   * native answers (AppState, NetInfo) and web passes none of them.
+   */
+  visibility?: VisibilitySource
+  onlineEvents?: OnlineEvents
+  isOnline?: () => boolean
+  heartbeatIntervalMs?: number
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
   /** Test seam: runtime timing knobs (e.g. spawnConfirmGraceMs: 0 so a spawn
@@ -177,6 +188,10 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   createReplicaFn,
   feed,
   createOutboxFn,
+  visibility,
+  onlineEvents,
+  isOnline,
+  heartbeatIntervalMs,
   routerWindow,
   engineOverrides,
   unauthenticated = null,
@@ -237,6 +252,10 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         createReplicaFn,
         feed,
         createOutboxFn,
+        visibility,
+        onlineEvents,
+        isOnline,
+        heartbeatIntervalMs,
         routerWindow,
         ...engineOverrides,
       }),

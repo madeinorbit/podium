@@ -194,7 +194,7 @@ describe('one default channel', () => {
     addMachine(registry, 'unpinned')
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
-      .mockResolvedValue(undefined)
+      .mockResolvedValue(true)
 
     const machine = registry.modules.updates.fleet().find((row) => row.id === 'unpinned')
     expect(machine).toBeDefined()
@@ -215,7 +215,7 @@ describe('one default channel', () => {
     addMachine(registry, 'unpinned')
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
-      .mockResolvedValue(undefined)
+      .mockResolvedValue(true)
 
     const machine = registry.modules.updates.fleet().find((row) => row.id === 'unpinned')
     expect(registry.modules.updates.channelOf(machine as never)).toBe('dev')
@@ -233,7 +233,7 @@ describe('one default channel', () => {
     registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
-      .mockResolvedValue(undefined)
+      .mockResolvedValue(true)
 
     const machine = registry.modules.updates.fleet().find((row) => row.id === 'pinned')
     expect(registry.modules.updates.channelOf(machine as never)).toBe('stable')

@@ -15,6 +15,7 @@ import {
 } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import {
+  type OnlineEvents,
   Outbox,
   type OutboxDeadLetterEntry,
   type OutboxEntry,
@@ -164,6 +165,17 @@ export interface EngineOutboxCallbacks {
   readonly onApplied?: (entry: OutboxEntry) => unknown
   readonly onDropped?: (entry: OutboxEntry) => void
   readonly onDeadLetter?: (parked: OutboxDeadLetterEntry) => void
+  /**
+   * PLATFORM CONNECTIVITY (POD-2055 WP-C2), when the composition root knows it
+   * better than the browser globals below do. Native mobile passes NetInfo:
+   * `window`'s `online` event does not exist there, and `navigator.onLine` is
+   * undefined — which reads as "always online", so an airplane-mode phone
+   * retried every queued write every 5 seconds.
+   *
+   * Absent ⇒ the browser probes, exactly as before.
+   */
+  readonly onlineEvents?: OnlineEvents
+  readonly isOnline?: () => boolean
 }
 
 export type CreateEngineOutbox = (callbacks: EngineOutboxCallbacks) => EngineOutbox
@@ -595,9 +607,15 @@ export function createEngineHub(args: {
    * the supplied Replica sink; wire-v1 gets a Replica-owned compatibility sink.
    */
   feed?: FeedSinkPort
+  /** Liveness ping cadence, when the platform has an opinion (native: 10 s). */
+  heartbeatIntervalMs?: number
 }): SocketHub {
   const { api, replica } = args
   const make: CreateHub = args.createHub ?? ((opts) => new SocketHub(opts))
+  const heartbeat =
+    args.heartbeatIntervalMs !== undefined
+      ? { heartbeatIntervalMs: args.heartbeatIntervalMs }
+      : undefined
   if (args.feed !== undefined) {
     return make({
       url: args.wsClientUrl,
@@ -606,12 +624,14 @@ export function createEngineHub(args: {
         if (!isInitialConnectivityError(message)) args.onFatalError(message)
       },
       feed: args.feed,
+      ...heartbeat,
     })
   }
   return make({
     url: args.wsClientUrl,
     viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
     onError: (message) => args.onFatalError(message),
+    ...heartbeat,
     issuesNormalized: true,
     legacyFeed: new LegacyWireV1Feed({
       fetchChangesSince: (cursor) => api.sync.changesSince.query({ cursor }),
@@ -685,8 +705,8 @@ export function outboxExecutors(api: PodiumClientApi): {
 export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKinds> {
   const { api } = args
   return new Outbox<OutboxKinds>({
-    isOnline: platformIsOnline,
-    onlineEvents: platformOnlineEvents(),
+    isOnline: args.isOnline ?? platformIsOnline,
+    onlineEvents: args.onlineEvents ?? platformOnlineEvents(),
     // One persistence layer: the queue persists into a replica collection
     // (cross-tab consistent via storage events; in-memory in private mode);
     // the drain/retry/poison logic is unchanged. The awaiting-truth stage

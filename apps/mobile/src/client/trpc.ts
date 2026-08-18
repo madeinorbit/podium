@@ -160,14 +160,32 @@ export function envServer(): string | undefined {
 export function readServerConfig(): ServerConfig {
   if (activeRuntimeConfig) return activeRuntimeConfig
   const injected = (globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ ?? envServer()
-  if (typeof window === 'undefined') {
+  // A MISSING `location` IS THE NATIVE CASE, not an impossible one (POD-2055 F4).
+  // React Native sets `global.window = global`, so `typeof window` is `'object'`
+  // on a phone and the old guard fell through to `window.location.search` — a
+  // TypeError on the first line of the app's boot, invisible to this repo's
+  // mobile lane because it runs react-native-web inside happy-dom. On device the
+  // injected global and EXPO_PUBLIC_PODIUM_SERVER are the only config paths
+  // there are, which is what the branch below already implements.
+  //
+  // `typeof` first and always: `window` is an unbound identifier where it does
+  // not exist, and optional chaining does not save a ReferenceError.
+  const location =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as { location?: Location | undefined }).location
+  if (location == null) {
     const parsed = injected ? parseServerOrigin(injected) : null
     if (parsed) return { ...parsed, override: true }
     throw new Error('native server profile has not been selected')
   }
   // Web sessions are page-origin cookie sessions. Only the page's explicit
   // ?server override may redirect them; native build-time injection is ignored.
-  return resolveServerConfig(window.location)
+  //
+  // Through the narrowed `location` above rather than `window.location`: the
+  // early return has already established it is present, and reaching for the
+  // property a second time is the exact spelling that throws on a device.
+  return resolveServerConfig(location)
 }
 
 export function setActiveServerRuntime(

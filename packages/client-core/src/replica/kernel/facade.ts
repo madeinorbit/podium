@@ -60,21 +60,28 @@
  * in `../../engine/wiring.ts` is the table that names each queued kind's real
  * contract and version, pinned to the contracts themselves by
  * `outbox-contract-table.test.ts`. So the ENGINE's queue is now the kernel's on
- * both platforms: web drives the kernel `Outbox` state machine over its
- * IndexedDB `OutboxStorePort` (`openKernelEngineOutbox`), mobile passes SQLite
- * views through `init.outbox` below. Queued writes are in the same transactional
- * store as the entity rows (ADR 6 D4.3), with a dotted contract name, a version,
- * a delivery class, a partition key and an attribution pair stamped from the
- * AUTHENTICATED principal (ADR 3 D7) — never from anything the entry carried.
+ * both platforms: web drove the kernel `Outbox` state machine over its IndexedDB
+ * `OutboxStorePort` from POD-1232 (`openKernelEngineOutbox`), and POD-2073 put
+ * mobile on the same driver over its SQLite one. Queued writes are in the same
+ * transactional store as the entity rows (ADR 6 D4.3), with a dotted contract
+ * name, a version, a delivery class, a partition key and an attribution pair
+ * stamped from the AUTHENTICATED principal (ADR 3 D7) — never from anything the
+ * entry carried.
  *
- * What did NOT change is this facade's three `outbox*Storage()` seams on WEB,
- * which still resolve to the side cache. They are not the engine's queue there —
- * nothing on the kernel path reads them — and pointing them at the kernel store
- * would put a second, mirror-backed writer on records the kernel `Outbox` owns,
- * and would lose POD-1231's synchronous "this write is not durable" report,
- * which only exists because `StorageApi.setItem` is synchronous. Left as they
- * are, deliberately, and named here so the next reader does not conclude from
- * `outboxStorage()` that web queues to localStorage — it does not.
+ * WHAT THIS FACADE'S THREE `outbox*Storage()` SEAMS ARE, THEREFORE: the side
+ * cache, on both platforms, and NOT the engine's queue on either. Nothing on the
+ * kernel path reads them. They are kept because the compatibility `Outbox` is
+ * still the queue on the legacy replica, and they are NOT pointed at the kernel
+ * store because that would put a second, mirror-backed writer on records the
+ * kernel `Outbox` owns — and would lose POD-1231's synchronous "this write is
+ * not durable" report, which only exists because `StorageApi.setItem` is
+ * synchronous.
+ *
+ * Mobile used to be the exception: it passed a pair of `OutboxStorage` views
+ * over its kernel outbox rows through an `init.outbox` seam here, which let the
+ * compatibility state machine drive kernel-owned records. POD-2073 deleted both
+ * the views and the seam. Named here so the next reader does not conclude from
+ * `outboxStorage()` that either platform queues to a blob store — neither does.
  */
 
 import type { TranscriptItem } from '@podium/model'
@@ -118,26 +125,6 @@ export interface KernelCacheRead {
 export interface KernelReplicaInit {
   readonly cache: KernelCacheRead
   readonly side: SideCache
-  /**
-   * The outbox's durable home, when it is NOT the side cache.
-   *
-   * ADR 6 D1 names outbox entries among what localStorage/AsyncStorage MUST NOT
-   * hold "on any path". The side cache is a `StorageApi` blob store, so it
-   * satisfies D1 for ui-state and transcripts and NOT for the outbox. Mobile
-   * passes its SQLite store view here and lands the queue in the entity rows'
-   * own transaction domain; web needs its own compliant seam and keeps the side
-   * cache only until it has one.
-   *
-   * OPTIONAL, and defaulting to the side cache, DELIBERATELY: making it required
-   * would have changed web's behaviour in the same commit that gave mobile a
-   * correct placement, and a cutover that changes two things at once cannot be
-   * bisected when one of them is wrong.
-   */
-  readonly outbox?: {
-    readonly queued: OutboxStorage
-    readonly awaiting: OutboxStorage
-    readonly deadLetter?: OutboxStorage
-  }
   /**
    * The kernel Replica's OWN exit record, handed in rather than mirrored
    * (POD-1510).
@@ -554,11 +541,12 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       }
     },
 
-    outboxStorage: (): OutboxStorage => init.outbox?.queued ?? side.outboxStorage(),
-    outboxAwaitingStorage: (): OutboxStorage =>
-      init.outbox?.awaiting ?? side.outboxAwaitingStorage(),
-    outboxDeadLetterStorage: (): OutboxStorage =>
-      init.outbox?.deadLetter ?? side.outboxDeadLetterStorage(),
+    // The side cache, unconditionally — see the header. These are the legacy
+    // `Outbox`'s three homes; the kernel queue both platforms now run reaches
+    // its records through `OutboxStorePort` and never through here.
+    outboxStorage: (): OutboxStorage => side.outboxStorage(),
+    outboxAwaitingStorage: (): OutboxStorage => side.outboxAwaitingStorage(),
+    outboxDeadLetterStorage: (): OutboxStorage => side.outboxDeadLetterStorage(),
     uiState: (): UiState => side.uiState(),
 
     async flush(): Promise<void> {

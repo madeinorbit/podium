@@ -190,7 +190,7 @@ export const codexManifest: AgentManifest = {
   resumeKind: 'codex-thread',
 
   inventory: {
-    binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'codex'), 'codex'],
+    executable: { names: ['codex'], versionArgs: ['--version'] },
     loginCommand: supported({ cmd: 'codex', args: ['login'] }),
     loginIdentity: supported((homeDir) => {
       try {

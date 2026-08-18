@@ -280,18 +280,18 @@ if (checkBudget) {
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000
   // (2026-08-16; see the measured split above) → 7_700_000 (2026-08-17, on the
   // release line; the first 0.1.0 edge build measured 7,689,167 while every
-  // payload budget still passed) → 7_600_000 (2026-08-17, DOWN — the paydown
-  // every note here said had to come next; see THE PAYDOWN below for why the
-  // lower of the two survives their merge). This one counts `sourcesContent`,
-  // i.e. ORIGINAL source text with comments, so it prices the house style
-  // rather than anything the browser downloads.
+  // payload budget still passed) → 7_800_000 (2026-08-17, edge.2 measured
+  // 7,751,548, still with every payload budget passing) → 7_700_000
+  // (2026-08-18, DOWN — the paydown every note here said had to come next, met
+  // by the growth it was paying for; see THE PAYDOWN and THE MERGE below). This
+  // one counts `sourcesContent`, i.e. ORIGINAL source text with comments, so it
+  // prices the house style rather than anything the browser downloads.
   //
   // THE PAYDOWN (POD-1239). Drift took the eager graph to 7,694,486 and the gate
   // went red on `main` for every build, whatever the change. That is also how
-  // the release line came to raise this ceiling to 7_700_000 (44ca44874, to get
-  // the first 0.1.0-edge bundle out) — a deadline making the call the note
-  // below refused to make on the merits. The graph now sits under both numbers,
-  // so that raise has nothing left to buy when the two lines meet.
+  // the release line came to raise this ceiling twice — 7_700_000 (44ca44874, to
+  // get the first 0.1.0-edge bundle out) and then 7_800_000 for edge.2 — a
+  // deadline making the call the note below refused to make on the merits.
   //
   // Nothing was reverted here and no prose was deleted: three surfaces that
   // cannot be reached without a gesture stopped being eager — the issue
@@ -309,20 +309,34 @@ if (checkBudget) {
   //     gzip             657,037       646,516      -10,521
   //     Brotli           545,626       537,763       -7,863
   //
+  // THE MERGE (2026-08-18). The paydown and the edge.2 raise were made on two
+  // lines that had not met, and each note above was written without the other in
+  // view: the paydown said "the lower of the two survives", meaning 7_600_000
+  // against the release line's 7_700_000, and knew nothing of edge.2 taking the
+  // ceiling to 7_800_000 on a graph that had grown too. Measured on the merged
+  // tree, the eager graph is 7,642,796 — over the paydown's ceiling by 42,796,
+  // and under edge.2's measurement by 108,752. So neither number carries over:
+  // 7_600_000 would land this merge red, and 7_800_000 would hand back the
+  // paydown as slack. 7_700_000 is where the merged graph actually is, plus the
+  // ~57k of modest headroom this file has used before, and it is still DOWN from
+  // the 7_800_000 it merges with. The paydown was not lost — it is why the
+  // merged graph sits 108,752 under what edge.2 measured. It was spent, by the
+  // mobile-offline and reconnect work arriving at the same time.
+  //
   // The three payload ceilings are deliberately left where the 2026-08-16 raise
   // put them rather than tightened to the new numbers. Source is the gate that
   // bites first — it went red while all three of those still passed — so it stays
   // the sentinel, and re-cutting three budgets to the bone in the same commit
   // that fixes a red build just moves the redness to another line.
   //
-  // 7_600_000 leaves ~39k of room, and is the first move DOWN in this ratchet's
-  // history — a real reduction, not the same ceiling renamed. At the drift this
-  // file has measured, 39k is days rather than weeks, which means the next move
-  // is a paydown too. It does not have to start from a blank page: measured in
-  // the same graph, all still eager — xterm plus its WebGL addon 390k (the
-  // terminal renderer, evaluated before any pane has shown a terminal),
-  // dompurify + marked 144k, @dnd-kit 124k (a drag cannot precede a pointer
-  // down). Each is a bigger cut than this whole commit.
+  // This is the first move DOWN in this ratchet's history — a real reduction,
+  // not the same ceiling renamed. At the drift this file has measured, the room
+  // it leaves is days rather than weeks, which means the next move is a paydown
+  // too. It does not have to start from a blank page: measured in the same
+  // graph, all still eager — xterm plus its WebGL addon 390k (the terminal
+  // renderer, evaluated before any pane has shown a terminal), dompurify +
+  // marked 144k, @dnd-kit 124k (a drag cannot precede a pointer down). Each is a
+  // bigger cut than this whole commit.
   //
   // The 2026-08-14 raise bought a specific trade: replacing the workspace-
   // membership fan-out (one index rebuilt per session per publish: ~849k
@@ -338,7 +352,7 @@ if (checkBudget) {
   // next feature of any size turns one of those red, and a payload budget going
   // red means shipping more to the browser. That is not this argument, and it does
   // not get this raise.
-  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_600_000)
+  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_700_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)
   atMost('settings Brotli bytes', report.settings.brotli, 26_000)

@@ -5,6 +5,7 @@ import {
   REFRESH_INITIAL_JITTER_MS,
   REFRESH_INITIAL_MIN_MS,
   REFRESH_INTERVAL_MS,
+  REFRESH_RETRY_INTERVAL_MS,
   startTargetRefresh,
 } from './target-refresh'
 
@@ -30,10 +31,12 @@ function fakeSchedule() {
       const entry = armed.at(-1)
       if (!entry) throw new Error('nothing armed')
       if (entry.canceled) throw new Error('the armed callback was canceled')
+      const before = armed.length
       entry.run()
-      await Promise.resolve()
-      await Promise.resolve()
-      await Promise.resolve()
+      for (let turn = 0; turn < 10 && armed.length === before; turn += 1) {
+        await Promise.resolve()
+      }
+      if (armed.length === before) throw new Error('the scheduled callback did not settle')
     },
   }
 }
@@ -41,7 +44,7 @@ function fakeSchedule() {
 describe('startTargetRefresh', () => {
   const build = (
     opts: {
-      refresh?: (channel: UpdateChannel) => Promise<void>
+      refresh?: (channel: UpdateChannel) => Promise<boolean | void>
       operationActive?: (channel: UpdateChannel) => boolean
     } = {},
   ) => {
@@ -50,7 +53,7 @@ describe('startTargetRefresh', () => {
     const handle = startTargetRefresh({
       refresh: async (channel) => {
         refreshed.push(channel)
-        await opts.refresh?.(channel)
+        return opts.refresh?.(channel)
       },
       operationActive: opts.operationActive ?? (() => false),
       schedule: clock.schedule,
@@ -101,7 +104,21 @@ describe('startTargetRefresh', () => {
     await fire()
 
     expect(armed).toHaveLength(2)
-    expect(armed[1]?.ms).toBe(REFRESH_INTERVAL_MS)
+    expect(armed[1]?.ms).toBe(REFRESH_RETRY_INTERVAL_MS)
+  })
+
+  it('retries soon when a publication is temporarily incomplete', async () => {
+    let incomplete = true
+    const { fire, armed } = build({
+      refresh: async (channel) => (channel === 'edge' && incomplete ? false : true),
+    })
+
+    await fire()
+    expect(armed.at(-1)?.ms).toBe(REFRESH_RETRY_INTERVAL_MS)
+
+    incomplete = false
+    await fire()
+    expect(armed.at(-1)?.ms).toBe(REFRESH_INTERVAL_MS)
   })
 
   /**
@@ -119,6 +136,7 @@ describe('startTargetRefresh', () => {
 
     expect(refreshed).toEqual(['edge', 'stable'])
     expect(armed).toHaveLength(2)
+    expect(armed[1]?.ms).toBe(REFRESH_RETRY_INTERVAL_MS)
   })
 
   it('stop() cancels the armed tick and arms nothing further', async () => {

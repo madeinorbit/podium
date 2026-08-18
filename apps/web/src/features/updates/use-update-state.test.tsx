@@ -9,11 +9,17 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ServerUnavailableError } from '@/app/trpc'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
-import { type UpdateStateResult, useUpdateState } from './use-update-state'
+import {
+  desktopChannelOf,
+  type UpdateStateResult,
+  useUpdateState,
+} from './use-update-state'
 
 const mocks = vi.hoisted(() => ({
   makeTrpc: vi.fn(),
+  channel: vi.fn(),
   active: vi.fn(),
   history: vi.fn(),
   fleet: vi.fn(),
@@ -24,7 +30,10 @@ const mocks = vi.hoisted(() => ({
   checkNow: vi.fn(),
 }))
 
-vi.mock('@/app/trpc', () => ({ makeTrpc: mocks.makeTrpc }))
+vi.mock('@/app/trpc', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/trpc')>()),
+  makeTrpc: mocks.makeTrpc,
+}))
 
 const target = { version: '0.4.2', critical: false, artifacts: {} }
 
@@ -34,16 +43,19 @@ function Probe({
   onResult,
   withReload = false,
   behind = 1,
+  pollFleet = false,
 }: {
   onResult: (result: UpdateStateResult) => void
   withReload?: boolean
   /** How many fleet machines are behind — the offer's only reason to exist here. */
   behind?: number
+  /** Exercise the production fleet read instead of supplying an established fact. */
+  pollFleet?: boolean
 }) {
   const result = useUpdateState({
     httpOrigin: 'http://podium.test',
     needRefresh: false,
-    fleet: { total: 1, behind, converging: 0, failed: 0 },
+    ...(pollFleet ? {} : { fleet: { total: 1, behind, converging: 0, failed: 0 } }),
     reload: withReload ? reloadAction : undefined,
   })
   useEffect(() => {
@@ -69,8 +81,11 @@ function notFound(path: string): Error & { data: { code: string } } {
 function setupTransport(
   version: { appVersion: string; target?: typeof target } = { appVersion: '0.4.1', target },
 ): void {
+  mocks.history.mockResolvedValue([])
+  mocks.fleet.mockResolvedValue({ total: 1, behind: 1, converging: 0, failed: 0 })
+  mocks.channel.mockResolvedValue('stable')
   mocks.makeTrpc.mockReturnValue({
-    setup: { channel: { query: vi.fn(async () => 'stable') } },
+    setup: { channel: { query: mocks.channel } },
     operations: {
       active: { query: mocks.active },
       history: { query: mocks.history },
@@ -91,6 +106,20 @@ function setupTransport(
       json: async () => (url.endsWith('/version') ? version : { appVersion: '0.4.1' }),
     })),
   )
+}
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason: unknown) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }
 
 /**
@@ -135,21 +164,34 @@ afterEach(() => {
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
 })
 
+describe('desktopChannelOf', () => {
+  it('does not turn an unread channel into stable', () => {
+    expect(desktopChannelOf(undefined)).toBeUndefined()
+  })
+})
+
 describe('useUpdateState — reading the operation', () => {
-  it('renders the offer while the server has no operation', async () => {
+  it('waits for a genuine no-operation answer before rendering the offer', async () => {
     setupTransport()
-    mocks.active.mockResolvedValue(null)
+    const active = deferred<null>()
+    mocks.active.mockReturnValue(active.promise)
     const results: UpdateStateResult[] = []
 
-    render(<Probe onResult={(result) => results.push(result)} />)
+    render(<Probe onResult={(result) => results.push(result)} pollFleet />)
+
+    expect(screen.getByTestId('view-state').textContent).toBe('none')
+
+    await act(async () => active.resolve(null))
 
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
     expect(results.at(-1)?.view.primary?.kind).toBe('start')
   })
 
-  it('renders the server’s operation instead of the offer, verbatim', async () => {
+  it('stays silent until the first poll reveals the running operation, never offering', async () => {
     setupTransport()
-    mocks.active.mockResolvedValue({
+    const active = deferred<unknown>()
+    mocks.active.mockReturnValue(active.promise)
+    const running = {
       id: 'op_7',
       kind: 'update',
       state: 'running',
@@ -158,16 +200,55 @@ describe('useUpdateState — reading the operation', () => {
         { id: 'prepare', title: 'Preparing the update', state: 'done' },
         { id: 'machines', title: 'Updating your machines', state: 'running' },
       ],
-    })
+    }
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
 
+    expect(screen.getByTestId('view-state').textContent).toBe('none')
+    expect(results.map((result) => result.view.state)).not.toContain('offer')
+
+    await act(async () => active.resolve(running))
+
     await waitFor(() => expect(results.at(-1)?.view.state).toBe('running'))
+    expect(results.map((result) => result.view.state)).not.toContain('offer')
     expect(results.at(-1)?.view.stepPosition).toEqual({ current: 2, total: 2 })
     expect(results.at(-1)?.operation?.id).toBe('op_7')
     // The fleet snapshot is not a second opinion while an operation exists.
     expect(mocks.fleet).not.toHaveBeenCalled()
+  })
+
+  it('keeps an unread operation unknown when the first poll fails', async () => {
+    setupTransport()
+    const active = deferred<never>()
+    mocks.active.mockReturnValue(active.promise)
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    expect(screen.getByTestId('view-state').textContent).toBe('none')
+
+    await act(async () => {
+      active.reject(new Error('server restarted'))
+      await active.promise.catch(() => {})
+    })
+
+    expect(results.every((result) => result.view.state === 'none')).toBe(true)
+    expect(results.at(-1)?.operation).toBeUndefined()
+    expect(mocks.history).not.toHaveBeenCalled()
+  })
+
+  it('does not turn an unread fleet snapshot into an empty fleet offer', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    mocks.fleet.mockRejectedValue(new Error('server restarted'))
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} pollFleet />)
+
+    await waitFor(() => expect(mocks.fleet).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(results.at(-1)?.operation).toBeNull())
+    expect(results.at(-1)?.view.state).toBe('none')
+    expect(results.map((result) => result.view.state)).not.toContain('offer')
   })
 
   it('drops a payload that is not an operation rather than rendering a blank', async () => {
@@ -311,6 +392,103 @@ describe('useUpdateState — all-in-one: one click, one restart', () => {
     expect(results.at(-1)?.view.primary?.label).toBe('Restart Podium')
   })
 
+  it('does not offer or perform the install while the channel is unread', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    const channel = deferred<unknown>()
+    mocks.channel.mockReturnValue(channel.promise)
+    const install = vi.fn(async () => {})
+    const check = vi.fn(async () => null)
+    stubDesktopShell({ checkUpdate: check, installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.operation?.id).toBe('op_aio'))
+
+    expect(results.at(-1)?.view.primary?.kind).not.toBe('install-desktop')
+    await act(async () => {
+      await results.at(-1)?.run('install-desktop')
+    })
+
+    expect(install).not.toHaveBeenCalled()
+    expect(check).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(results.at(-1)?.view.error?.message).toBe(
+        'The desktop update channel could not be determined.',
+      ),
+    )
+  })
+
+  it('leaves a failed channel query unread and does not install', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    mocks.channel.mockRejectedValue(new Error('server is restarting'))
+    const install = vi.fn(async () => {})
+    const check = vi.fn(async () => null)
+    stubDesktopShell({ checkUpdate: check, installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(mocks.channel).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(results.at(-1)?.operation?.id).toBe('op_aio'))
+
+    expect(results.at(-1)?.view.primary?.kind).not.toBe('install-desktop')
+    await act(async () => {
+      await results.at(-1)?.run('install-desktop')
+    })
+
+    expect(install).not.toHaveBeenCalled()
+    expect(check).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(results.at(-1)?.view.error?.message).toBe(
+        'The desktop update channel could not be determined.',
+      ),
+    )
+  })
+
+  it('uses the real channel after restart readiness lets the query replay', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(waitingOnTheShell)
+    const readiness = deferred<Response>()
+    const channelFetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockReturnValueOnce(readiness.promise)
+      .mockResolvedValueOnce(
+        new Response('[{"result":{"data":{"channel":"edge"}}}]', { status: 200 }),
+      )
+    const { makeTrpc } = await vi.importActual<typeof import('@/app/trpc')>('@/app/trpc')
+    const recovering = makeTrpc('http://podium.test', {
+      fetch: channelFetch as typeof fetch,
+      recoveryDelaysMs: [0],
+      report: false,
+    })
+    mocks.channel.mockImplementation(() => recovering.setup.channel.query())
+    const install = vi.fn(
+      () => new Promise<void>(() => {}), // success replaces the process
+    )
+    const check = vi.fn(async () => null)
+    stubDesktopShell({ checkUpdate: check, installUpdate: install })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(channelFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(results.at(-1)?.operation?.id).toBe('op_aio'))
+
+    // The first response was cut and the transport is waiting on readiness:
+    // there is still no channel and therefore no install action.
+    expect(results.at(-1)?.view.primary?.kind).not.toBe('install-desktop')
+
+    await act(async () => {
+      readiness.resolve(new Response('{}', { status: 200 }))
+    })
+    await waitFor(() => expect(check).toHaveBeenCalledWith('edge'))
+    await waitFor(() => expect(results.at(-1)?.view.primary?.kind).toBe('install-desktop'))
+
+    void results.at(-1)?.run('install-desktop')
+    await waitFor(() => expect(install).toHaveBeenCalledWith('edge'))
+  })
+
   it('installs on the channel the server resolved, not the shell’s own config', async () => {
     setupTransport()
     mocks.active.mockResolvedValue(waitingOnTheShell)
@@ -397,6 +575,29 @@ describe('useUpdateState — dispatching actions', () => {
     await results.at(-1)?.run('start')
     expect(mocks.start).toHaveBeenCalledTimes(1)
     expect(mocks.converge).not.toHaveBeenCalled()
+  })
+
+  it('lets an update-owned restart advance through operation progress without an action error', async () => {
+    setupTransport()
+    mocks.active
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({
+        id: 'op_restart',
+        kind: 'update',
+        state: 'running',
+        steps: [{ id: 'server', title: 'Updating your server', state: 'running' }],
+      })
+    mocks.start.mockRejectedValue(new ServerUnavailableError(new SyntaxError('cut response')))
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+
+    await results.at(-1)?.run('start')
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('running'))
+    expect(results.at(-1)?.operation?.id).toBe('op_restart')
+    expect(results.at(-1)?.view.error).toBeUndefined()
   })
 
   /**

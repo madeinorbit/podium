@@ -29,11 +29,35 @@ import { spawnedByParentSessionId } from '@podium/model'
  */
 export type SessionWirePrincipal = SessionStatePrincipal
 
+/** Trusted server-only fields used to route queued work without a wire projection. */
+export interface SessionRoutingFacts {
+  sessionId: SessionId
+  issueId?: IssueId
+  cwd: string
+  status: SessionMeta['status']
+  archived: boolean
+  agentKind: SessionMeta['agentKind']
+}
+
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { MachinePrincipal, Principal } from '@podium/protocol'
-import { type AgentInstruction, AUTO_ARCHIVE_READ_WINDOW_MS, asDelegationRef, type LiveServerMessage, MAX_AGENT_TITLE_LENGTH, type MetadataChange, type RoomRef, type ServerMessage, type SessionBindingAdoptLaunchInstruction, type SessionBindingSpawnInstruction, type SessionOpenUrlMessage, type SubscriptionRegistry, type SyncChangesSinceResult } from '@podium/protocol'
+import {
+  type AgentInstruction,
+  AUTO_ARCHIVE_READ_WINDOW_MS,
+  asDelegationRef,
+  type LiveServerMessage,
+  MAX_AGENT_TITLE_LENGTH,
+  type MetadataChange,
+  type RoomRef,
+  type ServerMessage,
+  type SessionBindingAdoptLaunchInstruction,
+  type SessionBindingSpawnInstruction,
+  type SessionOpenUrlMessage,
+  type SubscriptionRegistry,
+  type SyncChangesSinceResult,
+} from '@podium/protocol'
 import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import {
@@ -137,7 +161,7 @@ import { wireSessionLifecycle } from './session-wiring'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionTerminalProof, TerminalProofStatus } from './terminal-proof'
-import type { SessionView } from './view'
+import type { SessionListCaller, SessionView } from './view'
 import type { SessionWorkspace } from './workspace'
 
 /** Composition types — live in session-lifecycle-types.ts (POD-1396). */
@@ -289,8 +313,11 @@ export class SessionLifecycle {
   private pushPriorities(): void {
     this.state.pushPriorities()
   }
-  listSessions(forPrincipal?: SessionWirePrincipal): SessionMeta[] {
-    return this.view.list(forPrincipal)
+  listSessions(
+    forPrincipal?: SessionWirePrincipal,
+    caller: SessionListCaller = 'unlabeled',
+  ): SessionMeta[] {
+    return this.view.list(forPrincipal, caller)
   }
   agentConcurrencyHistory(): AgentConcurrencyHistoryResult {
     return this.concurrencyHistory.history()
@@ -311,10 +338,35 @@ export class SessionLifecycle {
   sessionById(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): SessionMeta | undefined {
     return this.view.byId(sessionId, forPrincipal)
   }
+  /** A known set of sessions, without wiring the rest [POD-2322]. Same rows
+   *  and source order as `listSessions(p).filter((s) => ids.has(s.sessionId))`;
+   *  see {@link SessionView.byIds}. */
+  sessionsById(
+    sessionIds: Iterable<SessionId>,
+    forPrincipal?: SessionWirePrincipal,
+  ): SessionMeta[] {
+    return this.view.byIds(sessionIds, forPrincipal)
+  }
   /** One session's `spawnedBy`, skipping the wire entirely [POD-1646];
    *  see {@link SessionView.spawnedByOf}. */
   sessionSpawnedBy(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): string | undefined {
     return this.view.spawnedByOf(sessionId, forPrincipal)
+  }
+  /**
+   * Trusted internal routing facts for every live session [POD-2322].
+   *
+   * This intentionally skips visibility and wire projection. The throwaway
+   * DTO is for server supervision only and must never cross a client boundary.
+   */
+  sessionRoutingFacts(): SessionRoutingFacts[] {
+    return [...this.sessions.values()].map((session) => ({
+      sessionId: session.sessionId,
+      ...(session.issueId ? { issueId: session.issueId } : {}),
+      cwd: session.cwd,
+      status: session.status,
+      archived: session.archived === true,
+      agentKind: session.agentKind,
+    }))
   }
   // RETIRED at POD-309 (ADR 5 D8): the hub-mirror apply path lived here —
   // `upstreamSessions` / `upstreamStale` / `upstreamOwnMachineIds`, the

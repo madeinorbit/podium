@@ -1,21 +1,11 @@
 /**
  * IS THE BUNDLE WE ARE SERVING THE BUNDLE WE WERE BUILT WITH? (POD-1610)
  *
- * ---------------------------------------------------------------------------
- * WHY THE SERVER IS THE ONE THAT ASKS
- * ---------------------------------------------------------------------------
- *
- * The obvious place for a staleness check is the client: fetch `/version`,
- * compare, complain. That check is worth having and it exists (apps/web's
- * version guard) — but it cannot fire for the bundle that needs it MOST, because
- * a bundle old enough to be broken is also old enough to predate the check. The
- * outage that produced this file was served by a dist built three days before the
- * code that would have noticed.
- *
- * The server has no such problem. It reads the artefact off disk, and its verdict
- * does not depend on a single line of what is inside. A stale dist from any era
- * is caught the first time it is served, which is the property that makes this
- * the GATE and the client check a convenience.
+ * This is an operator diagnostic, not a reason to modify the page. The running
+ * app owns compatibility warnings because it can identify actual wire skew and
+ * route the user to the update panel. The server keeps this coarser build-pair
+ * comparison for its boot log, where it can still explain a suspect deployment
+ * without covering the app with a second warning.
  *
  * ---------------------------------------------------------------------------
  * WHAT IT COMPARES
@@ -65,7 +55,7 @@ export interface BundleStatus {
 }
 
 /**
- * One sentence a person can act on, or null when there is nothing to say.
+ * One server-log diagnostic, or null when there is nothing to report.
  *
  * The action names BOTH halves of the pairing, not "reload": a reload re-fetches
  * the same files and cannot replace a server's already-loaded module graph. A
@@ -73,13 +63,13 @@ export interface BundleStatus {
  * side is older. The original incident was a stale web dist, but a freshly built
  * dist beside a long-running source server is the opposite and needs a restart.
  */
-export function describeBundle(status: BundleStatus): string | null {
+export function describeBundleDiagnostic(status: BundleStatus): string | null {
   if (status.grade === 'ok' || status.grade === 'absent') return null
   return status.grade === 'stale'
-    ? 'Podium’s server and this page are using different app builds. Some ' +
-        'information may be missing. Use “Repair and reload” in the update panel to finish.'
-    : 'This page is using an app build that Podium cannot verify. Some information may be ' +
-        'missing. Use “Repair and reload” in the update panel to finish.'
+    ? 'Served web bundle wire-schema digest differs from the running server; rebuild the web ' +
+        'bundle or restart the server so both come from the same source.'
+    : 'Served web bundle has no valid build stamp; its compatibility with the running server ' +
+        'cannot be verified.'
 }
 
 interface CacheEntry {
@@ -184,37 +174,4 @@ export function gradeWebBundle(webDir: string): BundleStatus {
   }
   cache.set(webDir, { key, status })
   return status
-}
-
-/** Escape for an HTML text node. The message is ours, but it interpolates a
- *  digest read off disk, and a value from a file is never markup. */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-/**
- * Put the warning INTO the page the stale bundle is served as.
- *
- * The injection is the point. A stale bundle cannot be asked to render a warning
- * about itself — it does not contain the code — so the only surface that reaches
- * a user of a three-day-old dist is the HTML around it. Plain markup with inline
- * styles and no script, so it renders in a bundle that fails to boot at all.
- *
- * Returns `html` untouched when there is nothing to say, so the healthy path is
- * byte-for-byte what it always was.
- */
-export function injectBundleWarning(html: string, status: BundleStatus): string {
-  const message = describeBundle(status)
-  if (!message) return html
-  const title = 'Podium needs to finish updating. '
-  const banner =
-    '<div role="alert" style="position:fixed;inset:0 0 auto 0;z-index:2147483647;' +
-    'background:#f5c518;color:#1a1a1a;padding:10px 16px;font:600 13px/1.5 ui-sans-serif,system-ui,sans-serif;' +
-    `box-shadow:0 2px 8px rgba(0,0,0,.35)">${title}` +
-    `${escapeHtml(message)}</div>`
-  return html.includes('</body>') ? html.replace('</body>', `${banner}</body>`) : html + banner
 }

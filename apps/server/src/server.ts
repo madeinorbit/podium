@@ -105,7 +105,7 @@ import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
 import {
-  describeBundle,
+  describeBundleDiagnostic,
   gradeWebBundle,
   servedWebIdentity,
   servedWebSourceDigest,
@@ -687,7 +687,7 @@ export async function startServer(
       liveSessionIds: () =>
         new Set(
           registry.modules.sessions
-            .listSessions()
+            .listSessions(undefined, 'steward')
             .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
             .map((s) => s.sessionId),
         ),
@@ -918,10 +918,9 @@ export async function startServer(
   const webDir = desktopWebDir()
   if (webDir) {
     registerDesktopWebStatic(app, webDir)
-    // Say it at boot as well as in the page. The person who redeploys is looking
-    // at a terminal, not at the app — POD-1610 survived a night of rebuilding
-    // because nothing on the build path ever mentioned the web dist at all.
-    const bundle = describeBundle(gradeWebBundle(webDir))
+    // Keep the build-pair grade as an operator diagnostic. The app owns the only
+    // compatibility banner; the server must never stamp a second one into HTML.
+    const bundle = describeBundleDiagnostic(gradeWebBundle(webDir))
     if (bundle) log.warn(bundle, { webDir })
   }
 

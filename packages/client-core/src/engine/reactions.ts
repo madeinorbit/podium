@@ -36,7 +36,6 @@ import {
   knownTabIds,
   knownTabIdsForWorkspace,
   referencedTabIds,
-  tabIsVisible,
   visibleTabIds,
   workspaceKeyForState,
   workspaceWritePatch,
@@ -74,6 +73,14 @@ export interface ReactionPorts {
   /** Resolved lazily: the action surface is built after this object exists. */
   readonly markSessionRead: (sessionId: SessionId) => void
   readonly markIssueRead: (issueId: IssueId) => void
+  /**
+   * IS THIS CLIENT ON SCREEN — from the platform's visibility source, not from
+   * `document` (POD-2055 WP-C4). Every read below used to go through the
+   * browser helper, which answers `true` wherever there is no document: a
+   * backgrounded phone therefore reported itself as watching (suppressing its
+   * own push) and marked rows read on a screen nobody was looking at.
+   */
+  readonly isVisible: () => boolean
   /** Test seam: overrides {@link WORKSPACE_PRUNE_GRACE_MS}. */
   readonly pruneGraceMs?: number
 }
@@ -100,6 +107,10 @@ export class Reactions {
   constructor(ports: ReactionPorts) {
     this.ports = ports
     this.pruneGraceMs = ports.pruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
+  }
+
+  private isVisible(): boolean {
+    return this.ports.isVisible()
   }
 
   /** Seed the worktree-follow diff: rows present at construction are "first
@@ -248,7 +259,7 @@ export class Reactions {
       selectedWorktree: st.selectedWorktree,
       // The same "what is on screen" walk the view-state report uses: a session
       // in a third pane is being looked at just as much as one in the first.
-      visiblePanes: tabIsVisible() ? visibleTabIds(st) : [],
+      visiblePanes: this.isVisible() ? visibleTabIds(st) : [],
     })
     if (plan.follow) this.ports.publish({ selectedWorktree: plan.follow })
     for (const move of plan.moved) {
@@ -296,7 +307,7 @@ export class Reactions {
    *  reported to nobody, and starved of relay priority. */
   reportViewState(): void {
     const st = this.ports.state()
-    const tabVisible = tabIsVisible()
+    const tabVisible = this.isVisible()
     // The dock's shell (#23) renders OUTSIDE the panes — without reporting it
     // here the server's viewVisible gate drops its resizes and the terminal
     // stays pinned to the spawn-default 80×24.
@@ -319,7 +330,7 @@ export class Reactions {
   }
 
   readonly onVisibilityChange = (): void => {
-    this.ports.hub.setVisible(tabIsVisible())
+    this.ports.hub.setVisible(this.isVisible())
     this.reportViewState()
   }
 
@@ -363,7 +374,7 @@ export class Reactions {
   private fireMarkSessionRead(sessionId: SessionId): void {
     const cur = this.ports.state()
     const s = cur.sessions.find((x) => x.sessionId === sessionId)
-    if (focusedPaneSession(cur) !== sessionId || s?.unread !== true || !tabIsVisible()) return
+    if (focusedPaneSession(cur) !== sessionId || s?.unread !== true || !this.isVisible()) return
     this.markReadFiredAt = Date.now()
     this.ports.markSessionRead(sessionId)
   }
@@ -400,7 +411,7 @@ export class Reactions {
   private fireMarkIssueRead(issueId: IssueId): void {
     const st = this.ports.state()
     const issue: IssueWire | undefined = foregroundIssue(st)
-    if (issue?.id !== issueId || !tabIsVisible()) return
+    if (issue?.id !== issueId || !this.isVisible()) return
     const activityAt = Date.parse(issueActivityAt(issue, st.sessions, st.issues))
     const readAt = issue.readAt ? Date.parse(issue.readAt) : Number.NaN
     const unread = !Number.isFinite(readAt) || (Number.isFinite(activityAt) && activityAt > readAt)

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { buildInventory, resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
+import { buildResolvedInventory } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { AccountId, HarnessAgent, Inventory } from '@podium/model'
 import { canonicalHeadlessTurnFacts, type HeadlessTurnEvent } from '@podium/protocol'
@@ -90,13 +90,18 @@ async function runHeadlessTurnRequest(
     })
     return
   }
+  const snapshot = ctx.harnessRuntime
+    ? await ctx.harnessRuntime.current()
+    : await buildResolvedInventory({
+        ...(ctx.homeDir ? { machineHome: ctx.homeDir } : {}),
+        ...(ctx.accountHome ? { credentialHome: ctx.accountHome.path } : {}),
+      })
   if (msg.toolPolicy === 'none') {
-    const inventory = await buildInventory(ctx.accountHome ? { homeDir: ctx.accountHome.path } : {})
     assertNativeHeadlessAccount({
       agent: msg.agent,
       accountId: msg.accountId,
       accountHome: ctx.accountHome,
-      inventory,
+      inventory: snapshot.inventory,
     })
   }
   const identity: HeadlessTurnIdentity = {
@@ -163,6 +168,7 @@ async function runHeadlessTurnRequest(
       ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
       ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
       env: {
+        ...snapshot.commandEnvironment.env,
         // A headless turn is always a harness (HarnessKind = AgentKind minus 'shell'),
         // so it takes the agent-identity relay [POD-1375].
         ...sessionRelayEnv(
@@ -194,14 +200,8 @@ async function runHeadlessTurnRequest(
     }
     handle =
       ctx.backend === 'abduco'
-        ? runDurableHeadlessTurn(msg.turnId, msg.sessionId, spec, emit, {
-            opencode: resolveOpencodeBin,
-            cursor: resolveCursorBin,
-          })
-        : runHeadlessTurn(spec, emit, {
-            opencode: resolveOpencodeBin,
-            cursor: resolveCursorBin,
-          })
+        ? runDurableHeadlessTurn(msg.turnId, msg.sessionId, spec, emit, snapshot)
+        : runHeadlessTurn(spec, emit, snapshot)
   } catch (err) {
     ctx.send({
       type: 'headlessTurnResult',

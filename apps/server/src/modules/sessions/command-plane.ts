@@ -232,9 +232,7 @@ export class SessionCommandCtx {
       this.deps.access,
       this.overrideScope,
     )
-    const row = this.sessions
-      .listSessions()
-      .find((candidate) => candidate.sessionId === resolved.session.sessionId)
+    const row = this.sessions.sessionById(resolved.session.sessionId)
     // Commanding an existing session is execution on the machine it lives on.
     if (row?.machineId !== undefined) this.assertMachineUse(row.machineId)
     return row ?? resolved.session

@@ -26,6 +26,7 @@ import { isFeatureEnabled } from '../../features'
 import type { SessionRow, SessionStore } from '../../store'
 import type { WriteFunnel } from '../funnel'
 import type { MemoryService } from '../memory/service'
+import { DEPLOYMENT, perf } from '../perf/registry'
 import type { SessionLedger } from './lifecycle'
 import type { SessionObservationLeases } from './observation-leases'
 export interface SessionProjectionEvent {
@@ -41,6 +42,24 @@ import type { SessionView } from './view'
 
 const log = createLogger('server:sessions')
 
+interface PendingVolatileState {
+  version: number
+  preserve: Set<SessionVolatileField>
+  issueRelevant: boolean
+  enqueuedAt: number
+}
+
+export interface VolatileSliceBudget {
+  maxItems?: number
+  maxCpuMs?: number
+  now?: () => number
+}
+
+export interface VolatileSliceResult {
+  changes: MetadataChange[]
+  remaining: number
+}
+
 export interface SessionRepositoryPorts {
   sessions: Map<SessionId, Session>
   store: SessionStore
@@ -54,6 +73,7 @@ export interface SessionRepositoryPorts {
   toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
   flushBroadcasts(): void
+  runScheduledBroadcast(): void
   listSessions(): SessionMeta[]
   now(): number
   appliedMutationMaxAgeMs: number
@@ -63,13 +83,12 @@ export class SessionRepository {
   private sessionsGeneration_ = 0
   private readonly sessionProjectionListeners = new Set<(event: SessionProjectionEvent) => void>()
   private volatileSessionMutationVersion = 0
-  private readonly pendingVolatileSessions = new Map<
-    SessionId,
-    { version: number; preserve: Set<SessionVolatileField>; issueRelevant: boolean }
-  >()
+  private readonly pendingVolatileSessions = new Map<SessionId, PendingVolatileState>()
   private readonly capturedSessionStates = new Map<SessionId, SessionDurableState>()
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly VOLATILE_CAPTURE_RETRY_MS = 1_000
+  static readonly VOLATILE_SLICE_MAX_ITEMS = 32
+  static readonly VOLATILE_SLICE_MAX_CPU_MS = 8
 
   constructor(private readonly ports: SessionRepositoryPorts) {}
 
@@ -153,6 +172,7 @@ export class SessionRepository {
       version: ++this.volatileSessionMutationVersion,
       preserve: new Set([...(previous?.preserve ?? []), ...preserve]),
       issueRelevant: (previous?.issueRelevant ?? false) || issueRelevant,
+      enqueuedAt: previous?.enqueuedAt ?? this.now(),
     })
     this.scheduleVolatileSessionCapture()
   }
@@ -162,7 +182,7 @@ export class SessionRepository {
     this.volatileSessionCaptureTimer = setTimeout(() => {
       this.volatileSessionCaptureTimer = null
       try {
-        this.ports.flushBroadcasts()
+        this.ports.runScheduledBroadcast()
       } catch (err) {
         log.warn('volatile session capture failed', { err })
       }
@@ -176,10 +196,37 @@ export class SessionRepository {
     this.volatileSessionCaptureTimer = null
   }
 
-  flushVolatileSessionCaptures(): MetadataChange[] {
-    this.clearVolatileSessionCaptureTimer()
-    if (this.pendingVolatileSessions.size === 0) return []
-    const pending = [...this.pendingVolatileSessions]
+  /** Drain a bounded prefix; budget checks happen only between candidates. */
+  drainVolatileCaptureSlice(budget: VolatileSliceBudget = {}): VolatileSliceResult {
+    const startedAt = performance.now()
+    const clock = budget.now ?? (() => performance.now())
+    const budgetStartedAt = clock()
+    const maxItems = budget.maxItems ?? SessionRepository.VOLATILE_SLICE_MAX_ITEMS
+    const maxCpuMs = budget.maxCpuMs ?? SessionRepository.VOLATILE_SLICE_MAX_CPU_MS
+    const pending: [SessionId, PendingVolatileState][] = []
+    try {
+      for (const entry of this.pendingVolatileSessions) {
+        if (pending.length >= maxItems) break
+        if (pending.length > 0 && clock() - budgetStartedAt >= maxCpuMs) break
+        pending.push(entry)
+      }
+      const changes = this.captureVolatileEntries(pending)
+      const remaining = this.pendingVolatileSessions.size
+      log.debug('drained volatile session capture slice', {
+        candidates: pending.length,
+        captured: changes.filter((change) => change.entity === 'session').length,
+        remaining,
+      })
+      return { changes, remaining }
+    } finally {
+      perf.record('phase', 'volatileCapture.slice', performance.now() - startedAt, DEPLOYMENT)
+    }
+  }
+
+  private captureVolatileEntries(
+    pending: readonly [SessionId, PendingVolatileState][],
+  ): MetadataChange[] {
+    if (pending.length === 0) return []
     const issueRelevant = pending.some(([, state]) => state.issueRelevant)
     const specs: EntityChangeSpec[] = []
     for (const [sessionId] of pending) {
@@ -209,8 +256,27 @@ export class SessionRepository {
       }
       return changes
     } catch (err) {
+      const oldestEnqueuedAt = Math.min(...pending.map(([, state]) => state.enqueuedAt))
+      perf.record('phase', 'volatileCapture.retry', 0, DEPLOYMENT)
+      log.warn('volatile session capture slice failed', {
+        sliceSize: pending.length,
+        pendingCount: this.pendingVolatileSessions.size,
+        oldestPendingAgeMs: Math.max(0, this.now() - oldestEnqueuedAt),
+        err,
+      })
       this.scheduleVolatileSessionCapture(SessionRepository.VOLATILE_CAPTURE_RETRY_MS)
       throw err
+    }
+  }
+
+  /** Synchronous dispose/test barrier: drain the complete pending set. */
+  flushVolatileSessionCaptures(): MetadataChange[] {
+    const startedAt = performance.now()
+    this.clearVolatileSessionCaptureTimer()
+    try {
+      return this.captureVolatileEntries([...this.pendingVolatileSessions])
+    } finally {
+      perf.record('phase', 'volatileCapture.barrier', performance.now() - startedAt, DEPLOYMENT)
     }
   }
 

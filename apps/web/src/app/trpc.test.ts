@@ -1,6 +1,12 @@
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { reportingFetch, trpcProcedurePath } from './trpc'
+import {
+  makeTrpc,
+  reportingFetch,
+  SERVER_UNAVAILABLE_MESSAGE,
+  ServerUnavailableError,
+  trpcProcedurePath,
+} from './trpc'
 
 /**
  * THE FAILURE SEAM every tRPC call in the web client passes through (POD-1935).
@@ -42,7 +48,7 @@ describe('trpcProcedurePath', () => {
 
 describe('reportingFetch', () => {
   it('logs a warn naming the procedure and status when the server refuses', async () => {
-    const base = vi.fn().mockResolvedValue(new Response('boom', { status: 500 }))
+    const base = vi.fn().mockResolvedValue(new Response('{"error":{}}', { status: 500 }))
     const response = await reportingFetch(base)('https://relay.test/trpc/issues.markRead?batch=1', {
       method: 'POST',
     })
@@ -54,12 +60,15 @@ describe('reportingFetch', () => {
     expect(logged[0]).toMatchObject({ path: 'issues.markRead', status: 500 })
   })
 
-  it('logs a warn and rethrows when the call never reaches the server', async () => {
+  it('logs a warn and returns a user-safe transport failure when a mutation cannot connect', async () => {
     const base = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
 
     await expect(
       reportingFetch(base)('https://relay.test/trpc/updates.fleet?batch=1', { method: 'POST' }),
-    ).rejects.toThrow('Failed to fetch')
+    ).rejects.toMatchObject({
+      code: 'SERVER_UNAVAILABLE',
+      message: SERVER_UNAVAILABLE_MESSAGE,
+    })
     expect(logged).toHaveLength(1)
     expect(logged[0]?.level).toBe('warn')
     expect(logged[0]).toMatchObject({ path: 'updates.fleet' })
@@ -78,7 +87,7 @@ describe('reportingFetch', () => {
   })
 
   it('stays silent for the logging transport, whose failures would feed themselves', async () => {
-    const base = vi.fn().mockResolvedValue(new Response('nope', { status: 500 }))
+    const base = vi.fn().mockResolvedValue(new Response('{"error":{}}', { status: 500 }))
     await reportingFetch(base, { report: false })('https://relay.test/trpc/logs.forward?batch=1', {
       method: 'POST',
     })
@@ -88,8 +97,76 @@ describe('reportingFetch', () => {
   it('never reports a logs.* failure even on a reporting client', async () => {
     // Belt and braces: the log transport builds its own client with reporting
     // off, and a caller that forgets still cannot start the loop.
-    const base = vi.fn().mockResolvedValue(new Response('nope', { status: 500 }))
+    const base = vi.fn().mockResolvedValue(new Response('{"error":{}}', { status: 500 }))
     await reportingFetch(base)('https://relay.test/trpc/logs.crash?batch=1', { method: 'POST' })
     expect(logged).toEqual([])
+  })
+
+  it.each([
+    ['empty', ''],
+    ['truncated', '[{"result":{"data":'],
+  ])('turns a 200 with an %s body into a transport failure', async (_kind, body) => {
+    const base = vi.fn().mockResolvedValue(new Response(body, { status: 200 }))
+    const trpc = makeTrpc('https://relay.test', {
+      fetch: base as typeof fetch,
+      recoveryDelaysMs: [0],
+    })
+
+    const error = await trpc.updates.checkNow.mutate().catch((cause: unknown) => cause)
+
+    expect(base).toHaveBeenCalledTimes(1)
+    expect(error).toMatchObject({ message: SERVER_UNAVAILABLE_MESSAGE })
+    expect((error as Error & { cause?: unknown }).cause).toBeInstanceOf(ServerUnavailableError)
+    expect((error as Error).message).not.toMatch(/JSON|Unexpected end/i)
+  })
+
+  it('lets the client body reader consume a successful response exactly once', async () => {
+    const bodyReader = vi.fn(async () => '[{"result":{"data":{"total":0,"behind":0}}}]')
+    const response = {
+      ok: true,
+      status: 200,
+      json: async () => JSON.parse(await bodyReader()),
+      clone: () => ({ text: bodyReader }),
+    } as unknown as Response
+    const base = vi.fn().mockResolvedValue(response)
+    const trpc = makeTrpc('https://relay.test', { fetch: base as typeof fetch })
+
+    await expect(trpc.updates.fleet.query()).resolves.toEqual({ total: 0, behind: 0 })
+    expect(bodyReader).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for readiness, then replays an interrupted idempotent query once', async () => {
+    const base = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('[{"result":{"data":{"recovered":true}}}]', { status: 200 }),
+      )
+    const trpc = makeTrpc('https://relay.test', {
+      fetch: base as typeof fetch,
+      recoveryDelaysMs: [0, 0],
+    })
+
+    await expect(trpc.updates.fleet.query()).resolves.toEqual({ recovered: true })
+    expect(base).toHaveBeenCalledTimes(4)
+    expect(base.mock.calls.map(([, init]) => init?.method)).toEqual(['GET', 'GET', 'GET', 'GET'])
+    expect(base.mock.calls[1]?.[0]).toBe('https://relay.test/readiness')
+    expect(base.mock.calls[3]?.[0]).toContain('/trpc/updates.fleet')
+  })
+
+  it('does not replay a mutation whose response was cut off', async () => {
+    const base = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
+    const trpc = makeTrpc('https://relay.test', {
+      fetch: base as typeof fetch,
+      recoveryDelaysMs: [0],
+    })
+
+    const error = await trpc.updates.checkNow.mutate().catch((cause: unknown) => cause)
+
+    expect(base).toHaveBeenCalledTimes(1)
+    expect((error as Error).message).toBe(SERVER_UNAVAILABLE_MESSAGE)
+    expect((error as Error).message).not.toMatch(/JSON|TRPCClientError/i)
   })
 })

@@ -8,14 +8,16 @@ import {
   query,
 } from '@anthropic-ai/claude-agent-sdk'
 import {
+  bindHarnessExec,
   declaredValue,
   type HarnessHeadless,
   type HeadlessExecOptions,
   harnessAdapterFor,
+  resolvedHarnessPath,
+  type ResolvedHarnessInventory,
 } from '@podium/harness'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
-import type { HarnessBins } from './harness-exec.js'
 
 const DEFAULT_TURN_TIMEOUT_MS = 600_000
 
@@ -43,6 +45,8 @@ export interface HeadlessTurnSpec {
   env?: Record<string, string>
   /** Exact durable host label for the owning instance/session. */
   durableLabel?: string
+  /** Absolute executable captured from the current generation. */
+  executablePath?: string
 }
 
 export interface HeadlessTurnOutcome {
@@ -146,6 +150,7 @@ export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
       ...(mode === 'bypassPermissions' && process.getuid?.() === 0 ? { IS_SANDBOX: '1' } : {}),
     } as Record<string, string>,
     ...(spec.model && spec.model !== 'auto' ? { model: spec.model } : {}),
+    ...(spec.executablePath ? { pathToClaudeCodeExecutable: spec.executablePath } : {}),
     ...(spec.effort && EFFORT_LEVELS.has(spec.effort)
       ? { effort: spec.effort as Options['effort'] }
       : {}),
@@ -266,13 +271,13 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
 export function buildHeadlessExec(
   agent: HarnessAgent,
   opts: HeadlessExecOptions,
-  bins: HarnessBins,
+  snapshot: ResolvedHarnessInventory,
 ): { cmd: string; args: string[]; env?: Record<string, string> } {
   const manifest = harnessAdapterFor(agent)
   const headless = manifest && declaredValue(manifest.headless)
   const buildExec = headless && declaredValue(headless.buildExec)
   if (!buildExec) throw new Error(`agent kind ${String(agent)} has no headless exec builder`)
-  return buildExec(opts, bins)
+  return bindHarnessExec(snapshot, agent, buildExec(opts))
 }
 
 function runChild<T>(
@@ -337,7 +342,11 @@ function collectStderr(child: ChildProcess): () => string {
  * handshake specifics were not. The transport is contained to this function —
  * swapping in an app-server client later changes nothing upstream.
  */
-function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnHandle {
+function runCodexTurn(
+  spec: HeadlessTurnSpec,
+  emit: HeadlessEmit,
+  snapshot: ResolvedHarnessInventory,
+): HeadlessTurnHandle {
   const {
     cmd,
     args,
@@ -355,7 +364,7 @@ function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnH
       ...(spec.toolPolicy ? { toolPolicy: spec.toolPolicy } : {}),
       ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
     },
-    { opencode: () => 'opencode', cursor: () => 'cursor-agent' },
+    snapshot,
   )
   emit({ kind: 'status', status: 'starting' })
   const { child, done } = runChild(
@@ -441,7 +450,7 @@ function headlessFor(agent: HarnessAgent): HarnessHeadless {
 function runResumeExecTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
-  bins: HarnessBins,
+  snapshot: ResolvedHarnessInventory,
 ): HeadlessTurnHandle {
   const headless = headlessFor(spec.agent)
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
@@ -459,7 +468,7 @@ function runResumeExecTurn(
 
   if (headless.outputFormat === 'opencode-jsonl') {
     // This protocol mints its own session id in the JSON event stream.
-    const { cmd, args } = buildHeadlessExec(spec.agent, common, bins)
+    const { cmd, args } = buildHeadlessExec(spec.agent, common, snapshot)
     const { child, done } = runChild(cmd, args, spec.cwd, timeoutMs, spec.env, async (child) => {
       const stderrTail = collectStderr(child)
       let sessionId = spec.resumeValue ?? ''
@@ -505,7 +514,7 @@ function runResumeExecTurn(
         sessionId = randomUUID()
       } else if (headless.resumeIdAllocation === 'create-chat') {
         const alloc = runChild(
-          bins.cursor(),
+          resolvedHarnessPath(snapshot, 'cursor'),
           ['create-chat'],
           spec.cwd,
           60_000,
@@ -524,7 +533,7 @@ function runResumeExecTurn(
         )
       }
     }
-    const { cmd, args } = buildHeadlessExec(spec.agent, { ...common, sessionId }, bins)
+    const { cmd, args } = buildHeadlessExec(spec.agent, { ...common, sessionId }, snapshot)
     const turn = runChild(cmd, args, spec.cwd, timeoutMs, spec.env, readAllStdout)
     interrupt = () => turn.child.kill('SIGKILL')
     emit({ kind: 'status', status: 'running' })
@@ -537,7 +546,7 @@ function runResumeExecTurn(
 type HeadlessDriver = (
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
-  bins: HarnessBins,
+  snapshot: ResolvedHarnessInventory,
 ) => HeadlessTurnHandle
 
 const resumeExecDriver: HeadlessDriver = runResumeExecTurn
@@ -548,8 +557,12 @@ const resumeExecDriver: HeadlessDriver = runResumeExecTurn
  *  registry, so a new agent picks its driver in its adapter file (and the
  *  registry's exhaustive Record still fails typecheck until it exists). */
 const DRIVER_IMPLS: Record<HarnessHeadless['driver'], HeadlessDriver> = {
-  'claude-sdk': (spec, emit) => runClaudeTurn(spec, emit),
-  'codex-json': (spec, emit) => runCodexTurn(spec, emit),
+  'claude-sdk': (spec, emit, snapshot) =>
+    runClaudeTurn(
+      { ...spec, executablePath: resolvedHarnessPath(snapshot, 'claude-code') },
+      emit,
+    ),
+  'codex-json': (spec, emit, snapshot) => runCodexTurn(spec, emit, snapshot),
   'resume-exec': resumeExecDriver,
 }
 
@@ -557,11 +570,11 @@ const DRIVER_IMPLS: Record<HarnessHeadless['driver'], HeadlessDriver> = {
 export function runHeadlessTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
-  bins: HarnessBins,
+  snapshot: ResolvedHarnessInventory,
 ): HeadlessTurnHandle {
   const headless = headlessFor(spec.agent)
   if (spec.toolPolicy === 'none' && headless.noTools !== 'enforced') {
     throw new Error(`harness ${spec.agent} cannot enforce a no-tools headless turn`)
   }
-  return DRIVER_IMPLS[headless.driver](spec, emit, bins)
+  return DRIVER_IMPLS[headless.driver](spec, emit, snapshot)
 }

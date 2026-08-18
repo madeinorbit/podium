@@ -62,6 +62,7 @@ import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pendin
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
+import { DaemonHarnessRuntime } from './harness-runtime'
 import { createReattachGates } from './reattach-gates'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
@@ -143,6 +144,13 @@ export async function createDaemonHostRuntime(args: {
           ambientHome: process.env.HOME || homedir(),
         })
       : undefined
+  const machineHome = opts.discovery?.homeDir ?? process.env.HOME ?? homedir()
+  const harnessRuntime = opts.launch
+    ? undefined
+    : new DaemonHarnessRuntime({
+        machineHome,
+        credentialHome: accountHome?.path ?? homeDir ?? machineHome,
+      })
   const replayPendingBindingReceipts = async (): Promise<number> => {
     let replayed = 0
     for (const owner of await bindingStore.ownersWithPendingReceipts()) {
@@ -461,6 +469,7 @@ export async function createDaemonHostRuntime(args: {
     durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instance.instanceId),
     backend,
     launch,
+    ...(harnessRuntime ? { harnessRuntime } : {}),
     settingsDir: instance.settingsDir,
     homeDir,
     ...(accountHome ? { accountHome } : {}),

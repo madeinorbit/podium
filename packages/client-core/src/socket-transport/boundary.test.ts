@@ -41,11 +41,31 @@ describe('transport ownership boundary', () => {
     expect(moduleSource).not.toMatch(/from ['"]\.\.\/replica(?:\/|['"])/)
   })
 
+  /**
+   * POD-2061 put a FEED POSITION in `hello`, and the field above is still on the
+   * forbidden list — which is the point rather than an oversight. The sink names
+   * and fills the field (`feed-hello.ts`); this class spreads what it is handed
+   * without reading it, so the two properties hold together: the wire carries a
+   * cursor, and the transport still cannot tell you what one is.
+   *
+   * Asserted as a SPREAD of an opaque local, because that is the only shape with
+   * that property. `...(x ?? {})` cannot look inside `x`; `feedCursor: x.seq`
+   * would fail the check above, but so would every honest way of writing it, and
+   * a check that only fires on the honest spellings is not a check.
+   */
+  it('spreads the feed sink hello fields without reading them', () => {
+    expect(executable).toMatch(/const helloFields = this\.wantWorld\s*\?\s*null\s*:/)
+    expect(executable).toMatch(/\.\.\.\(helloFields \?\? \{\}\)/)
+    // What the sink is told it bought is a boolean derived from PRESENCE alone.
+    expect(executable).toMatch(/this\.opts\.feed\?\.connected\(helloFields === null\)/)
+  })
+
   it.each([
     'feedDelta',
     'feedBootstrap',
     'feedRescope',
     'feedResyncRequired',
+    'feedResume',
   ] as const)('forwards %s opaquely to the Replica port', (family) => {
     expect(source).toMatch(
       new RegExp(`${family}: \\(msg\\) => \\{\\s*this\\.opts\\.feed\\?\\.frame\\(msg\\)\\s*\\}`),

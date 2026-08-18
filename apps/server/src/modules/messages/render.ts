@@ -20,6 +20,7 @@ import { deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
 import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
+import { findSessionById } from '../sessions/session-by-id'
 
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
  *  they are readable via `podium issue mail inbox`). */
@@ -138,6 +139,7 @@ export function renderEnvelope(
 export interface MessageRenderDeps {
   issues: Pick<IssueService, 'getMeta' | 'niceRef'>
   listSessions(): SessionMeta[]
+  sessionById?(sessionId: SessionId): SessionMeta | undefined
   /** Human-readable machine name for cross-machine provenance [POD-658];
    *  absent (tests) = raw machine id. */
   machineName?(id: string): string
@@ -220,9 +222,9 @@ export class MessageRenderer {
    *  zero storage. */
   private crossMachineNote(message: MessageRow, receiverSessionId?: SessionId): string | undefined {
     if (!receiverSessionId || message.fromKind !== 'agent' || !message.fromSession) return undefined
-    const sessions = this.deps.listSessions()
-    const senderMachine = sessions.find((s) => s.sessionId === message.fromSession)?.machineId
-    const receiverMachine = sessions.find((s) => s.sessionId === receiverSessionId)?.machineId
+    const find = (id: SessionId) => findSessionById(this.deps, id)
+    const senderMachine = find(message.fromSession)?.machineId
+    const receiverMachine = find(receiverSessionId)?.machineId
     if (!senderMachine || !receiverMachine || senderMachine === receiverMachine) return undefined
     const name = this.deps.machineName?.(senderMachine) ?? senderMachine
     return `[this agent runs on machine "${name}" — inspect its working tree with: podium workspace fetch ${message.fromSession}]`

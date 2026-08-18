@@ -28,7 +28,7 @@ import {
   harnessNeedsSubmitVerification,
   harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
-import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
+import { selectMailNudgeSession } from '../../issue-util'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
@@ -122,9 +122,19 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     persist: (session) => bag.repository.persist(session),
     broadcastSessions: () => bag.broadcastSessions(),
   })
+  // Emergency rollback for the bridge rollout; sampled once at composition.
+  const unslicedVolatile = process.env.PODIUM_UNSLICED_VOLATILE === '1'
   bag.broadcasts = new SessionBroadcastCoordinator({
     hasPendingVolatile: () => bag.repository.hasPendingVolatile(),
     scheduleVolatileCapture: () => bag.repository.scheduleVolatileSessionCapture(),
+    drainVolatileSlice: () => {
+      if (unslicedVolatile) {
+        bag.repository.flushVolatileSessionCaptures()
+        return { remaining: 0 }
+      }
+      const result = bag.repository.drainVolatileCaptureSlice()
+      return { remaining: result.remaining }
+    },
     flushVolatileCaptures: () => {
       bag.repository.flushVolatileSessionCaptures()
     },
@@ -222,6 +232,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     broadcastSessions: () => bag.broadcastSessions(),
     flushBroadcasts: () => bag.broadcasts.flush(),
+    runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
     listSessions: () => bag.view.list(),
     now: () => bag.now(),
     appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
@@ -607,7 +618,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.bus.on(
     'issue.mailSent',
     ({ seq, worktreePath }: { seq: number; worktreePath?: string | null }) => {
-      const members = sessionsForIssue(worktreePath ?? null, bag.listSessions())
+      const members = bag.view.listForIssue(worktreePath ?? null, undefined)
       const target = selectMailNudgeSession(members)
       if (!target) return
       const text = `You have mail on issue #${seq}: run 'podium issue mail inbox' (claim with 'podium issue mail claim <id>' only if you will act on it).`

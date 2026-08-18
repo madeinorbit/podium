@@ -1,30 +1,29 @@
 /**
- * THE GATE THAT FIRES FOR A BUNDLE THAT PREDATES EVERY CLIENT-SIDE CHECK (POD-1610).
- *
- * Both directions are pinned, and the negative one matters most: a skew detector
- * that fires on a healthy pair is worse than none, because the first thing people
- * do with a banner they have seen on a working system is stop reading banners.
+ * The server keeps grading the served bundle as an operator diagnostic, while
+ * the static route must return index.html without turning that grade into UI.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BUILD_STAMP_FILE, wireSchemaDigest } from '@podium/protocol'
+import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  describeBundle,
+  describeBundleDiagnostic,
   gradeWebBundle,
-  injectBundleWarning,
   readWebBuildStamp,
   servedWebIdentity,
   servedWebSourceDigest,
 } from './web-bundle-stamp'
+import { registerDesktopWebStatic } from './static-web'
 
 let dir: string
 
+const INDEX_HTML = '<html><body><div id="root">app</div></body></html>'
 const stamp = (body: unknown) =>
   writeFileSync(join(dir, BUILD_STAMP_FILE), JSON.stringify(body), 'utf8')
-const buildDist = () => writeFileSync(join(dir, 'index.html'), '<html><body>app</body></html>')
+const buildDist = () => writeFileSync(join(dir, 'index.html'), INDEX_HTML)
 
 beforeEach(() => {
   // A fresh directory per case: `gradeWebBundle` caches its verdict per webDir on
@@ -40,24 +39,21 @@ describe('grading a served dist', () => {
     stamp({ wireSchemaDigest: wireSchemaDigest(), wireVersion: 2, builtAt: '2026-08-03T00:00:00Z' })
     const status = gradeWebBundle(dir)
     expect(status.grade).toBe('ok')
-    expect(describeBundle(status)).toBeNull()
-    expect(injectBundleWarning('<html><body>app</body></html>', status)).toBe(
-      '<html><body>app</body></html>',
-    )
+    expect(describeBundleDiagnostic(status)).toBeNull()
   })
 
-  it('calls a mismatched pair stale and gives the user a recovery action', () => {
+  it('calls a mismatched pair stale and gives the operator a diagnostic', () => {
     buildDist()
     stamp({ wireSchemaDigest: 'deadbeefdeadbeef', builtAt: '2026-07-31T23:17:00Z' })
     const status = gradeWebBundle(dir)
     expect(status.grade).toBe('stale')
     expect(status.bundleDigest).toBe('deadbeefdeadbeef')
     expect(status.serverDigest).toBe(wireSchemaDigest())
-    const message = describeBundle(status) ?? ''
-    expect(message).toContain('different app builds')
-    expect(message).toContain('Repair and reload')
-    expect(message).not.toContain('bun run')
-    expect(message).not.toContain('deadbeef')
+    const diagnostic = describeBundleDiagnostic(status) ?? ''
+    expect(diagnostic).toContain('wire-schema digest differs')
+    expect(diagnostic).toContain('rebuild the web bundle or restart the server')
+    expect(diagnostic).not.toContain('Repair and reload')
+    expect(diagnostic).not.toContain('deadbeef')
   })
 
   it('refuses to certify a dist with NO stamp — the pre-fix artefact', () => {
@@ -65,7 +61,7 @@ describe('grading a served dist', () => {
     // cannot be checked, and "cannot be checked" must not read as "fine".
     buildDist()
     expect(gradeWebBundle(dir).grade).toBe('unstamped')
-    expect(describeBundle(gradeWebBundle(dir))).toContain('cannot verify')
+    expect(describeBundleDiagnostic(gradeWebBundle(dir))).toContain('cannot be verified')
   })
 
   it('treats a corrupt stamp as unstamped, never as ok', () => {
@@ -83,7 +79,7 @@ describe('grading a served dist', () => {
   it('says nothing at all when there is no dist — a source run is not a defect', () => {
     const status = gradeWebBundle(dir)
     expect(status.grade).toBe('absent')
-    expect(describeBundle(status)).toBeNull()
+    expect(describeBundleDiagnostic(status)).toBeNull()
   })
 
   it('reads the source SHA without letting it change the compatibility grade', () => {
@@ -110,9 +106,23 @@ describe('grading a served dist', () => {
     buildDist()
     stamp({ wireSchemaDigest: 'deadbeefdeadbeef' })
     expect(gradeWebBundle(dir).grade).toBe('stale')
-    // A rebuild while the server runs must clear the warning without a restart.
+    // A rebuild while the server runs must clear the diagnostic without a restart.
     stamp({ wireSchemaDigest: wireSchemaDigest(), builtAt: '2026-08-03T12:00:00Z' })
     expect(gradeWebBundle(dir).grade).toBe('ok')
+  })
+
+  it('serves a stale bundle without injecting any bundle-warning markup', async () => {
+    buildDist()
+    stamp({ wireSchemaDigest: 'deadbeefdeadbeef' })
+    expect(gradeWebBundle(dir).grade).toBe('stale')
+
+    const app = new Hono()
+    registerDesktopWebStatic(app, dir)
+    const html = await (await app.request('/')).text()
+
+    expect(html).toBe(INDEX_HTML)
+    expect(html).not.toContain('role="alert"')
+    expect(html).not.toContain('Repair and reload')
   })
 })
 
@@ -159,33 +169,5 @@ describe('what a served website says about its checkout', () => {
       appVersion: 'dev+47a01e3',
       digest: '47a01e3',
     })
-  })
-})
-
-describe('the warning reaches a bundle that cannot warn about itself', () => {
-  const stale = {
-    grade: 'stale' as const,
-    bundleDigest: 'deadbeefdeadbeef',
-    serverDigest: wireSchemaDigest(),
-  }
-
-  it('injects visible markup before </body>', () => {
-    const html = injectBundleWarning('<html><body><div id="root"></div></body></html>', stale)
-    expect(html).toContain('role="alert"')
-    expect(html).toContain('needs to finish updating')
-    expect(html.indexOf('role="alert"')).toBeLessThan(html.indexOf('</body>'))
-  })
-
-  it('appends when there is no </body> to find', () => {
-    expect(injectBundleWarning('<div id="root"></div>', stale)).toContain('role="alert"')
-  })
-
-  it('escapes what it read off disk — a file is never markup', () => {
-    const html = injectBundleWarning('<html><body></body></html>', {
-      ...stale,
-      bundleDigest: '<script>alert(1)</script>',
-    })
-    expect(html).not.toContain('<script>')
-    expect(html).not.toContain('alert(1)')
   })
 })

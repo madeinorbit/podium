@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
 import { SetupGate } from '@/features/setup/SetupGate'
 import { startWebLogging } from '@/lib/logging'
+import { AppStarted } from './AppStarted'
 import { AppShell } from './AppShell'
 import '@/index.css'
 import '@/styles.css'
@@ -29,6 +30,7 @@ const showMotionDemo = params.get('e2e') === '1' && params.get('motion-demo') ==
 if (!redirectPhoneToMobileApp()) {
   createRoot(root).render(
     <StrictMode>
+      <AppStarted />
       <ThemeProvider>
         {/* OUTSIDE every gate (POD-1610). The boot check raises its notice before
             login or setup resolve, and a build that cannot read the server is

@@ -411,29 +411,19 @@ describe('row subscriptions', () => {
   })
 })
 
-describe('the outbox seam is injectable, and defaults to the side cache', () => {
-  const stub = (tag: string) => ({ load: () => [{ mutationId: tag }] as never[], save: () => {} })
-
-  it('uses an injected outbox when one is supplied — mobile lands the queue in SQLite', () => {
-    const cache = new FakeCache()
-    const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
-    const replica = createKernelReplica({
-      cache,
-      side,
-      outbox: { queued: stub('injected-queued'), awaiting: stub('injected-awaiting') },
-    })
-    expect(replica.outboxStorage().load()).toEqual([
-      { mutationId: asMutationId('injected-queued') },
-    ])
-    expect(replica.outboxAwaitingStorage().load()).toEqual([
-      { mutationId: asMutationId('injected-awaiting') },
-    ])
-  })
-
-  it('falls back to the side cache when none is — web behaviour is UNCHANGED', () => {
-    // The counterfactual for the case above, and the reason the field is
-    // optional: giving mobile a correct placement must not silently move web's
-    // queue in the same commit.
+describe('the outbox seams are the SIDE CACHE, on every platform', () => {
+  it('reads the side cache, because there is nothing else left to read', () => {
+    // This used to be one half of a pair: an INJECTED `init.outbox` (mobile's
+    // views over its SQLite outbox rows) against this side-cache fallback
+    // (web). POD-2073 deleted the injected half — both platforms now run the
+    // kernel `Outbox` over `OutboxStorePort`, which owns those records, and a
+    // second `OutboxStorage` driver over them was the two-writer arrangement
+    // this facade's header rules out.
+    //
+    // So the surviving case is no longer a "fallback": these three seams belong
+    // to the compatibility `Outbox` and resolve to the side cache, always. A
+    // future edit that reintroduces a store-backed injection here should read
+    // the header before this test goes green again.
     const cache = new FakeCache()
     const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
     side

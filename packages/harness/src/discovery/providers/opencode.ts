@@ -1,7 +1,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { opencodePartToItems } from '@podium/transcript'
-import { isOpencodeCliAvailable } from '../../opencode/cli.js'
 import {
   listOpencodeSessions,
   loadOpencodeMessageParts,
@@ -54,16 +53,6 @@ async function scanRoot(root: string): Promise<ProviderScanResult> {
 
 async function listRoot(root: string): Promise<ProviderRootListing> {
   const diagnostics: AgentConversationDiagnostic[] = []
-  if (!isOpencodeCliAvailable()) {
-    diagnostics.push({
-      severity: 'warning',
-      providerId,
-      root,
-      message: 'opencode CLI is not installed or not on PATH',
-    })
-    return { files: [], diagnostics }
-  }
-
   const dbPath = join(root, 'opencode.db')
   if (!(await pathExists(dbPath))) {
     return { files: [], diagnostics }

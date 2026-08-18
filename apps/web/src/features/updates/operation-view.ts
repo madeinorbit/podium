@@ -180,8 +180,8 @@ export interface ActionError {
 }
 
 export interface OperationViewInput {
-  /** The server's operation, parsed. `null` is the ordinary answer. */
-  operation: Operation | null
+  /** `undefined` until read; `null` is the server's ordinary "none" answer. */
+  operation: Operation | null | undefined
   /** The offer surface, when no operation exists yet (§6.2.1). */
   offer: UpdateView | null
   local: LocalFacts
@@ -707,6 +707,11 @@ export function operationView(input: OperationViewInput): UpdatePanelView {
 
 function computeView(input: OperationViewInput): UpdatePanelView {
   const operation = input.operation
+
+  // A cold page has not established that no operation exists yet. Silence is
+  // the only honest view until that first fact arrives: an offer here could be
+  // an invitation to start work the server is already doing.
+  if (operation === undefined) return noneView()
 
   if (input.actionError?.code === 'PRECONDITION_FAILED') {
     const version =

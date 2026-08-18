@@ -21,12 +21,21 @@
  */
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
-import type { IssueId, SessionId, SessionMeta, UserId, MachineId, AccountId, ThreadId } from '@podium/model'
+import type {
+  IssueId,
+  SessionId,
+  SessionMeta,
+  UserId,
+  MachineId,
+  AccountId,
+  ThreadId,
+} from '@podium/model'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
 import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
+import { findSessionById } from '../sessions/session-by-id'
 import {
   type MachineAccess,
   MailAccess,
@@ -235,14 +244,11 @@ export class MessageGate {
     deliveryMode?: MailDeliveryMode,
   ): Promise<unknown> | undefined {
     if (!isMailProcExposedOn(proc, transport)) return undefined
-    const sessions = this.deps.listSessions()
     const principal =
       this.principalForCapability?.(capability) ??
       resolvePrincipal(capability, {
         parentSessionOf: (sessionId) =>
-          spawnedByParentSessionId(
-            sessions.find((session) => session.sessionId === sessionId)?.spawnedBy,
-          ),
+          spawnedByParentSessionId(findSessionById(this.deps, sessionId)?.spawnedBy),
       })
     const policy = this.policyFor?.(principal)
     const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access

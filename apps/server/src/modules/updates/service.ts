@@ -178,7 +178,7 @@ export class UpdatesService {
   private readonly pendingGrants = new Map<string, PendingGrant>()
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
   /** One shared resolve per channel, for EVERY caller of `refreshTarget` (POD-2153). */
-  private readonly refreshesInFlight = new Map<UpdateChannel, Promise<void>>()
+  private readonly refreshesInFlight = new Map<UpdateChannel, Promise<boolean>>()
   /** Versions published while an exclusive operation held the group (§3.2). */
   private readonly nextTargets = new Map<UpdateChannel, UpdateTarget>()
 
@@ -358,7 +358,7 @@ export class UpdatesService {
    * one promise per channel removes the overlap that makes the ordering question
    * exist at all, so the guard cannot be reintroduced by adding a seventh caller.
    */
-  refreshTarget(channel: UpdateChannel): Promise<void> {
+  refreshTarget(channel: UpdateChannel): Promise<boolean> {
     const inFlight = this.refreshesInFlight.get(channel)
     if (inFlight) return inFlight
 
@@ -374,7 +374,8 @@ export class UpdatesService {
     return refresh
   }
 
-  private async resolveIntoTarget(channel: UpdateChannel): Promise<void> {
+  /** True only when this attempt resolved a complete, current target. */
+  private async resolveIntoTarget(channel: UpdateChannel): Promise<boolean> {
     if (channel === 'dev') {
       // Dev is publisher-pushed, so "refreshing" it is only ever a report on what
       // the source server has already published.
@@ -382,16 +383,16 @@ export class UpdatesService {
       if (!this.target('dev')) {
         this.unavailableReasons.set('dev', reason)
         this.recordCheck('dev', { status: 'unavailable', reason })
-        return
+        return false
       }
       this.recordCheck('dev', { status: 'ok' })
-      return
+      return true
     }
     if (!this.deps.resolveTarget) {
       const reason = `${channel} target resolver is not configured.`
       this.unavailableReasons.set(channel, reason)
       this.recordCheck(channel, { status: 'unavailable', reason })
-      return
+      return false
     }
     try {
       // setTarget clears any recorded unavailable reason, which is what stops a
@@ -399,6 +400,7 @@ export class UpdatesService {
       // life of the process.
       this.setTarget(channel, await this.deps.resolveTarget(channel))
       this.recordCheck(channel, { status: 'ok' })
+      return true
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       // The reason shown to clients describes the ABSENCE of a target, so a
@@ -407,6 +409,7 @@ export class UpdatesService {
       // different questions and this is where they stopped being one.
       if (!this.target(channel)) this.unavailableReasons.set(channel, reason)
       this.recordCheck(channel, { status: 'unavailable', reason })
+      return false
     }
   }
 

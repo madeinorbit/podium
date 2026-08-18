@@ -42,21 +42,19 @@ it('layers harness env over managed env while preserving Podium-owned bindings',
   })
 })
 
-it('makes unattended user-installed harnesses executable for detached daemons', () => {
+it('preserves the command environment supplied by the centralized runtime', () => {
   const env = spawnEnv({
     sessionEnv: { PATH: '/managed/bin:/usr/bin' },
     podiumEnv: { HOME: '/root', PODIUM_SESSION_ID: 's1' },
   })
-  expect(env.PATH).toBe('/root/.local/bin:/root/.bun/bin:/root/.opencode/bin:/managed/bin:/usr/bin')
+  expect(env.PATH).toBe('/managed/bin:/usr/bin')
 })
 
-it('deduplicates a user harness directory already present in PATH', () => {
+it('does not reinterpret PATH from a credential HOME', () => {
   const env = spawnEnv({
     podiumEnv: { HOME: '/home/tester', PATH: '/home/tester/.local/bin:/usr/bin' },
   })
-  expect(env.PATH).toBe(
-    '/home/tester/.local/bin:/home/tester/.bun/bin:/home/tester/.opencode/bin:/usr/bin',
-  )
+  expect(env.PATH).toBe('/home/tester/.local/bin:/usr/bin')
 })
 
 it('materializes nested ephemeral launch files with owner-only permissions', () => {

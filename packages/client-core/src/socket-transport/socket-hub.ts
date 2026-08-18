@@ -45,6 +45,8 @@ import {
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
+import type { FeedHelloFields } from './feed-hello'
+import { createFeedTaskScheduler, type FeedTaskScheduler } from './feed-scheduler'
 import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
 import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
 
@@ -168,8 +170,25 @@ export interface SocketHubOptions {
    * Schedule one feed envelope. Production uses a macrotask so the
    * browser can service input and paint between bootstrap chunks; tests may
    * inject a deterministic scheduler.
+   *
+   * The default is NOT a timer — see {@link createFeedTaskScheduler}. A hidden
+   * tab clamps `setTimeout` to ≥1 s, which used to throttle this whole queue to
+   * one frame per second (POD-2058 F6).
    */
   scheduleFeedTask?: (task: () => void) => void
+  /**
+   * Liveness ping cadence. Default {@link HEARTBEAT_INTERVAL_MS} (2.5 s) — the
+   * web value, which is deliberately fast because each ping doubles as this
+   * client's latency probe.
+   *
+   * Mobile native passes 10 s (POD-2055 WP-C5). Its foreground is the only time
+   * the hub runs at all now (see {@link SocketHub.suspend}), and on a phone the
+   * pings are radio wake-ups; the cost of the slower cadence is a half-open
+   * connection detected in ≤20 s rather than ≤12.5 s, which is the right trade
+   * where the alternative is spending battery to notice a socket the OS is
+   * about to kill anyway.
+   */
+  heartbeatIntervalMs?: number
 }
 
 /** The frames the v2 wire carries. Narrowed off the parsed union rather than
@@ -179,7 +198,7 @@ export interface SocketHubOptions {
  *  the whole frame. */
 export type FeedServerFrame = Extract<
   ServerMessageLenient,
-  { type: 'feedDelta' | 'feedBootstrap' | 'feedRescope' | 'feedResyncRequired' }
+  { type: 'feedDelta' | 'feedBootstrap' | 'feedRescope' | 'feedResyncRequired' | 'feedResume' }
 >
 
 /** Main-thread budgets for the safe, pre-worker feed boundary. */
@@ -236,9 +255,10 @@ export interface FeedBudgetSnapshot {
  * simply falls through to the existing synchronous parser.
  */
 function feedFrameTypeHint(raw: string): FeedServerFrame['type'] | null {
-  const match = /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedBootstrap|feedRescope|feedResyncRequired)"/.exec(
-    raw,
-  )
+  const match =
+    /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedBootstrap|feedRescope|feedResyncRequired|feedResume)"/.exec(
+      raw,
+    )
   return (match?.[1] as FeedServerFrame['type'] | undefined) ?? null
 }
 
@@ -254,8 +274,28 @@ function feedFrameTypeHint(raw: string): FeedServerFrame['type'] | null {
  * polling `hub.connected` would enter it late, at a different moment than frames stop.
  */
 export interface FeedSinkPort {
-  /** The socket is open and `hello` has advertised the wire version. */
-  connected(): void
+  /**
+   * The sink's own `hello` fields, or null when it holds no resumable position
+   * (POD-2061). Read ONCE per connection, immediately before `hello` is sent.
+   *
+   * AN OPAQUE FRAGMENT, AND THAT IS THE LAYERING. The transport must not learn
+   * what a feed position is — `boundary.test.ts` asserts that as a source
+   * property, and it is the same rule the two lifecycle calls below already
+   * obey. So the sink names the wire field and fills it; this class only decides
+   * WHETHER to ask (see `requestFreshWorld`) and spreads what it gets. A hub
+   * that read `.seq` here would be the second place the D7 ladder lives.
+   */
+  helloFields(): FeedHelloFields | null
+  /**
+   * The socket is open and `hello` has advertised the wire version.
+   *
+   * `worldPromised` is what this connection's `hello` bought: true when no
+   * position was presented, which is the pre-POD-2061 contract — the server
+   * serves every such connection one initial world, and a walk may wait for it.
+   * False when a position WAS presented: the server may answer with a resume
+   * grant instead, so nothing here may promise a world that is not coming.
+   */
+  connected(worldPromised: boolean): void
   /** The socket ended. The replica holds its last-known slice, marked stale. */
   disconnected(): void
   /** One frame, in arrival order. Order IS the correctness property (ADR 2 D9). */
@@ -465,6 +505,9 @@ export class SocketHub {
   private readonly makeSocket: (url: string) => WebSocketLike
   private readonly legacyFeed: LegacyFeedSinkPort | undefined
   private readonly scheduleFeedTask: (task: () => void) => void
+  /** Only set when this hub built its own scheduler — an injected one belongs to
+   *  the caller and is not this class's to tear down. */
+  private readonly ownFeedScheduler: FeedTaskScheduler | undefined
   private readonly subscriptionRegistry: ClientSubscriptionRegistry
   private readonly feedIngressQueue: Array<{
     raw: string
@@ -519,9 +562,40 @@ export class SocketHub {
   /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
   private userReadPositionList: ReadPositionWire[] = []
   private intentionalClose = false
+  /**
+   * A world was ASKED FOR, so the next `hello` must not resume (POD-2061).
+   *
+   * Set by {@link requestFreshWorld} and consumed by the next `onopen`. Without
+   * it the socket that a re-bootstrap replaces would present a position, the
+   * server would answer "resumed, no world", and the walk that asked for the
+   * world would wait out its timeout — the one posture ADR 2 D7 never permits,
+   * reintroduced by the optimisation that is supposed to be invisible to it.
+   *
+   * A LATCH AND NOT A COUNTER: two requests before one socket opens still mean
+   * one world, and the walk consumes exactly one.
+   */
+  private wantWorld = false
+  /**
+   * THE CLOSE THAT IS NOT MEANT TO COME BACK.
+   *
+   * `intentionalClose` says "this socket ended on purpose, do not reconnect it",
+   * and since POD-2055 two different callers say it: {@link dispose} (the
+   * runtime is going away) and {@link suspend} (the phone was backgrounded and
+   * WILL be foregrounded). Only the second one is allowed to be undone by
+   * {@link connectNow}, so the distinction gets its own flag rather than being
+   * inferred. Cleared by {@link connect}, which is how a re-started runtime
+   * (React StrictMode's dispose/re-arm) becomes live again.
+   */
+  private disposed = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  /** The jittered delay the pending reconnect timer was armed with, so the close
+   *  log and the attempt log report the same number. */
+  private pendingRetryMs = RECONNECT_MIN_MS
+  /** Whether the CURRENT socket has delivered anything. Resets per connection:
+   *  it is what licenses the backoff reset (see `markAlive`). */
+  private sawTraffic = false
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined
   private heartbeatDeadline: ReturnType<typeof setTimeout> | undefined
   /** Send time of each unanswered ping, oldest first. Pongs arrive in ping order. */
@@ -583,7 +657,14 @@ export class SocketHub {
     )
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
     this.legacyFeed = opts.legacyFeed
-    this.scheduleFeedTask = opts.scheduleFeedTask ?? ((task) => setTimeout(task, 0))
+    if (opts.scheduleFeedTask !== undefined) {
+      this.ownFeedScheduler = undefined
+      this.scheduleFeedTask = opts.scheduleFeedTask
+    } else {
+      const scheduler = createFeedTaskScheduler()
+      this.ownFeedScheduler = scheduler
+      this.scheduleFeedTask = (task) => scheduler.schedule(task)
+    }
     this.legacyFeed?.bind({
       apply: (changes) => this.applyChanges(changes),
       replace: (projection) => this.replaceMetadataSnapshot(projection),
@@ -620,6 +701,8 @@ export class SocketHub {
     let opened = false
     let reportedError = false
     this.intentionalClose = false
+    this.sawTraffic = false
+    this.disposed = false
     this.socket = socket
     socket.onopen = () => {
       opened = true
@@ -629,8 +712,15 @@ export class SocketHub {
       log.info('socket connected', { reconnect: this.everConnected })
       this.connectedFlag = true
       this.everConnected = true
-      this.reconnectDelay = RECONNECT_MIN_MS
+      // The backoff is NOT reset here — see `markAlive`. A TCP accept is not
+      // evidence that the server works.
       this.startHeartbeat()
+      // WHAT THIS CONNECTION ASKS FOR, decided before `hello` is built and used
+      // twice below: once as the fields it carries, once as what the sink is told
+      // it bought. Reading it twice could not stay consistent — `wantWorld` is
+      // consumed here, so a second read would see a different answer.
+      const helloFields = this.wantWorld ? null : (this.opts.feed?.helloFields() ?? null)
+      this.wantWorld = false
       this.sendRaw({
         type: 'hello',
         clientId: this.clientIdValue,
@@ -656,6 +746,11 @@ export class SocketHub {
         // with no feed sink must keep saying nothing rather than announcing a
         // version it has nowhere to put.
         ...(this.opts.feed ? { wireVersion: WIRE_VERSION } : {}),
+        // WHERE THIS REPLICA STANDS (POD-2061), filled by the sink and spread
+        // unread — see `FeedSinkPort.helloFields`. Present, and the server may
+        // answer with a resume grant and no world; absent, and this is exactly
+        // the pre-POD-2061 connection, which is what a fresh-world request wants.
+        ...(helloFields ?? {}),
         // HOW THIS CLIENT NAMES ITSELF to an operator (POD-1920). Read from the
         // logger's process context rather than taken as a hub option, because
         // that context is what stamps the records the server files under this
@@ -666,7 +761,10 @@ export class SocketHub {
         ...(clientLogOrigin() ?? {}),
       })
       // Start both opaque feed sinks before restoring attaches and presence.
-      this.opts.feed?.connected()
+      // A world is promised iff this connection presented nothing to resume from:
+      // the server serves such a connection its world unconditionally, and that
+      // promise is what a cold walk waits on instead of cycling the socket.
+      this.opts.feed?.connected(helloFields === null)
       // The legacy adapter independently decides whether and how to catch up.
       this.legacyFeed?.connected()
       // Re-attach with a resume cursor: the view survived the drop, so ask the
@@ -737,12 +835,6 @@ export class SocketHub {
 
   /** Common teardown for any socket end: from onclose or a heartbeat force-close. */
   private onSocketClosed(): void {
-    if (!this.intentionalClose) {
-      // `warn`, so it forwards at the client's default threshold: a client that
-      // keeps losing its socket is the thing an operator most wants to see from
-      // the outside, and it is invisible in the server's own logs.
-      log.warn('socket closed — reconnecting', { retryInMs: this.reconnectDelay })
-    }
     this.stopHeartbeat()
     this.connectedFlag = false
     this.socket = undefined
@@ -756,19 +848,62 @@ export class SocketHub {
     this.legacyFeed?.disconnected()
     this.notifyConnections()
     if (!this.intentionalClose) this.evaluateHealth()
-    if (!this.intentionalClose) this.scheduleReconnect()
+    if (!this.intentionalClose) {
+      const retryInMs = this.scheduleReconnect()
+      // `warn`, so it forwards at the client's default threshold: a client that
+      // keeps losing its socket is the thing an operator most wants to see from
+      // the outside, and it is invisible in the server's own logs. Logged AFTER
+      // scheduling so it reports the delay actually armed, jitter included.
+      log.warn('socket closed — reconnecting', { retryInMs })
+    }
   }
 
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer !== undefined) return
+  /** Arms the next attempt and returns the delay it will fire after (the
+   *  already-pending one when a timer is armed — this is called from every close
+   *  path, including a force-close that lands on top of a scheduled retry). */
+  private scheduleReconnect(): number {
+    if (this.reconnectTimer !== undefined) return this.pendingRetryMs
+    const base = this.reconnectDelay
+    // [base/2, base). A fleet that lost the same server in the same second must
+    // not come back in lockstep — the same reason the log forwarder jitters its
+    // retries (`logging/forward-sink.ts`). Without this a server restart brings
+    // every client back at 0.5/1/2/4/8/10s together, each paying a hello, an
+    // attach fan-out and a world.
+    const jittered = Math.floor(base / 2 + Math.random() * (base / 2))
+    this.pendingRetryMs = jittered
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined
       // `debug`: one line per attempt is flight-recorder context, not something
       // an operator wants forwarded during an hour-long outage.
-      log.debug('reconnecting', { afterMs: this.reconnectDelay })
+      log.debug('reconnecting', { afterMs: jittered })
       this.connect()
-    }, this.reconnectDelay)
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS)
+    }, jittered)
+    this.reconnectDelay = Math.min(base * 2, RECONNECT_MAX_MS)
+    return jittered
+  }
+
+  /**
+   * Out-of-band evidence the network is back (the browser's `online` event, an
+   * app returning to the foreground): skip the remaining backoff and try now.
+   *
+   * The `socket !== undefined` guard is load-bearing — `connect()` while a
+   * CONNECTING socket exists would otherwise be asked for a second socket, and a
+   * foregrounded tab can deliver both signals within the same tick.
+   *
+   * The second guard is `disposed`, NOT `intentionalClose` (POD-2062): both say
+   * "this socket ended on purpose", and only one of them is meant to stay ended.
+   * A backgrounded phone is closed on purpose by {@link suspend} and is exactly
+   * the case this must undo, so refusing every intentional close would leave it
+   * offline until something else called `connect()`.
+   */
+  connectNow(): void {
+    if (this.socket !== undefined || this.disposed) return
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    this.reconnectDelay = RECONNECT_MIN_MS
+    this.connect()
   }
 
   private startHeartbeat(): void {
@@ -777,7 +912,10 @@ export class SocketHub {
     // a reconnect, confirms the server is actually answering — an open socket alone
     // already cleared the indicator, and this verifies that optimism within ~1.5s.
     this.sendPing()
-    this.heartbeatTimer = setInterval(() => this.sendPing(), HEARTBEAT_INTERVAL_MS)
+    this.heartbeatTimer = setInterval(
+      () => this.sendPing(),
+      this.opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
+    )
   }
 
   private sendPing(): void {
@@ -822,6 +960,14 @@ export class SocketHub {
 
   /** Any inbound traffic proves the connection is alive; clear the ping deadline. */
   private markAlive(): void {
+    if (!this.sawTraffic) {
+      this.sawTraffic = true
+      // THE BACKOFF RESETS HERE, not on TCP open: a server that accepts and then
+      // drops — an auth bounce, a half-deployed proxy — would otherwise reset the
+      // delay on every cycle and hammer it at 500ms forever. One inbound frame is
+      // the cheapest evidence that the thing on the other end actually serves.
+      this.reconnectDelay = RECONNECT_MIN_MS
+    }
     if (this.heartbeatDeadline === undefined) return
     clearTimeout(this.heartbeatDeadline)
     this.heartbeatDeadline = undefined
@@ -878,9 +1024,41 @@ export class SocketHub {
    * the intentional-shutdown path, or nothing would reopen.
    */
   requestFreshWorld(): void {
+    // BEFORE the guard, deliberately. The flag says what the NEXT connection must
+    // ask for, and a caller that asked while the socket was already gone wants
+    // exactly the same thing from the reconnect that is already scheduled.
+    this.wantWorld = true
     if (this.socket === undefined) return
     this.forceClose()
     this.scheduleReconnect()
+  }
+
+  /**
+   * THE APP LEFT THE FOREGROUND (POD-2055 WP-C3). Stop being a client until it
+   * comes back: heartbeat off, reconnect timer cleared, socket closed on
+   * purpose.
+   *
+   * This is NOT {@link dispose}. The runtime, the replica and every
+   * subscription survive; only the transport goes quiet, and {@link connectNow}
+   * brings it back on foreground.
+   *
+   * Ordering is the caller's, and it matters: whatever the client wants the
+   * server to KNOW about going away — above all `setVisible(false)`, which is
+   * what un-suppresses ntfy/Telegram push for this person — must be sent before
+   * this runs, because this closes the socket those frames would have left on.
+   */
+  suspend(): void {
+    this.intentionalClose = true
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    // Detach-then-close-then-teardown, as `forceClose` does: a real WebSocket
+    // delivers `onclose` on its own schedule, and a backgrounded process may not
+    // be scheduled again for minutes. The teardown (heartbeat off, sink told it
+    // is disconnected) has to be true the moment the app is backgrounded, not
+    // whenever the platform gets round to it.
+    this.forceClose()
   }
 
   attach(sessionId: SessionId, cb: SessionCallbacks = {}): SessionConnection {
@@ -1383,6 +1561,7 @@ export class SocketHub {
 
   dispose(): void {
     this.intentionalClose = true
+    this.disposed = true
     if (this.reconnectTimer !== undefined) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
@@ -1391,6 +1570,12 @@ export class SocketHub {
     this.socket?.close()
     this.socket = undefined
     this.clearFeedIngress()
+    // The MessageChannel this hub owns (POD-2058) closes with the hub, beside
+    // `legacyFeed` below. Not inside `clearFeedIngress`: that helper also runs
+    // on the backlog resync, which clears the queue and keeps draining, and a
+    // scheduler disposed there would leave the next frame with nothing to wake
+    // it.
+    this.ownFeedScheduler?.dispose()
     this.connectedFlag = false
     this.inputQueue.length = 0
     this.preOpenQueue.length = 0
@@ -1621,6 +1806,9 @@ export class SocketHub {
       this.opts.feed?.frame(msg)
     },
     feedResyncRequired: (msg) => {
+      this.opts.feed?.frame(msg)
+    },
+    feedResume: (msg) => {
       this.opts.feed?.frame(msg)
     },
     presenceRoomState: (msg) => {

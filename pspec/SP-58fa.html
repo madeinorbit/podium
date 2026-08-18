@@ -1,0 +1,7 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-58fa] -->
+<section data-spec="SP-58fa" data-title="Harness executable environment" data-parent="SP-root" data-order="31" data-status="active" data-updated="1787002301162">
+<h2>Harness executable environment</h2>
+<p>The daemon owns one immutable, generation-tagged command environment. It recovers PATH only for <code>PODIUM_DESKTOP_SUPERVISED=1</code>, resolves and verifies each harness once, and reuses that exact absolute executable and PATH for inventory, login, interactive, exec, headless, model, and quota operations.</p>
+<p><code>@podium/runtime</code> owns OS command recovery, <code>@podium/harness</code> owns declarations and commandless invocations, and adapters retain only provider arguments and credential rules. Machine binary home and credential home stay separate. Refresh atomically replaces generations and stale inventory completions are discarded.</p>
+<p>Acceptance combines hermetic race and boundary tests, an opt-in two-shell Linux Docker smoke, and one manual Finder/Homebrew check on macOS.</p>
+</section>

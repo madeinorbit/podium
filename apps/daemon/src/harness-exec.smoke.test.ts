@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildHarnessExec, type HarnessBins } from './harness-exec.js'
+import { buildHarnessExec } from './harness-exec.js'
 
 /**
  * REAL-BINARY smoke test (#84 post-mortem): the variadic --allowedTools bug
@@ -23,7 +23,6 @@ const hasClaude = ((): boolean => {
   }
 })()
 
-const bins: HarnessBins = { opencode: () => 'opencode', cursor: () => 'cursor' }
 
 describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasClaude)(
   '[real-agent:claude] real claude binary smoke (issue #84)',
@@ -41,7 +40,6 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasClaude)(
             mcpConfigPath,
             allowedTools: ['Read', 'Grep'],
           },
-          bins,
         )
         const started = Date.now()
         const { code, stdout, stderr } = await new Promise<{

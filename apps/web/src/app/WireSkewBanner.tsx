@@ -43,10 +43,9 @@ export function skewBannerHeightValue(height: number): string {
  * rendering an empty board while the replica never arrived. A fixed element with
  * its own markup depends on nothing but React being mounted.
  *
- * Deliberately styled like the server-injected warning in
- * `apps/server/src/web-bundle-stamp.ts`: the two fire in different situations (a
- * bundle old enough to lack this component still gets the server's) and a user who
- * meets both should recognize the second as the same problem, not a new one.
+ * This is the ONE compatibility banner. The server still grades the bundle for
+ * its operator log, but does not turn that coarser build comparison into UI. The
+ * HTML fallback has a different, narrower job: it says only that no app mounted.
  *
  * MOUNTED AT THE ROOT, outside the login and setup gates: the boot check raises
  * its notice before either resolves, and a banner mounted inside the shell shows
@@ -136,8 +135,8 @@ export function WireSkewBanner(): JSX.Element | null {
            * the remedy it points at is now the panel's, because the panel is
            * the thing that knows what state the update is actually in.
            *
-           * If nothing is listening (the shell never mounted, which is a real
-           * case for this banner), fall back to the reload it always did.
+           * If nothing is listening (the update panel has not mounted), fall
+           * back to the reload it always did.
            */
           const opened = openUpdatePanel()
           if (!opened) window.location.reload()

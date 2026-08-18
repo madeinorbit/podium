@@ -11,7 +11,6 @@ import { createOpencodeConversationProvider } from '../discovery/providers/openc
 import { composeAgentInstructions } from '../instructions.js'
 import { type AgentManifest, isSet, supported, unsupported } from '../manifest.js'
 import { detectOpencodeLogin } from '../opencode/auth.js'
-import { opencodeBinCandidates, resolveOpencodeBin } from '../opencode/cli.js'
 import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
 
 /**
@@ -79,7 +78,11 @@ export const opencodeManifest: AgentManifest = {
   resumeKind: 'opencode-session',
 
   inventory: {
-    binCandidates: opencodeBinCandidates,
+    executable: {
+      names: ['opencode'],
+      fallbackCandidates: (machineHome) => [join(machineHome, '.opencode', 'bin', 'opencode')],
+      versionArgs: ['--version'],
+    },
     loginCommand: supported({ cmd: 'opencode', args: ['auth', 'login'] }),
     loginIdentity: unsupported('OpenCode does not expose a stable local account identity yet'),
     portableCredential: unsupported('OpenCode credential portability is not supported yet'),
@@ -88,7 +91,7 @@ export const opencodeManifest: AgentManifest = {
 
   launch(opts) {
     const base = {
-      cmd: resolveOpencodeBin(),
+      cmd: 'opencode',
       args: [
         ...(opts.resume ? ['--session', opts.resume.value] : []),
         ...(isSet(opts.model) ? ['-m', opts.model] : []),
@@ -124,12 +127,12 @@ export const opencodeManifest: AgentManifest = {
     }
   },
 
-  exec: supported((opts, bins) => {
+  exec: supported((opts) => {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     return {
-      cmd: bins.opencode(),
+      cmd: 'opencode',
       args: [
         'run',
         ...(model ? ['-m', model] : []),
@@ -146,13 +149,13 @@ export const opencodeManifest: AgentManifest = {
     // --format json event stream); later turns pin with -s.
     resumeIdAllocation: 'stream-captured',
     noTools: 'unsupported',
-    buildExec: supported((opts, bins) => {
+    buildExec: supported((opts) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const sys = opts.systemPrompt?.trim()
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
       return {
-        cmd: bins.opencode(),
+        cmd: 'opencode',
         args: [
           'run',
           '--format',

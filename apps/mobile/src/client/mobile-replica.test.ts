@@ -17,10 +17,13 @@
  * mutation that proves otherwise is the refusal cases below: flip ONLY the
  * evidence, and the user's queued work must stop being drainable.
  *
- * WHY THEY READ THROUGH `outboxStorage()` RATHER THAN THE TABLE. A parked entry is
- * still a ROW — dead-lettered, payload redacted. Asserting the table is empty would
- * fail on correct behaviour; asserting it non-empty would pass on the hole. What
- * must be empty is what the ENGINE can replay.
+ * WHY THEY READ THROUGH THE QUEUE RATHER THAN THE TABLE. A parked entry is still a
+ * ROW — dead-lettered, payload redacted. Asserting the table is empty would fail on
+ * correct behaviour; asserting it non-empty would pass on the hole. What must be
+ * empty is what the ENGINE can replay, so the assertions are made on the queue's own
+ * `pending()`. That queue is the kernel `Outbox` since POD-2073 (it was the
+ * compatibility one over a pair of SQLite-backed `OutboxStorage` views before);
+ * `engineOutbox` below builds it exactly as the provider does.
  *
  * WHY COLD-START PAINT RUNS AGAINST A SILENT AUTHORITY (POD-1241). An authority
  * whose frames never arrive paints an empty slice that looks exactly like a
@@ -33,12 +36,15 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { PodiumClientApi } from '@podium/client-core/api'
+import type { CreateEngineOutbox, EngineOutbox, StoreNotices } from '@podium/client-core/engine'
 import {
   principalKeyPrefix,
   REPLICA_KEY_PREFIX,
+  type Replica,
   type StorageApi,
 } from '@podium/client-core/replica'
-import { asMutationId } from '@podium/model'
+import { asMutationId, asSessionId } from '@podium/model'
 import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 import {
   LEGACY_STANDALONE_OUTBOX_KEY,
@@ -257,6 +263,41 @@ const UNATTRIBUTABLE: { label: string; evidence: LegacyIdentityEvidence }[] = [
   },
 ]
 
+/**
+ * THE ENGINE'S QUEUE, BUILT THE WAY THE PROVIDER BUILDS IT (POD-2073).
+ *
+ * These cases used to read `replica.outboxStorage()`, which on mobile resolved
+ * to a pair of `OutboxStorage` views over the SQLite outbox rows. Those views
+ * are gone: the kernel `Outbox` drives those records now, on both platforms, and
+ * a second `OutboxStorage` driver over them was the arrangement `facade.ts`
+ * rules out. `outboxStorage()` still answers — with the side cache — so reading
+ * it here would have kept passing while asserting nothing about the queue.
+ *
+ * So the observation point moves to the queue itself. `pending()` is what the
+ * engine will replay and `deadLetters()` is what it has parked, which is the
+ * distinction every case below turns on.
+ *
+ * OFFLINE BY CONSTRUCTION. `isOnline: () => false` because this file's subject is
+ * what the store holds, not what a transport does with it — and the stub api
+ * would otherwise be handed a user's migrated writes to "send", which is a
+ * different test in a different file.
+ */
+function engineOutbox(opened: {
+  createOutboxFn: CreateEngineOutbox
+  replica: Replica
+}): EngineOutbox {
+  return opened.createOutboxFn({
+    api: STUB_API,
+    replica: opened.replica,
+    notices: { error: () => {}, info: () => {} } as unknown as StoreNotices,
+    isOnline: () => false,
+  })
+}
+
+/** Enough of a client to construct the queue, and deliberately not enough to
+ *  send: a case here that reached the network would be lying about its subject. */
+const STUB_API = {} as unknown as PodiumClientApi
+
 async function open(args: {
   file: string
   storage: StorageApi & { keys?: () => string[] }
@@ -275,6 +316,7 @@ async function open(args: {
 }) {
   const degradations: string[] = []
   const opened = await openMobileReplica({
+    api: STUB_API,
     openStore: async () => {
       const { SqliteSyncStore } = await import('@podium/sync/adapters/mobile-sqlite')
       return SqliteSyncStore.open({
@@ -408,23 +450,25 @@ describe('the mobile replica composition root', () => {
     const file = freshDatabaseFile()
     const device = seededDevice()
 
-    const { replica, outcome } = await open({ file, storage: device })
+    const opened = await open({ file, storage: device })
+    const { outcome } = opened
 
     expect(outcome.ran).toBe(true)
     expect(outcome.reason).toBe('adopted-single-account')
     expect(outcome.adopted).toBe(2)
     expect(outcome.parked).toBe(0)
 
-    // What the ENGINE will replay — `wiring.ts` takes exactly this off the replica.
-    expect(
-      replica
-        .outboxStorage()
-        .load()
-        .map((entry) => entry.mutationId),
-    ).toEqual(['m-rename', 'm-tuck'])
+    // What the ENGINE will replay — the kernel queue's own pending set, which is
+    // what `StoreProvider` receives through `createOutboxFn`.
+    const queue = engineOutbox(opened)
+    expect(queue.pending().map((entry) => entry.mutationId)).toEqual(['m-rename', 'm-tuck'])
     // FIFO by intent age, and the payload intact: a lossy import would replay a
     // rename with no name.
-    expect(replica.outboxStorage().load()[0]?.input).toEqual(QUEUED_RENAME.input)
+    expect(queue.pending()[0]?.input).toEqual(QUEUED_RENAME.input)
+    // Adopted, not parked. The two are one row apart in the file and a whole
+    // outcome apart for the user, so the absence has to be asserted too.
+    expect(queue.deadLetters()).toEqual([])
+    queue.dispose()
 
     // Durable, in the file, before anything was awaited past the open.
     expect(durableOutbox(file).map((row) => row.mutationId)).toEqual(['m-rename', 'm-tuck'])
@@ -445,32 +489,31 @@ describe('the mobile replica composition root', () => {
     // migrate. The work is still there because its home is now the database.
     const second = await open({ file, storage: legacyDevice({}) })
     expect(second.outcome.ran).toBe(false)
-    expect(
-      second.replica
-        .outboxStorage()
-        .load()
-        .map((e) => e.mutationId),
-    ).toEqual(['m-rename', 'm-tuck'])
+    const queue = engineOutbox(second)
+    expect(queue.pending().map((e) => e.mutationId)).toEqual(['m-rename', 'm-tuck'])
+    queue.dispose()
   })
 
-  it('a write through the replica lands in SQLite, not in the legacy key space', async () => {
+  it('a write through the queue lands in SQLite, not in the legacy key space', async () => {
     const file = freshDatabaseFile()
     const device = legacyDevice({})
-    const { replica } = await open({ file, storage: device })
+    const opened = await open({ file, storage: device })
 
-    replica.outboxStorage().save([
-      {
-        mutationId: asMutationId('m-new'),
-        kind: 'snoozeClear',
-        input: { sessionId: 's9' },
-        queuedAt: 5,
-      },
-    ])
+    const queue = engineOutbox(opened)
+    // The kernel queue mints the id, so what identifies the row here is the
+    // CONTRACT it was authored under — which is also the thing a replay is
+    // judged against, and the thing a lossy write would lose.
+    await queue.enqueue('snoozeClear', { sessionId: asSessionId('s9') })
 
-    // Read through a separate connection with NOTHING awaited in between: the
-    // adapter's commit is synchronous, and that is the property the whole
-    // sync-save-over-async-apply binding rests on.
-    expect(durableOutbox(file).map((row) => row.mutationId)).toEqual(['m-new'])
+    // `enqueue` resolves only after the durable commit (ADR 6 D4.3), and this
+    // reads through a SEPARATE connection: the store's in-memory mirror cannot
+    // answer for the file.
+    const rows = durableOutbox(file)
+    expect(rows).toHaveLength(1)
+    expect((rows[0]?.record.command as { name: string }).name).toBe('snoozes.clear')
+    expect(rows[0]?.record.input).toEqual({ sessionId: 's9' })
+    expect(rows[0]?.record.state).toBe('queued')
+    queue.dispose()
     // Side-cache may write ui-state keys under the principal prefix; the outbox
     // and entity rows must NOT land on AsyncStorage (ADR 6 D1).
     expect(device.keys()).toContain('podium.replica.principal.default.namespace.v1')
@@ -483,7 +526,8 @@ describe('the mobile replica composition root', () => {
       const file = freshDatabaseFile()
       const device = seededDevice()
 
-      const { replica, outcome } = await open({ file, storage: device, evidence: arm.evidence })
+      const opened = await open({ file, storage: device, evidence: arm.evidence })
+      const { outcome } = opened
 
       expect(outcome.ran).toBe(true)
       expect(outcome.reason).toBe(`discarded-${arm.label}`)
@@ -492,16 +536,36 @@ describe('the mobile replica composition root', () => {
 
       // THE MUTATION. Only the evidence changed between this and the adopt case
       // above; if these two lines could both pass, the gate would have no effect.
-      expect(replica.outboxStorage().load()).toEqual([])
-      expect(replica.outboxAwaitingStorage().load()).toEqual([])
+      // Read through the KERNEL queue, which is the thing that would replay
+      // them: a parked row is a row the engine can see and must not send, so
+      // "not drainable" has to be asserted where drainability is decided.
+      const queue = engineOutbox(opened)
+      expect(queue.pending()).toEqual([])
+      expect(queue.awaiting()).toEqual([])
+      queue.dispose()
 
-      // The rows SURVIVE as dead letters — POD-316 tells the user work was lost —
-      // with the payload redacted, because on a device we could not attribute,
-      // showing the text would turn a migration into a disclosure.
-      const parked = durableOutbox(file)
-      expect(parked.map((row) => row.mutationId)).toEqual(['m-rename', 'm-tuck'])
-      expect(parked.map((row) => row.record.state)).toEqual(['dead-letter', 'dead-letter'])
-      expect(parked.map((row) => row.record.input)).toEqual([null, null])
+      // AND THE USER IS TOLD. `parked: 2` above is what `LiveProvider` turns
+      // into "2 queued change(s) from an earlier session could not be carried
+      // over and were not sent" — the D4.4 sentence, said in the same session
+      // the loss happened in.
+      //
+      // WHAT IS NOT HERE ANY MORE, and why this is the honest assertion rather
+      // than the one that reads better. The gate parks these rows as dead
+      // letters with the payload REDACTED — on a device we could not attribute,
+      // showing the text would turn a migration into a disclosure — and they
+      // used to stay in the file. They do not now: `openKernelEngineOutbox`
+      // reconciles automatic bookkeeping at open, and `shouldParkDeadLetter`
+      // decides that from `recoverableAuthoredText(input)`, which a redacted
+      // entry has none of by construction. So the receipt is retired before
+      // anything could show it.
+      //
+      // This is WEB's behaviour too — same migration, same reconciliation, same
+      // order — so it arrived here as parity rather than as a regression, and
+      // it is filed as POD-2083 rather than fixed under a parity issue. What
+      // this case still pins is the property it was written for: only the
+      // evidence changed between here and the adopt case, and the user's queued
+      // work must stop being drainable.
+      expect(durableOutbox(file)).toEqual([])
     })
   }
 
@@ -546,15 +610,12 @@ describe('the mobile replica composition root', () => {
       [LEGACY_STANDALONE_OUTBOX_KEY]: JSON.stringify([QUEUED_RENAME]),
     })
 
-    const { replica, outcome } = await open({ file, storage: device })
+    const opened = await open({ file, storage: device })
 
-    expect(outcome.adopted).toBe(1)
-    expect(
-      replica
-        .outboxStorage()
-        .load()
-        .map((e) => e.mutationId),
-    ).toEqual(['m-rename'])
+    expect(opened.outcome.adopted).toBe(1)
+    const queue = engineOutbox(opened)
+    expect(queue.pending().map((e) => e.mutationId)).toEqual(['m-rename'])
+    queue.dispose()
   })
 
   it('and the bridge is TOLD to hydrate it — it is outside the default prefix', () => {
@@ -575,12 +636,34 @@ describe('the mobile replica composition root', () => {
 
   it('a device with nothing to migrate is not a migration', async () => {
     const file = freshDatabaseFile()
-    const { outcome, replica } = await open({ file, storage: legacyDevice({}) })
+    const opened = await open({ file, storage: legacyDevice({}) })
 
-    expect(outcome.ran).toBe(false)
-    expect(outcome.adopted).toBe(0)
-    expect(outcome.parked).toBe(0)
-    expect(replica.outboxStorage().load()).toEqual([])
+    expect(opened.outcome.ran).toBe(false)
+    expect(opened.outcome.adopted).toBe(0)
+    expect(opened.outcome.parked).toBe(0)
+    const queue = engineOutbox(opened)
+    expect(queue.pending()).toEqual([])
+    queue.dispose()
+  })
+
+  it('hands the provider a kernel queue, already open over this principal', async () => {
+    // The wiring itself, asserted where it is easy to LOSE: the provider passes
+    // `createOutboxFn` to `StoreProvider`, and an assembly that stopped
+    // returning one would leave the engine building its own compatibility queue
+    // over `replica.outboxStorage()` — the side cache — with the durable SQLite
+    // rows driven by nobody. Every queued offline write would go invisible and
+    // unsent, and every case above would still be green, because they read the
+    // store rather than the seam.
+    const file = freshDatabaseFile()
+    const opened = await open({ file, storage: seededDevice() })
+    expect(typeof opened.createOutboxFn).toBe('function')
+
+    const queue = engineOutbox(opened)
+    expect(queue.pending()).toHaveLength(2)
+    // CONSUMED ONCE. Two engines over one durable queue is two writers on the
+    // same records, so the factory refuses rather than handing out a second.
+    expect(() => engineOutbox(opened)).toThrow()
+    queue.dispose()
   })
 
   it('exposes a v2 feed sink so the hub advertises wire 2', async () => {
@@ -705,7 +788,10 @@ function onlineWithBootstrap(
   opened.attachHub({
     requestFreshWorld: deliver,
   } as never)
-  opened.feed.connected()
+  // A world IS promised here: this helper models the admission of a connection
+  // that presented no position (POD-2061), which is the contract the pushed
+  // world below belongs to.
+  opened.feed.connected(true)
   deliver()
 }
 

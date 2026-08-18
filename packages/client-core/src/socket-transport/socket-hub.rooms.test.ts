@@ -63,6 +63,7 @@ describe('SocketHub rooms and principal lifecycle', () => {
       viewport,
       makeSocket: () => socket,
       feed: {
+        helloFields: () => null,
         connected: vi.fn(),
         disconnected: vi.fn(),
         frame: vi.fn(),

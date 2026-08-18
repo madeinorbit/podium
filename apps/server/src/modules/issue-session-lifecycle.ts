@@ -65,7 +65,7 @@ export class IssueSessionLifecycle {
     )
     const deletedIds = new Set(sessionPlan.sessionIds)
     const remainingSessions = this.deps.sessions
-      .listSessions()
+      .listSessions(undefined, 'issueDeleteRestore')
       .filter((s) => !deletedIds.has(s.sessionId))
     const issuePlan = this.deps.issues.prepareSoftDelete(current.id, remainingSessions)
 
@@ -98,7 +98,9 @@ export class IssueSessionLifecycle {
     const sessionPlan = this.deps.sessions.prepareIssueSessionRestore(current.id)
     const restoredIds = new Set(sessionPlan.sessionIds)
     const restoredSessions = [
-      ...this.deps.sessions.listSessions().filter((s) => !restoredIds.has(s.sessionId)),
+      ...this.deps.sessions
+        .listSessions(undefined, 'issueDeleteRestore')
+        .filter((s) => !restoredIds.has(s.sessionId)),
       ...sessionPlan.restoredSessions,
     ]
     const issuePlan = this.deps.issues.prepareRestore(current.id, restoredSessions)

@@ -1,17 +1,18 @@
 /**
  * The kernel-backed client `Replica` (POD-1228).
  *
- * One barrel for the four modules the composition root needs: the facade
- * itself, the entity↔kind vocabulary it projects through, the client-side
- * bulk cache that holds what the kernel Replica deliberately does not, and the
- * SQLite outbox binding.
+ * One barrel for the three modules a composition root needs: the facade itself,
+ * the entity↔kind vocabulary it projects through, and the client-side bulk cache
+ * that holds what the kernel Replica deliberately does not.
  *
- * THE OUTBOX BINDING IS EXPORTED SEPARATELY FROM THE FACADE, and POD-1220 is why
- * that matters rather than being a tidiness point: mobile takes the binding
- * WITHOUT the facade. It is still a wire-v1 peer, `facade.ts` refuses the v1
- * write-in path by design, and a root that could only get the durable outbox by
- * also constructing the facade would have to choose between an unqueued outbox
- * and a replica that throws on the first hub frame.
+ * THERE WAS A FOURTH, AND ITS ABSENCE IS THE POINT (POD-2073). `sqlite-outbox.ts`
+ * exported an `OutboxStorage` pair over the kernel outbox rows, so mobile could
+ * keep the compatibility `Outbox` state machine while its queue lived durably in
+ * SQLite. Both composition roots now run the kernel `Outbox` itself
+ * (`openKernelEngineOutbox`), which owns those records, and a second driver over
+ * them is exactly the two-writer arrangement `facade.ts`'s header rules out — so
+ * the binding was deleted rather than left exported for a caller that no longer
+ * exists.
  */
 
 export {
@@ -22,10 +23,3 @@ export {
 } from './facade'
 export { entityForKind, type KernelEntity, kindForEntity, rowKey } from './kinds'
 export { createSideCache, type SideCache, type SideCacheInit } from './side-cache'
-export {
-  CLIENT_PARTITION,
-  type ClientOutboxRecord,
-  createKernelOutboxStorage,
-  type KernelOutboxStorageInit,
-  type KernelOutboxStorages,
-} from './sqlite-outbox'

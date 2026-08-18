@@ -32,6 +32,7 @@ import {
   satisfies,
 } from '@podium/sync/outbox'
 import { randomUUID } from './id'
+import { hasDomWindow } from './platform-globals'
 
 /** One queued mutation. `input` is the exact tRPC input, minus `mutationId`. */
 export interface OutboxEntry {
@@ -155,9 +156,13 @@ export interface OutboxStorage {
  *  outbox collection migrates it in on first use (see replica/replica.ts). */
 export const OUTBOX_LS_KEY = 'podium.outbox.v1'
 
-/** Browser 'online' events when a window exists; undefined elsewhere (RN/SSR). */
+/** Browser 'online' events when a DOM window exists; undefined elsewhere.
+ *  NOT `typeof window === 'undefined'`: React Native's `window` is `global`,
+ *  which passes that test and then throws on `addEventListener`. Native
+ *  connectivity arrives through an injected {@link OnlineEvents} instead
+ *  (NetInfo, on mobile). */
 export function platformOnlineEvents(): OnlineEvents | undefined {
-  if (typeof window === 'undefined') return undefined
+  if (!hasDomWindow()) return undefined
   return {
     add: (cb) => window.addEventListener('online', cb),
     remove: (cb) => window.removeEventListener('online', cb),

@@ -35,15 +35,9 @@ import type { SessionId, SessionMeta, MachineId, IssueId, UserId } from '@podium
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
-import {
-  type CommandPrincipal,
-  systemPrincipal,
-} from '../../command-principal'
+import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import type { ClientRegistry } from '../../gateway/client-registry'
-import {
-  liveSessionsUsingWorktree,
-  sessionsForIssue,
-} from '../../issue-util'
+import { liveSessionsUsingWorktree, sessionsForIssue } from '../../issue-util'
 import type { SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
@@ -428,7 +422,7 @@ export class SessionTeardown {
     if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
     // sessionsForIssue matches on the canonical issue id; input.issueId may be a
     // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
-    const members = sessionsForIssue(issue.worktreePath ?? null, this.ports.listSessions(), issue.id)
+    const members = this.ports.view.listForIssue(issue.worktreePath ?? null, issue.id)
     const stopped: string[] = []
     let deferredKill = false
     const principal = input.principal ?? systemPrincipal('stop')
@@ -520,7 +514,9 @@ export class SessionTeardown {
     if (phase === 'working' || phase === 'compacting') {
       return { ok: false, reason: 'agent is working — let it reach idle first' }
     }
-    const lease = requireTerminalProof ? this.ports.store.observationCheckpoints.get(sessionId) : null
+    const lease = requireTerminalProof
+      ? this.ports.store.observationCheckpoints.get(sessionId)
+      : null
     const facts = lease ? this.ports.terminalProof.facts(session, lease) : null
     if (requireTerminalProof) {
       if (!facts || !this.ports.terminalProof.consumable(facts)) {

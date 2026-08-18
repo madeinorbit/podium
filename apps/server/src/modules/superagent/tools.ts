@@ -122,7 +122,7 @@ export function buildSuperagentTools(
       },
       run: async () =>
         JSON.stringify(
-          sessions.listSessions().map((s) => {
+          sessions.listSessions(undefined, 'listAllTool').map((s) => {
             // Reverse of issue_show's session list (issue #72): session cwd →
             // bound issue, via the same worktree-containment rule as authz scope.
             const issueId = issues.issueForCwd(s.cwd)
@@ -216,7 +216,7 @@ export function buildSuperagentTools(
             // agent spawn with the description as first prompt and caller provenance).
             const started = await issues.start(issue.id, agentKind, { spawnedBy })
             const spawned = sessions
-              .listSessions()
+              .listSessionsForIssue(started.worktreePath ?? null, issue.id)
               .find((s) => s.cwd === started.worktreePath && s.status !== 'exited')
             return JSON.stringify({
               ...(spawned ? { sessionId: spawned.sessionId } : {}),
