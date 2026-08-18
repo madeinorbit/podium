@@ -389,12 +389,22 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       setPinnedBrief(null)
       return
     }
+    const body = next.querySelector<HTMLElement>('.transcript-you-body')
     setPinnedBrief({
       // A key for React and for the shelf's own open/closed state. The index is
       // fine for THAT — it only has to change when the brief does, and it is
       // combined with the identity check above, which is what makes it safe.
       key: next.dataset.block ?? '',
-      html: next.querySelector<HTMLElement>('.transcript-you-body')?.innerHTML ?? '',
+      // THE WORDS, NOT THE ATTACHMENTS (POD-1290). Lifting the whole body put
+      // the attachment strip — live lazy-loading <img> thumbnails — inside the
+      // shelf's three-line overflow clamp. A lazy image under a clip is
+      // content whose measured size changes ON ITS OWN, the one thing
+      // PinnedBrief's answer-independent measurement cannot defend against:
+      // measured live, `data-clipped` flapped every ~100ms and the shelf
+      // breathed 56px<->65px forever — and the strip's collapsed remnant sat
+      // as 8px of dead height under a one-line brief, pushing the words off
+      // the shelf's centre. The images are one scroll away in the row itself.
+      html: body?.querySelector<HTMLElement>('.chat-md')?.innerHTML ?? body?.innerHTML ?? '',
       time: next.querySelector<HTMLElement>('.chat-clk')?.textContent ?? '',
     })
   }, [scrollerRef, stickyEnabled])
