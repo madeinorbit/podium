@@ -724,7 +724,42 @@ describe('idle-session cap', () => {
       expect(sessions[1]?.status).toBe('live')
     })
 
-    it('leaves shells alone when idleShellMinutes is null (default off)', () => {
+    it('never auto-parks a native login shell', () => {
+      const sessions = [
+        shell(asSessionId('login-shell'), { autoHibernateProtected: true }),
+        shell(asSessionId('ordinary-shell')),
+      ]
+      const { service, shellParked } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: 1,
+      })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellParked).toEqual(['ordinary-shell'])
+      expect(sessions[0]?.status).toBe('live')
+    })
+
+    it('does not make an idle agent pay for a protected login shell', () => {
+      const sessions = [
+        session(asSessionId('known-idle')),
+        shell(asSessionId('login-shell'), { autoHibernateProtected: true }),
+      ]
+      const { service, parked, shellParked } = harness({
+        sessions,
+        maxIdleSessions: 1,
+        idleShellMinutes: 1,
+      })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual([])
+      expect(shellParked).toEqual([])
+      expect(sessions.every((item) => item.status === 'live')).toBe(true)
+    })
+
+    it('leaves shells alone when idleShellMinutes is explicitly off', () => {
       const sessions = [shell(asSessionId('ancient-shell'))]
       const { service, shellParked } = harness({
         sessions,

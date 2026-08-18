@@ -159,6 +159,9 @@ export class SessionsRepository {
       ...(r.model != null ? { model: r.model as string } : {}),
       ...(r.effort != null ? { effort: r.effort as string } : {}),
       ...(r.account_id != null ? { accountId: r.account_id as AccountId } : {}),
+      ...(r.login_harness != null
+        ? { loginHarness: AgentKind.exclude(['shell']).parse(r.login_harness) }
+        : {}),
       cwd: r.cwd as string,
       title: r.title as string,
       name: (r.name as string | null) ?? null,
@@ -259,7 +262,7 @@ export class SessionsRepository {
     this.db
       .prepare(
         `INSERT INTO sessions
-           (id, owner_user_id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
+           (id, owner_user_id, agent_kind, model, effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,
             resume_kind,
             resume_value, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
@@ -268,12 +271,13 @@ export class SessionsRepository {
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft,
             created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            model = excluded.model,
            effort = excluded.effort,
            account_id = excluded.account_id,
+           login_harness = COALESCE(sessions.login_harness, excluded.login_harness),
            title = excluded.title,
            name = excluded.name,
            name_source = excluded.name_source,
@@ -331,6 +335,7 @@ export class SessionsRepository {
         row.model ?? null,
         row.effort ?? null,
         row.accountId ?? null,
+        row.loginHarness ?? null,
         row.cwd,
         row.title,
         row.name,

@@ -129,6 +129,8 @@ export interface SessionRow {
   effort?: string | null
   /** Account selection, not credential material. */
   accountId?: AccountId | null
+  /** Harness authenticated by this shell; null for every ordinary session. */
+  loginHarness?: import('@podium/model').HarnessAgent | null
   cwd: string
   title: string
   /** Curated display name; null = derive from title. Written by a human OR by the

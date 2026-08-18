@@ -71,6 +71,12 @@ export function activationAgentIsReady(readiness: ActivationAgentReadiness): boo
   return readiness.state === 'ready' || readiness.state === 'login-unknown'
 }
 
+/** Onboarding may finish with any installed harness. A native login is useful
+ *  before the first task, but it is not a prerequisite for entering Podium. */
+export function activationAgentIsInstalled(readiness: ActivationAgentReadiness): boolean {
+  return activationAgentIsReady(readiness) || readiness.state === 'logged-out'
+}
+
 export function activationReadinessCopy(
   readiness: ActivationAgentReadiness,
   agentLabel: string,
@@ -84,7 +90,7 @@ export function activationReadinessCopy(
     case 'login-unknown':
       return `Installed on ${machine}. ${agentLabel} verifies its account when it starts.`
     case 'logged-out':
-      return `${agentLabel} is installed on ${machine}, but it is not signed in. Your task draft stays saved while you log in.`
+      return `${agentLabel} is installed on ${machine}, but it is not signed in. You can continue now and sign in before you run it.`
     case 'missing':
       return `${agentLabel} is not installed on ${machine}. Install it there, then return; Podium detects readiness automatically.`
     case 'offline':

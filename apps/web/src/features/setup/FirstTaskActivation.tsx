@@ -25,6 +25,7 @@ import {
 } from '@/lib/issue-agents'
 import { cn } from '@/lib/utils'
 import {
+  activationAgentIsInstalled,
   activationAgentIsReady,
   activationAgentReadiness,
   activationReadinessCopy,
@@ -37,7 +38,7 @@ import { ActivationShell } from './ActivationShell'
 
 function setupHint(agent: IssueAgentKind, readiness: ActivationAgentReadiness): string {
   if (agent === 'opencode' && readiness.state === 'logged-out') {
-    return 'Installed but not signed in. Your task draft stays saved while you log in.'
+    return 'Installed but not signed in. You can continue now and sign in before you run it.'
   }
   if (readiness.state !== 'missing')
     return activationReadinessCopy(readiness, issueAgentLabel(agent))
@@ -198,16 +199,19 @@ export function FirstTaskActivation({
       ) as Record<IssueAgentKind, ActivationAgentReadiness>,
     [machines, selectedRepo],
   )
-  const readyAgents = ISSUE_AGENT_KINDS.filter((agent) =>
+  const installedAgents = ISSUE_AGENT_KINDS.filter((agent) =>
+    activationAgentIsInstalled(readinessByAgent[agent]),
+  )
+  const readyAgents = installedAgents.filter((agent) =>
     activationAgentIsReady(readinessByAgent[agent]),
   )
   useEffect(() => {
     if (!configuredAgent || draft.agent) return
     const preferred = activationAgentIsReady(readinessByAgent[configuredAgent])
       ? configuredAgent
-      : readyAgents[0]
+      : (readyAgents[0] ?? installedAgents[0])
     if (preferred) setDraft({ ...draft, agent: preferred })
-  }, [configuredAgent, draft, readinessByAgent, readyAgents, setDraft])
+  }, [configuredAgent, draft, installedAgents, readinessByAgent, readyAgents, setDraft])
 
   const openLogin = async (agent: IssueAgentKind): Promise<void> => {
     const machine = readinessByAgent[agent].machine
@@ -357,7 +361,7 @@ export function FirstTaskActivation({
 
   const selectedMachine =
     machines.find((machine) => machine.id === selectedRepo?.machineId) ?? machines[0]
-  const blockedAgents = ISSUE_AGENT_KINDS.filter(
+  const otherAgents = ISSUE_AGENT_KINDS.filter(
     (agent) => !activationAgentIsReady(readinessByAgent[agent]),
   )
   const copySetupCommand = (agent: IssueAgentKind): void => {
@@ -376,7 +380,7 @@ export function FirstTaskActivation({
             ? 'cursor-agent login'
             : 'opencode auth login'
           : null
-      const status = ready ? 'Ready' : needsLogin ? 'Setup needed' : 'Waiting'
+      const status = ready ? 'Ready' : needsLogin ? 'Sign-in optional' : 'Waiting'
 
       return (
         <div
@@ -494,7 +498,7 @@ export function FirstTaskActivation({
           <code className="font-mono text-[13.5px] text-[#c3c8d0]">
             {selectedMachine?.hostname ?? selectedMachine?.name ?? 'this machine'}
           </code>
-          . Start with the ready ones — the rest take one step each, whenever you want them.
+          . Installed agents are enough to continue. Sign in now or later, before you run one.
         </>
       }
       contentClassName="mt-7"
@@ -516,9 +520,9 @@ export function FirstTaskActivation({
             {renderAgentRows(readyAgents)}
           </div>
         )}
-        {blockedAgents.length > 0 && (
+        {otherAgents.length > 0 && (
           <div className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
-            {renderAgentRows(blockedAgents)}
+            {renderAgentRows(otherAgents)}
           </div>
         )}
       </div>
@@ -543,7 +547,7 @@ export function FirstTaskActivation({
         <button
           type="button"
           data-pressable
-          disabled={readyAgents.length === 0}
+          disabled={installedAgents.length === 0}
           onClick={() => onRouteChange('first-task')}
           className="inline-flex h-[34px] items-center gap-2 rounded-[9px] bg-[#e3ba52] px-[15px] text-[13px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:cursor-not-allowed disabled:opacity-40"
         >

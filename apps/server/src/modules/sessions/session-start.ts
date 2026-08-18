@@ -188,6 +188,9 @@ export class SessionStart {
           .harness
     // Resolve the target machine before model validation — the catalog is
     // machine-keyed (POD-1123), so we validate against THIS spawn's host.
+    if (input.loginHarness && agentKind !== 'shell') {
+      throw new Error('loginHarness is only valid for shell sessions')
+    }
     const machineId = this.ports.resolveMachineForAgent(
       input.machineId,
       input.cwd,
@@ -378,6 +381,7 @@ export class SessionStart {
       ...(launch.model ? { model: launch.model } : {}),
       ...(launch.effort ? { effort: launch.effort } : {}),
       ...(accountId ? { accountId } : {}),
+      ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       origin: input.origin,
       createdAt: new Date().toISOString(),
       geometry: { ...DEFAULT_GEOMETRY },

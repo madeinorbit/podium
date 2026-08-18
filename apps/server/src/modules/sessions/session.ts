@@ -7,6 +7,7 @@ import {
   type ConversationId,
   FIRST_ADMIN_USER_ID,
   type Geometry,
+  type HarnessAgent,
   type IssueId,
   type MachineId,
   type ResumeRef,
@@ -50,6 +51,8 @@ export interface SessionInit {
   model?: string
   effort?: string
   accountId?: AccountId
+  /** Native harness whose interactive login owns this shell, when applicable. */
+  loginHarness?: HarnessAgent
   origin: SessionOrigin
   createdAt: string
   geometry: Geometry
@@ -176,6 +179,8 @@ export class Session {
   readonly model: string | undefined
   readonly effort: string | undefined
   readonly accountId: AccountId | undefined
+  /** Durable purpose marker: login shells must outlive ordinary idle-shell reaping. */
+  readonly loginHarness: HarnessAgent | undefined
   /** Workflow pass-through metadata (#285) — immutable, uninterpreted. */
   readonly workflowRunId: string | undefined
   readonly workflowStepId: string | undefined
@@ -280,6 +285,7 @@ export class Session {
     this.model = init.model
     this.effort = init.effort
     this.accountId = init.accountId
+    this.loginHarness = init.loginHarness
     this.workflowRunId = init.workflowRunId
     this.workflowStepId = init.workflowStepId
     this.executionProfileId = init.executionProfileId
@@ -592,6 +598,7 @@ export class Session {
       model: this.model ?? null,
       effort: this.effort ?? null,
       accountId: this.accountId ?? null,
+      loginHarness: this.loginHarness ?? null,
       cwd: this.cwd,
       title: this.title,
       name: this.name || null,

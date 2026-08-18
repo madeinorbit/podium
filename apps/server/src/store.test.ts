@@ -435,6 +435,20 @@ describe('SessionStore sessions', () => {
     store.close()
   })
 
+  it('round-trips the native login-shell purpose', () => {
+    const store = new SessionStore(':memory:')
+    store.sessions.upsertSession(
+      row({
+        id: asSessionId('login-shell'),
+        durableLabel: 'podium-login-shell',
+        agentKind: 'shell',
+        loginHarness: 'codex',
+      }),
+    )
+    expect(store.sessions.loadSessions()[0]?.loginHarness).toBe('codex')
+    store.close()
+  })
+
   it('reads spawnedBy as null on a legacy row that never had it', () => {
     const store = new SessionStore(':memory:')
     // A row written without the field (the pre-#60 write shape) reads back null.

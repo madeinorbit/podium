@@ -433,6 +433,7 @@ export class SessionRepository {
       ...(r.model ? { model: r.model } : {}),
       ...(r.effort ? { effort: r.effort } : {}),
       ...(r.accountId ? { accountId: r.accountId } : {}),
+      ...(r.loginHarness ? { loginHarness: r.loginHarness } : {}),
       ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
       // The pair survives a restart. Absent on the row = none was ever recorded
       // (a session from before the columns existed); it is not reconstructed here

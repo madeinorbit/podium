@@ -93,6 +93,9 @@ export const sessions = sqliteTable(
     model: text(),
     effort: text(),
     accountId: text('account_id').$type<AccountId>(),
+    /** Harness authenticated by an interactive shell. Its presence protects the
+     *  shell from generic idle reaping for the full durable session lifetime. */
+    loginHarness: text('login_harness'),
     cwd: text().notNull(),
     title: text().notNull(),
     originKind: text('origin_kind').notNull(),

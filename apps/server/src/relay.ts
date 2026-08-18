@@ -1044,6 +1044,7 @@ export class SessionRegistry {
             machineId: session.machineId,
             status: session.status,
             agentKind: session.agentKind,
+            autoHibernateProtected: session.loginHarness !== undefined,
             resume: session.resume,
             agentState: session.agentState,
             lastActiveAt: session.lastActiveAt,

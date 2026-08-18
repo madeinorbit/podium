@@ -44,6 +44,8 @@ export interface HostSessionView {
   status: string
   /** Distinguishes shells (no observer, no resume) from harness agents. */
   agentKind: string
+  /** Purpose-bound shells (currently native login) are never auto-parked. */
+  autoHibernateProtected?: boolean | undefined
   resume?: { kind: string; value: string } | undefined
   agentState?: AgentRuntimeState | undefined
   lastActiveAt: string
@@ -359,6 +361,7 @@ export class HostsService {
       .filter((session) => {
         if (session.machineId !== machineId || session.status !== 'live') return false
         if (session.agentKind !== 'shell') return false
+        if (session.autoHibernateProtected) return false
         if (failed.has(session.sessionId)) return false
         return this.fullyQuietSinceMs(session) <= cutoff
       })
@@ -390,6 +393,7 @@ export class HostsService {
           session.machineId === machineId &&
           session.status === 'live' &&
           !failed.has(session.sessionId) &&
+          !session.autoHibernateProtected &&
           this.fullyQuietSinceMs(session) <= cutoff &&
           !this.deps.hasScheduledWakeup(session.sessionId, now),
       )
@@ -460,6 +464,7 @@ export class HostsService {
 
   /** Whether some policy that is currently ON could park this unobserved session. */
   private unobservedIsParkable(session: HostSessionView, idleShellMinutes: number | null): boolean {
+    if (session.autoHibernateProtected) return false
     if (session.agentKind === 'shell') return idleShellMinutes !== null
     return session.resume !== undefined
   }
