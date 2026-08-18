@@ -24,6 +24,7 @@ describe('agent-models catalog', () => {
 
   it('exposes real per-agent models beyond auto', () => {
     expect(modelOptions('claude-code').map((o) => o.value)).toContain('opus')
+    expect(modelOptions('codex').map((o) => o.value)).toContain('gpt-5.6-sol')
   })
 
   it('scopes effort ladders per agent', () => {
@@ -109,6 +110,18 @@ describe('effortOptionsForModel — effort follows the selected model', () => {
     expect(effortOptionsForModel('claude-code', 'claude-haiku-4-5', live)).toEqual([])
   })
 
+  it('keeps current Codex reasoning levels in the offline fallback', () => {
+    expect(effortOptionsForModel('codex', 'gpt-5.6-sol').map((o) => o.value)).toEqual([
+      'auto',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+      'ultra',
+    ])
+  })
+
   it('falls back to the verified agent ladder when per-model data is unavailable', () => {
     expect(
       effortOptionsForModel('grok', 'grok-composer-2.5-fast', [
@@ -148,7 +161,7 @@ describe('cross-connector model picks', () => {
     expect(options.some((o) => o.value === 'claude-code:opus' && o.group === 'Claude Code')).toBe(
       true,
     )
-    expect(options.some((o) => o.value === 'codex:gpt-5.5' && o.group === 'Codex')).toBe(true)
+    expect(options.some((o) => o.value === 'codex:gpt-5.6-sol' && o.group === 'Codex')).toBe(true)
     expect(options.some((o) => o.value === 'grok:grok-4.5' && o.group === 'Grok')).toBe(true)
   })
 

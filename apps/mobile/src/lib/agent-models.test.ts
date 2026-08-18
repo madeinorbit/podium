@@ -24,7 +24,7 @@ describe('cross-harness model picks', () => {
     expect(options.some((o) => o.value === 'claude-code:opus' && o.group === 'Claude Code')).toBe(
       true,
     )
-    expect(options.some((o) => o.value === 'codex:gpt-5.5' && o.group === 'Codex')).toBe(true)
+    expect(options.some((o) => o.value === 'codex:gpt-5.6-sol' && o.group === 'Codex')).toBe(true)
     expect(options.some((o) => o.value === 'grok:grok-4.5' && o.group === 'Grok')).toBe(true)
   })
 
@@ -47,6 +47,18 @@ describe('cross-harness model picks', () => {
       'high',
       'xhigh',
       'max',
+    ])
+  })
+
+  it('keeps current Codex reasoning levels in the offline fallback', () => {
+    expect(effortOptionsForModel('codex', 'gpt-5.6-sol').map((o) => o.value)).toEqual([
+      'auto',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+      'ultra',
     ])
   })
 

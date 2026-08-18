@@ -1,4 +1,5 @@
 import { ChevronLeft, Cpu, Gauge } from 'lucide-react-native'
+import type { ModelCatalog } from '@podium/client-core/react'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import {
@@ -29,20 +30,24 @@ type PickerStep = 'model' | 'effort' | null
  */
 export function SuperagentBackendRail({
   backend,
+  modelCatalog = {},
   onModelChange,
   onEffortChange,
 }: {
   backend: SuperagentBackend
+  modelCatalog?: ModelCatalog
   onModelChange: (model: string, agentKind?: string) => void
   onEffortChange: (effort: string) => void
 }) {
   const [step, setStep] = useState<PickerStep>(null)
   const agentKind = issueAgentKind(backend.agentKind)
-  const modelOptions = allConnectorModelOptions()
+  const modelOptions = allConnectorModelOptions(modelCatalog)
   const selectedModel =
     backend.model !== AUTO && agentKind ? encodeModelPick(agentKind, backend.model) : AUTO
-  const effortChoices = agentKind ? effortOptionsForModel(agentKind, backend.model) : []
-  const modelLabel = allConnectorModelLabel(agentKind ?? undefined, backend.model)
+  const effortChoices = agentKind
+    ? effortOptionsForModel(agentKind, backend.model, modelCatalog[agentKind])
+    : []
+  const modelLabel = allConnectorModelLabel(agentKind ?? undefined, backend.model, modelCatalog)
   const effortLabel =
     effortChoices.find((option) => option.value === backend.effort)?.label ?? 'Auto'
 

@@ -1,4 +1,5 @@
 import { ChevronDown, Cpu, Gauge } from 'lucide-react'
+import type { MachineId } from '@podium/model'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
@@ -103,6 +104,7 @@ export function ModelPicker({
   onChange,
   variant = 'pill',
   className,
+  machineId,
 }: {
   agentKind: IssueAgentKind
   value: string
@@ -110,10 +112,12 @@ export function ModelPicker({
   variant?: Variant
   /** Trigger classes — how a caller sizes the segment inside its own row. */
   className?: string
+  /** Machine whose installed harness answers the catalog. */
+  machineId?: MachineId
 }): JSX.Element {
   // Live models from the agent's own CLI (grok/cursor/opencode), fetched + cached by
   // the server; falls back to the static catalog for claude/codex or before it loads.
-  const live = useModelCatalog()[agentKind]
+  const live = useModelCatalog(machineId)[agentKind]
   return (
     <PropertyMenu
       trigger={
@@ -144,14 +148,16 @@ export function AllConnectorsModelPicker({
   value,
   onChange,
   variant = 'pill',
+  machineId,
 }: {
   /** Currently selected (or frozen) harness — scopes free-text custom models. */
   agentKind: IssueAgentKind | undefined
   value: string
   onChange: (pick: { agentKind?: IssueAgentKind; model: string }) => void
   variant?: Variant
+  machineId?: MachineId
 }): JSX.Element {
-  const live = useModelCatalog()
+  const live = useModelCatalog(machineId)
   const selected = value && value !== AUTO && agentKind ? encodeModelPick(agentKind, value) : AUTO
   return (
     <PropertyMenu
@@ -192,6 +198,7 @@ export function EffortPicker({
   onChange,
   variant = 'pill',
   className,
+  machineId,
 }: {
   agentKind: IssueAgentKind
   /** The currently-selected model — effort is scoped to it. */
@@ -201,8 +208,9 @@ export function EffortPicker({
   variant?: Variant
   /** Trigger classes — how a caller sizes the segment inside its own row. */
   className?: string
+  machineId?: MachineId
 }): JSX.Element | null {
-  const live = useModelCatalog()[agentKind]
+  const live = useModelCatalog(machineId)[agentKind]
   // Auto model uses the agent's effort ladder; a concrete model can narrow it or
   // explicitly report no effort support (e.g. Claude Haiku).
   const options = effortOptionsForModel(agentKind, model, live)

@@ -608,6 +608,7 @@ export function NewIssueDialog({
                   variant="composer"
                   className="h-[26px] border-l border-hairline-bar"
                   agentKind={agentKind}
+                  machineId={(effectiveMachine ?? autoMachine)?.id}
                   value={model}
                   onChange={(m) => {
                     // Effort is per-model — reset it whenever the model changes.
@@ -619,6 +620,7 @@ export function NewIssueDialog({
                   variant="composer"
                   className="h-[26px] border-l border-hairline-bar"
                   agentKind={agentKind}
+                  machineId={(effectiveMachine ?? autoMachine)?.id}
                   model={model}
                   value={effort}
                   onChange={setEffort}

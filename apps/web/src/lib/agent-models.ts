@@ -55,6 +55,9 @@ const CODEX_EFFORT: Choice[] = [
   { value: 'xhigh', label: 'Extra high' },
 ]
 
+const CODEX_56_EFFORT = [...CODEX_EFFORT, { value: 'max', label: 'Max' }]
+const CODEX_56_FRONTIER_EFFORT = [...CODEX_56_EFFORT, { value: 'ultra', label: 'Ultra' }]
+
 const AGENT_MODELS: Record<IssueAgentKind, ModelChoice[]> = {
   'claude-code': [
     { value: 'opus', label: 'Opus', efforts: CLAUDE_GROK_EFFORT.map((o) => o.value) },
@@ -63,6 +66,21 @@ const AGENT_MODELS: Record<IssueAgentKind, ModelChoice[]> = {
   ],
   // Fallback only — codex is live-enumerated server-side via `codex debug models`.
   codex: [
+    {
+      value: 'gpt-5.6-sol',
+      label: 'GPT-5.6-Sol',
+      efforts: CODEX_56_FRONTIER_EFFORT.map((o) => o.value),
+    },
+    {
+      value: 'gpt-5.6-terra',
+      label: 'GPT-5.6-Terra',
+      efforts: CODEX_56_FRONTIER_EFFORT.map((o) => o.value),
+    },
+    {
+      value: 'gpt-5.6-luna',
+      label: 'GPT-5.6-Luna',
+      efforts: CODEX_56_EFFORT.map((o) => o.value),
+    },
     { value: 'gpt-5.5', label: 'GPT-5.5', efforts: CODEX_EFFORT.map((o) => o.value) },
     { value: 'gpt-5.4', label: 'GPT-5.4', efforts: CODEX_EFFORT.map((o) => o.value) },
   ],

@@ -216,6 +216,7 @@ function LaunchBox({
             variant="composer"
             className="min-w-0 shrink flex-1 justify-between"
             agentKind={agentKind}
+            machineId={issue.machineId}
             value={issue.defaultModel}
             onChange={commands.setDefaultModel}
           />
@@ -223,6 +224,7 @@ function LaunchBox({
             variant="composer"
             className="min-w-0 shrink flex-1 justify-between border-l-hairline-bar"
             agentKind={agentKind}
+            machineId={issue.machineId}
             model={issue.defaultModel}
             value={issue.defaultEffort}
             onChange={commands.setDefaultEffort}

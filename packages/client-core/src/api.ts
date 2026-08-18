@@ -34,7 +34,7 @@ import type {
   UsageBucketWire,
   WorkState,
 } from '@podium/model'
-import type { LockWire, SyncChangesSinceResult } from '@podium/protocol'
+import type { LockWire, ModelChoiceWire, SyncChangesSinceResult } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { SuperThreadView } from './viewmodels/slices/superagent'
 import type { PinKind, PinState } from './viewmodels/types'
@@ -103,6 +103,26 @@ export interface PodiumClientApi {
     refreshRepos: ApiMutation<
       void,
       { repositories: GitRepositoryWire[]; diagnostics: GitDiscoveryDiagnosticWire[] }
+    >
+  }
+  models?: {
+    catalog: ApiQuery<
+      { machineId?: MachineId } | undefined,
+      {
+        machineId: MachineId
+        byAgent: Record<string, ModelChoiceWire[]>
+        fetchedAt: number
+        version?: number
+      }
+    >
+    refresh: ApiMutation<
+      { machineId?: MachineId } | undefined,
+      {
+        machineId: MachineId
+        byAgent: Record<string, ModelChoiceWire[]>
+        fetchedAt: number
+        version?: number
+      }
     >
   }
   sessions: {

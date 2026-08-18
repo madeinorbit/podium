@@ -78,4 +78,20 @@ describe('SuperagentBackendRail', () => {
     fireEvent.click(screen.getByLabelText('Claude Code Opus'))
     expect(onModelChange).toHaveBeenCalledWith('opus', 'claude-code')
   })
+
+  it('renders the live machine catalog instead of the fallback list', () => {
+    render(
+      <SuperagentBackendRail
+        backend={{ agentKind: undefined, model: 'auto', effort: 'auto' }}
+        modelCatalog={{
+          codex: [{ value: 'gpt-next', label: 'GPT Next', efforts: ['high'] }],
+        }}
+        onModelChange={() => {}}
+        onEffortChange={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('Model'))
+    expect(screen.getByLabelText('Codex GPT Next')).toBeTruthy()
+    expect(screen.queryByLabelText('Codex GPT-5.6-Sol')).toBeNull()
+  })
 })

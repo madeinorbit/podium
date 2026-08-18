@@ -688,6 +688,7 @@ export function ChatComposer({
       {backend && onBackendModelChange && onBackendEffortChange && (
         <BackendRail
           backend={backend}
+          machineId={session?.machineId}
           onModelChange={onBackendModelChange}
           onEffortChange={onBackendEffortChange}
         />
@@ -723,10 +724,12 @@ export function ChatComposer({
  */
 function BackendRail({
   backend,
+  machineId,
   onModelChange,
   onEffortChange,
 }: {
   backend: { agentKind: string | undefined; model: string; effort: string }
+  machineId?: SessionMeta['machineId']
   onModelChange: (model: string, agentKind?: string) => void
   onEffortChange: (effort: string) => void
 }): JSX.Element {
@@ -735,6 +738,7 @@ function BackendRail({
     <div className="mt-1.5 flex items-center gap-1 px-0.5" data-testid="composer-backend">
       <AllConnectorsModelPicker
         agentKind={agentKind ?? undefined}
+        machineId={machineId}
         value={backend.model}
         onChange={(pick) => onModelChange(pick.model, pick.agentKind)}
         variant="pill"
@@ -742,6 +746,7 @@ function BackendRail({
       {agentKind ? (
         <EffortPicker
           agentKind={agentKind}
+          machineId={machineId}
           model={backend.model}
           value={backend.effort}
           onChange={onEffortChange}

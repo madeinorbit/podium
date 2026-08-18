@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { useSlice } from '@podium/client-core/react'
+import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
   lastUsedMaps,
   machineViewsFromWire,
@@ -16,6 +16,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react-nativ
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore, useSessions } from '../client/hooks'
+import type { MobileTrpc } from '../client/trpc'
 import {
   AUTO,
   allConnectorModelLabel,
@@ -73,6 +74,7 @@ export function NewWorkButton() {
     (usable[0]?.id as MachineId | undefined) ??
     null
   const selectedMachine = machineViews.find((view) => view.machine.id === machineId)
+  const modelCatalog = useModelCatalog<MobileTrpc>(machineId ?? undefined)
 
   const { repos, lastUsedByRepo } = useMemo(() => {
     const choices = [...sections.pinnedRepos, ...sections.repos]
@@ -138,7 +140,7 @@ export function NewWorkButton() {
     const decoded = decodeModelPick(value)
     if (decoded.agentKind) setHarness(decoded.agentKind)
     const options = decoded.agentKind
-      ? effortOptionsForModel(decoded.agentKind, decoded.model)
+      ? effortOptionsForModel(decoded.agentKind, decoded.model, modelCatalog[decoded.agentKind])
       : []
     const kind = (decoded.agentKind ?? harness) as IssueAgentKind
     if (options.length === 0 || !isEffortValid(kind, effort)) {
@@ -152,9 +154,13 @@ export function NewWorkButton() {
   const effortChoices =
     !modelSelected || harness === 'shell'
       ? []
-      : effortOptionsForModel((decoded.agentKind ?? harness) as IssueAgentKind, decoded.model)
-  const modelOptions = allConnectorModelOptions()
-  const modelValue = allConnectorModelLabel(decoded.agentKind, decoded.model)
+      : effortOptionsForModel(
+          (decoded.agentKind ?? harness) as IssueAgentKind,
+          decoded.model,
+          modelCatalog[decoded.agentKind ?? harness],
+        )
+  const modelOptions = allConnectorModelOptions(modelCatalog)
+  const modelValue = allConnectorModelLabel(decoded.agentKind, decoded.model, modelCatalog)
   const canStart = !showMachine || selectedMachine?.availability === 'available'
 
   const title =
@@ -214,11 +220,7 @@ export function NewWorkButton() {
       >
         {step === 'launch' ? (
           <>
-            <FieldSelect
-              label="Model"
-              value={modelValue}
-              onPress={() => setStep('model')}
-            />
+            <FieldSelect label="Model" value={modelValue} onPress={() => setStep('model')} />
 
             {effortChoices.length > 0 ? (
               <FieldSelect

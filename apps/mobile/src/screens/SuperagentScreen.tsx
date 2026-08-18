@@ -1,4 +1,4 @@
-import { useSlice } from '@podium/client-core/react'
+import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
   mergeTranscriptItems,
   prependTranscriptItems,
@@ -10,6 +10,7 @@ import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
 import { readTranscriptPage, useBooting, useHub, useMobileStore } from '../client/hooks'
+import type { MobileTrpc } from '../client/trpc'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { BootstrapCrossfade, TranscriptSkeleton } from '../components/LaunchPlaceholders'
@@ -82,6 +83,10 @@ export function SuperagentScreen() {
   // back a fresher one (the FIRST turn learns its session from the ack alone).
   const [ackedSid, setAckedSid] = useState<SessionId | undefined>(undefined)
   const podiumSid = ackedSid ?? superagent.activeSessionId
+  const transcriptSession = podiumSid
+    ? store.sessions.find((session) => session.sessionId === podiumSid)
+    : undefined
+  const modelCatalog = useModelCatalog<MobileTrpc>(transcriptSession?.machineId)
   const [backendPick, setBackendPick] = useState<SuperagentBackendPick>({})
   const backend = useMemo(
     () => resolveSuperagentBackend(superagent.active, backendPick),
@@ -331,10 +336,6 @@ export function SuperagentScreen() {
   )
   // POD-332 retired `MobileClientValue` (and with it `client.sessionById`): every
   // screen reads the same store and the same published slices as the web.
-  const transcriptSession = podiumSid
-    ? store.sessions.find((s) => s.sessionId === podiumSid)
-    : undefined
-
   const transcriptResolved = podiumSid ? transcriptLoaded || rendered.length > 0 : threadsLoaded
   const resolved = !booting && transcriptResolved
   const empty = resolved && rendered.length === 0 && pendingTurns.length === 0 && !running
@@ -436,6 +437,7 @@ export function SuperagentScreen() {
             below={
               <SuperagentBackendRail
                 backend={backend}
+                modelCatalog={modelCatalog}
                 onModelChange={(model, agentKind) =>
                   setBackendPick((pick) => applySuperagentModelPick(pick, model, agentKind))
                 }

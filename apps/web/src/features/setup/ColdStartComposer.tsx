@@ -402,6 +402,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               <ModelPicker
                 variant="composer"
                 agentKind={agent}
+                machineId={selectedMachine?.id}
                 value={draft.model}
                 onChange={(model) => setDraft({ ...draft, model, effort: AUTO })}
               />
@@ -409,6 +410,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               <EffortPicker
                 variant="composer"
                 agentKind={agent}
+                machineId={selectedMachine?.id}
                 model={draft.model}
                 value={draft.effort}
                 onChange={(effort) => setDraft({ ...draft, effort })}
