@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import type { Operation } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -5,6 +8,7 @@ import { ADOPTION_DEFERRED } from '../operations/kinds'
 import {
   projectRecoveryOperation,
   reconcileServerMoveOperation,
+  serverMoveFaultHook,
   serverMoveOperationKind,
 } from './operation'
 import type { ServerTransferService } from './service'
@@ -90,6 +94,28 @@ function journal(state: TransferJournalEntry['state']): TransferJournalEntry {
 }
 
 describe('server-move operation', () => {
+  it('writes opt-in commit evidence and honors a one-shot failure marker', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-server-move-hook-'))
+    const commitEvidence = join(root, 'commit-evidence')
+    const faultMarker = join(root, 'fault-once')
+    const newline = String.fromCharCode(10)
+    try {
+      const hook = serverMoveFaultHook({
+        PODIUM_SERVER_MOVE_COMMIT_EVIDENCE_FILE: commitEvidence,
+        PODIUM_SERVER_MOVE_FAIL_POINT: 'after-seal',
+        PODIUM_SERVER_MOVE_FAULT_ONCE_FILE: faultMarker,
+      } as NodeJS.ProcessEnv)
+
+      expect(() => hook?.('after-commit')).not.toThrow()
+      await expect(readFile(commitEvidence, 'utf8')).resolves.toBe('after-commit' + newline)
+      expect(() => hook?.('after-seal')).toThrow(/injected server-move failure/)
+      await expect(readFile(faultMarker, 'utf8')).resolves.toBe('after-seal' + newline)
+      expect(() => hook?.('after-seal')).not.toThrow()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('declares the stable five-step lifecycle plan with only pre-fence cancellation', async () => {
     const kind = serverMoveOperationKind({} as ServerTransferService)
     const plan = await kind.plan({

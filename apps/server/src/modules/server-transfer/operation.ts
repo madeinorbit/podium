@@ -1,3 +1,4 @@
+import { existsSync, writeFileSync } from 'node:fs'
 import type { MachineId } from '@podium/model'
 import type { Operation as ProtocolOperation } from '@podium/protocol'
 import type { ServerTransferOutcome, TransferJournalEntry, TransferRecord } from './types'
