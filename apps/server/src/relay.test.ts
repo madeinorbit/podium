@@ -1841,6 +1841,40 @@ describe('SessionRegistry', () => {
     expect(spy).toHaveBeenCalled()
   })
 
+  it('queues semantic activity while the transfer fence is read-only, then flushes it', () => {
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    const cid = attachTestClient(reg.clientGateway, sink().send)
+    reg.clientGateway.routeClientFrame(cid, { type: 'attach', sessionId })
+    // biome-ignore lint/suspicious/noExplicitAny: assert the coalesced terminal dirty bit
+    const session = (reg as any).modules.sessions.sessions.get(sessionId)
+    session.terminal.clearActivityDirty()
+    const spy = vi.spyOn(store.sessions, 'upsertSession')
+
+    store.beginTransferFence()
+    expect(() =>
+      reg.clientGateway.routeClientFrame(cid, {
+        type: 'input',
+        sessionId,
+        data: Buffer.from('ls\r').toString('base64'),
+      }),
+    ).not.toThrow()
+    expect(() => reg.modules.sessions.flushActivity()).not.toThrow()
+    expect(spy).not.toHaveBeenCalled()
+    expect(session.terminal.activityDirty).toBe(true)
+
+    store.endTransferFence()
+    reg.modules.sessions.flushActivity()
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(session.terminal.activityDirty).toBe(false)
+    session.terminal.stopOutput()
+    reg.dispose()
+    store.close()
+  })
+
   it('mints opaque durable session ids (uuid), not the s0 counter', () => {
     const reg = new SessionRegistry(new SessionStore(':memory:', TEST_MACHINE), undefined, {
       instanceId: 'default',

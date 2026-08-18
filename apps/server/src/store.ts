@@ -446,6 +446,11 @@ export class SessionStore {
 
   private transferFenceHeld = false
 
+  /** Synchronous write guard for activity callbacks sharing this connection. */
+  get transferFenceActive(): boolean {
+    return this.transferFenceHeld
+  }
+
   /** Reject new SQLite writes while the target is being promoted. */
   beginTransferFence(): void {
     if (this.transferFenceHeld) throw new Error('transfer fence is already held')

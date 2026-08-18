@@ -358,13 +358,19 @@ export class SessionRepository {
     this.publishSessionProjection(changes)
   }
 
+  /** Persist activity only while this store can accept synchronous writes. */
+  persistActivityIfWritable(session: Session): boolean {
+    if (this.store.transferFenceActive) return false
+    this.persist(session)
+    return true
+  }
+
   /** Persist every session whose activity counters advanced since the last flush.
    *  Keeps the per-frame / per-keystroke path off the DB — the timer above calls
    *  this on a coarse interval, so a busy session writes at most once per tick. */
   flushActivity(): void {
     for (const s of this.sessions.values()) {
-      if (s.terminal.activityDirty) {
-        this.persist(s)
+      if (s.terminal.activityDirty && this.persistActivityIfWritable(s)) {
         s.terminal.clearActivityDirty()
       }
     }
@@ -411,8 +417,7 @@ export class SessionRepository {
       machineId,
       toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
       onActivity: () => {
-        this.persist(session)
-        this.broadcastSessions()
+        if (this.persistActivityIfWritable(session)) this.broadcastSessions()
       },
       durableLabel: r.durableLabel,
       lastActiveAt: r.lastActiveAt,
