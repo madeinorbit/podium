@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useStoreSelector } from '@/app/store'
@@ -127,6 +127,12 @@ export function RepoPickerModal({
   >(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [writingKind, setWritingKind] = useState<'repo' | 'folder' | 'rename' | null>(null)
+  // The right-click menu's position is stored in the DIALOG's coordinate space,
+  // not the viewport's — see `openRowMenu`.
+  const [rowMenu, setRowMenu] = useState<{ entry: DirectoryEntry; x: number; y: number } | null>(
+    null,
+  )
+  const dialogRef = useRef<HTMLDivElement | null>(null)
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const historyRef = useRef<string[]>([])
@@ -299,6 +305,28 @@ export function RepoPickerModal({
     setEdit(next)
     setEditError(null)
     setError(null)
+    setRowMenu(null)
+  }
+
+  /**
+   * THE MENU LIVES INSIDE THE DIALOG, AND ITS COORDINATES SAY SO.
+   *
+   * `DialogContent` is centred with a CSS transform, which makes it the
+   * containing block for any `position: fixed` descendant — so a menu placed at
+   * viewport coordinates would land at the wrong point, and `useCursorMenu`'s
+   * clamp (which measures against `window`) cannot be reused as-is. Storing the
+   * offset from the dialog's own box keeps the arithmetic honest.
+   *
+   * Rendering it inside the dialog rather than portalling to `document.body`
+   * also keeps it out of the modal's outside-press path: a click on a portalled
+   * menu reads as a click outside the dialog, which would close the picker
+   * underneath the menu the user just opened.
+   */
+  function openRowMenu(entry: DirectoryEntry, event: ReactMouseEvent): void {
+    const box = dialogRef.current?.getBoundingClientRect()
+    if (!box) return
+    event.preventDefault()
+    setRowMenu({ entry, x: event.clientX - box.left, y: event.clientY - box.top })
   }
 
   function cancelEdit(): void {
@@ -360,7 +388,10 @@ export function RepoPickerModal({
     >
       {/* sm:max-w-* overrides DialogContent's base sm:max-w-sm; a plain max-w loses
           to it at desktop width and pins the modal to 384px (POD-832). */}
-      <DialogContent className="flex max-h-[calc(100dvh-48px)] w-full max-w-[calc(100%-24px)] flex-col gap-0 overflow-hidden rounded-[14px] border-0 bg-[#22262d] p-0 text-[#f2f3f5] shadow-[0_30px_70px_-20px_rgba(0,0,0,.75),inset_0_0_0_1px_#2f343d] sm:max-w-[1100px] [&>button]:right-6 [&>button]:top-[22px] [&>button]:size-7 [&>button]:rounded-lg [&>button]:text-[#9ba1ab]">
+      <DialogContent
+        ref={dialogRef}
+        className="flex max-h-[calc(100dvh-48px)] w-full max-w-[calc(100%-24px)] flex-col gap-0 overflow-hidden rounded-[14px] border-0 bg-[#22262d] p-0 text-[#f2f3f5] shadow-[0_30px_70px_-20px_rgba(0,0,0,.75),inset_0_0_0_1px_#2f343d] sm:max-w-[1100px] [&>button]:right-6 [&>button]:top-[22px] [&>button]:size-7 [&>button]:rounded-lg [&>button]:text-[#9ba1ab]"
+      >
         {resultPanel ? (
           resultPanel
         ) : (
@@ -699,6 +730,14 @@ export function RepoPickerModal({
                           data-pressable
                           className="flex min-w-0 flex-1 items-center gap-[13px] py-[11px] text-left disabled:pointer-events-none disabled:opacity-50"
                           onClick={() => void load(entry.path)}
+                          // Right-click the row. On the button rather than the row
+                          // wrapper because the wrapper is a plain div — and this
+                          // is also what the keyboard's menu key targets, since it
+                          // fires `contextmenu` at whatever has focus.
+                          onContextMenu={(event) => {
+                            if (!onRenameFolder || busy) return
+                            openRowMenu(entry, event)
+                          }}
                           // F2 is the rename key everywhere a file list has one, and
                           // it is the only rename gesture a keyboard user gets: the
                           // row's click already means "open", so a double-click would
@@ -738,21 +777,6 @@ export function RepoPickerModal({
                             aria-hidden="true"
                           />
                         </button>
-                        {onRenameFolder && (
-                          <button
-                            type="button"
-                            data-pressable
-                            className="flex size-8 flex-none items-center justify-center rounded-[9px] text-[#5f656e] hover:bg-[#2f343d] hover:text-[#e6e8ec] disabled:pointer-events-none disabled:opacity-50"
-                            disabled={busy}
-                            onClick={() =>
-                              startEdit({ kind: 'rename', from: entry.name, name: entry.name })
-                            }
-                            aria-label={`Rename folder ${entry.name}`}
-                            title="Rename"
-                          >
-                            <Pencil size={15} />
-                          </button>
-                        )}
                         {entry.isRepo && (
                           <button
                             type="button"
@@ -804,6 +828,30 @@ export function RepoPickerModal({
                 </div>
               </div>
             </div>
+            {rowMenu && (
+              <RowMenu
+                entry={rowMenu.entry}
+                x={rowMenu.x}
+                y={rowMenu.y}
+                bounds={dialogRef.current}
+                onClose={() => setRowMenu(null)}
+                onOpen={() => {
+                  setRowMenu(null)
+                  void load(rowMenu.entry.path)
+                }}
+                onUse={
+                  rowMenu.entry.isRepo
+                    ? () => {
+                        setRowMenu(null)
+                        void pickPath(rowMenu.entry.path)
+                      }
+                    : undefined
+                }
+                onRename={() =>
+                  startEdit({ kind: 'rename', from: rowMenu.entry.name, name: rowMenu.entry.name })
+                }
+              />
+            )}
             {/* Only the long writes take the overlay. Creating a plain folder or
                 renaming one is a single syscall and finishes before a curtain
                 would finish fading in. */}
@@ -829,6 +877,109 @@ export function RepoPickerModal({
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * A folder row's right-click menu (POD-1295).
+ *
+ * Rename lives here rather than on a per-row button: it is a rare action next to
+ * "open this folder" and "use this repository", and a control on every row reads
+ * as an invitation to use it. The gestures that remain are the two a file list
+ * teaches — right-click, and F2 on the focused row.
+ *
+ * Styled from the picker's own palette rather than `menu-surface.ts`: this
+ * dialog is a fixed dark surface whatever the app's theme is, and a themed panel
+ * would render a light menu on a dark modal.
+ */
+function RowMenu({
+  entry,
+  x,
+  y,
+  bounds,
+  onClose,
+  onOpen,
+  onUse,
+  onRename,
+}: {
+  entry: DirectoryEntry
+  x: number
+  y: number
+  /** The dialog box these coordinates are relative to; the menu clamps inside it. */
+  bounds: HTMLElement | null
+  onClose: () => void
+  onOpen: () => void
+  onUse?: () => void
+  onRename: () => void
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [pos, setPos] = useState({ x, y })
+
+  // Clamp once the panel has a real size, against the DIALOG rather than the
+  // window — the dialog's transform makes it the containing block, so a
+  // viewport clamp (what `useCursorMenu` does for the app's other menus) would
+  // be measuring the wrong box.
+  useEffect(() => {
+    const el = ref.current
+    const box = bounds?.getBoundingClientRect()
+    if (!el || !box) return
+    const size = el.getBoundingClientRect()
+    setPos({
+      x: Math.max(6, Math.min(x, box.width - size.width - 6)),
+      y: Math.max(6, Math.min(y, box.height - size.height - 6)),
+    })
+  }, [x, y, bounds])
+
+  useEffect(() => {
+    const onDown = (event: MouseEvent): void => {
+      if (!ref.current?.contains(event.target as Node)) onClose()
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      // The dialog closes on Escape too, so this has to stop before it gets there.
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
+    window.addEventListener('mousedown', onDown, true)
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('scroll', onClose, true)
+    window.addEventListener('resize', onClose)
+    return () => {
+      window.removeEventListener('mousedown', onDown, true)
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('resize', onClose)
+    }
+  }, [onClose])
+
+  const item =
+    'flex w-full cursor-pointer items-center gap-2 rounded-md px-[7px] py-[5px] text-left text-[12.5px] text-[#c9ced6] outline-none hover:bg-[#2f343d] hover:text-[#f2f3f5] focus-visible:bg-[#2f343d] focus-visible:text-[#f2f3f5]'
+
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      aria-label={`Actions for ${entry.name}`}
+      style={{ left: pos.x, top: pos.y }}
+      className="absolute z-50 min-w-[168px] rounded-[10px] border border-[#3a404a] bg-[#272c34] p-[5px] shadow-[0_18px_40px_-12px_rgba(0,0,0,.8)]"
+    >
+      <button type="button" role="menuitem" className={item} onClick={onOpen}>
+        <ChevronRight size={14} className="flex-none text-[#8a9099]" aria-hidden="true" />
+        Open
+      </button>
+      {onUse && (
+        <button type="button" role="menuitem" className={item} onClick={onUse}>
+          <Check size={14} className="flex-none text-[#8a9099]" aria-hidden="true" />
+          Use repository
+        </button>
+      )}
+      <hr className="my-[4px] h-px border-0 bg-[#3a404a]" />
+      <button type="button" role="menuitem" className={item} onClick={onRename}>
+        <Pencil size={14} className="flex-none text-[#8a9099]" aria-hidden="true" />
+        Rename…
+      </button>
+    </div>
   )
 }
 

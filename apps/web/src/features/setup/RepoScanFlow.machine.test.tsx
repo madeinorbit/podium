@@ -321,11 +321,16 @@ describe('RepoScanFlow machine selection', () => {
     expect(screen.getByRole('dialog')).toBeTruthy()
   })
 
-  it('renames a folder from its own row', async () => {
+  it('renames a folder from its right-click menu', async () => {
     render(<RepoScanFlow onClose={() => {}} onDone={() => {}} />)
     fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Rename folder src' }))
+    // Rename is a menu item, not a control sitting on every row: it is rare next
+    // to "open" and "use", and a per-row button reads as an invitation.
+    const row = await screen.findByRole('button', { name: 'Open folder src' })
+    expect(screen.queryByRole('button', { name: 'Rename folder src' })).toBeNull()
+    fireEvent.contextMenu(row)
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename…' }))
     const field = await screen.findByLabelText('Rename folder src')
     fireEvent.change(field, { target: { value: 'sources' } })
     fireEvent.keyDown(field, { key: 'Enter' })
@@ -355,5 +360,20 @@ describe('RepoScanFlow machine selection', () => {
     expect(createRepo).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+  it('offers a repo row its own actions in the menu, and a plain folder fewer', async () => {
+    render(<RepoScanFlow onClose={() => {}} onDone={() => {}} />)
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: 'Open folder myrepo' }))
+    expect(await screen.findByRole('menuitem', { name: 'Use repository' })).toBeTruthy()
+    // Escape belongs to the menu here, not to the dialog underneath it.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    expect(screen.getByRole('dialog')).toBeTruthy()
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Open folder src' }))
+    await screen.findByRole('menuitem', { name: 'Rename…' })
+    expect(screen.queryByRole('menuitem', { name: 'Use repository' })).toBeNull()
   })
 })
