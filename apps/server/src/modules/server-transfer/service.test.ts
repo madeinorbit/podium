@@ -30,7 +30,7 @@ function fakeRpc(
     onFirstChunk?: () => Promise<void>
     validateOk?: boolean
     promote?: 'ok' | 'throw' | 'throw-once' | 'throw-before-once'
-    acknowledge?: 'ok' | 'throw'
+    acknowledge?: 'ok' | 'throw' | 'never'
     onAcknowledge?: () => void | Promise<void>
   } = {},
 ) {
@@ -144,6 +144,7 @@ function fakeRpc(
     serverTransferAcknowledge: vi.fn(async (input) => {
       operations.push(`acknowledge:${input.transferId}`)
       await options.onAcknowledge?.()
+      if (options.acknowledge === 'never') await new Promise<never>(() => {})
       if (options.acknowledge === 'throw') throw new Error('acknowledgement reply lost')
       return {
         ok: true as const,
@@ -359,6 +360,40 @@ describe('ServerTransferService final-fence flow', () => {
       state: 'committed',
     })
     expect(fake.rpc.serverTransferAcknowledge).toHaveBeenCalledOnce()
+  })
+
+  it('retires a committed source when target acknowledgement never settles', async () => {
+    let service!: ServerTransferService
+    const afterCommitted = vi.fn()
+    const fake = fakeRpc({
+      acknowledge: 'never',
+      onAcknowledge: () => {
+        expect(service.status()?.state).toBe('committed')
+        expect(afterCommitted).not.toHaveBeenCalled()
+      },
+    })
+    service = makeService(fake.rpc, { afterCommitted, acknowledgementTimeoutMs: 0 })
+
+    await expect(service.transfer(input, allow)).resolves.toMatchObject({
+      ok: true,
+      state: 'committed',
+      cleanup: {
+        result: 'pending',
+        detail: 'target acknowledgement did not settle within 0ms',
+      },
+    })
+    expect(afterCommitted).toHaveBeenCalledOnce()
+    expect(service.status()).toMatchObject({
+      state: 'committed',
+      cleanup: {
+        result: 'pending',
+        detail: 'target acknowledgement did not settle within 0ms',
+      },
+    })
+    expect(makeService(fake.rpc).status()).toMatchObject({
+      state: 'committed',
+      cleanup: { result: 'pending' },
+    })
   })
 
   it('retains the target recovery channel when source demotion is not durable', async () => {

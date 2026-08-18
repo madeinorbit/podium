@@ -30,6 +30,7 @@ import {
 } from './types'
 
 const CHUNK_BYTES = 512 * 1024
+const TARGET_ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000
 
 export interface ServerTransferTargetState {
   exists: boolean
@@ -75,6 +76,8 @@ export interface ServerTransferDeps {
   afterJournalCommitted?(): void
   /** Called only after the committed journal has been fsync'd. */
   afterCommitted?(input: { serverUrl: string }): void
+  /** Bounds target cleanup before the committed source retires. */
+  acknowledgementTimeoutMs?: number
   /** Restarts a recovery-only source after a proven pre-promotion abort. */
   afterRecoveredAbort?(): void
   snapshotAvailableBytes?: () => number | Promise<number>
@@ -540,7 +543,7 @@ export class ServerTransferService {
         await hooks.crash?.('after-commit')
         fenceHeld = false
         const acknowledgementCleanup = this.persistAcknowledgementCleanup(
-          await this.acknowledgePromoted(finalManifest, input.targetMachineId),
+          await this.acknowledgePromotedWithinDeadline(finalManifest, input.targetMachineId),
         )
         this.deps.afterCommitted?.({ serverUrl: publicUrl })
         return this.outcome(record, true, 'committed', undefined, acknowledgementCleanup)
@@ -695,6 +698,33 @@ export class ServerTransferService {
     } catch (error) {
       return { result: 'pending', detail: classified(error).message }
     }
+  }
+
+  private async acknowledgePromotedWithinDeadline(
+    manifest: ServerTransferManifest,
+    targetMachineId: MachineId,
+  ): Promise<{ result: 'pending'; detail: string } | undefined> {
+    const timeoutMs = Math.max(
+      0,
+      this.deps.acknowledgementTimeoutMs ?? TARGET_ACKNOWLEDGEMENT_TIMEOUT_MS,
+    )
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<{ result: 'pending'; detail: string }>((resolve) => {
+      timer = setTimeout(
+        () =>
+          resolve({
+            result: 'pending',
+            detail: 'target acknowledgement did not settle within ' + timeoutMs + 'ms',
+          }),
+        timeoutMs,
+      )
+    })
+    const cleanup = await Promise.race([
+      this.acknowledgePromoted(manifest, targetMachineId),
+      timeout,
+    ])
+    if (timer) clearTimeout(timer)
+    return cleanup
   }
 
   private persistAcknowledgementCleanup(
@@ -873,7 +903,7 @@ export class ServerTransferService {
     this.journal.resolveCommitted(committed)
     this.deps.afterJournalCommitted?.()
     this.persistAcknowledgementCleanup(
-      await this.acknowledgePromoted(record.manifest, record.targetMachineId),
+      await this.acknowledgePromotedWithinDeadline(record.manifest, record.targetMachineId),
     )
     this.deps.afterCommitted?.({ serverUrl: record.publicUrl })
     return committed
