@@ -21,6 +21,11 @@ export interface ClaudeStorageWriteLock {
 
 export type ClaudeStorageLockFactory = (storageDirectory: string) => Promise<ClaudeStorageWriteLock>
 
+export interface ClaudeStorageLockHooks {
+  /** Test seam after ownership verification and before the heartbeat touch. */
+  readonly beforeHeartbeatTouch?: () => Promise<void>
+}
+
 const ownedArtifacts = new Set<string>()
 let exitCleanupInstalled = false
 
@@ -88,49 +93,61 @@ async function createLockDirectory(lockPath: string, allowStaleRemoval = true): 
   }
 }
 
-export const acquireClaudeStorageWriteLock: ClaudeStorageLockFactory = async (storageDirectory) => {
-  await mkdir(storageDirectory, { recursive: true })
-  const lockPath = join(storageDirectory, CLAUDE_STORAGE_LOCK_CONTRACT.artifactName)
-  let mtime: Date | undefined
-  let lastError: unknown
-  for (let attempt = 0; attempt <= CLAUDE_STORAGE_LOCK_CONTRACT.retries; attempt += 1) {
-    try {
-      mtime = await createLockDirectory(lockPath)
-      break
-    } catch (error: unknown) {
-      lastError = error
-      if (errorCode(error) !== 'ELOCKED' || attempt === CLAUDE_STORAGE_LOCK_CONTRACT.retries) {
-        throw error
+export function createClaudeStorageLockFactory(
+  hooks: ClaudeStorageLockHooks = {},
+): ClaudeStorageLockFactory {
+  return async (storageDirectory) => {
+    await mkdir(storageDirectory, { recursive: true })
+    const lockPath = join(storageDirectory, CLAUDE_STORAGE_LOCK_CONTRACT.artifactName)
+    let mtime: Date | undefined
+    let lastError: unknown
+    for (let attempt = 0; attempt <= CLAUDE_STORAGE_LOCK_CONTRACT.retries; attempt += 1) {
+      try {
+        mtime = await createLockDirectory(lockPath)
+        break
+      } catch (error: unknown) {
+        lastError = error
+        if (errorCode(error) !== 'ELOCKED' || attempt === CLAUDE_STORAGE_LOCK_CONTRACT.retries) {
+          throw error
+        }
+        await wait(retryDelay(attempt))
       }
-      await wait(retryDelay(attempt))
     }
-  }
-  if (!mtime) throw lastError ?? lockBusy()
-  trackOwnedArtifact(lockPath)
+    if (!mtime) throw lastError ?? lockBusy()
+    trackOwnedArtifact(lockPath)
 
-  let expectedMtime = mtime.getTime()
-  let lastUpdate = Date.now()
-  let compromised = false
-  let released = false
-  let heartbeat: NodeJS.Timeout | undefined
+    let expectedMtime = mtime.getTime()
+    let lastUpdate = Date.now()
+    let compromised = false
+    let released = false
+    let heartbeat: NodeJS.Timeout | undefined
+    let heartbeatWork: Promise<void> = Promise.resolve()
+    let scheduleHeartbeat!: (delay?: number) => void
 
-  const scheduleHeartbeat = (delay: number = CLAUDE_STORAGE_LOCK_CONTRACT.updateMs) => {
-    heartbeat = setTimeout(async () => {
+    const runHeartbeat = async (): Promise<void> => {
       if (released || compromised) return
       try {
         const current = await stat(lockPath)
+        if (released || compromised) return
         if (current.mtime.getTime() !== expectedMtime) {
           compromised = true
           ownedArtifacts.delete(lockPath)
           return
         }
+        await hooks.beforeHeartbeatTouch?.()
+        // Release waits for this work. This second check prevents an old owner
+        // from touching a lock directory after release has started.
+        if (released || compromised) return
         const next = new Date(Date.now())
         await utimes(lockPath, next, next)
+        if (released || compromised) return
         const refreshed = await stat(lockPath)
+        if (released || compromised) return
         expectedMtime = refreshed.mtime.getTime()
         lastUpdate = Date.now()
         scheduleHeartbeat()
       } catch (error: unknown) {
+        if (released || compromised) return
         if (
           errorCode(error) === 'ENOENT' ||
           lastUpdate + CLAUDE_STORAGE_LOCK_CONTRACT.staleMs < Date.now()
@@ -141,31 +158,40 @@ export const acquireClaudeStorageWriteLock: ClaudeStorageLockFactory = async (st
         }
         scheduleHeartbeat(1_000)
       }
-    }, delay)
-    heartbeat.unref()
-  }
-  scheduleHeartbeat()
+    }
 
-  return {
-    get compromised() {
-      return compromised
-    },
-    async release() {
-      if (released) {
-        throw Object.assign(new Error('lock is already released'), { code: 'ERELEASED' })
-      }
-      released = true
-      if (heartbeat) clearTimeout(heartbeat)
-      if (compromised) {
-        throw Object.assign(new Error('lock was compromised'), { code: 'ECOMPROMISED' })
-      }
-      try {
-        await rmdir(lockPath).catch((error: unknown) => {
-          if (errorCode(error) !== 'ENOENT') throw error
-        })
-      } finally {
-        ownedArtifacts.delete(lockPath)
-      }
-    },
+    scheduleHeartbeat = (delay: number = CLAUDE_STORAGE_LOCK_CONTRACT.updateMs) => {
+      heartbeat = setTimeout(() => {
+        heartbeatWork = runHeartbeat()
+      }, delay)
+      heartbeat.unref()
+    }
+    scheduleHeartbeat()
+
+    return {
+      get compromised() {
+        return compromised
+      },
+      async release() {
+        if (released) {
+          throw Object.assign(new Error('lock is already released'), { code: 'ERELEASED' })
+        }
+        released = true
+        if (heartbeat) clearTimeout(heartbeat)
+        await heartbeatWork
+        if (compromised) {
+          throw Object.assign(new Error('lock was compromised'), { code: 'ECOMPROMISED' })
+        }
+        try {
+          await rmdir(lockPath).catch((error: unknown) => {
+            if (errorCode(error) !== 'ENOENT') throw error
+          })
+        } finally {
+          ownedArtifacts.delete(lockPath)
+        }
+      },
+    }
   }
 }
+
+export const acquireClaudeStorageWriteLock = createClaudeStorageLockFactory()

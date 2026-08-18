@@ -18,92 +18,128 @@ export interface SecurityRunner {
   run(args: readonly string[], input?: Buffer): Promise<SecurityResult>
 }
 
+export type SecuritySpawn = (
+  path: string,
+  args: readonly string[],
+  options: {
+    readonly shell: false
+    readonly stdio: readonly ['pipe', 'pipe', 'pipe']
+    readonly windowsHide: true
+  },
+) => ChildProcessWithoutNullStreams
+
 function appendBounded(
   chunks: Buffer[],
   chunk: Buffer,
   currentSize: number,
 ): { readonly size: number; readonly overflowed: boolean } {
-  if (currentSize + chunk.length > SECURITY_OUTPUT_LIMIT) {
-    return { size: currentSize, overflowed: true }
+  try {
+    if (currentSize + chunk.length > SECURITY_OUTPUT_LIMIT) {
+      return { size: currentSize, overflowed: true }
+    }
+    chunks.push(Buffer.from(chunk))
+    return { size: currentSize + chunk.length, overflowed: false }
+  } finally {
+    // Stream chunks may contain the credential returned by `security -w`.
+    // Clear the source after taking the one bounded owned copy.
+    chunk.fill(0)
   }
-  chunks.push(Buffer.from(chunk))
-  return { size: currentSize + chunk.length, overflowed: false }
 }
 
-export const productionSecurityRunner: SecurityRunner = {
-  run(args, input) {
-    return new Promise((resolve) => {
-      let settled = false
-      let timedOut = false
-      let overflowed = false
-      let stdoutSize = 0
-      let stderrSize = 0
-      let timer: NodeJS.Timeout | undefined
-      const stdout: Buffer[] = []
-      const stderr: Buffer[] = []
-      let child: ChildProcessWithoutNullStreams
-
-      const finish = (result: Omit<SecurityResult, 'stdout' | 'stderr' | 'timedOut'>) => {
-        if (settled) return
-        settled = true
-        if (timer) clearTimeout(timer)
-        resolve({
-          ...result,
-          stdout: Buffer.concat(stdout),
-          stderr: Buffer.concat(stderr).toString('utf8'),
-          timedOut,
-          ...(overflowed ? { overflowed: true } : {}),
-        })
-      }
-
-      try {
-        child = spawn(SECURITY_PATH, [...args], {
-          shell: false,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          windowsHide: true,
-        })
-      } catch {
-        resolve({
-          stdout: Buffer.alloc(0),
-          stderr: '',
-          exitCode: null,
-          timedOut: false,
-          failedToSpawn: true,
-        })
-        return
-      }
-
-      timer = setTimeout(() => {
-        timedOut = true
-        child.kill('SIGKILL')
-      }, SECURITY_TIMEOUT_MS)
-      timer.unref()
-
-      child.stdout.on('data', (value: Buffer) => {
-        const appended = appendBounded(stdout, value, stdoutSize)
-        stdoutSize = appended.size
-        if (appended.overflowed) {
-          overflowed = true
-          child.kill('SIGKILL')
-        }
-      })
-      child.stderr.on('data', (value: Buffer) => {
-        const appended = appendBounded(stderr, value, stderrSize)
-        stderrSize = appended.size
-        if (appended.overflowed) {
-          overflowed = true
-          child.kill('SIGKILL')
-        }
-      })
-      child.once('error', () => finish({ exitCode: null, failedToSpawn: true }))
-      child.once('close', (exitCode, signal) => finish({ exitCode, ...(signal ? { signal } : {}) }))
-      child.stdin.once('error', () => {
-        // The close/error event carries the non-secret outcome.
-      })
-      child.stdin.end(input)
-    })
-  },
+function clearChunks(chunks: readonly Buffer[]): void {
+  for (const chunk of chunks) chunk.fill(0)
 }
+
+export function createSecurityRunner(
+  spawnProcess: SecuritySpawn = spawn as SecuritySpawn,
+): SecurityRunner {
+  return {
+    run(args, input) {
+      return new Promise((resolve) => {
+        let settled = false
+        let timedOut = false
+        let overflowed = false
+        let stdoutSize = 0
+        let stderrSize = 0
+        let timer: NodeJS.Timeout | undefined
+        const stdout: Buffer[] = []
+        const stderr: Buffer[] = []
+        let child: ChildProcessWithoutNullStreams
+
+        const finish = (result: Omit<SecurityResult, 'stdout' | 'stderr' | 'timedOut'>) => {
+          if (settled) return
+          settled = true
+          if (timer) clearTimeout(timer)
+          const joinedStdout = Buffer.concat(stdout)
+          const joinedStderr = Buffer.concat(stderr)
+          try {
+            resolve({
+              ...result,
+              stdout: joinedStdout,
+              stderr: joinedStderr.toString('utf8'),
+              timedOut,
+              ...(overflowed ? { overflowed: true } : {}),
+            })
+          } finally {
+            clearChunks(stdout)
+            clearChunks(stderr)
+            joinedStderr.fill(0)
+          }
+        }
+
+        try {
+          child = spawnProcess(SECURITY_PATH, [...args], {
+            shell: false,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true,
+          })
+        } catch {
+          resolve({
+            stdout: Buffer.alloc(0),
+            stderr: '',
+            exitCode: null,
+            timedOut: false,
+            failedToSpawn: true,
+          })
+          return
+        }
+
+        timer = setTimeout(() => {
+          timedOut = true
+          child.kill('SIGKILL')
+        }, SECURITY_TIMEOUT_MS)
+        timer.unref()
+
+        child.stdout.on('data', (value: Buffer) => {
+          const appended = appendBounded(stdout, value, stdoutSize)
+          stdoutSize = appended.size
+          if (appended.overflowed) {
+            overflowed = true
+            child.kill('SIGKILL')
+          }
+        })
+        child.stderr.on('data', (value: Buffer) => {
+          const appended = appendBounded(stderr, value, stderrSize)
+          stderrSize = appended.size
+          if (appended.overflowed) {
+            overflowed = true
+            child.kill('SIGKILL')
+          }
+        })
+        child.once('error', () => finish({ exitCode: null, failedToSpawn: true }))
+        child.once('close', (exitCode, signal) =>
+          finish({ exitCode, ...(signal ? { signal } : {}) }),
+        )
+        child.stdin.once('error', () => {
+          // The close/error event carries the non-secret outcome.
+        })
+        child.stdin.end(input)
+      })
+    },
+  }
+}
+
+export const productionSecurityRunner = createSecurityRunner()
 
 const HEX = Buffer.from('0123456789abcdef', 'ascii')
 

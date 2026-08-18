@@ -114,6 +114,21 @@ function allowedByGuard(
   return policy.compareFreshness?.(content.toString('utf8'), current) === 1
 }
 
+async function withReleasedLock(
+  lock: ClaudeStorageWriteLock,
+  operation: () => Promise<boolean>,
+): Promise<boolean> {
+  let installed = false
+  try {
+    installed = await operation()
+  } finally {
+    // A successful write is not complete until Claude's cooperative lock has
+    // been cleanly released. Release failures deliberately escape to callers.
+    await lock.release()
+  }
+  return installed && !lock.compromised
+}
+
 export function supportsClaudeKeychainMutation(version: string | undefined): boolean {
   return version !== undefined && /^2\.1\.\d+(?:\s|$)/.test(version.trim())
 }
@@ -175,18 +190,15 @@ export class ClaudeKeychainCredentialStore implements PortableCredentialStore {
             releaseRead(again)
           }
         }
-        try {
+        return withReleasedLock(lock, async () => {
           const again = await this.readAuthoritative()
           try {
             if (!sameRead(before, again) || lock.compromised) return false
-            const installed = await this.writeAndVerify(content, true)
-            return installed && !lock.compromised
+            return this.writeAndVerify(content, true)
           } finally {
             releaseRead(again)
           }
-        } finally {
-          await lock.release().catch(() => {})
-        }
+        })
       } finally {
         releaseRead(before)
       }
@@ -213,7 +225,7 @@ export class ClaudeKeychainCredentialStore implements PortableCredentialStore {
             releaseRead(again)
           }
         }
-        try {
+        return withReleasedLock(lock, async () => {
           const again = await this.readAuthoritative()
           try {
             if (
@@ -223,14 +235,11 @@ export class ClaudeKeychainCredentialStore implements PortableCredentialStore {
             ) {
               return false
             }
-            const installed = await this.writeAndVerify(content, true)
-            return installed && !lock.compromised
+            return this.writeAndVerify(content, true)
           } finally {
             releaseRead(again)
           }
-        } finally {
-          await lock.release().catch(() => {})
-        }
+        })
       })
     } finally {
       releaseRead(before)
