@@ -57,6 +57,7 @@ function render(
         onOpenImage={() => {}}
         onAnswerAsk={async () => {}}
         livePendingAskIndex={-1}
+        pendingAskBlock={null}
         lastAnswerBlockIndex={-1}
         ctxSeq={null}
         collapseContext={false}

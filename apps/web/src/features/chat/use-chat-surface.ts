@@ -15,6 +15,7 @@ import {
   livePendingAskIndex as livePendingAskIndexOf,
   type OperatorPromptOptions,
   parseEnvelopeBatch,
+  pendingAskFromState,
   queuedState,
   type RenderableRow,
   renderableRows,
@@ -32,7 +33,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
-import type { PendingItem, QueuedChatMessage } from './chat'
+import type { ChatBlock, PendingItem, QueuedChatMessage } from './chat'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
@@ -117,6 +118,10 @@ export interface ChatSurface {
   loadOlder: () => void
   offlineAsOf: number | null
   livePendingAskIndex: number
+  /** The live question drawn from agent state, for the window where the
+   *  transcript has no item for it yet — see `pendingAskFromState`. Null
+   *  whenever the transcript can speak for itself. */
+  pendingAskBlock: ChatBlock | null
   lastAnswerBlockIndex: number
   lastAnswerText: string
   isOperatorPromptRow: (row: ChatRow) => boolean
@@ -323,6 +328,20 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const livePendingAskIndex = useMemo(
     () => livePendingAskIndexOf(blocks, session?.status),
     [blocks, session?.status],
+  )
+  // A question Claude Code has not written down yet. Only ever consulted when
+  // the transcript has no pending ask of its own, so the real item takes over
+  // the moment it lands.
+  const need = session?.agentState?.need
+  const pendingAskBlock = useMemo(
+    () =>
+      pendingAskFromState(
+        need,
+        session?.status,
+        session?.agentState?.phase,
+        livePendingAskIndex >= 0,
+      ),
+    [need, session?.status, session?.agentState?.phase, livePendingAskIndex],
   )
   const answer = useMemo(() => lastAnswerOf(blocks), [blocks])
   const latestOperatorPrompt = useMemo(() => {
@@ -683,6 +702,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     loadOlder,
     offlineAsOf,
     livePendingAskIndex,
+    pendingAskBlock,
     lastAnswerBlockIndex: answer.blockIndex,
     lastAnswerText: answer.text,
     isOperatorPromptRow,

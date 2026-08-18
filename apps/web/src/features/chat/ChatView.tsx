@@ -322,6 +322,7 @@ export function ChatView({
           onOpenImage={chat.setLightbox}
           onAnswerAsk={chat.answerAsk}
           livePendingAskIndex={chat.livePendingAskIndex}
+          pendingAskBlock={chat.pendingAskBlock}
           lastAnswerBlockIndex={chat.lastAnswerBlockIndex}
           ctxSeq={chat.ctxSeq}
           collapseContext={chat.headless}

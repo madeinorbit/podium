@@ -236,6 +236,87 @@ describe('translateClaudeHookPayload', () => {
     ])
   })
 
+  // POD-1273 — what the card is drawn from. The ask is carried, not summarized,
+  // because a PENDING AskUserQuestion is never in the transcript the chat's card
+  // is otherwise built from.
+  describe('the carried interview', () => {
+    const askHook = (questions: unknown) => ({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'AskUserQuestion',
+      tool_input: { questions },
+    })
+    const needOf = async (questions: unknown) => {
+      const [event] = await translateClaudeHookPayload(askHook(questions))
+      return event as { interview?: { questions: unknown[] }; summary?: string }
+    }
+
+    it('carries every question and option the card has to render', async () => {
+      const need = await needOf([
+        {
+          question: 'Which way?',
+          header: 'Route',
+          multiSelect: true,
+          options: [{ label: 'Left', description: 'the short one' }, { label: 'Right' }],
+        },
+        { question: 'When?', options: [{ label: 'Now' }] },
+      ])
+      expect(need.interview?.questions).toEqual([
+        {
+          question: 'Which way?',
+          header: 'Route',
+          multiSelect: true,
+          options: [{ label: 'Left', description: 'the short one' }, { label: 'Right' }],
+        },
+        { question: 'When?', options: [{ label: 'Now' }] },
+      ])
+    })
+
+    // The layout predicate reads PRESENCE, and the layout decides which
+    // keystrokes answer the question (POD-770) — so a preview may be clipped but
+    // must never be emptied, or the card would type an answer nobody gave.
+    it('clips a huge preview without ever emptying it', async () => {
+      const need = await needOf([
+        { question: 'Which?', options: [{ label: 'A', preview: 'x'.repeat(50_000) }] },
+      ])
+      const preview = (need.interview?.questions[0] as { options: { preview?: string }[] })
+        .options[0]?.preview
+      expect(preview).toBeDefined()
+      expect(preview?.length).toBeLessThan(50_000)
+      expect(preview?.length).toBeGreaterThan(0)
+    })
+
+    it('caps the lists so a malformed input cannot put an unbounded payload on the wire', async () => {
+      const options = Array.from({ length: 200 }, (_, i) => ({ label: `opt ${i}` }))
+      const questions = Array.from({ length: 200 }, (_, i) => ({
+        question: `q ${i}`,
+        options,
+      }))
+      const need = await needOf(questions)
+      expect(need.interview?.questions.length).toBeLessThanOrEqual(8)
+      const first = need.interview?.questions[0] as { options: unknown[] }
+      expect(first.options.length).toBeLessThanOrEqual(12)
+    })
+
+    it('drops a question it cannot render rather than half-drawing it', async () => {
+      const need = await needOf([
+        { question: 'no options at all' },
+        { question: 'Which way?', options: [{ label: 'Left' }] },
+      ])
+      expect(need.interview?.questions).toEqual([
+        { question: 'Which way?', options: [{ label: 'Left' }] },
+      ])
+    })
+
+    // The sidebar's one line still comes off the RAW input, so a wait whose ask
+    // could not be parsed is still NAMED — the behaviour before the card had a
+    // payload to draw from.
+    it('still names the wait when nothing could be parsed', async () => {
+      const need = await needOf([{ question: 'no options at all' }])
+      expect(need.summary).toBe('no options at all')
+      expect(need.interview).toBeUndefined()
+    })
+  })
+
   it('one interview announced three times stays a question, not a permission prompt', async () => {
     // Captured from Claude Code 2.1.233 — byte-identical behaviour on 2.1.232 and
     // 2.1.231, and unaffected by permission mode. ONE AskUserQuestion produces:
@@ -285,7 +366,23 @@ describe('translateClaudeHookPayload', () => {
       afterEachHook.push(state.need)
     }
 
-    const asked = { kind: 'question', summary: 'Do you prefer tabs or spaces for indentation?' }
+    // Every channel that names the interview carries the WHOLE ask, not just the
+    // headline: a pending AskUserQuestion never reaches the transcript, so this
+    // is the only copy the chat's card can be drawn from (POD-1273).
+    const asked = {
+      kind: 'question',
+      summary: 'Do you prefer tabs or spaces for indentation?',
+      interview: {
+        questions: [
+          {
+            question: 'Do you prefer tabs or spaces for indentation?',
+            header: 'Indentation',
+            multiSelect: false,
+            options: [{ label: 'Spaces' }, { label: 'Tabs' }],
+          },
+        ],
+      },
+    }
     expect(afterEachHook).toEqual([asked, asked, asked])
     // The wait is dated from the hook that opened it, not from the last echo.
     expect(state).toMatchObject({ phase: 'needs_user', since: '2026-08-17T14:55:31.000Z' })

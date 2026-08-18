@@ -137,12 +137,57 @@ export const AgentPermissionAsk = z.object({
 })
 export type AgentPermissionAsk = z.infer<typeof AgentPermissionAsk>
 
+/**
+ * WHAT AN INTERVIEW IS ASKING — the question a card can be answered from.
+ *
+ * An AskUserQuestion that has not been answered yet is NOT in the transcript:
+ * Claude Code writes a tool call down only once it resolves, so the chat's
+ * transcript-derived card had nothing to render for exactly the state it exists
+ * for — the question was announced on the hook channel and then dropped here,
+ * leaving {@link AgentNeed.summary}'s one line as the only trace of it. The need
+ * carries the whole ask so the chat can draw the live card off state and hand
+ * back to the transcript item once it lands.
+ *
+ * BOUNDED, like {@link AgentPermissionAsk.detail} and for the same reason: an
+ * option's `preview` is free-form and routinely a whole mockup. Text is
+ * truncated and the lists are capped at the harness boundary — enough to render
+ * and answer, never an unbounded payload on the wire.
+ *
+ * `preview` survives truncation rather than being dropped because its mere
+ * PRESENCE picks the native dialog's side-by-side layout, and the layout decides
+ * which keystrokes answer the question (POD-770). A card that guessed wrong here
+ * would type an answer the operator did not give.
+ */
+export const AgentInterviewOption = z.object({
+  label: z.string(),
+  description: z.string().optional(),
+  preview: z.string().optional(),
+})
+export type AgentInterviewOption = z.infer<typeof AgentInterviewOption>
+
+export const AgentInterviewQuestion = z.object({
+  question: z.string(),
+  /** The tool's own ≤12-character chip; the card's tab name. */
+  header: z.string().optional(),
+  multiSelect: z.boolean().optional(),
+  options: z.array(AgentInterviewOption),
+})
+export type AgentInterviewQuestion = z.infer<typeof AgentInterviewQuestion>
+
+export const AgentInterview = z.object({
+  questions: z.array(AgentInterviewQuestion),
+})
+export type AgentInterview = z.infer<typeof AgentInterview>
+
 export const AgentNeed = z.object({
   kind: z.enum(['question', 'permission']),
   summary: z.string().optional(),
   /** Present only for `kind: 'permission'`, and only from a harness that reports
    *  the subject. Optional: an older daemon emits the bare kind + summary. */
   ask: AgentPermissionAsk.optional(),
+  /** Present only for `kind: 'question'`, and only from a harness whose channel
+   *  carries the tool input. Optional: an older daemon emits kind + summary. */
+  interview: AgentInterview.optional(),
 })
 export type AgentNeed = z.infer<typeof AgentNeed>
 

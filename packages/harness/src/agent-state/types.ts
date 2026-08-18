@@ -1,4 +1,4 @@
-import type { AgentPermissionAsk, AgentRuntimeState } from '@podium/model'
+import type { AgentInterview, AgentPermissionAsk, AgentRuntimeState } from '@podium/model'
 
 /** State-channel provenance. Confidence orders competing observations; source never names a person. */
 export type AgentStateEventSource = 'hook' | 'poll' | 'classifier'
@@ -34,6 +34,11 @@ export type AgentStateEvent = (
       need: 'question' | 'permission'
       summary?: string
       ask?: AgentPermissionAsk
+      /** The interview subject (every question and option), carried only by a
+       *  provider whose channel reports the tool input. Present for
+       *  `need: 'question'`; it is what the chat draws a live card from while
+       *  the transcript still has nothing to show. */
+      interview?: AgentInterview
       subjectless?: true
     }
   /** Turn ended cleanly. The verdict is the PROVIDER's — only an adapter that

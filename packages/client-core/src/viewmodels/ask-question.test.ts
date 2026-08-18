@@ -5,6 +5,7 @@ import {
   latestPendingQuestion,
   optionPreview,
   parseAskQuestions,
+  pendingAskFromState,
 } from './ask-question'
 
 function ask(id: string, overrides: Partial<TranscriptItem> = {}): TranscriptItem {
@@ -87,5 +88,63 @@ describe('ask question view model', () => {
     const items: TranscriptItem[] = [answered, { id: 'm1', role: 'assistant', text: 'ok' }, pending]
     expect(latestPendingQuestion(items)?.id).toBe('q2')
     expect(latestPendingQuestion([answered])).toBeNull()
+  })
+
+  // POD-1273 — the window this exists for: Claude Code writes a tool call into
+  // its transcript only once the call RESOLVES, so while the agent is actually
+  // waiting there is no item and the transcript-derived card draws nothing.
+  describe('the question the transcript does not have yet', () => {
+    const interview = {
+      questions: [{ question: 'Which way?', options: [{ label: 'Left' }, { label: 'Right' }] }],
+    }
+    const need = { kind: 'question' as const, interview }
+
+    it('synthesizes the block the card already knows how to render', () => {
+      const block = pendingAskFromState(need, 'live', 'needs_user', false)
+      expect(block).not.toBeNull()
+      const questions = parseAskQuestions(block?.item.toolInputJson)
+      expect(questions[0]?.question).toBe('Which way?')
+      expect(questions[0]?.options.map((o) => o.label)).toEqual(['Left', 'Right'])
+      // No result — the card reads that as "still answerable".
+      expect(block?.item.toolResult).toBeUndefined()
+    })
+
+    it('stands down the moment the transcript has a pending question of its own', () => {
+      expect(pendingAskFromState(need, 'live', 'needs_user', true)).toBeNull()
+    })
+
+    // The hand-back needs no id matching: answering moves the session out of
+    // needs_user, which is the whole condition.
+    it('disappears when the wait ends', () => {
+      expect(pendingAskFromState(need, 'live', 'working', false)).toBeNull()
+      expect(pendingAskFromState(need, 'live', 'idle', false)).toBeNull()
+    })
+
+    it('draws nothing for a wait that is not a question, or a session that cannot answer', () => {
+      expect(pendingAskFromState({ kind: 'permission' }, 'live', 'needs_user', false)).toBeNull()
+      expect(pendingAskFromState(need, 'hibernated', 'needs_user', false)).toBeNull()
+      expect(pendingAskFromState(undefined, 'live', 'needs_user', false)).toBeNull()
+    })
+
+    // An older daemon reports the wait without the ask. A card with no questions
+    // is worse than none — it would claim the operator can act and give them
+    // nothing to act on — so the feed keeps its old behaviour there.
+    it('draws nothing when the channel carried no questions', () => {
+      expect(pendingAskFromState({ kind: 'question' }, 'live', 'needs_user', false)).toBeNull()
+      expect(
+        pendingAskFromState(
+          { kind: 'question', interview: { questions: [] } },
+          'live',
+          'needs_user',
+          false,
+        ),
+      ).toBeNull()
+    })
+
+    it('keeps one identity across restatements so a half-made selection survives', () => {
+      const a = pendingAskFromState(need, 'live', 'needs_user', false)
+      const b = pendingAskFromState(need, 'live', 'needs_user', false)
+      expect(a?.item.id).toBe(b?.item.id)
+    })
   })
 })

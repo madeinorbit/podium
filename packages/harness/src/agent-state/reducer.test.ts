@@ -583,6 +583,42 @@ describe('carryAcrossRebuild', () => {
   })
 })
 
+// POD-1273 — the chat cannot draw a card from a one-line summary, so a channel
+// that brings the questions themselves must win, even though it is restating a
+// wait that is already open.
+describe('a restated wait that brings the ask', () => {
+  const interview = {
+    questions: [{ question: 'Which way?', options: [{ label: 'Left' }, { label: 'Right' }] }],
+  }
+
+  it('upgrades a headline-only need in place, without restarting its clock', () => {
+    let s = initialAgentState(T0)
+    s = reduceAgentState(s, { kind: 'needs_user', need: 'question', summary: 'Which way?' }, T0)
+    expect(s.need?.interview).toBeUndefined()
+    s = reduceAgentState(
+      s,
+      { kind: 'needs_user', need: 'question', summary: 'Which way?', interview },
+      T1,
+    )
+    expect(s.need?.interview).toEqual(interview)
+    // The user is shown how long the agent has been waiting; that clock starts
+    // at the first announcement.
+    expect(s.since).toBe(T0)
+  })
+
+  it('does not let a later echo strip the ask back off', () => {
+    let s = initialAgentState(T0)
+    s = reduceAgentState(
+      s,
+      { kind: 'needs_user', need: 'question', summary: 'Which way?', interview },
+      T0,
+    )
+    s = reduceAgentState(s, { kind: 'needs_user', need: 'question', summary: 'Which way?' }, T1)
+    expect(s.need?.interview).toEqual(interview)
+    expect(s.since).toBe(T0)
+  })
+})
+
 describe('withEventTime', () => {
   it('stamps `at` onto events that lack it', () => {
     const out = withEventTime([{ kind: 'prompt_submitted' }, { kind: 'activity' }], EVENT_TIME)

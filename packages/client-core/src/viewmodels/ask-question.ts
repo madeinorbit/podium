@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/model'
+import type { AgentInterview, SessionMeta, TranscriptItem } from '@podium/model'
 
 /** One option of an AskUserQuestion question. */
 export interface AskOption {
@@ -96,6 +96,58 @@ export function latestPendingQuestion(items: TranscriptItem[]): TranscriptItem |
   }
   return null
 }
+
+/**
+ * THE QUESTION THAT IS NOT IN THE TRANSCRIPT YET.
+ *
+ * {@link latestPendingQuestion} looks for an AskUserQuestion item with no result,
+ * which is the right shape for a question the reader can still answer — and a
+ * shape that does not exist while the question is actually live. Claude Code
+ * writes a tool call into its transcript only once the call resolves, so for the
+ * whole time the agent is waiting, the feed has nothing: the sidebar says
+ * blocked, the chat is empty, and the composer is closed because the session is
+ * `needs_user`.
+ *
+ * The hook channel announced the ask when it opened, and the harness now carries
+ * it on `agentState.need.interview`. This synthesizes the block the card already
+ * knows how to render, so the SAME component draws the live question — no second
+ * card, no second answer path.
+ *
+ * It is deliberately the FALLBACK: a real transcript item, once it lands, is
+ * richer (it has an id, a cursor, a result to reconcile against), so callers
+ * pass what {@link latestPendingQuestion} found and this yields nothing when
+ * there is one. The hand-back needs no matching: answering moves the session out
+ * of `needs_user`, this returns null, and the transcript item arrives on its own
+ * clock to stand as history.
+ */
+export function pendingAskFromState(
+  need: { kind: 'question' | 'permission'; interview?: AgentInterview } | undefined,
+  status: SessionMeta['status'] | undefined,
+  phase: string | undefined,
+  transcriptHasPending: boolean,
+): { item: TranscriptItem } | null {
+  if (transcriptHasPending) return null
+  if (status !== 'live' && status !== 'starting') return null
+  if (phase !== 'needs_user' || need?.kind !== 'question') return null
+  const questions = need.interview?.questions ?? []
+  if (questions.length === 0) return null
+  return {
+    item: {
+      // Stable across re-renders (and across restatements of the same wait) so
+      // the card keeps its React identity and the operator's half-made
+      // selection survives the next state tick.
+      id: PENDING_ASK_ITEM_ID,
+      role: 'tool',
+      text: '',
+      toolName: 'AskUserQuestion',
+      toolInputJson: JSON.stringify({ questions }),
+    },
+  }
+}
+
+/** The synthetic item's id — also how a feed tells the state-drawn card apart
+ *  from a transcript one (for scroll anchoring, search, minimap). */
+export const PENDING_ASK_ITEM_ID = 'pending-ask-from-state'
 
 /** The chosen-option check for an answered card: the result text quotes
  *  `"<label>"`. `answer` is the tool result text (callers resolve it — a paired

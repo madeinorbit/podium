@@ -237,9 +237,17 @@ export function reduceAgentState(
         kind: event.need,
         ...(event.summary !== undefined ? { summary: event.summary } : {}),
         ...(event.ask !== undefined ? { ask: event.ask } : {}),
+        ...(event.interview !== undefined ? { interview: event.interview } : {}),
       }
       // Same wait restated on a second channel — hold the original `since`.
       if (prev.phase === 'needs_user' && prev.need && sameNeed(prev.need, need)) {
+        // …unless the restatement brings the ask ITSELF. Claude Code announces
+        // an interview on two channels and the chat cannot draw a card from the
+        // one-line summary alone, so a channel carrying the questions upgrades
+        // the need in place. The clock still belongs to the first announcement.
+        if (prev.need.interview === undefined && need.interview !== undefined) {
+          return { ...prev, need, ...stateProvenance(event, now) }
+        }
         if (event.confidence !== undefined && event.confidence > (prev.stateConfidence ?? -1)) {
           return { ...prev, ...stateProvenance(event, now) }
         }

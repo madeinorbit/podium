@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
 import { basename } from 'node:path'
-import type { AgentRuntimeState, SessionId } from '@podium/model'
+import type {
+  AgentInterview,
+  AgentInterviewOption,
+  AgentInterviewQuestion,
+  AgentRuntimeState,
+  SessionId,
+} from '@podium/model'
 import type {
   AgentObservation,
   ObservationInputOrigin,
@@ -198,7 +204,79 @@ function offersAlwaysAllow(suggestions: unknown): boolean {
 /** The interview tool. Claude Code routes it through the permission channel too. */
 const ASK_USER_QUESTION = 'AskUserQuestion'
 
-/** The first question of an AskUserQuestion call — the subject of the interview. */
+/**
+ * CAPS ON A CARRIED INTERVIEW.
+ *
+ * The tool's own contract is a handful of questions with a handful of options
+ * each, so these bound a MALFORMED or hostile input, not a real one — the ask a
+ * card renders passes through untouched. Prose is capped where reading stops
+ * being possible anyway; `preview` gets the largest allowance because it is
+ * meant to be a mockup and is the one field the operator compares options BY.
+ */
+const INTERVIEW_MAX_QUESTIONS = 8
+const INTERVIEW_MAX_OPTIONS = 12
+const INTERVIEW_TEXT_MAX = 400
+const INTERVIEW_PREVIEW_MAX = 4_000
+
+/** Truncate for the wire while preserving what the field MEANS. Newlines survive
+ *  (a preview is drawn as a mockup, and `oneLine` would flatten it into prose),
+ *  and a non-empty value stays non-empty — `isPreviewLayout` reads presence, and
+ *  a truncation that emptied a preview would change which keystrokes answer the
+ *  question. */
+function clip(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+function interviewOption(raw: unknown): AgentInterviewOption | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const o = raw as Record<string, unknown>
+  const label = str(o.label)
+  if (label === undefined) return undefined
+  const description = str(o.description)
+  const preview = str(o.preview)
+  return {
+    label: clip(label, INTERVIEW_TEXT_MAX),
+    ...(description ? { description: clip(description, INTERVIEW_TEXT_MAX) } : {}),
+    ...(preview ? { preview: clip(preview, INTERVIEW_PREVIEW_MAX) } : {}),
+  }
+}
+
+/** One question of the ask. Mirrors the client's own parser: an entry without an
+ *  options ARRAY is malformed and is dropped rather than half-rendered. */
+function interviewQuestion(raw: unknown): AgentInterviewQuestion | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const q = raw as Record<string, unknown>
+  const question = str(q.question)
+  if (question === undefined || !Array.isArray(q.options)) return undefined
+  const options = q.options
+    .slice(0, INTERVIEW_MAX_OPTIONS)
+    .map(interviewOption)
+    .filter((o): o is AgentInterviewOption => o !== undefined)
+  const header = str(q.header)
+  return {
+    question: clip(question, INTERVIEW_TEXT_MAX),
+    ...(header ? { header: clip(header, INTERVIEW_TEXT_MAX) } : {}),
+    ...(typeof q.multiSelect === 'boolean' ? { multiSelect: q.multiSelect } : {}),
+    options,
+  }
+}
+
+/** The whole ask, bounded — what the chat draws its live card from. */
+function interviewOf(toolInput: unknown): AgentInterview | undefined {
+  if (typeof toolInput !== 'object' || toolInput === null) return undefined
+  const { questions } = toolInput as { questions?: unknown }
+  if (!Array.isArray(questions)) return undefined
+  const parsed = questions
+    .slice(0, INTERVIEW_MAX_QUESTIONS)
+    .map(interviewQuestion)
+    .filter((q): q is AgentInterviewQuestion => q !== undefined)
+  return parsed.length > 0 ? { questions: parsed } : undefined
+}
+
+/** The first question of an AskUserQuestion call — the subject of the interview.
+ *  Read off the RAW input, so a question the strict parse dropped (no `options`
+ *  array) still names the wait in the sidebar, as it did before the card had a
+ *  payload to draw from. */
 function askedQuestion(toolInput: unknown): string | undefined {
   if (typeof toolInput !== 'object' || toolInput === null) return undefined
   const { questions } = toolInput as { questions?: unknown }
@@ -208,10 +286,22 @@ function askedQuestion(toolInput: unknown): string | undefined {
   return str((first as { question?: unknown }).question)
 }
 
-/** An interview is a question whichever channel announced it. */
+/** An interview is a question whichever channel announced it. The summary is the
+ *  first question — the one line the sidebar has room for — and `interview` is
+ *  the whole ask, because a PENDING AskUserQuestion never reaches the transcript
+ *  the chat's card is otherwise built from (Claude Code writes a tool call down
+ *  only once it resolves). */
 function interviewEvent(toolInput: unknown): AgentStateEvent[] {
+  const interview = interviewOf(toolInput)
   const question = askedQuestion(toolInput)
-  return [{ kind: 'needs_user', need: 'question', ...(question ? { summary: question } : {}) }]
+  return [
+    {
+      kind: 'needs_user',
+      need: 'question',
+      ...(question ? { summary: clip(question, INTERVIEW_TEXT_MAX) } : {}),
+      ...(interview ? { interview } : {}),
+    },
+  ]
 }
 
 export async function translateClaudeHookPayload(payload: unknown): Promise<AgentStateEvent[]> {

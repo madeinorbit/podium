@@ -277,6 +277,7 @@ export function TranscriptFeed({
   onOpenImage,
   onAnswerAsk,
   livePendingAskIndex,
+  pendingAskBlock,
   lastAnswerBlockIndex,
   ctxSeq,
   collapseContext,
@@ -318,6 +319,9 @@ export function TranscriptFeed({
   onOpenImage: (url: string) => void
   onAnswerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   livePendingAskIndex: number
+  /** A live question the transcript does not carry yet, drawn from agent state.
+   *  Rendered at the end of the feed, where the transcript item will appear. */
+  pendingAskBlock: ChatBlock | null
   lastAnswerBlockIndex: number
   ctxSeq: number | null
   collapseContext: boolean
@@ -358,7 +362,10 @@ export function TranscriptFeed({
   const runOwnsTail = trailingRunIsLive(activity, lastRow)
   // A live question is already the attention surface. Repeating the same
   // yellow signal in the tail weakens both objects, so the card owns it alone.
-  const questionOwnsAttention = livePendingAskIndex >= 0 && activity?.tone === 'attention'
+  // A state-drawn card is the same object and stands down the tail the same way
+  // — the reader cannot tell (and must not need to tell) which source drew it.
+  const questionOwnsAttention =
+    (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
   return (
     <div
       // Named so a portalled overlay hanging off a row can find the box it must
@@ -722,6 +729,34 @@ export function TranscriptFeed({
             )}
           </div>
         </div>
+      )}
+      {/* The question Claude Code has not written down yet (POD-1273). A
+          pending AskUserQuestion reaches the hook channel immediately but the
+          transcript only once it RESOLVES, so for the whole time the agent is
+          waiting there is no item to render — the state carries the ask instead
+          and the same card draws it here, at the end of the feed where the item
+          itself will land. It disappears on answer, when the session leaves
+          `needs_user`; the transcript item then arrives on its own clock and
+          stands as history. */}
+      {pendingAskBlock && (
+        <ChatBlockView
+          block={pendingAskBlock}
+          index={rows.length}
+          markdownHtml={markdownHtml}
+          highlighted={false}
+          dimmed={false}
+          sessionId={sessionId}
+          cwd={cwd}
+          openFile={openFile}
+          httpOrigin={httpOrigin}
+          onOpenImage={onOpenImage}
+          askLivePending={true}
+          onAnswerAsk={onAnswerAsk}
+          collapseContext={collapseContext}
+          compact={compact}
+          attribution={attributionForRole(attribution, 'tool')}
+          issueReferences={issueReferences}
+        />
       )}
       {/* Where the transcript ENDS: working, waiting on you, or idle — one
           object in three weights (TranscriptTail). The headless driver's own
