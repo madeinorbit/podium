@@ -1,7 +1,7 @@
 import { X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useStoreSelector } from '@/app/store'
-import { MobileHandoffQr, mobileHandoffLabel } from './MobileHandoffQr'
+import { MobileHandoffQr } from './MobileHandoffQr'
 import { useHasFirstTask, useMobileHandoffUrl, useMobilePromoDismissed } from './mobile-handoff'
 
 /**
@@ -33,9 +33,6 @@ export function MobilePromoCard(): JSX.Element | null {
         <span className="mobile-promo-title">Podium in your pocket</span>
         <span className="mobile-promo-line">
           Answer asks and read updates while you are away from the desk.
-        </span>
-        <span className="mobile-promo-url" title={url}>
-          {mobileHandoffLabel(url)}
         </span>
       </div>
       <button

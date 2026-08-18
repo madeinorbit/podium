@@ -9,6 +9,7 @@
  */
 import type { JSX } from 'react'
 import { createRoot } from 'react-dom/client'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { MobileHandoffChip } from '@/features/mobile-handoff/MobileHandoffChip'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import '@/index.css'
@@ -67,7 +68,12 @@ function Shell(): JSX.Element {
 document.documentElement.dataset.theme = 'superade'
 document.documentElement.dataset.density = 'balanced'
 createRoot(document.getElementById('root') as HTMLElement).render(
-  <div style={{ display: 'flex', padding: 28, background: 'var(--background)' }}>
-    <Shell />
-  </div>,
+  // The shell mounts one of these at its root, and the QR plate's tooltip takes
+  // its delay from it — without it the harness would hover on a timing the
+  // product never uses.
+  <TooltipProvider>
+    <div style={{ display: 'flex', padding: 28, background: 'var(--background)' }}>
+      <Shell />
+    </div>
+  </TooltipProvider>,
 )

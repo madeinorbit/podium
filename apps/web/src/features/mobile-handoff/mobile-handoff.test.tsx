@@ -106,6 +106,43 @@ describe('the footer chip', () => {
     fixture.infoQuery.mockResolvedValue({ publicUrl: 'https://podium.example.com' })
     render(<MobileHandoffChip />)
     fireEvent.click(screen.getByTestId('mobile-handoff-chip'))
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-handoff-qr').getAttribute('aria-label')).toBe(
+        'Opens podium.example.com/mobile',
+      ),
+    )
+  })
+})
+
+describe('the address the code resolves to', () => {
+  it('is off both surfaces until the code is hovered', async () => {
+    withOneTask()
+    fixture.infoQuery.mockResolvedValue({ publicUrl: 'https://podium.example.com' })
+    render(
+      <>
+        <MobileHandoffChip />
+        <MobilePromoCard />
+      </>,
+    )
+    fireEvent.click(screen.getByTestId('mobile-handoff-chip'))
+    await waitFor(() => expect(screen.getByTestId('mobile-handoff-sheet')).toBeTruthy())
+    // Printed nowhere: the camera reads the code, and the plate's label — plus
+    // the tooltip it opens — is where the address answers for itself.
+    expect(screen.queryByText('podium.example.com/mobile')).toBeNull()
+  })
+
+  it('opens in a tooltip when the code is hovered', async () => {
+    withOneTask()
+    fixture.infoQuery.mockResolvedValue({ publicUrl: 'https://podium.example.com' })
+    render(<MobilePromoCard />)
+    const plate = screen.getByTestId('mobile-handoff-qr')
+    await waitFor(() =>
+      expect(plate.getAttribute('aria-label')).toBe('Opens podium.example.com/mobile'),
+    )
+    expect(screen.queryByText('podium.example.com/mobile')).toBeNull()
+    fireEvent.pointerEnter(plate, { pointerType: 'mouse' })
+    fireEvent.mouseEnter(plate)
+    fireEvent.mouseMove(plate)
     await waitFor(() => expect(screen.getByText('podium.example.com/mobile')).toBeTruthy())
   })
 })

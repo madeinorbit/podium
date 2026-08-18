@@ -1590,7 +1590,9 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .mobile-handoff-sheet-body {
   display: flex;
-  align-items: flex-start;
+  /* Two lines of copy against a 92px code: centred, or the sheet sits on a
+     pocket of dead space in its bottom-right corner. */
+  align-items: center;
   gap: 12px;
 }
 .mobile-handoff-sheet-copy {
@@ -1606,12 +1608,6 @@ html[data-density="balanced"] .header-quota-pools {
   line-height: 1.45;
   color: var(--text);
   text-wrap: pretty;
-}
-.mobile-handoff-sheet-url {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--live);
-  overflow-wrap: anywhere;
 }
 /* ---- the work column's phone card (POD-1320, design 1c) ----
    Stands on the column floor over the tools row. Card ground, not band ground:
@@ -1645,14 +1641,6 @@ html[data-density="balanced"] .header-quota-pools {
   line-height: 1.45;
   color: var(--text-dim);
   text-wrap: pretty;
-}
-.mobile-promo-url {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--live);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .mobile-promo-dismiss {
   display: inline-flex;

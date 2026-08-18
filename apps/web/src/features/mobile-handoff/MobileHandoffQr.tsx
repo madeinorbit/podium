@@ -1,5 +1,6 @@
 import { QRCodeSVG } from 'qrcode.react'
 import type { JSX } from 'react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 /**
@@ -9,6 +10,12 @@ import { cn } from '@/lib/utils'
  * by the operator, and inverting it on a dark shell costs scan reliability on
  * every phone that assumes dark-on-light. Same treatment, same reason, as the
  * pairing code in Settings → Connected devices.
+ *
+ * THE ADDRESS LIVES ON THE CODE, not beside it. Printing `host/mobile` under
+ * every code spent a line of both surfaces on a string nobody types — the
+ * camera reads it. It is still the answer to "where does this send me?", so it
+ * comes back on hover (and on focus: the plate is a tab stop, and its label
+ * carries the address for anyone who never sees the tooltip).
  */
 export function MobileHandoffQr({
   url,
@@ -20,27 +27,43 @@ export function MobileHandoffQr({
   size: number
   className?: string
 }): JSX.Element {
+  const label = mobileHandoffLabel(url)
   return (
-    <span
-      className={cn(
-        'flex flex-none items-center justify-center rounded-md bg-white p-1 ring-1 ring-black/10',
-        className,
-      )}
-    >
-      <QRCodeSVG
-        value={url}
-        size={size}
-        level="M"
-        marginSize={0}
-        bgColor="#ffffff"
-        fgColor="#16171a"
-        aria-hidden="true"
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className={cn(
+              'flex flex-none cursor-help items-center justify-center rounded-md border-0 bg-white p-1 ring-1 ring-black/10',
+              className,
+            )}
+            aria-label={`Opens ${label}`}
+            data-testid="mobile-handoff-qr"
+          >
+            <QRCodeSVG
+              value={url}
+              size={size}
+              level="M"
+              marginSize={0}
+              bgColor="#ffffff"
+              fgColor="#16171a"
+              aria-hidden="true"
+            />
+          </button>
+        }
       />
-    </span>
+      {/* Above the plate and flush with its left edge, far enough out to clear
+          the sheet's own head — a label ON the code, not a lid over the surface
+          that holds it. */}
+      <TooltipContent side="top" align="start" alignOffset={-4} sideOffset={10}>
+        <span className="font-mono">{label}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
-/** `host/mobile` — what the code resolves to, short enough for a 300px sheet. */
+/** `host/mobile` — what the code resolves to, short enough for a tooltip. */
 export function mobileHandoffLabel(url: string): string {
   try {
     const parsed = new URL(url)
