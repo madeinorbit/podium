@@ -1,6 +1,21 @@
 /**
  * THE COLLAPSED SIDEBAR RAIL (#41, redrawn to design 3b — POD-1178).
  *
+ * SPACING AND THE FOOTER PAIR (POD-1279). Every element in the column carries
+ * 2px more air on each side than 3b drew — the gaps between tiles, the group
+ * labels, and both chrome ends — because at 58px wide the column's only way to
+ * separate one mark from the next is the space around it, and 3b's 4px gap had
+ * the tiles reading as one striped block. The project label lost a rung with
+ * it: it names the group the tiles under it belong to, and at the same size as
+ * the shell's other micro labels it competed with the numbers it introduces.
+ *
+ * AND THE ⊞ MOVED DOWN. The rail's two spawn controls used to stack at the top
+ * while the footer held a search glyph and a waiting TOTAL. The open column
+ * puts add and search together in one strip at the BOTTOM, so the rail does
+ * too — and the total went, because it was a readout in a strip of controls and
+ * the tiles above already carry the same attention, one badge per mission,
+ * where the click that answers it is.
+ *
  * ---------------------------------------------------------------------------
  * WHAT CHANGED, AND WHY THE COLUMN GOT WIDER
  * ---------------------------------------------------------------------------
@@ -96,6 +111,13 @@ const NewIssueDialog = lazy(() =>
 /** The rail sits on the collapsed aside's surface — corner badges punch out of
  *  this colour, so it must track the theme's sidebar surface, not a literal. */
 const RAIL_SURFACE = 'var(--sidebar)'
+
+/** The project label a rung under the shell's 10.5px micro floor (POD-1279).
+ *  POD-783 put it ON the floor for legibility, and that argument still holds
+ *  for labels that carry information; this one carries a name the tiles under
+ *  it repeat, and at 10.5px uppercase mono it read as loud as the numbers it
+ *  introduces. Half a rung, not a jump back to 3a's 8.5px. */
+const RAIL_GROUP_LABEL_SIZE = '9.5px'
 
 /** The design's tile: wider than it is tall, because the column has width to
  *  spend and height to save. Shared with the marks that overlay it (the ⌘
@@ -264,8 +286,6 @@ export function SidebarRail(): JSX.Element {
     return map
   }, [issues, sessions, missionKey])
 
-  const totalWaiting = rows.reduce((sum, row) => sum + rowWaitingCount(row), 0)
-
   const renderIssueMark = (
     row: UnifiedIssueRow,
     phase: MotionPhase,
@@ -381,14 +401,14 @@ export function SidebarRail(): JSX.Element {
 
   return (
     <>
-      {/* THE SPAWN BLOCK, in the design's two parts. The tile is the wide row's
-          main surface at rail scale — it carries the agent's brand SWATCH, not
-          its glyph, for the same reason the wide row does (POD-725: a drawn
-          logo competes with the identity marks below it). The dashed ⊞ under it
-          is the wide row's chevron segment: the agent → repo → machine menu,
-          plus "New issue…". Two controls, because the rail had one and the one
-          it had could only ever start the last agent you happened to use. */}
-      <div className="flex flex-none flex-col items-center gap-[7px] px-0 pt-[9px] pb-[8px]">
+      {/* THE SPAWN TILE. The wide row's main surface at rail scale — it carries
+          the agent's brand SWATCH, not its glyph, for the same reason the wide
+          row does (POD-725: a drawn logo competes with the identity marks below
+          it). Its other half, the dashed ⊞ that opens the agent → repo → machine
+          menu, is in the FOOTER now (POD-1279): that menu is the collapsed
+          spelling of the open column's "add", and the open column keeps add
+          next to search at the bottom. */}
+      <div className="flex flex-none flex-col items-center px-0 pt-[11px] pb-[10px]">
         <button
           data-pressable
           type="button"
@@ -418,6 +438,69 @@ export function SidebarRail(): JSX.Element {
             )}
           />
         </button>
+      </div>
+      {newIssueOpen && (
+        <Suspense fallback={null}>
+          <NewIssueDialog onClose={() => setNewIssueOpen(false)} />
+        </Suspense>
+      )}
+      {/* The tiles column. No negative-margin overflow trick any more: the
+          selected spine now stops exactly at the column's right edge and the
+          corner badges sit well inside it, so nothing needs to escape. */}
+      <div
+        data-testid="sidebar-rail"
+        className="scroll-none flex min-h-0 w-full flex-1 flex-col items-center gap-[8px] overflow-y-auto pt-[8px] pb-[10px]"
+        // A scroll invalidates the card's captured anchor, and a card left
+        // hanging beside a tile that has moved is worse than no card.
+        onScroll={() => setHover(null)}
+      >
+        {sections.map((section) => (
+          <Fragment key={section.key}>
+            <span
+              data-testid="rail-group-label"
+              className="label-mono mt-[8px] mb-[4px] w-full flex-none truncate px-[6px] text-center first:mt-0"
+              // A rung under the shell's micro floor, and the ONE place that is
+              // allowed: `label-mono` is a custom `@utility`, so a `text-[…]`
+              // class beside it loses the cascade to the utility's own
+              // `font-size` — the size has to be set here to take.
+              style={{ fontSize: RAIL_GROUP_LABEL_SIZE }}
+              title={section.label}
+            >
+              {section.label}
+            </span>
+            {/* One tile per MISSION, matching the wide column exactly
+                (POD-516 §1.1). The rail used to append a tile per
+                provenance-nested child, which was the collapsed spelling of the
+                same second hierarchy the wide list has now dropped: a mission's
+                children belong to the Flight Deck, and its tile already carries
+                their attention through the row's bubbled counts. */}
+            {section.rows.map((row) => renderRow(row))}
+          </Fragment>
+        ))}
+      </div>
+      {/* THE FOOTER: the open column's tool strip, stood on end (POD-1279).
+          Search, and under it the dashed ⊞ — the agent → repo → machine menu
+          plus "New issue…" — which is the same add-then-search pair
+          `AppToolsRow` draws across the bottom of the open sidebar. Collapsing
+          the column now moves the controls' SHAPE, not their place.
+
+          The waiting TOTAL that used to sit here is gone. It was a readout in a
+          strip of controls, and the amber corner badges on the tiles above say
+          the same thing one mission at a time — where the click that answers
+          the ask actually is. */}
+      <div className="flex flex-none flex-col items-center gap-[13px] border-t border-hairline-soft py-[11px]">
+        {commandPaletteEnabled && (
+          <button
+            data-pressable
+            type="button"
+            className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-text-strong"
+            title="Search (⌘K)"
+            aria-label="Search"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <Search size={14} aria-hidden="true" />
+          </button>
+        )}
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger
             render={
@@ -442,79 +525,6 @@ export function SidebarRail(): JSX.Element {
             onNewIssue={() => setNewIssueOpen(true)}
           />
         </DropdownMenu>
-      </div>
-      {newIssueOpen && (
-        <Suspense fallback={null}>
-          <NewIssueDialog onClose={() => setNewIssueOpen(false)} />
-        </Suspense>
-      )}
-      {/* The tiles column. No negative-margin overflow trick any more: the
-          selected spine now stops exactly at the column's right edge and the
-          corner badges sit well inside it, so nothing needs to escape. */}
-      <div
-        data-testid="sidebar-rail"
-        className="scroll-none flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto pt-1.5 pb-2"
-        // A scroll invalidates the card's captured anchor, and a card left
-        // hanging beside a tile that has moved is worse than no card.
-        onScroll={() => setHover(null)}
-      >
-        {sections.map((section) => (
-          <Fragment key={section.key}>
-            <span
-              data-testid="rail-group-label"
-              className="label-mono mt-[6px] mb-[2px] w-full flex-none truncate px-[4px] text-center first:mt-0"
-              title={section.label}
-            >
-              {section.label}
-            </span>
-            {/* One tile per MISSION, matching the wide column exactly
-                (POD-516 §1.1). The rail used to append a tile per
-                provenance-nested child, which was the collapsed spelling of the
-                same second hierarchy the wide list has now dropped: a mission's
-                children belong to the Flight Deck, and its tile already carries
-                their attention through the row's bubbled counts. */}
-            {section.rows.map((row) => renderRow(row))}
-          </Fragment>
-        ))}
-      </div>
-      {/* THE FOOTER, per the design: search, and under it the one number the
-          collapsed column owes the operator — how much of the work below is
-          waiting on THEM. Collapsed, the amber corner badges scroll out of
-          sight; this does not. It is a readout, not a control: the answer to
-          "should I open this back up" is a number, and there is nothing to
-          click that would be better than the tiles themselves. */}
-      <div className="flex flex-none flex-col items-center gap-[9px] border-t border-hairline-soft py-[9px]">
-        {commandPaletteEnabled && (
-          <button
-            data-pressable
-            type="button"
-            className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-text-strong"
-            title="Search (⌘K)"
-            aria-label="Search"
-            onClick={() => setPaletteOpen(true)}
-          >
-            <Search size={14} aria-hidden="true" />
-          </button>
-        )}
-        {totalWaiting > 0 && (
-          <span
-            data-testid="rail-waiting-total"
-            role="img"
-            aria-label={`${totalWaiting} waiting on you`}
-            title={`${totalWaiting} waiting on you`}
-            className="mono-timer flex flex-none items-center gap-1 shell-type-micro leading-none text-attention"
-          >
-            {/* The dot is the BADGE's amber (`--motion-waiting`) and the digits
-                are the attention ink beside it — the same pairing the corner
-                badges above use, so the footer reads as their total. */}
-            <span
-              aria-hidden="true"
-              className="size-[5px] flex-none rounded-full"
-              style={{ background: 'var(--motion-waiting)' }}
-            />
-            {totalWaiting}
-          </span>
-        )}
       </div>
     </>
   )

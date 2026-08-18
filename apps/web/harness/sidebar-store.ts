@@ -203,6 +203,28 @@ const store = {
       updatePersonal: { mutate: async () => ({}) },
     },
     issues: { defer: { mutate: async () => ({}) }, update: { mutate: async () => ({}) } },
+    // The rail's footer search is behind `command-palette`; without this the
+    // harness would draw a footer the shipping column does not have.
+    features: {
+      state: {
+        query: async () => ({
+          devMode: false,
+          channel: 'stable' as const,
+          flags: [
+            {
+              id: 'command-palette',
+              name: 'Command palette',
+              description: '',
+              visibility: 'stable' as const,
+              listed: true,
+              enabled: true,
+              source: 'default' as const,
+              locked: false,
+            },
+          ],
+        }),
+      },
+    },
   },
   selectedWorktree: null,
   setSelectedWorktree: () => {},

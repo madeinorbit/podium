@@ -208,14 +208,27 @@ describe('the collapsed rail, design 3b (POD-1178)', () => {
     expect(screen.queryByTestId('rail-hover-card')).toBeNull()
   })
 
-  it('keeps the one number the collapsed column owes the operator in its footer', () => {
+  // POD-1279: the footer holds the open column's tool pair — search and the ⊞
+  // that opens the agent/repo menu — and nothing else. The waiting TOTAL that
+  // used to sit under the search is gone: the tiles' own amber badges say the
+  // same thing, one mission at a time, where the click that answers it is.
+  it('puts the add menu in the footer beside search, not at the top', () => {
     setUp()
-    render(<SidebarRail />)
-    expect(screen.getByTestId('rail-waiting-total').textContent).toBe('1')
+    const view = render(<SidebarRail />)
+    const footer = view.container.querySelector('[data-testid="rail-new-menu"]')
+      ?.parentElement as HTMLElement
+    expect(footer).toBeTruthy()
+    expect(footer.querySelector('[aria-label="Search"]')).not.toBeNull()
+    // The spawn tile stayed at the top; only the ⊞ came down.
+    const rail = view.container.querySelector('[data-testid="sidebar-rail"]') as HTMLElement
+    const top = view.container.querySelector('[data-testid="rail-new-agent"]') as HTMLElement
+    expect(top.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const menu = view.container.querySelector('[data-testid="rail-new-menu"]') as HTMLElement
+    expect(rail.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('shows no waiting total when nothing is asking', () => {
-    setUp(WORK.map((row) => ({ ...row, stage: 'in_progress' })))
+  it('no longer draws a waiting total in the footer', () => {
+    setUp()
     render(<SidebarRail />)
     expect(screen.queryByTestId('rail-waiting-total')).toBeNull()
   })

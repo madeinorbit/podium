@@ -6,10 +6,15 @@
  * the fold's motion can be sampled on a still main thread. See
  * `harness/sidebar-store.ts` for why the live instance cannot answer that.
  *
- * Query string: `?rows=N` sizes the list, `?theme=…` picks the palette block.
+ * Query string: `?rows=N` sizes the list, `?theme=…` picks the palette block,
+ * and `?rail=1` renders the COLLAPSED column instead — the 58px aside with its
+ * ⟩ header band, exactly as `AppShell` builds it, because the rail's spacing is
+ * only readable against the column's real width and its real chrome ends.
  */
+import { ChevronRight } from 'lucide-react'
 import type { JSX } from 'react'
 import { createRoot } from 'react-dom/client'
+import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import '@/index.css'
 import '@/styles.css'
@@ -23,6 +28,21 @@ document.documentElement.dataset.theme = theme
 document.documentElement.classList.toggle('dark', mode === 'dark')
 if (params.get('density'))
   document.documentElement.dataset.density = params.get('density') as string
+
+/** The collapsed aside, reproduced from `AppShell`: same class, same header
+ *  band, same child. Anything less and the 58px column is a guess. */
+function RailHarness(): JSX.Element {
+  return (
+    <div style={{ height: '100dvh', display: 'flex', background: 'var(--background)' }}>
+      <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
+        <button type="button" className="collapsed-sidebar-expand" aria-label="Expand sidebar">
+          <ChevronRight size={15} aria-hidden="true" />
+        </button>
+        <SidebarRail />
+      </aside>
+    </div>
+  )
+}
 
 function Harness(): JSX.Element {
   return (
@@ -47,4 +67,6 @@ function Harness(): JSX.Element {
   )
 }
 
-createRoot(document.getElementById('root') as HTMLElement).render(<Harness />)
+createRoot(document.getElementById('root') as HTMLElement).render(
+  params.get('rail') ? <RailHarness /> : <Harness />,
+)
