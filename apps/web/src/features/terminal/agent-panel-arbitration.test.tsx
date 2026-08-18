@@ -388,3 +388,68 @@ describe('AgentPanel on a session with no terminal (POD-2290)', () => {
     expect(container.querySelector('[data-testid="mode-native"]')).toBeTruthy()
   })
 })
+
+// ---------------------------------------------------------------------------
+// POD-2290 round 4 — the arm existed and never reached the screen. The pure
+// function returned `awaiting-machine`; the overlay's headline ternary knew
+// only `stalled`, so past the threshold the reviewer photographed a bare
+// "Starting OpenCode…" with no clock and no mention of the machine. The unit
+// tests could not catch it: nothing in them renders. This one does.
+// ---------------------------------------------------------------------------
+describe('AgentPanel while the machine is away (POD-2290)', () => {
+  const away = () => meta({ agentKind: 'opencode', status: 'reconnecting' })
+
+  async function tickPast(ms: number): Promise<void> {
+    await act(async () => {
+      vi.setSystemTime(Date.now() + ms)
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: false })
+    vi.setSystemTime(new Date('2026-06-03T00:00:00.000Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('names the machine, and dates the wait, once the absence is real', async () => {
+    storeSessions = [away()]
+    await render({ active: true })
+    await tickPast(60_000)
+    const headline = container.querySelector('[data-testid="startup-headline"]')
+    expect(headline?.textContent).toBe('Waiting for this machine')
+    const overlay = container.querySelector('[data-testid="terminal-startup-overlay"]')
+    expect(overlay?.textContent).toContain('hasn\u2019t heard from this machine')
+    // The clock is the whole point of the arm: a wait the operator cannot date
+    // is the state we are replacing, not the one we are rendering.
+    expect(overlay?.textContent).toMatch(/\d+:\d\d/)
+    // A spinner claims progress. There is none to claim.
+    expect(overlay?.querySelector('.animate-spin')).toBeNull()
+  })
+
+  it('reads as an ordinary start while the absence could still be a blip', async () => {
+    storeSessions = [away()]
+    await render({ active: true })
+    await tickPast(10_000)
+    expect(container.querySelector('[data-testid="startup-headline"]')?.textContent).toContain(
+      'Starting',
+    )
+  })
+
+  it('leaves a reconnecting session that HAS a driver family on its own wait', async () => {
+    // The narrow tail this arm is for is the legacy row with no family. A PTY
+    // row that reconnects takes the ordinary attach-side wording instead — the
+    // point is that the machine is never named for a row that told us what it
+    // is.
+    storeSessions = [
+      meta({ agentKind: 'opencode', status: 'reconnecting', driverFamily: 'terminal' }),
+    ]
+    await render({ active: true })
+    await tickPast(60_000)
+    const headline = container.querySelector('[data-testid="startup-headline"]')?.textContent
+    expect(headline).not.toContain('machine')
+    expect(headline).toContain('hasn\u2019t started')
+  })
+})

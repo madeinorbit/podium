@@ -224,3 +224,24 @@ not a `file:` one, so every web lane dies at import before a test loads. The web
 taken with that single line made lazy **locally and uncommitted**; the file was restored
 byte-identical (verified by `git hash-object`) before the commit, and POD-2316 was mailed the
 diagnosis. Nothing of theirs is in this change.
+
+## Decision 11 — round four: the arm had to be rendered, not just returned
+
+The live re-review found `awaiting-machine` unreachable on screen: the overlay's headline was a
+two-way ternary that knew `stalled` and nothing else, so past the threshold a machine-away session
+fell through to `Starting <Harness>…` — no clock, no mention of the machine. The pure-function
+tests were all green, because none of them render.
+
+The headline now branches on the arm and carries a body line that names the cause. It is the one
+overlay state that does name a cause, and it is entitled to: the row is `reconnecting` and no
+driver fact has arrived, so the missing party is the machine, not the harness. `stalled` stays
+deliberately silent on cause, because there it cannot tell a failed spawn from an absent machine.
+
+The pin is a COMPONENT test that mounts the panel on a reconnecting family-unknown row, advances a
+fake clock past the threshold, and asserts the rendered copy, the clock, and the absence of the
+spinner — plus a control: a reconnecting row that HAS a family never mentions the machine. A unit
+test on `startupOverlay` could not have caught this, and did not.
+
+**Gates:** the component pin plus the web panel lanes (18 files, 182 tests — up three, on the
+epic tip that carries `e0923ddac`, so the hermetic-env workaround of round three is gone).
+Typecheck taken on trust: the diff is JSX and a test file.

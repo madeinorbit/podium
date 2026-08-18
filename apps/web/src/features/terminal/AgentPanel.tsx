@@ -58,8 +58,8 @@ import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { isKnownRefPrefix } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
-import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { SnoozeControl } from '@/lib/SnoozeControl'
+import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
@@ -641,8 +641,7 @@ export function AgentPanel({
   // which is a wait with no output and no attach to end it [POD-2290 round 2].
   const silenceNow = useNow(
     1_000,
-    gates.terminalActive &&
-      (!ready || !outputSeen || session?.status === 'reconnecting'),
+    gates.terminalActive && (!ready || !outputSeen || session?.status === 'reconnecting'),
   )
   // When THIS mount started waiting for its attach [POD-2290] — zero while
   // attached, restamped on the next wait, so a re-attach is judged on its own
@@ -1151,10 +1150,25 @@ export function AgentPanel({
                       />
                     )}
                     <span data-testid="startup-headline">
-                      {overlay.kind === 'stalled'
-                        ? `${session ? panelLabel(session.agentKind) : 'This session'} hasn’t started`
-                        : `Starting ${session ? panelLabel(session.agentKind) : 'session'}…`}
+                      {overlay.kind === 'awaiting-machine'
+                        ? 'Waiting for this machine'
+                        : overlay.kind === 'stalled'
+                          ? `${session ? panelLabel(session.agentKind) : 'This session'} hasn’t started`
+                          : `Starting ${session ? panelLabel(session.agentKind) : 'session'}…`}
                     </span>
+                    {/* The one overlay arm that names a cause, because here the
+                    panel actually knows it: the session row is `reconnecting`
+                    and no driver fact has arrived, so what is missing is the
+                    MACHINE, not the harness. Saying "Starting OpenCode…" over
+                    this is the round-two bug in miniature — a claim about a
+                    process nobody is talking to. [POD-2290] */}
+                    {overlay.kind === 'awaiting-machine' && (
+                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                        Podium hasn’t heard from this machine in {formatClock(overlay.elapsedMs)}.
+                        The session is still here — it will pick up again once the machine
+                        reconnects.
+                      </span>
+                    )}
                     {/* What the operator can actually do about it. Deliberately
                     silent on the CAUSE: nothing here can tell a spawn that
                     failed from a machine that went away, and naming the wrong
