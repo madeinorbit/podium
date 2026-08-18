@@ -56,6 +56,19 @@ describe('AppErrorPage', () => {
     expect(details?.open).toBe(false)
   })
 
+  it('marks the disclosure as one, so the label does not read as a heading', () => {
+    render(<AppErrorPage detail="TypeError: e.kind" />)
+    // The default marker is suppressed (the label is mono small-caps and the
+    // triangle sat wrong against it), so the affordance has to be drawn: an
+    // icon inside the summary that turns with `group-open`. Without it the row
+    // is indistinguishable from the section headings above it [POD-1298].
+    const summary = container.querySelector('summary')
+    const chevron = summary?.querySelector('svg')
+    expect(chevron).not.toBeNull()
+    expect(chevron?.getAttribute('class')).toContain('group-open:rotate-90')
+    expect(container.querySelector('details')?.className).toContain('group')
+  })
+
   it('reloads on R, so the crash screen is exit-able without a mouse', () => {
     const reload = vi.fn()
     render(<AppErrorPage detail="boom" win={{ location: { reload, href: '/x' } }} />)
