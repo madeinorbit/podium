@@ -67,6 +67,35 @@ const MISSIONS = {
     state.selectedIssueId = 'root'
     state.paneA = 's1'
   },
+  /**
+   * THE OPERATOR'S SECOND FILING (POD-1306) — a DRAFT mission with one agent on
+   * it, which is the thinnest the column ever gets. There is no tree yet, so
+   * every line above the first row is chrome: it is the shape in which a stray
+   * 16px descent under the gauge chip has nothing to be part of, and in which a
+   * selection tick jammed against the agent tile is the only mark on screen.
+   */
+  draft: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1306',
+        title: 'New session',
+        stage: 'backlog',
+        draft: true,
+        memberSessionIds: ['s1'],
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'POD-1306-A',
+        name: 'New session',
+        title: 'New session',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = 's1'
+  },
   /** The same mission with a full roster: a coordinator (coloured rail, filled
    *  row), a task lead, a spawned peer, a working agent, and sub-tasks — every
    *  cell of the four-column row occupied at once. */

@@ -250,14 +250,18 @@ const AGENT_INDENT = DEPTH_STEP
 const AGENT_RAIL = RAIL_INSET
 /**
  * THE MISSION'S OWN RAIL — where a depth-1 strip draws its line (`BranchGuides`'
- * `ownX` at depth 1). The header, the view bar and the root's own agent rows all
- * line up on it, which is what lets the spine leave the mission header as one
- * unbroken line instead of the mission being repeated as a strip (round 3 §4).
+ * `ownX` at depth 1). The root's own agent rows line up on it too, so the
+ * mission's agents and its first child task hang on ONE line instead of the
+ * mission being repeated as a strip above them (round 3 §4).
+ *
+ * NOTHING ABOVE THE LIST DRAWS HERE (POD-1306). It is also the header's own
+ * padding, so a segment at this x in the header lands under the title rather
+ * than beside it — see the note over `spineSegment`.
  */
 const ROOT_RAIL = SPINE_PAD + RAIL_INSET
 /**
  * The root block's inset, chosen so the root's sessions hang on ROOT_RAIL
- * EXACTLY: the header's descent is not merely near their rail, it IS their rail,
+ * EXACTLY: the list's top pad is not merely near their rail, it IS their rail,
  * and the line continues through their elbows into the first child below.
  */
 const ROOT_BLOCK_INSET = ROOT_RAIL - AGENT_RAIL
@@ -286,8 +290,9 @@ const NATIVE_MID = 11
 const TICK_WIDTH = 3
 const TICK_HEIGHT = 15
 /**
- * Offsets from the row's own rail: selection just inside it, attention just
- * outside — so attention is always the leftmost thing on the row.
+ * Offsets from the row's own rail: selection ON it, attention outside it — so
+ * attention is always the leftmost thing on the row and the gutter between the
+ * rail and the row is left to the elbow.
  *
  * AN AGENT ROW WEARS THE SAME TWO TICKS AS A STRIP (POD-1226). Attention used to
  * arrive on an agent row as a 2px amber rule inset on the row's own left edge —
@@ -296,8 +301,8 @@ const TICK_HEIGHT = 15
  * exactly where the 20px agent tile starts. What the operator saw was an amber
  * line crossing the icon's rounded corner, and, once the row wrapped to two
  * lines, a long amber bar running down past the content into empty space. Under
- * one grammar the marks stand in the gutter at the offsets above, in one order
- * at every depth and every row kind — attention, rail, selection, then the row —
+ * one grammar the marks read in one order at every depth and every row kind —
+ * attention, then the rail (lit when selected), then the elbow, then the row —
  * and the tile is left alone.
  *
  * The elbow goes back to carrying PROVENANCE only. It was painted amber on an
@@ -305,18 +310,28 @@ const TICK_HEIGHT = 15
  * on its own side of the rail there is nothing to outrank, and an amber elbow
  * running INTO an amber rule was most of what made these ten pixels unreadable.
  *
- * SELECTION IS FLUSH AGAINST THE ROW, NOT FLOATING MID-GUTTER (POD-1170).
+ * SELECTION STANDS ON THE RAIL, NOT IN THE GUTTER (POD-1306).
  * The gutter between a rail and the thing hanging on it is `RAIL_INSET` — eight
- * pixels — and the ELBOW crosses all eight of them. A 3px tick parked at +3 sat
- * in the middle of that run, so the elbow came in, disappeared behind the tick
- * and re-emerged as a 2px stub on the far side: a rail, a tick and a horizontal
- * reading as a broken cross rather than as a line arriving at a mark. Landing
- * the tick's RIGHT edge on the row's own edge makes it the elbow's terminal cap
- * instead — the line runs into it and stops, which is what it means.
- * Attention keeps its own side of the rail and never met the elbow at all.
+ * pixels — and the ELBOW crosses all eight of them, so anything parked in there
+ * is parked on the elbow. POD-1170 put the tick mid-gutter and got a broken
+ * cross; POD-1226 moved it flush against the row's own left edge, and on an
+ * AGENT row that edge is the 20px agent tile. A 3×15 grey bar butted against a
+ * 20×20 filled tile does not read as a terminal cap: it reads as the spine
+ * running behind the icon and being cut off by it, which is what the operator
+ * filed. Both placements fail for the same reason — the gutter belongs to the
+ * elbow.
+ *
+ * So the mark goes where it is ABOUT: the rail itself, one pixel either side of
+ * it, so the branch line thickens and takes the accent for the length of the
+ * selected row. The elbow then leaves the mark and runs the full gutter into the
+ * row, clear of the tile at every depth and every row kind. Attention keeps its
+ * own side of the rail, further out, and still never meets the elbow.
  */
-const TICK_SELECTED_X = RAIL_INSET - TICK_WIDTH
-const TICK_ATTENTION_X = -5
+const TICK_SELECTED_X = -1
+/** Far enough out that the two marks never read as one pair of bars: at depth 1
+ *  this lands the amber tick's left edge on `SPINE_PAD` exactly, which is the
+ *  column's own datum and as far out as anything here is allowed to go. */
+const TICK_ATTENTION_X = -RAIL_INSET
 /**
  * The right-hand column every row parks its state in, so the whole mission
  * scans as one vertical read. Rigid: the title is the only shrinker.
@@ -3144,7 +3159,8 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * THE MISSION'S SPINE IS ONE LINE, DRAWN ONCE (POD-1226).
    *
    * The header's descent, the view bar, the search bar and the list's top pad
-   * each drew their own `w-px bg-hairline-soft` at `ROOT_RAIL`, while the root's
+   * each drew their own `w-px bg-hairline-soft` at `ROOT_RAIL` (the first three
+   * are gone now — see below), while the root's
    * agent block below them drew `railFor(leadTone(root.id))` — 2px in the
    * mission's accent whenever the mission has a coordinator. Same left edge,
    * different width and different ink: the line ran 1px and grey through the
@@ -3153,6 +3169,25 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    *
    * So the rail is resolved ONCE here and every segment of it is drawn from that
    * one object. A jog cannot come back without changing this line.
+   *
+   * AND IT STARTS AT THE LIST, NOT IN THE HEADER (POD-1306).
+   *
+   * Round 3 §4 had the spine leave the mission header, on the argument that the
+   * header IS the root node and a node's line descends from it. On screen it
+   * never said that. The header is padded to 16px, which is `ROOT_RAIL` itself,
+   * so the title, the description and the gauge chip's left border all stood ON
+   * the rail's x rather than beside it — and the descent below them was sixteen
+   * pixels long. What the operator saw was not a spine leaving a node but a
+   * stray tick hanging off the gauge chip's bottom-left corner, clipped by the
+   * view bar's top rule, and they filed it twice.
+   *
+   * There were two ways out: give the header the same 8px gutter every row
+   * below it has, or stop claiming the header is on the tree. This is the
+   * second. The header is a header, the view bar is a band cut through the
+   * column, and the spine begins where the tree begins — the list's own top
+   * pad, which is the first thing above the root's agents. Nothing above that
+   * pad draws at `ROOT_RAIL`, and nothing above it may: the header's 16px
+   * padding is that same x, so any segment there lands under the text.
    */
   const spineRail = railFor(leadTone(root?.id))
   const spineSegment = (className: string, style?: CSSProperties): JSX.Element => (
@@ -3255,6 +3290,9 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               )}
               {collapseButton(false)}
             </div>
+            {/* THE HEADER IS NOT ON THE SPINE (POD-1306) — see the note over
+                `spineSegment`. Its 16px padding is ROOT_RAIL's own x, which is
+                exactly why no rail may be drawn under it. */}
             <div className="px-4 pt-0.5 pb-3.5">
               <button
                 data-pressable
@@ -3315,10 +3353,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 )}
               </div>
             </div>
-            {/* THE DESCENT. The spine leaves the header on the mission's own
-                rail and is picked up, unbroken, by the view bar and then by the
-                root's agents — whose rail IS this one (see ROOT_BLOCK_INSET). */}
-            {spineSegment('bottom-0 h-4')}
           </div>
           {/* Rules TOP AND BOTTOM, both in the soft tier: the bar is a band cut
               through the column, and its top rule is the seam the header no
@@ -3327,10 +3361,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2"
             style={{ paddingLeft: GUTTER }}
           >
-            {/* The view bar sits in the spine's gutter rather than across it: its
-                controls start where a depth-1 strip starts, and the rail runs
-                behind them from the header to the tree. */}
-            {spineSegment('inset-y-0')}
             {MODES.map((option) => (
               <button
                 data-pressable
@@ -3396,7 +3426,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-2"
               style={{ paddingLeft: GUTTER }}
             >
-              {spineSegment('inset-y-0')}
               <Search size={13} aria-hidden="true" className="flex-none text-text-faint" />
               <input
                 // biome-ignore lint/a11y/noAutofocus: the field exists only while searching
@@ -3440,13 +3469,16 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             className="deck-rows min-h-0 flex-1 overflow-y-auto pb-1.5 pr-2"
             data-testid="flight-deck-rows"
           >
-            {/* The rail crosses the list's own top padding, so the header's
-                descent meets the first thing under it without a six-pixel gap. */}
+            {/* WHERE THE SPINE STARTS (POD-1306). The list's own top padding is
+                the first six pixels of the line, so the tree opens with a rail
+                rather than with an elbow arriving out of nothing. Everything
+                above this — the header, the view bar, the search bar — is chrome
+                the spine does not cross; see the note over `spineSegment`. */}
             <div className="relative h-1.5">{spineSegment('inset-y-0')}</div>
             {/* THE MISSION'S OWN AGENTS, hanging off the header (round 3 §4).
                 Not a strip — the header above IS their task. Their rail lands on
-                ROOT_RAIL exactly, so the header's descent runs through their
-                elbows and carries on into the first child below. */}
+                ROOT_RAIL exactly, so one line runs through their elbows and
+                carries on into the first child below. */}
             {rootRow && (
               <>
                 <HungRows

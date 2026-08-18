@@ -1052,9 +1052,10 @@ describe('flight deck spine geometry (POD-1226)', () => {
     withLead()
     deck()
     const segments = spineSegments()
-    // The header's descent, the view bar, the list's top pad, the gap under the
-    // root roster, and the root rows' own rail.
-    expect(segments.length).toBeGreaterThan(3)
+    // The list's top pad, the gap under the root roster, and the root rows' own
+    // rail. (The header's descent and the view bar's were removed in POD-1306 —
+    // see the next test.)
+    expect(segments.length).toBeGreaterThan(2)
     // Each one takes its width FROM THE RAIL OBJECT, so a hardcoded `w-px`
     // anywhere on the spine fails here rather than at a jog on somebody's screen.
     expect(segments.filter((el) => el.style.width === '')).toEqual([])
@@ -1068,6 +1069,47 @@ describe('flight deck spine geometry (POD-1226)', () => {
     expect(segments.filter((el) => el.style.width === '')).toEqual([])
     expect([...new Set(segments.map((el) => el.style.width))]).toEqual(['1px'])
     expect([...new Set(segments.map(toneOf))]).toEqual(['bg-hairline-soft'])
+  })
+
+  /**
+   * THE SPINE STARTS AT THE LIST (POD-1306). The header is padded to 16px, which
+   * is ROOT_RAIL itself, so any segment drawn above the list lands UNDER the
+   * title and the gauge chip's left border rather than beside them — which is
+   * what made the descent read as a stray tick dangling off the chip. The
+   * invariant is positional, so it survives without layout: nothing outside the
+   * scrolling list may draw a vertical mark at the mission's own rail.
+   */
+  it('draws no spine above the list — not in the header, not behind the tabs', () => {
+    withLead()
+    deck()
+    const rows = document.querySelector('[data-testid="flight-deck-rows"]')
+    if (!rows) throw new Error('no rows list')
+    const above = spineSegments().filter((el) => !rows.contains(el))
+    expect(above).toEqual([])
+    // And the list itself still opens with one, so the tree starts on a rail
+    // rather than on an elbow arriving out of nothing.
+    expect(spineSegments().length).toBeGreaterThan(0)
+  })
+
+  /**
+   * SELECTION STANDS ON THE RAIL, NOT AGAINST THE ROW (POD-1306). Landing the
+   * tick's right edge on the row's own left edge put a 3×15 bar hard against the
+   * 20px agent tile, which reads as the spine running behind the icon. The tick
+   * belongs on the rail it is about, leaving the whole gutter to the elbow.
+   */
+  it('leaves the gutter between the rail and the tile to the elbow', () => {
+    harness.paneA = 's1'
+    deck()
+    const row = document.querySelector<HTMLElement>('[data-flight-session="s1"]')
+    if (!row) throw new Error('no agent row')
+    const tick = [...row.querySelectorAll<HTMLElement>('span[aria-hidden]')].find(
+      (el) => el.style.background === 'var(--issue)',
+    )
+    expect(tick).toBeDefined()
+    // The row's own left edge is `AGENT_INDENT` from its block; the tick sits on
+    // the rail at `AGENT_RAIL`, so it stops well short of the tile.
+    const left = Number.parseFloat(tick?.style.left ?? 'NaN')
+    expect(left + 3).toBeLessThan(0)
   })
 
   it('marks an asking agent with a gutter tick, never a rule on the row', () => {
