@@ -12,6 +12,7 @@ import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import { readTranscriptPage, useHub, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
+import { sendOfferAction } from '../lib/send-offer-action'
 import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
 import { color } from '../theme/theme'
 import { Composer } from './Composer'
@@ -280,7 +281,13 @@ export function SessionConversation({
                   <SessionActionCard
                     offer={session.offer}
                     evidenceCount={offerArtifacts.length}
-                    onAction={(prompt) => store.resumeAndSend(sessionId, prompt)}
+                    onAction={(prompt) =>
+                      sendOfferAction(trpc.sessions, {
+                        sessionId,
+                        text: prompt,
+                        wake: composer.canResume,
+                      })
+                    }
                     // The same write the web x makes: the offer leaves every
                     // surface and every viewer, not just this phone.
                     onDismiss={(offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt)}
