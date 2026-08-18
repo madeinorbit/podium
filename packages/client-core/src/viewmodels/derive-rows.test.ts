@@ -163,6 +163,48 @@ describe('rowMotionPhase — aggregate row phase (#41)', () => {
       }
     })
 
+    // POD-1280: the badge said 2 where the row named ONE ask. A review-stage
+    // issue counts its own decision, and the agent prime tells that same agent
+    // to post an offer when it moves the issue to `review` — so the offer's
+    // needs-you counted the identical decision a second time.
+    describe('an offer that IS the review ask counts once', () => {
+      it('does not double the count when the agent offered its review verdict', () => {
+        const row = issueRow([offered()], false, reviewIssue())
+        expect(rowPendingDecision(row)).toBe('merge')
+        expect(rowMotionPhase(row)).toBe('waiting')
+        expect(rowWaitingCount(row)).toBe(1)
+      })
+
+      it('still counts a real need on top — a verdict does not answer a question', () => {
+        // Offer AND an unanswered question: two separate things to do.
+        const asking = sess({
+          offer: {
+            message: 'Ready for your decision',
+            actions: [{ label: 'Merge', prompt: 'Merge it' }],
+            createdAt: new Date(NOW - 30_000).toISOString(),
+          },
+          agentState: agentState({ phase: 'needs_user', need: { kind: 'question' } }),
+        })
+        expect(rowWaitingCount(issueRow([asking], false, reviewIssue()))).toBe(2)
+      })
+
+      it('leaves an offer alone when the issue itself is not asking anything', () => {
+        // Nothing else counts this ask, so the offer is the whole of the count.
+        expect(rowWaitingCount(issueRow([offered()], false, { stage: 'in_progress' }))).toBe(1)
+      })
+
+      it('dedupes at the issue that owns the session, not just the visible row', () => {
+        // The parent rolls up the child's sessions; the decision is the child's.
+        const child = issueRow([offered()], false, reviewIssue({ id: 'child' }))
+        const parent = {
+          ...issueRow([], false, { id: 'parent', stage: 'in_progress' }),
+          startedByChildren: [child],
+          aggregateSessions: child.sessions,
+        } as unknown as Extract<UnifiedWorkRow, { kind: 'issue' }>
+        expect(rowWaitingCount(parent)).toBe(1)
+      })
+    })
+
     // POD-1193: `review` is a stage an agent sets on ITSELF, and the row prints
     // it as an ask aimed at the operator. When the agent then hopped to a
     // spin-off, nobody is waiting on that verdict — and the sidebar has no

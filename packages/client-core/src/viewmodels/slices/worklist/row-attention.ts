@@ -12,6 +12,7 @@ import type { IssueWire, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   agentBadge,
+  isOfferOnlyAttention,
   isSessionWorking,
   isUnstartedSession,
   type MotionPhase,
@@ -81,15 +82,32 @@ export function rowHasWorkingSession(row: UnifiedWorkRow): boolean {
   return rowSessions(row).some(isSessionWorking)
 }
 
-/** How many member sessions are waiting on the human — drives the amber count
- *  pill on wide rows and the numbered corner badge on rail squares (#41).
- *  Issue rows count their `aggregateSessions` (via {@link rowSessions}), so the
- *  pill sums needs-you across the WHOLE branch — visible children and rolled-up
- *  depth alike. Nothing yellow ⇒ nothing needs you (POD-100 L3). */
+/**
+ * How many member sessions are waiting on the human — drives the amber count
+ * pill on wide rows and the numbered corner badge on rail squares (#41).
+ * Issue rows count their `aggregateSessions` (via {@link rowSessions}), so the
+ * pill sums needs-you across the WHOLE branch — visible children and rolled-up
+ * depth alike. Nothing yellow ⇒ nothing needs you (POD-100 L3).
+ *
+ * ONE ASK IS ONE (POD-1280). The two halves of this sum count different things
+ * — a session blocked on the human, an issue awaiting a decision — but on a
+ * review-stage issue they are routinely the SAME thing: the agent prime tells
+ * every agent that moving its issue to `review` must come with an offer, so
+ * that issue contributes its `review` decision AND its agent contributes an
+ * offer-driven `waiting`, and the badge said 2 while the hover card named one
+ * ask. An offer-only waiting session on an issue already counted here is
+ * therefore dropped. A question, permission prompt or error still counts on top
+ * — the review verdict does not answer those.
+ */
 export function rowWaitingCount(row: UnifiedWorkRow): number {
   const issue = row.kind === 'issue' ? row.issue : undefined
-  const sessions = rowSessions(row).filter((s) => motionPhase(s, issue) === 'waiting').length
-  return sessions + (row.kind === 'issue' ? pendingDecisionStats(row).count : 0)
+  const waiting = rowSessions(row).filter((s) => motionPhase(s, issue) === 'waiting')
+  if (row.kind !== 'issue') return waiting.length
+  const pending = pendingDecisionStats(row)
+  const sessions = waiting.filter(
+    (s) => !(isOfferOnlyAttention(s) && pending.decidingSessions.has(s.sessionId)),
+  )
+  return sessions.length + pending.count
 }
 
 /**
@@ -119,11 +137,22 @@ export function rowPendingDecision(row: UnifiedIssueRow): IssuePendingDecision |
   return decision
 }
 
-/** Count issues awaiting a human decision in a visible row's full formal subtree
- *  and find the oldest anchor for the static waiting-age stamp. Cycle-safe. */
-function pendingDecisionStats(row: UnifiedIssueRow): { count: number; sinceMs?: number } {
+/**
+ * Count issues awaiting a human decision in a visible row's full formal subtree,
+ * collect the sessions sitting on those issues (so {@link rowWaitingCount} can
+ * tell whose ask it has already counted — membership comes from each row's own
+ * `sessions`, since a session is bound to its issue by ownership and need not
+ * carry an `issueId` of its own), and find the oldest anchor for the static
+ * waiting-age stamp. Cycle-safe.
+ */
+function pendingDecisionStats(row: UnifiedIssueRow): {
+  count: number
+  decidingSessions: Set<string>
+  sinceMs?: number
+} {
   let count = 0
   let sinceMs: number | undefined
+  const decidingSessions = new Set<string>()
   const seen = new Set<string>()
   const stack: UnifiedIssueRow[] = [row]
   while (stack.length > 0) {
@@ -132,6 +161,7 @@ function pendingDecisionStats(row: UnifiedIssueRow): { count: number; sinceMs?: 
     seen.add(current.issue.id)
     if (rowPendingDecision(current) !== null) {
       count += 1
+      for (const session of current.sessions) decidingSessions.add(session.sessionId)
       // Finished work anchors on closedAt; a review-stage issue has no closure
       // stamp, so its last update is when it came to rest asking.
       const at = issueFinishedAt(current.issue)
@@ -139,7 +169,7 @@ function pendingDecisionStats(row: UnifiedIssueRow): { count: number; sinceMs?: 
     }
     for (const child of current.startedByChildren ?? []) stack.push(child)
   }
-  return { count, ...(sinceMs !== undefined ? { sinceMs } : {}) }
+  return { count, decidingSessions, ...(sinceMs !== undefined ? { sinceMs } : {}) }
 }
 
 /** The deepest descendant row whose OWN sessions include one waiting on the

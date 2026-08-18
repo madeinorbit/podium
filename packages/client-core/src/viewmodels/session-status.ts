@@ -319,6 +319,18 @@ export function motionPhase(s: SessionMeta, issue?: IssueWire): MotionPhase {
   return 'queued'
 }
 
+/**
+ * Is this session's needs-you nothing but its standing offer?
+ *
+ * The offer IS the ask, so whoever else is already counting that same ask can
+ * use this to avoid counting it twice — see `rowWaitingCount`, where an agent
+ * that moved its issue to `review` AND posted an offer (which the agent prime
+ * instructs it to do) otherwise reads as two things needing you.
+ */
+export function isOfferOnlyAttention(s: SessionMeta): boolean {
+  return Boolean(s.offer) && !hasNonOfferNeedsYou(s)
+}
+
 /** True when attention would still be needsYou even without a standing offer —
  *  questions, permissions, errors, open todos. Used so a finished issue only
  *  ignores offer-driven attention, not a real live need. */
