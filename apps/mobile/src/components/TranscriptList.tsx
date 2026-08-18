@@ -1,11 +1,8 @@
-import { CHAT_VERBOSITY_KEY } from '@podium/client-core/ui-state'
 import {
   type ChatBlock,
-  type ChatVerbosity,
   failLine,
   latestPendingQuestion,
   type ParsedEnvelope,
-  parseChatVerbosity,
   resultPreview,
   toolBatchTitle,
   toolRunFailures,
@@ -23,7 +20,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react'
 import {
   Animated,
@@ -38,7 +34,6 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useUiState } from '../client/hooks'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import type { RefreshAccessibilityProps } from '../hooks/useRefreshableTab'
 import type { TranscriptAssetContext } from '../lib/transcript-assets'
@@ -214,12 +209,11 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
 }
 
 /**
- * A phone-native work line. Normal mode spends one line on the run and a tap
- * unfolds a useful result preview; verbose opens every call immediately.
+ * A phone-native work line. It spends one line on the run and a tap unfolds a
+ * useful result preview.
  */
-function ToolsRun({ blocks, verbose }: { blocks: ChatBlock[]; verbose: boolean }) {
-  const [expanded, setExpanded] = useState(verbose)
-  useEffect(() => setExpanded(verbose), [verbose])
+function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
+  const [expanded, setExpanded] = useState(false)
   const failures = toolRunFailures(blocks)
 
   return (
@@ -581,14 +575,6 @@ export function TranscriptList({
   bottomInset?: number
 }) {
   const reduceMotion = useReduceMotion()
-  const uiState = useUiState()
-  const storedVerbosity = useSyncExternalStore(
-    (notify) => uiState.subscribe(notify),
-    () => uiState.get(CHAT_VERBOSITY_KEY),
-    () => null,
-  )
-  const verbosity = parseChatVerbosity(storedVerbosity)
-  const [detailOpen, setDetailOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [cursor, setCursor] = useState(0)
@@ -597,21 +583,9 @@ export function TranscriptList({
   /** Rows that arrived while the operator was reading further up. */
   const [unread, setUnread] = useState(0)
 
-  const searching = findOpen && query.trim().length > 0
-
-  const setVerbosity = useCallback(
-    (value: ChatVerbosity) => uiState.set(CHAT_VERBOSITY_KEY, value === 'normal' ? null : value),
-    [uiState],
-  )
-
   const model = useMemo(
-    () =>
-      buildMobileTranscript(items, {
-        collapseContext,
-        verbosity,
-        searching,
-      }),
-    [collapseContext, items, searching, verbosity],
+    () => buildMobileTranscript(items, { collapseContext }),
+    [collapseContext, items],
   )
   const rows = useMemo(() => {
     const built: Row[] = [...model.rows]
@@ -741,21 +715,6 @@ export function TranscriptList({
     [onLoadOlder],
   )
 
-  const detailActions = useMemo<SheetAction[]>(
-    () =>
-      (['summary', 'normal', 'verbose'] as const).map((value) => ({
-        label: `${verbosity === value ? '✓ ' : ''}${value[0].toUpperCase()}${value.slice(1)}`,
-        hint:
-          value === 'summary'
-            ? 'Prompts, answers, questions and failures'
-            : value === 'verbose'
-              ? 'Every tool call and result preview'
-              : 'Prose and one folded line per work run',
-        onPress: () => setVerbosity(value),
-      })),
-    [setVerbosity, verbosity],
-  )
-
   const messageActions = useMemo<SheetAction[]>(() => {
     if (!actionText) return []
     const actions: SheetAction[] = [
@@ -846,7 +805,7 @@ export function TranscriptList({
       case 'receipt':
         return <AskReceipt item={row.item} />
       case 'tools':
-        return <ToolsRun blocks={row.blocks ?? []} verbose={verbosity === 'verbose'} />
+        return <ToolsRun blocks={row.blocks ?? []} />
       case 'shared':
         return <SharedFiles item={row.item} context={assetContext} />
       case 'envelope':
@@ -1043,7 +1002,7 @@ export function TranscriptList({
           </PressableScale>
         </View>
       ) : (
-        <View style={styles.readingTools}>
+        <View style={styles.searchTool}>
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel="Find in transcript"
@@ -1051,16 +1010,6 @@ export function TranscriptList({
             style={({ pressed }) => [styles.utilityButton, pressed && styles.utilityPressed]}
           >
             <Icon as={Search} size={15} color={color.textDim} />
-          </PressableScale>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`Transcript detail: ${verbosity}`}
-            onPress={() => setDetailOpen(true)}
-            style={({ pressed }) => [styles.utilityButton, pressed && styles.utilityPressed]}
-          >
-            <Text style={styles.detailBars}>
-              {verbosity === 'summary' ? '▂' : verbosity === 'normal' ? '▂▄' : '▂▄▆'}
-            </Text>
           </PressableScale>
         </View>
       )}
@@ -1078,12 +1027,6 @@ export function TranscriptList({
         }}
       />
 
-      <ActionSheet
-        visible={detailOpen}
-        title="Transcript detail"
-        actions={detailActions}
-        onClose={() => setDetailOpen(false)}
-      />
       <ActionSheet
         visible={actionText !== null}
         title="Message"
@@ -1520,13 +1463,10 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: color.hairline,
   },
-  readingTools: {
+  searchTool: {
     position: 'absolute',
     top: space.sm,
     right: space.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
     padding: 2,
     borderRadius: radius.full,
     borderWidth: StyleSheet.hairlineWidth,
@@ -1539,12 +1479,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,
-  },
-  detailBars: {
-    ...mono(600),
-    color: color.textDim,
-    fontSize: font.micro,
-    letterSpacing: -1,
   },
   utilityPressed: {
     opacity: 0.55,
@@ -1569,7 +1503,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     color: color.text,
-    fontSize: font.small,
+    // Mobile Safari zooms focused form controls below 16px. The body/input
+    // token stays above that threshold without disabling user page zoom.
+    fontSize: font.body,
     paddingVertical: 0,
   },
   findCount: {

@@ -1,7 +1,6 @@
 import {
   type ChatBlock,
   type ChatRow,
-  type ChatVerbosity,
   computeTranscript,
   envelopePrincipal,
   formatChurn,
@@ -56,24 +55,16 @@ interface MobileTranscriptIndex {
 }
 
 // Search changes frequently while the transcript snapshot usually does not.
-// Keep the paired/row-shaped graph per immutable item array and verbosity so a
-// query does not repeat the same shaping work on the React Native JS thread.
-const transcriptIndexCache = new WeakMap<object, Map<ChatVerbosity, MobileTranscriptIndex>>()
+// Keep the paired/row-shaped graph per immutable item array so a query does not
+// repeat the same shaping work on the React Native JS thread.
+const transcriptIndexCache = new WeakMap<object, MobileTranscriptIndex>()
 
-function indexedTranscript(
-  items: TranscriptItem[],
-  verbosity: ChatVerbosity,
-): MobileTranscriptIndex {
-  let byVerbosity = transcriptIndexCache.get(items)
-  if (!byVerbosity) {
-    byVerbosity = new Map()
-    transcriptIndexCache.set(items, byVerbosity)
-  }
-  const cached = byVerbosity.get(verbosity)
+function indexedTranscript(items: TranscriptItem[]): MobileTranscriptIndex {
+  const cached = transcriptIndexCache.get(items)
   if (cached) return cached
-  const result = computeTranscript({ items, verbosity, query: '', cursor: 0 })
+  const result = computeTranscript({ items, verbosity: 'normal', query: '', cursor: 0 })
   const index = { blocks: result.blocks, rows: result.rows }
-  byVerbosity.set(verbosity, index)
+  transcriptIndexCache.set(items, index)
   return index
 }
 
@@ -81,20 +72,15 @@ export function transcriptItemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
 }
 
-/** Build phone rows from the same paired blocks and verbosity contract as web. */
+/** Build phone rows from the same normal-detail paired blocks as web. */
 export function buildMobileTranscript(
   items: TranscriptItem[],
   options: {
     collapseContext?: boolean
-    verbosity?: ChatVerbosity
-    /** Search temporarily restores normal detail so a hidden hit is reachable. */
-    searching?: boolean
   } = {},
 ): MobileTranscriptModel {
   const rows: MobileTranscriptRow[] = []
-  const verbosity =
-    options.searching && options.verbosity === 'summary' ? 'normal' : options.verbosity
-  const index = indexedTranscript(items, verbosity ?? 'normal')
+  const index = indexedTranscript(items)
   const { blocks, rows: chatRows } = index
 
   for (const chatRow of chatRows) {

@@ -33,30 +33,6 @@ describe('mobile transcript feed', () => {
     expect(model.rows[2]?.blocks).toHaveLength(2)
   })
 
-  it('keeps failures in summary while dropping quiet successful work', () => {
-    const successful = buildMobileTranscript(
-      [
-        item('u1', 'user', 'Run it'),
-        item('t1', 'tool', '', { toolName: 'Bash', toolInput: 'bun test', toolResult: 'ok' }),
-        item('a1', 'assistant', 'Green.', { answer: true }),
-      ],
-      { verbosity: 'summary' },
-    )
-    expect(successful.rows.map((row) => row.kind)).toEqual(['user', 'answer'])
-
-    const failed = buildMobileTranscript(
-      [
-        item('t1', 'tool', '', {
-          toolName: 'Bash',
-          toolInput: 'bun test',
-          toolResult: 'Error: red',
-        }),
-      ],
-      { verbosity: 'summary' },
-    )
-    expect(failed.rows.map((row) => row.kind)).toEqual(['tools'])
-  })
-
   it('finds text inside a folded result and maps it back to the work row', () => {
     const model = buildMobileTranscript([
       item('t1', 'tool', '', {
@@ -71,14 +47,6 @@ describe('mobile transcript feed', () => {
     expect(search.total).toBe(1)
     expect(search.activeRow).toBe(0)
     expect([...search.matchingRows]).toEqual([0])
-  })
-
-  it('temporarily restores normal detail while searching from summary', () => {
-    const model = buildMobileTranscript(
-      [item('t1', 'tool', '', { toolName: 'Read', toolInput: 'Needle.tsx', toolResult: 'ok' })],
-      { verbosity: 'summary', searching: true },
-    )
-    expect(model.rows).toHaveLength(1)
   })
 
   it('quotes every source line for composer insertion', () => {
