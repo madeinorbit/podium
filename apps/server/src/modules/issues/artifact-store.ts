@@ -66,7 +66,7 @@ export interface ArtifactSnapshot {
   artifactId: ArtifactId
   entry: string
   files: ArtifactManifestFile[]
-  /** Worktree-relative source paths used to determine Git tracking state. */
+  /** Worktree-relative source files this snapshot captured. */
   sourcePaths: string[]
 }
 

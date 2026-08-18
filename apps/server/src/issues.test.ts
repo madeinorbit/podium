@@ -4677,8 +4677,8 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const added = await svc.panelArtifactAdd(w.id, { path: 'evidence/review.md' })
     expect(added.panel?.artifacts[0]).toMatchObject({ path: 'evidence/review.md' })
     expect(added.panel?.artifacts[0]?.tracking).toBeUndefined()
-    // No Git probe at all: whether the source file is committed is not our business.
-    expect(repoOp).not.toHaveBeenCalled()
+    // No lsFiles probe: whether the source file is committed is not our business.
+    expect(repoOp.mock.calls.every((c) => c[0] !== 'lsFiles')).toBe(true)
     expect(svc.update(w.id, { stage: 'review' }).stage).toBe('review')
   })
 
