@@ -34,7 +34,9 @@ describe('classifying the account answer', () => {
   })
 
   it('refuses an empty principal string rather than opening a nameless slice', () => {
-    expect(classifyAuthStatus({ userId: '', needsAuth: false })).toEqual({ kind: 'account-missing' })
+    expect(classifyAuthStatus({ userId: '', needsAuth: false })).toEqual({
+      kind: 'account-missing',
+    })
   })
 })
 
@@ -71,7 +73,11 @@ describe('what the operator is told', () => {
     const restart = describeReplicaFailure(
       {
         kind: 'server-starting',
-        readiness: { state: 'activation_pending', reason: 'restart_required', dataPlane: 'blocked' },
+        readiness: {
+          state: 'activation_pending',
+          reason: 'restart_required',
+          dataPlane: 'blocked',
+        },
       },
       { endpoint: 'pod.test' },
     )

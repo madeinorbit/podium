@@ -6,8 +6,8 @@ import {
   isSignedOut,
   type ReplicaFailure,
 } from '@/lib/replica-failure'
+import { type ReloadWindow, reloadApp } from './AppErrorPage'
 import { BootScreen, type BootTrace } from './BootScreen'
-import { reloadApp, type ReloadWindow } from './AppErrorPage'
 
 /**
  * WHAT THE OPERATOR GETS WHEN THE BOOT GATE FAILS.

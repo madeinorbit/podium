@@ -78,7 +78,8 @@ export interface ResolveReplicaPrincipalOptions {
 export async function resolveReplicaPrincipal(
   options: ResolveReplicaPrincipalOptions = {},
 ): Promise<string> {
-  const fetchStatus = options.fetchStatus ?? (() => fetch(`${options.httpOrigin ?? ''}/auth/status`))
+  const fetchStatus =
+    options.fetchStatus ?? (() => fetch(`${options.httpOrigin ?? ''}/auth/status`))
   let response: Response
   try {
     response = await fetchStatus()
@@ -110,7 +111,9 @@ export async function resolveReplicaPrincipal(
   if (!response.ok) {
     throw new ReplicaGateError(
       'authenticated account is unavailable',
-      response.status === 400 ? { kind: 'auth-insecure' } : { kind: 'auth-refused', status: response.status },
+      response.status === 400
+        ? { kind: 'auth-insecure' }
+        : { kind: 'auth-refused', status: response.status },
     )
   }
   // A 200 whose body is not JSON (an SPA fallback or a proxy's HTML page) is a

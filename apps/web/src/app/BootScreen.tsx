@@ -1,5 +1,5 @@
 import { ArrowRight, ChevronRight, RotateCw } from 'lucide-react'
-import { type JSX, type ReactNode, useEffect, useState } from 'react'
+import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { AsciiWordmark } from '@/features/setup/podium-wordmark'
 
 /**
@@ -102,7 +102,14 @@ export function BootScreen({
   const [first, second] = headline.split('\n')
 
   // The exit must be reachable without a mouse: focus lands on the primary
-  // action (autoFocus, below), and `R` triggers it from anywhere on the screen.
+  // action, and `R` triggers it from anywhere on the screen. Focus is taken on
+  // mount rather than with `autoFocus` — the same lint-clean shape the login
+  // screen uses, and this screen has the same claim to it: it IS the page.
+  const actionRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    actionRef.current?.focus()
+  }, [])
+
   const act = primary.onClick
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -180,7 +187,13 @@ export function BootScreen({
               </div>
             )}
             <div className="boot-actions">
-              <button autoFocus className="boot-button" data-pressable type="button" onClick={primary.onClick}>
+              <button
+                ref={actionRef}
+                className="boot-button"
+                data-pressable
+                type="button"
+                onClick={primary.onClick}
+              >
                 <span>{primary.label}</span>
                 <ArrowRight size={16} strokeWidth={2} aria-hidden="true" />
               </button>
