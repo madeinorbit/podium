@@ -52,6 +52,7 @@ function rowsFor(items: TranscriptItem[]): RenderableRow[] {
 function render(
   activity: ChatActivity | null,
   items: TranscriptItem[] = [say('a1', 'an answer')],
+  scrollerEpoch = 0,
 ): void {
   const blocks = pairToolResults(items)
   act(() => {
@@ -90,6 +91,7 @@ function render(
         overlay={null}
         activity={activity}
         attribution={{} as never}
+        scrollerEpoch={scrollerEpoch}
       />,
     )
   })
@@ -110,6 +112,25 @@ afterEach(() => {
   })
   host.remove()
   vi.useRealTimers()
+})
+
+describe('a bumped scroller epoch is a new element', () => {
+  // Round 6: the Safari 26.4 wedge lives in the scrolling node itself — a
+  // pixel-identical clone scrolled to the bottom the original could not
+  // reach. The epoch is the hook's request for that clone, made real here:
+  // a changed epoch keys the scroller, so React replaces the DOM node and
+  // the engine builds a fresh scrolling node for it.
+  it('replaces the scroller node when the epoch changes, and only then', () => {
+    render(null)
+    const first = host.querySelector('[data-feed-scroller]')
+    expect(first).not.toBeNull()
+    render(null)
+    expect(host.querySelector('[data-feed-scroller]')).toBe(first)
+    render(null, undefined, 1)
+    const reborn = host.querySelector('[data-feed-scroller]')
+    expect(reborn).not.toBeNull()
+    expect(reborn).not.toBe(first)
+  })
 })
 
 describe('the tail stands in a slot of constant height', () => {

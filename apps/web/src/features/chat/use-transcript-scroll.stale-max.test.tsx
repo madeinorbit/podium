@@ -376,6 +376,64 @@ describe('a bottom-writer first does no harm', () => {
 })
 
 /**
+ * THE WEDGED SCROLLER IS REBORN (round 6, the clone experiment of
+ * 2026-08-18).
+ *
+ * The end of the road for in-place repair: in the operator's Safari 26.4 the
+ * wedge survived the padding heal, a scroller box resize, an end spacer, an
+ * overflow teardown, a compositor layer toggle, native smooth scrolling,
+ * twelve frames of persistent writes, a display:none cycle, a pane switch,
+ * and a window resize — and then a pixel-identical CLONE of the scroller
+ * scrolled straight to the true bottom, gap 0. The wedge lives in the
+ * element's scrolling node, not in the content or the tree around it. So
+ * when the writers prove the wedge — a heal-backed write that still cannot
+ * arrive, twice — the hook asks for a new element: `scrollerEpoch` bumps,
+ * the feed remounts its scroller under a new key, and the fresh node is
+ * settled to the bottom the old one could not reach.
+ */
+describe('the wedged scroller is reborn', () => {
+  /** The un-healable engine: geometry passes run, and fix nothing. */
+  function healsDoNothing(): void {
+    Object.defineProperty(scroller(), 'offsetHeight', {
+      configurable: true,
+      get: () => {
+        if (scroller().style.paddingBottom !== '') heals++
+        return 500
+      },
+    })
+  }
+  const ro = (): void => {
+    act(() => (globalThis as { __ro?: () => void }).__ro?.())
+  }
+
+  it('asks for a new element after the second heal-backed write fails to arrive', () => {
+    healsDoNothing()
+    expect(api?.scrollerEpoch).toBe(0)
+    ro() // write, heal, write: still short — strike one
+    expect(api?.scrollerEpoch).toBe(0)
+    ro() // parked retry, healed again, still short — the wedge is proven
+    expect(api?.scrollerEpoch).toBe(1)
+  })
+
+  it('asks once per wedge, not once per writer', () => {
+    healsDoNothing()
+    ro()
+    ro()
+    ro() // a third failing writer in the same breath must not double the ask
+    ro()
+    expect(api?.scrollerEpoch).toBe(1)
+  })
+
+  it('does not mistake a healable engine for a wedge', () => {
+    // The default harness heals on a real geometry pass — the morning mode.
+    ro()
+    ro()
+    ro()
+    expect(api?.scrollerEpoch).toBe(0)
+  })
+})
+
+/**
  * THE ENGINE REVERTING OUR OWN WRITE IS NOT A DRAG (round 4, the trace of
  * 2026-08-18 afternoon).
  *

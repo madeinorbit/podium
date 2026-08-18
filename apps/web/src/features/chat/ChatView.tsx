@@ -302,6 +302,7 @@ export function ChatView({
       <div className="offer-lift-region relative flex min-h-0 flex-1">
         <TranscriptFeed
           scrollerRef={chat.scrollerRef}
+          scrollerEpoch={chat.scroll.scrollerEpoch}
           onScroll={chat.scroll.onScroll}
           claimScrollForArrival={chat.scroll.claimScrollForArrival}
           compact={compact}

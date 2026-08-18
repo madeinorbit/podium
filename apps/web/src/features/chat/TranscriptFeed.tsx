@@ -325,6 +325,7 @@ export function TranscriptFeed({
   overlay,
   activity,
   attribution,
+  scrollerEpoch = 0,
   expandRuns = false,
   onQuote,
   issueReferences = EMPTY_ISSUE_REFERENCES,
@@ -372,6 +373,12 @@ export function TranscriptFeed({
    *  slice. Each row picks its pair by role; the objects are stable, so the
    *  memoized block views keep skipping renders. */
   attribution: TranscriptAttributionTable
+  /** Bumps when the scroll hook proves the Safari 26.4 wedge (round 6): a
+   *  changed epoch keys the scroller, React replaces the DOM node, and the
+   *  engine builds a fresh scrolling node — the only repair the wedge
+   *  respects (a pixel-identical clone scrolled to the bottom the wedged
+   *  element could not reach; nothing done to the element itself did). */
+  scrollerEpoch?: number
   /** Verbose mode (POD-376): every run renders already unfolded. Verbose changes
    *  how a run LOOKS, not which rows exist, so it rides down here rather than
    *  through the row derivation. */
@@ -412,6 +419,8 @@ export function TranscriptFeed({
     (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
   return (
     <div
+      // Keyed on the wedge epoch (round 6): see `scrollerEpoch` above.
+      key={scrollerEpoch}
       // Named so a portalled overlay hanging off a row can find the box it must
       // stay inside. A tooltip's default collision boundary is the VIEWPORT, and
       // the viewport does not stop at the feed — it continues down through the

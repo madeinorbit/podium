@@ -70,6 +70,10 @@ export interface UseTranscriptScrollResult {
    *  scroll for exactly that long so one writer follows it instead of three.
    *  See `claimScrollForArrival` below. */
   claimScrollForArrival: (ms: number) => void
+  /** Bumps when the writers prove the Safari 26.4 wedge (round 6): the feed
+   *  must remount its scroller under a new key, because a fresh element
+   *  scrolls to the bottom the wedged one cannot reach. */
+  scrollerEpoch: number
 }
 
 /**
@@ -178,7 +182,7 @@ const settling = new WeakMap<HTMLElement, number>()
  * and paid for only when a write has demonstrably fallen short, so the
  * streaming hot path (where writes land) never sees the extra layout.
  */
-function writeBottom(el: HTMLElement): void {
+function writeBottom(el: HTMLElement, onWedged?: () => void): void {
   const gap = (): number => el.scrollHeight - el.scrollTop - el.clientHeight
   // AT THE BOTTOM, WRITE NOTHING (round 5, the trace that ended the hunt).
   // Caught live: the operator held the true bottom by hand for three quiet
@@ -205,6 +209,7 @@ function writeBottom(el: HTMLElement): void {
   }
   if (gap() <= 4) {
     knownStaleWriteMax.delete(el)
+    healFailures.delete(el)
     return
   }
   healGeometry(el)
@@ -215,12 +220,32 @@ function writeBottom(el: HTMLElement): void {
     knownStaleWriteMax.set(el, el.scrollTop)
     return
   }
-  if (gap() <= 4) knownStaleWriteMax.delete(el)
+  if (gap() <= 4) {
+    knownStaleWriteMax.delete(el)
+    healFailures.delete(el)
+    return
+  }
   // Healed and still short: the synchronous clamp mode. The landing spot IS
   // the stale clamp — record it so writers from above stay silent, while
-  // parked retries (each with a fresh heal) keep probing for recovery.
-  else knownStaleWriteMax.set(el, el.scrollTop)
+  // parked retries (each with a fresh heal) keep probing for recovery. Two
+  // heal-backed writes that still cannot arrive prove the WEDGE (round 6):
+  // in the operator's Safari every in-place repair failed while a fresh
+  // element scrolled straight to the bottom, so the answer is rebirth — ask
+  // once per element, then stand down and wait for the new one.
+  knownStaleWriteMax.set(el, el.scrollTop)
+  if (wedgedEls.has(el)) return
+  const n = (healFailures.get(el) ?? 0) + 1
+  healFailures.set(el, n)
+  if (n >= 2) {
+    wedgedEls.add(el)
+    onWedged?.()
+  }
 }
+
+/** Consecutive heal-backed writes that still could not arrive, per element. */
+const healFailures = new WeakMap<HTMLElement, number>()
+/** Elements already declared wedged — asked-for-rebirth once, never again. */
+const wedgedEls = new WeakSet<HTMLElement>()
 
 /**
  * The stale write-clamp Safari 26.4 SETS positions to (see `writeBottom`) —
@@ -252,7 +277,7 @@ const lastBottomWriteAt = new WeakMap<HTMLElement, number>()
 /** The write for the fight path: heal FIRST, because in the second mode the
  *  read-back that would trigger `writeBottom`'s conditional heal is exactly
  *  what the engine defeats. */
-function forceBottom(el: HTMLElement): void {
+function forceBottom(el: HTMLElement, onWedged?: () => void): void {
   if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) return
   const stale = knownStaleWriteMax.get(el)
   const before = el.scrollTop
@@ -260,8 +285,25 @@ function forceBottom(el: HTMLElement): void {
   healGeometry(el)
   el.scrollTop = el.scrollHeight
   lastBottomWriteAt.set(el, performance.now())
-  if (el.scrollTop < before - 1) knownStaleWriteMax.set(el, el.scrollTop)
-  else if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) knownStaleWriteMax.delete(el)
+  if (el.scrollTop < before - 1) {
+    knownStaleWriteMax.set(el, el.scrollTop)
+    return
+  }
+  if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) {
+    knownStaleWriteMax.delete(el)
+    healFailures.delete(el)
+    return
+  }
+  // A heal-backed write that could not arrive counts toward the wedge here
+  // exactly as it does in `writeBottom` — the fight path fails the same way.
+  knownStaleWriteMax.set(el, el.scrollTop)
+  if (wedgedEls.has(el)) return
+  const n = (healFailures.get(el) ?? 0) + 1
+  healFailures.set(el, n)
+  if (n >= 2) {
+    wedgedEls.add(el)
+    onWedged?.()
+  }
 }
 
 /** A wheel over a scrollable region inside the feed chains to the feed only
@@ -306,7 +348,11 @@ function innerScrollerHasTheWheel(target: EventTarget | null, el: HTMLElement): 
  * being measured or an image arriving moves it a frame or three later. So it
  * stays where a DELIBERATE request for the bottom was made, and nowhere else.
  */
-function settleToBottom(el: HTMLElement, pinned: RefObject<boolean>): void {
+function settleToBottom(
+  el: HTMLElement,
+  pinned: RefObject<boolean>,
+  onWedged?: () => void,
+): void {
   const running = (settling.get(el) ?? 0) > 0
   settling.set(el, SETTLE_FRAMES)
   // A loop already in flight has just had its budget renewed; starting a second
@@ -317,7 +363,7 @@ function settleToBottom(el: HTMLElement, pinned: RefObject<boolean>): void {
       settling.set(el, 0)
       return
     }
-    writeBottom(el)
+    writeBottom(el, onWedged)
     const left = (settling.get(el) ?? 0) - 1
     settling.set(el, left)
     if (left > 0) requestAnimationFrame(step)
@@ -342,6 +388,22 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
 
   const [atBottom, setAtBottom] = useState(true)
   const [pinnedBrief, setPinnedBrief] = useState<PinnedBrief | null>(null)
+  /**
+   * THE WEDGED SCROLLER IS REBORN (round 6). In the operator's Safari 26.4
+   * the wedge survived every in-place repair — heals, box resizes, spacers,
+   * overflow teardown, layer toggles, native smooth scrolling, display
+   * cycles, pane switches, a window resize — and then a pixel-identical
+   * CLONE of the scroller scrolled straight to the true bottom. The wedge
+   * lives in the element's scrolling node. So when the writers prove it
+   * (two heal-backed writes that still cannot arrive), this bumps, the feed
+   * keys its scroller on it, React replaces the DOM node, and the effect
+   * below settles the fresh element to the bottom the old one could not
+   * reach.
+   */
+  const [scrollerEpoch, setScrollerEpoch] = useState(0)
+  const onWedged = useCallback(() => {
+    setScrollerEpoch((e) => e + 1)
+  }, [])
   /**
    * THE ARRIVAL OWNS THE SCROLL WHILE IT RUNS (POD-1158).
    *
@@ -514,10 +576,28 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   useEffect(() => {
     const el = scrollerRef.current
     if (el && pinnedToBottom.current) {
-      settleToBottom(el, pinnedToBottom)
+      settleToBottom(el, pinnedToBottom, onWedged)
       syncStickyPromptPositions()
     }
   }, [blockCount, syncStickyPromptPositions])
+
+  // The reborn element (round 6): after the feed remounts the scroller under
+  // the new key, settle the fresh node to the bottom the wedged one could not
+  // reach. Runs after the commit, so the ref already holds the new element —
+  // which starts outside every stale-clamp record by construction.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires on rebirth only
+  useEffect(() => {
+    if (scrollerEpoch === 0) return
+    const el = scrollerRef.current
+    if (!el) return
+    lastScrollTop.current = 0
+    if (pinnedToBottom.current) {
+      setAnchorEnd(el, true)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => settleToBottom(el, pinnedToBottom, onWedged))
+      })
+    }
+  }, [scrollerEpoch])
 
   // Scroll-anchor for prepends: after older blocks are inserted at the top (window
   // widened or a disk page prepended), the content the user was reading shifts down
@@ -559,7 +639,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const el = scrollerRef.current
     if (!el) return
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => settleToBottom(el, pinnedToBottom))
+      requestAnimationFrame(() => settleToBottom(el, pinnedToBottom, onWedged))
     })
   }, [blockCount])
 
@@ -585,7 +665,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       // writer rather than three, and skipping the sticky pass with it is the
       // larger saving: it reads a rect per operator prompt, every callback.
       if (arrivalHolds()) return
-      if (pinnedToBottom.current) writeBottom(el)
+      if (pinnedToBottom.current) writeBottom(el, onWedged)
       syncStickyPromptPositions()
     })
     ro.observe(el)
@@ -659,7 +739,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       // writer rather than three, and skipping the sticky pass with it is the
       // larger saving: it reads a rect per operator prompt, every callback.
       if (arrivalHolds()) return
-      if (pinnedToBottom.current) writeBottom(el)
+      if (pinnedToBottom.current) writeBottom(el, onWedged)
       syncStickyPromptPositions()
     })
     mo.observe(el, { childList: true })
@@ -667,7 +747,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       mo.disconnect()
       ro.disconnect()
     }
-  }, [syncStickyPromptPositions, rowsToRender, arrivalHolds])
+  }, [syncStickyPromptPositions, rowsToRender, arrivalHolds, onWedged, scrollerEpoch])
 
   // Snap to bottom on pane switch-in: the keep-mounted panel deck hides inactive
   // panels with `display:none`, so scroll events stop firing. When this pane
@@ -678,7 +758,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     if (!active) return
     const el = scrollerRef.current
     if (el && pinnedToBottom.current) {
-      settleToBottom(el, pinnedToBottom)
+      settleToBottom(el, pinnedToBottom, onWedged)
       syncStickyPromptPositions()
     }
   }, [active, syncStickyPromptPositions])
@@ -779,7 +859,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
         lastRevertTop.current = null
         pinnedToBottom.current = true
         setAnchorEnd(el, true)
-        settleToBottom(el, pinnedToBottom)
+        settleToBottom(el, pinnedToBottom, onWedged)
         setAtBottom(true)
         syncStickyPromptPositions()
         return
@@ -810,7 +890,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
       el.removeEventListener('touchstart', release)
       el.removeEventListener('keydown', onKeyDown)
     }
-  }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions])
+  }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions, onWedged, scrollerEpoch])
 
   const onScroll = useCallback(() => {
     const el = scrollerRef.current
@@ -864,7 +944,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
         revertFights.current += 1
         lastRevertTop.current = el.scrollTop
         lastSnapHealAt.current = now
-        forceBottom(el)
+        forceBottom(el, onWedged)
         lastScrollTop.current = el.scrollTop
         setAtBottom(true)
         syncStickyPromptPositions()
@@ -917,7 +997,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     syncStickyPromptPositions()
     // Near the TOP and more exists above → reveal/fetch older content.
     if (el.scrollTop < 200 && moreAbove) loadOlder()
-  }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions, moreAbove, loadOlder])
+  }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions, moreAbove, loadOlder, onWedged])
 
   /** Follow an arriving row's own growth for `ms`, as the only writer. Does
    *  nothing at all if the reader is not at the end — a row unrolling out of
@@ -938,12 +1018,12 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
           syncStickyPromptPositions()
           return
         }
-        writeBottom(el)
+        writeBottom(el, onWedged)
         requestAnimationFrame(step)
       }
       step()
     },
-    [scrollerRef, pinnedToBottom, arrivalHolds, syncStickyPromptPositions],
+    [scrollerRef, pinnedToBottom, arrivalHolds, syncStickyPromptPositions, onWedged],
   )
 
   const jumpToBottom = useCallback(() => {
@@ -969,7 +1049,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     settleToBottom(el, pinnedToBottom)
     setAtBottom(true)
     syncStickyPromptPositions()
-  }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions])
+  }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions, onWedged, scrollerEpoch])
 
   // A send always follows its own message: re-pin without touching the DOM, and
   // let the growth effect above do the scrolling once the bubble mounts.
@@ -1003,6 +1083,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
 
   return {
     atBottom,
+    scrollerEpoch,
     onScroll,
     jumpToBottom,
     pinToBottom,
