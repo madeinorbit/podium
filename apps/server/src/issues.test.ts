@@ -1093,6 +1093,26 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     expect(h.store.events.listEventsSince(0, { kinds: ['issue.worktree_freed'] }).length).toBe(1)
   })
 
+  it('signs the audit comment as the archive, not as a stop (POD-1294)', async () => {
+    // The free is shared with session stop, and it used to sign EVERY caller
+    // `system:stop` / "stop: freed worktree …". On a press of "Archive all
+    // closed issues" that put a stop notice on 25 issues nobody had stopped,
+    // and it was read as a sweep reaping live agents mid-fix — a bug report
+    // against work that had already landed. The job has to name itself.
+    const h = harness()
+    const id = startedIssue(h, 'Archived, not stopped')
+
+    h.svc.archive(id)
+    await settle()
+
+    const audit = h.store.issues
+      .listIssueComments(id)
+      .find((c) => c.body.includes('freed worktree'))
+    expect(audit?.author).toBe('system:archive')
+    expect(audit?.body).toMatch(/^archive: freed worktree/)
+    expect(audit?.actor).toBe('system:archive')
+  })
+
   it('frees on the read-gated 7-day sweep too, not only on the operator’s own archive', async () => {
     const h = harness()
     const id = startedIssue(h, 'Aged out')

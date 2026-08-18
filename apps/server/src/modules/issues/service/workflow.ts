@@ -583,8 +583,16 @@ export class IssueGitWorkflowModule {
    * sessions still use this worktree.
    *
    * `principal` is who asked for the free (POD-1344) — stamped onto the audit
-   * comment. Author stays `system:stop` (job label); actor/onBehalfOf name the
-   * caller.
+   * comment. The author is the JOB label, and the job is read off a system
+   * principal rather than hardcoded (POD-1294): archive, stop, start and the
+   * expiry sweep all funnel here, and every one of them used to sign the
+   * comment `system:stop` and open its body with `stop:`. That cost a bug
+   * report. An operator pressing "Archive all closed issues" got 25 comments
+   * announcing a STOP on issues nobody had stopped, which reads as a sweep
+   * reaping live agents — and the `actor` column three fields away already
+   * said `system:archive`, so the data was right and only the sentence lied.
+   * A caller with a human behind it (CLI stop) has no job to name and keeps
+   * `stop`, which is the only path that ever meant it.
    */
   async freeWorktreeKeepBranch(
     id: string,
@@ -592,6 +600,7 @@ export class IssueGitWorkflowModule {
     opts?: { force?: boolean },
   ): Promise<{ ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean }> {
     const row = this.store.rowOrThrow(id)
+    const job = principal.kind === 'system' ? principal.job : 'stop'
     const refuse = (
       output: string,
     ): { ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean } => ({
@@ -655,8 +664,8 @@ export class IssueGitWorkflowModule {
     this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
     const issue = this.commentsMail().addComment(
       row.id,
-      'system:stop',
-      `stop: freed worktree ${worktreePath}; branch '${branch}' kept for resume/inspect`,
+      `system:${job}`,
+      `${job}: freed worktree ${worktreePath}; branch '${branch}' kept for resume/inspect`,
       principal,
     )
     this.store.emitEvent('issue.worktree_freed', row.id, {
@@ -664,6 +673,7 @@ export class IssueGitWorkflowModule {
       worktreePath,
       branch,
       forced: opts?.force === true,
+      job,
     })
     return {
       ok: true,
