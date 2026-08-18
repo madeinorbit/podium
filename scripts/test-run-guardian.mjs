@@ -6,11 +6,19 @@
  * SIGKILL), or asks the guardian to stop during signal teardown, every process whose cwd is
  * still inside this exact run root gets TERM→KILL escalation.
  */
-import { readdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs'
 import { basename } from 'node:path'
 
-const [ownerArg, ownerStartTime, runRoot] = process.argv.slice(2)
+const [ownerArg, ownerStartTime, runRootArg] = process.argv.slice(2)
 const ownerPid = Number.parseInt(ownerArg ?? '', 10)
+let runRoot
+try {
+  // Proc cwd links always report the canonical target, so canonicalize the
+  // configured side too. This keeps a symlinked host TMPDIR from defeating ownership.
+  runRoot = runRootArg ? realpathSync(runRootArg) : undefined
+} catch {
+  process.exit(2)
+}
 if (
   !Number.isSafeInteger(ownerPid) ||
   ownerPid <= 1 ||
@@ -58,15 +66,17 @@ const candidates = () => {
     if (pid <= 1 || pid === process.pid || pid === ownerPid) return []
     try {
       const cwd = readlinkSync(`/proc/${pid}/cwd`)
-      return belongsToRun(cwd) ? [{ pid, cwd }] : []
+      const startTime = procStartTime(pid)
+      return belongsToRun(cwd) && startTime ? [{ pid, cwd, startTime }] : []
     } catch {
       return []
     }
   })
 }
 
-const stillSameOwnedProcess = ({ pid, cwd }) => {
+const stillSameOwnedProcess = ({ pid, cwd, startTime }) => {
   try {
+    if (procStartTime(pid) !== startTime) return false
     const current = readlinkSync(`/proc/${pid}/cwd`)
     return current === cwd && belongsToRun(current)
   } catch {

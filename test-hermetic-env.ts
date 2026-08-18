@@ -36,7 +36,11 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { reapStaleTestRunProcesses } from './scripts/reap-stale-test-runs'
+import {
+  markTestRunRootOwned,
+  reapStaleTestRunProcesses,
+  recoverStaleTestRunRoots,
+} from './scripts/reap-stale-test-runs'
 import { assertHermeticStateDir } from './test-hermetic-state-guard'
 
 // PODIUM_CODEX_HOOK_* (the codex hook ingest locator — PODIUM_CODEX_HOOK_URL today, plus any
@@ -124,7 +128,9 @@ interface HermeticTmpState {
   guardians: Map<string, ChildProcess>
 }
 const HERMETIC_TMP_STATE = Symbol.for('podium.test.hermeticTmpState')
-const withState = globalThis as typeof globalThis & { [HERMETIC_TMP_STATE]?: HermeticTmpState }
+const withState = globalThis as typeof globalThis & {
+  [HERMETIC_TMP_STATE]?: HermeticTmpState
+}
 // Initialised only on the FIRST evaluation in this process, which is the only moment
 // tmpdir() still reports the host root rather than a container this module installed.
 if (!withState[HERMETIC_TMP_STATE]) {
@@ -143,8 +149,10 @@ if (!withState[HERMETIC_TMP_STATE]) {
     assignedStateDir: process.env.PODIUM_STATE_DIR,
     guardians: new Map(),
   }
-  // Lane-start self-healing. The oracle is deliberately narrower than this run's guardian:
-  // only a cwd below a deleted `podium-test-run-*` root is eligible.
+  // Lane-start self-healing has two deliberately separate proofs. A still-present run root
+  // is removed only when its harness-written owner PID/start-time marker is dead; then only
+  // cwd links whose exact matched root is absent are eligible for process signals.
+  recoverStaleTestRunRoots(withState[HERMETIC_TMP_STATE].hostTmpdir)
   reapStaleTestRunProcesses()
 }
 const tmpState = withState[HERMETIC_TMP_STATE]
@@ -177,9 +185,13 @@ function guardRun(containerDir: string): void {
   if (!liveLaneRequested() || process.platform !== 'linux') return
   const startTime = procStartTime(process.pid)
   if (!startTime) return
+  const canonicalContainerDir = markTestRunRootOwned(containerDir, {
+    pid: process.pid,
+    startTime,
+  })
   const guardian = spawn(
     process.execPath,
-    [GUARDIAN_ENTRY, String(process.pid), startTime, containerDir],
+    [GUARDIAN_ENTRY, String(process.pid), startTime, canonicalContainerDir],
     {
       cwd: resolve(fileURLToPath(new URL('.', import.meta.url))),
       env: process.env,

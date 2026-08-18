@@ -53,6 +53,7 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { asSessionId, type SessionId } from '@podium/model'
@@ -65,8 +66,10 @@ import { opencodeScopeLabel } from './opencode-server'
 const LIVE = process.env.PODIUM_OPENCODE_LIVE === '1'
 /** Two sessions, two attachments, ONE server — booting the binary twice would
  *  double the slowest part of the run for no extra evidence. */
-const GOOD = asSessionId('99999999-9999-4999-8999-999999999999')
-const BAD = asSessionId('88888888-8888-4888-8888-888888888888')
+// Shared-host live lanes can overlap. Fixed ids make one run adopt or close another
+// run's durable abduco master, turning the liveness assertion into a queue-order race.
+const GOOD = asSessionId(randomUUID())
+const BAD = asSessionId(randomUUID())
 const SECRET = 'live-attach-secret-0123456789abcdef'
 const USERNAME = 'podium'
 const READY_TIMEOUT_MS = 120_000
