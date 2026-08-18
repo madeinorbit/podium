@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { UiState } from '../replica/replica'
 import {
   DOCK_SHELLS_KEY,
+  FILE_TABS_KEY,
   RECENT_FILES_KEY,
   readStoredDockShells,
+  readStoredFileTabs,
   readStoredRecentFiles,
 } from '../ui-state'
 
@@ -71,5 +73,66 @@ describe('readStoredRecentFiles (POD-149)', () => {
       ]),
     })
     expect(readStoredRecentFiles(ui)).toEqual([entry, entry])
+  })
+})
+
+describe('readStoredFileTabs (POD-1247)', () => {
+  const sessionTab = {
+    id: 'file:s:sess1:/wt/a.md',
+    scope: { kind: 'session', sessionId: 'sess1' },
+    path: '/wt/a.md',
+    worktreePath: '/wt',
+  }
+  const worktreeTab = {
+    id: 'file:w:/wt:/wt/b.md',
+    scope: { kind: 'worktree', root: '/wt', machineId: 'm1' },
+    path: '/wt/b.md',
+    worktreePath: '/wt',
+    issueId: 'i1',
+  }
+  const artifactTab = {
+    id: 'file:a:i1:art1:shot.png',
+    scope: { kind: 'artifact', issueId: 'i1', artifactId: 'art1' },
+    path: 'shot.png',
+    worktreePath: '',
+    issueId: 'i1',
+  }
+
+  it('reads every scope arm back, keeping the owning issue', () => {
+    const ui = fakeUi({
+      [FILE_TABS_KEY]: JSON.stringify([sessionTab, worktreeTab, artifactTab]),
+    })
+    expect(readStoredFileTabs(ui)).toEqual([sessionTab, worktreeTab, artifactTab])
+  })
+
+  it('missing key / corrupt JSON / non-array read as no tabs', () => {
+    expect(readStoredFileTabs(fakeUi({}))).toEqual([])
+    expect(readStoredFileTabs(fakeUi({ [FILE_TABS_KEY]: '[nope' }))).toEqual([])
+    expect(readStoredFileTabs(fakeUi({ [FILE_TABS_KEY]: '{"a":1}' }))).toEqual([])
+  })
+
+  it('drops rows with an unusable scope rather than guessing one', () => {
+    const ui = fakeUi({
+      [FILE_TABS_KEY]: JSON.stringify([
+        { ...sessionTab, scope: { kind: 'session' } },
+        { ...worktreeTab, scope: { kind: 'nebula', root: '/wt' } },
+        { ...artifactTab, scope: undefined },
+        sessionTab,
+      ]),
+    })
+    expect(readStoredFileTabs(ui)).toEqual([sessionTab])
+  })
+
+  it('drops malformed and duplicate rows', () => {
+    const ui = fakeUi({
+      [FILE_TABS_KEY]: JSON.stringify([
+        sessionTab,
+        sessionTab,
+        { ...worktreeTab, id: '' },
+        { ...worktreeTab, path: 7 },
+        null,
+      ]),
+    })
+    expect(readStoredFileTabs(ui)).toEqual([sessionTab])
   })
 })

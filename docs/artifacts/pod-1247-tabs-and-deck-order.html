@@ -135,9 +135,9 @@
 
 <div class="page">
   <header>
-    <span class="eyebrow">Podium · how it works today</span>
+    <span class="eyebrow">Podium · how it works</span>
     <h1>Which tab, which order</h1>
-    <p>What the tab strip shows, which tab opens first, and how the flight deck orders tasks and sessions — on a mission with sub-tasks and many agents.</p>
+    <p>What the tab strip shows, which tab opens first, how the flight deck orders tasks and sessions, and what survives a reload — on a mission with sub-tasks and many agents.</p>
   </header>
 
   <section>
@@ -234,21 +234,24 @@
   <section>
     <h2>4 · Flight deck order — sessions</h2>
 
-    <div class="card flag">
-      <span class="eyebrow">Worth knowing</span>
-      <h3>Sessions are not sorted at all</h3>
-      <p>The four agents under a task come out in the order the local data store hands them over — which is <strong>session id ascending</strong>, and a session id is a random UUID. The order is stable across reloads, but it means nothing: not time, not role, not activity.</p>
+    <div class="card">
+      <h3>Lead first, then in the order they started</h3>
+      <ol class="chain">
+        <li><span>The task's <strong>coordinator</strong></span> <em>— the lead heads its own crew</em></li>
+        <li><span>Everyone else by <strong>start time</strong>, oldest first</span></li>
+      </ol>
+      <p>Until now there was no order at all: agents came out in the order the local store handed them over, which is session id — a random UUID. Stable, and meaningless.</p>
     </div>
 
     <ul class="plain">
-      <li>The <b>coordinator</b> is labelled, but not floated to the top.</li>
       <li><b>Settled agents</b> stay in place, one shade dimmer — nothing is hidden.</li>
-      <li>The <b>Needs&nbsp;you</b> view is the one thing that changes the list: it keeps only the sessions that are actually asking.</li>
+      <li>The <b>Needs&nbsp;you</b> view is the one thing that shortens the list: it keeps only the sessions that are actually asking.</li>
+      <li><b>Recency</b> is a different question, and it kept its own job: it picks which tab a click opens.</li>
     </ul>
   </section>
 
   <section>
-    <h2>5 &middot; What comes back after a reload</h2>
+    <h2>5 · What comes back after a reload</h2>
 
     <div class="card">
       <h3>The layout is saved, per device</h3>
@@ -260,25 +263,24 @@
       <ul class="plain">
         <li><b>Every mission's strip</b>, not just the one you were on.</li>
         <li><b>Tab order</b> per pane, and which tab was active in each.</li>
-        <li><b>Splits</b> &mdash; the tree, the axis, and the drag sizes.</li>
-        <li><b>The focused pane</b>, and even the italic preview tab.</li>
+        <li><b>Splits</b> — the tree, the axis, and the drag sizes.</li>
+        <li><b>Open files</b> — the buffers now travel with the tabs that name them.</li>
       </ul>
       <p>A broken or older-shaped blob restores as empty rather than as a layout nothing can render.</p>
     </div>
 
-    <div class="card flag">
-      <span class="eyebrow">The one gap</span>
-      <h3>File tabs do not come back</h3>
-      <p>Open file buffers are not saved. Their slots survive in the layout for 20&nbsp;seconds, then get cleaned up as tabs that name nothing. The last 30 paths stay in Recent files, so you reopen from the &plus; menu.</p>
+    <div class="card">
+      <h3>What is released on purpose</h3>
+      <p>The italic <strong>preview</strong> tab. A glance lasts as long as you are looking at it, and leaving is leaving — so it is dropped on the way to storage, rather than coming back as a kept tab you never chose.</p>
     </div>
 
     <div class="card">
       <h3>Tabs that name nothing</h3>
-      <p>The same 20-second rule covers sessions killed elsewhere or gone since last time: an id that fails to resolve for that long is dropped, so a dead tab cannot be persisted forever. The delay is there because a session may just be arriving late.</p>
+      <p>A session killed elsewhere, or a file opened through a session that is now gone: an id that fails to resolve for 20 seconds is dropped, tab and record together. The delay is there because a session may just be arriving late.</p>
     </div>
   </section>
 
   <footer>
-    Read from the shipped code: the workspace key and pruning rules, the deck's tab-open contract, and the mission row builder.
+    Read from the shipped code. Sections 4 and 5 also describe three changes made on this task: agents now list lead-first then by start time, open files survive a reload, and the preview tab deliberately does not.
   </footer>
 </div>

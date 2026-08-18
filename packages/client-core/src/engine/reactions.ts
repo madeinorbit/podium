@@ -190,8 +190,13 @@ export class Reactions {
         this.pruneWorkspaces()
       }, soonest)
     }
-    this.ports.publish(
-      workspacesPatch(st, (ws) => {
+    // A record whose id ran out of grace goes WITH the tab (POD-1247). File tabs
+    // are persisted now, so a record left behind would be re-hydrated on the
+    // next reload, re-open its ghost, and be swept again — forever.
+    const fileTabs = st.fileTabs.filter((tab) => !gone.has(tab.id))
+    this.ports.publish({
+      ...(fileTabs.length === st.fileTabs.length ? {} : { fileTabs }),
+      ...workspacesPatch(st, (ws) => {
         const memberKnown = knownTabIdsForWorkspace(st, ws.key)
         const keep = new Set<TabId>()
         for (const id of allTabIds(ws)) {
@@ -206,7 +211,7 @@ export class Reactions {
         }
         return pruneWorkspace(ws, keep)
       }),
-    )
+    })
   }
 
   /**

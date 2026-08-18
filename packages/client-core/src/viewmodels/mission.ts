@@ -691,6 +691,39 @@ function sessionsForIssue(
 }
 
 /**
+ * THE ORDER AGENTS STAND IN UNDER A TASK.
+ *
+ * The lead first, then everyone else in the order they started. This used to be
+ * no order at all: the rows came out in whatever sequence the replica handed the
+ * slice over, which is `sessionId` ascending — a random UUID. Stable across
+ * reloads and meaningless on screen, so a nine-agent task read as nine
+ * interchangeable rows and the coordinator could sit anywhere in the middle of
+ * them.
+ *
+ * `createdAt` is ISO-8601, so a string compare IS the time compare. The
+ * sessionId tiebreak only decides two agents started in the same millisecond,
+ * and exists so the order never flickers between renders.
+ *
+ * ASCENDING, deliberately: the deck is read top-down as the story of the task,
+ * and the agent that has been on it longest is the start of that story. Recency
+ * has its own home — it is what picks the tab a click opens (see the flight
+ * deck's `selectIssue`), which is a different question from how the crew lists.
+ */
+export function deckSessionOrder(
+  issue: Pick<IssueNavigationModel, 'coordinatorSessionId'>,
+  sessions: readonly SessionMeta[],
+): SessionMeta[] {
+  const lead = (session: SessionMeta): number =>
+    isCoordinatorSession(issue, session.sessionId) ? 0 : 1
+  return [...sessions].sort((a, b) => {
+    const byLead = lead(a) - lead(b)
+    if (byLead !== 0) return byLead
+    const byStart = (a.createdAt ?? '').localeCompare(b.createdAt ?? '')
+    return byStart !== 0 ? byStart : a.sessionId.localeCompare(b.sessionId)
+  })
+}
+
+/**
  * Mission progress over the WHOLE mission, never the filtered spine.
  *
  * The filter is a display preference; the mission's shape is not. Computing this
@@ -1003,7 +1036,10 @@ export function buildFlightDeckRows(
   const sessionList = [...sessions]
   const worktreePaths = [...allWorktreePaths]
   const sessionsByIssue = new Map<string, SessionMeta[]>(
-    visibleIssues.map((issue) => [issue.id, sessionsForIssue(issue, sessionList, worktreePaths)]),
+    visibleIssues.map((issue) => [
+      issue.id,
+      deckSessionOrder(issue, sessionsForIssue(issue, sessionList, worktreePaths)),
+    ]),
   )
   const selfMatches = (issue: IssueNavigationModel): boolean => {
     const ownSessions = sessionsByIssue.get(issue.id) ?? []

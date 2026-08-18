@@ -603,6 +603,76 @@ describe('stale workspace tabs (POD-710)', () => {
   })
 })
 
+/**
+ * FILE TABS SURVIVE THE VISIT (POD-1247).
+ *
+ * The layouts always persisted tab IDS; the file RECORDS they name did not, so
+ * every file tab came back naming nothing and was swept as a ghost. Reopening a
+ * file was the only way to get it back, and only if you remembered which.
+ */
+describe('file tabs across a reload (POD-1247)', () => {
+  const layoutTabIds = (engine: ReturnType<typeof makeEngine>['engine']): string[] =>
+    Object.values(engine.getSnapshot().workspaces).flatMap((ws) =>
+      Object.values(ws.panes).flatMap((pane) => pane.tabs),
+    )
+
+  it('restores the open file and its tab from device storage', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ url: '/workspace', storage })
+    first.engine.start()
+    await settle(40)
+    first.engine.getSnapshot().openFileInWorktree({
+      root: '/tmp/known-repo/.worktrees/wt1',
+      path: 'notes.md',
+    })
+    await settle(30)
+    const tabId = 'file:w:/tmp/known-repo/.worktrees/wt1:notes.md'
+    expect(first.engine.getSnapshot().fileTabs.map((t) => t.id)).toEqual([tabId])
+    first.engine.dispose()
+
+    // The reload: a fresh engine over the same device storage.
+    const second = makeEngine({ url: '/workspace', storage })
+    second.engine.start()
+    await settle(40)
+    const st = second.engine.getSnapshot()
+    expect(st.fileTabs.map((t) => t.id)).toEqual([tabId])
+    expect(st.fileTabs[0]?.path).toBe('notes.md')
+    expect(st.fileTabs[0]?.scope).toEqual({
+      kind: 'worktree',
+      root: '/tmp/known-repo/.worktrees/wt1',
+    })
+    expect(layoutTabIds(second.engine)).toContain(tabId)
+    second.engine.dispose()
+  })
+
+  it('retires a restored file tab whose session never comes back', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ url: '/workspace', storage, workspacePruneGraceMs: 150 })
+    first.engine.start()
+    await settle(40)
+    first.engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo')])
+    await settle(30)
+    first.engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
+    await settle(30)
+    const tabId = 'file:s:s1:notes.md'
+    expect(first.engine.getSnapshot().fileTabs.map((t) => t.id)).toEqual([tabId])
+    first.engine.dispose()
+
+    // Reload, and the feed says the session is gone — killed from the CLI, or
+    // from another device. The record alone must not keep the tab alive:
+    // nothing can ever read the file through a session that no longer exists.
+    const second = makeEngine({ url: '/workspace', storage, workspacePruneGraceMs: 150 })
+    second.engine.start()
+    await settle(40)
+    expect(second.engine.getSnapshot().fileTabs.map((t) => t.id)).toEqual([tabId])
+    second.engine.replica.applySnapshot('sessions', [])
+    await settle(250)
+    expect(second.engine.getSnapshot().fileTabs).toEqual([])
+    expect(layoutTabIds(second.engine)).not.toContain(tabId)
+    second.engine.dispose()
+  })
+})
+
 describe('snapshot stability (useSyncExternalStore contract)', () => {
   it('getSnapshot keeps identity when nothing changed and across no-op writes', async () => {
     const { engine } = makeEngine()

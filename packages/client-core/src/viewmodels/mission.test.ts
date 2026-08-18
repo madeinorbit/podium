@@ -654,6 +654,37 @@ describe('buildFlightDeckRows', () => {
     expect(rowFor(buildFlightDeckRows(issues, sessions, 'root'), 'g2').sessions).toEqual([])
   })
 
+  it('lists a task\u2019s agents lead-first, then in the order they started', () => {
+    const issues = [issue('root', { coordinatorSessionId: 'lead' })]
+    // Deliberately handed over newest-first, and with the lead last: neither the
+    // input order nor the id order may decide what the deck shows.
+    const sessions = [
+      sess('zulu', { issueId: 'root', createdAt: '2026-07-03T00:00:00.000Z' }),
+      sess('alpha', { issueId: 'root', createdAt: '2026-07-02T00:00:00.000Z' }),
+      sess('lead', { issueId: 'root', createdAt: '2026-07-09T00:00:00.000Z' }),
+    ]
+    const rows = buildFlightDeckRows(issues, sessions, 'root')
+    expect(rowFor(rows, 'root').sessions.map((session) => session.sessionId)).toEqual([
+      'lead',
+      'alpha',
+      'zulu',
+    ])
+  })
+
+  it('breaks a same-instant tie on id so the crew never flickers', () => {
+    const issues = [issue('root')]
+    const at = '2026-07-02T00:00:00.000Z'
+    const rows = buildFlightDeckRows(
+      issues,
+      [
+        sess('b', { issueId: 'root', createdAt: at }),
+        sess('a', { issueId: 'root', createdAt: at }),
+      ],
+      'root',
+    )
+    expect(rowFor(rows, 'root').sessions.map((session) => session.sessionId)).toEqual(['a', 'b'])
+  })
+
   it('orders siblings by sortKey when both carry one, else by seq', () => {
     const issues = [
       issue('root'),

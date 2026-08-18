@@ -420,7 +420,39 @@ export function knownTabIds(st: EngineState): Set<string> {
   const ids = new Set<string>()
   for (const session of st.sessions) ids.add(session.sessionId)
   for (const id of st.pendingSpawnIds) ids.add(id)
-  for (const tab of st.fileTabs) ids.add(tab.id)
+  for (const id of resolvableFileTabIds(st)) ids.add(id)
+  return ids
+}
+
+/**
+ * The file tabs that still name something readable.
+ *
+ * Only the session-scoped arm can go stale: the daemon read is addressed
+ * THROUGH that session, so once it is gone the tab can never render anything
+ * again. This became load-bearing when file tabs started surviving reloads
+ * (POD-1247) — before that a dead scope disappeared on its own, because the
+ * record did not come back at all. Worktree and artifact scopes are not ids in
+ * this slice and are never judged here; a missing directory is the file panel's
+ * error to report, not a reason to close a tab the operator opened.
+ *
+ * "Not resolvable" is deliberately NOT "drop it": the caller runs it through the
+ * same grace period a late-arriving session tab gets, because at boot the
+ * sessions slice may simply not have loaded yet.
+ */
+function resolvableFileTabIds(st: Pick<EngineState, 'sessions' | 'fileTabs'>): string[] {
+  const ids: string[] = []
+  // The session set is built ONCE per call rather than scanned per tab: this
+  // runs for every workspace on every inbound frame, and that is exactly the
+  // shape of scan POD-1641 measured at 93% of main-thread CPU.
+  let sessionIds: Set<string> | null = null
+  for (const tab of st.fileTabs) {
+    if (tab.scope.kind !== 'session') {
+      ids.push(tab.id)
+      continue
+    }
+    sessionIds ??= new Set(st.sessions.map((session) => session.sessionId))
+    if (sessionIds.has(tab.scope.sessionId)) ids.push(tab.id)
+  }
   return ids
 }
 
@@ -435,7 +467,7 @@ export function knownTabIdsForWorkspace(
 ): Set<string> {
   const ids = new Set<string>()
   for (const id of st.pendingSpawnIds) ids.add(id)
-  for (const tab of st.fileTabs) ids.add(tab.id)
+  for (const id of resolvableFileTabIds(st)) ids.add(id)
   // ONE resolution of the key, then a membership test per session. The rule is
   // unchanged; what moved is where the key's own share of the work happens.
   const belongs = workspaceMembership(st, key)
@@ -566,6 +598,7 @@ export function workspaceUiSnapshot(st: EngineState): WorkspaceUiSnapshot {
     selectedIssueId: st.selectedIssueId,
     dockTab: st.dockTab,
     workspaces: st.workspaces,
+    fileTabs: st.fileTabs,
     paneA: st.paneA,
     paneB: st.paneB,
     split: st.split,
@@ -701,7 +734,10 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     autoContinuePromptSessionId: null,
     drafts: {},
     sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
-    fileTabs: [],
+    // Restored with the layouts that name them (POD-1247). These two are one
+    // fact in two keys: a layout tab id whose record did not come back renders
+    // nothing and is swept as a ghost, so they hydrate together or not at all.
+    fileTabs: seed.persisted.fileTabs,
     recentFiles: seed.persisted.recentFiles,
     outboxSize: 0,
     outboxDeadLetters: seed.outboxDeadLetters,

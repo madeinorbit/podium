@@ -439,9 +439,28 @@ describe('serialization', () => {
   it('round-trips a split workspace exactly', () => {
     let ws = permanent(permanent(emptyWorkspace('mission:m1'), 'a'), 'b')
     ws = step(ws, (w) => splitPane(w, 'p1', 'column', { tabId: 'b' }))
-    ws = preview(ws, 'temp')
     const back = deserializeWorkspaces(serializeWorkspaces({ 'mission:m1': ws }))
     expect(back['mission:m1']).toEqual(ws)
+  })
+
+  it('releases the preview tab instead of storing it (POD-1247)', () => {
+    let ws = permanent(permanent(emptyWorkspace('mission:m1'), 'a'), 'b')
+    ws = preview(ws, 'temp')
+    const back = deserializeWorkspaces(serializeWorkspaces({ 'mission:m1': ws }))
+    // The glance is over: the tab is gone, and it did NOT come back promoted.
+    expect(allTabIds(back['mission:m1'] as WorkspaceLayout)).toEqual(['a', 'b'])
+    expect(back['mission:m1']?.previewTabId).toBeNull()
+    expect(back['mission:m1']?.panes.p1?.activeTabId).toBe('b')
+  })
+
+  it('releases a preview left in an older blob on the way in', () => {
+    let ws = permanent(emptyWorkspace('mission:m1'), 'a')
+    ws = preview(ws, 'temp')
+    // Written the way this used to write it — preview and all.
+    const legacy = JSON.stringify({ v: 1, workspaces: { 'mission:m1': ws } })
+    const back = deserializeWorkspaces(legacy)
+    expect(allTabIds(back['mission:m1'] as WorkspaceLayout)).toEqual(['a'])
+    expect(back['mission:m1']?.previewTabId).toBeNull()
   })
 
   it('is TOTAL over malformed, truncated and older-shaped input', () => {

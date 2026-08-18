@@ -18,7 +18,7 @@ import {
   THEME_UI_KEYS,
 } from '@podium/model'
 import type { UiState } from './replica/contract'
-import type { DockTab, RecentFileEntry, WorkspaceMap } from './viewmodels'
+import type { DockTab, FileScope, FileTab, RecentFileEntry, WorkspaceMap } from './viewmodels'
 import { deserializeWorkspaces, readStoredDockTab, serializeWorkspaces } from './viewmodels'
 
 export type { UiState }
@@ -53,6 +53,8 @@ export const UI_STATE_KEYS = {
   split: 'podium.split',
   /** Editor-style tab workspaces, one entry per task (POD-710). */
   workspaces: 'podium.workspaces',
+  /** The open file tabs the layouts above hold ids for (POD-1247). */
+  fileTabs: 'podium.fileTabs',
   superOpen: 'podium.superOpen.v2',
   panelMode: 'podium.panelMode',
   panelModeDefault: 'podium.panelModeDefault',
@@ -80,6 +82,7 @@ export const PANE_A_KEY = UI_STATE_KEYS.paneA
 export const PANE_B_KEY = UI_STATE_KEYS.paneB
 export const SPLIT_KEY = UI_STATE_KEYS.split
 export const WORKSPACES_KEY = UI_STATE_KEYS.workspaces
+export const FILE_TABS_KEY = UI_STATE_KEYS.fileTabs
 export const SUPER_OPEN_KEY = UI_STATE_KEYS.superOpen
 export const PANEL_MODE_KEY = UI_STATE_KEYS.panelMode
 export const PANEL_MODE_DEFAULT_KEY = UI_STATE_KEYS.panelModeDefault
@@ -144,6 +147,14 @@ export const UI_STATE_ROUTES = {
     // business inheriting a desktop's split. The whole layout travels with the
     // scalars it replaced (POD-710).
     reason: 'Workspace tab layout is geometry for this screen, like the panes it supersedes.',
+  },
+  [UI_STATE_KEYS.fileTabs]: {
+    home: 'device-local',
+    // Travels with the layout that names it (POD-1247): a workspace holds tab
+    // IDS, and this is what those ids resolve to. Splitting the two homes would
+    // let a phone restore a strip full of file tabs whose buffers it never had.
+    // The paths are also this device's reachability, exactly like recent files.
+    reason: 'Open file buffers are the other half of this screen\u2019s tab layout.',
   },
   [UI_STATE_KEYS.superOpen]: {
     home: 'per-user-replicated',
@@ -228,6 +239,9 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
    *  model's shared vocabulary because it is a client-only key; the routing
    *  table above states its home and this list is what `uiStateRoute` reads. */
   'podium.workspaces',
+  /** The open file buffers those workspaces name (POD-1247). Client-only, and
+   *  device-local for the same reason the layout holding its ids is. */
+  'podium.fileTabs',
   /**
    * This device's unsent composer drafts (POD-2045).
    *
@@ -780,6 +794,8 @@ export interface WorkspaceUiSnapshot {
   split: boolean
   /** Per-task tab layouts (POD-710) — the truth the three scalars above mirror. */
   workspaces: WorkspaceMap
+  /** The file buffers those layouts hold tab ids for (POD-1247). */
+  fileTabs: FileTab[]
   superOpen: boolean
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, SessionId>
@@ -832,6 +848,91 @@ export function readStoredPanelModes(
     ui.get(UI_STATE_KEYS.panelMode),
     (v): v is 'chat' | 'native' => v === 'chat' || v === 'native',
   )
+}
+
+/**
+ * THE OPEN FILE BUFFERS, RESTORED (POD-1247).
+ *
+ * The workspace layouts persist tab IDS; without these records every one of
+ * those ids named nothing after a reload, so file tabs silently vanished and
+ * the layout entries were swept as ghosts. The two are written from the same
+ * flush and read from the same hydrate, which is what keeps them agreeing.
+ *
+ * TOTAL, like every other reader here: a malformed row is dropped and a
+ * malformed blob restores as no tabs at all. A tab whose SCOPE does not parse
+ * is dropped rather than defaulted — the scope is how the daemon read is
+ * addressed, and a guessed one would read the wrong machine's file.
+ */
+export function readStoredFileTabs(ui: Pick<RoutedUiState, 'get'>): FileTab[] {
+  const raw = ui.get(UI_STATE_KEYS.fileTabs)
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    const seen = new Set<string>()
+    return parsed.flatMap((value): FileTab[] => {
+      if (!value || typeof value !== 'object') return []
+      const row = value as Record<string, unknown>
+      const scope = readFileScope(row.scope)
+      if (
+        !scope ||
+        typeof row.id !== 'string' ||
+        !row.id ||
+        seen.has(row.id) ||
+        typeof row.path !== 'string' ||
+        typeof row.worktreePath !== 'string'
+      )
+        return []
+      seen.add(row.id)
+      return [
+        {
+          id: row.id,
+          scope,
+          path: row.path,
+          worktreePath: row.worktreePath,
+          ...(typeof row.issueId === 'string' && row.issueId
+            ? { issueId: asIssueId(row.issueId) }
+            : {}),
+        },
+      ]
+    })
+  } catch {
+    return []
+  }
+}
+
+/** One arm of the scope union, or null. Closed on purpose: an unknown `kind`
+ *  from a newer build is not a scope this build knows how to address. */
+function readFileScope(value: unknown): FileScope | null {
+  if (!value || typeof value !== 'object') return null
+  const row = value as Record<string, unknown>
+  if (row.kind === 'session') {
+    return typeof row.sessionId === 'string' && row.sessionId
+      ? { kind: 'session', sessionId: asSessionId(row.sessionId) }
+      : null
+  }
+  if (row.kind === 'worktree') {
+    return typeof row.root === 'string' && row.root
+      ? {
+          kind: 'worktree',
+          root: row.root,
+          ...(typeof row.machineId === 'string' ? { machineId: asMachineId(row.machineId) } : {}),
+        }
+      : null
+  }
+  if (row.kind === 'artifact') {
+    return typeof row.issueId === 'string' &&
+      row.issueId &&
+      typeof row.artifactId === 'string' &&
+      row.artifactId
+      ? {
+          kind: 'artifact',
+          issueId: asIssueId(row.issueId),
+          artifactId: asArtifactId(row.artifactId),
+        }
+      : null
+  }
+  return null
 }
 
 export function readStoredRecentFiles(ui: Pick<RoutedUiState, 'get'>): RecentFileEntry[] {
@@ -892,6 +993,7 @@ const ALL_SNAPSHOT_KEYS = new Set<keyof WorkspaceUiSnapshot>([
   'paneB',
   'split',
   'workspaces',
+  'fileTabs',
   'superOpen',
   'panelMode',
   'dockShells',
@@ -934,6 +1036,7 @@ export function createRouterUiState(init: {
         // Total by contract: a corrupt or older-shaped blob restores {} rather
         // than throwing on the boot path.
         workspaces: deserializeWorkspaces(ui.get(UI_STATE_KEYS.workspaces)),
+        fileTabs: readStoredFileTabs(ui),
         superOpen: ui.get(UI_STATE_KEYS.superOpen) !== '0',
         panelMode: readStoredPanelModes(ui),
         dockShells: readStoredDockShells(ui),
@@ -956,6 +1059,7 @@ export function createRouterUiState(init: {
       write('paneB', UI_STATE_KEYS.paneB, state.paneB)
       write('split', UI_STATE_KEYS.split, state.split ? '1' : '0')
       write('workspaces', UI_STATE_KEYS.workspaces, serializeWorkspaces(state.workspaces))
+      write('fileTabs', UI_STATE_KEYS.fileTabs, JSON.stringify(state.fileTabs))
       write('superOpen', UI_STATE_KEYS.superOpen, state.superOpen ? '1' : '0')
       write('panelMode', UI_STATE_KEYS.panelMode, JSON.stringify(state.panelMode))
       write('dockShells', UI_STATE_KEYS.dockShells, JSON.stringify(state.dockShells))

@@ -586,8 +586,30 @@ export function pruneWorkspace(
  *  `{}` rather than half-parsing into a layout nothing can render. */
 export const WORKSPACES_BLOB_VERSION = 1
 
+/**
+ * A GLANCE DOES NOT SURVIVE THE VISIT (POD-1247).
+ *
+ * The preview tab exists for exactly as long as you are looking at it: landing
+ * on any other tab closes it. Persisting it broke that promise in the one way
+ * the operator could not undo — a reload restored the italic tab, and the next
+ * reload restored it again, so a session glanced at once sat in the strip
+ * forever. Leaving the tab but clearing `previewTabId` would be worse: the
+ * glance would come back PROMOTED, silently claiming to be part of the working
+ * set.
+ *
+ * So the tab is RELEASED on the way to storage. `closeTab` re-homes the pane's
+ * active tab and collapses a pane the release emptied, which is the same thing
+ * navigating away from it does; what is stored is the layout as it would be
+ * once the glance ended.
+ */
+function releasePreview(ws: WorkspaceLayout): WorkspaceLayout {
+  return ws.previewTabId === null ? ws : closeTab(ws, ws.previewTabId)
+}
+
 export function serializeWorkspaces(all: WorkspaceMap): string {
-  return JSON.stringify({ v: WORKSPACES_BLOB_VERSION, workspaces: all })
+  const workspaces: WorkspaceMap = {}
+  for (const [key, ws] of Object.entries(all)) if (ws) workspaces[key] = releasePreview(ws)
+  return JSON.stringify({ v: WORKSPACES_BLOB_VERSION, workspaces })
 }
 
 /**
@@ -610,7 +632,10 @@ export function deserializeWorkspaces(raw: string | null): WorkspaceMap {
   const out: WorkspaceMap = {}
   for (const [key, value] of Object.entries(workspaces)) {
     const layout = normalizeWorkspace(value, key)
-    if (layout) out[key] = layout
+    // Released here too, not only on the way out: a blob written before the
+    // release existed still carries a preview tab, and it must not come back as
+    // a kept tab on the one reload that migrates it.
+    if (layout) out[key] = releasePreview(layout)
   }
   return out
 }
