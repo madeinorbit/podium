@@ -411,6 +411,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       inventory: {
         executable: { names: ['fictional'], versionArgs: ['--version'] },
         detectLogin: () => ({ state: 'unknown' }),
+        loginCommandProbe: unsupported('fictional harness'),
         loginCommand: unsupported('fictional harness'),
         loginIdentity: unsupported('fictional harness'),
         portableCredential: unsupported('fictional harness'),

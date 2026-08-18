@@ -1,4 +1,7 @@
-import type { ResolvedHarnessInventory } from '@podium/harness'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { LoginProbeExec, ProbeExec, ResolvedHarnessInventory } from '@podium/harness'
 import { describe, expect, it } from 'vitest'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { testHarnessSnapshot } from './test-support/harness-snapshot'
@@ -14,7 +17,9 @@ function deferred<T>() {
 describe('DaemonHarnessRuntime', () => {
   it('discards a generation that finishes after its replacement', async () => {
     const builds = [deferred<ResolvedHarnessInventory>(), deferred<ResolvedHarnessInventory>()]
-    const runtime = new DaemonHarnessRuntime({ buildSnapshot: (generation) => builds[generation]!.promise })
+    const runtime = new DaemonHarnessRuntime({
+      buildSnapshot: (generation) => builds[generation]!.promise,
+    })
     const oldPending = runtime.current()
     const nextPending = runtime.refresh()
     const next = testHarnessSnapshot({}, 1)
@@ -34,5 +39,51 @@ describe('DaemonHarnessRuntime', () => {
     const launch = await runtime.launch('codex', { cwd: '/repo' })
     expect(launch.cmd).toBe('/home/user/.brew/bin/codex')
     expect(launch.env?.PATH).toBe(snapshot.commandEnvironment.env.PATH)
+  })
+
+  it('reprobe reuses the command environment and injectable login runner', async () => {
+    const machineHome = mkdtempSync(join(tmpdir(), 'harness-runtime-login-'))
+    try {
+      const claudePath = join(machineHome, 'claude')
+      writeFileSync(claudePath, '')
+      chmodSync(claudePath, 0o755)
+      const probeEnvironments: Array<Readonly<Record<string, string>>> = []
+      const versionExec: ProbeExec = async () => '2.1.50'
+      const loginExec: LoginProbeExec = async (_argv, _timeoutMs, env) => {
+        probeEnvironments.push(env)
+        return {
+          stdout: JSON.stringify({ loggedIn: false }),
+          stderr: '',
+          exitCode: 1,
+          timedOut: false,
+        }
+      }
+      const runtime = new DaemonHarnessRuntime({
+        machineHome,
+        credentialHome: machineHome,
+        env: {
+          HOME: machineHome,
+          PATH: machineHome,
+          CLAUDE_CONFIG_DIR: '',
+          CLAUDE_SECURESTORAGE_CONFIG_DIR: '/secure/storage',
+        },
+        exec: versionExec,
+        loginExec,
+      })
+
+      const first = await runtime.current()
+      const second = await runtime.reprobe()
+      expect(probeEnvironments).toHaveLength(2)
+      expect(probeEnvironments[0]).toBe(first.commandEnvironment.env)
+      expect(probeEnvironments[1]).toBe(first.commandEnvironment.env)
+      expect(second.commandEnvironment).toBe(first.commandEnvironment)
+      expect(probeEnvironments[1]).toHaveProperty('CLAUDE_CONFIG_DIR', '')
+      expect(probeEnvironments[1]).toHaveProperty(
+        'CLAUDE_SECURESTORAGE_CONFIG_DIR',
+        '/secure/storage',
+      )
+    } finally {
+      rmSync(machineHome, { recursive: true, force: true })
+    }
   })
 })

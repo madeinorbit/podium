@@ -84,6 +84,9 @@ export const opencodeManifest: AgentManifest = {
       versionArgs: ['--version'],
     },
     loginCommand: supported({ cmd: 'opencode', args: ['auth', 'login'] }),
+    loginCommandProbe: unsupported(
+      'OpenCode login detection still uses its local authentication database',
+    ),
     loginIdentity: unsupported('OpenCode does not expose a stable local account identity yet'),
     portableCredential: unsupported('OpenCode credential portability is not supported yet'),
     detectLogin: detectOpencodeLogin,

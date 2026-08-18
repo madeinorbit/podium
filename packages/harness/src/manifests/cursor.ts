@@ -67,6 +67,7 @@ export const cursorManifest: AgentManifest = {
       },
     },
     loginCommand: unsupported('Cursor does not expose a supported native login command yet'),
+    loginCommandProbe: unsupported('Cursor has no supported native login-status command'),
     loginIdentity: unsupported('Cursor does not expose a stable local account identity yet'),
     portableCredential: unsupported('Cursor credential portability is not supported yet'),
     detectLogin: () => ({ state: 'unknown' }),

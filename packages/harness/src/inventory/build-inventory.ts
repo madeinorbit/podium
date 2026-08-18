@@ -1,6 +1,6 @@
 /** Machine inventory and verified executable snapshot for one command-environment generation. */
 import { execFile } from 'node:child_process'
-import { homedir, platform } from 'node:os'
+import { homedir, platform as nodePlatform } from 'node:os'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import type { AgentInventory, Inventory, MachineId, ToolInventory } from '@podium/model'
@@ -8,12 +8,18 @@ import {
   createCommandEnvironment,
   type CommandEnvironment,
 } from '@podium/runtime/command-environment'
-import { type AgentManifest, declaredValue } from '../manifest.js'
+import {
+  type AgentManifest,
+  declaredValue,
+  type LoginCommandResult,
+  type HarnessLogin,
+} from '../manifest.js'
 import { AGENT_MANIFESTS } from '../registry.js'
 
 const log = createLogger('harness:inventory')
 const execFileAsync = promisify(execFile)
 const VERSION_TIMEOUT_MS = 5_000
+const PROBE_OUTPUT_LIMIT_BYTES = 1024 * 1024
 
 /** Runs argv with the generation environment. Injectable so tests never shell out. */
 export type ProbeExec = (
@@ -26,7 +32,7 @@ const defaultExec: ProbeExec = async (argv, timeoutMs, env) => {
   const [cmd, ...args] = argv
   const { stdout } = await execFileAsync(cmd as string, args, {
     timeout: timeoutMs,
-    maxBuffer: 1024 * 1024,
+    maxBuffer: PROBE_OUTPUT_LIMIT_BYTES,
     ...(env ? { env } : {}),
   })
   return stdout
@@ -68,9 +74,16 @@ async function probeAgent(
   credentialHome: string,
   environment: CommandEnvironment,
   exec: ProbeExec,
+  loginExec: LoginProbeExec,
   legacyInjectedExec: boolean,
+  hostPlatform: NodeJS.Platform,
 ): Promise<{ inventory: AgentInventory; executable?: ResolvedHarnessExecutable }> {
-  const detected = manifest.inventory.detectLogin(credentialHome)
+  let detected: HarnessLogin
+  try {
+    detected = manifest.inventory.detectLogin(credentialHome)
+  } catch {
+    detected = { state: 'unknown' }
+  }
   const identityReader = declaredValue(manifest.inventory.loginIdentity)
   let identity: ReturnType<NonNullable<typeof identityReader>> | undefined
   try {
@@ -78,7 +91,8 @@ async function probeAgent(
   } catch {
     // Login identity is best-effort metadata.
   }
-  const login = identity ? { ...detected, identity } : detected
+  const fallbackLogin = identity ? { ...detected, identity } : detected
+  const commandProbe = declaredValue(manifest.inventory.loginCommandProbe)
   const declaration = manifest.inventory.executable
   for (const candidate of candidatePaths(manifest, environment, legacyInjectedExec)) {
     try {
@@ -99,6 +113,26 @@ async function probeAgent(
         ...(version ? { version } : {}),
         generation: environment.generation,
       })
+      let login = fallbackLogin
+      if (commandProbe) {
+        try {
+          const decision = commandProbe.classify(
+            await loginExec(
+              [candidate, ...commandProbe.args],
+              commandProbe.timeoutMs,
+              environment.env,
+            ),
+          )
+          login =
+            decision.kind === 'determined'
+              ? decision.login
+              : decision.kind === 'fallback'
+                ? fallbackLogin
+                : { state: 'unknown' }
+        } catch {
+          login = { state: 'unknown' }
+        }
+      }
       return {
         inventory: {
           kind: manifest.kind,
@@ -113,6 +147,10 @@ async function probeAgent(
       // Missing, wrong identity, timed out, or no longer executable: try the declaration's next path.
     }
   }
+  const login =
+    commandProbe && hostPlatform === 'darwin' && fallbackLogin.state === 'out'
+      ? { state: 'unknown' as const }
+      : fallbackLogin
   return { inventory: { kind: manifest.kind, installed: false, login } }
 }
 
@@ -143,6 +181,8 @@ export interface BuildInventoryOptions {
   homeDir?: string
   commandEnvironment?: CommandEnvironment
   exec?: ProbeExec
+  loginExec?: LoginProbeExec
+  platform?: NodeJS.Platform
   generation?: number
 }
 
@@ -155,10 +195,12 @@ export interface BuildMachineInventoryOptions extends BuildInventoryOptions {
   machineId: MachineId
 }
 
-function inventoryPlatformFields(): Pick<Inventory, 'os' | 'arch' | 'podiumVersion'> {
-  const p = platform()
+function inventoryPlatformFields(
+  p: NodeJS.Platform,
+): Pick<Inventory, 'os' | 'arch' | 'podiumVersion'> {
   const a = process.arch
-  if (p !== 'linux' && p !== 'darwin') log.warn('unsupported platform, reporting linux', { platform: p })
+  if (p !== 'linux' && p !== 'darwin')
+    log.warn('unsupported platform, reporting linux', { platform: p })
   if (a !== 'x64' && a !== 'arm64') log.warn('unsupported arch, reporting x64', { arch: a })
   return {
     os: p === 'darwin' ? 'darwin' : 'linux',
@@ -172,26 +214,46 @@ export async function buildResolvedInventory(
 ): Promise<ResolvedHarnessInventory> {
   const machineHome = opts.machineHome ?? opts.homeDir ?? homedir()
   const credentialHome = opts.credentialHome ?? opts.homeDir ?? machineHome
+  const hostPlatform = opts.platform ?? nodePlatform()
   const commandEnvironment =
     opts.commandEnvironment ??
-    (await createCommandEnvironment({ machineHome, generation: opts.generation ?? 0 }))
+    (await createCommandEnvironment({
+      machineHome,
+      generation: opts.generation ?? 0,
+      platform: hostPlatform,
+    }))
   const exec = opts.exec ?? defaultExec
+  const loginExec = opts.loginExec ?? (opts.exec ? unavailableInjectedLoginExec : defaultLoginExec)
   // Historical tests inject an argv responder rather than executable fixture files.
   const legacyInjectedExec = Boolean(opts.exec && !opts.commandEnvironment)
   const [agentResults, tools] = await Promise.all([
     Promise.all(
       Object.values(AGENT_MANIFESTS).map((manifest) =>
-        probeAgent(manifest, credentialHome, commandEnvironment, exec, legacyInjectedExec),
+        probeAgent(
+          manifest,
+          credentialHome,
+          commandEnvironment,
+          exec,
+          loginExec,
+          legacyInjectedExec,
+          hostPlatform,
+        ),
       ),
     ),
-    Promise.all(['gh'].map((name) => probeTool(name, commandEnvironment, exec, legacyInjectedExec))),
+    Promise.all(
+      ['gh'].map((name) => probeTool(name, commandEnvironment, exec, legacyInjectedExec)),
+    ),
   ])
   const executables = new Map<AgentManifest['kind'], ResolvedHarnessExecutable>()
   for (const result of agentResults) {
     if (result.executable) executables.set(result.executable.kind, result.executable)
   }
   return Object.freeze({
-    inventory: { ...inventoryPlatformFields(), agents: agentResults.map((result) => result.inventory), tools },
+    inventory: {
+      ...inventoryPlatformFields(hostPlatform),
+      agents: agentResults.map((result) => result.inventory),
+      tools,
+    },
     executables,
     commandEnvironment,
   })
@@ -207,3 +269,53 @@ export async function buildMachineInventory(
   const { machineId, ...probeOpts } = opts
   return { machineId, inventory: await buildInventory(probeOpts) }
 }
+
+/** Runs an authoritative login probe without losing non-zero stdout/stderr. */
+export type LoginProbeExec = (
+  argv: readonly string[],
+  timeoutMs: number,
+  env: Readonly<Record<string, string>>,
+) => Promise<LoginCommandResult>
+
+const defaultLoginExec: LoginProbeExec = (argv, timeoutMs, env) =>
+  new Promise((resolve) => {
+    const [cmd, ...args] = argv
+    let timedOut = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const child = execFile(
+      cmd as string,
+      args,
+      {
+        encoding: 'utf8',
+        env,
+        maxBuffer: PROBE_OUTPUT_LIMIT_BYTES,
+      },
+      (error, stdout, stderr) => {
+        if (timer) clearTimeout(timer)
+        const rawCode = error?.code
+        const signal = error?.signal
+        resolve({
+          stdout,
+          stderr,
+          exitCode: typeof rawCode === 'number' ? rawCode : error ? null : 0,
+          ...(signal ? { signal } : {}),
+          timedOut,
+          ...(typeof rawCode === 'string' ? { errorCode: rawCode } : {}),
+        })
+      },
+    )
+    timer = setTimeout(() => {
+      timedOut = true
+      child.kill()
+    }, timeoutMs)
+    timer.unref()
+  })
+
+/** An injected version runner must not accidentally activate a real provider CLI. */
+const unavailableInjectedLoginExec: LoginProbeExec = async () => ({
+  stdout: '',
+  stderr: '',
+  exitCode: null,
+  timedOut: false,
+  errorCode: 'LOGIN_PROBE_NOT_INJECTED',
+})

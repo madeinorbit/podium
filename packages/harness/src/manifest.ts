@@ -185,6 +185,28 @@ export interface HarnessLogin {
   freshness?: number
 }
 
+/** Complete, bounded output from a non-interactive native login probe. */
+export interface LoginCommandResult {
+  readonly stdout: string
+  readonly stderr: string
+  readonly exitCode: number | null
+  readonly signal?: string
+  readonly timedOut: boolean
+  /** Bounded OS/runtime category such as ENOENT or ERR_CHILD_PROCESS_STDIO_MAXBUFFER. */
+  readonly errorCode?: string
+}
+
+export type LoginCommandDecision =
+  | { readonly kind: 'determined'; readonly login: HarnessLogin }
+  | { readonly kind: 'fallback' }
+  | { readonly kind: 'unknown'; readonly reason: string }
+
+export interface HarnessLoginCommandProbe {
+  readonly args: readonly string[]
+  readonly timeoutMs: number
+  classify(result: LoginCommandResult): LoginCommandDecision
+}
+
 export interface HarnessExecutableDeclaration {
   /** Bare executable names in PATH precedence order. */
   names: readonly string[]
@@ -202,6 +224,8 @@ export interface HarnessInventory {
   executable: HarnessExecutableDeclaration
   /** Read-only local credential/profile detection. Uneven support is explicit. */
   detectLogin(homeDir: string): HarnessLogin
+  /** Authoritative native login probe. Local detection is only its compatibility fallback. */
+  loginCommandProbe: Declared<HarnessLoginCommandProbe>
   /** Native interactive authentication entry point. The daemon launches this in
    * a PTY; the server and browser never encode provider OAuth behavior. */
   loginCommand: Declared<{ cmd: string; args: readonly string[] }>

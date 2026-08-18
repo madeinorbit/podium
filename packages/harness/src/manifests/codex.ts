@@ -22,6 +22,7 @@ import {
   accountIdentity,
   fileTranscript,
   type HarnessObservationLease,
+  unsupported,
   isSet,
   promptArgv,
   supported,
@@ -192,6 +193,7 @@ export const codexManifest: AgentManifest = {
 
   inventory: {
     executable: { names: ['codex'], versionArgs: ['--version'] },
+    loginCommandProbe: unsupported('Codex login detection still uses its guarded local auth file'),
     loginCommand: supported({ cmd: 'codex', args: ['login'] }),
     loginIdentity: supported((homeDir) => {
       try {

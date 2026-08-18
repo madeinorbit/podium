@@ -22,6 +22,7 @@ import {
   unsupported,
 } from '../manifest.js'
 import { claudeTranscriptClassifierRules } from './claude-code-classifier.js'
+import { classifyClaudeLoginStatus } from './claude-login-status.js'
 
 configureClaudeTranscriptClassifier(createTranscriptClassifier(claudeTranscriptClassifierRules))
 
@@ -75,6 +76,11 @@ export const claudeCodeManifest: AgentManifest = {
 
   inventory: {
     executable: { names: ['claude'], versionArgs: ['--version'] },
+    loginCommandProbe: supported({
+      args: ['auth', 'status'],
+      timeoutMs: 12_000,
+      classify: classifyClaudeLoginStatus,
+    }),
     // `claude auth login`, NOT `claude login`: the CLI has no `login` subcommand, so a
     // bare `login` argument is parsed as the PROMPT — the login terminal came up with
     // Claude answering the word "login" and no auth flow ever ran. `claude auth login`
@@ -100,14 +106,27 @@ export const claudeCodeManifest: AgentManifest = {
     }),
     detectLogin(homeDir) {
       const configDir = process.env.CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')
+      let contents: string
       try {
-        const credentials = JSON.parse(
-          readFileSync(join(configDir, '.credentials.json'), 'utf8'),
-        ) as Record<string, unknown>
-        if (Object.keys(credentials).length === 0) return { state: 'out' }
-      } catch {
-        return { state: 'out' }
+        contents = readFileSync(join(configDir, '.credentials.json'), 'utf8')
+      } catch (error) {
+        const code =
+          error && typeof error === 'object' && 'code' in error
+            ? (error as { code?: unknown }).code
+            : undefined
+        return { state: code === 'ENOENT' ? 'out' : 'unknown' }
       }
+      if (!contents.trim()) return { state: 'out' }
+      let credentials: unknown
+      try {
+        credentials = JSON.parse(contents)
+      } catch {
+        return { state: 'unknown' }
+      }
+      if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
+        return { state: 'unknown' }
+      }
+      if (Object.keys(credentials).length === 0) return { state: 'out' }
       try {
         const raw = JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')) as {
           oauthAccount?: { emailAddress?: string }

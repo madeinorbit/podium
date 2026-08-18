@@ -1,8 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { CommandEnvironment } from '@podium/runtime/command-environment'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { buildInventory, type ProbeExec } from './build-inventory.js'
+import { buildInventory, type LoginProbeExec, type ProbeExec } from './build-inventory.js'
 import {
   fingerprintForLoginIdentity,
   readFreshnessFromAuthContents,
@@ -12,6 +13,7 @@ import {
 let home: string
 const prevCodexHome = process.env.CODEX_HOME
 const prevGrokHome = process.env.GROK_HOME
+const prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'inv-home-'))
@@ -19,6 +21,7 @@ beforeEach(() => {
   // home so a real login on the test host can't leak into assertions.
   process.env.CODEX_HOME = join(home, '.codex')
   process.env.GROK_HOME = join(home, '.grok')
+  delete process.env.CLAUDE_CONFIG_DIR
 })
 afterEach(() => {
   rmSync(home, { recursive: true, force: true })
@@ -26,6 +29,8 @@ afterEach(() => {
   else process.env.CODEX_HOME = prevCodexHome
   if (prevGrokHome === undefined) delete process.env.GROK_HOME
   else process.env.GROK_HOME = prevGrokHome
+  if (prevClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
+  else process.env.CLAUDE_CONFIG_DIR = prevClaudeConfigDir
 })
 
 /** Fake exec that answers `--version` per binary basename; anything else throws. */
@@ -40,6 +45,23 @@ function fakeExec(versions: Record<string, string>): ProbeExec {
 
 function jwt(payload: Record<string, unknown>): string {
   return `header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`
+}
+
+const resolvedClaude = '/verified/bin/claude'
+
+function commandEnvironment(
+  env: Readonly<Record<string, string>>,
+  installed = true,
+): CommandEnvironment {
+  return {
+    env,
+    pathEntries: ['/verified/bin'],
+    source: 'inherited',
+    generation: 7,
+    machineHome: home,
+    loginShell: '/bin/sh',
+    resolve: (command) => (installed && command === 'claude' ? resolvedClaude : undefined),
+  }
 }
 
 describe('buildInventory', () => {
@@ -72,6 +94,187 @@ describe('buildInventory', () => {
     expect(claude.installed).toBe(true)
     expect(claude.version).toBe('2.1.9 (Claude Code)') // trimmed
     expect(claude.path).toBe('claude') // injected exec keeps the legacy argv-only test seam
+  })
+
+  it('uses the exact resolved Claude path, probe arguments, timeout, and immutable environment', async () => {
+    const env = Object.freeze({
+      PATH: '/verified/bin',
+      HOME: home,
+      CLAUDE_CONFIG_DIR: '',
+      CLAUDE_SECURESTORAGE_CONFIG_DIR: '/secure/storage',
+    })
+    const calls: Array<{
+      argv: readonly string[]
+      timeoutMs: number
+      env: Readonly<Record<string, string>>
+    }> = []
+    const loginExec: LoginProbeExec = async (argv, timeoutMs, probeEnv) => {
+      calls.push({ argv, timeoutMs, env: probeEnv })
+      return {
+        stdout: JSON.stringify({ loggedIn: true, email: 'keychain@example.com' }),
+        stderr: '',
+        exitCode: 0,
+        timedOut: false,
+      }
+    }
+    const inv = await buildInventory({
+      credentialHome: home,
+      commandEnvironment: commandEnvironment(env),
+      exec: async () => '2.1.50 (Claude Code)',
+      loginExec,
+      platform: 'darwin',
+    })
+
+    expect(calls).toEqual([{ argv: [resolvedClaude, 'auth', 'status'], timeoutMs: 12_000, env }])
+    expect(calls[0]!.env).toBe(env)
+    expect(calls[0]!.env.CLAUDE_CONFIG_DIR).toBe('')
+    expect(calls[0]!.env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe('/secure/storage')
+    expect(inv.agents.find((agent) => agent.kind === 'claude-code')).toMatchObject({
+      installed: true,
+      version: '2.1.50 (Claude Code)',
+      path: resolvedClaude,
+      login: {
+        state: 'in',
+        account: 'keychain@example.com',
+        identity: { email: 'keychain@example.com', fingerprint: expect.any(String) },
+      },
+    })
+  })
+
+  it('preserves absent Claude config variables in the command environment', async () => {
+    const env = Object.freeze({ PATH: '/verified/bin', HOME: home })
+    let observed: Readonly<Record<string, string>> | undefined
+    await buildInventory({
+      credentialHome: home,
+      commandEnvironment: commandEnvironment(env),
+      exec: async () => '2.1.50',
+      loginExec: async (_argv, _timeoutMs, probeEnv) => {
+        observed = probeEnv
+        return {
+          stdout: JSON.stringify({ loggedIn: false }),
+          stderr: '',
+          exitCode: 1,
+          timedOut: false,
+        }
+      },
+    })
+    expect(observed).toBe(env)
+    expect(observed).not.toHaveProperty('CLAUDE_CONFIG_DIR')
+    expect(observed).not.toHaveProperty('CLAUDE_SECURESTORAGE_CONFIG_DIR')
+  })
+
+  it('keeps a verified executable installed when command status is unknown without stale identity', async () => {
+    writeFileSync(
+      join(home, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'stale@example.com' } }),
+    )
+    const inv = await buildInventory({
+      credentialHome: home,
+      commandEnvironment: commandEnvironment(Object.freeze({ PATH: '/verified/bin', HOME: home })),
+      exec: async () => '2.1.50',
+      loginExec: async () => ({
+        stdout: 'not json',
+        stderr: '',
+        exitCode: 1,
+        timedOut: false,
+      }),
+    })
+    expect(inv.agents.find((agent) => agent.kind === 'claude-code')).toEqual({
+      kind: 'claude-code',
+      installed: true,
+      version: '2.1.50',
+      path: resolvedClaude,
+      login: { state: 'unknown' },
+    })
+  })
+
+  it('uses file state and identity only for the verified unsupported-command fallback', async () => {
+    mkdirSync(join(home, '.claude'), { recursive: true })
+    writeFileSync(join(home, '.claude', '.credentials.json'), JSON.stringify({ oauth: 'secret' }))
+    writeFileSync(
+      join(home, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'legacy@example.com' } }),
+    )
+    const env = Object.freeze({ PATH: '/verified/bin', HOME: home })
+    const unsupported: LoginProbeExec = async () => ({
+      stdout: '',
+      stderr: "error: unknown command 'status'",
+      exitCode: 1,
+      timedOut: false,
+    })
+    const legacy = await buildInventory({
+      credentialHome: home,
+      commandEnvironment: commandEnvironment(env),
+      exec: async () => '2.1.0',
+      loginExec: unsupported,
+      platform: 'darwin',
+    })
+    expect(legacy.agents.find((agent) => agent.kind === 'claude-code')!.login).toMatchObject({
+      state: 'in',
+      account: 'legacy@example.com',
+      identity: { email: 'legacy@example.com' },
+    })
+
+    const missingHome = join(home, 'missing-legacy-home')
+    mkdirSync(missingHome)
+    const missing = await buildInventory({
+      credentialHome: missingHome,
+      commandEnvironment: commandEnvironment(env),
+      exec: async () => '2.1.0',
+      loginExec: unsupported,
+      platform: 'darwin',
+    })
+    expect(missing.agents.find((agent) => agent.kind === 'claude-code')!.login).toEqual({
+      state: 'out',
+    })
+  })
+
+  it('reports unknown on Darwin when neither a Claude executable nor credential file exists', async () => {
+    const inv = await buildInventory({
+      credentialHome: home,
+      commandEnvironment: commandEnvironment(
+        Object.freeze({ PATH: '/verified/bin', HOME: home }),
+        false,
+      ),
+      exec: fakeExec({}),
+      loginExec: async () => {
+        throw new Error('must not run')
+      },
+      platform: 'darwin',
+    })
+    expect(inv.agents.find((agent) => agent.kind === 'claude-code')).toMatchObject({
+      installed: false,
+      login: { state: 'unknown' },
+    })
+  })
+
+  it('distinguishes valid, empty, missing, unreadable, and malformed legacy credential files', async () => {
+    const cases = [
+      { name: 'valid', contents: JSON.stringify({ oauth: 'secret' }), state: 'in' },
+      { name: 'empty', contents: '', state: 'out' },
+      { name: 'missing', state: 'out' },
+      { name: 'malformed', contents: '{', state: 'unknown' },
+      { name: 'unreadable', directory: true, state: 'unknown' },
+    ] as const
+
+    for (const fixture of cases) {
+      const fixtureHome = join(home, fixture.name)
+      const claudeHome = join(fixtureHome, '.claude')
+      mkdirSync(claudeHome, { recursive: true })
+      const credentialPath = join(claudeHome, '.credentials.json')
+      if ('directory' in fixture) mkdirSync(credentialPath)
+      else if ('contents' in fixture) writeFileSync(credentialPath, fixture.contents)
+      const inv = await buildInventory({
+        credentialHome: fixtureHome,
+        machineHome: fixtureHome,
+        exec: fakeExec({}),
+        platform: 'linux',
+      })
+      expect(
+        inv.agents.find((agent) => agent.kind === 'claude-code')!.login.state,
+        fixture.name,
+      ).toBe(fixture.state)
+    }
   })
 
   it("does not mistake Grok's generic agent alias for Cursor", async () => {

@@ -135,6 +135,7 @@ export const grokManifest: AgentManifest = {
 
   inventory: {
     executable: { names: ['grok'], versionArgs: ['--version'] },
+    loginCommandProbe: unsupported('Grok login detection still uses its local credential file'),
     loginCommand: supported({ cmd: 'grok', args: ['login'] }),
     loginIdentity: supported((homeDir) => grokIdentity(grokHome(homeDir))),
     portableCredential: supported({ files: ['.grok/auth.json'], compareFreshness: () => null }),

@@ -257,7 +257,8 @@ export function harnessKindForResumeKind(resumeKind: string): HarnessAgent | und
 }
 
 /**
- * NATIVE LOGIN DETECTION for one harness, by kind (POD-335).
+ * LOCAL LOGIN FALLBACK for one harness, by kind (POD-335). This compatibility
+ * surface is synchronous and never runs a provider CLI.
  *
  * A named function rather than a second reach for {@link AGENT_MANIFESTS}, and
  * the reason is the boundary rather than tidiness. `apps/server`'s Accounts hub

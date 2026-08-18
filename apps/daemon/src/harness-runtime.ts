@@ -4,6 +4,7 @@ import {
   buildResolvedInventory,
   type HarnessLaunchOptions,
   type LaunchSpec,
+  type LoginProbeExec,
   type ProbeExec,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
@@ -15,6 +16,7 @@ export interface HarnessRuntimeOptions {
   credentialHome?: string
   env?: NodeJS.ProcessEnv
   exec?: ProbeExec
+  loginExec?: LoginProbeExec
   launch?: typeof agentLaunchCommand
   /** Hermetic generation builder used by lifecycle tests. */
   buildSnapshot?: (generation: number) => Promise<ResolvedHarnessInventory>
@@ -50,6 +52,7 @@ export class DaemonHarnessRuntime {
     const next = previous.then((snapshot) =>
       buildResolvedInventory({
         commandEnvironment: snapshot.commandEnvironment,
+        ...(this.options.loginExec ? { loginExec: this.options.loginExec } : {}),
         ...(this.options.machineHome ? { machineHome: this.options.machineHome } : {}),
         ...(this.options.credentialHome ? { credentialHome: this.options.credentialHome } : {}),
         ...(this.options.exec ? { exec: this.options.exec } : {}),
@@ -97,6 +100,7 @@ export class DaemonHarnessRuntime {
       ...(this.options.machineHome ? { machineHome: this.options.machineHome } : {}),
       ...(this.options.credentialHome ? { credentialHome: this.options.credentialHome } : {}),
       ...(this.options.exec ? { exec: this.options.exec } : {}),
+      ...(this.options.loginExec ? { loginExec: this.options.loginExec } : {}),
     })
   }
 }

@@ -20,9 +20,23 @@ const ENVIRONMENT_KEYS = [
 function installClaudeFixture(home: string, loggedIn: boolean): void {
   const bin = join(home, '.local', 'bin')
   mkdirSync(bin, { recursive: true })
-  writeFileSync(join(bin, 'claude'), '#!/bin/sh\nprintf "%s\\n" "claude 2.1.222"\n', {
-    mode: 0o755,
-  })
+  writeFileSync(
+    join(bin, 'claude'),
+    [
+      '#!/bin/sh',
+      'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+      '  if [ -s "$HOME/.claude/.credentials.json" ]; then',
+      `    printf '%s\\n' '{"loggedIn":true,"email":"propagation@example.test"}'`,
+      '    exit 0',
+      '  fi',
+      `  printf '%s\\n' '{"loggedIn":false}'`,
+      '  exit 1',
+      'fi',
+      `printf '%s\\n' 'claude 2.1.222'`,
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  )
   if (!loggedIn) return
   mkdirSync(join(home, '.claude'), { recursive: true })
   writeFileSync(
