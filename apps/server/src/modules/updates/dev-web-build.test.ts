@@ -54,9 +54,9 @@ describe('when the served website may be rewritten', () => {
   })
 
   it('REFUSES rather than rebuilds on a request that does not move the server', () => {
-    // The regression this exists to prevent: `/version` asks for a build on
-    // every read, and this process serves apps/web/dist to browsers while
-    // still running the commit it booted with. Rebuilding here marched the
+    // The regression this exists to prevent: `/version` used to ask for a
+    // build on every read while this process serves apps/web/dist to browsers
+    // and is still running the commit it booted with. Rebuilding there marched the
     // page ahead of the server — measured live, one server on dev+e10795a
     // rebuilt the website six times for five commits it was not running, and
     // every open tab got the out-of-sync banner.

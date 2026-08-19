@@ -73,7 +73,6 @@ interface RenderContext {
   janitorUnit: string
   daemonUnit: string
   redeployUnit: string
-  redeployPath: string
   healthUnit: string
   healthTimer: string
   backendUnit: string
@@ -99,8 +98,6 @@ function context(opts: SystemdRenderOptions = {}): RenderContext {
     janitorUnit: instanceServiceName('janitor', instanceId),
     daemonUnit: instanceServiceName('daemon', instanceId),
     redeployUnit: instanceServiceName('redeploy', instanceId),
-    redeployPath:
-      instanceId === 'default' ? 'podium-redeploy.path' : `podium-${instanceId}-redeploy.path`,
     healthUnit: instanceServiceName('health', instanceId),
     healthTimer: healthTimerName(instanceId),
     backendUnit:
@@ -385,25 +382,12 @@ ExecStartPre=/usr/bin/env bash ${c.repoRoot}/scripts/redeploy-wait.sh ${c.repoRo
 # restarting the janitor in the SAME step as the server also stops the skew arising at
 # all, since both re-exec from the checkout this deploy just verified.
 ExecStart=-/usr/bin/systemctl --user reset-failed ${c.janitorUnit}
-# No web unit here any more (POD-1985): the server rebuilds apps/web/dist itself, in a
-# batch-tier transient scope, on the same start-up path this restart puts it through.
+# No web unit here any more (POD-1985): the confirmed operation prepares apps/web/dist
+# in a batch-tier transient scope before it starts this service.
 ExecStart=/usr/bin/systemctl --user restart ${c.serverUnit} ${c.daemonUnit} ${c.janitorUnit}
 `
 }
 
-function renderDevRedeployPath(c: RenderContext): string {
-  return `[Unit]
-Description=Watch git HEAD on the Podium main checkout; redeploy backend when main moves
-
-[Path]
-# .git/logs/HEAD is append-only and changes whenever the checkout HEAD moves.
-PathModified=${c.repoRoot}/.git/logs/HEAD
-Unit=${c.redeployUnit}
-
-[Install]
-WantedBy=default.target
-`
-}
 
 function renderDevHealthService(c: RenderContext): string {
   return `[Unit]
@@ -504,7 +488,6 @@ export function renderSystemdFiles(opts: SystemdRenderOptions = {}): RenderedSys
       [c.serverUnit]: renderServerUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
       [c.daemonUnit]: renderDaemonUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
       [c.redeployUnit]: generatedUnit(renderDevRedeployService(c)),
-      [c.redeployPath]: generatedUnit(renderDevRedeployPath(c)),
       [c.healthUnit]: generatedUnit(renderDevHealthService(c)),
       [c.healthTimer]: generatedUnit(renderDevHealthTimer(c)),
       [c.backendUnit]: generatedUnit(renderDevBackend(c)),

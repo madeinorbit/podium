@@ -5,7 +5,7 @@ These files are generated copies of the source-based dev-host profile in
 
 ```sh
 bun --conditions=@podium/source scripts/render-systemd.ts --profile dev
-cp scripts/systemd/podium-*.{service,timer,path} ~/.config/systemd/user/
+cp scripts/systemd/podium-*.service scripts/systemd/podium-*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now podium-server.service podium-daemon.service podium-health.timer
 # verify the watchdog took: both should read "active (running)" with a Watchdog line
@@ -19,9 +19,9 @@ transcript / discovery / metrics work), which connects to the server over
 a misbehaving agent or a reattach storm from starving the relay loop. Both run from
 source via `--conditions=@podium/source`. Moving the checkout publishes a signed
 development target; the visible **Update Podium** action runs the guarded
-`podium-redeploy.service` only after development-channel machines converge. The
-legacy `podium-redeploy.path` unit remains available for recovery, but is intentionally
-disabled so a checkout move cannot restart the coordinating server without approval.
+`podium-redeploy.service` only after development-channel machines converge. No
+path unit is rendered: moving the checkout cannot restart the coordinating
+server without approval.
 
 Both backend units are `Type=notify` with `WatchdogSec=30`: they pet the systemd
 watchdog from their event loop (`packages/runtime/src/sd-notify.ts`), so a **wedged-but-alive**
@@ -51,17 +51,16 @@ tailscale serve status   # expect: https://<host>:55555 -> http://127.0.0.1:5555
 A separate public Funnel (e.g. another project on :443) is unaffected — this adds
 a serve entry on its own port rather than touching existing mappings.
 
-Where the web bundles come from: **the server builds them**, in transient
-`--user` scopes at the batch tier (`podium-dev-web-build.scope`,
-`podium-dev-mobile-build.scope`), on the same start-up path a redeploy puts it
-through — so a HEAD move still produces a new content-hashed PWA bundle, and
-there is no `podium-web.service` to install any more (POD-1985). It is also the
-step the headless bundle build waits on, which is what stopped that build being
-refused on a stale `apps/web/dist` another unit owned producing. Follow a
-running build with `systemctl --user status podium-dev-web-build.scope`, and a
-finished one in the server's journal. Note: the running app's service worker is
-the source of truth for installed clients — they pick up the new build via the
-"New version — Reload" prompt.
+Where the web bundles come from: **the confirmed Update operation asks the
+server to build them**, in transient `--user` scopes at the batch tier
+(`podium-dev-web-build.scope`, `podium-dev-mobile-build.scope`). A checkout move,
+`/version` poll, or watchdog restart starts no build. The same explicit prepare
+step sequences the headless bundle behind the web dist, so it cannot pack a
+stale `apps/web/dist` under a new commit identity. Follow a running build with
+`systemctl --user status podium-dev-web-build.scope`, and a finished one in the
+server's journal. Note: the running app's service worker is the source of truth
+for installed clients — they pick up the new build via the "New version —
+Reload" prompt.
 
 Redeploy gates (`scripts/redeploy-wait.sh`, the `ExecStartPre` of
 `podium-redeploy.service`): wait for `.git/index.lock` to clear (bounded), then

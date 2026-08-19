@@ -4,9 +4,9 @@ import { join, resolve } from 'node:path'
 /**
  * WHERE HEAD WAS, so a poll with nothing to do costs nothing.
  *
- * `/version` asks the publisher to consider a build on every read, from every
- * client, and the publisher reads HEAD two to four times per read — once to
- * decide, once to name the target, twice more when it has to explain itself.
+ * `/version` asks the publisher to name the current identity target on every
+ * read, from every client. Naming and explaining that target can read HEAD
+ * several times per request.
  * Measured on the development host, `git rev-parse --short=7 HEAD` costs 7.9 ms
  * a call, so a settled repository was paying 16–31 ms of `fork()` per poll to
  * be told nothing had changed. Off the event loop since POD-2048, but a fork

@@ -391,6 +391,31 @@ describe('the yank is the proof', () => {
  *   - at or below the stale maximum a write is harmless — keep retrying
  *     (with the heal), and forget the record the moment one truly lands.
  */
+describe("the engine's sign is its own business", () => {
+  /**
+   * Round 8.1. The CSSOM convention for a column-reverse scroller is
+   * scrollTop 0 at the bottom running NEGATIVE upward — and the operator's
+   * Safari 26.4 reports it POSITIVE upward instead. The first landing read
+   * gap as `-scrollTop`, so in that engine every position looked like "at
+   * the bottom": the jump affordance never offered, and every distance
+   * decision was inverted. Distance from the bottom is |scrollTop|, in
+   * whichever direction the engine counts.
+   */
+  it('reads distance from the bottom whatever sign the engine speaks', () => {
+    wheel(-120) // the reader leaves by intent — the pill is owed while away
+    top = 1359 // Safari 26.4: column-reverse offsets grow POSITIVE going up
+    act(() => api?.onScroll())
+    expect(api?.atBottom).toBe(false)
+    top = 0
+    act(() => api?.onScroll())
+    expect(api?.atBottom).toBe(true)
+    wheel(-120)
+    top = -1359 // the spec'd negative convention must read identically
+    act(() => api?.onScroll())
+    expect(api?.atBottom).toBe(false)
+  })
+})
+
 describe('a bottom-writer first does no harm', () => {
   const ro = (): void => {
     act(() => (globalThis as { __ro?: () => void }).__ro?.())

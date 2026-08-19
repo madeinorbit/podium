@@ -53,6 +53,8 @@ export function GitHubProjectIntake({
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
+  const machineId = machine?.id
+  const machineOnline = machine?.online === true
   const ghInventory = machine?.inventory?.tools.find((tool) => tool.name === 'gh')
   const knownMissing = ghInventory?.installed === false
 
@@ -66,7 +68,7 @@ export function GitHubProjectIntake({
 
   const refresh = useCallback(
     async (force = false) => {
-      if (!machine?.online) return
+      if (!machineOnline || !machineId) return
       if (knownMissing && !force) {
         setStatus({ state: 'missing' })
         setRepositories([])
@@ -75,7 +77,7 @@ export function GitHubProjectIntake({
       setChecking(true)
       setError(null)
       try {
-        const result = await trpc.repos.githubList.query({ machineId: machine.id })
+        const result = await trpc.repos.githubList.query({ machineId })
         setStatus(result.status)
         setRepositories(result.repositories ?? [])
         setError(result.error ?? null)
@@ -85,7 +87,7 @@ export function GitHubProjectIntake({
         setChecking(false)
       }
     },
-    [knownMissing, machine, trpc],
+    [knownMissing, machineId, machineOnline, trpc],
   )
 
   useEffect(() => {

@@ -45,7 +45,7 @@ import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
-import { backupDatabase, latestDatabaseBackup } from './migrations/backup'
+import { backupDatabase, createLatestDatabaseBackupCache } from './migrations/backup'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from './migrations/index'
 import { OperationStore } from './modules/operations/store'
@@ -92,6 +92,7 @@ export function defaultDbPath(): string {
 
 export class SessionStore {
   private readonly db: SqlDatabase
+  private readonly databaseBackups: ReturnType<typeof createLatestDatabaseBackupCache>
   readonly repos: ReposRepository
   readonly sessions: SessionsRepository
   /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
@@ -177,6 +178,7 @@ export class SessionStore {
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
+    this.databaseBackups = createLatestDatabaseBackupCache(path)
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     // `openStoreDatabase` is `openDatabase` everywhere except under a test runner
     // that installed the pre-migrated fixture (see store-database.ts). The migration
@@ -414,16 +416,18 @@ export class SessionStore {
       version
         .replace(/[^a-zA-Z0-9._-]+/g, '_')
         .slice(0, 80)
-    return backupDatabase(
+    const snapshot = backupDatabase(
       this.db,
       this.path,
       `update-${safe(fromVersion)}-to-${safe(targetVersion)}`,
     )
+    this.databaseBackups.record(snapshot)
+    return snapshot
   }
 
   /** Newest verified recovery point available for downgrade guidance. */
   latestDatabaseSnapshot(): string | undefined {
-    return this.path === ':memory:' ? undefined : latestDatabaseBackup(this.path)
+    return this.path === ':memory:' ? undefined : this.databaseBackups.latest()
   }
 
   private transferFenceHeld = false

@@ -200,7 +200,7 @@ describe('development artifact route', () => {
 
       // Thirty-five seconds of compile to arrive at the same dead end is the
       // wrong shape of honest: the answer is knowable before the first byte.
-      await expect(wiring.requestBuild(true)).rejects.toSatisfy(
+      await expect(wiring.requestBuild()).rejects.toSatisfy(
         (error: unknown) =>
           error instanceof DevBundleUnavailableError && /Public URL/.test(error.publicReason),
       )

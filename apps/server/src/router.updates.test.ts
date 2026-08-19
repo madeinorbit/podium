@@ -299,6 +299,19 @@ describe('release target checks', () => {
     registry.dispose()
   })
 
+  it('does not integrity-check database snapshots while polling fleet state', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.1'
+    const { registry, caller } = harness()
+    registry.modules.updates.setTarget(target())
+    const latestSnapshot = vi.spyOn(registry.sessionStore, 'latestDatabaseSnapshot')
+
+    await caller.updates.fleet()
+    await caller.updates.fleet()
+
+    expect(latestSnapshot).not.toHaveBeenCalled()
+    registry.dispose()
+  })
+
   it('has nothing to say about a channel it has never checked', async () => {
     const { registry, caller } = harness()
 
@@ -1195,8 +1208,10 @@ describe('the update operation', () => {
 
   it('answers an operation id, and puts it on the fleet payload for the old panel', async () => {
     const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
+    const latestSnapshot = vi.spyOn(registry.sessionStore, 'latestDatabaseSnapshot')
     const started = await caller.updates.start()
     expect(started.operationId).toMatch(/^op_/)
+    expect(latestSnapshot).toHaveBeenCalled()
     expect(started.alreadyRunning).toBe(false)
     expect(started.operation).toMatchObject({ kind: 'update', state: 'running' })
 

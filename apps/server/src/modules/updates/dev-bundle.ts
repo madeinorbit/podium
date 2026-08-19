@@ -996,18 +996,16 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * That asymmetry is the whole point, and it was learned the hard way. The
    * compile needs the dist stamped at this commit, so the obvious move is
    * "build it whenever it is stale". But this server SERVES that dist to
-   * browsers, and `/version` asks for a build on every read — so building on
-   * that path rebuilt the website every time main moved, while the server
-   * itself stayed on the commit it booted with. The page then ran AHEAD of the
-   * server, their wire schema digests disagreed, and every open tab got the
+   * browsers, and `/version` used to ask for a build on every read — so
+   * building on that path rebuilt the website every time main moved, while the
+   * server itself stayed on the commit it booted with. The page then ran AHEAD
+   * of the server, their wire schema digests disagreed, and every open tab got the
    * out-of-sync banner. Observed live: one server on dev+e10795a rebuilt the
    * website six times for five commits it was not running.
    *
-   * So the dist may only move when the server can move with it: its own
-   * start-up (it is at HEAD then) and an operator-driven update (which restarts
-   * it straight after). On the polling path a stale dist is simply a reason not
-   * to pack a tarball — a refused artifact costs nothing, a broken page costs
-   * every open tab.
+   * So the dist may only move during an operator-driven update, which restarts
+   * the server straight after. Polling and start-up leave it alone: an unpacked
+   * identity target costs nothing, a broken page costs every open tab.
    */
   prepareWebDist?: (headSha: string, explicit: boolean) => Promise<void>
 }

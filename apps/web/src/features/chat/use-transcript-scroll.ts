@@ -195,11 +195,17 @@ const settling = new WeakMap<HTMLElement, number>()
  * Safari does next; under this geometry it should never fire.
  */
 function bottomGap(el: HTMLElement): number {
-  return -el.scrollTop
+  // |scrollTop|, not -scrollTop (round 8.1): the CSSOM convention for a
+  // reversed scroller is negative-upward, and the operator's Safari 26.4
+  // counts POSITIVE-upward instead. Distance from the bottom is the
+  // magnitude, in whichever direction the engine speaks — the first landing
+  // trusted the spec's sign and that engine read every position as "at the
+  // bottom".
+  return Math.abs(el.scrollTop)
 }
 /** Distance still scrollable ABOVE the viewport — the older-page trigger. */
 function topGap(el: HTMLElement): number {
-  return el.scrollHeight - el.clientHeight + el.scrollTop
+  return el.scrollHeight - el.clientHeight - Math.abs(el.scrollTop)
 }
 
 function writeBottom(el: HTMLElement, onWedged?: () => void): void {
@@ -213,18 +219,20 @@ function writeBottom(el: HTMLElement, onWedged?: () => void): void {
   // bottom (user input scrolls against the real maximum; script writes
   // against the stale one). A reader already at the bottom needs no help,
   // and in that wedge our help is the only thing that can move them.
-  if (gap() <= 4) return
+  const gapBefore = gap()
+  if (gapBefore <= 4) return
   const stale = knownStaleWriteMax.get(el)
-  const before = el.scrollTop
-  // ...and beyond a recorded stale clamp, SILENCE: any write from up there
-  // can only teleport the reader back to it. Recovery happens from parked.
-  if (stale !== undefined && before > stale + 4) return
+  // ...and CLOSER TO THE BOTTOM than a recorded stale clamp, SILENCE: any
+  // write from there can only teleport the reader back to it. Recovery
+  // happens from parked (at or above the clamp). Distances, not raw offsets
+  // — the engine's sign is its own business (round 8.1).
+  if (stale !== undefined && gapBefore < stale - 4) return
   el.scrollTop = 0
   lastBottomWriteAt.set(el, performance.now())
-  if (el.scrollTop < before - 1) {
-    // The write moved the reader UP: that is the poison, once — remember the
-    // clamp it revealed and stop before the heal writes again.
-    knownStaleWriteMax.set(el, el.scrollTop)
+  if (gap() > gapBefore + 1) {
+    // The write moved the reader AWAY from the bottom: that is the poison,
+    // once — remember the clamp it revealed and stop before the heal writes.
+    knownStaleWriteMax.set(el, gap())
     return
   }
   if (gap() <= 4) {
@@ -233,11 +241,11 @@ function writeBottom(el: HTMLElement, onWedged?: () => void): void {
     return
   }
   healGeometry(el)
-  const beforeRetry = el.scrollTop
+  const gapBeforeRetry = gap()
   el.scrollTop = 0
   lastBottomWriteAt.set(el, performance.now())
-  if (el.scrollTop < beforeRetry - 1) {
-    knownStaleWriteMax.set(el, el.scrollTop)
+  if (gap() > gapBeforeRetry + 1) {
+    knownStaleWriteMax.set(el, gap())
     return
   }
   if (gap() <= 4) {
@@ -252,7 +260,7 @@ function writeBottom(el: HTMLElement, onWedged?: () => void): void {
   // in the operator's Safari every in-place repair failed while a fresh
   // element scrolled straight to the bottom, so the answer is rebirth — ask
   // once per element, then stand down and wait for the new one.
-  knownStaleWriteMax.set(el, el.scrollTop)
+  knownStaleWriteMax.set(el, gap())
   if (wedgedEls.has(el)) return
   const n = (healFailures.get(el) ?? 0) + 1
   healFailures.set(el, n)
@@ -280,8 +288,9 @@ function wedgableEngine(): boolean {
 
 /**
  * The stale write-clamp Safari 26.4 SETS positions to (see `writeBottom`) —
- * recorded when one of our writes lands above where the reader was or short
- * of the bottom, forgotten the moment a write genuinely arrives.
+ * stored as a DISTANCE from the bottom (round 8.1: sign-agnostic), recorded
+ * when one of our writes lands farther from the bottom than the reader was
+ * or short of it, forgotten the moment a write genuinely arrives.
  */
 const knownStaleWriteMax = new WeakMap<HTMLElement, number>()
 
@@ -309,15 +318,15 @@ const lastBottomWriteAt = new WeakMap<HTMLElement, number>()
  *  read-back that would trigger `writeBottom`'s conditional heal is exactly
  *  what the engine defeats. */
 function forceBottom(el: HTMLElement, onWedged?: () => void): void {
-  if (bottomGap(el) <= 4) return
+  const gapBefore = bottomGap(el)
+  if (gapBefore <= 4) return
   const stale = knownStaleWriteMax.get(el)
-  const before = el.scrollTop
-  if (stale !== undefined && before > stale + 4) return
+  if (stale !== undefined && gapBefore < stale - 4) return
   healGeometry(el)
   el.scrollTop = 0
   lastBottomWriteAt.set(el, performance.now())
-  if (el.scrollTop < before - 1) {
-    knownStaleWriteMax.set(el, el.scrollTop)
+  if (bottomGap(el) > gapBefore + 1) {
+    knownStaleWriteMax.set(el, bottomGap(el))
     return
   }
   if (bottomGap(el) <= 4) {
@@ -327,7 +336,7 @@ function forceBottom(el: HTMLElement, onWedged?: () => void): void {
   }
   // A heal-backed write that could not arrive counts toward the wedge here
   // exactly as it does in `writeBottom` — the fight path fails the same way.
-  knownStaleWriteMax.set(el, el.scrollTop)
+  knownStaleWriteMax.set(el, bottomGap(el))
   if (wedgedEls.has(el)) return
   const n = (healFailures.get(el) ?? 0) + 1
   healFailures.set(el, n)
@@ -471,6 +480,9 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   /** Last seen scroll offset — direction is what re-arms the engine's end
    *  anchor on the way down (see `onScroll`). */
   const lastScrollTop = useRef(0)
+  /** Last seen DISTANCE from the bottom — the sign-agnostic direction source
+   *  (round 8.1). */
+  const lastGap = useRef(0)
   /** When the reader last wheeled DOWN — an upward move inside this window is
    *  that gesture's own clamp or retraction, not fresh intent (see `onScroll`).
    *  Starts at -Infinity: zero would read as "a notch at page birth" and
@@ -952,7 +964,10 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     // grant refreshes nothing — `writeBottom`'s heal and the wheel listeners'
     // arrival-by-intent carry that browser instead.) Direction from the
     // scroll offset itself so wheel, touch and scrollbar drags all count.
-    const goingDown = el.scrollTop > lastScrollTop.current
+    // Direction from the DISTANCE, not the raw offset (round 8.1): toward
+    // the bottom means the gap is shrinking, in either sign convention.
+    const goingDown = gap < lastGap.current
+    lastGap.current = gap
     lastScrollTop.current = el.scrollTop
     if (goingDown) setAnchorEnd(el, true)
     // AN UNINVITED UPWARD MOVE WHILE PINNED IS THE ENGINE'S (round 3, the
@@ -1007,6 +1022,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
           return
         }
         forceBottom(el, onWedged)
+        lastGap.current = bottomGap(el)
         lastScrollTop.current = el.scrollTop
         setAtBottom(true)
         syncStickyPromptPositions()

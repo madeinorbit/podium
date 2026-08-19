@@ -155,14 +155,15 @@ describe('systemd profile rendering', () => {
     expect(Object.keys(files).filter((name) => name.includes('update'))).toEqual([])
   })
 
-  it('renders an instance-scoped dev profile, including redeploy and health units', () => {
+  it('renders explicit redeploy and health units without a git-HEAD watcher', () => {
     const files = renderSystemdFiles({ profile: 'dev', instanceId: 'blue', port: 23000 }).units
     expect(files['podium-blue-server.service']).toContain('Environment=PODIUM_INSTANCE=blue')
     expect(files['podium-blue-server.service']).toContain('Environment=PODIUM_PORT=23000')
     expect(files['podium-blue-daemon.service']).toContain(
       'After=network-online.target podium-blue-server.service',
     )
-    expect(files['podium-blue-redeploy.path']).toContain('Unit=podium-blue-redeploy.service')
+    expect(files['podium-blue-redeploy.service']).toBeDefined()
+    expect(files['podium-blue-redeploy.path']).toBeUndefined()
     expect(files['podium-blue-health.service']).toContain(
       'Environment=PODIUM_HEALTH_UNIT=podium-blue-server.service',
     )
