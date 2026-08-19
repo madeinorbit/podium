@@ -30,18 +30,17 @@ work as issues, not markdown TODO lists. Full guide: **[docs/agents/podium-issue
 
 ### Landing on main
 
-Hard procedure — not a preference. Take the mutex with `podium merge-lock` (its one canonical
-name is `merge:<branch>`; near-misses like a bare `merge` are refused), refresh **local `main`**,
-rebase the **issue branch** onto it, `git merge --ff-only` the issue tip into local main, push,
-release. **Never** `git reset --hard origin/main` — local main legitimately runs ahead of origin
-between landings, and a reset discards those commits silently where `--ff-only` would refuse.
-**Never** cherry-pick onto main or push a temp tip: that leaves a closed issue “ready to merge”
-in the sidebar forever. Done when the issue tip is an ancestor of `origin/main`
-(`git merge-base --is-ancestor <issue-tip> origin/main`, or `gitState.merged`) — not merely
-when `gitState.ahead` is 0 (ahead is measured against `parentBranch`, which can be a dead
-sibling for stacked issues). Full write-up:
-**[docs/agents/podium-issues.md § Landing on main](docs/agents/podium-issues.md#landing-on-main)**
-(prime text: `MERGE_LANDING_RULE` in `@podium/protocol`).
+This repository lands work locally; publishing to a remote is a separate decision
+[spec:SP-a69c]. Take the mutex with `podium merge-lock` (its canonical name is
+`merge:<branch>`), rebase the **issue branch** onto the current local `main`, fast-forward
+local `main` to the issue tip, then release the lock. Landing does not require a fetch, pull, or
+push; remote synchronization is a separate action. Never reset local `main` to a remote-tracking
+ref: local main may intentionally contain unpublished landings, and a reset can discard them
+silently. Never cherry-pick onto main or land
+the content under a different SHA, because the issue tip must remain in main's history. Done when
+the issue tip is an ancestor of local `main` (`git merge-base --is-ancestor <issue-tip> main`, or
+`gitState.merged`). Full write-up:
+**[docs/agents/podium-issues.md § Landing on main](docs/agents/podium-issues.md#landing-on-main)**.
 
 ## Delegating to other agents
 

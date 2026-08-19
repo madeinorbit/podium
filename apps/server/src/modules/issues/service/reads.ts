@@ -23,7 +23,6 @@ import {
   ISSUE_TREE_DEFAULT_MAX_DEPTH,
   ISSUE_TREE_DEFAULT_MAX_NODES,
   LOCK_RULE,
-  MERGE_LANDING_RULE,
   SELF_REF_RULE,
 } from '@podium/protocol'
 import { lintIssue } from '../../../issue-lint'
@@ -652,7 +651,8 @@ export class IssueReportsModule {
     // Stages, discovered-from, spin-off litmus, titles, description-vs-brief,
     // --outside-scope, mail-send, artifacts, and offers live on ISSUE_SYSTEM_POINTER
     // (every harness, via session instructions). Prime keeps refs, self-ref,
-    // reply discipline, worktree stay, landing, locks, and delegation.
+    // reply discipline, worktree stay, locks, and delegation. Landing and
+    // publication procedures belong to the repository [spec:SP-a69c].
     const rules = [
       // Human-facing ids (#474) + the own-issue exception (POD-389).
       'Reference OTHER issues and sessions as `POD-557` (or `POD-557 (Title)` on first mention). Never `#557` or `iss_…` — only `POD-…` linkifies. The issue YOU are on is the exception — next rule.',
@@ -662,7 +662,6 @@ export class IssueReportsModule {
       // Response discipline (#237 [spec:SP-34d7 acks], [POD-835 §04b] [spec:SP-bf44]).
       'A podium message needs a reply only when it asked for one (`--expect-response`, or a question). Then `podium mail reply <id> --body "…"` with what you did. Ordinary mail needs no reply — do not send acknowledgements.',
       'Stay in your worktree: never `cd` into another checkout (it re-homes this session); use `git -C <path>` instead. If you INTENTIONALLY move, run `podium worktree` from the new checkout.',
-      MERGE_LANDING_RULE,
       LOCK_RULE,
       DELEGATION_RULE,
     ]

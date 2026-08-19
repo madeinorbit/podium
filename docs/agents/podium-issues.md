@@ -174,9 +174,9 @@ post an offer naming the decision you need (merge, send back, discuss).
 
 ## Landing on main
 
-Landing an issue branch on a shared branch (usually `main`) is a **hard procedure**, not a
-preference. The prime injects the same text as `MERGE_LANDING_RULE` in `@podium/protocol`
-(`packages/protocol/src/delegation.ts`) so this guide and every new session cannot drift.
+This is the Podium repository's landing policy, not behavior prescribed by the Podium product
+[spec:SP-a69c]. Landing integrates an issue into local `main`. Publishing local `main` to a
+remote is a separate project or operator decision and may happen later, in a batch, or not at all.
 
 ### Always
 
@@ -188,38 +188,31 @@ preference. The prime injects the same text as `MERGE_LANDING_RULE` in `@podium/
    `merge:<branch>` and nothing else — the bare name `merge` is now refused, because for a
    while it was accepted as a *separate* lease and two sessions each believed they held the
    merge lock [POD-672].
-2. **Refresh local `main`** from origin on the main checkout:
-   `git -C <main-checkout> fetch origin` then
-   `git -C <main-checkout> merge --ff-only origin/main`.
-   Stay in your issue worktree; never `cd` into the main checkout (it re-homes the session).
-3. On the **issue branch**, `git rebase` onto that local `main`.
-4. On **local `main`**, `git merge --ff-only <issue-branch>` so the **issue tip** becomes an
+2. On the **issue branch**, `git rebase` onto the current local `main`.
+3. On **local `main`**, `git merge --ff-only <issue-branch>` so the **issue tip** becomes an
    ancestor of main.
-5. `git -C <main-checkout> push origin main`, then `podium merge-lock release` **immediately**.
+4. `podium merge-lock release` **immediately** after the local merge.
 
-Integration target is **local `main` under the lock**. `origin/main` is what you sync from at
-the start and publish to at the end — it is not a shortcut around local main.
+Stay in your issue worktree throughout; use `git -C <main-checkout>` for operations against main.
+This procedure neither fetches, pulls, nor pushes. Remote synchronization is a separate action;
+do not hold the merge lock while deciding whether or when to publish—the lock protects local
+integration, not remote policy.
 
 ### Never
 
-- **`git reset --hard origin/main` (or any `reset` on main).** Never step 2, never a repair,
-  never a "let me get to a clean base first". Local `main` legitimately carries commits
-  `origin/main` does not — every landing puts one there, and it stays ahead until someone
-  pushes. A reset throws those away and *succeeds*, so it can only ever discard another
-  session's landing silently. `merge --ff-only` is the whole point: it **refuses** and shows
-  you the divergence instead of resolving it by deletion. This is not hypothetical — it
-  happened on 2026-08-10 and cost three commits [POD-672]. If you already ran it, the
-  landing is recoverable: `git -C <main-checkout> reflog main` still lists the pre-reset
-  tip, and `git merge --ff-only <issue-branch>` replays it.
-- Cherry-pick the issue commit onto main (or onto a temp branch you then push as main).
-- Push a temp branch tip to `origin/main`.
+- **Reset local main to a remote-tracking ref (for example, `git reset --hard origin/main`).**
+  Local `main` legitimately carries unpublished landings. A reset throws those away and
+  *succeeds*, whereas `merge --ff-only` refuses and exposes divergence. This is not hypothetical:
+  it happened on 2026-08-10 and cost three commits [POD-672]. If it happens, inspect
+  `git -C <main-checkout> reflog main`; the pre-reset tip may still be recoverable.
+- Cherry-pick the issue commit onto main.
 - “Land the unique content under a new SHA” and leave the issue branch behind.
 - Treat diverged history as permission to invent an alternate land path. If rebase fails or
   foreign commits appear on the issue branch, **stop and ask**.
 
 ### When the fast-forward is blocked by untracked files
 
-Step 4 can abort with *“untracked working tree files would be overwritten by merge”*: the
+Step 3 can abort with *“untracked working tree files would be overwritten by merge”*: the
 shared main checkout has loose files at paths your branch is about to introduce as tracked
 content. **The abort is git protecting you — it is the safe outcome.** The danger is the
 recovery, because `git merge -f`, `git checkout --force`, and a bare `rm` all get past the
@@ -242,7 +235,7 @@ least leaves `main@{n}`, an overwritten untracked file leaves nothing.
 
 ### Why ancestry matters
 
-A closed issue with a private branch that is **not** an ancestor of the landing base (and
+A closed issue with a private branch that is **not** an ancestor of local `main` (and
 `gitState.merged !== true`) stays **“ready to merge”** in the sidebar forever
 (`issueAwaitingMerge` in client-core). Shipping the blobs onto main by cherry-pick does
 **not** clear that: the issue branch tip must join main’s history (or git must report
@@ -255,17 +248,14 @@ ancestry check, not the ahead counter alone.
 
 ### Done only when
 
-The issue tip is an ancestor of the landing base:
+The issue tip is an ancestor of local `main`:
 
 ```bash
-git -C <main-checkout> merge-base --is-ancestor <issue-tip> origin/main
+git -C <main-checkout> merge-base --is-ancestor <issue-tip> main
 ```
 
 Or, equivalently, `gitState.merged` is true. Content-on-main without that is **not** a
 finished land.
-
-Caveat: `merge-base` reads the **local** `origin/main` ref — authoritative right after
-your own push (the push moved it), stale for anyone checking later until they fetch.
 
 ## Rules
 

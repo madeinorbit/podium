@@ -3350,7 +3350,7 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('Ready one')
   })
 
-  // POD-694 [spec:SP-4ef9, SP-85d1]. Asserting the discoverable SURFACE (command
+  // POD-694 [spec:SP-4ef9]. Asserting the discoverable SURFACE (command
   // names, guide path) rather than the copy: an agent that cannot see the string
   // `podium lock` has no way to learn leases exist for anything but merging, which
   // was the actual gap. Prose is free to change; these identifiers are the contract.
@@ -3363,6 +3363,20 @@ describe('IssueService.prime (P1a)', () => {
     ]) {
       expect(out).toContain('podium lock acquire')
       expect(out).toContain('podium merge-lock')
+    }
+  })
+
+  it('leaves landing and publication policy to the repository', () => {
+    const { svc } = harness()
+    const issue = svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
+    for (const out of [
+      svc.prime({ repoPath: '/r', boundIssueId: issue.id }),
+      svc.prime({ repoPath: '/r', boundIssueId: null }),
+    ]) {
+      expect(out).not.toContain('HARD procedure')
+      expect(out).not.toContain('git fetch')
+      expect(out).not.toContain('git push')
+      expect(out).not.toContain('merge --ff-only')
     }
   })
 
