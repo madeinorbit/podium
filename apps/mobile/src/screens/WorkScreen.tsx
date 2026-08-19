@@ -586,6 +586,7 @@ function WorkRow({
   // agent computing" — and on a one-row-per-mission list that left a running
   // fleet reading as stopped (POD-703). Every working texture gates on this.
   const working = rowHasWorkingSession(row)
+  const waiting = rowWaitingCount(row)
   const decision = row.kind === 'issue' ? rowPendingDecision(row) : null
   const unread = rowUnreadEmphasized(row)
   // The row's own progress, at the scope it speaks for: its whole mission. The
@@ -653,7 +654,7 @@ function WorkRow({
                 unread && styles.rowTitleUnread,
                 hex ? { color: flow.text(hex) } : null,
               ]}
-              numberOfLines={2}
+              numberOfLines={1}
             >
               {label}
             </Text>
@@ -664,9 +665,9 @@ function WorkRow({
           </View>
           <View style={styles.rowStatusLine}>
             {issue ? <Text style={styles.rowRef}>{issueDisplayRef(issue)}</Text> : null}
+            {attention && waiting > 0 ? <Text style={styles.rowWaitCount}>{waiting}</Text> : null}
             {issue?.pinned ? <Icon as={Pin} size={9} color={color.textMicro} /> : null}
             {draftOnly ? null : <FleetSummary sessions={fleetSessions} />}
-            {working && phase !== 'working' ? <WorkingMark size={11} /> : null}
             <Text
               style={[
                 styles.status,
@@ -679,7 +680,6 @@ function WorkRow({
               {statusLine}
             </Text>
             {origin ? <Text style={styles.origin}>{`⤷ ${origin.seq}`}</Text> : null}
-            <View style={styles.spacer} />
             {issue ? (
               <GitStampLine
                 branch={issue.branch}
@@ -687,11 +687,15 @@ function WorkRow({
                 suppressAhead={decision === 'merge'}
               />
             ) : null}
-            {stamp ? (
-              <Text style={styles.stamp} numberOfLines={1}>
-                {stamp}
-              </Text>
-            ) : null}
+            <View style={styles.spacer} />
+            <View style={styles.rowDatum}>
+              {working ? <WorkingMark size={11} /> : null}
+              {stamp ? (
+                <Text style={styles.stamp} numberOfLines={1}>
+                  {stamp}
+                </Text>
+              ) : null}
+            </View>
           </View>
           {progress ? <RowProgressMeter progress={progress} working={working} /> : null}
         </View>
@@ -762,9 +766,12 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: 31,
     paddingHorizontal: space.lg,
+    backgroundColor: color.bar,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.hairline,
   },
   groupLabelAttention: {
-    backgroundColor: 'rgba(245, 197, 24, 0.025)',
+    backgroundColor: color.bar,
   },
   attentionDot: {
     width: 6,
@@ -883,11 +890,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
   },
+  rowDatum: {
+    width: 58,
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+  },
   rowRef: {
     ...mono(600),
     flexShrink: 0,
     color: color.textMicro,
     fontSize: font.micro,
+  },
+  rowWaitCount: {
+    ...mono(600),
+    minWidth: 18,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    overflow: 'hidden',
+    borderRadius: radius.full,
+    backgroundColor: color.needsYou,
+    color: color.onAccent,
+    fontSize: font.micro,
+    textAlign: 'center',
   },
   spacer: {
     flex: 1,

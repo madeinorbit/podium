@@ -326,6 +326,12 @@ export function SessionConversation({
     () => latestPendingQuestion(items) ?? pendingAsk,
     [items, pendingAsk],
   )
+  const askAnswerable =
+    pendingAsk !== null ||
+    session.status === 'live' ||
+    session.status === 'starting' ||
+    session.status === 'reconnecting'
+  const pendingAskedAt = pendingQuestion?.ts ?? session.agentState?.since
   useEffect(() => {
     if (!pendingQuestion) setAskHeight(0)
   }, [pendingQuestion])
@@ -425,7 +431,11 @@ export function SessionConversation({
               emptyComponent={
                 // An offer is itself the thing to act on — do not tell the
                 // operator the session is empty underneath a pending decision.
-                loaded && items.length === 0 && pendingTurns.length === 0 && !offer ? (
+                loaded &&
+                items.length === 0 &&
+                pendingTurns.length === 0 &&
+                !offer &&
+                !pendingQuestion ? (
                   <EmptyState
                     fill
                     title="No transcript yet"
@@ -470,9 +480,10 @@ export function SessionConversation({
             >
               <AskQuestionCard
                 item={pendingQuestion}
-                live
+                live={askAnswerable}
                 onAnswer={answerAsk}
                 presentation="band"
+                {...(pendingAskedAt ? { askedAt: pendingAskedAt } : {})}
               />
             </View>
           ) : null}
@@ -510,6 +521,6 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   askLayer: {
-    backgroundColor: color.bar,
+    backgroundColor: color.engraved,
   },
 })

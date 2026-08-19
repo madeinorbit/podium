@@ -100,6 +100,14 @@ export function SessionScreen() {
         label: 'Find in transcript',
         onPress: () => setFindRequest((request) => request + 1),
       },
+      ...(issue
+        ? [
+            {
+              label: issue.pinned ? 'Unpin' : 'Pin',
+              onPress: () => void store.updateIssue(issue.id, { pinned: !issue.pinned }),
+            },
+          ]
+        : []),
       { label: 'Next session', hint: 'Jump to the next one waiting on you', onPress: nextSession },
       {
         label: session.archived ? 'Unarchive' : 'Archive',
@@ -143,7 +151,7 @@ export function SessionScreen() {
       })
     }
     return actions
-  }, [nextSession, store, session])
+  }, [issue, nextSession, store, session])
 
   if (!sessionId || !session) {
     // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).

@@ -6,9 +6,9 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
 import { Pencil } from 'lucide-react-native'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
-import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
@@ -36,11 +36,13 @@ export function AskQuestionCard({
   live,
   onAnswer,
   presentation = 'card',
+  askedAt,
 }: {
   item: TranscriptItem
   live: boolean
   onAnswer?: (answer: AskQuestionAnswer) => Promise<void>
   presentation?: 'card' | 'band'
+  askedAt?: string
 }) {
   const questions = parseAskQuestions(item.toolInputJson)
   // `picks[qi]` is the set of chosen 0-based option indices; `custom[qi]` is the
@@ -51,6 +53,7 @@ export function AskQuestionCard({
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle')
   const [editing, setEditing] = useState<Record<number, boolean>>({})
   const band = presentation === 'band'
+  const asked = askedAt ?? item.ts
   const locked = !live || state === 'sending' || state === 'sent'
 
   const typed = (source: Record<number, string>, qi: number) => source[qi]?.trim() ?? ''
@@ -154,7 +157,12 @@ export function AskQuestionCard({
   if (questions.length === 0) {
     return (
       <View style={[styles.card, band && styles.band]}>
-        <Text style={styles.badge}>{band ? 'CLAUDE IS ASKING' : 'QUESTION FOR YOU'}</Text>
+        <View style={[styles.headerRow, band && styles.bandHeader]}>
+          {band ? <View style={styles.askDot} /> : null}
+          <Text style={styles.badge}>{band ? 'CLAUDE IS ASKING' : 'QUESTION FOR YOU'}</Text>
+          {band ? <View style={styles.askRule} /> : null}
+          {band ? <AskedAge at={asked} /> : null}
+        </View>
         <Text style={styles.question}>
           {item.toolInput || 'AskUserQuestion (unparseable input)'}
         </Text>
@@ -164,11 +172,14 @@ export function AskQuestionCard({
 
   return (
     <View style={[styles.card, band && styles.band]}>
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, band && styles.bandHeader]}>
+        {band ? <View style={styles.askDot} /> : null}
         <Text style={styles.badge}>{band ? 'CLAUDE IS ASKING' : 'QUESTION FOR YOU'}</Text>
+        {band ? <View style={styles.askRule} /> : null}
         {state === 'sending' ? <Text style={styles.meta}>sending…</Text> : null}
         {state === 'sent' ? <Text style={styles.meta}>answer sent</Text> : null}
         {state === 'failed' ? <Text style={styles.metaError}>not delivered — retry</Text> : null}
+        {band && state === 'idle' ? <AskedAge at={asked} /> : null}
       </View>
       {questions.map((q, qi) => (
         <View key={q.question} style={[styles.questionBlock, band && styles.questionBlockBand]}>
@@ -189,10 +200,17 @@ export function AskQuestionCard({
                     styles.option,
                     band && styles.optionBand,
                     highlighted && styles.optionPicked,
+                    band && oi === 0 && styles.optionBandPrimary,
                     pressed && !locked && styles.optionPressed,
                   ]}
                 >
-                  <Text style={[styles.optionLabel, highlighted && styles.optionLabelPicked]}>
+                  <Text
+                    style={[
+                      styles.optionLabel,
+                      highlighted && styles.optionLabelPicked,
+                      band && oi === 0 && styles.optionBandPrimaryText,
+                    ]}
+                  >
                     {opt.label}
                   </Text>
                   {opt.description && !band ? (
@@ -269,6 +287,22 @@ export function AskQuestionCard({
   )
 }
 
+function AskedAge({ at }: { at: string | undefined }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!at) return
+    const timer = setInterval(() => setNow(Date.now()), 20_000)
+    return () => clearInterval(timer)
+  }, [at])
+  if (!at) return null
+  const start = Date.parse(at)
+  if (!Number.isFinite(start)) return null
+  const minutes = Math.max(0, Math.floor((now - start) / 60_000))
+  const age =
+    minutes < 1 ? 'now' : minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`
+  return <Text style={styles.askedAge}>{`asked ${age}`}</Text>
+}
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#1c1817',
@@ -282,15 +316,32 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderLeftWidth: 0,
     borderRightWidth: 0,
-    backgroundColor: color.bar,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
+    backgroundColor: 'rgba(245, 197, 24, 0.05)',
+    paddingTop: 15,
+    paddingRight: 11,
+    paddingBottom: 15,
+    paddingLeft: 13,
     gap: space.sm,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  bandHeader: {
+    justifyContent: 'flex-start',
+    gap: 6,
+  },
+  askDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: color.needsYou,
+  },
+  askRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.needsYouBorder,
   },
   badge: {
     ...monoLabel(),
@@ -300,6 +351,11 @@ const styles = StyleSheet.create({
     ...sans(400),
     color: color.textDim,
     fontSize: font.tiny,
+  },
+  askedAge: {
+    ...mono(400),
+    color: color.textMicro,
+    fontSize: 11,
   },
   metaError: {
     ...sans(400),
@@ -327,7 +383,7 @@ const styles = StyleSheet.create({
   },
   optionsBand: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
   },
   option: {
     backgroundColor: color.surfaceHigh,
@@ -339,14 +395,24 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   optionBand: {
-    minHeight: 34,
+    flex: 1,
+    height: 38,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm,
+    paddingVertical: 0,
     borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionBandPrimary: {
+    borderColor: color.needsYou,
+    backgroundColor: color.needsYou,
+  },
+  optionBandPrimaryText: {
+    color: color.onAccent,
   },
   editAnswer: {
-    width: 34,
-    height: 34,
+    width: 44,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: color.surfaceHigh,

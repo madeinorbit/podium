@@ -133,6 +133,7 @@ export function MissionScreen() {
     () => issues.find((i) => i.id === current?.issueId) ?? root,
     [current?.issueId, issues, root],
   )
+  const headerIssue = currentIssue ?? root
 
   const progress = useMemo(
     () => missionProgress(issues, sessions, root?.id),
@@ -233,6 +234,13 @@ export function MissionScreen() {
         hint: 'The inspector sheet, without leaving the chat',
         onPress: () => setPeek(root),
       },
+      {
+        label: headerIssue?.pinned ? 'Unpin' : 'Pin',
+        onPress: () => {
+          if (!headerIssue) return
+          void store.updateIssue(headerIssue.id, { pinned: !headerIssue.pinned })
+        },
+      },
       { label: 'Launch an agent…', onPress: () => setLaunchOpen(true) },
       { label: 'Colour…', onPress: () => setColorOpen(true) },
       ...(current
@@ -249,10 +257,9 @@ export function MissionScreen() {
           ]
         : []),
     ]
-  }, [current, root, router])
+  }, [current, headerIssue, root, router, store])
 
   const resolved = root !== undefined || (!booting && issues.length > 0)
-  const headerIssue = currentIssue ?? root
   const currentKind = current ? issueAgentKind(current.agentKind) : null
   const currentModel = current?.observedModel ?? current?.model
   const provenance = current

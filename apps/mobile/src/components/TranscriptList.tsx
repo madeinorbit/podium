@@ -1,6 +1,7 @@
 import {
   type ChatBlock,
   failLine,
+  formatChurn,
   latestPendingQuestion,
   type ParsedEnvelope,
   resultPreview,
@@ -11,7 +12,7 @@ import {
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import { ChevronDown, ChevronUp, X } from 'lucide-react-native'
+import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react-native'
 import {
   type ReactElement,
   type ReactNode,
@@ -222,6 +223,7 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
 function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
   const [expanded, setExpanded] = useState(false)
   const failures = toolRunFailures(blocks)
+  const durationMs = blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0)
 
   return (
     <View style={styles.tools}>
@@ -232,13 +234,14 @@ function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
         onPress={() => setExpanded((value) => !value)}
         style={({ pressed }) => [styles.workLine, pressed && styles.workLinePressed]}
       >
-        <Text style={styles.workDisclosure}>{expanded ? '▾' : '▸'}</Text>
+        <Text style={[styles.workDisclosure, failures > 0 && styles.workDisclosureFailed]}>
+          {failures > 0 ? '✕' : '✓'}
+        </Text>
         <Text style={styles.workTitle} numberOfLines={1}>
           {toolBatchTitle(blocks)}
         </Text>
-        <Text style={[styles.workCount, failures > 0 && styles.workCountFailed]}>
-          {failures > 0 ? `${failures} failed` : `${blocks.length}`}
-        </Text>
+        <Text style={styles.workCount}>{formatChurn(durationMs)}</Text>
+        <Icon as={expanded ? ChevronDown : ChevronRight} size={14} color={color.textMicro} />
       </PressableScale>
       {expanded
         ? blocks.map((b) => {
@@ -808,10 +811,6 @@ export function TranscriptList({
           row.item.text,
           <View style={styles.userWrap}>
             <View style={styles.userCard}>
-              <View style={styles.userLabelRow}>
-                <Text style={styles.userLabel}>You</Text>
-                {time ? <Text style={styles.userTime}>{time}</Text> : null}
-              </View>
               <MessageText
                 text={row.item.text.trim()}
                 style={styles.userText}
@@ -819,6 +818,7 @@ export function TranscriptList({
               />
               <SharedFiles item={row.item} context={assetContext} showHeader={false} />
             </View>
+            {time ? <Text style={styles.userMetaOutside}>{time}</Text> : null}
           </View>,
         )
       }
@@ -830,12 +830,6 @@ export function TranscriptList({
             <View
               style={[styles.userCard, failed ? styles.userCardFailed : styles.userCardPending]}
             >
-              <View style={styles.userLabelRow}>
-                <Text style={styles.userLabel}>You</Text>
-                <Text style={[styles.userTime, failed && styles.userTimeFailed]}>
-                  {failed ? 'not sent' : 'sending…'}
-                </Text>
-              </View>
               <MessageText text={row.pendingText} style={styles.userText} onRefPress={onRefPress} />
               {/* The LOCAL preview, not the uploaded copy: those bytes are
                   already in hand, and fetching them back would show a grey chip
@@ -859,6 +853,9 @@ export function TranscriptList({
                 </>
               ) : null}
             </View>
+            <Text style={[styles.userMetaOutside, failed && styles.userTimeFailed]}>
+              {failed ? 'not sent' : 'sending…'}
+            </Text>
           </View>
         )
       }
@@ -1245,21 +1242,22 @@ const styles = StyleSheet.create({
   },
   // Operator turn — the ONLY elevated surface on the field.
   userWrap: {
+    alignItems: 'flex-end',
+    gap: 4,
     paddingVertical: space.xs,
     backgroundColor: color.engraved,
   },
   userCard: {
+    maxWidth: '80%',
     backgroundColor: color.surfaceHigh,
-    borderColor: color.borderStrong,
-    borderWidth: 1,
-    borderRadius: radius.lg - 1,
+    borderColor: color.border,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 5,
+    borderBottomLeftRadius: 14,
     paddingHorizontal: space.lg - 1,
     paddingVertical: space.sm + 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
   },
   userCardPending: {
     opacity: 0.7,
@@ -1292,18 +1290,9 @@ const styles = StyleSheet.create({
     color: color.danger,
     fontSize: font.tiny,
   },
-  userLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 3,
-  },
-  userLabel: {
-    ...monoLabel(),
-    color: color.info,
-  },
-  userTime: {
+  userMetaOutside: {
     ...mono(400),
-    marginLeft: 'auto',
+    paddingRight: 2,
     color: color.textMicro,
     fontSize: font.micro,
   },
@@ -1324,18 +1313,20 @@ const styles = StyleSheet.create({
     fontSize: font.body,
     lineHeight: leading(font.body, 'prose'),
   },
-  // Tool run — muted mono one-liners.
+  // Tool run — a surfaced 34px fold control; details stay quiet beneath it.
   tools: {
     gap: 4,
-    paddingLeft: 2,
   },
   workLine: {
-    minHeight: 30,
+    minHeight: 34,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: 3,
+    paddingHorizontal: space.md,
     borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    backgroundColor: color.surface,
   },
   workLinePressed: {
     backgroundColor: color.elevated,
@@ -1345,6 +1336,9 @@ const styles = StyleSheet.create({
     width: 12,
     color: color.textMicro,
     fontSize: font.tiny,
+  },
+  workDisclosureFailed: {
+    color: color.danger,
   },
   workTitle: {
     ...mono(500),
@@ -1356,9 +1350,6 @@ const styles = StyleSheet.create({
     ...mono(400),
     color: color.textMicro,
     fontSize: font.micro,
-  },
-  workCountFailed: {
-    color: color.danger,
   },
   trow: {
     flexDirection: 'row',
