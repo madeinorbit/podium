@@ -1910,6 +1910,7 @@ function DeckSection({
   label,
   count,
   tone,
+  className,
   testId,
   children,
 }: {
@@ -1918,6 +1919,8 @@ function DeckSection({
   count?: number
   /** Class for the label, when the region has a hue of its own (proposals). */
   tone?: string
+  /** Optional spacing override for a section that needs a stronger break. */
+  className?: string
   testId: string
   children: ReactNode
 }): JSX.Element {
@@ -1927,7 +1930,11 @@ function DeckSection({
     // tasks it was being offered against and its label rule started in the
     // rail's own gutter. Same left datum as a depth-1 strip, same right datum as
     // everything else in the column.
-    <section className="mt-2.5 pr-2" style={{ paddingLeft: GUTTER }} data-testid={testId}>
+    <section
+      className={cn('pr-2', className ?? 'mt-2.5')}
+      style={{ paddingLeft: GUTTER }}
+      data-testid={testId}
+    >
       <div className="flex items-center gap-2">
         <h3
           className={cn(
@@ -2027,6 +2034,7 @@ export function WhereTheWorkWent({
     <DeckSection
       label="Where the work went"
       count={departures.length + (continuation ? 1 : 0)}
+      className="mt-4"
       testId="flight-departures"
     >
       {continuation && (
