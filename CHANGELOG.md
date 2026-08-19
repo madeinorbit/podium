@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-edge.10] - 2026-08-19
+
+### Fixed
+
+- Detached and systemd headless installations now restart their daemon, server, and janitor into
+  the downloaded release instead of leaving an updated binary on disk with the machine stuck at
+  `Restarting…`.
+- Settings now shows the native desktop bundle's full release version, including its edge suffix,
+  so a successful desktop update no longer looks like the unchanged base version `0.1.0` or gets
+  offered again.
+
 ## [0.1.0-edge.9] - 2026-08-19
 
 ### Fixed

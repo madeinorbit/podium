@@ -370,7 +370,6 @@ const DESKTOP_PLATFORM: &str = "macos";
 const DESKTOP_PLATFORM: &str = "windows";
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 const DESKTOP_PLATFORM: &str = "linux";
-const DESKTOP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Eval a web-app menu hook if the page has registered it. Missing handlers are
 /// a no-op: setup/onboarding has nothing to spawn, and an empty workspace must
@@ -381,7 +380,11 @@ fn eval_menu_hook(app: &tauri::AppHandle, hook: &str) {
     }
 }
 
-fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
+fn native_desktop_hook(
+    launch_mode: &str,
+    machine_id: Option<&str>,
+    current_version: &str,
+) -> String {
     // [spec:SP-3701] The hosting toggle is exposed only in client mode — the one state where
     // this device is not already running a daemon. The command itself re-checks the mode.
     let enable_hosting = if launch_mode == "client" {
@@ -414,6 +417,8 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
         .unwrap_or_default();
     let launch_mode_literal =
         serde_json::to_string(launch_mode).unwrap_or_else(|_| "\"all-in-one\"".to_string());
+    let current_version_literal =
+        serde_json::to_string(current_version).unwrap_or_else(|_| "\"unknown\"".to_string());
     let launch_mode_expression = if matches!(launch_mode, "all-in-one" | "server") {
         format!(
             "((window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') ? {launch_mode_literal} : 'daemon')"
@@ -424,7 +429,7 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     format!(
         r#"window.__PODIUM_DESKTOP__ = Object.freeze({{
             platform: "{DESKTOP_PLATFORM}",
-            currentVersion: "{DESKTOP_VERSION}",
+            currentVersion: {current_version_literal},
             launchMode: {launch_mode_expression}{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
@@ -973,7 +978,16 @@ fn main() {
             let restart_hook = "window.__PODIUM_RESTART__ = () => \
                 window.__TAURI_INTERNALS__.invoke('plugin:process|restart');";
             let machine_id = bootstrap::read_daemon_machine_id();
-            let native_desktop_hook = native_desktop_hook(launch_mode_tag, machine_id.as_deref());
+            // `package_info` reads the version stamped into tauri.conf.json by
+            // stage-sidecar. Cargo.toml intentionally keeps the Rust crate at
+            // 0.1.0, so CARGO_PKG_VERSION would erase edge/stable prerelease
+            // detail and make a successful update look unchanged in Settings.
+            let desktop_version = app.package_info().version.to_string();
+            let native_desktop_hook = native_desktop_hook(
+                launch_mode_tag,
+                machine_id.as_deref(),
+                &desktop_version,
+            );
             // Panics from PREVIOUS runs, handed to the webview to post as crash
             // events (bootstrap::native_crash_report_script). Read here — once,
             // at window construction — because reading CLEARS the queue, and a
@@ -1337,11 +1351,17 @@ mod tests {
             .any(|permission| permission == "core:window:allow-internal-toggle-maximize"));
     }
 
+    const TEST_DESKTOP_VERSION: &str = "0.1.0-edge.9";
+
+    fn test_native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
+        native_desktop_hook(launch_mode, machine_id, TEST_DESKTOP_VERSION)
+    }
+
     #[test]
     fn native_hook_exposes_only_window_actions() {
-        let hook = native_desktop_hook("all-in-one", None);
+        let hook = test_native_desktop_hook("all-in-one", None);
         assert!(hook.contains(&format!("platform: \"{DESKTOP_PLATFORM}\"")));
-        assert!(hook.contains(&format!("currentVersion: \"{DESKTOP_VERSION}\"")));
+        assert!(hook.contains(&format!("currentVersion: \"{TEST_DESKTOP_VERSION}\"")));
         assert!(hook.contains("? \"all-in-one\" : 'daemon'"));
         assert!(hook.contains("plugin:window|minimize"));
         assert!(hook.contains("plugin:window|toggle_maximize"));
@@ -1355,7 +1375,7 @@ mod tests {
     #[test]
     fn native_hook_exposes_update_commands_in_every_launch_mode() {
         for mode in ["all-in-one", "server", "daemon", "client"] {
-            let hook = native_desktop_hook(mode, None);
+            let hook = test_native_desktop_hook(mode, None);
             assert!(hook.contains("claimUpdateOwnership"));
             assert!(hook.contains("checkUpdate: (channel)"));
             assert!(hook.contains("installUpdate: (channel)"));
@@ -1372,7 +1392,7 @@ mod tests {
         // decides when it needs it (it is same-origin with the server in the remote modes),
         // and it feature-detects, so a mode-dependent bridge would only create dead ends.
         for mode in ["all-in-one", "server", "daemon", "client"] {
-            let hook = native_desktop_hook(mode, None);
+            let hook = test_native_desktop_hook(mode, None);
             assert!(hook.contains("openExternal: (url) =>"));
             assert!(hook.contains("invoke('plugin:opener|open_url', { url })"));
         }
@@ -1384,7 +1404,7 @@ mod tests {
         // page's data-theme state; the page reports its resolved theme through this
         // method (null = follow the system). Present in every mode — feature-detected.
         for mode in ["all-in-one", "server", "daemon", "client"] {
-            let hook = native_desktop_hook(mode, None);
+            let hook = test_native_desktop_hook(mode, None);
             assert!(hook.contains("setTheme: (theme) =>"));
             assert!(hook.contains("invoke('plugin:window|set_theme', { label: 'main', value: theme })"));
         }
@@ -1393,29 +1413,29 @@ mod tests {
     #[test]
     fn native_hook_exposes_hosting_toggle_only_in_client_mode() {
         // [spec:SP-3701]
-        let client = native_desktop_hook("client", None);
+        let client = test_native_desktop_hook("client", None);
         assert!(client.contains("launchMode: \"client\""));
         assert!(client.contains("enableHosting: (pairCode) =>"));
         assert!(client.contains("invoke('enable_hosting', { pairCode })"));
         for mode in ["daemon", "server", "all-in-one"] {
-            assert!(!native_desktop_hook(mode, None).contains("enableHosting"));
+            assert!(!test_native_desktop_hook(mode, None).contains("enableHosting"));
         }
     }
 
     #[test]
     fn local_native_hook_reports_daemon_after_remote_retarget() {
         for mode in ["all-in-one", "server"] {
-            let hook = native_desktop_hook(mode, None);
+            let hook = test_native_desktop_hook(mode, None);
             assert!(hook.contains("window.location.protocol === 'tauri:'"));
             assert!(hook.contains(": 'daemon'"));
         }
-        assert!(native_desktop_hook("daemon", None).contains("launchMode: \"daemon\""));
+        assert!(test_native_desktop_hook("daemon", None).contains("launchMode: \"daemon\""));
     }
 
     #[test]
     fn native_hook_embeds_the_paired_machine_id_when_known() {
         // [spec:SP-3701] machineId lets the web UI mark "this machine" in the machines list.
-        let hook = native_desktop_hook("client", Some("m-abc"));
+        let hook = test_native_desktop_hook("client", Some("m-abc"));
         assert!(hook.contains("machineId: \"m-abc\""));
     }
 
