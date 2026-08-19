@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-edge.9] - 2026-08-19
+
+### Fixed
+
+- The native desktop can now host sessions on this device without its supervised daemon exiting
+  immediately and being restarted in a loop.
+- Fresh edge desktop installs now keep the bundled server, VPS onboarding commands, and joined
+  machines on the edge update channel from first launch.
+
 ## [0.1.0-edge.8] - 2026-08-19
 
 ### Fixed
@@ -79,4 +88,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the desktop webview is answered by the bundled UI instead of the server; it
   now asks the server directly, and a non-JSON answer fails closed with a
   clear message.
-
