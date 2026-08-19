@@ -78,7 +78,7 @@ function wheelUp(): void {
 }
 
 beforeEach(() => {
-  top = 4500 // the bottom: scrollHeight 5000, clientHeight 500
+  top = 0 // the bottom is the ORIGIN in column-reverse (round 8)
   held.pinnedToBottom.current = true
   held.scrollerRef.current = null
   vi.stubGlobal('requestAnimationFrame', () => 0)
@@ -103,11 +103,11 @@ beforeEach(() => {
     configurable: true,
     get: () => top,
     set: (v: number) => {
-      top = Math.max(0, Math.min(4500, v))
+      top = Math.max(-4500, Math.min(0, v))
     },
   })
   // Prime the direction tracker at the bottom.
-  scrolledTo(4500)
+  scrolledTo(0)
 })
 
 afterEach(() => {
@@ -122,7 +122,7 @@ afterEach(() => {
 describe('the end anchor follows intent', () => {
   it('starts granted and survives ordinary pinned traffic', () => {
     expect(granted()).toBe(true)
-    scrolledTo(4500)
+    scrolledTo(0)
     expect(granted()).toBe(true)
   })
 
@@ -141,15 +141,15 @@ describe('the end anchor follows intent', () => {
 
   it('stays revoked while the released reader moves up', () => {
     wheelUp()
-    scrolledTo(3000)
-    scrolledTo(2500)
+    scrolledTo(-1500)
+    scrolledTo(-2000)
     expect(granted()).toBe(false)
   })
 
   it('re-arms on downward movement, before arrival', () => {
     wheelUp()
-    scrolledTo(3000)
-    scrolledTo(3100)
+    scrolledTo(-1500)
+    scrolledTo(-1400)
     expect(granted()).toBe(true)
     // ...and being below the re-pin band, the reader is still not pinned.
     expect(held.pinnedToBottom.current).toBe(false)
@@ -160,8 +160,8 @@ describe('the end anchor follows intent', () => {
     // is indistinguishable from the engine snapping to a stale maximum, so a
     // single event is healed, and it is the second, moments later, that says
     // a human is pulling. Model the drag as it actually arrives: a stream.
-    scrolledTo(4300)
-    scrolledTo(4200)
+    scrolledTo(-200)
+    scrolledTo(-300)
     expect(held.pinnedToBottom.current).toBe(false)
     expect(granted()).toBe(false)
   })
@@ -174,10 +174,10 @@ describe('the end anchor follows intent', () => {
   // stale-clamp band keeps the grant; only travel clearly past it revokes.
   it('keeps the grant through a retraction inside the stale-clamp band', () => {
     wheelUp()
-    scrolledTo(3000)
-    scrolledTo(4400) // the reader wheels back down: re-armed
+    scrolledTo(-1500)
+    scrolledTo(-100) // the reader wheels back down: re-armed
     expect(granted()).toBe(true)
-    scrolledTo(4385) // the rubber band settles up onto the stale maximum
+    scrolledTo(-115) // the rubber band settles up onto the stale maximum
     expect(held.pinnedToBottom.current).toBe(false)
     expect(granted()).toBe(true)
   })
@@ -186,26 +186,26 @@ describe('the end anchor follows intent', () => {
     act(() => {
       scroller().dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true }))
     })
-    scrolledTo(3000) // a big clamp inside the same gesture raises no fresh intent
+    scrolledTo(-1500) // a big clamp inside the same gesture raises no fresh intent
     // Round 3 goes further than keeping the grant: an uninvited upward move
     // while pinned is the engine's, so the pin survives and the view is
     // healed straight back to the bottom the reader never asked to leave.
     expect(held.pinnedToBottom.current).toBe(true)
     expect(granted()).toBe(true)
-    expect(scroller().scrollTop).toBe(4500)
+    expect(scroller().scrollTop).toBe(0)
   })
 
   it('survives an upward CLAMP while pinned — the tail-unmount case', () => {
     // Content below the fold unmounts: the engine clamps the offset up a few
     // px, the gap stays inside the band, the pin holds — so must the grant.
-    scrolledTo(4461)
+    scrolledTo(-39)
     expect(held.pinnedToBottom.current).toBe(true)
     expect(granted()).toBe(true)
   })
 
   it('is granted back by a jump to the bottom', () => {
     wheelUp()
-    scrolledTo(3000)
+    scrolledTo(-1500)
     expect(granted()).toBe(false)
     act(() => api?.jumpToBottom())
     expect(granted()).toBe(true)
@@ -213,7 +213,7 @@ describe('the end anchor follows intent', () => {
 
   it('is granted back by a send', () => {
     wheelUp()
-    scrolledTo(3000)
+    scrolledTo(-1500)
     act(() => api?.pinToBottom())
     expect(granted()).toBe(true)
   })

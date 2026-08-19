@@ -289,20 +289,22 @@ describe('content that arrives after the rows', () => {
     })
   }
 
-  it('re-pins when an element mounts into the scroller between row commits', async () => {
+  it('corrects a shortfall when an element mounts between row commits', async () => {
     mount()
     const el = scroller()
     held.pinnedToBottom.current = true
     stubHeights(el, 1000)
-    el.scrollTop = 600 // the bottom of a 1000px document in a 400px viewport
+    // Column-reverse (round 8): the origin is the bottom. The engine left the
+    // pinned reader displaced 50px above it; the mount's observer pass is the
+    // moment the shortfall gets corrected.
+    el.scrollTop = -50
 
-    // The tail arrives on an activity commit: taller document, no row change.
     const tail = document.createElement('div')
     stubHeights(el, 1050)
     el.appendChild(tail)
     await settle()
 
-    expect(el.scrollTop).toBe(1050)
+    expect(el.scrollTop).toBe(0)
   })
 
   it('leaves a reader who scrolled up exactly where they were', async () => {
@@ -311,35 +313,34 @@ describe('content that arrives after the rows', () => {
     // The pin is what gates this, and a reader who scrolled up has dropped it.
     held.pinnedToBottom.current = false
     stubHeights(el, 1000)
-    el.scrollTop = 200
+    el.scrollTop = -400
 
     stubHeights(el, 1050)
     el.appendChild(document.createElement('div'))
     await settle()
 
-    expect(el.scrollTop).toBe(200)
+    expect(el.scrollTop).toBe(-400)
   })
 
-  it('leaves the engine\'s own clamp alone when that element goes away again', async () => {
+  it('writes nothing when that element goes away again', async () => {
     mount()
     const el = scroller()
     held.pinnedToBottom.current = true
     const tail = document.createElement('div')
+    el.scrollTop = -50
     stubHeights(el, 1050)
     el.appendChild(tail)
     await settle()
-    expect(el.scrollTop).toBe(1050)
+    expect(el.scrollTop).toBe(0)
 
-    // On unmount the ENGINE clamps the offset to the new maximum itself
-    // (jsdom does not, so the clamp is played by hand). Round 5: the app
-    // writes nothing on top of it — a reader at the bottom is not written to,
-    // because in the Safari 26.4 wedge our own re-assertion was the jump.
+    // Column-reverse (round 8): content leaving below the fold does not move
+    // a reader resting at the origin — and a reader at the bottom is never
+    // written to (round 5), so the unmount's observer pass is a no-op.
     stubHeights(el, 1000)
     tail.remove()
-    el.scrollTop = 600
     await settle()
 
-    expect(el.scrollTop).toBe(600)
+    expect(el.scrollTop).toBe(0)
   })
 })
 
@@ -401,7 +402,7 @@ describe('the pin lets go on intent', () => {
     await settle()
     // 30px from the end: inside the 80px band that used to re-pin, and the whole
     // of the trap. The reader asked to leave and has not arrived back.
-    el.scrollTop = 570
+    el.scrollTop = -30
     act(() => api?.onScroll())
     expect(held.pinnedToBottom.current).toBe(false)
   })
@@ -413,7 +414,7 @@ describe('the pin lets go on intent', () => {
     held.pinnedToBottom.current = true
     wheel(el, -120)
     await settle()
-    el.scrollTop = 600
+    el.scrollTop = 0
     act(() => api?.onScroll())
     expect(held.pinnedToBottom.current).toBe(true)
   })

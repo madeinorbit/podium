@@ -47,10 +47,12 @@ let root: Root
 let api: UseTranscriptScrollResult | null = null
 let clock = 1000
 
-/** The DOM's truth: scrollHeight 5000, clientHeight 500 — true bottom at 4500. */
-const TRUE_MAX = 4500
-/** What the engine will actually scroll to until its geometry is refreshed. */
-let engineMax = 4385 // 115px short, as measured
+/** COLUMN-REVERSE (round 8): scrollTop is 0 at the bottom and negative above
+ *  it. The bottom is the origin — TRUE_MAX keeps its historical name. */
+const TRUE_MAX = 0
+/** The stale ceiling the engine clamps writes to until its geometry is
+ *  refreshed: 115px above the origin, as measured. 0 when healthy. */
+let engineMax = -115
 let top = 0
 /** Every value the app wrote to scrollTop, in order. */
 let writes: number[] = []
@@ -97,7 +99,7 @@ function wheel(deltaY: number, ms = 150): void {
 
 beforeEach(() => {
   clock = 1000
-  engineMax = 4385
+  engineMax = -115
   top = engineMax
   heals = 0
   writes = []
@@ -138,9 +140,9 @@ beforeEach(() => {
     get: () => top,
     set: (v: number) => {
       writes.push(Math.round(v))
-      // Safari 26.4, as caught live: a write past the stale maximum is not
-      // refused, it SETS the position to that maximum — even from below it.
-      top = Math.max(0, Math.min(engineMax, v))
+      // Safari 26.4, as caught live: a write past the stale ceiling is not
+      // refused, it SETS the position to that ceiling — even from below it.
+      top = Math.max(-4500, Math.min(engineMax, v))
     },
   })
   // The stale engine heals on a REAL invalidation only: a forced layout while
@@ -149,8 +151,8 @@ beforeEach(() => {
     configurable: true,
     get: () => {
       if (el.style.paddingBottom !== '') {
-        // A real geometry pass re-commits the maximum for the CURRENT content.
-        engineMax = el.scrollHeight - 500
+        // A real geometry pass re-commits the ceiling: healthy is the origin.
+        engineMax = 0
         heals++
       }
       return 500
@@ -200,7 +202,7 @@ describe('a bottom write that comes up short heals the geometry', () => {
 
   it('heals a jump to the bottom the same way', () => {
     held.pinnedToBottom.current = false
-    top = 2000
+    top = -2500
     act(() => api?.jumpToBottom())
     expect(scroller().scrollTop).toBe(TRUE_MAX)
   })
@@ -230,7 +232,7 @@ describe('pushing down against a frozen offset is arriving', () => {
 
   it('does not mistake a moving reader for a stuck one', () => {
     held.pinnedToBottom.current = false
-    top = 3000
+    top = -1500
     wheel(120)
     top = 3040 // the notch scrolled: that is following, not arriving
     wheel(120)
@@ -241,7 +243,7 @@ describe('pushing down against a frozen offset is arriving', () => {
     // Two notches inside the same frame read the same offset because the
     // engine has not APPLIED the first yet, not because it refused it.
     held.pinnedToBottom.current = false
-    top = 3000
+    top = -1500
     wheel(120)
     wheel(120, 16)
     expect(held.pinnedToBottom.current).toBe(false)
@@ -332,63 +334,36 @@ describe('the yank is the proof', () => {
 
   it('births a new element on the second same-spot yank', () => {
     pinAtBottom()
-    yank(4385) // first: healed and written back, as round 4 does
+    yank(-115) // first: healed and written back, as round 4 does
     expect(api?.scrollerEpoch).toBe(0)
     expect(scroller().scrollTop).toBe(TRUE_MAX)
-    yank(4385) // the same pixel again, uninvited: the node confessed
+    yank(-115) // the same pixel again, uninvited: the node confessed
     expect(api?.scrollerEpoch).toBe(1)
     expect(held.pinnedToBottom.current).toBe(true)
   })
 
   it('does not mistake a progressing hand for the node', () => {
     pinAtBottom()
-    yank(4300)
-    yank(4200, 50) // a different spot moments later: a drag — concede, no birth
+    yank(-200)
+    yank(-300, 50) // a different spot moments later: a drag — concede, no birth
     expect(api?.scrollerEpoch).toBe(0)
-    expect(held.pinnedToBottom.current).toBe(false)
-  })
-
-  it('births a fresh element when the pane is activated in a wedgable engine', () => {
-    vi.stubGlobal('CSS', { supports: () => false }) // no overflow-anchor: WebKit
-    act(() => root.render(<Harness active={false} />))
-    expect(api?.scrollerEpoch).toBe(0)
-    act(() => root.render(<Harness active={true} />))
-    expect(api?.scrollerEpoch).toBe(1)
-  })
-
-  it('never churns elements in an engine that does not wedge', () => {
-    vi.stubGlobal('CSS', { supports: () => true }) // anchoring engine: healthy
-    act(() => root.render(<Harness active={false} />))
-    act(() => root.render(<Harness active={true} />))
-    expect(api?.scrollerEpoch).toBe(0)
-  })
-
-  it('carries an unpinned reader to their old position, not to the bottom', () => {
-    vi.stubGlobal('CSS', { supports: () => false })
-    held.pinnedToBottom.current = false
-    top = 300
-    act(() => api?.onScroll())
-    act(() => root.render(<Harness active={false} />))
-    act(() => root.render(<Harness active={true} />))
-    expect(api?.scrollerEpoch).toBe(1)
-    expect(scroller().scrollTop).toBe(300)
     expect(held.pinnedToBottom.current).toBe(false)
   })
 
   it('stops birthing when rebirth itself is not curing anything', () => {
     pinAtBottom()
-    yank(4385)
-    yank(4385)
+    yank(-115)
+    yank(-115)
     expect(api?.scrollerEpoch).toBe(1)
     // The harness never actually replaces the element, so the "new" element
     // is the same wedged one: the next proven yank pair births once more...
-    yank(4385)
-    yank(4385)
+    yank(-115)
+    yank(-115)
     expect(api?.scrollerEpoch).toBeLessThanOrEqual(2)
     // ...and past the cap the feed parks rather than cycling forever.
-    yank(4385)
-    yank(4385)
-    yank(4385)
+    yank(-115)
+    yank(-115)
+    yank(-115)
     expect(api?.scrollerEpoch).toBeLessThanOrEqual(2)
   })
 })
@@ -422,7 +397,7 @@ describe('a bottom-writer first does no harm', () => {
   }
 
   it('writes nothing at all for a reader already at the bottom', () => {
-    engineMax = TRUE_MAX
+    engineMax = 0
     top = TRUE_MAX
     act(() => api?.onScroll())
     const before = writes.length
@@ -432,38 +407,39 @@ describe('a bottom-writer first does no harm', () => {
   })
 
   it('never yanks a reader the engine let past its own stale write-clamp', () => {
-    // The wedge: the reader REACHED the true bottom by gesture (user input
-    // scrolls against the real maximum), the write-clamp is stale below
-    // them, and content grows. One write teleports them up — the poison is
-    // permitted once, recorded, and then the writers go silent.
+    // The wedge, in origin coordinates: the reader is slightly displaced
+    // above the origin (a partial engine move), the write-ceiling is stale
+    // further up, and a writer fires. One write teleports them up to the
+    // ceiling — the poison is permitted once, recorded — and after they
+    // climb back down past it by hand, the writers go SILENT: any write from
+    // beyond the ceiling can only teleport them back to it.
     top = TRUE_MAX
     act(() => api?.onScroll())
-    Object.defineProperty(scroller(), 'scrollHeight', { value: 5100, configurable: true })
-    ro() // gap 100: a write is due, lands at the stale clamp — recorded
-    expect(scroller().scrollTop).toBe(4385)
-    top = 4600 // the reader climbs back down by hand, past the stale clamp
+    top = -60 // the engine's silent partial displacement
+    ro() // gap 60: a write is due, lands at the stale ceiling — recorded
+    expect(scroller().scrollTop).toBe(-115)
+    top = -50 // the reader climbs back down by hand, past the stale ceiling
     act(() => api?.onScroll())
-    Object.defineProperty(scroller(), 'scrollHeight', { value: 5200, configurable: true })
     const before = writes.length
-    ro() // more growth: a write is due, and would teleport — SILENCE instead
+    ro() // a write is due again, and would teleport — SILENCE instead
     expect(writes.length).toBe(before)
-    expect(scroller().scrollTop).toBe(4600)
+    expect(scroller().scrollTop).toBe(-50)
   })
 
   it('keeps retrying from the parked spot and forgets the record when one lands', () => {
     top = TRUE_MAX
     act(() => api?.onScroll())
-    Object.defineProperty(scroller(), 'scrollHeight', { value: 5100, configurable: true })
-    ro() // poisoned once: parked at 4385, stale max recorded
-    expect(scroller().scrollTop).toBe(4385)
+    top = -60 // displaced silently
+    ro() // poisoned once: parked at the -115 ceiling, record taken
+    expect(scroller().scrollTop).toBe(-115)
     ro() // parked retries are harmless, and the heal runs with them...
-    // ...and the heal fixed the engine (the harness heals engineMax on a real
-    // geometry pass), so the retry landed, the record is forgotten, and the
-    // NEXT growth is followed normally.
-    expect(scroller().scrollTop).toBe(5100 - 500)
-    Object.defineProperty(scroller(), 'scrollHeight', { value: 5150, configurable: true })
+    // ...and the heal fixed the engine (the harness heals the ceiling on a
+    // real geometry pass), so the retry landed at the origin, the record is
+    // forgotten, and the NEXT displacement is corrected normally.
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
+    top = -30 // displaced silently again
     ro()
-    expect(scroller().scrollTop).toBe(5150 - 500)
+    expect(scroller().scrollTop).toBe(TRUE_MAX)
   })
 })
 
@@ -551,7 +527,7 @@ describe('the engine reverting our own write is not a drag', () => {
   /** This mode ACCEPTS writes — the stale clamp lives on the compositor, so
    *  the test lets `scrollTop` land and plays the engine's revert by hand. */
   function acceptWrites(): void {
-    engineMax = TRUE_MAX
+    engineMax = 0
   }
 
   function pinAtBottom(): void {
@@ -572,12 +548,12 @@ describe('the engine reverting our own write is not a drag', () => {
     pinAtBottom()
     act(() => api?.jumpToBottom())
     expect(scroller().scrollTop).toBe(TRUE_MAX)
-    revertTo(4385) // 16ms later: inside round 3's concede window, deliberately
+    revertTo(-115) // 16ms later: inside round 3's concede window, deliberately
     expect(held.pinnedToBottom.current).toBe(true)
     expect(scroller().scrollTop).toBe(TRUE_MAX)
     // The second same-spot revert no longer buys another write: it is the
     // yank-proof (round 7), and the answer is rebirth — pin held, fight over.
-    revertTo(4385, 50)
+    revertTo(-115, 50)
     expect(held.pinnedToBottom.current).toBe(true)
     expect(api?.scrollerEpoch).toBe(1)
   })
@@ -587,7 +563,7 @@ describe('the engine reverting our own write is not a drag', () => {
     pinAtBottom()
     act(() => api?.jumpToBottom())
     expect(heals).toBe(0) // the blind spot: sync read-back said gap 0
-    revertTo(4385)
+    revertTo(-115)
     expect(heals).toBeGreaterThan(0)
   })
 
@@ -595,22 +571,22 @@ describe('the engine reverting our own write is not a drag', () => {
     acceptWrites()
     pinAtBottom()
     act(() => api?.jumpToBottom())
-    for (let i = 0; i < 12; i++) revertTo(4385, 30)
+    for (let i = 0; i < 12; i++) revertTo(-115, 30)
     // The cap: a wedged engine wins the position, but the feed PARKS — pill
     // on, latch set — rather than writing forever.
     expect(held.pinnedToBottom.current).toBe(false)
-    expect(scroller().scrollTop).toBe(4385)
+    expect(scroller().scrollTop).toBe(-115)
   })
 
   it('still concedes to a hand that PROGRESSES, write or no write', () => {
     acceptWrites()
     pinAtBottom()
     clock += 1000
-    revertTo(4300, 0) // first uninvited move: healed once, as in round 3
+    revertTo(-200, 0) // first uninvited move: healed once, as in round 3
     expect(held.pinnedToBottom.current).toBe(true)
-    revertTo(4200, 50) // a different spot moments later: a hand, let go
+    revertTo(-300, 50) // a different spot moments later: a hand, let go
     expect(held.pinnedToBottom.current).toBe(false)
-    expect(scroller().scrollTop).toBe(4200)
+    expect(scroller().scrollTop).toBe(-300)
   })
 })
 
@@ -632,7 +608,7 @@ describe("an uninvited upward move while pinned is the engine's", () => {
   })
 
   it('survives however large the staleness is', () => {
-    engineMax = 3714 // a 786px late row: the staleness is the row, not a band
+    engineMax = -786 // a 786px late row: the staleness is the row, not a band
     restAtBottomThenSnap()
     expect(held.pinnedToBottom.current).toBe(true)
     expect(scroller().scrollTop).toBe(TRUE_MAX)
@@ -641,12 +617,12 @@ describe("an uninvited upward move while pinned is the engine's", () => {
   it('concedes to a SECOND uninvited move inside the window — that is a drag', () => {
     restAtBottomThenSnap()
     clock += 100
-    top = 4300 // still moving up 100ms later: a held thumb, not a settle
+    top = -200 // still moving up 100ms later: a held thumb, not a settle
     act(() => api?.onScroll())
     expect(held.pinnedToBottom.current).toBe(false)
-    expect(scroller().scrollTop).toBe(4300)
+    expect(scroller().scrollTop).toBe(-200)
     // ...and the concession latches like any leave: near the end is not back.
-    top = 4460
+    top = -40
     act(() => api?.onScroll())
     expect(held.pinnedToBottom.current).toBe(false)
   })
@@ -667,10 +643,10 @@ describe("an uninvited upward move while pinned is the engine's", () => {
       scroller().dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
     })
     expect(held.pinnedToBottom.current).toBe(false)
-    top = 3600
+    top = -900
     act(() => api?.onScroll())
     expect(held.pinnedToBottom.current).toBe(false)
-    expect(scroller().scrollTop).toBe(3600)
+    expect(scroller().scrollTop).toBe(-900)
   })
 
   it('is released deliberately by the search jump before it navigates', () => {
@@ -683,9 +659,9 @@ describe("an uninvited upward move while pinned is the engine's", () => {
     act(() => api?.scrollToBlock(7))
     expect(held.pinnedToBottom.current).toBe(false)
     // The navigation's own upward motion is then the reader's, not healed.
-    top = 2000
+    top = -2500
     act(() => api?.onScroll())
-    expect(scroller().scrollTop).toBe(2000)
+    expect(scroller().scrollTop).toBe(-2500)
   })
 })
 

@@ -182,8 +182,28 @@ const settling = new WeakMap<HTMLElement, number>()
  * and paid for only when a write has demonstrably fallen short, so the
  * streaming hot path (where writes land) never sees the extra layout.
  */
+/**
+ * COLUMN-REVERSE GEOMETRY (round 8). The scroller lays its single
+ * `.feed-column` item out at its bottom edge: `scrollTop` is 0 at the bottom
+ * and runs NEGATIVE as the reader moves up through history. The bottom gap is
+ * therefore simply `-scrollTop` — no scrollHeight arithmetic for a stale
+ * engine extent to poison — and "write the bottom" writes the ORIGIN, the one
+ * coordinate even Safari 26.4's frozen scrolling node agrees about. Following
+ * a growing transcript needs no writes at all: the engine holds the origin
+ * natively (validated with a static probe in the operator's own Safari before
+ * this landed). The wedge machinery below survives as a belt for whatever
+ * Safari does next; under this geometry it should never fire.
+ */
+function bottomGap(el: HTMLElement): number {
+  return -el.scrollTop
+}
+/** Distance still scrollable ABOVE the viewport — the older-page trigger. */
+function topGap(el: HTMLElement): number {
+  return el.scrollHeight - el.clientHeight + el.scrollTop
+}
+
 function writeBottom(el: HTMLElement, onWedged?: () => void): void {
-  const gap = (): number => el.scrollHeight - el.scrollTop - el.clientHeight
+  const gap = (): number => bottomGap(el)
   // AT THE BOTTOM, WRITE NOTHING (round 5, the trace that ended the hunt).
   // Caught live: the operator held the true bottom by hand for three quiet
   // seconds — until six of our own bottom writes fired and the position was
@@ -199,7 +219,7 @@ function writeBottom(el: HTMLElement, onWedged?: () => void): void {
   // ...and beyond a recorded stale clamp, SILENCE: any write from up there
   // can only teleport the reader back to it. Recovery happens from parked.
   if (stale !== undefined && before > stale + 4) return
-  el.scrollTop = el.scrollHeight
+  el.scrollTop = 0
   lastBottomWriteAt.set(el, performance.now())
   if (el.scrollTop < before - 1) {
     // The write moved the reader UP: that is the poison, once — remember the
@@ -214,7 +234,7 @@ function writeBottom(el: HTMLElement, onWedged?: () => void): void {
   }
   healGeometry(el)
   const beforeRetry = el.scrollTop
-  el.scrollTop = el.scrollHeight
+  el.scrollTop = 0
   lastBottomWriteAt.set(el, performance.now())
   if (el.scrollTop < beforeRetry - 1) {
     knownStaleWriteMax.set(el, el.scrollTop)
@@ -289,18 +309,18 @@ const lastBottomWriteAt = new WeakMap<HTMLElement, number>()
  *  read-back that would trigger `writeBottom`'s conditional heal is exactly
  *  what the engine defeats. */
 function forceBottom(el: HTMLElement, onWedged?: () => void): void {
-  if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) return
+  if (bottomGap(el) <= 4) return
   const stale = knownStaleWriteMax.get(el)
   const before = el.scrollTop
   if (stale !== undefined && before > stale + 4) return
   healGeometry(el)
-  el.scrollTop = el.scrollHeight
+  el.scrollTop = 0
   lastBottomWriteAt.set(el, performance.now())
   if (el.scrollTop < before - 1) {
     knownStaleWriteMax.set(el, el.scrollTop)
     return
   }
-  if (el.scrollHeight - el.scrollTop - el.clientHeight <= 4) {
+  if (bottomGap(el) <= 4) {
     knownStaleWriteMax.delete(el)
     healFailures.delete(el)
     return
@@ -470,9 +490,6 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
    *  own write is the compositor, however many arrive — a hand progresses. */
   const lastRevertTop = useRef<number | null>(null)
   const revertFights = useRef(0)
-  /** The previous `active` value — activation rebirth fires on the false→true
-   *  transition only, never on mount (a mounting pane is already fresh). */
-  const prevActive = useRef(active)
   /**
    * The ELEMENT currently on the shelf, not its index.
    *
@@ -624,22 +641,11 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     }
   }, [scrollerEpoch])
 
-  // A FRESH ELEMENT ON EVERY ACTIVATION (round 7), in the engine that wedges.
-  // The frozen snapshot the node restores to IS open/hidden-time state — the
-  // panes that "open already sitting at the wrong position" were wedged
-  // before the reader ever touched them, by content that streamed in while
-  // the deck held them hidden. A pane becoming visible therefore starts on a
-  // fresh element, whose node is built from current layout. Only where the
-  // defect lives: engines with scroll anchoring (its feature-scent) have
-  // never wedged, and get no churn.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fires on the activation transition only
-  useEffect(() => {
-    const was = prevActive.current
-    prevActive.current = active
-    if (!active || was) return
-    if (!wedgableEngine()) return
-    onWedged()
-  }, [active])
+  // Round 7's fresh-element-on-activation is retired (round 8): under
+  // column-reverse a pane opens resting at the origin — the bottom — with no
+  // write and no node state to go stale, so churning elements on every
+  // switch would be pure cost. The yank-proof rebirth below survives as the
+  // belt for whatever Safari does next.
 
   // Scroll-anchor for prepends: after older blocks are inserted at the top (window
   // widened or a disk page prepended), the content the user was reading shifts down
@@ -648,15 +654,14 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   // unless a prepend captured an anchor. Runs before the bottom-snap effect below,
   // and that effect is gated on pinnedToBottom (false while scrolled up), so the two
   // never fight.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-anchor when the top of the list changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: consume the anchor when the top of the list changes
   useLayoutEffect(() => {
-    const anchor = prependAnchor.current
-    if (!anchor) return
-    prependAnchor.current = null
-    const el = scrollerRef.current
-    if (!el) return
-    const delta = el.scrollHeight - anchor.scrollHeight
-    if (delta !== 0) el.scrollTop = anchor.scrollTop + delta
+    // COLUMN-REVERSE RETIRES THE COMPENSATION (round 8): scroll offsets are
+    // measured from the BOTTOM now, so content inserted above the viewport
+    // changes nothing about where the reader is — the engine's own geometry
+    // keeps them still. The anchor is still consumed so the paging path's
+    // bookkeeping stays truthful.
+    if (prependAnchor.current) prependAnchor.current = null
   }, [blockCount, renderStart])
 
   // Initial-load snap: the growth effect above can fire before markdown/code
@@ -937,7 +942,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   const onScroll = useCallback(() => {
     const el = scrollerRef.current
     if (!el) return
-    const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+    const gap = bottomGap(el)
     const near = gap < 80
     // DOWNWARD MOVEMENT RE-ARMS THE ENGINE'S END ANCHOR, before arrival
     // (POD-1160). Two reasons it cannot wait for the bottom: an eligible
@@ -1053,7 +1058,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     setAtBottom(near)
     syncStickyPromptPositions()
     // Near the TOP and more exists above → reveal/fetch older content.
-    if (el.scrollTop < 200 && moreAbove) loadOlder()
+    if (topGap(el) < 200 && moreAbove) loadOlder()
   }, [scrollerRef, pinnedToBottom, syncStickyPromptPositions, moreAbove, loadOlder, onWedged])
 
   /** Follow an arriving row's own growth for `ms`, as the only writer. Does

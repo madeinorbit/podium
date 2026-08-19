@@ -122,7 +122,11 @@ export function Minimap({
 
     const measure = () => {
       const total = el.scrollHeight || 1
-      setViewport({ top: el.scrollTop / total, height: el.clientHeight / total })
+      // The feed scrolls in column-reverse coordinates (round 8): scrollTop is
+      // 0 at the bottom and negative above it. The minimap thinks in
+      // distance-from-the-top-of-content, so rebase.
+      const fromTop = el.scrollHeight - el.clientHeight + el.scrollTop
+      setViewport({ top: fromTop / total, height: el.clientHeight / total })
       // The rendered [data-block] indices are ABSOLUTE into the full row list
       // (renderStart + ri) so scroll-to-match can target a row by its absolute
       // index. The minimap only sees the windowed `rows` (0-based), so rebase the
@@ -188,7 +192,9 @@ export function Minimap({
     const f = ratioAt(clientY)
     if (!el || f === null) return
     const max = Math.max(0, el.scrollHeight - el.clientHeight)
-    el.scrollTop = Math.max(0, Math.min(max, f * el.scrollHeight - el.clientHeight / 2))
+    const fromTop = Math.max(0, Math.min(max, f * el.scrollHeight - el.clientHeight / 2))
+    // Back into column-reverse coordinates: 0 at the bottom, negative above.
+    el.scrollTop = fromTop - max
   }
 
   // Which band is under the pointer. Ticks are laid out in the same ratio space,

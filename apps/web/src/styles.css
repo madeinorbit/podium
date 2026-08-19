@@ -5716,10 +5716,10 @@ html[data-density="compact"] .brief-shelf {
    in an anchoring engine the style flip refreshes the stale maximum on its
    own; in release Safari it does nothing, which is why a write that falls
    short heals the geometry itself with one frame of real padding. */
-[data-feed-scroller] > * {
+[data-feed-scroller] .feed-column > * {
   overflow-anchor: none;
 }
-[data-feed-scroller][data-anchor-end] > :last-child {
+[data-feed-scroller][data-anchor-end] .feed-column > :last-child {
   overflow-anchor: auto;
 }
 

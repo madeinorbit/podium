@@ -115,7 +115,10 @@ beforeEach(() => {
   Object.defineProperty(el, 'clientHeight', { value: 500, configurable: true })
   Object.defineProperty(el, 'scrollTop', {
     configurable: true,
-    get: () => writes[writes.length - 1] ?? 0,
+    // Column-reverse (round 8): 0 is the bottom. Start displaced 500px above
+    // it so the first deliberate write has something to do; clearing `writes`
+    // re-displaces, which is what the later tests lean on.
+    get: () => writes[writes.length - 1] ?? -500,
     set: (v: number) => {
       writes.push(v)
     },
@@ -155,11 +158,11 @@ describe('the arrival claims the scroll', () => {
     // still owns the scroll; it simply has nothing to write until the row's
     // growth moves the bottom (covered in the stale-max suite).
     act(() => api?.claimScrollForArrival(260))
-    expect(writes).toEqual([5000])
+    expect(writes).toEqual([0])
     tick()
-    expect(writes).toEqual([5000])
+    expect(writes).toEqual([0])
     tick()
-    expect(writes).toEqual([5000])
+    expect(writes).toEqual([0])
   })
 
   it('lets the observers write again once the claim expires', () => {
@@ -168,7 +171,7 @@ describe('the arrival claims the scroll', () => {
     tick(40) // past the deadline: the loop sees it is over and stops
     writes = []
     observerCallback()
-    expect(writes).toEqual([5000])
+    expect(writes).toEqual([0])
   })
 
   it('does not claim at all for a reader who has scrolled away', () => {
@@ -197,6 +200,6 @@ describe('the arrival claims the scroll', () => {
     act(() => api?.claimScrollForArrival(260))
     expect(writes).toEqual([])
     tick()
-    expect(writes).toEqual([5000])
+    expect(writes).toEqual([0])
   })
 })

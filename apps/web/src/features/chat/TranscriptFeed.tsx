@@ -433,7 +433,16 @@ export function TranscriptFeed({
       // rules in styles.css (POD-1160) for why eligibility must follow intent.
       data-anchor-end=""
       className={cn(
-        'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
+        // COLUMN-REVERSE (round 8): the scroller's resting origin IS the bottom.
+        // Following a streaming transcript needs zero scroll writes — content
+        // growth pushes history upward while the reader rests at origin — so
+        // Safari 26.4's frozen scrolling node (which restores its remembered
+        // origin after every commit) restores... the bottom. The rows keep
+        // their normal top-to-bottom DOM order inside the single .feed-column
+        // wrapper below, so selection, find and screen-reader order are
+        // untouched. Validated in the operator's own Safari with a static
+        // probe before this landed.
+        'flex min-w-0 flex-1 flex-col-reverse gap-0 overflow-x-clip overflow-y-auto',
         // NO `overflow-anchor: none` HERE, AND THAT IS THE WHOLE SAFARI BUG.
         //
         // Round 3 turned the browser's scroll anchoring off on this scroller, on
@@ -493,6 +502,11 @@ export function TranscriptFeed({
       ref={scrollerRef}
       onScroll={onScroll}
     >
+      {/* The single flex item the reversed scroller lays out at its bottom
+          edge. Inside it everything is a normal column in normal DOM order —
+          see the class note above. `min-h-full` keeps the auto-margin spacer
+          working for short conversations. */}
+      <div className="feed-column flex min-h-full min-w-0 flex-col">
       {/* A short conversation sits ON the composer instead of stranded at the
           top of an empty scrollport. An auto-margin spacer rather than
           `justify-end`, which makes overflow past the START edge unreachable in
@@ -842,6 +856,7 @@ export function TranscriptFeed({
               lastRow={tailLastRow}
             />
           )}
+      </div>
       </div>
     </div>
   )
