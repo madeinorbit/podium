@@ -51,6 +51,7 @@
         "@podium/protocol": "workspace:*",
         "@podium/pty": "workspace:*",
         "@podium/runtime": "workspace:*",
+        "@podium/sync": "workspace:*",
         "@podium/transcript": "workspace:*",
         "@xterm/headless": "^5.5.0",
         "ws": "^8.18.0",
@@ -466,7 +467,6 @@
       "dependencies": {
         "@podium/client-core": "workspace:*",
         "@podium/commands": "workspace:*",
-        "@podium/daemon": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/issue-client": "workspace:*",
         "@podium/model": "workspace:*",
@@ -475,6 +475,7 @@
         "@podium/runtime": "workspace:*",
         "@podium/server": "workspace:*",
         "@podium/sync": "workspace:*",
+        "@podium/terminal-client": "workspace:*",
         "@podium/transcript": "workspace:*",
       },
       "devDependencies": {
@@ -494,14 +495,25 @@
         "typescript": "^6.0.3",
       },
     },
+    "tests/acceptance": {
+      "name": "@podium/acceptance",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/client-core": "workspace:*",
+        "@podium/model": "workspace:*",
+        "@podium/runtime": "workspace:*",
+      },
+    },
     "tests/e2e": {
       "name": "@podium/e2e",
       "version": "0.0.0",
       "dependencies": {
         "@podium/client-core": "workspace:*",
         "@podium/harness": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/pty": "workspace:*",
+        "@podium/runtime": "workspace:*",
         "@podium/sync": "workspace:*",
         "@podium/terminal-client": "workspace:*",
         "@trpc/client": "^11.0.0",
@@ -1157,6 +1169,8 @@
     "@oxc-project/types": ["@oxc-project/types@0.133.0", "", {}, "sha512-KzkdCd6Uxqnf6l3HOw1xfatAlUURA0g14cvBYFyJ5SaNOQbOUvBr9PKArcPcrNIeRsBdgcUzOGrhKveVpvOIGA=="],
 
     "@playwright/test": ["@playwright/test@1.60.0", "", { "dependencies": { "playwright": "1.60.0" }, "bin": { "playwright": "cli.js" } }, "sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag=="],
+
+    "@podium/acceptance": ["@podium/acceptance@workspace:tests/acceptance"],
 
     "@podium/cli": ["@podium/cli@workspace:apps/cli"],
 

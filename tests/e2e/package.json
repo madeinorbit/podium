@@ -6,8 +6,10 @@
   "dependencies": {
     "@podium/client-core": "workspace:*",
     "@podium/harness": "workspace:*",
+    "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/pty": "workspace:*",
+    "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
     "@podium/terminal-client": "workspace:*",
     "@trpc/client": "^11.0.0",

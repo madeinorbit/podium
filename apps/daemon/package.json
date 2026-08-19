@@ -13,6 +13,7 @@
     "@podium/protocol": "workspace:*",
     "@podium/pty": "workspace:*",
     "@podium/runtime": "workspace:*",
+    "@podium/sync": "workspace:*",
     "@podium/transcript": "workspace:*",
     "@xterm/headless": "^5.5.0",
     "ws": "^8.18.0"

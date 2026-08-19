@@ -8,7 +8,6 @@
   "dependencies": {
     "@podium/client-core": "workspace:*",
     "@podium/commands": "workspace:*",
-    "@podium/daemon": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/issue-client": "workspace:*",
     "@podium/model": "workspace:*",
@@ -17,6 +16,7 @@
     "@podium/runtime": "workspace:*",
     "@podium/server": "workspace:*",
     "@podium/sync": "workspace:*",
+    "@podium/terminal-client": "workspace:*",
     "@podium/transcript": "workspace:*"
   },
   "scripts": {

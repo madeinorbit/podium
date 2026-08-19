@@ -1,0 +1,11 @@
+{
+  "name": "@podium/acceptance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@podium/client-core": "workspace:*",
+    "@podium/model": "workspace:*",
+    "@podium/runtime": "workspace:*"
+  }
+}
