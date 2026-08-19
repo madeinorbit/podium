@@ -4619,6 +4619,8 @@ html[data-density="compact"] .brief-shelf {
    grey slab — a filled card, which is exactly what the Carved Rule forbids. */
 .work-line {
   position: relative;
+  container-type: inline-size;
+  container-name: work-line;
   --work-line-face: var(--chat-face);
   --work-line-carve: var(--chat-carve);
   /* A RUN IS A SOLID (POD-993 round 2). Prose either side of it gets the feed's
@@ -4666,22 +4668,22 @@ html[data-density="compact"] .brief-shelf {
 }
 .work-line-deck i {
   position: absolute;
-  right: 9px;
+  right: 3%;
   bottom: -3px;
-  left: 9px;
+  left: 3%;
   height: 11px;
   border: 1px solid var(--chat-rule);
   border-top: 0;
-  border-radius: 0 0 8px 8px;
+  border-radius: 0 0 min(8px, 3cqi) min(8px, 3cqi);
   background: var(--work-line-face);
   transition:
     opacity 200ms ease,
     transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .work-line-deck i:last-child {
-  right: 18px;
+  right: 6%;
   bottom: -6px;
-  left: 18px;
+  left: 6%;
   opacity: 0.6;
 }
 /* A lone call has nothing folded behind it, and an unfolded run shows its
@@ -4798,6 +4800,35 @@ html[data-density="compact"] .brief-shelf {
 }
 .work-line[data-open="true"] .work-line-chev {
   transform: rotate(180deg);
+}
+
+/* THE NARROW RUN'S LADDER (POD-1370). Transcript panes can become much
+   narrower than their nominal column at strong zoom. The line keeps its glyph
+   and status phrase, then progressively spends lower-value chrome to protect
+   them: elapsed time first, count second, disclosure last. Each rung also
+   takes a little air out of the row rather than making the phrase pay for it. */
+@container work-line (max-width: 280px) {
+  .work-line-row {
+    gap: 7px;
+    padding-inline: 8px;
+  }
+  .work-line-time {
+    display: none;
+  }
+}
+@container work-line (max-width: 210px) {
+  .work-line-count {
+    display: none;
+  }
+}
+@container work-line (max-width: 150px) {
+  .work-line-row {
+    gap: 5px;
+    padding-inline: 6px;
+  }
+  .work-line-chev {
+    display: none;
+  }
 }
 
 /* The unfolded run: one hairline seam holds the calls to the row above. */

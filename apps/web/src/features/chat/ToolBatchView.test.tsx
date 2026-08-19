@@ -1,4 +1,6 @@
 import { asSessionId, type TranscriptItem } from '@podium/model'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -80,6 +82,28 @@ afterEach(() => {
 })
 
 describe('ToolBatchView — the work line', () => {
+  it('sheds secondary chrome progressively when its own inline size contracts', () => {
+    const css = readFileSync(resolve(import.meta.dirname, '../../styles.css'), 'utf8')
+    const workLine = css.match(/\.work-line \{(?<body>[^}]*)\}/)?.groups?.body ?? ''
+    const frontTier = css.match(/\.work-line-deck i \{(?<body>[^}]*)\}/)?.groups?.body ?? ''
+    const rearTier =
+      css.match(/\.work-line-deck i:last-child \{(?<body>[^}]*)\}/)?.groups?.body ?? ''
+    const elapsedRung = css.indexOf('@container work-line (max-width: 280px)')
+    const countRung = css.indexOf('@container work-line (max-width: 210px)')
+    const disclosureRung = css.indexOf('@container work-line (max-width: 150px)')
+
+    expect(workLine).toContain('container-type: inline-size')
+    expect(frontTier).toMatch(/right: 3%[\s\S]*left: 3%/)
+    expect(frontTier).toContain('min(8px, 3cqi)')
+    expect(rearTier).toMatch(/right: 6%[\s\S]*left: 6%/)
+    expect(elapsedRung).toBeGreaterThan(-1)
+    expect(countRung).toBeGreaterThan(elapsedRung)
+    expect(disclosureRung).toBeGreaterThan(countRung)
+    expect(css.slice(elapsedRung, countRung)).toMatch(/\.work-line-time\s*\{[^}]*display: none/s)
+    expect(css.slice(countRung, disclosureRung)).toMatch(/\.work-line-count\s*\{[^}]*display: none/s)
+    expect(css.slice(disclosureRung)).toMatch(/\.work-line-chev\s*\{[^}]*display: none/s)
+  })
+
   it('names the call in flight and counts up while live', () => {
     vi.useFakeTimers()
     vi.setSystemTime(Date.parse('2026-08-03T10:00:07.000Z'))
@@ -412,4 +436,3 @@ describe('ToolBatchView — the diff rail lists edits, not everything touched', 
     expect(line.querySelector('.tool-row[title^="Open "]')).toBeNull()
   })
 })
-
