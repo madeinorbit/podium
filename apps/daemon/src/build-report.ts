@@ -57,7 +57,8 @@ export function captureDaemonBootBuild(
   sourceRoot: string = DEVELOPMENT_SOURCE_ROOT,
 ): DaemonBootBuild {
   const installDir =
-    env.PODIUM_HOME ?? (/(?:^|[\\/])podium$/.test(execPath) ? dirname(execPath) : undefined)
+    env.PODIUM_HOME ??
+    (/(?:^|[\\/])podium(?:-cli)?$/.test(execPath) ? dirname(execPath) : undefined)
   const sourceVersion =
     installDir || env.PODIUM_APP_VERSION || process.env.PODIUM_APP_VERSION
       ? undefined

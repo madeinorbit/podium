@@ -79,13 +79,12 @@ import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
+import { createInstalledCoordinatorRestart } from './modules/updates/installed-restart'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import type { PodiumPlugin } from './plugins'
-import { SessionRegistry } from './relay'
-import { MachineRepoDiscovery } from './repo-discovery'
 import {
   authReadinessBoundary,
   isHostLocalRequest,
@@ -93,12 +92,14 @@ import {
   readinessBoundary,
 } from './readiness-boundary'
 import { registerReadinessRoute } from './readiness-route'
+import { SessionRegistry } from './relay'
+import { MachineRepoDiscovery } from './repo-discovery'
 import { RepoRegistry } from './repo-registry'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
-import { registerSetupRoute } from './setup-route'
 import { createServerReadiness } from './server-readiness'
+import { registerSetupRoute } from './setup-route'
 import { closeServerFast } from './shutdown'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
@@ -553,10 +554,14 @@ export async function startServer(
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = randomUUID()
   let boundPort = opts.port ?? 0
-  const developmentSourceRoot = process.env.PODIUM_HOME ? undefined : DEVELOPMENT_SOURCE_ROOT
+  // build-bun replaces this exact expression with the packaged product version.
+  // A detached installed process does not export PODIUM_HOME, so using that
+  // variable as the discriminator misclassified the published binary as source
+  // and silently withheld its coordinator restart capability.
+  const developmentSourceRoot = process.env.PODIUM_APP_VERSION ? undefined : DEVELOPMENT_SOURCE_ROOT
   const requestCoordinatorRestart = developmentSourceRoot
     ? createSourceRedeployRequest({ instanceId })
-    : undefined
+    : createInstalledCoordinatorRestart({ instanceId, port: () => boundPort })
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,

@@ -5,6 +5,7 @@ import { captureDaemonBootBuild } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import { disarmExitSeam } from './convergence'
 import type { DaemonOptions } from './daemon-options'
+import { createDetachedRestart, waitForDetachedRestartParent } from './detached-restart'
 import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
 import type { PortableStateControl } from './portable-state-fence'
@@ -60,6 +61,7 @@ export interface DaemonHandle {
  * each live in their owning modules; this function only wires their ports.
  */
 export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
+  await waitForDetachedRestartParent()
   const { build, installDir } = captureDaemonBootBuild(
     process.env,
     process.execPath,
@@ -76,8 +78,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
    * refusal a property of the process rather than of one code path, so a future
    * third caller cannot reintroduce a silent stop of the server.
    */
+  const detachedRestart = opts.restartAfterUpdate ?? createDetachedRestart()
   const options: DaemonOptions = disarmExitSeam({
-    ...(opts.restartAfterUpdate ? { provided: opts.restartAfterUpdate } : {}),
+    ...(detachedRestart ? { provided: detachedRestart } : {}),
     shape: { exitStopsServer: opts.exitStopsServer ?? false, env: process.env },
   })
     ? {
@@ -88,7 +91,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
               'server and nothing would restart it. Stop podium and start it again.',
           ),
       }
-    : opts
+    : detachedRestart
+      ? { ...opts, restartAfterUpdate: detachedRestart }
+      : opts
   const instance = bootstrapDaemonInstance({
     settingsDir: opts.hooks?.settingsDir,
     socketPath: opts.hooks?.socketPath,

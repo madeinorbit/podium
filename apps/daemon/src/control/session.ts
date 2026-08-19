@@ -141,6 +141,25 @@ export function materializeLaunchFiles(files: LaunchFile[] | undefined): void {
   }
 }
 
+/**
+ * Merge daemon-owned instrumentation into a harness launch without putting CLI
+ * options after the harness's end-of-options marker. Argv-capable harnesses use
+ * `-- <prompt>` to protect option-like prompts, so that boundary and everything
+ * after it must remain the final positional tail.
+ */
+export function instrumentedLaunchArgs(
+  launchArgs: readonly string[],
+  instrumentationArgs: readonly string[],
+): string[] {
+  const optionBoundary = launchArgs.indexOf('--')
+  if (optionBoundary === -1) return [...launchArgs, ...instrumentationArgs]
+  return [
+    ...launchArgs.slice(0, optionBoundary),
+    ...instrumentationArgs,
+    ...launchArgs.slice(optionBoundary),
+  ]
+}
+
 function instructionRuntimeDir(ctx: DaemonContext, sessionId: SessionId): string {
   return join(ctx.settingsDir, 'session-instructions', sessionId)
 }
@@ -301,7 +320,7 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     const spawnOpts = {
       label,
       cmd: cmd.cmd,
-      args: [...cmd.args, ...extraArgs],
+      args: instrumentedLaunchArgs(cmd.args, extraArgs),
       cwd: cmd.cwd,
       cols: msg.geometry.cols,
       rows: msg.geometry.rows,

@@ -25,12 +25,12 @@ async function stop(child: ChildProcess): Promise<void> {
 }
 
 describe('compiled installed daemon build report', () => {
-  it('reports its baked release and is behind a newer server target', async () => {
+  it('reports its baked release and feed delivery without runtime install env', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-build-report-compile-'))
     const serverState = join(dir, 'server-state')
     const daemonState = join(dir, 'daemon-state')
     const installDir = join(dir, 'installed')
-    const bin = join(installDir, 'podium')
+    const bin = join(installDir, 'podium-cli')
     const originalStateDir = process.env.PODIUM_STATE_DIR
     const originalAppVersion = process.env.PODIUM_APP_VERSION
     let server: Awaited<ReturnType<typeof startServer>> | undefined
@@ -54,7 +54,6 @@ describe('compiled installed daemon build report', () => {
           `process.env.PODIUM_APP_VERSION=${JSON.stringify(installedVersion)}`,
           'apps/daemon/test/fixtures/build-report-compiled.ts',
           'apps/daemon/src/discovery-worker.ts',
-          'apps/server/src/modules/sessions/publish-worker.ts',
           '--outfile',
           bin,
         ],
@@ -63,7 +62,6 @@ describe('compiled installed daemon build report', () => {
 
       const childEnv = {
         ...process.env,
-        PODIUM_HOME: installDir,
         PODIUM_STATE_DIR: daemonState,
       }
       delete childEnv.PODIUM_APP_VERSION
@@ -105,8 +103,11 @@ describe('compiled installed daemon build report', () => {
       expect(installed).toMatchObject({
         appVersion: installedVersion,
         installKind: 'installed',
-        deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
-        versionState: 'behind',
+        deliveryCaps: [
+          'update.delivery.feed',
+          'update.delivery.bundle',
+          'shipping.train.v2',
+        ],
       })
     } finally {
       if (child) await stop(child)

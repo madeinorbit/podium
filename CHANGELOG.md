@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-edge.14] - 2026-08-19
+
+### Fixed
+
+- Settings now reports the native desktop bundle's complete edge version instead of only
+  0.1.0, so a successful desktop update is no longer offered again.
+- Detached headless installs now accept signed-feed updates and restart their server, janitor,
+  and daemon into the downloaded release. The daemon successor waits for its predecessor to
+  release its listeners instead of racing it and exiting during startup.
+
+## [0.1.0-edge.13] - 2026-08-19
+
+### Fixed
+
+- Settings now reports the native desktop bundle's complete edge version instead of only
+  0.1.0, so a successful desktop update is no longer offered again.
+- Detached headless installs now accept signed-feed updates and restart their server, janitor,
+  and daemon into the downloaded release instead of remaining on the old live version at
+  Restarting.
+
+## [0.1.0-edge.12] - 2026-08-19
+
+### Fixed
+
+- Detached headless installs now report signed-feed delivery capability when `PODIUM_HOME` is
+  absent, so a desktop-triggered update can actually grant them the published release.
+
+## [0.1.0-edge.11] - 2026-08-19
+
+### Fixed
+
+- Published headless binaries now identify themselves as installed even when detached persistence
+  does not export `PODIUM_HOME`, so the new coordinator restart handoff is actually enabled.
+
+## [0.1.0-edge.10] - 2026-08-19
+
+### Fixed
+
+- Detached and systemd headless installations now restart their daemon, server, and janitor into
+  the downloaded release instead of leaving an updated binary on disk with the machine stuck at
+  `Restarting…`.
+- Settings now shows the native desktop bundle's full release version, including its edge suffix,
+  so a successful desktop update no longer looks like the unchanged base version `0.1.0` or gets
+  offered again.
+
+## [0.1.0-edge.9] - 2026-08-19
+
+### Fixed
+
+- The native desktop can now host sessions on this device without its supervised daemon exiting
+  immediately and being restarted in a loop.
+- Fresh edge desktop installs now keep the bundled server, VPS onboarding commands, and joined
+  machines on the edge update channel from first launch.
+
 ## [0.1.0-edge.8] - 2026-08-19
 
 ### Fixed
@@ -79,4 +133,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the desktop webview is answered by the bundled UI instead of the server; it
   now asks the server directly, and a non-JSON answer fails closed with a
   clear message.
-
