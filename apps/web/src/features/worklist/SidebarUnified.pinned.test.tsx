@@ -202,6 +202,46 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(section.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('keeps folded live rows as direct drag-scope children and starts the gesture', () => {
+    render(<SidebarUnified />)
+    const group = screen.getByTestId('project-group')
+    const panel = screen.getByTestId('project-group-rows')
+    const pinnedPanel = screen.getByTestId('pinned-section-rows')
+    const row = rowButton('Plain issue').closest<HTMLElement>('[data-drag-key="plain"]')
+    const grip = row?.querySelector<HTMLElement>('[data-testid="row-grip"]')
+    if (!row || !grip) throw new Error('plain issue is missing its draggable row contract')
+
+    // POD-1253 inserted FoldPanel between the scope and these rows. The drag
+    // hook intentionally reads direct children so nested closed/snoozed rows do
+    // not enter the live order; putting the scope on the panel preserves both.
+    expect(panel.getAttribute('data-drag-scope')).toMatch(/^group:/)
+    expect(row.parentElement).toBe(panel)
+    expect(group.hasAttribute('data-drag-scope')).toBe(false)
+
+    grip.setPointerCapture = vi.fn()
+    grip.hasPointerCapture = () => false
+    grip.releasePointerCapture = vi.fn()
+    fireEvent.pointerDown(grip, { button: 0, pointerId: 7, clientY: 10 })
+
+    // Starting proves useRowDrag found the row in its scope. The animated clip
+    // is relaxed only during the gesture, while the whole section is lifted so
+    // a Pinned crossing remains visible above neighbouring Motion sections.
+    expect(row.style.position).toBe('relative')
+    expect(panel.style.overflow).toBe('visible')
+    expect(panel.style.contain).toBe('none')
+    expect(pinnedPanel.style.overflow).toBe('visible')
+    expect(pinnedPanel.style.contain).toBe('none')
+    expect(group.style.zIndex).toBe('40')
+
+    fireEvent.pointerUp(window, { pointerId: 7, clientY: 10 })
+    expect(row.style.position).toBe('')
+    expect(panel.style.overflow).toBe('')
+    expect(panel.style.contain).toBe('layout paint')
+    expect(pinnedPanel.style.overflow).toBe('')
+    expect(pinnedPanel.style.contain).toBe('layout paint')
+    expect(group.style.zIndex).toBe('')
+  })
+
   it('a coloured, unselected row is hover-tintable via the var-driven background (§7 fix)', () => {
     render(<SidebarUnified />)
     const row = rowButton('Pinned issue').closest('[class*="group/row"]') as HTMLElement
@@ -284,7 +324,10 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
   it('shuts a project band over its rows AND its closed fold', async () => {
     render(<SidebarUnified />)
     const group = screen.getByTestId('project-group')
-    const groupKey = group.getAttribute('data-drag-scope')?.replace(/^group:/, '')
+    const groupKey = screen
+      .getByTestId('project-group-rows')
+      .getAttribute('data-drag-scope')
+      ?.replace(/^group:/, '')
     const band = screen.getByTestId('project-group-label')
     expect(screen.getByTestId('closed-fold-toggle')).toBeTruthy()
 

@@ -268,11 +268,16 @@ export function FoldPanel({
   open,
   id,
   testId,
+  dragScope,
   children,
 }: {
   open: boolean
   id?: string
   testId?: string
+  /** Optional manual-sort scope. When present, draggable rows must be direct
+   *  children of this panel; useRowDrag relies on that boundary to exclude the
+   *  nested snoozed/closed folds from the live-row order. */
+  dragScope?: string
   children: ReactNode
 }): JSX.Element | null {
   const reduceMotion = useReducedMotion()
@@ -293,6 +298,7 @@ export function FoldPanel({
     <motion.div
       id={id}
       data-testid={testId}
+      data-drag-scope={dragScope}
       className="min-w-0 overflow-hidden"
       style={{ contain: 'layout paint' }}
       initial={firstPaint ? false : { height: 0, opacity: 0 }}

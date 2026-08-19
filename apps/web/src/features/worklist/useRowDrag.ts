@@ -9,6 +9,9 @@
  *
  * DOM contract: every draggable row is wrapped in `[data-drag-key="<issueId>"]`
  * placed as a DIRECT child of its `[data-drag-scope="<scopeId>"]` container.
+ * A scope may sit inside `[data-drag-section]` when an animated clip has to wrap
+ * the rows; the hook relaxes that clip while dragging and lifts the section so
+ * cross-scope movement can still paint above its neighbours.
  * On drop the hook reports the target scope and the full new id order there and
  * hands the rows back unstyled; the caller persists sortKeys and the store
  * repaints the new order (keys stay mounted, so the arrival one-shot never
@@ -235,6 +238,21 @@ export function useRowDrag(opts: {
       wrapper.style.pointerEvents = 'none'
       wrapper.style.boxShadow = '0 8px 20px var(--carve-popover-near)'
       wrapper.style.borderRadius = '7px'
+      // FoldPanel became the direct row parent in POD-1253. Its clipping is what
+      // makes the fold animation honest, but during a drag it would hide a row
+      // crossing into or out of Pinned (and clip the target scope's displaced
+      // last row). Relax only the legal scopes for the life of this gesture,
+      // then put their exact inline values back in clearAll.
+      const scopePaint = new Map(
+        [...containers.values()].map((container) => [
+          container,
+          { overflow: container.style.overflow, contain: container.style.contain },
+        ]),
+      )
+      for (const container of containers.values()) {
+        container.style.overflow = 'visible'
+        container.style.contain = 'none'
+      }
       // THE LIFT HAS TO OUTRANK THE SECTION BELOW IT, and `z-index: 30` on the
       // row alone does not promise that: each section is its own `layout`
       // motion.div, so the moment Motion transforms one it becomes a stacking
@@ -242,12 +260,14 @@ export function useRowDrag(opts: {
       // level. A row dragged out of Pinned then slid under the project group it
       // was heading for. Lifting the source section for the gesture's duration
       // makes the paint order the same in every frame, transformed or not.
+      const sourceSection =
+        sourceContainer.closest<HTMLElement>('[data-drag-section]') ?? sourceContainer
       const homeZ = {
-        position: sourceContainer.style.position,
-        zIndex: sourceContainer.style.zIndex,
+        position: sourceSection.style.position,
+        zIndex: sourceSection.style.zIndex,
       }
-      sourceContainer.style.position = sourceContainer.style.position || 'relative'
-      sourceContainer.style.zIndex = '40'
+      sourceSection.style.position = sourceSection.style.position || 'relative'
+      sourceSection.style.zIndex = '40'
 
       grip.setPointerCapture(pointerId)
 
@@ -404,8 +424,12 @@ export function useRowDrag(opts: {
         wrapper.style.boxShadow = ''
         wrapper.style.borderRadius = ''
         wrapper.style.transform = ''
-        sourceContainer.style.position = homeZ.position
-        sourceContainer.style.zIndex = homeZ.zIndex
+        sourceSection.style.position = homeZ.position
+        sourceSection.style.zIndex = homeZ.zIndex
+        for (const [container, paint] of scopePaint) {
+          container.style.overflow = paint.overflow
+          container.style.contain = paint.contain
+        }
       }
 
       const detach = () => {

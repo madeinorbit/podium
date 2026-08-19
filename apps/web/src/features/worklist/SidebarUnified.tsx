@@ -743,14 +743,14 @@ export function WorkSections({
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
             className="flex min-w-0 flex-col"
             data-testid="pinned-section"
-            data-drag-scope="pinned"
+            data-drag-section
           >
             <PinnedSectionLabel
               count={filteredPinned.length}
               collapsed={pinnedCollapsed}
               onToggle={() => toggleBand(PINNED_FOLD_KEY)}
             />
-            <FoldPanel open={!pinnedCollapsed} testId="pinned-section-rows">
+            <FoldPanel open={!pinnedCollapsed} testId="pinned-section-rows" dragScope="pinned">
               {filteredPinned.map((item) => renderWorkRow(item))}
             </FoldPanel>
           </motion.div>
@@ -775,7 +775,7 @@ export function WorkSections({
               )}
               data-testid="project-group"
               data-collapsed={collapsed ? 'true' : 'false'}
-              data-drag-scope={`group:${group.key}`}
+              data-drag-section
             >
               <ProjectGroupLabel
                 label={group.label}
@@ -787,7 +787,11 @@ export function WorkSections({
                   live rows and both tail folds with it — see `collapsed` above —
                   so the three of them fold as one surface rather than as three
                   clips racing each other down the column. */}
-              <FoldPanel open={!collapsed} testId="project-group-rows">
+              <FoldPanel
+                open={!collapsed}
+                testId="project-group-rows"
+                dragScope={`group:${group.key}`}
+              >
                 {group.rows.map((item) => renderWorkRow(item))}
                 {group.snoozedRows.length > 0 && (
                   <motion.div
