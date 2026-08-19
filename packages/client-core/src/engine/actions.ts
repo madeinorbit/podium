@@ -619,8 +619,14 @@ export function createEngineActions<TApi extends PodiumClientApi>(
      * IT ALSO STOPS BEING WANTED. The operator can click another task while the
      * spawn is in flight, so a selection that has moved on is not overruled —
      * the wait resolves to `null` and nothing navigates.
+     *
+     * ADDING TO AN EXISTING ISSUE has one more constraint: sessions that were
+     * already there before the launch are not its answer. Callers pass that
+     * snapshot in `excludeSessionIds`, leaving the same replica wait to resolve
+     * only when the newly-added session arrives.
      */
     focusIssueSession: async (issueId, opts) => {
+      const excluded = new Set(opts?.excludeSessionIds ?? [])
       rt.apply({ selectedIssueId: issueId })
       const session = await waitForState(
         (listener) => rt.subscribe(listener),
@@ -628,7 +634,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           const st = rt.state()
           if (!st.issues.some((issue) => issue.id === issueId)) return undefined
           return st.sessions.find(
-            (candidate) => candidate.issueId === issueId && !candidate.archived,
+            (candidate) =>
+              candidate.issueId === issueId &&
+              !candidate.archived &&
+              !excluded.has(candidate.sessionId),
           )
         },
         opts?.timeoutMs ?? ISSUE_SESSION_WAIT_MS,

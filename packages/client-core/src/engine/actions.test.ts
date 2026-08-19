@@ -597,6 +597,25 @@ describe('focusIssueSession waits for the session a launch started', () => {
     expect(h.state().paneA).toBeNull()
   })
 
+  it('waits past existing sessions when a launch adds another agent', async () => {
+    const h = harness()
+    const existingId = asSessionId('session-existing')
+    h.seed({
+      issues: [issue('issue-1')],
+      sessions: [meta(existingId, 'issue-1')],
+    })
+
+    const landed = h.actions.focusIssueSession(issueId, {
+      excludeSessionIds: [existingId],
+    })
+    expect(h.state().paneA).toBeNull()
+
+    h.seed({ sessions: [meta(existingId, 'issue-1'), meta('session-new', 'issue-1')] })
+
+    expect(await landed).toBe('session-new')
+    expect(h.state().paneA).toBe('session-new')
+  })
+
   it('gives up when no session ever arrives, leaving the selection it made', async () => {
     const h = harness()
     h.seed({ issues: [issue('issue-1')] })

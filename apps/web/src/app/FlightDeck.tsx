@@ -2521,6 +2521,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     setSelectedWorktree,
     setSelectedIssueId,
     openSessionTab,
+    focusIssueSession,
     setPanelMode,
     setView,
     markIssueRead,
@@ -2548,6 +2549,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       // derived mirrors they now are — this column still reads them to know
       // which session the operator is actually in.
       openSessionTab: store.openSessionTab,
+      focusIssueSession: store.focusIssueSession,
       setPanelMode: store.setPanelMode,
       setView: store.setView,
       markIssueRead: store.markIssueRead,
@@ -3110,12 +3112,16 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     }
     closeAndTuckRoot()
   }
-  const addMissionAgent = (agentKind?: IssueAgentKind): Promise<unknown> => {
-    if (!rootIssue) return Promise.resolve()
+  const addMissionAgent = async (agentKind?: IssueAgentKind): Promise<void> => {
+    if (!rootIssue) return
     const input = agentKind ? { id: rootIssue.id, agentKind } : { id: rootIssue.id }
-    return rootIssue.worktreePath
+    const existingSessionIds = sessions
+      .filter((session) => session.issueId === rootIssue.id && !session.archived)
+      .map((session) => session.sessionId)
+    await (rootIssue.worktreePath
       ? trpc.issues.addSession.mutate(input)
-      : trpc.issues.start.mutate(input)
+      : trpc.issues.start.mutate(input))
+    await focusIssueSession(rootIssue.id, { excludeSessionIds: existingSessionIds })
   }
   const selectSession = (
     issueId: IssueId | null,

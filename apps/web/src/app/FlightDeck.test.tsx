@@ -35,6 +35,7 @@ const harness = vi.hoisted(() => ({
   selectedIssueId: null as string | null,
   paneA: null as string | null,
   openSessionTab: vi.fn(),
+  focusIssueSession: vi.fn(async () => null),
   setPanelMode: vi.fn(),
   setSelectedIssueId: vi.fn(),
   setIssueTucked: vi.fn(async () => undefined),
@@ -84,6 +85,7 @@ vi.mock('./store', () => ({
       setSelectedWorktree: vi.fn(),
       setSelectedIssueId: harness.setSelectedIssueId,
       openSessionTab: harness.openSessionTab,
+      focusIssueSession: harness.focusIssueSession,
       setPanelMode: harness.setPanelMode,
       setView: vi.fn(),
       markIssueRead: vi.fn(async () => undefined),
@@ -176,6 +178,7 @@ beforeEach(() => {
   harness.selectedIssueId = 'root'
   harness.paneA = null
   harness.openSessionTab.mockClear()
+  harness.focusIssueSession.mockClear()
   harness.setPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
   harness.setIssueTucked.mockClear()
@@ -260,7 +263,36 @@ describe('flight deck mission agent action', () => {
     await waitFor(() =>
       expect(harness.addSession).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
     )
+    expect(harness.focusIssueSession).toHaveBeenCalledWith('root', { excludeSessionIds: [] })
     expect(harness.startIssue).not.toHaveBeenCalled()
+  })
+
+  it('opens the newly added agent instead of a session already on the mission', async () => {
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 'root'
+        ? {
+            ...(candidate as Issue),
+            worktreePath: '/repo',
+            defaultAgent: 'claude-code',
+            memberSessionIds: ['existing'],
+          }
+        : candidate,
+    )
+    harness.sessions = [
+      ...harness.sessions,
+      session('existing', { issueId: 'root' }),
+      session('archived', { issueId: 'root', archived: true }),
+    ]
+    deck()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
+
+    await waitFor(() =>
+      expect(harness.focusIssueSession).toHaveBeenCalledWith('root', {
+        excludeSessionIds: ['existing'],
+      }),
+    )
   })
 
   /**
