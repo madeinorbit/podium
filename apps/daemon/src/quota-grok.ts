@@ -86,12 +86,15 @@ export function parseGrokBilling(body: GrokBillingResponse): QuotaWindowWire[] {
     })
   }
 
+  const periodType = cfg.currentPeriod?.type?.trim().toUpperCase()
+  const hasWeeklyPeriod = periodType?.includes('WEEKLY') ?? false
   const weeklyPercent =
     typeof cfg.creditUsagePercent === 'number' && Number.isFinite(cfg.creditUsagePercent)
       ? cfg.creditUsagePercent
-      : undefined
-  const periodType = cfg.currentPeriod?.type?.trim().toUpperCase()
-  if (weeklyPercent !== undefined && (!periodType || periodType.includes('WEEKLY'))) {
+      : cfg.creditUsagePercent === undefined && hasWeeklyPeriod
+        ? 0
+        : undefined
+  if (weeklyPercent !== undefined && (!periodType || hasWeeklyPeriod)) {
     const start = cfg.currentPeriod?.start ?? cfg.billingPeriodStart
     const end = cfg.currentPeriod?.end ?? cfg.billingPeriodEnd
     windows.push({

@@ -39,6 +39,16 @@ const weeklyBody = {
   },
 }
 
+const resetWeeklyBody = {
+  config: {
+    currentPeriod: {
+      type: 'USAGE_PERIOD_TYPE_WEEKLY',
+      start: '2026-07-27T00:00:00+00:00',
+      end: '2026-08-03T00:00:00+00:00',
+    },
+  },
+}
+
 function homeWithAuth(auth: unknown): string {
   const home = trackTmp('podium-gq-')
   mkdirSync(join(home, '.grok'), { recursive: true })
@@ -84,6 +94,29 @@ describe('parseGrokBilling', () => {
       resetsAt: '2026-07-27T00:00:00+00:00',
       windowMinutes: 10_080,
     })
+  })
+
+  it('maps an omitted post-reset weekly percentage to 0%', () => {
+    expect(parseGrokBilling(resetWeeklyBody)).toEqual([
+      {
+        key: 'weekly',
+        label: 'Weekly',
+        usedPercent: 0,
+        resetsAt: '2026-08-03T00:00:00+00:00',
+        windowMinutes: 10_080,
+      },
+    ])
+  })
+
+  it('does not infer a weekly window without a weekly period or percentage', () => {
+    expect(
+      parseGrokBilling({
+        config: {
+          billingPeriodStart: '2026-07-27T00:00:00+00:00',
+          billingPeriodEnd: '2026-08-03T00:00:00+00:00',
+        },
+      }),
+    ).toEqual([])
   })
 
   it('ignores a non-weekly current period for the weekly window', () => {
@@ -159,6 +192,25 @@ describe('fetchGrokQuota', () => {
     expect(r.windows[0]?.usedPercent).toBe(3.2)
     expect(r.windows[1]?.usedPercent).toBe(42.5)
     expect(r.account?.email).toBe('me@example.com')
+  })
+
+  it('returns a 0% weekly window for the post-reset credits response', async () => {
+    const home = homeWithAuth(sampleAuth)
+    const fetchImpl = (async (input: string | URL) => {
+      const url = String(input)
+      return new Response(
+        JSON.stringify(url.includes('?format=credits') ? resetWeeklyBody : okBody),
+        { status: 200 },
+      )
+    }) as typeof fetch
+
+    const r = await fetchGrokQuota({ homeDir: home, now, fetchImpl })
+
+    expect(r.status).toBe('ok')
+    expect(r.windows.map((window) => [window.key, window.usedPercent])).toEqual([
+      ['monthly', 3.2],
+      ['weekly', 0],
+    ])
   })
 
   it('maps local expires_at in the past to expired without fetching', async () => {
