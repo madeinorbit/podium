@@ -125,7 +125,7 @@ export function Minimap({
       // The feed scrolls in column-reverse coordinates (round 8): scrollTop is
       // 0 at the bottom and negative above it. The minimap thinks in
       // distance-from-the-top-of-content, so rebase.
-      const fromTop = el.scrollHeight - el.clientHeight + el.scrollTop
+      const fromTop = el.scrollHeight - el.clientHeight - Math.abs(el.scrollTop)
       setViewport({ top: fromTop / total, height: el.clientHeight / total })
       // The rendered [data-block] indices are ABSOLUTE into the full row list
       // (renderStart + ri) so scroll-to-match can target a row by its absolute
@@ -193,8 +193,18 @@ export function Minimap({
     if (!el || f === null) return
     const max = Math.max(0, el.scrollHeight - el.clientHeight)
     const fromTop = Math.max(0, Math.min(max, f * el.scrollHeight - el.clientHeight / 2))
-    // Back into column-reverse coordinates: 0 at the bottom, negative above.
-    el.scrollTop = fromTop - max
+    // Back into column-reverse coordinates: 0 at the bottom, and the engine
+    // decides which sign counts upward (Safari 26.4 goes positive, the spec
+    // negative — round 8.1). Learn it from the live offset; when resting at
+    // 0 the sign is unknowable without writing, so try one and read back.
+    const fromBottom = max - fromTop
+    const sign = el.scrollTop > 0 ? 1 : el.scrollTop < 0 ? -1 : 0
+    if (sign !== 0) {
+      el.scrollTop = sign * fromBottom
+      return
+    }
+    el.scrollTop = -fromBottom
+    if (Math.abs(Math.abs(el.scrollTop) - fromBottom) > 1) el.scrollTop = fromBottom
   }
 
   // Which band is under the pointer. Ticks are laid out in the same ratio space,
