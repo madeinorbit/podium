@@ -410,6 +410,23 @@ pub fn write_update_channel(channel: UpdateChannel) -> Result<(), String> {
     std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
 }
 
+/// Give the bundled server the same initial channel as the native updater.
+///
+/// A release channel is compiled into the desktop shell, but the bundled server resolves its
+/// fleet channel from the shared config. Persist the build default before that server starts so
+/// first-run onboarding and machine join commands cannot silently fall back to stable. Once a
+/// user has chosen a channel, their persisted choice remains authoritative.
+pub fn initialize_update_channel(
+    configured: Option<UpdateChannel>,
+    build: UpdateChannel,
+) -> Result<UpdateChannel, String> {
+    if let Some(channel) = configured {
+        return Ok(channel);
+    }
+    write_update_channel(build)?;
+    Ok(build)
+}
+
 /// PURE resolver: map (mode, serverUrl) → the launch action.
 ///
 /// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
@@ -1168,6 +1185,40 @@ mod tests {
                 )
                 .unwrap();
                 assert_eq!(raw["extra"], 42);
+            },
+        );
+    }
+
+    #[test]
+    fn edge_build_seeds_missing_server_channel() {
+        with_state_dir("channel-seed", Some(r#"{"mode":"all-in-one","extra":42}"#), || {
+            let channel = initialize_update_channel(None, UpdateChannel::Edge)
+                .expect("channel initialization failed");
+            assert_eq!(channel, UpdateChannel::Edge);
+            let raw: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(raw["updateChannel"], "edge");
+            assert_eq!(raw["extra"], 42);
+        });
+    }
+
+    #[test]
+    fn explicit_channel_is_not_rewritten_by_build_default() {
+        with_state_dir(
+            "channel-explicit",
+            Some(r#"{"mode":"client","updateChannel":"stable","extra":42}"#),
+            || {
+                let before = std::fs::read_to_string(state_dir().join("config.json")).unwrap();
+                let channel = initialize_update_channel(
+                    Some(UpdateChannel::Stable),
+                    UpdateChannel::Edge,
+                )
+                .expect("channel initialization failed");
+                let after = std::fs::read_to_string(state_dir().join("config.json")).unwrap();
+                assert_eq!(channel, UpdateChannel::Stable);
+                assert_eq!(after, before);
             },
         );
     }

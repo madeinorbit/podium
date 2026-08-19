@@ -546,6 +546,14 @@ fn main() {
             // config (or all-in-one / missing serverUrl) → today's local behavior; mode=server
             // spawns the server role only (#176).
             let cfg = bootstrap::read_config();
+            bootstrap::initialize_update_channel(
+                cfg.update_channel,
+                bootstrap::build_update_channel(),
+            )
+            .map_err(|error| {
+                log::error!("could not initialize desktop update channel: {error}");
+                error
+            })?;
             let action = bootstrap::resolve_launch(cfg.mode.as_deref(), cfg.server_url.as_deref());
             log::info!("launch action: {action:?}");
             // Resolved-mode tag exposed to the web UI (bridge.launchMode) and used to gate the

@@ -203,9 +203,9 @@ export interface SourceServingRetirementResult {
 
 /**
  * Reconcile source serving roles after the committed mutation reply is flushed. A desktop-marked
- * host exits without spawning or claiming a daemon because the native supervisor owns the
- * replacement. A real systemd deployment enables its daemon unit; detached/foreground mode lets
- * the already-spawned takeover worker become the daemon after stale roles are reclaimed.
+ * host leaves role cleanup to the native supervisor; its already-spawned direct child becomes the
+ * replacement daemon. A real systemd deployment enables its daemon unit; detached/foreground mode
+ * lets the already-spawned takeover worker become the daemon after stale roles are reclaimed.
  */
 export async function retireSourceServingRoles(
   deps: {

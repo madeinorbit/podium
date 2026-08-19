@@ -12,8 +12,8 @@ event routing. When such a boundary is the task, drive the smallest affected int
 observe the external effect.
 
 See **[docs/agents/driving-podium.md](docs/agents/driving-podium.md)** for how to drive
-Podium with Playwright — the `?e2e=1` test API, navigating the current DOM, reading
-terminal output, clicking terminal cells, and the harness vs. the live instance.
+Podium through Playwright or the native Linux shell — including isolation, the `?e2e=1`
+test API, terminal cells, and choosing the harness vs. a live instance.
 
 ## Testing independent instances
 

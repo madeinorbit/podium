@@ -11,6 +11,7 @@ import {
   resolveModePlan,
   resolvePlan,
   shouldInferLocalSetupDefault,
+  takeoverRunsHere,
   unknownLaunchToken,
 } from './cli'
 
@@ -102,6 +103,14 @@ describe('ordinary local setup inference', () => {
     expect(shouldInferLocalSetupDefault({}, {})).toBe(false)
     expect(shouldInferLocalSetupDefault({ localSetupDefault: true }, {}, ['setup'])).toBe(false)
     expect(shouldInferLocalSetupDefault({ localSetupDefault: true }, {}, ['--takeover'])).toBe(true)
+  })
+})
+
+describe('takeover process ownership', () => {
+  it('keeps the native desktop child in-process while deferring only to systemd', () => {
+    expect(takeoverRunsHere('desktop')).toBe(true)
+    expect(takeoverRunsHere('foreground')).toBe(true)
+    expect(takeoverRunsHere('systemd')).toBe(false)
   })
 })
 

@@ -103,6 +103,7 @@ function makeHarness(settingsDir: string): Harness {
     launch: agentLaunchCommand,
     settingsDir,
     bridges: new Map(),
+    pendingResizes: new Map(),
     // Draft sync is outside this env-propagation lane; keep the real spawn,
     // frame, and exit path explicit while disabling its optional driver.
     composerEngine: {

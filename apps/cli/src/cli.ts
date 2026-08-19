@@ -217,6 +217,16 @@ export function shouldInferLocalSetupDefault(
   return launcherTrusted && loopback && ordinaryLaunch
 }
 
+/**
+ * Whether an already-spawned takeover process is the daemon owner. A desktop-marked
+ * process is the native shell's direct child, so the shell already fulfilled the
+ * "desktop owns the replacement" handoff by spawning this process. Only systemd owns a
+ * different process and requires this one to stop before it claims the daemon role.
+ */
+export function takeoverRunsHere(owner: 'desktop' | 'systemd' | 'foreground'): boolean {
+  return owner !== 'systemd'
+}
+
 function automationSchedulePlan(argv: string[]): LaunchPlan {
   if (argv[1] !== 'schedule') {
     return { kind: 'usage-error', message: AUTOMATION_SCHEDULE_USAGE }
@@ -950,7 +960,7 @@ async function runInProcess(
       try {
         const { prepareForegroundDaemon } = await import('./role-reconcile')
         const preparation = await prepareForegroundDaemon()
-        if (preparation.owner !== 'foreground') return
+        if (!takeoverRunsHere(preparation.owner)) return
       } catch (error) {
         console.error((error as Error).message)
         process.exit(2)

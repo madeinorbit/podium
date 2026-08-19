@@ -14,6 +14,72 @@ path). Written from actually doing it; every gotcha below cost a real failed run
 
 Run the harness specs: `cd tests/e2e && npx playwright test <spec> --project=chromium-desktop --timeout=90000`. See `tests/e2e/browser/clickable-files.browser.e2e.ts` for a complete worked example (terminal click → editor → save; wrapped-URL → new tab).
 
+## Driving the native Linux app
+
+Use the real Tauri shell only when the behavior crosses a native boundary: desktop-owned
+processes, OS dialogs, AppImage replacement, or shell restart. Treat it as an integration
+fixture that could otherwise read or control the operator's running Podium instance.
+
+### Isolate files, environment, and network
+
+A native test needs its own state, agent home, XDG directories, instance name, display, and
+network namespace. State isolation alone is insufficient: an inherited relay variable or
+host-loopback access can still route commands and approval notifications into the primary
+instance.
+
+Start the app from an allowlisted environment rather than inheriting the agent session:
+
+```sh
+run_root=/tmp/podium-native-<issue>
+env -i \
+  HOME="$run_root/home" USER="$(id -un)" \
+  PATH=/usr/local/bin:/usr/bin:/bin \
+  DISPLAY=:<display> \
+  XDG_CONFIG_HOME="$run_root/xdg/config" \
+  XDG_CACHE_HOME="$run_root/xdg/cache" \
+  XDG_DATA_HOME="$run_root/xdg/data" \
+  PODIUM_STATE_DIR="$run_root/state" \
+  PODIUM_AGENT_HOME="$run_root/agent-home" \
+  PODIUM_INSTANCE="native-<issue>" \
+  PODIUM_NO_RELAY=1 \
+  /path/to/Podium_<version>_amd64.AppImage
+```
+
+Create those directories first and add only variables the runtime actually requires. In
+particular, do not pass through `PODIUM_AGENT_RELAY`, `PODIUM_SESSION_RELAY`,
+`PODIUM_CODEX_HOOK_*`, or an operator `PODIUM_HOME`. `PODIUM_NO_RELAY=1` is a backstop;
+`env -i` is what prevents accidental inheritance.
+
+Filesystem isolation does not isolate networking. Bubblewrap without `--unshare-net` can
+still reach the host's `127.0.0.1`, including the primary agent and session relays. Put every
+desktop, server, and daemon fixture in its own network namespace, provide outbound access
+with a user-mode network helper configured to block host loopback, and prove from each
+namespace that the primary relay ports are unreachable before starting Podium.
+
+### Drive and observe
+
+Run the AppImage under an issue-scoped Xvfb display. Use `xdotool search`, `windowactivate`,
+`mousemove`, `click`, and `key` to drive the visible window; use `xclip` for copied installer
+commands and tunnel URLs. Capture an `xwd` or screenshot at each consequential boundary so
+the issue has reviewable evidence.
+
+For updater tests, launch an actual AppImage. Do not set `APPIMAGE` while running the bare
+`target/release/Podium` binary: Tauri would replace the named file without proving that an
+AppImage can update. After the update, compare the replaced file byte-for-byte with the
+signed target, mount or relaunch that file, and check `running-version`. The bundled web
+frontend and the desktop-supervised daemon are separate components; verify the rendered web
+version and the daemon's server heartbeat/version as well.
+
+The web UI inside the shell can still use the `?e2e=1` API below when DOM or terminal
+inspection is useful, but the mouse/clipboard path should be exercised for the native
+interaction under test.
+
+### Clean up
+
+Stop the app, its mounted AppImage, Xvfb, tunnels, server and daemon processes, network
+helpers, namespaces, and containers. After issue artifacts have been uploaded, delete the
+issue-scoped state and build artifacts so repeated native runs do not exhaust disk.
+
 ## The `?e2e=1` test API (how you read the terminal)
 
 Append `&e2e=1` to the URL. `AgentPanel` then exposes `window.__podium`:
