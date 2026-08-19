@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Podium now detects Claude Code logins stored in the macOS Keychain and can transfer that
+  native login to another owned Mac through the existing guarded credential-propagation flow.
+
 ## [0.1.0-edge.7] - 2026-08-19
 
 ## [0.1.0-edge.6] - 2026-08-18
