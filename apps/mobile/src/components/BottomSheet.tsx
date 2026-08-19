@@ -35,10 +35,12 @@ import { color, elevation, radius, space, spring } from '../theme/theme'
  *    Travel is MEASURED, not assumed, so a two-row menu and a ten-row menu both
  *    open from exactly their own height and dismiss on the same third-of-travel.
  *  - `detented` — a fixed span with medium and large stops (the task inspector).
- *    The scroll is locked below large: dragging content upward promotes the
- *    sheet first and only then scrolls, which is the iOS rule that makes a
- *    two-detent sheet read as one surface instead of a window with a list glued
- *    inside it.
+ *    The scroll is locked below large and the CONTENT carries its own copy of
+ *    the drag, so a finger on the text promotes the sheet first and only then
+ *    scrolls — the iOS rule that makes a two-detent sheet read as one surface
+ *    instead of a window with a list glued inside it. Both halves are load-
+ *    bearing: with only the lock, a long task's inspector answers no finger at
+ *    all below large [POD-1358].
  *
  * Both honour Reduce Motion (softer settle, no snap overshoot), pay the bottom
  * safe area, and dismiss on backdrop tap, on a drag past a third of the current
@@ -167,44 +169,86 @@ export function BottomSheet({
     return () => cancelAnimationFrame(raf)
   }, [visible])
 
+  /**
+   * One physics, two detectors. The head and the CONTENT must answer a finger
+   * the same way, but Gesture Handler refuses to mount one gesture instance in
+   * two detectors, so the handlers live here and each detector calls them.
+   *
+   * They stay OUT of the hook configs as plain calls: the worklets Babel plugin
+   * workletizes whatever object literal a gesture hook is handed, and it rejects
+   * both a spread and a shared config object — so the two literals below are
+   * written out, and only their bodies are shared.
+   */
+  const beginDrag = () => {
+    y.stopAnimation()
+    dragStart.current = yValue.current
+  }
+
+  const moveDrag = (translationY: number) => {
+    const raw = dragStart.current + translationY
+    // Rubber-band above the top stop: the sheet can be pulled past it, but at
+    // a fraction of the finger, so the stop is felt rather than merely obeyed.
+    y.setValue(raw < 0 ? raw * 0.38 : raw)
+  }
+
+  /**
+   * Where a released finger settles. `tapToggles` is the only thing the head
+   * and the content disagree about: a press that never travelled is the
+   * grabber's toggle up there, and the row's own press down here.
+   */
+  const endDrag = (
+    event: {
+      canceled: boolean
+      translationX: number
+      translationY: number
+      velocityY: number
+    },
+    tapToggles: boolean,
+  ) => {
+    const { canceled, translationX, translationY, velocityY } = event
+    if (canceled) return settle(detent.current)
+    // A pointer that travelled a few pixels before release still counts as the
+    // grabber's tap.
+    if (Math.abs(translationY) < 6 && Math.abs(translationX) < 6) {
+      if (!tapToggles || mode !== 'detented') return
+      return settle(detent.current === 'large' ? 'medium' : 'large')
+    }
+    if (velocityY > FLICK_VELOCITY) {
+      return settle(mode === 'detented' && detent.current === 'large' ? 'medium' : 'closed')
+    }
+    if (velocityY < -FLICK_VELOCITY) return settle('large')
+    const raw = dragStart.current + translationY
+    const at = raw < 0 ? raw * 0.38 : raw
+    if (mode !== 'detented') return settle(at > closed / 3 ? 'closed' : 'large')
+    const stops = [
+      ['large', Math.abs(at)],
+      ['medium', Math.abs(at - rest)],
+      ['closed', Math.abs(at - closed)],
+    ] as const
+    settle([...stops].sort((a, b) => a[1] - b[1])[0][0])
+  }
+
   const pan = usePanGesture({
     // Gesture Handler owns the pointer stream inside a Modal on react-native-web;
     // RN's own responder system never sees it there, even though it works on iOS.
     activeOffsetY: mode === 'detented' ? [-4, 4] : 4,
     failOffsetX: [-4, 4],
     runOnJS: true,
-    onActivate: () => {
-      y.stopAnimation()
-      dragStart.current = yValue.current
-    },
-    onUpdate: ({ translationY }) => {
-      const raw = dragStart.current + translationY
-      // Rubber-band above the top stop: the sheet can be pulled past it, but at
-      // a fraction of the finger, so the stop is felt rather than merely obeyed.
-      y.setValue(raw < 0 ? raw * 0.38 : raw)
-    },
-    onDeactivate: ({ canceled, translationX, translationY, velocityY }) => {
-      if (canceled) return settle(detent.current)
-      // A pointer that travelled a few pixels before release still counts as the
-      // grabber's tap.
-      if (Math.abs(translationY) < 6 && Math.abs(translationX) < 6) {
-        if (mode !== 'detented') return
-        return settle(detent.current === 'large' ? 'medium' : 'large')
-      }
-      if (velocityY > FLICK_VELOCITY) {
-        return settle(mode === 'detented' && detent.current === 'large' ? 'medium' : 'closed')
-      }
-      if (velocityY < -FLICK_VELOCITY) return settle('large')
-      const raw = dragStart.current + translationY
-      const at = raw < 0 ? raw * 0.38 : raw
-      if (mode !== 'detented') return settle(at > closed / 3 ? 'closed' : 'large')
-      const stops = [
-        ['large', Math.abs(at)],
-        ['medium', Math.abs(at - rest)],
-        ['closed', Math.abs(at - closed)],
-      ] as const
-      settle([...stops].sort((a, b) => a[1] - b[1])[0][0])
-    },
+    onActivate: () => beginDrag(),
+    onUpdate: (event) => moveDrag(event.translationY),
+    onDeactivate: (event) => endDrag(event, true),
+  })
+
+  /** The content's own detector — live only while the scroll under it is
+   *  locked, so it can never stand between a finger and a scrollbar. */
+  const contentPan = usePanGesture({
+    enabled: mode === 'detented' && !atLarge,
+    activeOffsetY: [-4, 4],
+    failOffsetX: [-4, 4],
+    runOnJS: true,
+    onActivate: () => beginDrag(),
+    onUpdate: (event) => moveDrag(event.translationY),
+    onDeactivate: (event) => endDrag(event, false),
   })
 
   if (!mounted) return null
@@ -224,13 +268,28 @@ export function BottomSheet({
       {children}
     </ScrollView>
   ) : mode === 'detented' ? (
-    <ScrollView
-      style={styles.flex}
-      scrollEnabled={atLarge}
-      contentContainerStyle={[{ paddingBottom: space.xl }, contentStyle]}
+    // THE PROMOTE HALF (POD-1358). Locking the scroll below large is only half
+    // the iOS rule; the other half is that the drag which cannot scroll yet
+    // raises the sheet instead. Without this detector the content answered
+    // nothing at all at medium — on a long task the inspector showed its first
+    // screenful and every finger on it died, which is what "unscrollable" was.
+    // At large the detector stands down (disabled, and `pan-y` handed back to
+    // the browser) so the scroll it just unlocked is the one the finger gets.
+    <GestureDetector
+      gesture={contentPan}
+      touchAction={atLarge ? 'pan-y' : 'none'}
+      userSelect="none"
     >
-      {children}
-    </ScrollView>
+      <View style={styles.flex}>
+        <ScrollView
+          style={styles.flex}
+          scrollEnabled={atLarge}
+          contentContainerStyle={[{ paddingBottom: space.xl }, contentStyle]}
+        >
+          {children}
+        </ScrollView>
+      </View>
+    </GestureDetector>
   ) : (
     <View style={contentStyle}>{children}</View>
   )
