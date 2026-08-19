@@ -4668,9 +4668,9 @@ html[data-density="compact"] .brief-shelf {
 }
 .work-line-deck i {
   position: absolute;
-  right: 3%;
+  right: min(9px, 8%);
   bottom: -3px;
-  left: 3%;
+  left: min(9px, 8%);
   height: 11px;
   border: 1px solid var(--chat-rule);
   border-top: 0;
@@ -4681,9 +4681,9 @@ html[data-density="compact"] .brief-shelf {
     transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .work-line-deck i:last-child {
-  right: 6%;
+  right: min(18px, 16%);
   bottom: -6px;
-  left: 6%;
+  left: min(18px, 16%);
   opacity: 0.6;
 }
 /* A lone call has nothing folded behind it, and an unfolded run shows its
@@ -4808,24 +4808,20 @@ html[data-density="compact"] .brief-shelf {
    them: elapsed time first, count second, disclosure last. Each rung also
    takes a little air out of the row rather than making the phrase pay for it. */
 @container work-line (max-width: 280px) {
-  .work-line-row {
-    gap: 7px;
-    padding-inline: 8px;
-  }
   .work-line-time {
     display: none;
   }
 }
-@container work-line (max-width: 210px) {
+@container work-line (max-width: 120px) {
+  .work-line-row {
+    gap: 7px;
+    padding-inline: 8px;
+  }
   .work-line-count {
     display: none;
   }
 }
-@container work-line (max-width: 150px) {
-  .work-line-row {
-    gap: 5px;
-    padding-inline: 6px;
-  }
+@container work-line (max-width: 92px) {
   .work-line-chev {
     display: none;
   }

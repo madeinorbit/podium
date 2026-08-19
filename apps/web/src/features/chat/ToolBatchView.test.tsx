@@ -89,13 +89,13 @@ describe('ToolBatchView — the work line', () => {
     const rearTier =
       css.match(/\.work-line-deck i:last-child \{(?<body>[^}]*)\}/)?.groups?.body ?? ''
     const elapsedRung = css.indexOf('@container work-line (max-width: 280px)')
-    const countRung = css.indexOf('@container work-line (max-width: 210px)')
-    const disclosureRung = css.indexOf('@container work-line (max-width: 150px)')
+    const countRung = css.indexOf('@container work-line (max-width: 120px)')
+    const disclosureRung = css.indexOf('@container work-line (max-width: 92px)')
 
     expect(workLine).toContain('container-type: inline-size')
-    expect(frontTier).toMatch(/right: 3%[\s\S]*left: 3%/)
+    expect(frontTier).toMatch(/right: min\(9px, 8%\)[\s\S]*left: min\(9px, 8%\)/)
     expect(frontTier).toContain('min(8px, 3cqi)')
-    expect(rearTier).toMatch(/right: 6%[\s\S]*left: 6%/)
+    expect(rearTier).toMatch(/right: min\(18px, 16%\)[\s\S]*left: min\(18px, 16%\)/)
     expect(elapsedRung).toBeGreaterThan(-1)
     expect(countRung).toBeGreaterThan(elapsedRung)
     expect(disclosureRung).toBeGreaterThan(countRung)
@@ -175,6 +175,9 @@ describe('ToolBatchView — the work line', () => {
     expect(line.getAttribute('data-open')).toBe('false')
     expect(line.querySelector('.work-line-fail')?.textContent).toContain('1 failed')
     expect(line.querySelector('.work-line-glyph')?.className).toContain('work-line-glyph--err')
+    expect(line.querySelector('.work-line-row')?.getAttribute('aria-label')).toBe(
+      'Read a file, ran a command. 2 calls. 1 failed.',
+    )
   })
 
   it('unfolds a file-edit into its diff, not the tool result text', async () => {

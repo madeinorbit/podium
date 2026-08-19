@@ -276,6 +276,14 @@ export function ToolBatchView({
   const lastItem = row.blocks[count - 1]!.item
   const settling = useSettleFlash(computing)
   const pushing = usePushFlash(count)
+  const phrase = activeWaiting
+    ? `${activeWaiting.label}${activeWaiting.detail ? ` · ${activeWaiting.detail}` : ''}`
+    : live
+      ? toolCallPhrase(lastItem)
+      : row.title
+  const accessibleSummary =
+    `${phrase}. ${count} ${count === 1 ? 'call' : 'calls'}` +
+    `${failed > 0 ? `. ${failed} failed` : ''}.`
   const face: ReactNode = (
     <>
       <span
@@ -292,13 +300,7 @@ export function ToolBatchView({
           '✓'
         )}
       </span>
-      <span className="work-line-phrase">
-        {activeWaiting
-          ? `${activeWaiting.label}${activeWaiting.detail ? ` · ${activeWaiting.detail}` : ''}`
-          : live
-            ? toolCallPhrase(lastItem)
-            : row.title}
-      </span>
+      <span className="work-line-phrase">{phrase}</span>
       {failed > 0 && <span className="work-line-fail">✕ {failed} failed</span>}
       {showElapsed && <span className="work-line-time">{formatClock(elapsedMs)}</span>}
       <span className="work-line-count">{count}</span>
@@ -345,6 +347,7 @@ export function ToolBatchView({
             className="work-line-row"
             onClick={toggle}
             aria-expanded={expanded}
+            aria-label={accessibleSummary}
             title={row.title}
           >
             {face}
