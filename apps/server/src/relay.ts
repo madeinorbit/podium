@@ -1235,9 +1235,6 @@ export class SessionRegistry {
         case 'removedOrArchived':
           issues.onSessionRemovedOrArchived(event.sessionId)
           break
-        case 'reapDraft':
-          issues.reapIfEmptyDraft(event.issueId)
-          break
         case 'adoptWorktree': {
           const issue = issueAccess.getMeta(event.issueId)
           const message = event.message
@@ -2395,7 +2392,7 @@ export class SessionRegistry {
     })
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
     // store's row-level guard, so boot proceeds minus that row instead of
-    // crash-looping), the leaked-draft reap, and the issue ledger boot reconcile.
+    // crash-looping) and the issue ledger boot reconcile.
     issues.boot(systemPrincipal('boot-reconcile'))
     shipping.start()
     void shipping

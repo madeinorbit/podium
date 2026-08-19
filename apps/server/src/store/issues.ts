@@ -598,7 +598,7 @@ export class IssuesRepository {
     //
     // TWO TABLES ARE OUTSIDE THAT GUARANTEE (POD-1926), because neither declares
     // a foreign key: `issue_ref_letters` below, and `sessions.issue_id` /
-    // `sessions.ref_issue_id` — which `IssueAttentionModule.reapIfEmptyDraft`
+    // `sessions.ref_issue_id` — which explicit draft-rehome cleanup
     // clears for the sessions it can see and `SessionsRepository`
     // .detachTombstonesFromIssue clears for the ones it cannot. Anything added
     // here that points at an issue without a constraint must be scrubbed by hand

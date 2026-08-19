@@ -6,18 +6,17 @@ import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
-// issue-as-workspace: empty-draft auto-cleanup when its sessions die (kill /
-// archive / exit) + the boot-time sweep for drafts leaked before the reaper
-// existed. Hibernation is an intentional park and must NOT reap.
+// Draft cleanup is tied to an explicit rehome, never inferred from process or
+// session liveness. Exited drafts remain the route to resume/remove in sidebar.
 
 const G = { cols: 80, rows: 24 }
 const bind = (sessionId: SessionId) =>
   ({
     type: 'bind',
     sessionId,
-    cmd: 'claude',
+    cmd: 'codex',
     cwd: '/',
-    agentKind: 'claude-code',
+    agentKind: 'codex',
     geometry: G,
   }) as const
 
@@ -28,43 +27,62 @@ function regWithDaemon(store?: SessionStore) {
 }
 
 function draftWithSession(reg: SessionRegistry, repo = '/repo') {
-  const draft = reg.issues.createDraftFor(repo)
+  const draft = reg.issues.createDraftFor(repo, 'codex')
   const { sessionId } = reg.modules.sessions.createSession({
-    agentKind: 'claude-code',
+    agentKind: 'codex',
     cwd: repo,
     issueId: draft.id,
   })
   return { draft, sessionId }
 }
 
-describe('empty-draft reap on session death', () => {
-  it('kill of the last attached session deletes the draft', () => {
+describe('draft retention on session death', () => {
+  it('kill of the last attached session keeps the draft', () => {
     const reg = regWithDaemon()
     const { draft, sessionId } = draftWithSession(reg)
     expect(reg.issues.get(draft.id)).not.toBeNull()
     reg.modules.sessions.killSession({ sessionId })
-    expect(reg.issues.get(draft.id)).toBeNull()
+    expect(reg.issues.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.listSessions()).toHaveLength(0)
+    expect(reg.sessionStore.sessions.getSession(sessionId)?.issueId).toBe(draft.id)
   })
 
-  it('archiving the last attached session deletes the draft and detaches the session', () => {
+  it('archiving the last attached session keeps its draft attachment', () => {
     const reg = regWithDaemon()
     const { draft, sessionId } = draftWithSession(reg)
     reg.modules.sessions.setArchived({ sessionId, archived: true })
-    expect(reg.issues.get(draft.id)).toBeNull()
-    // The surviving (archived) session must not dangle on a deleted issue.
-    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
+    expect(reg.issues.get(draft.id)).not.toBeNull()
+    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
 
-  it('agent exit of the last attached session deletes the draft and detaches the dead session', () => {
-    const reg = regWithDaemon()
+  it('keeps a fresh Codex draft attached after an updater exit, including across boot', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-updater-exit-')), 'state.sqlite')
+    const reg = regWithDaemon(new SessionStore(file))
     const { draft, sessionId } = draftWithSession(reg)
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
-    expect(reg.issues.get(draft.id)).toBeNull()
-    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
-    // Exited row itself survives (resurrectable) — only the empty draft goes.
-    expect(reg.modules.sessions.listSessions().map((s) => s.sessionId)).toEqual([sessionId])
+
+    // Codex exits cleanly while replacing itself during an update. The daemon
+    // has no distinct update-exit frame, so the server must retain recoverability.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+    })
+
+    expect(reg.issues.get(draft.id)).not.toBeNull()
+    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
+    expect(reg.modules.sessions.listSessions()).toContainEqual(
+      expect.objectContaining({ sessionId, status: 'exited', issueId: draft.id }),
+    )
+
+    const restarted = new SessionRegistry(new SessionStore(file), undefined, {
+      instanceId: 'default',
+    })
+    expect(restarted.issues.get(draft.id)).not.toBeNull()
+    expect(restarted.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
+    expect(restarted.modules.sessions.listSessions()).toContainEqual(
+      expect.objectContaining({ sessionId, status: 'exited', issueId: draft.id }),
+    )
   })
 
   it('hibernation does NOT delete the draft (intentional park)', () => {
@@ -79,7 +97,11 @@ describe('empty-draft reap on session death', () => {
     const r = reg.modules.sessions.hibernateSession({ sessionId })
     expect(r.ok).toBe(true)
     // The hibernate kill produces an agentExit like any death — still no reap.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+    })
     expect(reg.issues.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
@@ -120,10 +142,10 @@ describe('empty-draft reap on session death', () => {
   })
 })
 
-describe('boot-time leaked-draft sweep', () => {
+describe('boot-time draft retention', () => {
   const freshFile = () => join(mkdtempSync(join(tmpdir(), 'podium-reap-')), 'state.sqlite')
 
-  it('reaps a draft whose attached session no longer exists', () => {
+  it('does not infer abandonment from a missing session', () => {
     const file = freshFile()
     const reg1 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
@@ -131,10 +153,10 @@ describe('boot-time leaked-draft sweep', () => {
     // Leak: the session row vanishes without the reaper seeing it (pre-reaper kills).
     new SessionStore(file).sessions.purgeSession(sessionId)
     const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
-    expect(reg2.issues.get(draft.id)).toBeNull()
+    expect(reg2.issues.get(draft.id)).not.toBeNull()
   })
 
-  it('reaps a draft whose only attached session is exited, detaching it', () => {
+  it('keeps a draft whose only attached session is exited', () => {
     const file = freshFile()
     const store = new SessionStore(file)
     const reg1 = new SessionRegistry(store, undefined, { instanceId: 'default' })
@@ -145,8 +167,8 @@ describe('boot-time leaked-draft sweep', () => {
     if (!row) throw new Error('session row missing')
     store.sessions.upsertSession({ ...row, status: 'exited' })
     const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
-    expect(reg2.issues.get(draft.id)).toBeNull()
-    expect(reg2.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
+    expect(reg2.issues.get(draft.id)).not.toBeNull()
+    expect(reg2.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
 
   it('keeps drafts with live (reconnecting) or hibernated sessions across boot', () => {
@@ -177,11 +199,9 @@ describe('boot-time leaked-draft sweep', () => {
  * `purgeEmptyDraft` really does `DELETE FROM issues`, and `sessions.issue_id`
  * declares no foreign key (only `parent_id`, `superseded_by` and `duplicate_of`
  * have `ON DELETE SET NULL`), so nothing at the SQL layer catches a stale
- * pointer. The reaper detaches what it can SEE — and it looks through
+ * pointer. Explicit rehome cleanup detaches what it can SEE — and it looks through
  * `loadSessions()`, which is `deleted_at IS NULL`, so a TOMBSTONED session is
- * invisible to it in both directions: it does not block the reap (correct — a
- * deleted session should not keep a draft alive) and it did not get detached
- * (the bug).
+ * invisible to it in both directions, so the SQL purge must detach it too.
  *
  * The live row that produced this issue: spawned 16:19:20, soft-deleted 16:19:29
  * with `status` still `live`, still naming a draft that no longer exists.
@@ -189,16 +209,20 @@ describe('boot-time leaked-draft sweep', () => {
 describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () => {
   const freshFile = () => join(mkdtempSync(join(tmpdir(), 'podium-dangle-')), 'state.sqlite')
 
-  it('a session tombstoned before the reap does not outlive its draft pointer', () => {
+  it('a session tombstoned before explicit rehome does not outlive its draft pointer', () => {
     const file = freshFile()
     const reg1 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg1)
+    const activeSessionId = reg1.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/repo',
+      issueId: draft.id,
+    }).sessionId
 
     // Tombstone it the way a standalone delete does. The row keeps a RUNNABLE
-    // status — the reaper blocks on `!archived && status !== 'exited'` — so had
-    // it been able to see this row at all it would have refused the reap. It
-    // cannot: `loadSessions()` is `deleted_at IS NULL`.
+    // status. Explicit rehome cleanup cannot see this row because
+    // `loadSessions()` is `deleted_at IS NULL`.
     const store = new SessionStore(file)
     store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
     const tombstone = store.sessions.getSession(sessionId)
@@ -206,8 +230,10 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     expect(tombstone?.status).not.toBe('exited')
     expect(store.sessions.loadSessions().map((r) => r.id)).not.toContain(sessionId)
 
-    // Boot: the draft looks empty (its only session is invisible) and is purged.
+    // Rehoming the remaining live session is the explicit cleanup point.
     const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+    const target = reg2.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    reg2.issues.attachSession({ sessionId: activeSessionId, targetId: target.id })
     expect(reg2.issues.get(draft.id)).toBeNull()
 
     const after = new SessionStore(file).sessions.getSession(sessionId)
@@ -243,7 +269,7 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     expect(healed.issues.pruneOrphanRefLetters()).toBe(0)
   })
 
-  it('a LIVE session keeps its pointers — the reaper owns those, not the SQL scrub', () => {
+  it('a LIVE session keeps its pointers — explicit rehome owns those, not the SQL scrub', () => {
     const file = freshFile()
     const reg = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})

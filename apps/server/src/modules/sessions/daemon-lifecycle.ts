@@ -1,6 +1,11 @@
 import { acceptAgentObservation } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
-import { type AgentRuntimeState, idleVerdictNeedsHuman, type SessionId, type MachineId, type IssueId } from '@podium/model'
+import {
+  type AgentRuntimeState,
+  idleVerdictNeedsHuman,
+  type SessionId,
+  type MachineId,
+} from '@podium/model'
 import type { LiveServerMessage, MachinePrincipal, ObservationInputOrigin } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
@@ -34,7 +39,6 @@ export interface SessionDaemonLifecyclePorts {
   onSessionActivity(sessionId: SessionId): void
   onSessionAttention(sessionId: SessionId): void
   onSessionTurnEnd(sessionId: SessionId): void
-  maybeReapDraftIssue(issueId: IssueId | null | undefined): void
   emitSessionExited(sessionId: SessionId, code: number, spawnedBy?: string): void
   toMachine(machineId: MachineId, message: ControlMessage): void
   now(): number
@@ -117,8 +121,6 @@ export class SessionDaemonLifecycle {
   private readonly persist = (session: Session, additionalWrite?: () => void): void =>
     this.ports.persist(session, additionalWrite)
   private readonly broadcastSessions = (): void => this.ports.broadcastSessions()
-  private readonly maybeReapDraftIssue = (issueId: IssueId | null | undefined): void =>
-    this.ports.maybeReapDraftIssue(issueId)
   private readonly emitSessionExited = (
     sessionId: SessionId,
     code: number,
@@ -240,10 +242,8 @@ export class SessionDaemonLifecycle {
         if (s) this.persist(s)
         this.broadcastSessions()
         this.ports.onSessionActivity(msg.sessionId)
-        // If the process death made an empty draft's last session 'exited', reap
-        // the draft. A hibernate kill lands here too, but onExit keeps status
-        // 'hibernated', which blocks the reap — parked drafts survive.
-        this.maybeReapDraftIssue(s?.issueId)
+        // Keep the issue attachment: an updater and an abandoned process both
+        // arrive as agentExit, and the exited session remains resumable.
         // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
         // Only a REAL exit fires: a hibernate kill keeps status 'hibernated'
         // and the session's leases with it. Also durable for steward parent-wake

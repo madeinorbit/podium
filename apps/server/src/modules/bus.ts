@@ -56,7 +56,6 @@ export interface EventMap {
   'issue.sessionDerived':
     | { kind: 'gitActivity'; sessionId: SessionId; commits?: string[]; touched?: string[] }
     | { kind: 'activity' | 'attention' | 'turnEnd' | 'removedOrArchived'; sessionId: SessionId }
-    | { kind: 'reapDraft'; issueId: IssueId }
     | {
         kind: 'adoptWorktree'
         issueId: IssueId

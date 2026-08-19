@@ -60,8 +60,6 @@ export type IssueCommentsMailCapability = Pick<
 export type IssueAttentionCapability = Pick<
   IssueAttentionModule,
   | 'attachSession'
-  | 'reapIfEmptyDraft'
-  | 'reapLeakedDrafts'
   | 'createDraftFor'
   | 'subscriptionAdd'
   | 'subscriptionRemove'
@@ -275,7 +273,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
   // rather than merely de-defaulted, and `IssueCommentsMailModule.addComment`'s
   // required principal is now the only signature `IssueService` exposes.
 
-  /** Boot hydration, membership totalization, draft reap and ledger reconcile. */
+  /** Boot hydration, membership totalization and ledger reconcile. */
   boot(principal: SystemCommandPrincipal = systemPrincipal('boot-reconcile')): this {
     const store = this.store
     store.init()
@@ -292,14 +290,6 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       if (totalized > 0) {
         log.warn('boot attached legacy cwd-only sessions', { attached: totalized })
       }
-    }
-    try {
-      const reaped = this.attention.reapLeakedDrafts()
-      if (reaped > 0) {
-        log.warn('boot sweep reaped leaked draft issues', { reaped })
-      }
-    } catch (err) {
-      log.warn('boot draft sweep failed', { err })
     }
     try {
       // The catch-up publish, and the one boot step whose cost scales with the

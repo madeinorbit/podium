@@ -19,7 +19,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { SessionId, MachineId, IssueId } from '@podium/model'
+import type { SessionId, MachineId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -60,20 +60,6 @@ export interface SessionKillPorts {
 
 export class SessionKill {
   constructor(private readonly ports: SessionKillPorts) {}
-
-  /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/
-   *  archive), reap its draft issue if the draft is now empty — draft, no
-   *  worktree, no children, and every attached session dead (exited/archived) or
-   *  gone. Hibernation does NOT land here via a dead status ('hibernated' blocks
-   *  the reap inside reapIfEmptyDraft), so a parked draft survives. */
-  maybeReapDraftIssue(issueId: IssueId | null | undefined): void {
-    if (!issueId) return
-    try {
-      this.ports.bus.emit('issue.sessionDerived', { kind: 'reapDraft', issueId })
-    } catch (err) {
-      log.warn('draft-issue reap failed', { err, issueId })
-    }
-  }
 
   /** Durable transition for removing a local session. POD-309 removed the second
    *  spec this used to push: a retained hub-mirror entry colliding on the same id was
@@ -131,8 +117,6 @@ export class SessionKill {
 
   killSession(input: { sessionId: SessionId }): void {
     const session = this.ports.sessions.get(input.sessionId)
-    // Capture before the row is tombstoned — the reap after cleanup needs it.
-    const issueId = session?.issueId
     const deletedAt = new Date(this.ports.now()).toISOString()
     // The remove change commits in the SAME transaction as the tombstone (and
     // the queued-send cleanup — a killed session can never deliver, so its rows
@@ -152,9 +136,6 @@ export class SessionKill {
     this.removeSessionRuntime(input.sessionId, { retiredAt: deletedAt })
     this.ports.repository.publishSessionProjection(changes)
     this.ports.broadcastSessions()
-    // The killed session may have been the last living occupant of an empty
-    // draft issue — reap the vessel so "x" doesn't leak orphaned Drafts.
-    this.maybeReapDraftIssue(issueId)
     // Session-death notification [spec:SP-85d1] (lock auto-release et al.): a
     // kill deletes the row from the map BEFORE the daemon's agentExit arrives,
     // so the agentExit-path emit would be skipped — fire it here. killSession

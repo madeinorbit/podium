@@ -17,26 +17,6 @@ import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
 
 const log = createLogger('server:issues')
 
-/**
- * The reads a draft SWEEP does once and shares across every draft it visits
- * (POD-1638). Optional at the call site precisely so the single-draft kill path
- * keeps its own read-per-call semantics rather than inheriting a snapshot it did
- * not take.
- *
- * KNOWN HOLE, stated rather than left to be rediscovered: because it is optional,
- * a SECOND sweep added later that loops over drafts and forgets to pass one gets
- * the original drafts x sessions cost back, and no test goes red — the coverage
- * pins the scaling of `reapLeakedDrafts`, not of "any loop over drafts". The
- * failure mode is slow, never wrong. Making it required would push a snapshot
- * onto the two single-draft callers that correctly do not want one, which is a
- * worse trade for a hypothetical; if a second sweep ever appears, give it a pass
- * and extend the scaling test to cover it.
- */
-interface ReapPass {
-  sessions: SessionMeta[]
-  childCountByParent: Map<string, number>
-}
-
 /** The one git-workflow call the archive seam makes (POD-567). Declared here, and
  *  narrow, so attention depends on a guarantee — "free it only if it is safe" —
  *  rather than on the worktree module. */
@@ -45,14 +25,6 @@ interface IssueAttentionWorktreePort {
     id: IssueId,
     principal: CommandPrincipal,
   ): Promise<{ freed: boolean; reason?: string }>
-}
-
-function countChildren(rows: IssueRow[]): Map<string, number> {
-  const counts = new Map<string, number>()
-  for (const r of rows) {
-    if (r.parentId) counts.set(r.parentId, (counts.get(r.parentId) ?? 0) + 1)
-  }
-  return counts
 }
 
 /**
@@ -323,9 +295,9 @@ export class IssueAttentionModule {
     const origin = this.store.rows.get(originId)
     const target = this.store.rows.get(targetId)
     if (!origin || !target || !origin.worktreePath || target.worktreePath) return
-    const remaining = this.store.sessionsFor(origin).filter(
-      (session) => !session.archived && session.status !== 'exited',
-    )
+    const remaining = this.store
+      .sessionsFor(origin)
+      .filter((session) => !session.archived && session.status !== 'exited')
     if (remaining.length > 0) return
     const pending = await this.originWorktreeIsPending(origin)
     if (!pending) return
@@ -338,7 +310,8 @@ export class IssueAttentionModule {
     this.store.persistRow(origin)
     this.store.persistRow(target)
     this.store.broadcastList()
-    if (origin.repoPath) this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
+    if (origin.repoPath)
+      this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
   }
 
   private async originWorktreeIsPending(origin: IssueRow): Promise<boolean> {
@@ -356,7 +329,9 @@ export class IssueAttentionModule {
       origin.machineId ?? undefined,
     )
     if (!status.ok) return true
-    const dirty = status.output.split('\n').some((line) => line.trim() !== '' && !line.startsWith('## '))
+    const dirty = status.output
+      .split('\n')
+      .some((line) => line.trim() !== '' && !line.startsWith('## '))
     if (dirty) return true
     if (!origin.branch) return true
     const merged = await this.store.d.repoOp(
@@ -368,81 +343,23 @@ export class IssueAttentionModule {
     return !merged.ok
   }
 
-  /** Delete `id` iff it is a draft with no LIVING attached sessions, no worktree
-   *  and no children — the empty auto-created vessel left behind by an attach or
-   *  by its last session dying. A session blocks deletion only while it can still
-   *  produce work: exited or archived sessions don't count (hibernated ones DO —
-   *  hibernation is an intentional park, the draft must survive it). Any dead
-   *  sessions still pointing at the deleted issue are detached so nothing
-   *  dangles. Returns true iff the issue was deleted.
-   *
-   *  `pass` carries the reads a SWEEP has already done (POD-1638). `listSessions`
-   *  is the reader-scoped session PROJECTION, not an accessor — building it runs
-   *  an authorization check and a display-ref resolution per session, each of
-   *  which hits SQLite — so calling it once per draft made the boot sweep cost
-   *  drafts x sessions and blocked the event loop for seconds. A single-draft
-   *  caller passes nothing and reads for itself, exactly as before.
-   *
-   *  IF YOU ARE WRITING A NEW LOOP OVER DRAFTS: build one {@link ReapPass} before
-   *  it and hand it to every call, or you reintroduce that cost. Omitting it is
-   *  silent — nothing fails, it just gets slow again — so also extend the scaling
-   *  test in `reap-drafts-cost.test.ts` to cover your sweep. See the note on
-   *  {@link ReapPass} for why this stayed optional. */
-  reapIfEmptyDraft(id: string, pass?: ReapPass): boolean {
+  /** Delete the abandoned vessel left by an EXPLICIT session rehome, iff it is a
+   *  draft with no living attached sessions, worktree, or children. Process
+   *  liveness is deliberately not a trigger: exited sessions remain resumable,
+   *  and their draft is the sidebar route back to that recovery UI. */
+  private deleteIfEmptyDraft(id: string): void {
     const row = this.store.rows.get(id)
-    if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
-    const hasChildren = pass
-      ? (pass.childCountByParent.get(id) ?? 0) > 0
-      : [...this.store.rows.values()].some((r) => r.parentId === id)
-    if (hasChildren) return false
-    const attached = (pass?.sessions ?? this.store.deps.listSessions()).filter(
-      (s) => s.issueId === id,
-    )
+    if (!row || row.deletedAt || !row.draft || row.worktreePath) return
+    if ([...this.store.rows.values()].some((r) => r.parentId === id)) return
+    const attached = this.store.deps.listSessions().filter((s) => s.issueId === id)
     const blocking = attached.some((s) => !s.archived && s.status !== 'exited')
-    if (blocking) return false
+    if (blocking) return
     // Detach the remaining dead sessions BEFORE deleting so their broadcasts
     // never reference a vanished issue.
     if (this.store.deps.setSessionIssueId) {
       for (const s of attached) this.store.deps.setSessionIssueId(s.sessionId, null)
     }
-    // A sweep publishes ONE reconcile for the whole pass (see reapLeakedDrafts);
-    // a single-draft caller publishes its own, as it always did.
-    this.crud().purgeEmptyDraft(id, pass ? { publish: false } : undefined)
-    return true
-  }
-
-  private deleteIfEmptyDraft(id: string): void {
-    this.reapIfEmptyDraft(id)
-  }
-
-  /** Boot-time reconciliation: delete every leaked empty draft (same emptiness
-   *  predicate as the kill-path reaper — sessions killed/removed before the
-   *  reaper existed left orphaned "Draft" vessels behind). Returns the number
-   *  of drafts reaped. */
-  reapLeakedDrafts(): number {
-    // Both reads are hoisted out of the loop. The sweep is SYNCHRONOUS, so
-    // nothing can attach a session or re-parent an issue while it runs; the only
-    // writes it makes itself are detaching sessions from — and deleting — drafts
-    // it has already passed, and neither can turn a later draft reapable or
-    // unreapable (a detached session's issueId becomes null, which matches no
-    // draft, and ids are visited once).
-    const pass: ReapPass = {
-      sessions: this.store.deps.listSessions(),
-      childCountByParent: countChildren([...this.store.rows.values()]),
-    }
-    let n = 0
-    for (const id of [...this.store.rows.keys()]) {
-      if (this.store.rows.get(id)?.draft && this.reapIfEmptyDraft(id, pass)) n++
-    }
-    // The one reconcile the batched purges above deferred. Derived from full
-    // truth after every delete has committed, so it says exactly what a
-    // per-draft republish would have said last — one message instead of n.
-    if (n > 0) {
-      this.store.reconcileAndPublish(
-        this.store.deps.publishSpecs.issuesChanged(this.store.allWire()),
-      )
-    }
-    return n
+    this.crud().purgeEmptyDraft(id)
   }
 
   /** The auto-created vessel for a low-friction agent start: a draft, human-origin

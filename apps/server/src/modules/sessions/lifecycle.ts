@@ -597,9 +597,6 @@ export class SessionLifecycle {
   ): Promise<{ ok: boolean; reason?: string }> {
     return this.sessionRevival.resurrectSession(input, issues)
   }
-  private maybeReapDraftIssue(issueId: IssueId | null | undefined): void {
-    this.sessionKill.maybeReapDraftIssue(issueId)
-  }
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
     return this.sessionKill.sessionRemovalSpecs(sessionId)
   }

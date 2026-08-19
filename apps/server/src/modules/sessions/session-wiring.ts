@@ -206,7 +206,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     onArchived: (sessionId) => {
       bag.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
-      bag.maybeReapDraftIssue(bag.sessions.get(sessionId)?.issueId)
       bag.parkArchivedSession(sessionId)
     },
   })
@@ -469,7 +468,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.bus.emit('issue.sessionDerived', { kind: 'attention', sessionId }),
     onSessionTurnEnd: (sessionId) =>
       bag.bus.emit('issue.sessionDerived', { kind: 'turnEnd', sessionId }),
-    maybeReapDraftIssue: (issueId) => bag.maybeReapDraftIssue(issueId),
     emitSessionExited: (sessionId, code, spawnedBy) =>
       bag.emitSessionExited(sessionId, code, spawnedBy),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
