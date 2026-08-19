@@ -7,6 +7,13 @@ import { createLogger } from '@podium/logger'
 const log = createLogger('daemon:discovery')
 
 export const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
+/**
+ * Whole-corpus discovery is a safety net for conversations created outside
+ * Podium. Live Podium sessions already refresh their own changed transcript,
+ * so an unchanged safety-net pass backs off instead of listing and statting the
+ * complete multi-harness history every 15 seconds forever.
+ */
+export const DEFAULT_DISCOVERY_SCAN_MAX_INTERVAL_MS = 5 * 60_000
 
 export interface DiscoveryLoop {
   /** Run a scan on the worker and publish the delta; `full` requests the entire list. */
@@ -21,7 +28,7 @@ export interface DiscoveryLoop {
 /**
  * The daemon's conversation-discovery pump. The /proc-free scan runs on the
  * worker thread (which owns discovery.db exclusively), so neither the periodic
- * 15s tick, the connect-time full snapshot, nor the tail-driven active refresh
+ * safety-net tick, the connect-time full snapshot, nor the tail-driven active refresh
  * ever touches the interactive daemon loop.
  */
 export function createDiscoveryLoop(opts: {
@@ -32,13 +39,21 @@ export function createDiscoveryLoop(opts: {
   /** False disables unsolicited pushes (the periodic loop + connect snapshot). */
   background: boolean
   intervalMs: number
+  /** Test/embedding override for the idle backoff ceiling. */
+  maxIntervalMs?: number
 }): DiscoveryLoop {
   let timer: ReturnType<typeof setTimeout> | undefined
-  // Coalesce overlapping scans: a 15s tick that fires while a worker job is still
+  let running = false
+  let nextScanIntervalMs = opts.intervalMs
+  const maxScanIntervalMs = Math.max(
+    opts.intervalMs,
+    opts.maxIntervalMs ?? DEFAULT_DISCOVERY_SCAN_MAX_INTERVAL_MS,
+  )
+  // Coalesce overlapping scans: a safety-net tick that fires while a worker job is still
   // in flight (or an on-demand scanRequest racing the timer) shares the one result.
   let inFlight: Promise<ConversationDeltaWire> | undefined
 
-  // Send the conversation delta. The common case every 15s is "nothing moved": an
+  // Send the conversation delta. The common safety-net result is "nothing moved": an
   // all-empty delta produces NO broadcast at all, so an idle host doesn't fan a
   // pointless conversationsChanged frame out to every client every tick. (A genuinely
   // empty full snapshot — zero conversations on the host — is correctly skipped too.)
@@ -71,8 +86,7 @@ export function createDiscoveryLoop(opts: {
         ...(opts.cachePath ? { cachePath: opts.cachePath } : {}),
       }) as Promise<ConversationDeltaWire>,
     publish: publishConversations,
-    onError: (err) =>
-      log.warn('active index refresh failed', { err }),
+    onError: (err) => log.warn('active index refresh failed', { err }),
   })
 
   // Run the discovery scan on the worker thread (off the interactive loop) and
@@ -118,10 +132,20 @@ export function createDiscoveryLoop(opts: {
   }
 
   const scheduleScan = (): void => {
-    if (!opts.background) return
+    if (!running) return
     timer = setTimeout(() => {
-      void refreshAndPublishConversations().finally(scheduleScan)
-    }, opts.intervalMs)
+      void refreshAndPublishConversations()
+        .then((delta) => {
+          const retrySoon =
+            delta.changed.length > 0 ||
+            delta.removed.length > 0 ||
+            delta.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+          nextScanIntervalMs = retrySoon
+            ? opts.intervalMs
+            : Math.min(maxScanIntervalMs, nextScanIntervalMs * 2)
+        })
+        .finally(scheduleScan)
+    }, nextScanIntervalMs)
     timer.unref?.()
   }
 
@@ -129,7 +153,8 @@ export function createDiscoveryLoop(opts: {
     refreshAndPublishConversations,
     markConversationDirty: (path) => activeRefresh.markConversationDirty(path),
     start(): void {
-      if (!opts.background) return
+      if (!opts.background || running) return
+      running = true
       // Run one FULL snapshot on the worker at connect (emits the entire current
       // conversation list, not just what moved), then settle into the periodic
       // delta loop. The full snapshot is required because the server index can be
@@ -141,7 +166,9 @@ export function createDiscoveryLoop(opts: {
       scheduleScan()
     },
     stop(): void {
+      running = false
       if (timer) clearTimeout(timer)
+      timer = undefined
       activeRefresh.stop()
     },
   }

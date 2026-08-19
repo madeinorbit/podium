@@ -1,4 +1,8 @@
-import { type ConversationDiscoveryCache, scanAgentConversationsCached, summarizePaths } from '@podium/harness'
+import {
+  type ConversationDiscoveryCache,
+  scanAgentConversationsCached,
+  summarizePaths,
+} from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { diagnosticToWire, summaryToWire } from './conversation-wire.js'
 import {
@@ -53,7 +57,7 @@ export interface IndexRefreshJobInput {
  * entire current conversation list as `changed` so a snapshot upserts everything.
  *
  * The `cache` is injected (not opened per call) so the long-lived worker can hold
- * ONE cache across the every-15s `indexRefresh` ticks — opening a fresh
+ * ONE cache across the adaptive `indexRefresh` ticks — opening a fresh
  * `ConversationDiscoveryCache(cachePath)` here each pass would leak a SQLite
  * connection (and re-run migrate()) on every tick of a long-running daemon.
  */

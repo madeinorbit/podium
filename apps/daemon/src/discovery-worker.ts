@@ -20,7 +20,7 @@ if (parentPort) {
   const port = parentPort
   // The worker owns discovery.db exclusively. Hold ONE long-lived cache across all
   // `indexRefresh` ticks (opened lazily from the first job's cachePath) so the
-  // every-15s scan reuses one SQLite connection instead of leaking one (and
+  // adaptive safety-net scan reuses one SQLite connection instead of leaking one (and
   // re-running migrate()) per pass.
   let cache: ConversationDiscoveryCache | undefined
   const indexCache = (cachePath?: string): ConversationDiscoveryCache => {

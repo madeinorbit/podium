@@ -64,6 +64,22 @@ function usableBackup(path: string): boolean {
   }
 }
 
+type LatestBackupCacheEntry = {
+  signature: string
+  path: string | undefined
+}
+
+/**
+ * `usableBackup` runs SQLite `quick_check`, which reads the snapshot rather than
+ * merely inspecting its directory entry. Update's idle read model asks for the
+ * latest recovery point every 30 seconds, so repeating that proof turned a
+ * harmless status poll into a synchronous full-database scan. Cache only the
+ * verified answer, keyed by the candidate files' metadata; a published,
+ * removed, or replaced snapshot changes the signature and is verified before it
+ * can become the answer.
+ */
+const latestBackupCache = new Map<string, LatestBackupCacheEntry>()
+
 /**
  * Free bytes available to this process on the filesystem holding `dir`.
  * Uses `fs.statfsSync` (works under Bun), falling back to `df -Pk` parsing.
@@ -209,13 +225,25 @@ export function latestDatabaseBackup(dbPath: string): string | undefined {
   try {
     const dir = dirname(dbPath)
     const dbFile = basename(dbPath)
-    return readdirSync(dir)
+    const candidates = readdirSync(dir)
       .filter((name) => isBackupMain(name, dbFile))
-      .flatMap((name) => {
+      .map((name) => {
         const path = join(dir, name)
-        return usableBackup(path) ? [{ path, mtimeMs: statSync(path).mtimeMs }] : []
+        const stats = statSync(path)
+        return { name, path, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs, size: stats.size }
       })
+    const signature = candidates
+      .map(({ name, mtimeMs, ctimeMs, size }) => `${name}\0${size}\0${mtimeMs}\0${ctimeMs}`)
+      .sort()
+      .join('\n')
+    const cached = latestBackupCache.get(dbPath)
+    if (cached?.signature === signature) return cached.path
+
+    const latest = candidates
+      .filter(({ path }) => usableBackup(path))
       .sort((a, b) => b.mtimeMs - a.mtimeMs || b.path.localeCompare(a.path))[0]?.path
+    latestBackupCache.set(dbPath, { signature, path: latest })
+    return latest
   } catch (err) {
     log.warn('database snapshot history could not be read', { path: dbPath, err })
     return undefined

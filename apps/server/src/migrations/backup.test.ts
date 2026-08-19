@@ -37,6 +37,14 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
+vi.mock('@podium/runtime/sqlite', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/runtime/sqlite')>()
+  return {
+    ...actual,
+    openDatabase: vi.fn(actual.openDatabase),
+  }
+})
+
 const PLENTY = () => Number.MAX_SAFE_INTEGER
 const tempDirs: string[] = []
 
@@ -51,7 +59,9 @@ function tmpDb(name = 'test.sqlite'): { db: SqlDatabase; dbPath: string; dir: st
 
 function backupMains(dir: string): string[] {
   return readdirSync(dir)
-    .filter((name) => name.includes('.backup-v') && !name.endsWith('-wal') && !name.endsWith('-shm'))
+    .filter(
+      (name) => name.includes('.backup-v') && !name.endsWith('-wal') && !name.endsWith('-shm'),
+    )
     .sort()
 }
 
@@ -59,6 +69,7 @@ beforeEach(() => {
   vi.mocked(copyFileSync).mockClear()
   vi.mocked(fsyncSync).mockClear()
   vi.mocked(renameSync).mockClear()
+  vi.mocked(openDatabase).mockClear()
 })
 
 afterEach(() => {
@@ -190,6 +201,29 @@ describe('backupDatabase retention', () => {
     expect(prune).toHaveBeenCalledWith(dbPath)
     expect(backupPath).toBeDefined()
     expect(existsSync(backupPath as string)).toBe(true)
+    db.close()
+  })
+
+  it('does not quick-check unchanged snapshots on every latest-path read', () => {
+    const { db, dbPath } = tmpDb()
+    const backupPath = backupDatabase(db, dbPath, 'cached', PLENTY)
+    vi.mocked(openDatabase).mockClear()
+
+    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
+    const verificationOpens = vi.mocked(openDatabase).mock.calls.length
+    expect(verificationOpens).toBeGreaterThan(0)
+
+    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
+    expect(vi.mocked(openDatabase)).toHaveBeenCalledTimes(verificationOpens)
+
+    // A new candidate changes the directory signature and re-runs verification;
+    // the corrupt arrival cannot replace the last verified answer.
+    writeFileSync(`${dbPath}.backup-vcorrupt-2026-08-19T00-00-00-000Z`, 'not sqlite')
+    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
+    const opensAfterChange = vi.mocked(openDatabase).mock.calls.length
+    expect(opensAfterChange).toBeGreaterThan(verificationOpens)
+    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
+    expect(vi.mocked(openDatabase)).toHaveBeenCalledTimes(opensAfterChange)
     db.close()
   })
 })
