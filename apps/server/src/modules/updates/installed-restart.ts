@@ -17,8 +17,8 @@ export interface InstalledRestartDeps {
 /**
  * Restart an installed coordinator after its local daemon has atomically
  * replaced the shared headless bundle. systemd is already a supervisor; the
- * detached setup path has none, so it starts replacement janitor and server
- * processes itself, with the server last because its takeover ends this PID.
+ * detached setup path has none, so it starts replacement janitor, daemon, and
+ * server processes itself, with the server last because its takeover ends this PID.
  */
 export function createInstalledCoordinatorRestart(
   deps: InstalledRestartDeps,
@@ -55,6 +55,7 @@ export function createInstalledCoordinatorRestart(
       const executable = deps.execPath ?? process.execPath
       const commands = [
         ['janitor', '--server', `http://127.0.0.1:${deps.port()}`, '--takeover'],
+        ['daemon', '--local', '--takeover'],
         ['server', '--takeover'],
       ] as const
       for (const args of commands) {

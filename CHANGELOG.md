@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-edge.15] - 2026-08-19
+
+### Fixed
+
+- Settings reports the native desktop bundle's complete edge version, and detached headless
+  updates now use signed-feed delivery and restart the janitor, daemon, and server into the
+  downloaded release. The coordinator starts the daemon before its final server takeover so
+  the update no longer remains stuck at `Restarting…` after replacing the installed binary.
+
 ## [0.1.0-edge.14] - 2026-08-19
 
 ### Fixed

@@ -13,7 +13,7 @@ describe('createInstalledCoordinatorRestart', () => {
     ).toBeUndefined()
   })
 
-  it('hands a detached coordinator to new janitor and server processes', () => {
+  it('hands a detached coordinator to new janitor, server, and daemon processes', () => {
     const children: Array<{ unref: ReturnType<typeof vi.fn> }> = []
     const spawnProcess = vi.fn(() => {
       const child = { unref: vi.fn() }
@@ -42,6 +42,12 @@ describe('createInstalledCoordinatorRestart', () => {
     )
     expect(spawnProcess).toHaveBeenNthCalledWith(
       2,
+      '/opt/podium/podium',
+      ['daemon', '--local', '--takeover'],
+      expect.objectContaining({ detached: true }),
+    )
+    expect(spawnProcess).toHaveBeenNthCalledWith(
+      3,
       '/opt/podium/podium',
       ['server', '--takeover'],
       expect.objectContaining({ detached: true }),
