@@ -17,7 +17,7 @@
 import { envelopePrincipal, type ParsedEnvelope } from '@podium/client-core/viewmodels'
 import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { isKnownRefPrefix, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
@@ -69,6 +69,19 @@ function splitSubject(body: string): { subject: string; preview: string } {
   return { subject, preview }
 }
 
+/** Mail bodies are transcript DOM islands too. The surrounding group may
+ * rerender when another block is indexed, but identical HTML must not be
+ * assigned again or the browser loses a selection inside the opened note. */
+const StableEnvelopeMarkdown = memo(function StableEnvelopeMarkdown({ html }: { html: string }) {
+  return (
+    <div
+      className="chat-md mail-item-body"
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized before this boundary
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
+})
+
 function EnvelopeItem({
   envelope,
   markdownHtml,
@@ -84,14 +97,14 @@ function EnvelopeItem({
   const full = opened || forceFull
   const setFull = setOpened
   const { subject, preview } = useMemo(() => splitSubject(envelope.body), [envelope.body])
+  const cachedHtml = markdownHtml?.get(envelope.body)
   const html = useMemo(() => {
     if (!full) return ''
-    const unsafeHtml = markdownHtml?.get(envelope.body)
-    return unsafeHtml === undefined
+    return cachedHtml === undefined
       ? renderMarkdown(envelope.body)
-      : sanitizeRenderedMarkdown(unsafeHtml)
+      : sanitizeRenderedMarkdown(cachedHtml)
     // Ref chips are state-free transcript content (see ChatBlockView).
-  }, [full, envelope.body, markdownHtml])
+  }, [cachedHtml, envelope.body, full])
   return (
     <div className="mail-item" data-testid="mail-item" data-full={full ? 'true' : undefined}>
       <span className="mail-item-from">
@@ -111,11 +124,7 @@ function EnvelopeItem({
           {envelope.question && <span className="mail-item-badge">question</span>}
         </button>
         {full ? (
-          <div
-            className="chat-md mail-item-body"
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify in renderMarkdown
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
+          <StableEnvelopeMarkdown html={html} />
         ) : (
           preview !== '' && <span className="mail-item-preview">{preview}</span>
         )}

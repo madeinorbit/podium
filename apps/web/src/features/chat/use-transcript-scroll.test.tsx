@@ -26,18 +26,24 @@ let root: Root
 let api: UseTranscriptScrollResult | null = null
 let loadOlder = vi.fn()
 
-function Harness({ moreAbove = false }: { moreAbove?: boolean }) {
+function Harness({
+  moreAbove = false,
+  blockCount = 1,
+}: {
+  moreAbove?: boolean
+  blockCount?: number
+}) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   api = useTranscriptScroll({
     sessionId: asSessionId('session-1'),
     scrollerRef,
     active: true,
-    blockCount: 1,
+    blockCount,
     renderStart: 0,
     stickyEnabled: false,
     moreAbove,
     loadOlder,
-    rowsToRender: ['row-1'],
+    rowsToRender: Array.from({ length: blockCount }, (_, index) => `row-${index}`),
   })
   return (
     <div ref={api.setScrollerRef} onScroll={api.onScroll} onPointerUp={api.onPointerUp}>
@@ -83,6 +89,47 @@ describe('transcript scroll integration', () => {
     scroller.scrollTop = 80
     act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
     expect(loadOlder).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not restore a stale history anchor after the reader scrolls away', () => {
+    act(() => root.render(<Harness moreAbove />))
+    const scroller = host.firstElementChild as HTMLDivElement
+    const row = host.querySelector('[data-block]') as HTMLDivElement
+    let rowTop = 10
+    scroller.getBoundingClientRect = () =>
+      ({
+        top: 0,
+        bottom: 500,
+        left: 0,
+        right: 500,
+        width: 500,
+        height: 500,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      }) as DOMRect
+    row.getBoundingClientRect = () =>
+      ({
+        top: rowTop,
+        bottom: rowTop + 20,
+        left: 0,
+        right: 500,
+        width: 500,
+        height: 20,
+        x: 0,
+        y: rowTop,
+        toJSON() {},
+      }) as DOMRect
+
+    scroller.scrollTop = 80
+    act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+
+    scroller.scrollTop = 200
+    act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
+    rowTop = 110
+    act(() => root.render(<Harness moreAbove blockCount={2} />))
+    expect(scroller.scrollTop).toBe(200)
   })
 
   it('pauses follow when the reader has selected transcript text', () => {

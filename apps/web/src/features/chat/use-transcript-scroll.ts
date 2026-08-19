@@ -38,6 +38,7 @@ export interface UseTranscriptScrollResult {
 interface PrependAnchor {
   element: HTMLElement
   offset: number
+  scrollTop: number
 }
 
 // WebKit can deliver the final upward-scroll event after the Jump click. Keep
@@ -81,6 +82,7 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   const [pinnedBrief, setPinnedBrief] = useState<PinnedBrief | null>(null)
   const pinnedEl = useRef<HTMLElement | null>(null)
   const prependAnchor = useRef<PrependAnchor | null>(null)
+  const selectionPaused = useRef(false)
 
   const setScrollerRef = useCallback<RefCallback<HTMLDivElement>>(
     (element) => {
@@ -138,7 +140,11 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     for (const row of scroller.querySelectorAll<HTMLElement>('[data-block]')) {
       const rect = row.getBoundingClientRect()
       if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) continue
-      prependAnchor.current = { element: row, offset: rect.top - viewport.top }
+      prependAnchor.current = {
+        element: row,
+        offset: rect.top - viewport.top,
+        scrollTop: scroller.scrollTop,
+      }
       return
     }
   }, [scrollerRef])
@@ -174,6 +180,12 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   const onScroll = useCallback<UIEventHandler<HTMLDivElement>>(
     (event) => {
       syncStickyPromptPositions()
+      const anchor = prependAnchor.current
+      if (anchor && Math.abs(event.currentTarget.scrollTop - anchor.scrollTop) > 0.5) {
+        // The reader moved after asking for older history. Their newer intent
+        // wins over restoring the stale pre-request anchor when paging lands.
+        prependAnchor.current = null
+      }
       if (moreAbove && event.currentTarget.scrollTop < 120) loadOlderAnchored()
     },
     [loadOlderAnchored, moreAbove, syncStickyPromptPositions],
@@ -184,7 +196,11 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   // without changing or replacing any transcript node.
   const onPointerUp = useCallback(() => {
     const selection = window.getSelection()
-    if (selection && !selection.isCollapsed) stopScroll()
+    if (selection && !selection.isCollapsed && !selectionPaused.current) {
+      selectionPaused.current = true
+      prependAnchor.current = null
+      stopScroll()
+    }
   }, [stopScroll])
 
   useEffect(() => {
@@ -192,12 +208,23 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     const onSelectionChange = (): void => {
       const scroller = scrollerRef.current
       const selection = window.getSelection()
-      if (!scroller || !selection || selection.isCollapsed || selection.rangeCount === 0) return
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        selectionPaused.current = false
+        return
+      }
+      if (!scroller) return
       const range = selection.getRangeAt(0)
-      if (scroller.contains(range.commonAncestorContainer)) stopScroll()
+      if (scroller.contains(range.commonAncestorContainer) && !selectionPaused.current) {
+        selectionPaused.current = true
+        prependAnchor.current = null
+        stopScroll()
+      }
     }
     document.addEventListener('selectionchange', onSelectionChange)
-    return () => document.removeEventListener('selectionchange', onSelectionChange)
+    return () => {
+      selectionPaused.current = false
+      document.removeEventListener('selectionchange', onSelectionChange)
+    }
   }, [active, scrollerRef, stopScroll])
 
   const moveToBottomNow = useCallback(() => {

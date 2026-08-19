@@ -437,7 +437,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Send a chat message to a parked (hibernated/exited) session, waking it
    *  first and delivering the text once it's ready. Falls back to a plain send
    *  when the session is already live. */
-  resumeAndSend: (sessionId: SessionId, text: string) => Promise<void>
+  resumeAndSend: (sessionId: SessionId, text: string, mutationId?: MutationId) => Promise<void>
   archiveSession: (sessionId: SessionId, archived: boolean) => Promise<void>
   /** Decline the standing offer without answering it [spec:SP-c7f1] — the third
    *  exit, next to pressing a button and letting the next turn clear it.

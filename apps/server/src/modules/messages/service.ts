@@ -787,7 +787,7 @@ export class MessageDeliveryService {
       this.isRecipientOf(from, original)
     const stampsAck = (kind === 'ack' || respondsToRequest) && !!input.inReplyTo
 
-    const id = `msg_${randomUUID()}`
+    const id = input.correlationId ?? `msg_${randomUUID()}`
     const authority = this.authorityOf(from)
     const message: MessageRow = {
       id,

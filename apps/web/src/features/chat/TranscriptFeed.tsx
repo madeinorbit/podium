@@ -19,7 +19,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
-import type { PendingItem, QueuedChatMessage } from './chat'
+import type { ProjectedPendingItem, QueuedChatMessage } from './chat'
 import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
@@ -238,7 +238,7 @@ export function TranscriptFeed({
   collapseContext: boolean
   stickyEnabled: boolean
   isOperatorPromptRow: (row: RenderableRow['row']) => boolean
-  pending: readonly PendingItem[]
+  pending: readonly ProjectedPendingItem[]
   restoredQueued: readonly QueuedChatMessage[]
   onRetractQueued: (id: string) => Promise<void>
   overlay: HeadlessOverlay | null
@@ -444,45 +444,54 @@ export function TranscriptFeed({
             </Fragment>
           )
         })}
-        {pending.map((p) => (
-          <div
-            key={p.id}
-            className={cn(
-              // An optimistic bubble is the operator opening an exchange, and is
-              // spaced like one — otherwise the feed's rhythm changes at the
-              // moment the real row replaces it.
-              'transcript-row transcript-turn-open',
-              // THE MESSAGE IS ON SCREEN BEFORE THE WIRE KNOWS (POD-993). The
-              // optimistic row plays the same arrival every landed row plays, so
-              // pressing send reads as the message MOVING into the conversation
-              // rather than as a row appearing where there wasn't one. The real
-              // row replaces it in the same place, at the same measure, and the
-              // swap is invisible.
-              'transcript-pending transcript-arrive-bubble',
-              p.state === 'failed' && 'transcript-pending--failed',
-            )}
-          >
-            <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-            <div className="transcript-body transcript-you">
-              <div className="transcript-you-bubble">
-                <div className="transcript-you-body">
-                  <div className="chat-md whitespace-pre-wrap">{p.text}</div>
-                  {p.tags && p.tags.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {p.tags.map((tag, i) => (
-                        <span
-                          key={`${tag.kind}-${i}`}
-                          className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-                        >
-                          <ImageIcon size={12} aria-hidden="true" />
-                          {tag.label ?? tag.kind}
-                        </span>
-                      ))}
-                    </div>
+        {pending.map((p) => {
+          const durable = p.durable
+          const handedOver = durable?.injectedAt != null && !sessionWaking(session)
+          return (
+            <div
+              key={p.id}
+              data-testid={durable ? 'queued-chat-message' : undefined}
+              className={cn(
+                // An optimistic bubble is the operator opening an exchange, and is
+                // spaced like one — otherwise the feed's rhythm changes at the
+                // moment the real row replaces it.
+                'transcript-row transcript-turn-open',
+                // THE MESSAGE IS ON SCREEN BEFORE THE WIRE KNOWS (POD-993). The
+                // optimistic row plays the same arrival every landed row plays, so
+                // pressing send reads as the message MOVING into the conversation
+                // rather than as a row appearing where there wasn't one. The real
+                // row replaces it in the same place, at the same measure, and the
+                // swap is invisible.
+                'transcript-pending transcript-arrive-bubble',
+                p.state === 'failed' && 'transcript-pending--failed',
+              )}
+            >
+              <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+              <div className="transcript-body transcript-you">
+                <div
+                  className={cn(
+                    'transcript-you-bubble',
+                    durable && !handedOver && 'transcript-you-bubble--queued',
                   )}
+                >
+                  <div className="transcript-you-body">
+                    <div className="chat-md whitespace-pre-wrap">{p.text}</div>
+                    {p.tags && p.tags.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {p.tags.map((tag, i) => (
+                          <span
+                            key={`${tag.kind}-${i}`}
+                            className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                          >
+                            <ImageIcon size={12} aria-hidden="true" />
+                            {tag.label ?? tag.kind}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {/* THE DELIVERY STATE IS THE CARD'S OWN CAPTION (POD-993) — no voice
+                {/* THE DELIVERY STATE IS THE CARD'S OWN CAPTION (POD-993) — no voice
                 label, because the side already said who spoke.
 
                 A message in flight says NOTHING here: the breath at the end of
@@ -497,19 +506,38 @@ export function TranscriptFeed({
                 The delivered design said "queued"; main had already settled on
                 "pending" for the same state, and one vocabulary matters more
                 here than one word. */}
-              {p.state !== 'sending' && (
-                <div className="msg-foot" data-side="right">
-                  {p.state === 'queued' && <span className="transcript-delivery">pending</span>}
-                  {p.state === 'failed' && (
-                    <span className="transcript-delivery transcript-delivery--error">
-                      not delivered
+                {durable && !handedOver ? (
+                  <div className="msg-foot" data-side="right">
+                    <span className="transcript-delivery">
+                      {sessionWaking(session)
+                        ? 'pending · sends once the agent is up'
+                        : 'pending · sends after this turn'}
                     </span>
-                  )}
-                </div>
-              )}
+                    <button
+                      data-pressable
+                      type="button"
+                      className="msg-action msg-action--retract"
+                      aria-label="Retract pending message"
+                      title="Retract pending message"
+                      onClick={() => void onRetractQueued(durable.id)}
+                    >
+                      <MetaGlyph name="close" />
+                    </button>
+                  </div>
+                ) : p.state !== 'sending' && !handedOver ? (
+                  <div className="msg-foot" data-side="right">
+                    {p.state === 'queued' && <span className="transcript-delivery">pending</span>}
+                    {p.state === 'failed' && (
+                      <span className="transcript-delivery transcript-delivery--error">
+                        not delivered
+                      </span>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         {/* THE QUEUED TURN (POD-993) — a message the operator has written and
           committed to, waiting behind the turn in flight. It is the one row in
           the feed that is not yet part of the conversation, so it does not wear

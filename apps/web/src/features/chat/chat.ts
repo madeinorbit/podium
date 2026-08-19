@@ -325,6 +325,8 @@ export function ticksFromOffsets(
  *  yet, so render it as a plain bubble) or 'failed' (the send itself rejected). */
 export interface PendingItem {
   id: string
+  /** Client-minted idempotency key; queued ledger rows use this as their id. */
+  deliveryId?: string
   text: string
   at: number
   state: 'sending' | 'queued' | 'sent' | 'failed'
@@ -349,6 +351,50 @@ export interface QueuedChatMessage {
    * it cannot be retracted, nothing more will be typed, and the agent may already
    * be acting on it. Null while the row is still only promised. */
   injectedAt: number | null
+}
+
+/** A local row promoted with its durable ledger identity without changing the
+ * presentation key that React mounted when the operator pressed Send. */
+export interface ProjectedPendingItem extends PendingItem {
+  durable?: QueuedChatMessage
+}
+
+const QUEUE_CLOCK_SKEW_MS = 5_000
+const QUEUE_ACK_WINDOW_MS = 60_000
+
+/** Pair local bubbles with ledger rows once, using content plus the send-time
+ * window. An older identical queued prompt is not the durable identity of a new
+ * send and must remain independently retractable. */
+export function pairPendingWithQueued(
+  pending: PendingItem[],
+  queued: QueuedChatMessage[],
+): { pending: ProjectedPendingItem[]; queued: QueuedChatMessage[] } {
+  const unmatched = [...queued]
+  const projected = pending.map((item): ProjectedPendingItem => {
+    if (item.state === 'failed') return item
+    if (item.deliveryId) {
+      const exactIndex = unmatched.findIndex((message) => message.id === item.deliveryId)
+      if (exactIndex === -1) return item
+      const [durable] = unmatched.splice(exactIndex, 1)
+      return durable ? { ...item, durable } : item
+    }
+    let bestIndex = -1
+    let bestDistance = Number.POSITIVE_INFINITY
+    for (const [index, message] of unmatched.entries()) {
+      if (message.text.trim() !== item.text.trim()) continue
+      if (message.at < item.at - QUEUE_CLOCK_SKEW_MS) continue
+      if (message.at > item.at + QUEUE_ACK_WINDOW_MS) continue
+      const distance = Math.abs(message.at - item.at)
+      if (distance < bestDistance) {
+        bestIndex = index
+        bestDistance = distance
+      }
+    }
+    if (bestIndex === -1) return item
+    const [durable] = unmatched.splice(bestIndex, 1)
+    return durable ? { ...item, durable } : item
+  })
+  return { pending: projected, queued: unmatched }
 }
 
 export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): QueuedChatMessage[] {
@@ -380,39 +426,38 @@ export function projectOptimisticMessages(
   pending: PendingItem[],
   queued: QueuedChatMessage[],
   transcript: TranscriptItem[],
-): { pending: PendingItem[]; queued: QueuedChatMessage[] } {
-  const unmatchedQueued = [...queued]
+): { pending: ProjectedPendingItem[]; queued: QueuedChatMessage[] } {
+  const paired = pairPendingWithQueued(pending, queued)
   const logical: Array<{
-    pending?: PendingItem
+    pending?: ProjectedPendingItem
     queued?: QueuedChatMessage
     text: string
     at: number
+    toolPaths?: string[]
   }> = []
 
-  for (const item of pending) {
-    let durable: QueuedChatMessage | undefined
-    if (item.state !== 'failed') {
-      const index = unmatchedQueued.findIndex((message) => message.text.trim() === item.text.trim())
-      if (index !== -1) [durable] = unmatchedQueued.splice(index, 1)
-    }
-    logical.push({ pending: item, queued: durable, text: item.text.trim(), at: item.at })
+  for (const item of paired.pending) {
+    logical.push({
+      pending: item,
+      queued: item.durable,
+      text: item.text.trim(),
+      at: item.at,
+      ...(item.toolPaths ? { toolPaths: item.toolPaths } : {}),
+    })
   }
-  for (const message of unmatchedQueued) {
+  for (const message of paired.queued) {
     logical.push({ queued: message, text: message.text.trim(), at: message.at })
   }
   logical.sort((a, b) => a.at - b.at)
 
-  const available = transcript
-    .filter((item) => item.role === 'user')
-    .map((item) => ({ text: item.text.trim(), at: item.ts ? Date.parse(item.ts) : Number.NaN }))
+  const available = transcript.filter((item) => item.role === 'user')
   const visible = logical.filter((message) => {
-    const index = available.findIndex(
-      (item) =>
-        item.text === message.text &&
-        // Provider clocks and parsing can differ slightly. The lower bound only
-        // prevents an old identical prompt from consuming a new local row.
-        (Number.isNaN(item.at) || item.at >= message.at - 5_000),
-    )
+    const index = available.findIndex((item) => {
+      const at = item.ts ? Date.parse(item.ts) : Number.NaN
+      // Unknown time cannot prove that a historical identical prompt is this
+      // send. Newly arrived ids are reconciled separately by useChatSend.
+      return Number.isFinite(at) && at >= message.at - 5_000 && messageMatchesItem(message, item)
+    })
     if (index === -1) return true
     available.splice(index, 1)
     return false
@@ -424,6 +469,28 @@ export function projectOptimisticMessages(
       !message.pending && message.queued ? [message.queued] : [],
     ),
   }
+}
+
+function samePaths(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((path, index) => path === right[index])
+}
+
+function textCarriesPaths(text: string, paths: readonly string[]): boolean {
+  if (paths.length === 0) return false
+  const lines = new Set(text.split('\n').map((line) => line.trim()))
+  return paths.every((path) => lines.has(path))
+}
+
+/** One content matcher for local, ledger, and provider-normalized turns. */
+function messageMatchesItem(
+  message: Pick<PendingItem, 'text' | 'toolPaths'>,
+  item: TranscriptItem,
+): boolean {
+  const messagePaths = message.toolPaths ?? []
+  const itemPaths = item.toolPaths ?? []
+  if (messagePaths.length > 0) return samePaths(messagePaths, itemPaths)
+  if (itemPaths.length > 0) return textCarriesPaths(message.text, itemPaths)
+  return item.text.trim() === message.text.trim()
 }
 
 /**
@@ -441,19 +508,39 @@ export function reconcilePending(
   if (pending.length === 0) return pending
   const remaining = [...newUserItems]
   return pending.filter((p) => {
-    const pendingPaths = p.toolPaths ?? []
-    const i = remaining.findIndex((item) => {
-      const itemPaths = item.toolPaths ?? []
-      if (pendingPaths.length > 0) {
-        return (
-          itemPaths.length === pendingPaths.length &&
-          pendingPaths.every((path, index) => itemPaths[index] === path)
-        )
-      }
-      return item.text.trim() === p.text.trim()
-    })
+    const i = remaining.findIndex((item) => messageMatchesItem(p, item))
     if (i === -1) return true
     remaining.splice(i, 1)
     return false
   })
+}
+
+/** Newly observed transcript ids are sufficient freshness proof even when a
+ * provider omitted its timestamp. Remove their matching durable ledger rows so
+ * an unknown timestamp never creates a long-lived duplicate after reload. */
+export function reconcileQueued(
+  queued: QueuedChatMessage[],
+  newUserItems: TranscriptItem[],
+): QueuedChatMessage[] {
+  if (queued.length === 0) return queued
+  const remaining = [...newUserItems]
+  return queued.filter((message) => {
+    const i = remaining.findIndex((item) => messageMatchesItem(message, item))
+    if (i === -1) return true
+    remaining.splice(i, 1)
+    return false
+  })
+}
+
+/** Return only user rows appended after the previously observed live tail.
+ * Unseen ids before that boundary came from history paging, not delivery. */
+export function tailAppendedUserItems(
+  userItems: TranscriptItem[],
+  previousTailId: string | null,
+  baselineReady: boolean,
+): TranscriptItem[] {
+  if (!baselineReady) return []
+  if (previousTailId === null) return userItems
+  const previousTailIndex = userItems.findIndex((item) => item.id === previousTailId)
+  return previousTailIndex === -1 ? [] : userItems.slice(previousTailIndex + 1)
 }

@@ -58,6 +58,8 @@ export type MessageSender = MessageSenderIdentity & {
 export interface MessageSendInput {
   to: { kind: 'issue' | 'session' | 'operator'; id?: string }
   body: string
+  /** Internal id supplied by session chat; public mail inputs cannot set it. */
+  correlationId?: string
   kind?: MessageKind
   urgency?: MessageUrgency
   lifecycle?: MessageLifecycle

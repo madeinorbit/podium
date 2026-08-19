@@ -134,6 +134,8 @@ export type MailSendPort = (input: {
   body: string
   urgency?: 'fyi' | 'next-turn' | 'interrupt'
   lifecycle?: 'wait' | 'wake'
+  /** Framework mutation id forwarded outside the public mail contract. */
+  correlationId?: string
 }) => Promise<unknown>
 
 /** The daemon round-trip `uploadImage` is (bytes to the session's machine, an
@@ -447,6 +449,7 @@ async function substrateSend(
     body: input.text,
     urgency: 'next-turn',
     lifecycle,
+    ...(input.mutationId ? { correlationId: input.mutationId } : {}),
   })) as SubstrateOutcome
   return {
     ok,
