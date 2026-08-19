@@ -207,9 +207,17 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
 
   const pinToBottom = useCallback(() => {
     // Explicit operator intent is synchronous geometry, followed by the
-    // maintained primitive re-arming follow mode for subsequent growth.
+    // maintained primitive re-arming follow mode for subsequent growth. A send
+    // can append an optimistic row immediately and a durable queued row one
+    // frame later; absorb the stale upward scroll event between those commits
+    // just as Jump does, or the second row escapes follow before the answer
+    // starts streaming.
     moveToBottomNow()
-    void scrollToBottom('instant')
+    void scrollToBottom({
+      animation: 'instant',
+      ignoreEscapes: true,
+      duration: JUMP_SETTLE_MS,
+    })
   }, [moveToBottomNow, scrollToBottom])
 
   const jumpToBottom = useCallback(() => {

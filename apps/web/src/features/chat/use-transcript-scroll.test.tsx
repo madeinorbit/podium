@@ -64,16 +64,14 @@ afterEach(() => {
 })
 
 describe('transcript scroll integration', () => {
-  it('uses the maintained follow primitive for jump and send', () => {
+  it('gives jump and send the same stale-scroll settle window', () => {
     act(() => root.render(<Harness />))
     act(() => api?.jumpToBottom())
     act(() => api?.pinToBottom())
-    expect(scrollToBottom).toHaveBeenCalledWith({
-      animation: 'instant',
-      ignoreEscapes: true,
-      duration: 350,
-    })
-    expect(scrollToBottom).toHaveBeenCalledWith('instant')
+    expect(scrollToBottom.mock.calls.slice(-2)).toEqual([
+      [{ animation: 'instant', ignoreEscapes: true, duration: 350 }],
+      [{ animation: 'instant', ignoreEscapes: true, duration: 350 }],
+    ])
   })
 
   it('loads older history only near the normal top edge', () => {
