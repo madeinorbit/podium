@@ -617,7 +617,7 @@ export async function startServer(
         : {}),
       ...(devPublisher.enabled
         ? {
-            requestDestBundle: () => devPublisher.requestBuild(true),
+            requestDestBundle: () => devPublisher.requestBuild(),
             preparation: devPublisher.preparation,
           }
         : {}),
@@ -661,13 +661,12 @@ export async function startServer(
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
     // THE HOST'S OWN AUTHORITY, not the dev one (POD-2222). `publishTarget` is
-    // still awaited on every read whatever the channel: it is what REFRESHES
-    // the dev target for the machines that do follow dev, and skipping it on a
-    // stable-pinned source host would stop that refresh for them.
+    // still awaited on every read whatever the channel: it refreshes the cheap
+    // dev identity target for machines that follow dev. It never admits a
+    // build; only a confirmed update operation may do that.
     // `advertisedTarget` then decides which authority this host is entitled to
     // advertise — see `UpdatesService.advertisedTarget`.
     updateTarget: async () => {
-      void devPublisher.requestBuild(false).catch(() => {})
       const published = await devPublisher.publishTarget()
       return registry.modules.updates.advertisedTarget(hostMachineId, published)
     },
@@ -871,7 +870,7 @@ export async function startServer(
             : {}),
           ...(devPublisher.enabled
             ? {
-                requestDestBundle: () => devPublisher.requestBuild(true),
+                requestDestBundle: () => devPublisher.requestBuild(),
                 updatePreparation: devPublisher.preparation,
               }
             : {}),
@@ -1015,7 +1014,6 @@ export async function startServer(
 
     settled = true
     boundPort = server.port
-    void devPublisher.requestBuild(true).catch(() => {})
     // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
     // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
     // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is

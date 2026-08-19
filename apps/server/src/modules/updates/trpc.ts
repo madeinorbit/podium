@@ -223,7 +223,7 @@ export function updateOperationContext(input: {
   servedWebDigest?: () => string | undefined
   servedMobileWeb?: () => MobileWebIdentity
   createDatabaseSnapshot: (fromVersion: string, targetVersion: string) => string | undefined
-  latestDatabaseSnapshot: () => string | undefined
+  latestDatabaseSnapshot?: () => string | undefined
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
@@ -242,7 +242,9 @@ export function updateOperationContext(input: {
     ...(input.retryOf ? { retryOf: input.retryOf } : {}),
     ...(website ? { servedWebDigest: website } : {}),
     createDatabaseSnapshot: input.createDatabaseSnapshot,
-    latestDatabaseSnapshot: input.latestDatabaseSnapshot,
+    ...(input.latestDatabaseSnapshot
+      ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
+      : {}),
     recordOperationDetails: (operationId, patch) => {
       input.operations.engine.recordDetails(operationId, patch)
     },
@@ -264,6 +266,7 @@ export function updateOperationContext(input: {
 function contextFor(
   ctx: Context,
   extra: { onlyMachines?: readonly string[]; retryOf?: string; surface?: UpdateSurface } = {},
+  options: { includeDatabaseSnapshot?: boolean } = {},
 ): UpdateOperationContext {
   const state = familyState(ctx)
   return updateOperationContext({
@@ -279,7 +282,12 @@ function contextFor(
     hostMachineId: state.store.hostMachineId,
     ...extra,
     createDatabaseSnapshot: (from, target) => state.store.snapshotBeforeUpdate(from, target),
-    latestDatabaseSnapshot: () => state.store.latestDatabaseSnapshot(),
+    // Snapshot discovery integrity-checks the retained database files. It is
+    // recovery work for a confirmed operation, never work for `updates.fleet`'s
+    // polled startability preview.
+    ...(options.includeDatabaseSnapshot
+      ? { latestDatabaseSnapshot: () => state.store.latestDatabaseSnapshot() }
+      : {}),
     ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
     ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
     ...(ctx.requestCoordinatorRestart
@@ -368,7 +376,7 @@ export async function startUpdateOperation(
   extra: { onlyMachines?: readonly string[]; retryOf?: string; surface?: UpdateSurface } = {},
 ): Promise<{ operationId: string; operation: Operation | null; alreadyRunning: boolean }> {
   const state = familyState(ctx)
-  const context = contextFor(ctx, extra)
+  const context = contextFor(ctx, extra, { includeDatabaseSnapshot: true })
   const updates = state.modules.updates
   if (!updates.target(context.channel)) {
     throw new TRPCError({

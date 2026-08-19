@@ -19,6 +19,6 @@ ExecStartPre=/usr/bin/env bash /home/user/src/other/podium/scripts/redeploy-wait
 # restarting the janitor in the SAME step as the server also stops the skew arising at
 # all, since both re-exec from the checkout this deploy just verified.
 ExecStart=-/usr/bin/systemctl --user reset-failed podium-janitor.service
-# No web unit here any more (POD-1985): the server rebuilds apps/web/dist itself, in a
-# batch-tier transient scope, on the same start-up path this restart puts it through.
+# No web unit here any more (POD-1985): the confirmed operation prepares apps/web/dist
+# in a batch-tier transient scope before it starts this service.
 ExecStart=/usr/bin/systemctl --user restart podium-server.service podium-daemon.service podium-janitor.service

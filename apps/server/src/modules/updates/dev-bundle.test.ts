@@ -970,9 +970,9 @@ describe('buildDevBundle', () => {
   })
 
   it('tells the website step whether this request may move the served dist', async () => {
-    // THE REGRESSION THIS PINS. `/version` asks for a build on every read, and
-    // the server serves apps/web/dist to browsers while still running the
-    // commit it booted with. A first cut rebuilt the website on that path, so
+    // THE REGRESSION THIS PINS. `/version` used to ask for a build on every
+    // read while the server serves apps/web/dist to browsers and is still
+    // running the commit it booted with. A first cut rebuilt the website there, so
     // the page marched ahead of the server and every open tab got the
     // out-of-sync banner. `explicit` is what lets the web step refuse instead.
     const { bytes, signature } = signedFixture()

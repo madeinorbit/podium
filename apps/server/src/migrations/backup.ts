@@ -221,3 +221,36 @@ export function latestDatabaseBackup(dbPath: string): string | undefined {
     return undefined
   }
 }
+
+/**
+ * Process-lifetime view of the newest verified snapshot.
+ *
+ * `latestDatabaseBackup` opens and quick-checks every retained snapshot. On a
+ * production database those files are hundreds of megabytes, so that is a
+ * recovery-boundary operation, not something a polled read model may repeat.
+ * A snapshot created by this process replaces the cached answer immediately;
+ * otherwise the on-disk catalogue is inspected once after boot.
+ */
+export function createLatestDatabaseBackupCache(
+  dbPath: string,
+  inspect: (path: string) => string | undefined = latestDatabaseBackup,
+): {
+  latest(): string | undefined
+  record(path: string | undefined): void
+} {
+  let inspected = false
+  let latest: string | undefined
+  return {
+    latest: () => {
+      if (!inspected) {
+        latest = inspect(dbPath)
+        inspected = true
+      }
+      return latest
+    },
+    record: (path) => {
+      latest = path
+      inspected = true
+    },
+  }
+}

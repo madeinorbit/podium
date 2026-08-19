@@ -21,6 +21,7 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   backupDatabase,
+  createLatestDatabaseBackupCache,
   freeDiskBytes,
   latestDatabaseBackup,
   MIGRATION_BACKUPS_TO_KEEP,
@@ -62,6 +63,21 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+describe('latest database backup cache', () => {
+  it('quick-checks snapshot history once and records a new process-owned snapshot', () => {
+    const inspect = vi.fn(() => '/state/podium.db.backup-vold')
+    const cache = createLatestDatabaseBackupCache('/state/podium.db', inspect)
+
+    expect(cache.latest()).toBe('/state/podium.db.backup-vold')
+    expect(cache.latest()).toBe('/state/podium.db.backup-vold')
+    expect(inspect).toHaveBeenCalledTimes(1)
+
+    cache.record('/state/podium.db.backup-vnew')
+    expect(cache.latest()).toBe('/state/podium.db.backup-vnew')
+    expect(inspect).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('backupDatabase preflight', () => {

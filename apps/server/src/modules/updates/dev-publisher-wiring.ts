@@ -14,9 +14,8 @@
  *
  * INERT ON AN INSTALLED SERVER. `PODIUM_HOME` is set by the headless launcher
  * shim, so its presence means "installed" and the publisher is not created at
- * all. Every function here then no-ops, which is why `/version` can call
- * `requestBuild` unconditionally without an installed server ever doing work.
- * Callers that do not await a compile must still catch the returned promise.
+ * all. Read-only target publication and explicit build admission remain
+ * separate capabilities in either profile.
  */
 
 import { createLogger } from '@podium/logger'
@@ -43,11 +42,10 @@ export interface DevPublisherWiring {
    */
   readonly publishTarget: () => Promise<UpdateTarget | undefined>
   /**
-   * Ask for a build. `/version` voids the promise so a compile never blocks a
-   * read. Update awaits it. `explicit` bypasses the debounce for a
-   * human-initiated request.
+   * Ask for a build after the operator has started an update. Merely publishing
+   * the current HEAD identity never calls this capability.
    */
-  readonly requestBuild: (explicit: boolean) => Promise<unknown>
+  readonly requestBuild: () => Promise<unknown>
   /** Mount the authenticated artifact route, when a publisher exists. */
   readonly registerRoute: (app: Hono) => void
   /** True when this server can publish a development bundle at all. */
@@ -216,16 +214,15 @@ export function wireDevBundlePublisher(deps: {
           // `apps/web/dist` by THIS process, which is still running the commit
           // it booted with, so rebuilding the dist here would put the page
           // ahead of the server and desynchronise every open tab. No tarball
-          // for this commit until something restarts the server onto it —
-          // which is also what rebuilds the website.
+          // for this commit exists until a confirmed update prepares it.
           if (decision === 'refuse') {
             return Promise.reject(
               new DevBundleUnavailableError(
                 `development bundle unavailable: apps/web/dist is not the website for ${headSha}, and ` +
-                  'rebuilding it outside a restart would leave open browser tabs ahead of this server. ' +
-                  'It is rebuilt when the server starts on this commit, or from Update Podium.',
-                `The website has not been built for HEAD (${headSha}) yet. It is rebuilt when this ` +
-                  'server restarts onto that commit, or when you update Podium.',
+                  'rebuilding it before a confirmed update would leave open browser tabs ahead of this server. ' +
+                  'It is rebuilt when you update Podium.',
+                `The website has not been built for HEAD (${headSha}) yet. The confirmed ` +
+                  'update operation prepares it.',
               ),
             )
           }
@@ -405,7 +402,7 @@ export function wireDevBundlePublisher(deps: {
       }
     },
     publishTarget,
-    requestBuild: (explicit) => {
+    requestBuild: () => {
       if (!publisher) return Promise.resolve()
       // Refuse before the compile, with the remedy in the sentence, rather than
       // pack for thirty-five seconds and leave the step waiting (POD-2227).
@@ -418,11 +415,11 @@ export function wireDevBundlePublisher(deps: {
       // A human pressed Update. Whatever the stamp says, ask git — the one
       // interaction where someone is watching is not the place to save 8ms,
       // and it is the escape hatch if this cache is ever wrong about a
-      // checkout. The polling path keeps the cache.
-      if (explicit) headSha?.invalidate()
+      // checkout. Read-only publication keeps the cache.
+      headSha?.invalidate()
       // `preparing` is published by the publisher's `onAdmitted` above, not
       // from here: this call returns before admission has been decided.
-      return publisher.requestBuild(explicit).then(
+      return publisher.requestBuild(true).then(
         async (built) => {
           await observeBundleReadiness()
           await publishTarget()
@@ -433,11 +430,9 @@ export function wireDevBundlePublisher(deps: {
           // The failure must reach the read model, or a stale target stays
           // published while the only trace of the problem is this log line.
           await publishReadiness()
-          // A refused build is a normal state on a working checkout (`/version`
-          // asks on every read), so log each distinct reason once rather than
-          // once per request. This full text — offending paths included — is
-          // the CONSOLE half; only `readiness().publicReason` travels to a
-          // client.
+          // Log each distinct refusal once. This full text — offending paths
+          // included — is the CONSOLE half; only
+          // `readiness().publicReason` travels to a client.
           const diagnostic =
             publisher.unavailable() ?? (error instanceof Error ? error.message : String(error))
           if (diagnostic !== unavailableDiagnostic) {

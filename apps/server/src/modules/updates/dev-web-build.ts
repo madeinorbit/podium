@@ -26,25 +26,22 @@
  * The server SERVES this dist to browsers, so writing it changes what every open
  * tab will load next — while the server itself keeps running the commit it
  * booted with. The first version of this sequenced the web build on the
- * `/version` path, which asks for a build on every read: the website was then
+ * `/version` path, which used to ask for a build on every read: the website was then
  * rebuilt each time main moved and the page ran AHEAD of the server, wire schema
  * digests disagreed, and the out-of-sync banner appeared on a host where nothing
  * automatically restarts the server (one server on dev+e10795a was measured
  * rebuilding the website six times for five commits it was not running).
  *
- * So the website only moves when the SERVER can move with it: its own start-up,
- * and an operator-driven update that restarts it. On the polling path a stale
- * website merely blocks the tarball — see `prepareWebDist` in `dev-bundle.ts`. A
- * refused artifact costs nothing and heals at the next restart; a page ahead of
- * its server costs every open tab.
+ * So the website only moves during an operator-driven update. On the polling
+ * and start-up paths a stale website merely leaves the identity target unpacked
+ * — see `prepareWebDist` in `dev-bundle.ts`. A page ahead of its server costs
+ * every open tab; waiting for confirmation costs no CPU.
  *
  * WHAT COVERS WHAT THE UNIT COVERED:
- * - Boot (`WantedBy=default.target`): the server calls `requestBuild(true)` when
- *   it starts listening — explicit, and the moment it IS the commit it is
- *   building for. A reboot therefore still ends with a current website, without
- *   a unit to install.
- * - Redeploy (the redeploy unit restarted the web unit): a redeploy restarts the
- *   server, which is the same boot path.
+ * - Boot (`WantedBy=default.target`): observes the existing dist and starts no
+ *   build. A watchdog recovery must not turn a stall into a compile storm.
+ * - Redeploy: the confirmed operation prepares the dist before it requests the
+ *   server restart.
  * - The Update panel's "rebuild the website" (`createSourceWebRebuildRequest`):
  *   `requestRebuild()` below. It rebuilds for a stale PHONE export as readily as
  *   for a stale desktop one — see `phoneDistBehindHead` (POD-1989).
