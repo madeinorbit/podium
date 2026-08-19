@@ -45,6 +45,20 @@ describe('buildReport', () => {
     expect(boot.build).toMatchObject({ appVersion: '0.4.2', installKind: 'installed' })
   })
 
+  it('recognises the detached-install executable without PODIUM_HOME', () => {
+    const boot = captureDaemonBootBuild(
+      { PODIUM_APP_VERSION: '0.4.2' },
+      '/home/u/.local/share/podium/podium-cli',
+    )
+    expect(boot.installDir).toBe('/home/u/.local/share/podium')
+    expect(boot.build).toMatchObject({ appVersion: '0.4.2', installKind: 'installed' })
+    expect(deliveryCaps(boot.build)).toEqual([
+      'update.delivery.feed',
+      'update.delivery.bundle',
+      'shipping.train.v2',
+    ])
+  })
+
   it('matches the server source identity for the same checkout', () => {
     const originalVersion = process.env.PODIUM_APP_VERSION
     delete process.env.PODIUM_APP_VERSION

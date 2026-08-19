@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-edge.12] - 2026-08-19
+
+### Fixed
+
+- Detached headless installs now report signed-feed delivery capability when `PODIUM_HOME` is
+  absent, so a desktop-triggered update can actually grant them the published release.
+
 ## [0.1.0-edge.11] - 2026-08-19
 
 ### Fixed
