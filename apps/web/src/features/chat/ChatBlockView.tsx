@@ -301,9 +301,14 @@ export const ChatBlockView = memo(function ChatBlockView({
   const html = useMemo(() => {
     const unsafeHtml = markdownHtml?.get(displayText)
     return unsafeHtml === undefined
-      ? renderMarkdown(displayText, issueReferences)
-      : sanitizeRenderedMarkdown(unsafeHtml, issueReferences)
-  }, [displayText, issueReferences, markdownHtml])
+      ? renderMarkdown(displayText)
+      : sanitizeRenderedMarkdown(unsafeHtml)
+    // `issueReferences` is deliberately NOT a dependency (POD-1290 follow-up):
+    // the chip html is state-free, and liveness arrives as attribute writes.
+    // A dependency here is what rewrote every visible row's innerHTML on
+    // every issue delta — killing the reader's selection on the fleet's 2-5s
+    // cadence and shifting the feed under the scroller.
+  }, [displayText, markdownHtml])
   // Envelopes render as rows AHEAD of this block's own row (a provider turn can
   // deliver several frames before the operator's text), so when they exist they
   // are what opens the exchange and the body row binds to them.

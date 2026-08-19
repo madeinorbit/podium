@@ -71,7 +71,7 @@ function StreamingMarkdown({
         className="chat-md chat-md--streaming opacity-80"
         data-testid="streaming-text"
         // biome-ignore lint/security/noDangerouslySetInnerHtml: renderMarkdown sanitizes its result
-        dangerouslySetInnerHTML={{ __html: renderMarkdown(text, issueReferences) }}
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
       />
     )
   }
@@ -92,7 +92,7 @@ function StreamingMarkdown({
       className="chat-md chat-md--streaming opacity-80"
       data-testid="streaming-text"
       // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized below on the browser thread
-      dangerouslySetInnerHTML={{ __html: sanitizeRenderedMarkdown(unsafeHtml, issueReferences) }}
+      dangerouslySetInnerHTML={{ __html: sanitizeRenderedMarkdown(unsafeHtml) }}
     />
   )
 }

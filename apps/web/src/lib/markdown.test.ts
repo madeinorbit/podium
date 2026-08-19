@@ -175,19 +175,19 @@ describe('linkifyRefs (#474)', () => {
     expect(out).not.toContain('<code>')
   })
 
-  it('carries live stage attributes onto an unwrapped code span', () => {
+  it('emits the same chip whether or not the issue is known — no live state in the string (POD-1290 follow-up)', () => {
+    // Live stage/availability/label used to be baked into the chip HTML, so
+    // every issue-store delta that touched a referenced issue changed the
+    // containing row's html string — React rewrote the row's innerHTML, the
+    // reader's text selection died (measured on a 2-5s cadence, the fleet's
+    // delta rate), and the layout shifted under the scroller. The chip string
+    // is now STABLE; liveness is applied imperatively as attribute writes
+    // (see issue-chip-liveness.ts), which destroy no nodes.
     setKnownRefPrefixes(['POD'])
-    const model: IssueReferenceModel = {
-      ref: 'POD-13',
-      issueId: null,
-      title: 'Ref chips',
-      stage: 'in_progress',
-      availability: 'present',
-      accessibleLabel: 'POD-13 in progress',
-    }
-    const out = linkifyRefs('<code>POD-13</code>', new Map([['POD-13', model]]))
-    expect(out).toContain('data-issue-stage="in_progress"')
-    expect(out).toContain('aria-label="POD-13 in progress"')
+    const out = linkifyRefs('<code>POD-13</code>')
+    expect(out).toContain('data-ref="POD-13"')
+    expect(out).not.toContain('data-issue-stage')
+    expect(out).not.toContain('aria-label')
   })
 
   it('renderMarkdown linkifies a backticked ref', () => {

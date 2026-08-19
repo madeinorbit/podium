@@ -1,11 +1,12 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { issueReferenceModel, type SuperThreadRef } from '@podium/client-core/viewmodels'
+import { decorateRefAnchors } from '@/lib/issue-chip-liveness'
 import type { SessionId } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react'
 import { useReplicaIssues, useSessionDraft } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { handleChatMdClick } from './ChatBlockView'
@@ -197,6 +198,32 @@ export function ChatView({
       ),
     [issues],
   )
+
+  // LIVENESS IS AN ATTRIBUTE PASS, NOT A REWRITE (POD-1290 follow-up). Ref
+  // chips render as stable html; what makes them live — stage colour,
+  // availability, the accessible label — is written onto the existing anchors
+  // here, after every issue delta and for every subtree that mounts. Baking
+  // that state into the html made each of the fleet's deltas rewrite
+  // referenced rows' innerHTML: the reader's selection died on a 2-5s clock
+  // and the feed shifted under the scroller. Attribute writes destroy no
+  // nodes. A layout effect, so a decorated chip never paints undecorated.
+  useLayoutEffect(() => {
+    const scroller = chat.scrollerRef.current
+    if (!scroller) return
+    // The pane around the feed, so the pinned-brief shelf's cloned chips are
+    // decorated with the rows they were lifted from.
+    const root = scroller.parentElement ?? scroller
+    decorateRefAnchors(root, issueReferences)
+    const mo = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node instanceof HTMLElement) decorateRefAnchors(node, issueReferences)
+        }
+      }
+    })
+    mo.observe(root, { childList: true, subtree: true })
+    return () => mo.disconnect()
+  }, [issueReferences, chat.scrollerRef])
 
   // Leave once, quietly. Not a toast and not an animation — see the header.
   useEffect(() => {

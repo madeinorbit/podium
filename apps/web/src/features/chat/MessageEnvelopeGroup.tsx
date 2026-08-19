@@ -108,9 +108,11 @@ function EnvelopeItem({
     if (!full) return ''
     const unsafeHtml = markdownHtml?.get(envelope.body)
     return unsafeHtml === undefined
-      ? renderMarkdown(envelope.body, issueReferences)
-      : sanitizeRenderedMarkdown(unsafeHtml, issueReferences)
-  }, [full, envelope.body, issueReferences, markdownHtml])
+      ? renderMarkdown(envelope.body)
+      : sanitizeRenderedMarkdown(unsafeHtml)
+    // No issueReferences dependency: stable chip html, imperative liveness
+    // (POD-1290 follow-up — see ChatBlockView).
+  }, [full, envelope.body, markdownHtml])
   return (
     <div className="mail-item" data-testid="mail-item" data-full={full ? 'true' : undefined}>
       <span className="mail-item-from">

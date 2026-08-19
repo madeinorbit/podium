@@ -84,14 +84,17 @@ export type IssueReferenceLookup = ReadonlyMap<string, IssueReferenceModel>
 
 /** The chip anchor for one already-validated ref token, or null if the token is
  *  not a ref of a registered prefix. */
-function refAnchor(tok: string, issueReferences?: IssueReferenceLookup): string | null {
+function refAnchor(tok: string): string | null {
   const ref = parseAnyRef(tok)
   if (!ref || !knownRefPrefixes.has(ref.prefix)) return null
-  const issue = ref.kind === 'issue' ? issueReferences?.get(tok) : undefined
-  const liveAttrs = issue
-    ? ` data-issue-stage="${issue.stage ?? ''}" data-issue-availability="${issue.availability}" aria-label="${escapeHtml(issue.accessibleLabel)}"`
-    : ''
-  return `<a class="ref-link ref-link--${ref.kind}" href="#${tok}" data-ref="${tok}"${liveAttrs}>${tok}</a>`
+  // NO LIVE STATE IN THE STRING (POD-1290 follow-up). Stage, availability and
+  // the accessible label used to be baked in here — which made every row's
+  // html a function of the issue store, so each of the fleet's deltas
+  // rewrote referenced rows' innerHTML, destroying their subtrees: the
+  // reader's text selection died on a 2-5s clock and the layout shifted
+  // under the scroller. The chip is stable now; liveness is an attribute
+  // pass over the existing anchors (issue-chip-liveness.ts).
+  return `<a class="ref-link ref-link--${ref.kind}" href="#${tok}" data-ref="${tok}">${tok}</a>`
 }
 
 /** Whether the text is exactly one ref token and nothing else. */
@@ -102,7 +105,7 @@ function soleRefToken(text: string): string | null {
   return m && m[0] === tok ? tok : null
 }
 
-export function linkifyRefs(html: string, issueReferences?: IssueReferenceLookup): string {
+export function linkifyRefs(html: string): string {
   if (knownRefPrefixes.size === 0) return html
   const parts = html.split(/(<[^>]+>)/)
   let inAnchor = 0
@@ -122,7 +125,7 @@ export function linkifyRefs(html: string, issueReferences?: IssueReferenceLookup
         // nesting chip chrome inside mono chrome.
         const tok = inPre === 0 && inAnchor === 0 ? soleRefToken(parts[i + 1] ?? '') : null
         const anchor =
-          tok && /^<\/code>/i.test(parts[i + 2] ?? '') ? refAnchor(tok, issueReferences) : null
+          tok && /^<\/code>/i.test(parts[i + 2] ?? '') ? refAnchor(tok) : null
         if (anchor) {
           parts[i] = ''
           parts[i + 1] = anchor
@@ -134,7 +137,7 @@ export function linkifyRefs(html: string, issueReferences?: IssueReferenceLookup
       continue
     }
     if (inAnchor > 0 || inCode > 0 || inPre > 0 || p === '') continue
-    parts[i] = p.replace(anyRefMatcher(), (tok) => refAnchor(tok, issueReferences) ?? tok)
+    parts[i] = p.replace(anyRefMatcher(), (tok) => refAnchor(tok) ?? tok)
   }
   return parts.join('')
 }
@@ -145,14 +148,11 @@ export function linkifyRefs(html: string, issueReferences?: IssueReferenceLookup
  * function allowed to cross from transcript compute into the DOM render path:
  * path/ref linkification and DOMPurify remain main-thread policy decisions.
  */
-export function sanitizeRenderedMarkdown(
-  unsafeHtml: string,
-  issueReferences?: IssueReferenceLookup,
-): string {
+export function sanitizeRenderedMarkdown(unsafeHtml: string): string {
   const rendered = linkifyCodePaths(unsafeHtml)
-  return externalizeLinks(linkifyRefs(DOMPurify.sanitize(rendered), issueReferences))
+  return externalizeLinks(linkifyRefs(DOMPurify.sanitize(rendered)))
 }
 
-export function renderMarkdown(text: string, issueReferences?: IssueReferenceLookup): string {
-  return sanitizeRenderedMarkdown(renderMarkdownUnsafe(text), issueReferences)
+export function renderMarkdown(text: string): string {
+  return sanitizeRenderedMarkdown(renderMarkdownUnsafe(text))
 }
