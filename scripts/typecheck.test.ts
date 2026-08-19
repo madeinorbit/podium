@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { assessWorkspaceLinks, decideForce, fingerprint } from './typecheck'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { decideForce, fingerprint } from './typecheck'
+import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 describe('decideForce', () => {
   it('plain run forwards args untouched and stays cached', () => {
@@ -45,7 +49,11 @@ describe('decideForce', () => {
 describe('fingerprint', () => {
   const base = {
     bunfig: 'linker = "hoisted"\n',
-    links: ['cli:packages/cli', 'model:packages/model'],
+    resolutions: [
+      '@podium/scripts\t@podium/model\tpackages/model/src/index.ts',
+      '@podium/scripts\t@podium/runtime/sqlite\tpackages/runtime/src/sqlite/index.ts',
+    ],
+    resolutionErrors: [],
     runtime: { bun: '1.3.14', platform: 'linux', arch: 'x64' },
   }
 
@@ -53,11 +61,19 @@ describe('fingerprint', () => {
     expect(fingerprint({ ...base, bunfig: 'linker = "isolated"\n' })).not.toBe(fingerprint(base))
   })
 
-  it('moves when a workspace link dangles or disappears', () => {
-    expect(fingerprint({ ...base, links: ['cli:packages/cli', 'model!DANGLING'] })).not.toBe(
+  it('moves when an owner resolution changes or disappears', () => {
+    expect(
+      fingerprint({
+        ...base,
+        resolutions: [
+          '@podium/scripts\t@podium/model\tpackages/model/src/index.ts',
+          '@podium/scripts\t@podium/runtime/sqlite\t../podium/packages/runtime/src/sqlite/index.ts',
+        ],
+      }),
+    ).not.toBe(fingerprint(base))
+    expect(fingerprint({ ...base, resolutions: base.resolutions.slice(0, 1) })).not.toBe(
       fingerprint(base),
     )
-    expect(fingerprint({ ...base, links: ['cli:packages/cli'] })).not.toBe(fingerprint(base))
   })
 
   it('moves when runtime identity changes', () => {
@@ -69,33 +85,189 @@ describe('fingerprint', () => {
     )
   })
 
-  it('moves when a workspace link points outside the checkout', () => {
-    expect(fingerprint({ ...base, links: ['cli:packages/cli', 'model!EXTERNAL'] })).not.toBe(
-      fingerprint(base),
-    )
-  })
-
   it('is stable for identical environments', () => {
     expect(fingerprint({ ...base })).toBe(fingerprint(base))
   })
 })
 
-describe('assessWorkspaceLinks', () => {
-  it('allows stale links for deleted workspaces when healthy links remain', () => {
-    expect(
-      assessWorkspaceLinks(['model:packages/model', 'domain!DANGLING', 'agent-bridge!DANGLING']),
-    ).toEqual({
-      healthy: ['model:packages/model'],
-      dangling: ['domain!DANGLING', 'agent-bridge!DANGLING'],
-      external: [],
-      error: null,
-    })
+type Layout = 'hoisted' | 'isolated'
+type LinkState = 'healthy' | 'missing' | 'dangling' | 'external'
+
+const cleanup: string[] = []
+
+afterEach(() => {
+  for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true })
+})
+
+function writeJson(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
+}
+
+function packageFiles(directory: string): void {
+  writeJson(join(directory, 'package.json'), {
+    name: '@podium/b',
+    exports: {
+      '.': { '@podium/source': './src/index.ts', import: './dist/index.js' },
+      './feature': { '@podium/source': './src/feature.ts', import: './dist/feature.js' },
+    },
+  })
+  mkdirSync(join(directory, 'src'), { recursive: true })
+  writeFileSync(join(directory, 'src/index.ts'), 'export const root = true\n')
+  writeFileSync(join(directory, 'src/feature.ts'), 'export const feature = true\n')
+}
+
+function resolutionFixture(
+  layout: Layout,
+  state: LinkState = 'healthy',
+  options: { declared?: boolean; imported?: boolean; range?: string } = {},
+): string {
+  const root = mkdtempSync(join(tmpdir(), `podium-resolution-${layout}-`))
+  cleanup.push(root)
+  const owner = join(root, 'packages/a')
+  const target = join(root, 'packages/b')
+  writeJson(join(root, 'package.json'), { private: true, workspaces: ['packages/*'] })
+  writeJson(join(owner, 'package.json'), {
+    name: '@podium/a',
+    dependencies: options.declared === false ? {} : { '@podium/b': options.range ?? 'workspace:*' },
+  })
+  mkdirSync(join(owner, 'src'), { recursive: true })
+  writeFileSync(
+    join(owner, 'src/index.ts'),
+    options.imported === false
+      ? 'export const owner = true\n'
+      : "import { feature } from '@podium/b/feature'\nexport const owner = feature\n",
+  )
+  packageFiles(target)
+
+  if (state === 'missing') return root
+
+  const linkParent =
+    layout === 'hoisted' ? join(root, 'node_modules/@podium') : join(owner, 'node_modules/@podium')
+  mkdirSync(linkParent, { recursive: true })
+  let linkTarget = target
+  if (layout === 'isolated') {
+    const storePackage = join(
+      root,
+      'node_modules/.bun/@podium-b@workspace/packages/node_modules/@podium/b',
+    )
+    mkdirSync(dirname(storePackage), { recursive: true })
+    linkTarget = storePackage
+    if (state === 'healthy') symlinkSync(target, storePackage, 'dir')
+    if (state === 'dangling') symlinkSync(join(root, 'missing-store-package'), storePackage, 'dir')
+    if (state === 'external') {
+      const external = mkdtempSync(join(tmpdir(), 'podium-resolution-external-'))
+      cleanup.push(external)
+      packageFiles(external)
+      symlinkSync(external, storePackage, 'dir')
+    }
+  } else if (state === 'dangling') {
+    linkTarget = join(root, 'missing-hoisted-package')
+  } else if (state === 'external') {
+    const external = mkdtempSync(join(tmpdir(), 'podium-resolution-external-'))
+    cleanup.push(external)
+    packageFiles(external)
+    linkTarget = external
+  }
+  symlinkSync(linkTarget, join(linkParent, 'b'), 'dir')
+  return root
+}
+
+describe.each<Layout>(['hoisted', 'isolated'])('%s workspace resolution census', (layout) => {
+  it('accepts owner-local source resolutions without a root link farm', () => {
+    const root = resolutionFixture(layout)
+    const census = readWorkspaceResolutionCensus(root)
+
+    expect(census.errors).toEqual([])
+    expect(census.records).toEqual([
+      '@podium/a\t@podium/b\tpackages/b/src/index.ts',
+      '@podium/a\t@podium/b/feature\tpackages/b/src/feature.ts',
+    ])
+    expect(existsSync(join(root, 'node_modules/@podium/a'))).toBe(false)
+    if (layout === 'isolated') expect(existsSync(join(root, 'node_modules/@podium/b'))).toBe(false)
   })
 
-  it('refuses an uninstalled checkout and external workspace targets', () => {
-    expect(assessWorkspaceLinks(['domain!DANGLING']).error).toContain('no usable')
-    expect(assessWorkspaceLinks(['model:packages/model', 'runtime!EXTERNAL']).error).toContain(
-      'outside this checkout',
+  it.each<LinkState>(['missing', 'dangling'])('rejects a %s owner resolution', (state) => {
+    const census = readWorkspaceResolutionCensus(resolutionFixture(layout, state))
+    expect(census.errors.some((error) => error.includes('missing or dangling'))).toBe(true)
+  })
+
+  it('rejects an external owner resolution', () => {
+    const census = readWorkspaceResolutionCensus(resolutionFixture(layout, 'external'))
+    expect(census.errors.some((error) => error.includes('outside this checkout'))).toBe(true)
+  })
+})
+
+describe('workspace resolution ownership', () => {
+  it('requires every exercised import to be declared by its owner', () => {
+    const census = readWorkspaceResolutionCensus(
+      resolutionFixture('isolated', 'healthy', { declared: false }),
+    )
+    expect(census.errors).toContain(
+      '@podium/a: import @podium/b/feature is not declared by its owner',
+    )
+  })
+
+  it('requires the exact workspace:* declaration protocol', () => {
+    const census = readWorkspaceResolutionCensus(
+      resolutionFixture('isolated', 'healthy', { range: 'workspace:^' }),
+    )
+    expect(census.errors).toContain(
+      '@podium/a: import @podium/b/feature must declare @podium/b with workspace:*',
+    )
+  })
+
+  it('allows a workspace to resolve its own exported subpaths', () => {
+    const root = resolutionFixture('isolated', 'healthy', { imported: false })
+    writeFileSync(
+      join(root, 'packages/b/src/index.ts'),
+      "export { feature } from '@podium/b/feature'\n",
+    )
+
+    const census = readWorkspaceResolutionCensus(root)
+    expect(census.errors).toEqual([])
+    expect(census.records).toContain('@podium/b\t@podium/b/feature\tpackages/b/src/feature.ts')
+  })
+
+  it('does not traverse a source-directory symlink outside the checkout', () => {
+    const root = resolutionFixture('isolated', 'healthy', { imported: false })
+    const external = mkdtempSync(join(tmpdir(), 'podium-resolution-source-escape-'))
+    cleanup.push(external)
+    writeFileSync(join(external, 'escape.ts'), "import '@podium/not-a-workspace'\n")
+    symlinkSync(external, join(root, 'packages/a/src/linked-external'), 'dir')
+
+    const census = readWorkspaceResolutionCensus(root)
+    expect(census.errors).toEqual([])
+    expect(census.records).not.toContainEqual(expect.stringContaining('@podium/not-a-workspace'))
+  })
+
+  it('resolves declared workspace edges even when source does not import them', () => {
+    const census = readWorkspaceResolutionCensus(
+      resolutionFixture('isolated', 'healthy', { imported: false }),
+    )
+    expect(census.errors).toEqual([])
+    expect(census.records).toEqual(['@podium/a\t@podium/b\tpackages/b/src/index.ts'])
+  })
+
+  it('keeps generated subtrees out of the census and environment hash', () => {
+    const root = resolutionFixture('isolated', 'healthy', { imported: false })
+    const before = readWorkspaceResolutionCensus(root)
+
+    for (const directory of ['.expo', 'artifacts', 'target']) {
+      const generated = join(root, 'packages/a/src', directory, 'nested')
+      mkdirSync(generated, { recursive: true })
+      writeFileSync(join(generated, 'phantom.ts'), `import '@podium/generated-${directory}'\n`)
+    }
+
+    const after = readWorkspaceResolutionCensus(root)
+    expect(after).toEqual(before)
+    const environment = {
+      bunfig: 'linker = "isolated"\n',
+      resolutionErrors: [],
+      runtime: { bun: '1.3.14', platform: 'linux', arch: 'x64' },
+    }
+    expect(fingerprint({ ...environment, resolutions: after.records })).toBe(
+      fingerprint({ ...environment, resolutions: before.records }),
     )
   })
 })

@@ -4,15 +4,13 @@
  * Turbo's cache key covers tracked file content (`$TURBO_DEFAULT$`, bun.lock,
  * tooling/tsconfig) but is blind to the install environment: bunfig.toml and the
  * node_modules layout are never hashed, so a linker flip or a broken install keeps
- * reporting a stale green (POD-1343 saw 22/22 cached green with zero
- * node_modules/@podium links). This wrapper closes that hole and makes uncached
+ * reporting a stale green. This wrapper closes that hole and makes uncached
  * runs deliberate:
  *
- *   1. Refuses to run when node_modules/@podium has no usable links or points
- *      outside this checkout — a cached green in that environment is not evidence.
- *      A dangling link left behind for a deleted workspace is inert and remains in
- *      the fingerprint; Bun does not remove those links on a frozen install.
- *   2. Fingerprints the environment (bunfig.toml content + @podium link census)
+ *   1. Resolves every declared workspace edge and every exercised @podium subpath
+ *      from its owning workspace. Missing, dangling, undeclared, or external
+ *      resolutions are refused regardless of the installer's linker topology.
+ *   2. Fingerprints the environment (bunfig.toml content + resolution census)
  *      into PODIUM_CHECK_ENV_HASH, declared in turbo.json `globalEnv`, so any
  *      environment drift is an automatic cache MISS — no --force needed.
  *   3. Refuses --force / TURBO_FORCE unless an explicit reason is given via
@@ -20,9 +18,10 @@
  *      (110x the cached 2s) on a host shared with a live Podium instance.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { arch, platform, tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, resolve, sep } from 'node:path'
+import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 export interface ForceDecision {
   forceRequested: boolean
@@ -41,7 +40,7 @@ live Podium instance.
 
 WHAT THE KEY COVERS: each package's own tracked files; the task hashes of the
 packages it depends on; bun.lock and tooling/tsconfig; the install environment
-(bunfig.toml + node_modules/@podium census via PODIUM_CHECK_ENV_HASH), so
+(bunfig.toml + workspace resolution census via PODIUM_CHECK_ENV_HASH), so
 installs, linker changes and base swaps are noticed automatically; and, for the
 packages that import sources outside their own directory by relative path, those
 directories as explicit turbo inputs.
@@ -117,8 +116,9 @@ export function decideForce(
 
 export interface EnvCensus {
   bunfig: string
-  /** sorted "name:relative-target" or "name!DANGLING" entries under node_modules/@podium */
-  links: string[]
+  /** sorted owner/specifier/relative-realpath records */
+  resolutions: string[]
+  resolutionErrors: string[]
   runtime: {
     bun: string
     platform: string
@@ -126,37 +126,12 @@ export interface EnvCensus {
   }
 }
 
-export interface WorkspaceLinksHealth {
-  healthy: string[]
-  dangling: string[]
-  external: string[]
-  error: string | null
-}
-
-/**
- * External targets are unsafe because their contents can change without moving
- * this fingerprint. Dangling targets cannot provide code and are safe to retain
- * in the fingerprint when at least one real in-checkout workspace link exists.
- */
-export function assessWorkspaceLinks(links: string[]): WorkspaceLinksHealth {
-  const healthy = links.filter((link) => !link.includes('!'))
-  const dangling = links.filter((link) => link.endsWith('!DANGLING'))
-  const external = links.filter((link) => link.endsWith('!EXTERNAL'))
-  const error =
-    healthy.length === 0
-      ? 'node_modules/@podium has no usable in-checkout workspace links'
-      : external.length > 0
-        ? `node_modules/@podium points outside this checkout: ${external.join(', ')}`
-        : null
-  return { healthy, dangling, external, error }
-}
-
 /** Environment fingerprint: hashed into the turbo cache key via globalEnv. */
 export function fingerprint(census: EnvCensus): string {
   return createHash('sha256')
     .update(census.bunfig)
     .update('\0')
-    .update(census.links.join(','))
+    .update(census.resolutions.join('\0'))
     .update('\0')
     .update(`${census.runtime.bun}:${census.runtime.platform}:${census.runtime.arch}`)
     .digest('hex')
@@ -166,25 +141,11 @@ export function readCensus(root: string): EnvCensus {
   const bunfig = existsSync(join(root, 'bunfig.toml'))
     ? readFileSync(join(root, 'bunfig.toml'), 'utf8')
     : ''
-  const dir = join(root, 'node_modules', '@podium')
-  let links: string[] = []
-  if (existsSync(dir)) {
-    links = readdirSync(dir)
-      .sort()
-      .map((name) => {
-        const packageJson = join(dir, name, 'package.json')
-        if (!existsSync(packageJson)) return `${name}!DANGLING`
-        const target = realpathSync(join(dir, name))
-        const rel = relative(realpathSync(root), target)
-        if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-          return `${name}!EXTERNAL`
-        }
-        return `${name}:${rel}`
-      })
-  }
+  const resolution = readWorkspaceResolutionCensus(root)
   return {
     bunfig,
-    links,
+    resolutions: resolution.records,
+    resolutionErrors: resolution.errors,
     runtime: {
       bun: Bun.version,
       platform: platform(),
@@ -242,11 +203,10 @@ export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
-  const links = assessWorkspaceLinks(census.links)
-  if (links.error) {
+  if (census.resolutionErrors.length > 0) {
     console.error(
-      `typecheck refused: ${links.error}; a cached green there would be unsafe (POD-1343). ` +
-        'Run `bun install` first.',
+      'typecheck refused: workspace resolution contract failed; a cached green there would be ' +
+        `unsafe (POD-1343).\n- ${census.resolutionErrors.join('\n- ')}`,
     )
     process.exit(1)
   }

@@ -12,10 +12,10 @@
  * shared six-core host instead of multiplying that cap by the number of packages.
  *
  * The environment hole is the same one typecheck closes (POD-1343): turbo's key
- * covers tracked file content but is blind to the install, so a missing or
- * dangling node_modules/@podium keeps replaying a stale green. A cached green in
- * a broken environment is not evidence. Rather than restate that logic, this
- * imports typecheck.ts's census/fingerprint/force-decision directly — one
+ * covers tracked file content but is blind to the install, so a missing,
+ * dangling, or externally resolved workspace package can replay a stale green.
+ * A cached green in a broken environment is not evidence. Rather than restate
+ * that logic, this imports typecheck.ts's census/fingerprint/force-decision directly — one
  * definition, so the two entry points cannot drift apart.
  *
  * What each cache key covers is declared in turbo.json. The web/mobile tasks
@@ -25,14 +25,14 @@
  */
 import { join } from 'node:path'
 import { runWithHeavyTestLease } from './test-heavy'
-import { assessWorkspaceLinks, decideForce, readCensus, turboEnv } from './typecheck'
+import { decideForce, readCensus, turboEnv } from './typecheck'
 
 const REFUSAL = `\
 uncached test run refused.
 
 The cache key already covers the suite's own files, the workspace package
 sources it imports, bun.lock, tooling/tsconfig, and the install environment
-(bunfig.toml + node_modules/@podium census via PODIUM_CHECK_ENV_HASH), so
+(bunfig.toml + workspace resolution census via PODIUM_CHECK_ENV_HASH), so
 installs, linker changes, and base swaps are noticed automatically — a real
 change is a MISS without any help.
 
@@ -91,11 +91,10 @@ export function decideTestAdmission(argv: string[]): {
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
-  const links = assessWorkspaceLinks(census.links)
-  if (links.error) {
+  if (census.resolutionErrors.length > 0) {
     console.error(
-      `test refused: ${links.error}; a cached green there would be unsafe (POD-1343). ` +
-        'Run `bun install` first.',
+      'test refused: workspace resolution contract failed; a cached green there would be ' +
+        `unsafe (POD-1343).\n- ${census.resolutionErrors.join('\n- ')}`,
     )
     process.exit(1)
   }
