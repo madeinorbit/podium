@@ -938,11 +938,9 @@ const isLead = (role: SessionRole | null): boolean =>
  * line, a readable word, and the two altitudes told apart without a second
  * device.
  *
- * IT IS A COLUMN, NOT A WORD AFTER THE NAME (POD-1146). Every role word parks
- * in the same 96px cell, so a five-row roster reads as a table of agents rather
- * than as five differently-spaced sentences — and the cell is held open even on
- * a row that has no role to put in it, because a column that closes up is not
- * a column.
+ * Role words use the same 96px ceiling (POD-1146), but only when there is a
+ * role to say. An empty role is absence, not an invisible spacer: keeping that
+ * spacer on a lone session pushed its state conspicuously away from its ref.
  */
 function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.Element {
   const lead = isLead(role)
@@ -1182,17 +1180,16 @@ function SessionRow({
           }}
           title={rowTitle}
         >
-          {/* FOUR RIGID COLUMNS — name · ref · role · state (POD-1146).
-              The name takes all the slack and is the only shrinker; everything
-              to its right parks in a fixed cell, so every ref lines up under
-              every other ref and the roster reads as a table of agents rather
-              than as five differently-spaced sentences. The cells are held open
-              on rows that have nothing to put in them, because a column that
-              closes up when one row is empty is not a column.
+          {/* FOUR ORDERED FIELDS — name · ref · role · state (POD-1146).
+              The name is the only shrinker and has a generous ceiling, but it
+              no longer absorbs every spare pixel in a wide deck. Likewise, a
+              missing role does not leave an invisible 96px cell behind. The
+              fields stay in a stable order without turning short rows into a
+              scattering of facts across the full width.
               WorkerLabel already says "Handing over → <target>" mid-move, in the
               same words the sidebar and the pane header use, so the row never
               invents a second vocabulary for the same event. */}
-          <span className="deck-agent-name flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          <span className="deck-agent-name flex min-w-0 max-w-64 flex-[0_1_auto] items-center gap-1.5 overflow-hidden">
             {/* `flex`, not a bare block — the sidebar's rows already wrap the
                 label this way. A block parent leaves `WorkerLabel`'s inline-flex
                 to size itself shrink-to-fit, which floors at the whole name;
@@ -1220,14 +1217,9 @@ function SessionRow({
               question and the answer — literally: its role cell closes and its
               obligation is built out of that cell plus the state column, so
               nothing else on the row moves (see `[data-needs-you]` in
-              styles.css). The placeholder is still rendered on rows that simply
-              have no role, because a column that closes up when one row is empty
-              is not a column. */}
-          {role && label && !needs ? (
-            <RoleWord role={role} label={label} />
-          ) : (
-            <span aria-hidden className="deck-agent-role flex-none" />
-          )}
+              styles.css). Rows with no role render no placeholder; absence does
+              not become an unexplained gap. */}
+          {role && label && !needs ? <RoleWord role={role} label={label} /> : null}
           <span
             className={cn(
               'deck-agent-state flex flex-none items-center justify-end gap-1.5',
@@ -1683,7 +1675,7 @@ const TaskRow = memo(
               className={cn(
                 // gap-1.5, not gap-2: five gaps at 8px is 40px of the row spent on
                 // air, and the title is the thing that pays for it.
-                'flex min-w-0 flex-1 items-center gap-1.5 text-left',
+                'deck-task-content flex min-w-0 flex-1 items-center gap-1.5 text-left',
                 proposed ? 'py-0.5' : 'py-1',
               )}
               onClick={() =>
@@ -1698,45 +1690,51 @@ const TaskRow = memo(
                 intent.commit(() => onSelectIssue(true))
               }}
             >
-              {/* POD-1074's status glyph, kept: the strip states one status, not
+              <span className="deck-task-identity flex min-w-0 flex-1 items-center gap-1.5">
+                {/* POD-1074's status glyph, kept: the strip states one status, not
                 a stage. Only the wrapper around this button is POD-1077's — and
                 since POD-1271 the glyph is also the door onto changing it, which
                 is why the row's own click stops at its edge. */}
-              <IssueStatusPicker issue={row.issue} size={13} onPick={onStatusPick} />
-              {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
+                <IssueStatusPicker issue={row.issue} size={13} onPick={onStatusPick} />
+                {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
               it is the only thing here that shrinks. Ref THEN title, in one
               truncating label — the ref is how the operator addresses the task
               everywhere else in Podium, and a right-aligned ref made the column
               read right-to-left. */}
-              <span
-                className={cn(
-                  'shell-type-secondary min-w-0 flex-1 truncate',
-                  context ? 'text-text-dim' : 'text-text-strong',
-                  selected || unread ? 'font-semibold' : 'font-medium',
-                )}
-              >
-                <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
-                  {issueDisplayRef(row.issue)}
+                <span
+                  className={cn(
+                    'shell-type-secondary min-w-0 flex-1 truncate',
+                    context ? 'text-text-dim' : 'text-text-strong',
+                    selected || unread ? 'font-semibold' : 'font-medium',
+                  )}
+                >
+                  <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
+                    {issueDisplayRef(row.issue)}
+                  </span>
+                  {row.issue.title}
                 </span>
-                {row.issue.title}
+                {unread ? (
+                  <>
+                    <UnreadDot />
+                    <span className="sr-only">unread</span>
+                  </>
+                ) : null}
               </span>
-              {unread ? (
-                <>
-                  <UnreadDot />
-                  <span className="sr-only">unread</span>
-                </>
-              ) : null}
               {/* Everything below is the row REPORTING on itself, and a context
                 row has nothing to report — it is here to be walked past. The
                 fold's payload survives, because a folded context row still has
                 to say how much tree it is hiding. */}
-              {note && !context && <IssueNoteChip note={note} />}
-              {seat && !context && <SeatChip note={seat} />}
-              {folded && <CollapsedPayload summary={row.collapsedSummary} />}
-              {folded && !context && row.collapsedSummary.crew.length > 0 && (
-                <CrewCensus crew={row.collapsedSummary.crew} />
+              {!context && (
+                <span className="deck-task-meta flex flex-none items-center gap-1.5">
+                  {note && <IssueNoteChip note={note} />}
+                  {seat && <SeatChip note={seat} />}
+                  {folded && <CollapsedPayload summary={row.collapsedSummary} />}
+                  {folded && row.collapsedSummary.crew.length > 0 && (
+                    <CrewCensus crew={row.collapsedSummary.crew} />
+                  )}
+                  <StateLabel value={state} label={liveWord} />
+                </span>
               )}
-              {!context && <StateLabel value={state} label={liveWord} />}
             </button>
           )}
           {/* The same pairing the agent rows use: right-click is the fast path,

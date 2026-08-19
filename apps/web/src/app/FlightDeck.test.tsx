@@ -960,6 +960,25 @@ describe('flight deck spine (POD-758)', () => {
     expect(strip('t2').textContent).toContain('POD-2-A')
   })
 
+  it('keeps task identity separate from the metadata that can wrap below it', () => {
+    deck()
+    const band = strip('t1').querySelector('.deck-strip')
+    const identity = band?.querySelector('.deck-task-identity')
+    const metadata = band?.querySelector('.deck-task-meta')
+
+    expect(identity?.textContent).toContain('Task t1')
+    expect(metadata?.querySelector('[data-operational-state]')).not.toBeNull()
+    expect(identity?.parentElement).toBe(metadata?.parentElement)
+  })
+
+  it('does not reserve an empty role column for a lone session', () => {
+    deck()
+    const row = document.querySelector('[data-flight-session="s1"]')
+
+    expect(row).not.toBeNull()
+    expect(row?.querySelector('.deck-agent-role')).toBeNull()
+  })
+
   // Colour in this column is a MARK, never a surface: a task keeps its grey
   // fill in every state and says "selected" with an outline and a gutter tick.
   it('keeps the task fill grey when a strip is selected', () => {
