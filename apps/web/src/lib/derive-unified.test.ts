@@ -864,29 +864,41 @@ describe('groupUnifiedWorkRows', () => {
     ).toEqual(['unread', 'child', 'awaiting', 'needs-human', 'done-only'])
   })
 
-  it('keeps a selected closure in its closed-time order', () => {
-    const closedRow = (id: string, daysAgo: number): UnifiedWorkRow => ({
+  it('keeps a selected closure in its tuck-time order', () => {
+    const closedRow = (
+      id: string,
+      closedDaysAgo: number,
+      tuckedHoursAgo: number,
+    ): UnifiedWorkRow => ({
       kind: 'issue',
       issue: issue({
         id,
         stage: 'done',
         closedReason: 'done',
         readAt: new Date(NOW - HOUR).toISOString(),
-        closedAt: new Date(NOW - daysAgo * 24 * HOUR).toISOString(),
-        tuckedAt: new Date(NOW - HOUR).toISOString(),
+        closedAt: new Date(NOW - closedDaysAgo * 24 * HOUR).toISOString(),
+        tuckedAt: new Date(NOW - tuckedHoursAgo * HOUR).toISOString(),
       }),
       sessions: [],
       activityAt: NOW,
     })
 
     const [group] = groupUnifiedWorkRows(
-      [closedRow('oldest', 3), closedRow('selected', 2), closedRow('newest', 1)],
+      [
+        closedRow('closed-oldest-tucked-newest', 3, 1),
+        closedRow('selected', 2, 2),
+        closedRow('closed-newest-tucked-oldest', 1, 3),
+      ],
       asIssueId('selected'),
       true,
       NOW,
     )
 
-    expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['newest', 'selected', 'oldest'])
+    expect(group?.closedRows.map((row) => row.issue.id)).toEqual([
+      'closed-oldest-tucked-newest',
+      'selected',
+      'closed-newest-tucked-oldest',
+    ])
   })
 })
 

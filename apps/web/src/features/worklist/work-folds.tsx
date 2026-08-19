@@ -1,8 +1,9 @@
 import { relativeTime } from '@podium/client-core/focus'
-import type {
-  IssueNavigationModel,
-  UnifiedIssueRow as UnifiedIssueRowView,
-  UnifiedWorkRow,
+import {
+  issueClosedFoldAt,
+  type IssueNavigationModel,
+  type UnifiedIssueRow as UnifiedIssueRowView,
+  type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -367,11 +368,14 @@ export function FoldedWorkRow({
   onContextMenu?: (e: ReactMouseEvent) => void
 }): JSX.Element {
   const marker = foldedMarker(issue, lane, now)
-  // How long ago the work was last touched — closed rows date from the close,
-  // suspended rows from their last activity (POD-293). One dim
+  // How long ago the work entered this fold — manually tucked rows date from
+  // the tuck, while never-tucked closures fall back to their finish time.
+  // Suspended rows date from their last activity (POD-293). One dim
   // stamp so a fold still answers "when", without pulling any live-row chrome
   // back in.
-  const stampIso = lane === 'closed' ? (issue.closedAt ?? issue.updatedAt) : issue.updatedAt
+  // Keep this source shared with grouping: Closed must not say "tucked 5m ago"
+  // while placing the row by a days-old close time.
+  const stampIso = lane === 'closed' ? issueClosedFoldAt(issue) : issue.updatedAt
   const ago = stampIso ? relativeTime(stampIso, now) : null
   return (
     <button
@@ -476,7 +480,7 @@ export function SnoozedIssueFold({
 }
 
 /** Project-local disclosure for settled top-level closures (POD-183). Rows are
- * derived newest-closed-first; Archive is the explicit removal gesture. */
+ * derived newest-tucked-first; Archive is the explicit removal gesture. */
 export function ClosedIssueFold<T>({
   groupKey,
   rows,

@@ -198,4 +198,17 @@ describe('tuck-away persistence (POD-333)', () => {
     expect(screen.queryByTestId('tuck-away')).toBeNull()
     expect(tuckKeys(uiStateGet.mock.calls)).toEqual([])
   })
+
+  it('shows when the issue was tucked rather than when it closed', () => {
+    // The row closed a minute ago (the fixture above) but entered Closed only
+    // now. Its compact timestamp describes that later, operator-facing event.
+    state.tuckedAt = new Date(Date.now() - 10_000).toISOString()
+
+    render(<SidebarUnified />)
+    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+
+    const row = screen.getByText('Settled issue').closest('[data-testid="folded-work-row"]')
+    expect(row?.textContent).toContain('just now')
+    expect(row?.textContent).not.toContain('1m ago')
+  })
 })

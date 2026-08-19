@@ -298,20 +298,22 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     expect(group?.snoozedRows.map((candidate) => candidate.issue.id)).toEqual(['snoozed'])
   })
 
-  it('orders folded closures by closedAt newest-first, ignoring incoming manual order', () => {
+  it('orders folded closures by tuckedAt newest-first, ignoring close and manual order', () => {
     const oldest = issue({
       id: 'oldest',
       seq: 3,
       stage: 'done',
       closedReason: 'done',
-      closedAt: '2026-07-20T09:00:00.000Z',
+      closedAt: '2026-07-23T09:00:00.000Z',
+      tuckedAt: '2026-07-20T09:00:00.000Z',
     })
     const newest = issue({
       id: 'newest',
       seq: 1,
       stage: 'done',
       closedReason: 'done',
-      closedAt: '2026-07-23T09:00:00.000Z',
+      closedAt: '2026-07-20T09:00:00.000Z',
+      tuckedAt: '2026-07-23T09:00:00.000Z',
     })
     const middle = issue({
       id: 'middle',
@@ -319,11 +321,26 @@ describe('issue/session lifecycle in the unified sidebar', () => {
       stage: 'done',
       closedReason: 'done',
       closedAt: '2026-07-22T09:00:00.000Z',
+      tuckedAt: '2026-07-22T09:00:00.000Z',
     })
-    const [group] = groupUnifiedWorkRows([row(oldest), row(newest), row(middle)])
+    const neverTucked = issue({
+      id: 'never-tucked',
+      seq: 4,
+      stage: 'done',
+      closedReason: 'cancelled',
+      closedAt: '2026-07-21T09:00:00.000Z',
+      tuckedAt: null,
+    })
+    const [group] = groupUnifiedWorkRows([
+      row(oldest),
+      row(newest),
+      row(neverTucked),
+      row(middle),
+    ])
     expect(group?.closedRows.map((candidate) => candidate.issue.id)).toEqual([
       'newest',
       'middle',
+      'never-tucked',
       'oldest',
     ])
   })

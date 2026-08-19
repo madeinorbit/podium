@@ -5,7 +5,7 @@
  *
  * The invariant: rows in, rows bucketed out. Never constructs a row and never
  * changes sibling order — the incoming order is preserved in every bucket
- * except the closed fold, which is history ordered by the moment of closing.
+ * except the closed fold, which is history ordered by the moment it was tucked.
  */
 import { type IssueId, type IssueWire, isIssueDeferred } from '@podium/model'
 import {
@@ -74,6 +74,15 @@ export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is Unifi
  *  `tuckedAt` over server truth until the mutation lands. */
 function issueTucked(issue: IssueWire): boolean {
   return issue.tuckedAt != null
+}
+
+/** The timestamp Closed presents and sorts by. A manual tuck owns that history;
+ * cancelled and age-folded rows have no tuck stamp, so their finish time remains
+ * the honest fallback instead of manufacturing one. */
+export function issueClosedFoldAt(
+  issue: Pick<IssueWire, 'tuckedAt' | 'closedAt' | 'updatedAt'>,
+): string {
+  return issue.tuckedAt ?? issue.closedAt ?? issue.updatedAt
 }
 
 /** Finished-issue facts shared by fold membership and the tuck-away control.
@@ -171,7 +180,7 @@ export function rowCanBringBack(
  * otherwise — so the same repo on two machines/paths merges into one group).
  * Open-row and group order follow the incoming fixed creation order. Closed
  * rows deliberately ignore manual sort keys: the fold is a small history list,
- * ordered by the moment of closing, newest first.
+ * ordered by the moment of tucking (or finishing when never tucked), newest first.
  */
 export function groupUnifiedWorkRows(
   rows: UnifiedWorkRow[],
@@ -203,7 +212,11 @@ export function groupUnifiedWorkRows(
     } else group.rows.push(row)
   }
   for (const group of groups) {
-    group.closedRows.sort((a, b) => issueFinishedAt(b.issue) - issueFinishedAt(a.issue))
+    group.closedRows.sort(
+      (a, b) =>
+        (Date.parse(issueClosedFoldAt(b.issue)) || 0) -
+        (Date.parse(issueClosedFoldAt(a.issue)) || 0),
+    )
   }
   return groups
 }
