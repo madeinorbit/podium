@@ -866,12 +866,9 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(document.querySelector('[data-flight-session="gone"]')).not.toBeNull()
   })
 
-  // POD-1314: `Retired · 6m ago` is 86px of 9px mono in an 80px state column, so
-  // the cell wrapped and the row grew to two lines under an elbow drawn at the
-  // 28px row's mid point. The row takes the role cell instead, exactly as an
-  // asking row does — and the stamp it sheds at the narrow rung is on the
-  // tooltip, so nothing is ever only half-said.
-  it('gives a retired row the role cell rather than wrapping its stamp', () => {
+  // POD-1314: a retirement reading is one operational fact. The responsive row
+  // keeps the age visible and changes composition around it when space runs out.
+  it('keeps a retired row’s complete state reading', () => {
     harness.sessions = [
       ...harness.sessions,
       session('gone', { issueId: 't1', status: 'exited', name: 'Retired agent' }),
@@ -886,8 +883,7 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(row?.getAttribute('data-retired')).toBe('true')
     const state = row?.querySelector('.deck-agent-state')
     expect(state?.textContent).toContain('Retired')
-    // The stamp is a shed-able cell of its own, and the word is not: what the
-    // narrow rung hides is the elapsed, never `Retired`.
+    // Both halves remain in the state cell at every panel width.
     expect(state?.querySelector('.deck-agent-elapsed')).not.toBeNull()
     expect(row?.querySelector('[title]')?.getAttribute('title')).toContain('Retired · ')
   })
@@ -1212,19 +1208,22 @@ describe('flight deck spine geometry (POD-1226)', () => {
     expect(tick?.style.height).toBe('15px')
   })
 
-  it('keeps every agent row in the shared state column and on one line', () => {
+  it('keeps every agent row in the shared state column without discarding metadata', () => {
     deck()
     for (const row of document.querySelectorAll('[data-flight-session]')) {
       const state = row.querySelector('.deck-agent-state')
-      // Including the asking row: its obligation is built from the role cell in
-      // CSS, so nothing on the row is left outside the column.
+      const button = row.querySelector('.deck-agent')
+      // State keeps the same trailing-edge floor as task strips. The four facts
+      // remain direct grid items so the container query can recompose them into
+      // two lines without deleting or duplicating content.
       expect(state?.className).toContain('deck-state-col')
-      // The forced second line is gone; nothing may reintroduce a wrap.
-      expect(row.querySelector('.deck-agent-break')).toBeNull()
+      expect(button?.querySelector(':scope > .deck-agent-name')).not.toBeNull()
+      expect(button?.querySelector(':scope > .deck-agent-ref')).not.toBeNull()
+      expect(button?.querySelector(':scope > .deck-agent-state')).not.toBeNull()
     }
   })
 
-  it('puts what the narrow ladder drops on the row’s own tooltip', () => {
+  it('keeps the full agent reading on the row tooltip', () => {
     harness.issues = harness.issues.map((raw) => {
       const candidate = raw as Issue
       return candidate.id === 'root'
@@ -1244,11 +1243,14 @@ describe('flight deck spine geometry (POD-1226)', () => {
     const button = document
       .querySelector('[data-flight-session="lead"]')
       ?.querySelector('.deck-agent')
-    // Name, ref and the obligation with its elapsed — the two things a narrow
-    // deck stops printing are the role word and that elapsed.
+    // The tooltip mirrors the complete visible reading and remains useful when
+    // a genuinely exceptional value has to wrap in the narrow composition.
     expect(button?.getAttribute('title')).toContain('POD-1-A')
     expect(button?.getAttribute('title')).toContain('Needs you')
     expect(button?.getAttribute('title')).toMatch(/ago|just now/)
+    expect(button?.querySelector('[data-session-role="coordinator"]')?.textContent).toBe(
+      'coordinator',
+    )
   })
 })
 

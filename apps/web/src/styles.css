@@ -8977,81 +8977,78 @@ a.ref-link--session::before {
    release it — a container query cannot outrank a style attribute. */
 :root {
   --deck-state-col: 80px;
-  /* The role word's cell and the gap between every pair of cells, named because
-     the asking row's obligation is built out of them by `calc()` below and a
-     table whose column widths are three unrelated literals drifts. */
-  --deck-role-col: 96px;
-  --deck-cell-gap: 6px;
 }
 .deck-state-col {
   width: var(--deck-state-col);
 }
-/* THE ASKING ROW SPENDS A ROLE'S WIDTH ON THE ASK (POD-1226).
-   `Needs you · 30m ago` exceeds the normal state cell. Attention already
-   suppresses the role, so the obligation borrows that width without squeezing
-   the name; the narrow rung below later sheds only the elapsed detail. */
-.deck-agent-row[data-needs-you="true"] .deck-agent-role {
-  display: none;
-}
-.deck-agent-row[data-needs-you="true"] .deck-agent-state {
-  width: calc(var(--deck-state-col) + var(--deck-role-col) + var(--deck-cell-gap));
-}
+/* ── THE AGENT ROW — one instrument, two useful compositions ────────────────
+   A wide row uses the room it has: identity and provenance take their natural
+   measure, while the operational state stretches across the remaining track
+   and pins its readout to the trailing edge. This fixes both symptoms of the old
+   fixed-cell ladder: role text clipped at 96px while hundreds of pixels sat
+   empty, and the running clock stopped in the middle of the panel.
 
-/* A RETIRED ROW SPENDS IT THE SAME WAY (POD-1314), and for the same reason.
-   `Retired · 6m ago` is 16 characters of 9px mono — 86px where the column is 80
-   — so it WRAPPED, and a 45px row under an elbow drawn at the 28px row's mid
-   point is exactly the failure the ladder above was built to end. It is an
-   overrun of six pixels; the fix is not to widen the shared column by twenty
-   (which every name on every row would pay for, at every width) but to let the
-   row that has the overrun take the cell it is not using.
-   The role word goes with it, and that is the right trade in this direction
-   too: a retired session's role is provenance about a process that is gone,
-   the row's tooltip still carries it, and the alternative is a wrap. */
-.deck-agent-row[data-retired="true"] .deck-agent-role {
-  display: none;
+   The name is the only column allowed to shrink before the row changes shape.
+   Ref, role and state are complete facts; rendering half of one is worse than
+   spending a second line. */
+.deck-agent {
+  grid-template-areas: "name ref role state";
+  grid-template-columns:
+    minmax(0, max-content)
+    68px
+    max-content
+    minmax(var(--deck-state-col), 1fr);
 }
-.deck-agent-row[data-retired="true"] .deck-agent-state {
-  width: calc(var(--deck-state-col) + var(--deck-role-col) + var(--deck-cell-gap));
+.deck-agent-name {
+  grid-area: name;
 }
-
-/* The ref, a present role, and state keep predictable measures. The name is
-   content-sized up to its ceiling and is the only shrinker, so a short session
-   reads as one compact sentence instead of distributing four facts across the
-   whole deck. */
 .deck-agent-ref {
-  width: 68px;
+  grid-area: ref;
 }
 .deck-agent-role {
-  width: var(--deck-role-col);
+  grid-area: role;
+  white-space: nowrap;
+}
+.deck-agent-state.deck-state-col {
+  grid-area: state;
+  width: auto;
+  min-width: var(--deck-state-col);
 }
 
-/* ── THE ROSTER'S LADDER (POD-1226) ──────────────────────────────────────────
-   Agent rows stay one line because their elbows and selection ticks are drawn
-   against a 28px row. The list owns the narrow-width decision so every depth
-   sheds the same secondary facts: role first, then elapsed detail. Everything
-   shed remains in the row tooltip. */
+/* The roster owns the breakpoint so every nesting depth changes composition at
+   once. The elbow continues to meet the identity line; provenance sits beneath
+   it as a subordinate reading, so a taller row does not move the tree's datum. */
 .deck-rows {
   container-type: inline-size;
   container-name: deck-rows;
 }
 
-/* Below this rung a present role closes, and asking/retired states return the
-   borrowed role width. `Needs you` and `Retired` survive; their elapsed detail
-   is the lower-priority fact that drops. */
-@container deck-rows (max-width: 439px) {
+/* At this measure, a useful 160px name plus ref, role, state and gaps no longer
+   fit. Keep the two scan anchors on line one (name and live state), then put the
+   stable address and provenance on line two. The role may wrap only when its
+   own text exceeds the remaining narrow-panel measure; it is never ellipsized. */
+@container deck-rows (max-width: 520px) {
+  .deck-agent {
+    grid-template-areas:
+      "name state"
+      "ref role";
+    grid-template-columns: minmax(0, 1fr) minmax(var(--deck-state-col), 1fr);
+    row-gap: 4px;
+  }
+  .deck-agent-ref {
+    width: auto;
+    margin-inline-start: 26px;
+    justify-self: start;
+    text-align: start;
+  }
   .deck-agent-role {
-    display: none;
-  }
-  .deck-agent-row[data-needs-you="true"] .deck-agent-state,
-  .deck-agent-row[data-retired="true"] .deck-agent-state {
-    width: var(--deck-state-col);
-  }
-  /* `Retired` alone is 44px and fits the 80px column; the stamp is what does
-     not, so the stamp is what drops — the least load-bearing datum on the row,
-     and on its tooltip either way. Exactly the asking row's rung. */
-  .deck-agent-row[data-needs-you="true"] .deck-agent-elapsed,
-  .deck-agent-row[data-retired="true"] .deck-agent-elapsed {
-    display: none;
+    min-width: 0;
+    max-width: 100%;
+    justify-self: end;
+    overflow-wrap: anywhere;
+    text-align: end;
+    white-space: normal;
+    line-height: 1.25;
   }
 }
 
