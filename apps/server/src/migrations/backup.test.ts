@@ -13,6 +13,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -224,6 +225,32 @@ describe('backupDatabase retention', () => {
     expect(opensAfterChange).toBeGreaterThan(verificationOpens)
     expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
     expect(vi.mocked(openDatabase)).toHaveBeenCalledTimes(opensAfterChange)
+    db.close()
+  })
+
+  it('revalidates a cached backup when a WAL sidecar appears, changes, or disappears', () => {
+    const { db, dbPath } = tmpDb()
+    const backupPath = backupDatabase(db, dbPath, 'sidecar', PLENTY) as string
+    vi.mocked(openDatabase).mockClear()
+
+    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
+    let verificationOpens = vi.mocked(openDatabase).mock.calls.length
+
+    const walPath = `${backupPath}-wal`
+    writeFileSync(walPath, '')
+    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
+    expect(vi.mocked(openDatabase).mock.calls.length).toBeGreaterThan(verificationOpens)
+    verificationOpens = vi.mocked(openDatabase).mock.calls.length
+
+    const touched = new Date('2026-08-19T12:00:00.000Z')
+    utimesSync(walPath, touched, touched)
+    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
+    expect(vi.mocked(openDatabase).mock.calls.length).toBeGreaterThan(verificationOpens)
+    verificationOpens = vi.mocked(openDatabase).mock.calls.length
+
+    rmSync(walPath)
+    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
+    expect(vi.mocked(openDatabase).mock.calls.length).toBeGreaterThan(verificationOpens)
     db.close()
   })
 })

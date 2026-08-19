@@ -150,6 +150,27 @@ describe('ConversationDiscoveryCache', () => {
     reopened.close()
   })
 
+  test('serves repeated unchanged-file lookups from the hydrated memory index', async () => {
+    const db = await tempDb()
+    const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))
+    const file = await writeSession(root)
+    const fileStat = await stat(file)
+    const first = new ConversationDiscoveryCache(db)
+    first.upsert(file, fileStat, summary(file), 'codex')
+    first.close()
+
+    const reopened = new ConversationDiscoveryCache(db)
+    const innerDb = (reopened as unknown as { db: { prepare: (sql: string) => unknown } }).db
+    const prepareSpy = vi.spyOn(innerDb, 'prepare')
+
+    expect(reopened.getFresh(file, fileStat, 'codex')).toEqual(summary(file))
+    expect(reopened.getFresh(file, fileStat, 'codex')).toEqual(summary(file))
+    expect(prepareSpy).not.toHaveBeenCalled()
+
+    prepareSpy.mockRestore()
+    reopened.close()
+  })
+
   test('persists ignored files without exposing them as summaries', async () => {
     const db = await tempDb()
     const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))

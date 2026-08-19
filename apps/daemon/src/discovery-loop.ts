@@ -7,13 +7,6 @@ import { createLogger } from '@podium/logger'
 const log = createLogger('daemon:discovery')
 
 export const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
-/**
- * Whole-corpus discovery is a safety net for conversations created outside
- * Podium. Live Podium sessions already refresh their own changed transcript,
- * so an unchanged safety-net pass backs off instead of listing and statting the
- * complete multi-harness history every 15 seconds forever.
- */
-export const DEFAULT_DISCOVERY_SCAN_MAX_INTERVAL_MS = 5 * 60_000
 
 export interface DiscoveryLoop {
   /** Run a scan on the worker and publish the delta; `full` requests the entire list. */
@@ -39,16 +32,9 @@ export function createDiscoveryLoop(opts: {
   /** False disables unsolicited pushes (the periodic loop + connect snapshot). */
   background: boolean
   intervalMs: number
-  /** Test/embedding override for the idle backoff ceiling. */
-  maxIntervalMs?: number
 }): DiscoveryLoop {
   let timer: ReturnType<typeof setTimeout> | undefined
   let running = false
-  let nextScanIntervalMs = opts.intervalMs
-  const maxScanIntervalMs = Math.max(
-    opts.intervalMs,
-    opts.maxIntervalMs ?? DEFAULT_DISCOVERY_SCAN_MAX_INTERVAL_MS,
-  )
   // Coalesce overlapping scans: a safety-net tick that fires while a worker job is still
   // in flight (or an on-demand scanRequest racing the timer) shares the one result.
   let inFlight: Promise<ConversationDeltaWire> | undefined
@@ -134,18 +120,8 @@ export function createDiscoveryLoop(opts: {
   const scheduleScan = (): void => {
     if (!running) return
     timer = setTimeout(() => {
-      void refreshAndPublishConversations()
-        .then((delta) => {
-          const retrySoon =
-            delta.changed.length > 0 ||
-            delta.removed.length > 0 ||
-            delta.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-          nextScanIntervalMs = retrySoon
-            ? opts.intervalMs
-            : Math.min(maxScanIntervalMs, nextScanIntervalMs * 2)
-        })
-        .finally(scheduleScan)
-    }, nextScanIntervalMs)
+      void refreshAndPublishConversations().finally(scheduleScan)
+    }, opts.intervalMs)
     timer.unref?.()
   }
 

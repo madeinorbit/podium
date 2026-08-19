@@ -34,6 +34,10 @@ type CacheRow = {
   summary_json: string
 }
 
+type MemoryCacheRow = Omit<CacheRow, 'summary_json'> & {
+  entry: CacheEntry | undefined
+}
+
 /**
  * Outcome of a {@link ConversationDiscoveryCache.deleteMissing} call.
  *
@@ -65,6 +69,12 @@ export type CacheEntry =
 export class ConversationDiscoveryCache {
   private readonly db: SqlDatabase
   private readonly schemaVersion: number
+  /**
+   * The discovery worker owns this database exclusively. Keep its file metadata
+   * and decoded summaries in memory so each 15-second unchanged scan does not
+   * execute and decode one SQLite row per conversation in the host history.
+   */
+  private readonly rows = new Map<string, MemoryCacheRow>()
   /** Bumped by every write so a no-op `deleteMissing` tick can short-circuit. */
   private writeEpoch = 0
   /** State of the most recent `deleteMissing` call, for the short-circuit. */
@@ -82,6 +92,7 @@ export class ConversationDiscoveryCache {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = openDatabase(path)
     this.migrate()
+    this.loadRows()
   }
 
   /**
@@ -95,21 +106,13 @@ export class ConversationDiscoveryCache {
     stats: ConversationFileStat,
     agentKind: AgentKind,
   ): CacheEntry | undefined {
-    const row = this.db
-      .prepare(
-        `SELECT path, agent_kind, mtime_ms, size, schema_version, summary_json
-         FROM conversation_cache WHERE path = ?`,
-      )
-      .get(path) as CacheRow | undefined
+    const row = this.rows.get(path)
     if (!row) return undefined
     if (row.agent_kind !== agentKind) return undefined
     if (row.schema_version !== this.schemaVersion) return undefined
     if (row.size !== stats.size) return undefined
     if (Math.abs(row.mtime_ms - stats.mtimeMs) > 0.5) return undefined
-    if (row.summary_json === NEGATIVE_SUMMARY_SENTINEL) return { kind: 'negative' }
-    const summary = decodeSummary(row.summary_json)
-    // A row that can't decode is treated as a miss (re-summarize), never a hit.
-    return summary ? { kind: 'summary', summary } : undefined
+    return row.entry
   }
 
   getFresh(
@@ -127,14 +130,16 @@ export class ConversationDiscoveryCache {
     summary: AgentConversationSummary,
     agentKind: AgentKind = summary.agentKind,
   ): void {
+    const summaryJson = encodeSummary(summary)
     this.upsertPrepared().run(
       path,
       agentKind,
       stats.mtimeMs,
       stats.size,
       this.schemaVersion,
-      encodeSummary(summary),
+      summaryJson,
     )
+    this.remember(path, agentKind, stats, summaryJson)
     this.writeEpoch++
   }
 
@@ -203,22 +208,18 @@ export class ConversationDiscoveryCache {
       this.db.exec('ROLLBACK')
       throw error
     }
+    for (const row of rows) {
+      this.remember(row.path, row.agentKind, row.stats, row.summaryJson)
+    }
     this.writeEpoch++
   }
 
   listSummaries(agentKinds?: readonly AgentKind[]): AgentConversationSummary[] {
-    const rows = this.db
-      .prepare(
-        `SELECT summary_json FROM conversation_cache
-         WHERE schema_version = ?
-         ORDER BY path ASC`,
-      )
-      .all(this.schemaVersion) as { summary_json: string }[]
     const allowed = agentKinds ? new Set(agentKinds) : undefined
     const summaries: AgentConversationSummary[] = []
-    for (const row of rows) {
-      const summary = decodeSummary(row.summary_json)
-      if (!summary) continue
+    for (const row of [...this.rows.values()].sort((a, b) => a.path.localeCompare(b.path))) {
+      if (row.schema_version !== this.schemaVersion || row.entry?.kind !== 'summary') continue
+      const summary = row.entry.summary
       if (allowed && !allowed.has(summary.agentKind)) continue
       summaries.push(summary)
     }
@@ -298,13 +299,17 @@ export class ConversationDiscoveryCache {
         sql += ` AND agent_kind IN (${allowed.map(() => '?').join(', ')})`
         params.push(...allowed)
       }
-      sql += ' RETURNING summary_json'
-      const rows = this.db.prepare(sql).all(...params) as { summary_json: string }[]
+      sql += ' RETURNING path, summary_json'
+      const rows = this.db.prepare(sql).all(...params) as {
+        path: string
+        summary_json: string
+      }[]
       // `deleted` counts every pruned row (per DeleteMissingResult's contract);
       // `removedIds` carries only the decodable conversation ids — negative rows
       // (the summarized-to-nothing sentinel) prune silently, with no removal delta.
       const removedIds: string[] = []
       for (const row of rows) {
+        this.rows.delete(row.path)
         const summary = decodeSummary(row.summary_json)
         if (summary) removedIds.push(summary.id)
       }
@@ -330,6 +335,35 @@ export class ConversationDiscoveryCache {
          schema_version = excluded.schema_version,
          summary_json = excluded.summary_json`,
     )
+  }
+
+  private loadRows(): void {
+    const rows = this.db
+      .prepare(
+        `SELECT path, agent_kind, mtime_ms, size, schema_version, summary_json
+         FROM conversation_cache`,
+      )
+      .all() as CacheRow[]
+    for (const row of rows) {
+      const { summary_json: summaryJson, ...metadata } = row
+      this.rows.set(row.path, { ...metadata, entry: decodeEntry(summaryJson) })
+    }
+  }
+
+  private remember(
+    path: string,
+    agentKind: AgentKind,
+    stats: ConversationFileStat,
+    summaryJson: string,
+  ): void {
+    this.rows.set(path, {
+      path,
+      agent_kind: agentKind,
+      mtime_ms: stats.mtimeMs,
+      size: stats.size,
+      schema_version: this.schemaVersion,
+      entry: decodeEntry(summaryJson),
+    })
   }
 
   private migrate(): void {
@@ -393,4 +427,11 @@ function decodeSummary(raw: string): AgentConversationSummary | undefined {
     ...(createdAt ? { createdAt: new Date(createdAt) } : {}),
     ...(updatedAt ? { updatedAt: new Date(updatedAt) } : {}),
   }
+}
+
+function decodeEntry(raw: string): CacheEntry | undefined {
+  if (raw === NEGATIVE_SUMMARY_SENTINEL) return { kind: 'negative' }
+  const summary = decodeSummary(raw)
+  // A row that can't decode is treated as a miss (re-summarize), never a hit.
+  return summary ? { kind: 'summary', summary } : undefined
 }

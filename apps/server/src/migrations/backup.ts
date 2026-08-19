@@ -74,9 +74,9 @@ type LatestBackupCacheEntry = {
  * merely inspecting its directory entry. Update's idle read model asks for the
  * latest recovery point every 30 seconds, so repeating that proof turned a
  * harmless status poll into a synchronous full-database scan. Cache only the
- * verified answer, keyed by the candidate files' metadata; a published,
- * removed, or replaced snapshot changes the signature and is verified before it
- * can become the answer.
+ * verified answer, keyed by every candidate snapshot set's main, WAL, and SHM
+ * metadata; a published, removed, or replaced member changes the signature and
+ * is verified before it can become the answer.
  */
 const latestBackupCache = new Map<string, LatestBackupCacheEntry>()
 
@@ -230,12 +230,20 @@ export function latestDatabaseBackup(dbPath: string): string | undefined {
       .map((name) => {
         const path = join(dir, name)
         const stats = statSync(path)
-        return { name, path, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs, size: stats.size }
+        const sidecars = ['-wal', '-shm'].map((suffix) => {
+          const sidecarPath = `${path}${suffix}`
+          if (!existsSync(sidecarPath)) return `${suffix}\0missing`
+          const sidecarStats = statSync(sidecarPath)
+          return `${suffix}\0${sidecarStats.size}\0${sidecarStats.mtimeMs}\0${sidecarStats.ctimeMs}`
+        })
+        return {
+          name,
+          path,
+          mtimeMs: stats.mtimeMs,
+          signature: `${name}\0${stats.size}\0${stats.mtimeMs}\0${stats.ctimeMs}\0${sidecars.join('\0')}`,
+        }
       })
-    const signature = candidates
-      .map(({ name, mtimeMs, ctimeMs, size }) => `${name}\0${size}\0${mtimeMs}\0${ctimeMs}`)
-      .sort()
-      .join('\n')
+    const signature = candidates.map(({ signature }) => signature).sort().join('\n')
     const cached = latestBackupCache.get(dbPath)
     if (cached?.signature === signature) return cached.path
 
