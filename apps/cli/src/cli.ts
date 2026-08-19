@@ -227,6 +227,61 @@ export function takeoverRunsHere(owner: 'desktop' | 'systemd' | 'foreground'): b
   return owner !== 'systemd'
 }
 
+const DETACHED_RESTART_PARENT_PID = 'PODIUM_RESTART_PARENT_PID'
+const DETACHED_SUCCESSOR_GRACE_MS = 5_000
+
+export interface DetachedDaemonHandoffDeps {
+  env?: NodeJS.ProcessEnv
+  isAlive?: (pid: number) => boolean
+  successorPid: () => number | undefined
+  wait?: (milliseconds: number) => Promise<void>
+  now?: () => number
+}
+
+/**
+ * A detached update can launch the replacement daemon from two places: the old
+ * daemon re-execs itself, while its local coordinator restores every installed
+ * role. The re-exec carries its predecessor PID. It must wait before claiming
+ * the run registry, then yield if the coordinator's successor is already live;
+ * otherwise two --takeover contenders can terminate each other.
+ */
+export async function yieldToDetachedDaemonSuccessor(
+  deps: DetachedDaemonHandoffDeps,
+): Promise<boolean> {
+  const env = deps.env ?? process.env
+  const rawParentPid = env[DETACHED_RESTART_PARENT_PID]
+  delete env[DETACHED_RESTART_PARENT_PID]
+  if (!rawParentPid) return false
+
+  const parentPid = Number(rawParentPid)
+  if (!Number.isSafeInteger(parentPid) || parentPid <= 0) return false
+  const isAlive =
+    deps.isAlive ??
+    ((pid: number) => {
+      try {
+        process.kill(pid, 0)
+        return true
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+      }
+    })
+  const wait =
+    deps.wait ??
+    ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)))
+  const now = deps.now ?? Date.now
+
+  const parentDeadline = now() + 10_000
+  while (isAlive(parentPid) && now() < parentDeadline) await wait(25)
+
+  const successorDeadline = now() + DETACHED_SUCCESSOR_GRACE_MS
+  while (now() < successorDeadline) {
+    const successorPid = deps.successorPid()
+    if (successorPid !== undefined && successorPid !== parentPid) return true
+    await wait(25)
+  }
+  return false
+}
+
 function automationSchedulePlan(argv: string[]): LaunchPlan {
   if (argv[1] !== 'schedule') {
     return { kind: 'usage-error', message: AUTOMATION_SCHEDULE_USAGE }
@@ -939,6 +994,13 @@ async function runInProcess(
 ): Promise<void> {
   const { port, roles, modePlan } = plan
   ensureInstanceStateIdentity({ instanceId: resolveInstanceId() }) // [spec:SP-15aa] claim before run-registry writes
+  if (plan.claimRole === 'daemon' && plan.takeover) {
+    const { liveRecord } = await import('@podium/runtime/run-registry')
+    const coordinatorOwnsSuccessor = await yieldToDetachedDaemonSuccessor({
+      successorPid: () => liveRecord('daemon')?.pid,
+    })
+    if (coordinatorOwnsSuccessor) return
+  }
 
   // Long-lived component: re-configure logging under the role it claims, so its
   // records land in <role>.ndjson (or journald) instead of the console the `cli`

@@ -13,6 +13,7 @@ import {
   shouldInferLocalSetupDefault,
   takeoverRunsHere,
   unknownLaunchToken,
+  yieldToDetachedDaemonSuccessor,
 } from './cli'
 
 describe('resolveModePlan', () => {
@@ -113,6 +114,53 @@ describe('takeover process ownership', () => {
     expect(takeoverRunsHere('systemd')).toBe(false)
   })
 })
+describe('detached daemon restart handoff', () => {
+  it('waits before role registration and yields to a coordinator successor', async () => {
+    const env: NodeJS.ProcessEnv = { PODIUM_RESTART_PARENT_PID: '4242' }
+    const waits: number[] = []
+    let successorChecks = 0
+
+    const yielded = await yieldToDetachedDaemonSuccessor({
+      env,
+      isAlive: () => false,
+      successorPid: () => (++successorChecks === 2 ? 5151 : undefined),
+      wait: async (milliseconds) => {
+        waits.push(milliseconds)
+      },
+      now: () => 1,
+    })
+
+    expect(yielded).toBe(true)
+    expect(waits).toEqual([25])
+    expect(env.PODIUM_RESTART_PARENT_PID).toBeUndefined()
+  })
+
+  it('continues as the only successor after the coordinator grace expires', async () => {
+    const env: NodeJS.ProcessEnv = { PODIUM_RESTART_PARENT_PID: '4242' }
+    let time = 0
+
+    const yielded = await yieldToDetachedDaemonSuccessor({
+      env,
+      isAlive: () => false,
+      successorPid: () => 4242,
+      wait: async () => {},
+      now: () => (time += 1_000),
+    })
+
+    expect(yielded).toBe(false)
+    expect(env.PODIUM_RESTART_PARENT_PID).toBeUndefined()
+  })
+
+  it('does nothing for an ordinary daemon launch', async () => {
+    await expect(
+      yieldToDetachedDaemonSuccessor({
+        env: {},
+        successorPid: () => 5151,
+      }),
+    ).resolves.toBe(false)
+  })
+})
+
 
 describe('resolvePlan — launch matrix', () => {
   it('routes fresh VPS setup only through an interactive terminal', () => {

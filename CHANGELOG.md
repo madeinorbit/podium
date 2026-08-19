@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-edge.16] - 2026-08-19
+
+### Fixed
+
+- Detached headless updates now resolve the daemon self-restart and coordinator-restart race
+  before either successor claims the daemon role. The self-restarted process waits before
+  run-registry takeover and yields when the coordinator replacement is already live, so two
+  `--takeover` contenders cannot terminate each other and leave the update pending.
+
 ## [0.1.0-edge.15] - 2026-08-19
 
 ### Fixed
