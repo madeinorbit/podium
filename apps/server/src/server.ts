@@ -554,7 +554,11 @@ export async function startServer(
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = randomUUID()
   let boundPort = opts.port ?? 0
-  const developmentSourceRoot = process.env.PODIUM_HOME ? undefined : DEVELOPMENT_SOURCE_ROOT
+  // build-bun replaces this exact expression with the packaged product version.
+  // A detached installed process does not export PODIUM_HOME, so using that
+  // variable as the discriminator misclassified the published binary as source
+  // and silently withheld its coordinator restart capability.
+  const developmentSourceRoot = process.env.PODIUM_APP_VERSION ? undefined : DEVELOPMENT_SOURCE_ROOT
   const requestCoordinatorRestart = developmentSourceRoot
     ? createSourceRedeployRequest({ instanceId })
     : createInstalledCoordinatorRestart({ instanceId, port: () => boundPort })
