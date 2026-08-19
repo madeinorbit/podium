@@ -7,12 +7,14 @@
  * verbatim to the export root, and are wired into index.html by
  * ./patch-web-html.ts.
  *
- * The mark comes from assets/icon.svg — the Podium P, the same one the macOS
- * app wears [POD-392], now in its 9a cut [POD-1108]. It used to come from
- * assets/icon.png, which was still the Expo template's chevron, so the home
- * screen advertised create-expo-app. The PNG is now a build output of the SVG
- * rather than a hand-placed asset, and is still committed because Expo reads it
- * for the native icon and the splash.
+ * Native iOS and Apple touch art comes from assets/icon.svg — the full-bleed
+ * Podium P [POD-392], now in its 9a cut [POD-1108]. Browser favicons and
+ * ordinary PWA icons come from assets/icon-browser.svg, whose rounded frame
+ * leaves transparent corners on surfaces that do not impose a platform mask.
+ * The native source used to be assets/icon.png, which was still the Expo
+ * template's chevron, so the home screen advertised create-expo-app. The PNG is
+ * now a build output of the SVG rather than a hand-placed asset, and is still
+ * committed because Expo reads it for the native icon and the splash.
  *
  * The Android adaptive layers were the last three files the chevron survived in
  * [POD-1108]: they are named in app.json but nothing generated them, so
@@ -31,6 +33,7 @@ import sharp from 'sharp'
 
 const ROOT = join(import.meta.dir, '..')
 const SRC = join(ROOT, 'assets', 'icon.svg')
+const BROWSER_SRC = join(ROOT, 'assets', 'icon-browser.svg')
 const MASKABLE_SRC = join(ROOT, 'assets', 'icon-maskable.svg')
 const OUT = join(ROOT, 'public', 'icons')
 
@@ -60,16 +63,23 @@ const BG = { r: 0x16, g: 0x17, b: 0x1a, alpha: 1 }
 
 mkdirSync(OUT, { recursive: true })
 
-/** Square app icons. iOS masks its own corners, so ship the full bleed. */
-const SQUARES: [string, number][] = [
+/** Ordinary PWA icons are unmasked, so ship the rounded source with alpha corners. */
+const BROWSER_PNG = await sharp(BROWSER_SRC, { density: 384 }).resize(1024, 1024).png().toBuffer()
+const ANY_ICONS: [string, number][] = [
   ['icon-192.png', 192],
   ['icon-512.png', 512],
-  ['apple-touch-icon.png', 180],
 ]
-for (const [name, size] of SQUARES) {
-  const buf = await sharp(ICON_PNG).resize(size, size, { fit: 'cover' }).png().toBuffer()
+for (const [name, size] of ANY_ICONS) {
+  const buf = await sharp(BROWSER_PNG).resize(size, size, { fit: 'cover' }).png().toBuffer()
   writeFileSync(join(OUT, name), buf)
   console.log(name, size, `${Math.round(buf.length / 1024)}kb`)
+}
+
+/** Apple supplies the squircle mask, so its touch icon stays full bleed. */
+{
+  const buf = await sharp(ICON_PNG).resize(180, 180, { fit: 'cover' }).png().toBuffer()
+  writeFileSync(join(OUT, 'apple-touch-icon.png'), buf)
+  console.log('apple-touch-icon.png', 180, `${Math.round(buf.length / 1024)}kb`)
 }
 
 /**
@@ -156,8 +166,18 @@ const manifest = {
   background_color: '#16171a',
   theme_color: '#16171a',
   icons: [
-    { src: '/mobile/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-    { src: '/mobile/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+    {
+      src: '/mobile/icons/icon-192.png',
+      sizes: '192x192',
+      type: 'image/png',
+      purpose: 'any',
+    },
+    {
+      src: '/mobile/icons/icon-512.png',
+      sizes: '512x512',
+      type: 'image/png',
+      purpose: 'any',
+    },
     {
       src: '/mobile/icons/icon-512-maskable.png',
       sizes: '512x512',
@@ -174,5 +194,5 @@ console.log('manifest.webmanifest')
 
 /** app.json `web.favicon` — the browser tab, when it is a tab and not an app. */
 const favicon = join(ROOT, 'assets', 'favicon.png')
-writeFileSync(favicon, await sharp(ICON_PNG).resize(48, 48, { fit: 'cover' }).png().toBuffer())
+writeFileSync(favicon, await sharp(BROWSER_PNG).resize(48, 48, { fit: 'cover' }).png().toBuffer())
 console.log('assets/favicon.png 48')

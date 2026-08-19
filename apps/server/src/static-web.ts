@@ -385,7 +385,7 @@ const APPLE_TOUCH_ICON_NAMES = new Set([
   '/apple-touch-icon-precomposed.png',
 ])
 const APPLE_TOUCH_ICON_SOURCES = [
-  'apple-touch-icon-180x180.png', // apps/web, via pwa-assets.config.ts
+  'apple-touch-icon-180x180.png', // apps/web, via scripts/generate-maskable-icon.ts
   join('icons', 'apple-touch-icon.png'), // apps/mobile, via scripts/generate-web-icons.ts
 ]
 

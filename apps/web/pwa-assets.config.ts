@@ -1,30 +1,31 @@
 import { defineConfig } from '@vite-pwa/assets-generator/config'
 
 /**
- * Rasterises public/icon.svg into the installed-app icon set at build time.
+ * Rasterises public/icon-browser.svg into the unmasked browser/PWA icon set at
+ * build time.
  * None of the output is committed — vite-plugin-pwa runs this on every build and
  * injects the head links.
  *
- * This is `minimal2023Preset` with the padding taken off [POD-421]. That preset
- * leaves `padding` at its 0.3 default for the maskable and apple assets, and the
- * fill behind that padding defaults to WHITE — so a mark drawn full bleed came
- * out shrunk inside a white square, and an iPhone home screen showed a small
- * dark tile floating in white. The source is already a square that owns its own
- * background (see the note in icon.svg), so:
+ * This is `minimal2023Preset` with each platform-masked slot removed. The
+ * generator applies one source to every asset type, but these outputs need
+ * different cuts:
  *
- *  - transparent / apple: no padding, the art fills the frame. iOS masks its own
- *    squircle over the apple icon, so shipping corners of our own would put the
- *    icon in a visible frame.
+ *  - transparent + favicon: icon-browser.svg owns a rounded frame with
+ *    transparent corners, because browsers and `purpose: any` surfaces display
+ *    the pixels without imposing a platform mask.
+ *  - apple: NOT GENERATED HERE. public/icon.svg remains full bleed and is
+ *    rasterised by scripts/generate-maskable-icon.ts into the committed Apple
+ *    touch PNG linked from index.html.
  *  - maskable: NOT GENERATED HERE. See below.
  *
- * WHY THE MASKABLE SLOT IS EMPTY [POD-1109]. It used to be icon.svg at
+ * WHY THE MASKABLE SLOT IS EMPTY [POD-1109]. It used to be the full-bleed cut at
  * `padding: 0.15` over the ground's mid stop, and that shipped the Android home
  * screen a mark inside a visible border. Two things compounded:
  *
  *   - `padding` is TOTAL, not per-side — `extractAssetSize` resizes to
  *     `size * (1 - padding)`, so the art landed at 85% of 512, composited
  *     centred on the flat background colour.
- *   - icon.svg owns a GRADIENT ground. Insetting it over a flat colour does not
+ *   - the source owns a GRADIENT ground. Insetting it over a flat colour does not
  *     read as padding, it reads as a band around a smaller tile, because those
  *     are two different fills. Moving the flat colour from Race Navy onto the
  *     9a mid stop [POD-1108] narrowed the mismatch but could not remove it.
@@ -36,14 +37,16 @@ import { defineConfig } from '@vite-pwa/assets-generator/config'
  * it goes in FULL BLEED — the art already carries its own safe-zone margin, so
  * any padding here would put the border back.
  *
- * It cannot be a second entry in `images`: the generator applies one source to
- * every asset type (`images` is a flat list) and `defaultAssetName` keys outputs
- * by TYPE (`pwa-`, `maskable-icon-`, `apple-touch-icon-`), so a second image
- * overwrites the first rather than specialising a slot. So the maskable leaves
- * the generator entirely — an empty `sizes` is how a slot is switched off, since
- * `resolveMaskableIcons` iterates `sizes` — and is rasterised to the committed
+ * Neither special cut can be a second entry in `images`: the generator applies
+ * one source to every asset type (`images` is a flat list) and
+ * `defaultAssetName` keys outputs by TYPE (`pwa-`, `maskable-icon-`,
+ * `apple-touch-icon-`), so a second image overwrites the first rather than
+ * specialising a slot. So the maskable leaves the generator entirely — an
+ * empty `sizes` is how a slot is switched off, since `resolveMaskableIcons`
+ * iterates `sizes` — and is rasterised to the committed
  * public/icon-maskable-512.png by scripts/generate-maskable-icon.ts, then named
- * directly in the manifest by vite.config.ts.
+ * directly in the manifest by vite.config.ts. The same script writes the
+ * full-bleed Apple touch icon from public/icon.svg.
  *
  * Because vite.config.ts now declares `manifest.icons` itself, this generator no
  * longer injects the icons array at all — vite-plugin-pwa only overrides it when
@@ -62,10 +65,8 @@ export default defineConfig({
       sizes: [],
     },
     apple: {
-      sizes: [180],
-      padding: 0,
-      resizeOptions: { background: '#131417' },
+      sizes: [],
     },
   },
-  images: ['public/icon.svg'],
+  images: ['public/icon-browser.svg'],
 })

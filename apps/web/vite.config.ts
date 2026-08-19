@@ -124,9 +124,11 @@ export default defineConfig(({ mode }) => {
          */
         disable: isDevBuild,
         registerType: 'prompt',
-        // Generate icons + apple-touch-icon + favicon from one source SVG
-        // (see pwa-assets.config.ts); inject head links. NOT the manifest icons
-        // — `icons` below is declared by hand, which switches that injection off.
+        // Generate purpose:any icons plus SVG/ICO favicons from the rounded
+        // browser source (see pwa-assets.config.ts); inject favicon head links.
+        // Apple touch and maskable icons use separate full-bleed sources. NOT the
+        // manifest icons — `icons` below is declared by hand, which switches that
+        // injection off.
         pwaAssets: { config: true },
         manifest: {
           name: 'Podium',
@@ -154,9 +156,9 @@ export default defineConfig(({ mode }) => {
            * are not a documented-safe path through Chrome's WebAPK minting.
            */
           icons: [
-            { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },
-            { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-            { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+            { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png', purpose: 'any' },
+            { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
             {
               src: 'icon-maskable-512.png',
               sizes: '512x512',

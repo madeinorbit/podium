@@ -20,10 +20,10 @@
     Android's circle and the macOS corner all cut into the overrun rather than
     into the plane's own edge.
 
-    Everything under public/ is copied verbatim into the dist, so this file is
-    also the `<link rel="icon" type="image/svg+xml">` the browser tab uses. The
-    PNG set (favicon.ico, pwa-*, maskable-*, apple-touch-icon-180x180) is
-    rasterised from it at build time by vite-plugin-pwa; none of it is committed.
+    This is now only a platform-masked source. The committed Apple touch PNG is
+    rasterised from it by scripts/generate-maskable-icon.ts; native iOS uses the
+    matching mobile copy. Browser favicons and `purpose: any` PWA icons use
+    icon-browser.svg so their transparent rounded corners are visible.
   -->
   <defs>
     <linearGradient id="bg" x1="120" y1="40" x2="920" y2="1000" gradientUnits="userSpaceOnUse">

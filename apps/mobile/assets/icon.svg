@@ -13,8 +13,9 @@
     into the plane's own edge.
 
     Rasterise with `bun apps/mobile/scripts/generate-web-icons.ts`, which writes
-    assets/icon.png (Expo's native + splash source), the Android adaptive icon
-    layers and the whole public/icons set from this file.
+    assets/icon.png (Expo's native source) and the Apple touch icon from this
+    file. Browser and ordinary PWA icons use icon-browser.svg; Android's masked
+    surfaces use their dedicated safe-zone/adaptive masters.
   -->
   <defs>
     <linearGradient id="bg" x1="120" y1="40" x2="920" y2="1000" gradientUnits="userSpaceOnUse">
