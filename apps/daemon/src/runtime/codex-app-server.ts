@@ -31,6 +31,7 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:
 import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  AttachmentStager,
   CodexJournal,
   CodexJournalEntry,
   CodexRuntimeHost,
@@ -310,6 +311,7 @@ export function codexAppServerConfigArgs(input: {
 // ---------------------------------------------------------------------------
 
 export interface CodexHostDeps {
+  stageAttachment?: AttachmentStager
   /** Resource truth for a session's scope — memory, tasks and the kernel's own
    *  OOM-kill counter, from the daemon's one cgroup observer. */
   resources(input: {
@@ -466,6 +468,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
 
   return {
     journal,
+    ...(deps.stageAttachment ? { stageAttachment: deps.stageAttachment } : {}),
     now: deps.now ?? (() => Date.now()),
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 

@@ -52,6 +52,7 @@ import type {
   AgentSessionHandle,
   AttachEndpoint,
   AttachRequest,
+  AttachmentStager,
   ConfigureRequest,
   DriverCapabilities,
   DriverId,
@@ -158,6 +159,7 @@ const PENDING_FRAME_LIMIT = 256
 export interface TerminalRuntimeHost {
   /** Outbound daemon frames. The driver's only path to the server. */
   send(msg: DaemonMessage): void
+  stageAttachment?: AttachmentStager
   /** The live PTY bridge, when this daemon holds one. */
   bridge(sessionId: SessionId): { write(dataBase64: string): void; pid: number } | undefined
   /** The observers' current folded state for a session. */
@@ -1291,8 +1293,11 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         if (!session.alive || !host.bridge(session.sessionId)) {
           return { outcome: 'refused', refusal: refuse('not_running') }
         }
+        const text = [...(input.attachments ?? []).map((attachment) => attachment.path), input.text]
+          .filter(Boolean)
+          .join('\n')
         const enqueue = (): TurnReceipt =>
-          session.injection.enqueue(input.text, {
+          session.injection.enqueue(text, {
             origin: options.origin,
             id: input.id ?? randomUUID(),
             // CARRIED, not defaulted. A queued turn that forgot who asked for it
@@ -1346,27 +1351,28 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
           await new Promise<void>((resolve) => {
             host.setTimer(resolve, SUBMIT_CR_DELAY_MS)
           })
-          return session.injection.deliver(input.text, {
+          return session.injection.deliver(text, {
             origin: options.origin,
             delivery: 'interrupt',
             afterEsc: true,
           })
         }
 
-        return session.injection.deliver(input.text, {
+        return session.injection.deliver(text, {
           origin: options.origin,
           delivery: 'when-ready',
         })
       },
 
-      async stageAttachment() {
-        // The upload path that lands attachment bytes on a session's machine is
-        // the daemon's existing `imageUploadRequest` flow, which is server-driven
-        // and already produces a path. Minting one here would create a second
-        // staging root nothing cleans up.
-        return {
-          reason: 'unsupported',
-          detail: 'terminal attachment staging is not wired to the daemon upload store',
+      async stageAttachment(source) {
+        if (!session.alive || !host.bridge(session.sessionId)) return refuse('not_running')
+        if (!host.stageAttachment) {
+          return refuse('unsupported', 'this terminal host cannot stage attachments')
+        }
+        try {
+          return await host.stageAttachment({ sessionId: session.sessionId, source })
+        } catch (err) {
+          return refuse('staging_failed', String(err))
         }
       },
 

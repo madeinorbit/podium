@@ -118,7 +118,7 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
       cursorMaterial: 'file-offset',
     },
     transcript: supported({ history: true }),
-    staging: unsupported('terminal attachment staging is not wired to the daemon upload store'),
+    staging: supported({ kinds: ['image', 'file'], promptForm: 'path-text' }),
     // The engine terminal IS the session for this family — today's frames path,
     // described rather than replaced.
     attach: supported({ kinds: ['engine'] }),

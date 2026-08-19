@@ -199,6 +199,13 @@ function makeWorld(): World {
   }
 
   const host: TerminalRuntimeHost = {
+    stageAttachment: async ({ source }) => ({
+      id: 'attachment-1',
+      path: '/tmp/attachment-1-' + source.filename,
+      filename: source.filename,
+      mediaType: source.mediaType,
+      kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+    }),
     send: (msg) => frames.push(msg),
     bridge: (sessionId) =>
       alive.get(`podium-${sessionId}`)
@@ -372,6 +379,25 @@ const SPEC = {
 }
 
 // ---------------------------------------------------------------------------
+
+describe('attachment path prompts', () => {
+  it('prepends staged paths to the terminal prompt', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const staged = await session.stageAttachment({
+      bytes: new TextEncoder().encode('notes'),
+      filename: 'notes.txt',
+      mediaType: 'text/plain',
+    })
+    if ('reason' in staged) throw new Error(staged.detail ?? staged.reason)
+    world.hookOnSubmit(session.binding.sessionId)
+    await session.send(
+      { text: 'read this', attachments: [staged] },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(world.written.map(pastedText).filter(Boolean)).toContain(staged.path + '\nread this')
+  })
+})
 
 describe('the flag', () => {
   it('is on only for an explicit 1 or true', () => {

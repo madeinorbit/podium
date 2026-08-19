@@ -103,8 +103,12 @@ export interface OpencodePermissionRule {
  * blocking sibling `POST /session/{id}/message` is the one that waits, and the
  * plan is explicit that using it would make `accepted` mean the wrong thing.
  */
+export type OpencodePromptPart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; mime: string; filename?: string; url: string }
+
 export interface OpencodePromptBody {
-  parts: readonly { type: 'text'; text: string }[]
+  parts: readonly OpencodePromptPart[]
   /** THE ASYMMETRY: `modelID` here, `id` on the session. */
   model?: { providerID: string; modelID: string }
   agent?: string
@@ -145,9 +149,7 @@ export const OpencodeMessageInfo = z
     id: z.string().min(1),
     sessionID: OpencodeSessionId,
     role: z.enum(['user', 'assistant', 'system']),
-    time: z
-      .object({ created: z.number().optional(), completed: z.number().optional() })
-      .optional(),
+    time: z.object({ created: z.number().optional(), completed: z.number().optional() }).optional(),
     modelID: z.string().optional(),
     providerID: z.string().optional(),
     /** `stop`, `length`, … — present once the assistant turn closes. */

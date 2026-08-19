@@ -86,7 +86,10 @@ interface WorldOptions {
   hostsClientTerminals?: boolean | 'spectators-only'
 }
 
-function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
+function makeWorld(options: WorldOptions = {}): {
+  target: ConformanceTarget
+  prompt(sessionId: SessionId): ReturnType<FakeOpencodeServer['lastPrompt']>
+} {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   let runtime: OpencodeRuntime | undefined
   let seq = 0
@@ -107,13 +110,20 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
     },
   }
 
-  const endpointFor = (sessionId: SessionId, server: FakeOpencodeServer): OpencodeServerEndpoint => ({
+  const endpointFor = (
+    sessionId: SessionId,
+    server: FakeOpencodeServer,
+  ): OpencodeServerEndpoint => ({
     baseUrl: server.baseUrl,
     username: server.username,
     password: server.password,
     // EXACT identity. The corpus's `adopt` properties turn on this being stable
     // across a supervisor restart and unusable after a kill.
-    process: { key: `fake-opencode-${sessionId}`, pid: server.pid, scopeUnit: `podium-${sessionId}.scope` },
+    process: {
+      key: `fake-opencode-${sessionId}`,
+      pid: server.pid,
+      scopeUnit: `podium-${sessionId}.scope`,
+    },
     stop: async () => {
       server.alive = false
       await server.close()
@@ -127,6 +137,16 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   })
 
   const host: OpencodeRuntimeHost = {
+    stageAttachment: async ({ source }) => {
+      const id = 'attachment-' + ++seq
+      return {
+        id,
+        path: '/tmp/' + id + '-' + source.filename,
+        filename: source.filename,
+        mediaType: source.mediaType,
+        kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+      }
+    },
     async launch(input) {
       const server = await startFakeOpencodeServer({
         username: input.username,
@@ -242,7 +262,8 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
        * rather raise the nearest REAL channel than invent a fake one.
        */
       const payload = 'payload' in ask ? (ask.payload as Record<string, unknown>) : {}
-      const toolName = typeof payload.toolName === 'string' ? payload.toolName.toLowerCase() : 'bash'
+      const toolName =
+        typeof payload.toolName === 'string' ? payload.toolName.toLowerCase() : 'bash'
       return server.askPermission({
         sessionID: opencodeId,
         permission: toolName,
@@ -310,6 +331,8 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   }
 
   return {
+    prompt: (sessionId) => serverFor(sessionId).lastPrompt(opencodeIdFor(sessionId)),
+
     target: {
       name: 'opencode-server',
       family: 'server',
@@ -340,6 +363,38 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
 }
 
 const { target } = makeWorld()
+describe('attachment file-part prompts', () => {
+  it('sends staged files as opencode file parts', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const staged = await handle.stageAttachment({
+        bytes: new TextEncoder().encode('notes'),
+        filename: 'notes.txt',
+        mediaType: 'text/plain',
+      })
+      if ('reason' in staged) throw new Error(staged.detail ?? staged.reason)
+      await handle.send(
+        { text: 'read this', attachments: [staged] },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      const url = new URL('file:///')
+      url.pathname = staged.path
+      expect(world.prompt(handle.binding.sessionId)?.parts).toEqual([
+        { type: 'text', text: 'read this' },
+        {
+          type: 'file',
+          mime: 'text/plain',
+          filename: 'notes.txt',
+          url: url.href,
+        },
+      ])
+    } finally {
+      world.target.reset()
+    }
+  })
+})
 
 /**
  * THE OTHER ARM OF THE SAME PROPERTY, ON A HOST THAT HOSTS NO TERMINAL.

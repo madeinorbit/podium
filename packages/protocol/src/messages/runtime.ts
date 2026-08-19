@@ -95,6 +95,7 @@ export const RefusalReason = z.enum([
   'no_resume_ref',
   'session_ended',
   'not_running',
+  'staging_failed',
   'busy',
 ])
 export type RefusalReason = z.infer<typeof RefusalReason>

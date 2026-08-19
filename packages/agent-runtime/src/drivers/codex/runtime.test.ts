@@ -72,6 +72,13 @@ async function world(): Promise<World> {
     },
   }
   const host: CodexRuntimeHost = {
+    stageAttachment: async ({ source }) => ({
+      id: 'image-1',
+      path: '/tmp/image-1-' + source.filename,
+      filename: source.filename,
+      mediaType: source.mediaType,
+      kind: 'image',
+    }),
     journal,
     now: () => Date.UTC(2026, 7, 14) + ++seq * 1000,
     mintSessionId: () => 'cx-1' as SessionId,
@@ -182,6 +189,30 @@ async function world(): Promise<World> {
 /** Let the driver's own microtasks settle. The transport delivers on the same
  *  tick, but the driver's handlers are async in places. */
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+describe('attachment local-image prompts', () => {
+  it('sends staged images through Codex localImage input', async () => {
+    const w = await world()
+    try {
+      const staged = await w.handle.stageAttachment({
+        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+        filename: 'diagram.png',
+        mediaType: 'image/png',
+      })
+      if ('reason' in staged) throw new Error(staged.detail ?? staged.reason)
+      await w.handle.send(
+        { text: 'describe this', attachments: [staged] },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(w.server.lastTurnInput).toEqual([
+        { type: 'localImage', path: staged.path },
+        { type: 'text', text: 'describe this', text_elements: [] },
+      ])
+    } finally {
+      w.dispose()
+    }
+  })
+})
 
 describe('native steer — the thing no other driver in the fleet can do', () => {
   it('joins the OPEN turn and reports `steer`, not a downgrade', async () => {

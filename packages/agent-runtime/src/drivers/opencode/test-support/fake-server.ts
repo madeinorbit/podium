@@ -38,7 +38,7 @@
 
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import type { OpencodeQuestionInfo } from '../protocol.js'
+import type { OpencodePromptBody, OpencodeQuestionInfo } from '../protocol.js'
 
 export interface FakeOpencodeSession {
   id: string
@@ -75,6 +75,7 @@ export interface FakeOpencodeServer {
    *  `deliveryAttempts` counter — one DELIVERY of the caller's words, counted
    *  where the words actually arrive. */
   promptCount(sessionId: string): number
+  lastPrompt(sessionId: string): OpencodePromptBody | undefined
   /** The next prompt POST answers 500. The honest way to make a send fail
    *  without a verification window this family does not have. */
   failNextPrompt(): void
@@ -116,6 +117,7 @@ export async function startFakeOpencodeServer(options: {
   const permissions = new Map<string, FakePermissionRequest>()
   const questions = new Map<string, FakeQuestionRequest>()
   const prompts = new Map<string, number>()
+  const promptBodies = new Map<string, OpencodePromptBody>()
   const subscribers = new Set<{
     directory: string
     write: (chunk: string) => void
@@ -187,7 +189,9 @@ export async function startFakeOpencodeServer(options: {
       subscribers.add(subscriber)
       // opencode's own first frame. Harmless, and its presence keeps the client
       // parser honest about frames it must ignore.
-      subscriber.write(`data: ${JSON.stringify({ id: id('evt'), type: 'server.connected', properties: {} })}\n\n`)
+      subscriber.write(
+        `data: ${JSON.stringify({ id: id('evt'), type: 'server.connected', properties: {} })}\n\n`,
+      )
       req.on('close', () => subscribers.delete(subscriber))
       return
     }
@@ -288,8 +292,9 @@ export async function startFakeOpencodeServer(options: {
         json(500, { error: 'induced failure' })
         return
       }
-      readBody(() => {
+      readBody((body) => {
         prompts.set(sessionId, (prompts.get(sessionId) ?? 0) + 1)
+        promptBodies.set(sessionId, body as unknown as OpencodePromptBody)
         // 204 IS THE ACK, with no body — the exact shape recorded from 1.18.16.
         res.writeHead(204)
         res.end()
@@ -368,6 +373,7 @@ export async function startFakeOpencodeServer(options: {
     pid: process.pid,
     alive: true,
     promptCount: (sessionId) => prompts.get(sessionId) ?? 0,
+    lastPrompt: (sessionId) => promptBodies.get(sessionId),
     failNextPrompt: () => {
       failNext = true
     },

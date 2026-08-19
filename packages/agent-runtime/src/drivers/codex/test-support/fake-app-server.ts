@@ -100,6 +100,7 @@ export interface FakeAppServer {
    * whole redesign was about.
    */
   turnStarts: number
+  lastTurnInput: readonly unknown[] | undefined
   /** `turn/steer` calls that were accepted into an open turn. */
   steers: number
   /** Make the next `turn/start` answer a JSON-RPC error. */
@@ -184,6 +185,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     threadId: undefined,
     threadNames: [],
     turnStarts: 0,
+    lastTurnInput: undefined,
     steers: 0,
     answers: new Map(),
     optedOutOfDeltas: false,
@@ -299,7 +301,9 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
   const respondError = (id: number | string, code: number, message: string): void =>
     toClient.push(JSON.stringify({ id, error: { code, message } }))
   const notify = (method: string, params: unknown): void =>
-    toClient.push(JSON.stringify({ jsonrpc: '2.0', method, params, emittedAtMs: 1_786_700_000_000 }))
+    toClient.push(
+      JSON.stringify({ jsonrpc: '2.0', method, params, emittedAtMs: 1_786_700_000_000 }),
+    )
   const request = (id: number, method: string, params: unknown): void =>
     toClient.push(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
 
@@ -436,6 +440,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
           return
         }
         server.turnStarts += 1
+        server.lastTurnInput = Array.isArray(params.input) ? params.input : undefined
         const turnId = `turn-${++turnSeq}`
         pendingTurn = turnId
         /**

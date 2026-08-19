@@ -94,6 +94,16 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   const processKey = (sessionId: SessionId): string => `podium-cx-${sessionId}`
 
   const host: CodexRuntimeHost = {
+    stageAttachment: async ({ source }) => {
+      const id = 'attachment-' + ++seq
+      return {
+        id,
+        path: '/tmp/' + id + '-' + source.filename,
+        filename: source.filename,
+        mediaType: source.mediaType,
+        kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+      }
+    },
     journal,
     now: () => Date.UTC(2026, 7, 14) + ++seq * 1000,
     mintSessionId: () => `cx-session-${++seq}` as SessionId,

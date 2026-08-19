@@ -62,11 +62,25 @@ import type {
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
-import type { AnswerOptions, Refusal, SendOptions, TurnInput, TurnReceipt } from '../../turns.js'
+import type {
+  AnswerOptions,
+  AttachmentStager,
+  Refusal,
+  SendOptions,
+  TurnInput,
+  TurnReceipt,
+} from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import { opencodeServerCapabilities } from './capabilities.js'
 import { type OpencodeClient, type OpencodeClientConfig, createOpencodeClient } from './client.js'
-import { answerAction, idleToStateEvent, partToItems, permissionAsk, questionAsk, statusToStateEvent } from './map.js'
+import {
+  answerAction,
+  idleToStateEvent,
+  partToItems,
+  permissionAsk,
+  questionAsk,
+  statusToStateEvent,
+} from './map.js'
 import {
   type OpencodeEvent,
   type OpencodeMessageInfo,
@@ -118,6 +132,8 @@ export interface OpencodeRuntimeHost {
     username: string
     env?: Readonly<Record<string, string>>
   }): Promise<OpencodeServerEndpoint>
+
+  stageAttachment?: AttachmentStager
 
   /**
    * Re-bind a SURVIVING server after a supervisor restart, or `undefined`.
@@ -474,7 +490,11 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         // Opening a turn is what `busy` means, and the epoch is what every
         // subsequent event is fenced against.
         if (opened) {
-          emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin: 'human' } }, at)
+          emit(
+            session,
+            { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin: 'human' } },
+            at,
+          )
         }
         break
       }
@@ -544,8 +564,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     session.interactions.set(interaction.id, interaction)
     emit(session, { t: 'interaction', ev: { ev: 'asked', interaction } }, at)
     const need = interaction.kind === 'permission' ? 'permission' : 'question'
-    const summary =
-      interaction.kind === 'permission' ? interaction.payload.inputSummary : undefined
+    const summary = interaction.kind === 'permission' ? interaction.payload.inputSummary : undefined
     emit(
       session,
       {
@@ -632,8 +651,19 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
    * blocked instead of accumulating turns behind an unanswered question.
    */
   async function refreshInteractions(session: DriverSession): Promise<void> {
-    let permissions: readonly { id: string; permission: string; patterns: readonly string[]; metadata: Record<string, unknown>; always: readonly string[]; sessionID: string }[]
-    let questions: readonly { id: string; questions: readonly OpencodeQuestionInfo[]; sessionID: string }[]
+    let permissions: readonly {
+      id: string
+      permission: string
+      patterns: readonly string[]
+      metadata: Record<string, unknown>
+      always: readonly string[]
+      sessionID: string
+    }[]
+    let questions: readonly {
+      id: string
+      questions: readonly OpencodeQuestionInfo[]
+      sessionID: string
+    }[]
     try {
       ;[permissions, questions] = await Promise.all([
         session.client.permissions(),
@@ -747,7 +777,11 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         : session.interactions.size > 0
           ? 'question'
           : 'done'
-      emit(session, { t: 'turn', ev: { ev: 'completed', turnEpoch: session.turnEpoch, verdict } }, at)
+      emit(
+        session,
+        { t: 'turn', ev: { ev: 'completed', turnEpoch: session.turnEpoch, verdict } },
+        at,
+      )
       emit(session, { t: 'state', change: idleToStateEvent(verdict, at) }, at)
       session.state = { phase: 'idle', since: at, nativeSubagentCount: 0 }
     }
@@ -761,16 +795,30 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
    *  are `provider-error`/`retryable`: a failure we cannot classify is still a
    *  failure, and guessing `fatal` would end a session a retry might save. */
   function describeError(error: unknown): {
-    reason: 'rate-limit' | 'auth-expired' | 'context-overflow' | 'provider-error' | 'timeout' | 'interrupted'
+    reason:
+      | 'rate-limit'
+      | 'auth-expired'
+      | 'context-overflow'
+      | 'provider-error'
+      | 'timeout'
+      | 'interrupted'
     disposition: 'retryable' | 'needs-human' | 'fatal'
     text?: string
   } {
-    const name = typeof error === 'object' && error !== null && 'name' in error ? String((error as { name: unknown }).name) : ''
-    const text = typeof error === 'object' && error !== null ? JSON.stringify(error).slice(0, 500) : undefined
-    if (name.includes('ProviderAuth')) return { reason: 'auth-expired', disposition: 'needs-human', ...(text ? { text } : {}) }
-    if (name.includes('ContextOverflow')) return { reason: 'context-overflow', disposition: 'needs-human', ...(text ? { text } : {}) }
-    if (name.includes('MessageAborted')) return { reason: 'interrupted', disposition: 'retryable', ...(text ? { text } : {}) }
-    if (name.includes('MessageOutputLength')) return { reason: 'provider-error', disposition: 'retryable', ...(text ? { text } : {}) }
+    const name =
+      typeof error === 'object' && error !== null && 'name' in error
+        ? String((error as { name: unknown }).name)
+        : ''
+    const text =
+      typeof error === 'object' && error !== null ? JSON.stringify(error).slice(0, 500) : undefined
+    if (name.includes('ProviderAuth'))
+      return { reason: 'auth-expired', disposition: 'needs-human', ...(text ? { text } : {}) }
+    if (name.includes('ContextOverflow'))
+      return { reason: 'context-overflow', disposition: 'needs-human', ...(text ? { text } : {}) }
+    if (name.includes('MessageAborted'))
+      return { reason: 'interrupted', disposition: 'retryable', ...(text ? { text } : {}) }
+    if (name.includes('MessageOutputLength'))
+      return { reason: 'provider-error', disposition: 'retryable', ...(text ? { text } : {}) }
     return { reason: 'provider-error', disposition: 'retryable', ...(text ? { text } : {}) }
   }
 
@@ -827,7 +875,12 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         if (!(await serverIsGone(session))) continue
         if (session.disposed) return
         const at = iso()
-        const ev: ProcessEvent = { ev: 'exited', code: null, signal: null, classification: 'crashed' }
+        const ev: ProcessEvent = {
+          ev: 'exited',
+          code: null,
+          signal: null,
+          classification: 'crashed',
+        }
         emit(session, { t: 'process', ev }, at)
         /**
          * THE QUEUE DIED WITH THE SERVER (POD-2297).
@@ -881,9 +934,22 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     input: TurnInput,
     origin: SendOptions['origin'] = 'human',
   ): Promise<void> {
+    const fileUrl = (path: string): string => {
+      const url = new URL('file:///')
+      url.pathname = path
+      return url.href
+    }
     const model = modelFor(session.spec, input)
     await session.client.prompt(session.opencodeSessionId, {
-      parts: [{ type: 'text', text: input.text }],
+      parts: [
+        { type: 'text', text: input.text },
+        ...(input.attachments ?? []).map((attachment) => ({
+          type: 'file' as const,
+          mime: attachment.mediaType,
+          filename: attachment.filename,
+          url: fileUrl(attachment.path),
+        })),
+      ],
       ...(model ? { model } : {}),
       ...(session.spec.model.effort ? { variant: session.spec.model.effort } : {}),
     })
@@ -922,11 +988,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
      * and the two cannot double up, because it fires only on the busy
      * transition and this path has already set `busy`.
      */
-    emit(
-      session,
-      { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } },
-      iso(),
-    )
+    emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
   }
 
   /**
@@ -1223,15 +1285,26 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         // including a queue, because the session is stopped waiting for a human
         // and a turn stacked behind that ask buries it.
         if (session.interactions.size > 0) {
-          return refuse('needs_user', `${session.interactions.size} interaction(s) awaiting an answer`)
+          return refuse(
+            'needs_user',
+            `${session.interactions.size} interaction(s) awaiting an answer`,
+          )
         }
-        if (session.lease?.kind === 'human-controller' && options.principal?.ref !== session.lease.holder) {
+        if (
+          session.lease?.kind === 'human-controller' &&
+          options.principal?.ref !== session.lease.holder
+        ) {
           // A human holds the terminal. The contract's own note is that headless
           // drivers QUEUE rather than interleave, and this driver has a real
           // queue — so the nudge lands after the takeover ends instead of being
           // thrown away.
           session.queue.push({ input, options })
-          return { outcome: 'queued', position: session.queue.length, deliveredAs: 'queue', at: iso() }
+          return {
+            outcome: 'queued',
+            position: session.queue.length,
+            deliveredAs: 'queue',
+            at: iso(),
+          }
         }
 
         const wanted = options.delivery
@@ -1306,15 +1379,15 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         }
       },
 
-      async stageAttachment() {
-        // opencode's prompt takes `FilePartInput`s that reference a path on the
-        // SESSION's machine, and this driver has no way to put bytes there — the
-        // server is a process, not a filesystem service. Throwing names the gap;
-        // returning a ref to a file that does not exist would fail one layer
-        // later with nothing to read.
-        return {
-          reason: 'unsupported',
-          detail: 'opencode attachment staging is not wired to its file-part input',
+      async stageAttachment(source) {
+        if (session.disposed) return refuse('not_running')
+        if (!host.stageAttachment) {
+          return refuse('unsupported', 'this opencode host cannot stage file parts')
+        }
+        try {
+          return await host.stageAttachment({ sessionId: session.sessionId, source })
+        } catch (err) {
+          return refuse('staging_failed', String(err))
         }
       },
 
@@ -1379,7 +1452,11 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
           session,
           interactionId,
           iso(),
-          options?.principal?.kind === 'agent' ? 'superagent' : options?.principal?.kind === 'system' ? 'policy' : 'human',
+          options?.principal?.kind === 'agent'
+            ? 'superagent'
+            : options?.principal?.kind === 'system'
+              ? 'policy'
+              : 'human',
         )
         return { ok: true }
       },
@@ -1596,7 +1673,9 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         try {
           const info = await session.client.getSession(session.opencodeSessionId)
           return {
-            ...(info.tokens ? { inputTokens: info.tokens.input, outputTokens: info.tokens.output } : {}),
+            ...(info.tokens
+              ? { inputTokens: info.tokens.input, outputTokens: info.tokens.output }
+              : {}),
             ...(info.cost !== undefined ? { costUsd: info.cost } : {}),
           }
         } catch (err) {
@@ -1688,10 +1767,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       turnEpoch: Math.max(carried?.turnEpoch ?? 0, journalled?.turnEpoch ?? 0),
       seq: Math.max(carried?.seq ?? 0, journalled?.seq ?? 0),
       busy: false,
-      fencedTurnEpoch: Math.max(
-        carried?.fencedTurnEpoch ?? 0,
-        journalled?.fencedTurnEpoch ?? 0,
-      ),
+      fencedTurnEpoch: Math.max(carried?.fencedTurnEpoch ?? 0, journalled?.fencedTurnEpoch ?? 0),
       interruptPending: false,
       interactions: new Map(),
       answered: new Set(),
@@ -1750,49 +1826,48 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     sessionId: SessionId,
     spec: SessionSpec,
   ): Promise<AgentSessionHandle> {
-      const secret = host.randomSecret()
-      const username = 'podium'
-      const endpoint = await host.launch({
-        sessionId,
-        workdir: spec.workdir,
-        secret,
-        username,
-        ...(spec.env ? { env: spec.env } : {}),
-      })
-      const make = host.makeClient ?? createOpencodeClient
-      const bootstrap = make({
-        baseUrl: endpoint.baseUrl,
-        username: endpoint.username,
-        password: endpoint.password,
-        directory: spec.workdir,
-      })
-      // `POST /session` BEFORE the first turn is what gives this family
-      // `resumeRefTiming: 'spawn'` — and therefore a `hibernate()` that never
-      // has to refuse.
-      const created = await bootstrap.createSession({
-        ...(spec.model.model && spec.model.model !== 'auto' && spec.model.model.includes('/')
-          ? {
-              model: {
-                providerID: spec.model.model.slice(0, spec.model.model.indexOf('/')),
-                id: spec.model.model.slice(spec.model.model.indexOf('/') + 1),
-                ...(spec.model.effort ? { variant: spec.model.effort } : {}),
-              },
-            }
-          : {}),
-      })
-      const handle = await attachSession({
-        sessionId,
-        spec,
-        endpoint,
-        opencodeSessionId: created.id,
-        bindingVersion: 1,
-        observerGeneration: 1,
-      })
-      if (spec.initialPrompt) {
-        await handle.send({ text: spec.initialPrompt }, { origin: 'human', delivery: 'when-ready' })
-      }
-      return handle
-
+    const secret = host.randomSecret()
+    const username = 'podium'
+    const endpoint = await host.launch({
+      sessionId,
+      workdir: spec.workdir,
+      secret,
+      username,
+      ...(spec.env ? { env: spec.env } : {}),
+    })
+    const make = host.makeClient ?? createOpencodeClient
+    const bootstrap = make({
+      baseUrl: endpoint.baseUrl,
+      username: endpoint.username,
+      password: endpoint.password,
+      directory: spec.workdir,
+    })
+    // `POST /session` BEFORE the first turn is what gives this family
+    // `resumeRefTiming: 'spawn'` — and therefore a `hibernate()` that never
+    // has to refuse.
+    const created = await bootstrap.createSession({
+      ...(spec.model.model && spec.model.model !== 'auto' && spec.model.model.includes('/')
+        ? {
+            model: {
+              providerID: spec.model.model.slice(0, spec.model.model.indexOf('/')),
+              id: spec.model.model.slice(spec.model.model.indexOf('/') + 1),
+              ...(spec.model.effort ? { variant: spec.model.effort } : {}),
+            },
+          }
+        : {}),
+    })
+    const handle = await attachSession({
+      sessionId,
+      spec,
+      endpoint,
+      opencodeSessionId: created.id,
+      bindingVersion: 1,
+      observerGeneration: 1,
+    })
+    if (spec.initialPrompt) {
+      await handle.send({ text: spec.initialPrompt }, { origin: 'human', delivery: 'when-ready' })
+    }
+    return handle
   }
 
   const driver: RuntimeDriver = {
@@ -1869,7 +1944,11 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       if (session) {
         // A REBIND IS A FACT A WATCHER NEEDS. The binding changed under anyone
         // holding the old one, and `adopted` is the channel that says so.
-        emit(session, { t: 'process', ev: { ev: 'adopted', bindingVersion: session.binding.bindingVersion } }, iso())
+        emit(
+          session,
+          { t: 'process', ev: { ev: 'adopted', bindingVersion: session.binding.bindingVersion } },
+          iso(),
+        )
       }
       return handle
     },

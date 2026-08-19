@@ -50,6 +50,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import type {
+  AttachmentStager,
   OpencodeJournal,
   OpencodeJournalEntry,
   OpencodeRuntimeHost,
@@ -343,6 +344,7 @@ function defaultVersionProbe(): Promise<{ output: string; ok: boolean }> {
 // ---------------------------------------------------------------------------
 
 export interface OpencodeHostDeps {
+  stageAttachment?: AttachmentStager
   /** Resource truth for a session's scope — memory, tasks and the kernel's own
    *  OOM-kill counter, from the daemon's one cgroup observer. */
   resources(input: {
@@ -452,6 +454,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
 
   return {
     journal,
+    ...(deps.stageAttachment ? { stageAttachment: deps.stageAttachment } : {}),
     now: deps.now ?? (() => Date.now()),
     /** 32 bytes from the CSPRNG. Not a uuid, not a timestamp: this is the only
      *  thing between a local process and a credentialed agent. */

@@ -181,6 +181,16 @@ function makeWorld(): { target: ConformanceTarget } {
   }
 
   const host: TerminalRuntimeHost = {
+    stageAttachment: async ({ source }) => {
+      const id = 'attachment-' + ++nextId
+      return {
+        id,
+        path: '/tmp/' + id + '-' + source.filename,
+        filename: source.filename,
+        mediaType: source.mediaType,
+        kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+      }
+    },
     send: () => {
       // The frames a real daemon would forward. Nothing in the corpus reads them:
       // every property is stated against the CONTRACT surface, which is the whole

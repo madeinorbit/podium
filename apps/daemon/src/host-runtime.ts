@@ -72,6 +72,7 @@ import { makeQuotaFetcher } from './quota-fetch'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { createReattachGates } from './reattach-gates'
 import { createCodexHost } from './runtime/codex-app-server'
+import { stageRuntimeAttachment } from './runtime/attachment-staging'
 import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
 import { runtimeContractEnabledByEnv } from './runtime/flag'
 import { createGrokAcpHost } from './runtime/grok-acp-server'
@@ -655,10 +656,13 @@ export async function createDaemonHostRuntime(args: {
   })
   ctx.scopeMonitor = scopeMonitor
 
+  const stageAttachment = (input: Parameters<typeof stageRuntimeAttachment>[0]) =>
+    ctx.portableStateFence.run(() => stageRuntimeAttachment(input))
+
   // Built AFTER the context because the driver hosts need that context. The
   // single assignment at the end closes the wiring cycle: handlers reach every
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
-  terminalRuntime = createTerminalRuntime(daemonRuntimeHost(ctx, send))
+  terminalRuntime = createTerminalRuntime(daemonRuntimeHost(ctx, send, stageAttachment))
   /**
    * THE SERVER-FAMILY RUNTIME (POD-1761 W5), built the same way and for the same
    * reason: its host port is this context.
@@ -673,6 +677,7 @@ export async function createDaemonHostRuntime(args: {
     send,
     host: createOpencodeHost({
       resources: (subject) => scopeMonitor.resources(subject),
+      stageAttachment,
       /**
        * `attach()`'s client terminal (POD-2059), on the frames path this daemon
        * already runs. The stream id is the key, exactly as the engine variant's
@@ -701,6 +706,7 @@ export async function createDaemonHostRuntime(args: {
     send,
     host: createCodexHost({
       resources: (subject) => scopeMonitor.resources(subject),
+      stageAttachment,
       attachClient: async ({ sessionId, threadId, clientAddress, workdir }) => {
         try {
           return await clientTerminals.attach({

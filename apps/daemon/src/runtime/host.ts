@@ -15,6 +15,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import type { AttachmentStager } from '@podium/agent-runtime'
 import { abducoHasSession, scopeUnitName, tmuxHasSession } from '@podium/pty'
 import type { DaemonContext } from '../control/context'
 import { launchSpawn, stopSessionProcess } from '../control/session'
@@ -33,9 +34,11 @@ import type { TerminalRuntimeHost } from './terminal-driver'
 export function daemonRuntimeHost(
   ctx: DaemonContext,
   send: TerminalRuntimeHost['send'],
+  stageAttachment?: AttachmentStager,
 ): TerminalRuntimeHost {
   return {
     send,
+    ...(stageAttachment ? { stageAttachment } : {}),
     bridge: (sessionId) => ctx.bridges.get(sessionId),
     trackedState: (sessionId) => ctx.observers.trackedState(sessionId),
     draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),

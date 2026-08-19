@@ -2,6 +2,7 @@
 // surface's five governing rules and the core-vs-extended tier boundary.
 
 import type { Declared } from '@podium/harness'
+import type { SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 
 // ---------------------------------------------------------------------------
@@ -92,6 +93,10 @@ export interface AttachmentRef {
 }
 
 export type AttachmentStageResult = AttachmentRef | Refusal
+export type AttachmentStager = (input: {
+  sessionId: SessionId
+  source: AttachmentSource
+}) => Promise<AttachmentRef>
 
 /**
  * WHO IS ACTING — carried through queueing so a deferred turn can still be
@@ -155,6 +160,8 @@ export type RefusalReason =
   | 'session_ended'
   /** No live process. `adopt()` or `resume()` first. */
   | 'not_running'
+  /** The driver supports staging, but the machine could not persist the bytes. */
+  | 'staging_failed'
   /** A turn is open and the requested delivery cannot join it. */
   | 'busy'
 

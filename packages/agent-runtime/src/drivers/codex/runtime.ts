@@ -85,6 +85,7 @@ import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
 import type {
   AnswerOptions,
+  AttachmentStager,
   Refusal,
   SendOptions,
   TurnInput,
@@ -164,6 +165,8 @@ export interface CodexRuntimeHost {
      */
     mcpServers?: { transport: 'path'; path: string } | { transport: 'inline'; config: string }
   }): Promise<CodexServerEndpoint>
+
+  stageAttachment?: AttachmentStager
 
   /** Read a thread's rollout JSONL, for `export()`. `undefined` when the file is
    *  gone — an archive that silently shipped zero bytes would be worse. */
@@ -504,9 +507,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       case 'item/started':
       case 'item/completed': {
         const ms =
-          note.method === 'item/completed'
-            ? note.params.completedAtMs
-            : note.params.startedAtMs
+          note.method === 'item/completed' ? note.params.completedAtMs : note.params.startedAtMs
         const at = iso(ms)
         /**
          * ONLY COMPLETED ITEMS BECOME `complete` EVENTS.
@@ -624,11 +625,23 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       : undefined
 
     if (request.method === CODEX_SERVER_REQUESTS.commandApproval) {
-      openAsk(session, request.id, commandApprovalAsk({ ...base, params: params as never }), at, offers)
+      openAsk(
+        session,
+        request.id,
+        commandApprovalAsk({ ...base, params: params as never }),
+        at,
+        offers,
+      )
       return
     }
     if (request.method === CODEX_SERVER_REQUESTS.fileChangeApproval) {
-      openAsk(session, request.id, fileChangeApprovalAsk({ ...base, params: params as never }), at, offers)
+      openAsk(
+        session,
+        request.id,
+        fileChangeApprovalAsk({ ...base, params: params as never }),
+        at,
+        offers,
+      )
       return
     }
     if (request.method === CODEX_SERVER_REQUESTS.permissionsApproval) {
@@ -673,8 +686,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
   ): void {
     session.asks.set(interaction.id, { interaction, requestId, availableDecisions })
     const need = interaction.kind === 'permission' ? 'permission' : 'question'
-    const summary =
-      interaction.kind === 'permission' ? interaction.payload.inputSummary : undefined
+    const summary = interaction.kind === 'permission' ? interaction.payload.inputSummary : undefined
     emit(session, { t: 'interaction', ev: { ev: 'asked', interaction } }, at)
     emit(
       session,
@@ -812,6 +824,14 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
   // -- sending ---------------------------------------------------------------
 
+  const codexInput = (input: TurnInput) => [
+    ...(input.attachments ?? []).map((attachment) => ({
+      type: 'localImage',
+      path: attachment.path,
+    })),
+    { type: 'text', text: input.text, text_elements: [] },
+  ]
+
   /** Open a NEW turn. The response IS the acceptance. */
   async function deliver(
     session: DriverSession,
@@ -823,7 +843,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     const effort = overrides?.effort ?? session.spec.model.effort
     const result = await session.client.call<{ turn?: { id?: string } }>(CODEX_METHODS.turnStart, {
       threadId: session.threadId,
-      input: [{ type: 'text', text: input.text, text_elements: [] }],
+      input: codexInput(input),
       ...(model ? { model } : {}),
       ...(effort && effort !== 'auto' ? { effort } : {}),
     })
@@ -855,11 +875,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       turnEpoch: session.turnEpoch,
     })
     persist(session)
-    emit(
-      session,
-      { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } },
-      iso(),
-    )
+    emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
   }
 
   /** The session's sticky model, if it names one. `auto` means Codex's own
@@ -1182,6 +1198,9 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (session.disposed) return refuse('not_running')
+        if ((input.attachments ?? []).some((attachment) => attachment.kind !== 'image')) {
+          return refuse('unsupported', 'Codex accepts staged images, not general file attachments')
+        }
         // ORDER MATTERS AND IS NOT ARBITRARY. An open ask blocks EVERY delivery,
         // including a queue, because the session is stopped waiting for a human
         // and a turn stacked behind that ask buries it.
@@ -1226,7 +1245,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
               await session.client.call(CODEX_METHODS.turnSteer, {
                 threadId: session.threadId,
                 expectedTurnId: turnId,
-                input: [{ type: 'text', text: input.text, text_elements: [] }],
+                input: codexInput(input),
               })
               return {
                 outcome: 'accepted',
@@ -1319,15 +1338,18 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         }
       },
 
-      async stageAttachment() {
-        // Codex's `UserInput` has a `localImage` arm that references a path on
-        // the SESSION's machine, and this driver has no way to put bytes there —
-        // the child is a process, not a filesystem service. Throwing names the
-        // gap; returning a ref to a file that does not exist would fail one
-        // layer later with nothing to read.
-        return {
-          reason: 'unsupported',
-          detail: 'Codex attachment staging is not wired to its local-image input',
+      async stageAttachment(source) {
+        if (session.disposed) return refuse('not_running')
+        if (!source.mediaType.startsWith('image/')) {
+          return refuse('unsupported', 'Codex accepts image attachments only')
+        }
+        if (!host.stageAttachment) {
+          return refuse('unsupported', 'this Codex host cannot stage local images')
+        }
+        try {
+          return await host.stageAttachment({ sessionId: session.sessionId, source })
+        } catch (err) {
+          return refuse('staging_failed', String(err))
         }
       },
 
@@ -1644,7 +1666,8 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         // unprompted, so the freshest answer is the one already folded — and an
         // RPC here would be a second source for a number we are given.
         return (
-          session.usage ?? {
+          session.usage ??
+          {
             // Not a zero-filled snapshot: a session that has not run a turn has
             // no usage, and reporting zeros would read as "this turn was free".
           }
@@ -1684,7 +1707,9 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       const items: TranscriptItem[] = []
       for (const turn of turns) {
         const turnItems =
-          typeof turn === 'object' && turn !== null && Array.isArray((turn as { items?: unknown }).items)
+          typeof turn === 'object' &&
+          turn !== null &&
+          Array.isArray((turn as { items?: unknown }).items)
             ? ((turn as { items: unknown[] }).items as Record<string, unknown>[])
             : []
         for (const item of turnItems) {
