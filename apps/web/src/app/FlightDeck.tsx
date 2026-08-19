@@ -339,21 +339,16 @@ const TICK_SELECTED_X = -1
  *  column's own datum and as far out as anything here is allowed to go. */
 const TICK_ATTENTION_X = -RAIL_INSET
 /**
- * The right-hand column every row parks its state in, so the whole mission
- * scans as one vertical read. Rigid: the title is the only shrinker.
+ * The trailing column every row parks its state in, so the whole mission scans
+ * as one vertical read. Task strips take its fixed 80px measure. Agent rows use
+ * that as a minimum and let a longer obligation size itself, because a complete
+ * `Needs you · 30m ago` is more valuable than false column rigidity.
  *
- * EVERY ROW TAKES THE COLUMN, INCLUDING THE ASKING ONE (POD-1226). `Needs you ·
- * 30m ago` is still wider than 80px and still earns the room — an obligation is
- * not a status — but it takes that room from its own ROLE cell rather than from
- * the name, so the ref, the name and the state's right edge all land where every
- * other row's do. See `[data-needs-you]` in `styles.css`.
- *
- * 80px, and the width lives in CSS (`--deck-state-col` / `.deck-state-col`) so
- * the agent row's narrow ladder can release it — a container query cannot
- * outrank a style attribute. `DECK_LABEL` has two eleven-character values
- * (`Standing by`, `Not started`) and 70 held neither; the departure ticks were
- * already 80 (70px of text plus a 5px dot and its gap), so the strips now take
- * the same measure rather than a near-miss.
+ * The width lives in CSS (`--deck-state-col` / `.deck-state-col`), where the
+ * agent grid can reinterpret it at its narrow composition. `DECK_LABEL` has two
+ * eleven-character values (`Standing by`, `Not started`) and 70 held neither;
+ * the departure ticks were already 80 (70px of text plus a 5px dot and its
+ * gap), so the shared floor stays 80.
  */
 const STATE_COL = 'deck-state-col'
 
@@ -901,10 +896,8 @@ const ROLE_LABEL: Record<Exclude<SessionRole, { kind: 'spawned' }>['kind'], stri
   // "task lead", not "phase lead": the thing it leads is a task, and the spine
   // calls every node in it a task. Two words for one node is one too many.
   'phase-lead': 'task lead',
-  // `peer`, not `operator-added peer`: the role column is 96px of 9px caps and
-  // the long form was the one word in it guaranteed to be cut. What "peer"
-  // leaves out — that you added it yourself — is on the row's own title, and
-  // the shorter word is the one that reads down the column.
+  // `peer`, not `operator-added peer`: this is the relationship the operator
+  // needs to scan. How it was added is history, not a second role.
   peer: 'peer',
 }
 
@@ -938,9 +931,10 @@ const isLead = (role: SessionRole | null): boolean =>
  * line, a readable word, and the two altitudes told apart without a second
  * device.
  *
- * Role words use the same 96px ceiling (POD-1146), but only when there is a
- * role to say. An empty role is absence, not an invisible spacer: keeping that
- * spacer on a lone session pushed its state conspicuously away from its ref.
+ * A role stays content-sized. The roster used to force every role through a
+ * 96px slot, which clipped useful provenance even when the deck had hundreds of
+ * spare pixels. The row grid now gives it its full measure and moves the whole
+ * fact to the second line when the deck is narrow.
  */
 function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.Element {
   const lead = isLead(role)
@@ -951,7 +945,7 @@ function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.El
         // for a role — so `COORDINATOR`, `TASK LEAD`, `BY SPINE DESIGNER` and
         // `PEER` read down one edge instead of alternating between two
         // typographic registers.
-        'deck-agent-role flex-none truncate font-mono text-[9px] leading-none tracking-[0.14em] uppercase',
+        'deck-agent-role flex-none font-mono text-[9px] leading-none tracking-[0.14em] uppercase',
         lead ? 'font-medium' : 'font-normal text-text-faint',
       )}
       style={
@@ -1042,19 +1036,14 @@ function SessionRow({
   // The pointer is on this session's TAB, over in the strip. Same session, drawn
   // twice — so the row answers "this one" in the only device it has spare.
   const pointed = useSessionHovered(session.sessionId)
-  // WHAT THE LADDER DROPS SURVIVES HERE (POD-1226), which is the same contract
-  // the strips keep: a narrow deck closes the role column and, narrower still,
-  // takes the elapsed off the asking row's obligation, so both have to be
-  // readable somewhere. The row said nothing on hover before — the four cells
-  // were assumed always to fit, which is the assumption the ladder replaces.
+  // The native title mirrors the row's whole reading. It remains useful for an
+  // exceptionally long value that wraps in the narrow two-line composition.
   const waited = Number.isFinite(since) ? relativeTime(new Date(since).toISOString(), now) : null
   const rowTitle = [
     name,
     session.displayRef,
     label,
     needs ? `Needs you${waited ? ` · ${waited}` : ''}` : null,
-    // The stamp the narrow rung takes off a retired row (POD-1314) — the same
-    // contract the asking row's elapsed keeps: shed from the cell, kept here.
     retired ? `Retired · ${stamp}` : null,
   ]
     .filter(Boolean)
@@ -1067,10 +1056,8 @@ function SessionRow({
         // rounded edge is what makes the task strips read as units and an agent
         // is not one of those.
         // `deck-agent-row` is the wrapper the ticks and the ⋯ are positioned
-        // against. It is no longer a query container: the roster's ladder is
-        // keyed on the LIST (`deck-rows`), because these cells are one
-        // mission-wide table and a per-row container made them a property of
-        // each row's indent instead — see the ladder in `styles.css`.
+        // against. The list is the query container, so every nesting depth
+        // switches to the two-line composition at the same panel width.
         'deck-agent-row group/srow relative',
         // The mission's own lead is the one agent row in the spine with a fill.
         // It owns the whole mission, so it is allowed to be the loudest thing
@@ -1081,8 +1068,6 @@ function SessionRow({
       style={{ marginLeft: flat ? 0 : AGENT_INDENT }}
       data-flight-session={session.sessionId}
       data-needs-you={needs ? 'true' : undefined}
-      // A retired row spends its role cell on its stamp, exactly as an asking
-      // row spends it on the ask — see the ladder in styles.css.
       data-retired={retired ? 'true' : undefined}
       data-pointed={pointed ? 'true' : undefined}
     >
@@ -1146,7 +1131,7 @@ function SessionRow({
           className={cn(
             // The ONLY fill an agent ever gets is transient: hover, and nothing
             // else. No left padding — the row opens onto its rail.
-            'deck-agent group/session shell-type-secondary flex min-h-7 w-full items-center gap-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
+            'deck-agent group/session shell-type-secondary grid min-h-7 w-full items-center gap-x-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
             active && 'text-foreground',
             // The pointer is on the tab, so the row takes the fill it would
             // have taken under the pointer itself. Borrowing the row's OWN
@@ -1181,15 +1166,16 @@ function SessionRow({
           title={rowTitle}
         >
           {/* FOUR ORDERED FIELDS — name · ref · role · state (POD-1146).
-              The name is the only shrinker and has a generous ceiling, but it
-              no longer absorbs every spare pixel in a wide deck. Likewise, a
-              missing role does not leave an invisible 96px cell behind. The
-              fields stay in a stable order without turning short rows into a
-              scattering of facts across the full width.
+              On a wide deck they read in one line and the state owns the
+              trailing edge. Name and role are content-sized rather than capped,
+              so spare room reveals information instead of becoming dead air.
+              When the row no longer fits, CSS turns the same four fields into
+              two deliberate lines: name/state, then ref/role. No field is
+              discarded just because the instrument was resized.
               WorkerLabel already says "Handing over → <target>" mid-move, in the
               same words the sidebar and the pane header use, so the row never
               invents a second vocabulary for the same event. */}
-          <span className="deck-agent-name flex min-w-0 max-w-64 flex-[0_1_auto] items-center gap-1.5 overflow-hidden">
+          <span className="deck-agent-name flex min-w-0 items-center gap-1.5 overflow-hidden">
             {/* `flex`, not a bare block — the sidebar's rows already wrap the
                 label this way. A block parent leaves `WorkerLabel`'s inline-flex
                 to size itself shrink-to-fit, which floors at the whole name;
@@ -1213,21 +1199,16 @@ function SessionRow({
           <span className="deck-agent-ref shell-type-micro flex-none text-right font-mono font-normal whitespace-nowrap text-text-faint">
             {session.displayRef}
           </span>
-          {/* ATTENTION OUTRANKS PROVENANCE. An asking row spends its width on the
-              question and the answer — literally: its role cell closes and its
-              obligation is built out of that cell plus the state column, so
-              nothing else on the row moves (see `[data-needs-you]` in
-              styles.css). Rows with no role render no placeholder; absence does
-              not become an unexplained gap. */}
-          {role && label && !needs ? <RoleWord role={role} label={label} /> : null}
+          {/* Attention and provenance are different facts. The state remains the
+              louder one, but it no longer deletes the role to make itself fit;
+              narrow rows have a second line for that job. */}
+          {role && label ? <RoleWord role={role} label={label} /> : null}
           <span
             className={cn(
               'deck-agent-state flex flex-none items-center justify-end gap-1.5',
-              // EVERY row parks in the shared state column, the asking one
-              // included (POD-1226). "Needs you · 1:12" still overruns it — an
-              // obligation is not a status and it earns the room — but from a
-              // floor rather than instead of one, so the column is rigid at
-              // every width and the narrow rung can hand the cell back.
+              // Every row parks its operational fact against the trailing edge.
+              // The 80px shared state measure is now a floor, not a fixed box:
+              // long obligations keep their words and short timers still align.
               STATE_COL,
             )}
           >
@@ -1245,9 +1226,6 @@ function SessionRow({
                     phase="waiting"
                     sinceMs={since}
                     leadingSeparator
-                    // The overrun, and the only thing on this row the ladder can
-                    // take back: it is what makes the obligation 127px wide
-                    // instead of the column's 80. On the row's tooltip either way.
                     className="deck-agent-elapsed"
                   />
                 )}
@@ -1255,13 +1233,8 @@ function SessionRow({
             ) : retired ? (
               <span className="shell-type-micro font-mono whitespace-nowrap text-text-faint">
                 Retired
-                {/* The staleness, and the only half of this the ladder can take
-                    back: `Retired · 6m ago` is 86px where the state column is
-                    80, so at 80 the row WRAPPED — two lines under an elbow drawn
-                    for one, which is the geometry the roster's ladder exists to
-                    forbid. Wide, it takes the role cell like the asking row;
-                    narrow, the word survives alone and the stamp is on the row's
-                    tooltip. */}
+                {/* Keep the retirement age visible. Narrow rows make room by
+                    changing composition, not by silently dropping the stamp. */}
                 <span className="deck-agent-elapsed"> · {stamp}</span>
               </span>
             ) : starting ? (
@@ -3440,13 +3413,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           {/* Each task block owns a small trailing gap. Because the guide rails
               cross the whole block, the spacing separates issue groups without
               breaking the tree into disconnected fragments. */}
-          {/* THE ROSTER'S COLUMNS ARE DECIDED BY THE COLUMN, NOT BY EACH ROW
-              (POD-1226) — `deck-rows` is the query container the agent rows'
-              ladder keys on. See the ladder in `styles.css`: the cells to the
-              right of the name are a mission-wide table, and a table's columns
-              are a property of the table. Keying them per row made an indented
-              row shed a column its shallower sibling kept, which is how one
-              roster came out with three different right-hand edges. */}
+          {/* THE ROSTER CHANGES COMPOSITION AS ONE UNIT (POD-1226).
+              `deck-rows` is the query container for every agent row, so nested
+              rows do not switch early merely because their branch indent made
+              them a few pixels narrower. One panel width means one scan rhythm. */}
           <div
             className="deck-rows min-h-0 flex-1 overflow-y-auto pb-1.5 pr-2"
             data-testid="flight-deck-rows"
