@@ -5,6 +5,7 @@ import {
   continuationPresenceLine,
   deckIssueState,
   deckSessions,
+  deckViewEmptyLine,
   type FlightDeckFoldMap,
   type FlightDeckFoldState,
   type FlightDeckMode,
@@ -256,9 +257,18 @@ export function MissionDeck({
     [folds, setFolds],
   )
 
-  // `matched: true` for the same reason the web deck does it: the root is the
-  // mission's own header, not one of the rows the view filters (POD-1245).
-  const rootSessions = rootRow ? deckSessions({ ...rootRow, matched: true }, mode) : []
+  // THE HEADER'S AGENTS OBEY THE VIEW BAR (POD-1356), which they did not: the
+  // roster was read with `matched` forced true, so every agent hanging off the
+  // mission survived every view. On the one-task mission — which most missions
+  // are — that made `Full`, `Active` and `Needs you` render the same screen, and
+  // the bar read as broken because on that mission it WAS.
+  //
+  // The root's ROW is still unfilterable, and that is a different thing: the
+  // header names which mission is on screen and says so in every view. What the
+  // view narrows is the crew under it, which is content — the same rule POD-758
+  // wrote down when it took the roster's own disclosure away and said the view
+  // bar is what removes an agent from the deck.
+  const rootSessions = rootRow ? deckSessions(rootRow, mode) : []
   const foldable = useMemo(
     () =>
       rows.filter(
@@ -404,9 +414,9 @@ export function MissionDeck({
           ) : (
             <EmptyState
               title={
-                mode === 'full'
-                  ? rootEmptyNote?.text || 'No sessions or sub-tasks are attached.'
-                  : 'Nothing matches this view.'
+                deckViewEmptyLine(mode) ??
+                rootEmptyNote?.text ??
+                'No sessions or sub-tasks are attached.'
               }
             />
           )

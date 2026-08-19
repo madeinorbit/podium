@@ -20,6 +20,7 @@ import {
   deckDestinationFor,
   deckIssueState,
   deckSessions,
+  deckViewEmptyLine,
   type FlightDeckRow,
   issueContinuation,
   issueNeedsHuman,
@@ -1773,6 +1774,20 @@ describe('deckSessions', () => {
     // Only `Needs you` quietens a path row; the other views show the mission.
     expect(deckSessions(row({}, [busy, asking], false), 'full')).toEqual([busy, asking])
     expect(deckSessions(row({}, [busy, asking], false), 'active')).toEqual([busy, asking])
+  })
+})
+
+/**
+ * POD-1356. A view that removed everything left the same blank column as a
+ * mission nobody is on, and the deck described both with the mission's presence
+ * note — so a task with a live agent read as "no sessions or sub-tasks are
+ * attached" the moment `Needs you` was chosen.
+ */
+describe('deckViewEmptyLine', () => {
+  it('names the view that emptied the column, and leaves Full to the mission', () => {
+    expect(deckViewEmptyLine('needs-you')).toBe('Nothing in this mission is asking for you.')
+    expect(deckViewEmptyLine('active')).toBe('Nothing in this mission is still under way.')
+    expect(deckViewEmptyLine('full')).toBeNull()
   })
 })
 

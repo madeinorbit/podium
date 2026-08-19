@@ -1322,6 +1322,24 @@ export function deckSessions(
   return asking.length > 0 ? asking : row.sessions
 }
 
+/**
+ * WHY THE SPINE IS EMPTY, WHEN THE VIEW IS WHAT EMPTIED IT (POD-1356).
+ *
+ * A narrowed view that removes everything leaves the same blank column as a
+ * mission with nobody on it, and the deck used to describe both with the
+ * mission's own presence note — so a fully staffed task read as "no sessions or
+ * sub-tasks are attached" the moment you asked for `Needs you`. That sentence is
+ * false, and it is the reason the bar reads as broken rather than as strict.
+ *
+ * `full` returns null: there the blank really is about the mission, and the
+ * caller's own presence note is the honest line.
+ */
+export function deckViewEmptyLine(mode: FlightDeckMode): string | null {
+  if (mode === 'needs-you') return 'Nothing in this mission is asking for you.'
+  if (mode === 'active') return 'Nothing in this mission is still under way.'
+  return null
+}
+
 /*
  * `rootRoster` LIVED HERE AND IS GONE (POD-758).
  *

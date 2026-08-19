@@ -10,6 +10,7 @@ import {
   type DeckState,
   deckIssueState,
   deckSessions,
+  deckViewEmptyLine,
   type FlightDeckFoldMap,
   type FlightDeckFoldState,
   type FlightDeckMode,
@@ -2695,20 +2696,20 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
   const rootNote = root ? issueNote(root, byId, sessions) : null
   /**
-   * The mission header's roster — and it is the HEADER's, not a filtered row's.
+   * The mission header's roster — content, and therefore the view bar's (POD-1356).
    *
-   * The root never renders as a strip (`visibleRows` drops depth 0), so it is
-   * not one of the rows POD-1245 quietened: it is the column's statement of
-   * which mission is on screen, and that statement is the same in every view.
-   * Passing `matched: true` says so out loud, rather than letting the root
-   * happen to fall on the context side of `deckSessions` and empty the header —
-   * which also drives the "no sessions or sub-tasks" line below, a sentence that
-   * would then be printed about a mission that is fully staffed.
+   * It used to be read with `matched` forced true, on the argument that the root
+   * is the column's statement of which mission is on screen rather than one of
+   * the rows POD-1245 quietened. The statement is the header; the CREW under it
+   * is not. Forcing it meant every agent on the mission survived every view, so
+   * on a mission with no sub-tasks — most of them — `Full`, `Active` and
+   * `Needs you` drew the identical column and the bar looked inert.
+   *
+   * The sentence that branch was protecting is handled where it belongs: the
+   * empty line below now says WHICH view emptied the spine, instead of claiming
+   * a fully staffed mission has nobody on it.
    */
-  const rootSessions = useMemo(
-    () => (rootRow ? deckSessions({ ...rootRow, matched: true }, mode) : []),
-    [rootRow, mode],
-  )
+  const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
   // The whole slice as the fourth argument — the root's OWN sessions cannot see
   // a spin-off its agent hopped to (see `staffedSpinOff`).
   const rootSeat = rootRow
@@ -3536,7 +3537,14 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 </div>
               ) : (
                 <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                  {rootEmptyNote?.text || 'No sessions or sub-tasks are attached.'}
+                  {/* WHICH VIEW EMPTIED IT (POD-1356). `rootEmptyNote` is about
+                      the mission — "nobody is on this" — and printing it under a
+                      narrowed view says that about a task with a live agent on
+                      it. The view's own sentence comes first, and only `full`
+                      falls through to the note. */}
+                  {deckViewEmptyLine(mode) ??
+                    rootEmptyNote?.text ??
+                    'No sessions or sub-tasks are attached.'}
                 </p>
               ))}
             {/* THE SECTIONS BELOW THE TREE. Siblings, in a flat stack, so the

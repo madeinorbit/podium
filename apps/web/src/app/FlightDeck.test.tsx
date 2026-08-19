@@ -1392,4 +1392,34 @@ describe('flight deck view filters (POD-1245)', () => {
       expect(strip('mid').textContent).toContain('busy')
     }
   })
+
+  /**
+   * THE ONE-TASK MISSION (POD-1356) — where the bar had no effect at all.
+   *
+   * With no sub-tasks the whole column IS the header's roster, and that roster
+   * was read with `matched` forced true: no view could remove an agent from it,
+   * so all three views drew the same screen. The mission ROW is still exempt —
+   * the header names what is on screen — but its crew is content.
+   */
+  describe('a mission with no sub-tasks', () => {
+    beforeEach(() => {
+      harness.issues = [issue('root', { title: 'Mission', memberSessionIds: ['idle'] })]
+      harness.sessions = [session('idle', { issueId: 'root' })]
+    })
+
+    it('shows the mission agent in Full', () => {
+      harness.ui.set('podium.flightDeck.mode', 'full')
+      deck()
+      expect(document.querySelector('[data-flight-session="idle"]')).not.toBeNull()
+    })
+
+    it('drops it in Needs you and names the view that emptied the column', () => {
+      harness.ui.set('podium.flightDeck.mode', 'needs-you')
+      deck()
+      expect(document.querySelector('[data-flight-session="idle"]')).toBeNull()
+      expect(screen.getByText('Nothing in this mission is asking for you.')).toBeTruthy()
+      // The old line claimed an unstaffed mission, about one with a live agent.
+      expect(screen.queryByText('No sessions or sub-tasks are attached.')).toBeNull()
+    })
+  })
 })

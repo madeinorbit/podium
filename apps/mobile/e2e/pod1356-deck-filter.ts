@@ -106,6 +106,10 @@ async function main(): Promise<void> {
   await openDeck()
   await report('deck opened', 'full')
 
+  await page.locator('[aria-label="Active"]').first().tap()
+  await page.waitForTimeout(1500)
+  await report('after tapping Active', 'active')
+
   await page.locator('[aria-label="Needs you"]').first().tap()
   await page.waitForTimeout(1500)
   await report('after tapping Needs you', 'needs-you')
