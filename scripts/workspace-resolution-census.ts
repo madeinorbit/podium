@@ -1,5 +1,6 @@
 import { existsSync, globSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const SOURCE_EXTENSIONS = new Set(['.cjs', '.cts', '.js', '.jsx', '.mjs', '.mts', '.ts', '.tsx'])
 const SKIPPED_DIRECTORIES = new Set([
@@ -224,7 +225,7 @@ export function readWorkspaceResolutionCensus(root: string): WorkspaceResolution
   const worker = Bun.spawnSync([
     process.execPath,
     '--conditions=@podium/source',
-    import.meta.path,
+    fileURLToPath(import.meta.url),
     '--worker',
     root,
   ])
