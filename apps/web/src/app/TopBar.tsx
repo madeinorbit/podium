@@ -18,7 +18,7 @@ import { PodiumLogo } from '@/lib/icons/PodiumLogo'
 import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { type MainView, useReplicaIssues, useStoreSelector } from './store'
+import { type MainView, useStoreSelector } from './store'
 import { ToolbarSlotTarget, useToolbarSlotFilled } from './ToolbarSlot'
 
 const log = createLogger('web:desktop-window')
@@ -62,16 +62,11 @@ export function TopBar({
     (s) => ({ view: s.view, setView: s.setView }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
   const slotFilled = useToolbarSlotFilled()
 
-  // Proposals are a curation inbox, distinct from agents asking questions. [spec:SP-6144]
-  const proposedCount = issues.filter(
-    (issue) => !issue.archived && !issue.deletedAt && issue.stage === 'proposed',
-  ).length
   const desktopBridge = nativeDesktopBridge()
   const dragRegion = desktopBridge ? { 'data-tauri-drag-region': true } : undefined
 
@@ -118,7 +113,6 @@ export function TopBar({
           view={view}
           onSelect={setView}
           icon={SquareKanban}
-          badge={proposedCount}
         />
         {workflowsEnabled && (
           <ModeTab
@@ -263,14 +257,12 @@ function ModeTab({
   view,
   onSelect,
   icon: Icon,
-  badge,
 }: {
   label: string
   target: MainView
   view: MainView
   onSelect: (view: MainView) => void
   icon: ComponentType<{ size?: number; 'aria-hidden'?: boolean; className?: string }>
-  badge?: number
 }): JSX.Element {
   const active = view === target
   return (
@@ -291,7 +283,6 @@ function ModeTab({
     >
       <Icon size={14} aria-hidden={true} className="flex-none" />
       <span>{label}</span>
-      {!!badge && <span className="topbar-mode-badge">{badge}</span>}
     </button>
   )
 }
