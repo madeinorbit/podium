@@ -106,6 +106,7 @@ export function sessionCommandCtx(
       )!,
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    discardUnlaunchedDraft: (issueId) => issues.discardUnlaunchedDraft(issueId),
     issueOwner: (issueId) => issues.ownedTarget(issueId, 'read')?.owner ?? undefined,
     access: {
       listSessions: () => sessions.listSessions(),

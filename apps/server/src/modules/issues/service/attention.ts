@@ -344,22 +344,28 @@ export class IssueAttentionModule {
   }
 
   /** Delete the abandoned vessel left by an EXPLICIT session rehome, iff it is a
-   *  draft with no living attached sessions, worktree, or children. Process
-   *  liveness is deliberately not a trigger: exited sessions remain resumable,
-   *  and their draft is the sidebar route back to that recovery UI. */
+   *  draft with no visible attached sessions, worktree, or children. Process
+   *  liveness is deliberately irrelevant: exited sessions remain resumable, and
+   *  their draft is the sidebar route back to that recovery UI. */
   private deleteIfEmptyDraft(id: string): void {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return
     if ([...this.store.rows.values()].some((r) => r.parentId === id)) return
-    const attached = this.store.deps.listSessions().filter((s) => s.issueId === id)
-    const blocking = attached.some((s) => !s.archived && s.status !== 'exited')
-    if (blocking) return
-    // Detach the remaining dead sessions BEFORE deleting so their broadcasts
-    // never reference a vanished issue.
-    if (this.store.deps.setSessionIssueId) {
-      for (const s of attached) this.store.deps.setSessionIssueId(s.sessionId, null)
-    }
+    if (this.store.deps.listSessions().some((s) => s.issueId === id)) return
     this.crud().purgeEmptyDraft(id)
+  }
+
+  /** Compensate a failed low-friction launch, and nothing else. The caller may
+   *  invoke this only for the draft it just created after createSession throws;
+   *  the zero-session check prevents a late spawn failure from deleting a draft
+   *  once the session has been registered and made recoverable. */
+  discardUnlaunchedDraft(id: IssueId): boolean {
+    const row = this.store.rows.get(id)
+    if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
+    if ([...this.store.rows.values()].some((candidate) => candidate.parentId === id)) return false
+    if (this.store.deps.listSessions().some((session) => session.issueId === id)) return false
+    this.crud().purgeEmptyDraft(id)
+    return true
   }
 
   /** The auto-created vessel for a low-friction agent start: a draft, human-origin

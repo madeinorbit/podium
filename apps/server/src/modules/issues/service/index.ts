@@ -60,6 +60,7 @@ export type IssueCommentsMailCapability = Pick<
 export type IssueAttentionCapability = Pick<
   IssueAttentionModule,
   | 'attachSession'
+  | 'discardUnlaunchedDraft'
   | 'createDraftFor'
   | 'subscriptionAdd'
   | 'subscriptionRemove'

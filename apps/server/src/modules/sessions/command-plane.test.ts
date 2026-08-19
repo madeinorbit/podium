@@ -22,7 +22,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { MachineGrant } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   type AgentCommandPrincipal,
   type CommandPrincipal,
@@ -119,6 +119,7 @@ function ctxFor(
 
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    discardUnlaunchedDraft: (issueId) => modules.issues.discardUnlaunchedDraft(issueId),
     issueOwner: () => undefined,
     access: {
       listSessions: () => modules.sessions.listSessions(),
@@ -131,6 +132,64 @@ function ctxFor(
   }
   return new SessionCommandCtx(deps, principal)
 }
+
+describe('draft launch compensation', () => {
+  it('does not create a draft when an existing issue takes precedence', async () => {
+    const o = makeOracle()
+    const issue = o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
+
+    const created = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
+      agentKind: 'codex',
+      cwd: '/p',
+      issueId: issue.id,
+      draftIssue: { repoPath: '/p' },
+    })
+
+    expect(o.reg.issues.list('/p').filter((candidate) => candidate.draft)).toEqual([])
+    expect(o.reg.modules.sessions.getSessionIssueId(created.sessionId)).toBe(issue.id)
+  })
+
+  it('purges only the placeholder created for a session spawn that throws', async () => {
+    const o = makeOracle()
+    vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce(() => {
+      throw new Error('spawn failed')
+    })
+
+    await expect(
+      dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
+        agentKind: 'codex',
+        cwd: '/p',
+        draftIssue: { repoPath: '/p' },
+      }),
+    ).rejects.toThrow('spawn failed')
+
+    expect(o.reg.issues.list('/p').filter((issue) => issue.draft)).toEqual([])
+    expect(o.reg.modules.sessions.listSessions()).toEqual([])
+  })
+
+  it('refuses compensation once the session has been registered against the draft', async () => {
+    const o = makeOracle()
+    const createSession = o.reg.modules.sessions.createSession.bind(o.reg.modules.sessions)
+    vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce((input) => {
+      createSession(input)
+      throw new Error('late spawn failure')
+    })
+
+    await expect(
+      dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
+        agentKind: 'codex',
+        cwd: '/p',
+        draftIssue: { repoPath: '/p' },
+      }),
+    ).rejects.toThrow('late spawn failure')
+
+    const draft = o.reg.issues.list('/p').find((issue) => issue.draft)
+    expect(draft).toBeDefined()
+    expect(o.reg.modules.sessions.listSessions()).toContainEqual(
+      expect.objectContaining({ issueId: draft?.id }),
+    )
+  })
+})
 
 /** A fixture with one paired machine row that HAS an owner to be denied on. */
 function oracleWithPairedMachine(): {

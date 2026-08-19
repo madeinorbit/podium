@@ -154,6 +154,8 @@ export interface SessionCommandDeps {
       createdByOnBehalfOf: import('@podium/model').UserId
     },
   ): { id: IssueId }
+  /** Compensate only the draft created by this launch when createSession throws. */
+  discardUnlaunchedDraft(issueId: IssueId): boolean
   issueOwner(issueId: IssueId): import('@podium/model').UserId | undefined
   /** The daemon control leg for `uploadImage`. */
   rpc(): SessionDaemonRpc
@@ -534,35 +536,40 @@ export const SESSION_COMMAND_HANDLERS = {
       rest.issueId ? { id: rest.issueId, owner: ctx.deps.issueOwner(rest.issueId) } : undefined,
     )
     if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
-    const issueId =
-      rest.issueId ??
-      (draftIssue
+    const createdDraftId =
+      !rest.issueId && draftIssue
         ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {
             ownerUserId: ownership.owner as import('@podium/model').UserId,
             createdByActor: attributionOf(ctx.principal).actor,
             createdByOnBehalfOf: ownership.owner as import('@podium/model').UserId,
           }).id
-        : undefined)
+        : undefined
+    const issueId = rest.issueId ?? createdDraftId
     // The draft-issue vessel path produces an OWNED draft, not an ownerless
     // one: the session and its vessel resolve the same owner because they
     // resolve it from the same principal.
-    return ctx.sessions.createSession({
-      ...rest,
-      ...target,
-      ...(issueId ? { issueId } : {}),
-      use: ctx.machineUse,
-      spawnedBy: spawnedByFor(ctx.principal),
-      ownerUserId: ownership.owner as import('@podium/model').UserId,
-      binding: {
-        principal: bindingPrincipalFor(ctx.principal),
-        ...(ctx.overrideScope && ctx.principal.kind !== 'system'
-          ? {
-              requestedScope: ctx.principal.capability.scope,
-              scopeOverrideConfirmed: true,
-            }
-          : {}),
-      },
-    })
+    try {
+      return ctx.sessions.createSession({
+        ...rest,
+        ...target,
+        ...(issueId ? { issueId } : {}),
+        use: ctx.machineUse,
+        spawnedBy: spawnedByFor(ctx.principal),
+        ownerUserId: ownership.owner as import('@podium/model').UserId,
+        binding: {
+          principal: bindingPrincipalFor(ctx.principal),
+          ...(ctx.overrideScope && ctx.principal.kind !== 'system'
+            ? {
+                requestedScope: ctx.principal.capability.scope,
+                scopeOverrideConfirmed: true,
+              }
+            : {}),
+        },
+      })
+    } catch (error) {
+      if (createdDraftId) ctx.deps.discardUnlaunchedDraft(createdDraftId)
+      throw error
+    }
   },
 
   resume: (ctx: SessionCommandCtx, input: ResumeInput) => {

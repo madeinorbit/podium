@@ -178,6 +178,7 @@ function ctxFor(
 
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    discardUnlaunchedDraft: (issueId) => modules.issues.discardUnlaunchedDraft(issueId),
     issueOwner: () => undefined,
     access: {
       listSessions: () => modules.sessions.listSessions(),

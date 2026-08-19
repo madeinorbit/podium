@@ -142,6 +142,49 @@ describe('draft retention on session death', () => {
   })
 })
 
+describe('explicit rehome draft cleanup', () => {
+  it('purges a draft after its sole visible session is rehomed', () => {
+    const reg = regWithDaemon()
+    const { draft, sessionId } = draftWithSession(reg)
+    const target = reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+
+    reg.issues.attachSession({ sessionId, targetId: target.id })
+
+    expect(reg.issues.get(draft.id)).toBeNull()
+    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(target.id)
+  })
+
+  it('keeps the draft and exited sibling attached when its live session is rehomed', () => {
+    const reg = regWithDaemon()
+    const exited = draftWithSession(reg)
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(exited.sessionId))
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId: exited.sessionId,
+      code: 0,
+    })
+    const liveSessionId = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/repo',
+      issueId: exited.draft.id,
+    }).sessionId
+    const target = reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+
+    reg.issues.attachSession({ sessionId: liveSessionId, targetId: target.id })
+
+    expect(reg.issues.get(exited.draft.id)).not.toBeNull()
+    expect(reg.modules.sessions.getSessionIssueId(exited.sessionId)).toBe(exited.draft.id)
+    expect(reg.modules.sessions.listSessions()).toContainEqual(
+      expect.objectContaining({
+        sessionId: exited.sessionId,
+        status: 'exited',
+        issueId: exited.draft.id,
+      }),
+    )
+    expect(reg.modules.sessions.getSessionIssueId(liveSessionId)).toBe(target.id)
+  })
+})
+
 describe('boot-time draft retention', () => {
   const freshFile = () => join(mkdtempSync(join(tmpdir(), 'podium-reap-')), 'state.sqlite')
 
