@@ -5,7 +5,6 @@ import {
   formatClock,
   type IssueNavigationModel,
   isDraftAgentVessel,
-  type MotionPhase,
   missionProgress,
   pendingDecisionLabel,
   planReorderKeys,
@@ -31,18 +30,24 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { AlarmClock, ArrowDownToLine, ChevronDown, ChevronRight, Pin } from 'lucide-react-native'
+import {
+  AlarmClock,
+  ArrowDownToLine,
+  ChevronDown,
+  ChevronRight,
+  Pin,
+  Search,
+  X,
+} from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
-import { SectionList, StyleSheet, Text, View } from 'react-native'
+import { SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { Icon } from '../components/Icon'
-import { IdSquare, type IdSquareState } from '../components/IdSquare'
-import { IssueColorSheet } from '../components/IssueColorSheet'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
-import { Screen } from '../components/Screen'
+import { HeaderButton, Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
@@ -62,8 +67,10 @@ import { color, font, mono, monoLabel, radius, sans, space } from '../theme/them
  * Work — the desktop sidebar, on the phone [POD-338, POD-724].
  *
  * The rows come from the PUBLISHED worklist slice the wide sidebar reads
- * (POD-331), so pinned band, project groups, manual sort order, tuck-away and
- * the Snoozed / Closed folds cannot drift.
+ * (POD-331). Mobile adds one deliberate triage projection: asking rows lift
+ * into Needs You, then pinned rows, then their project bands. Source order is
+ * preserved inside each band, and reordering still writes in the original
+ * project/pinned scope; tuck-away and the Snoozed / Closed folds stay shared.
  *
  * ONE FLAT ROW PER MISSION (POD-516 §1.1). This screen used to disagree with the
  * desk about that: it drew a disclosure twist per row, an AGENTS roster band
@@ -79,13 +86,6 @@ import { color, font, mono, monoLabel, radius, sans, space } from '../theme/them
  * mission progress meter, the git stamp, the spin-off origin tick and the
  * snoozed/pinned marks.
  */
-
-const SQUARE_STATE: Record<MotionPhase, IdSquareState> = {
-  working: 'working',
-  waiting: 'waiting',
-  done: 'done',
-  queued: 'queued',
-}
 
 /** How a folded row ended, in one dim mono word — twin of the desktop's
  *  `foldedMarker`. Nothing here is an ask, so none of it is amber. */
@@ -126,7 +126,7 @@ function timeStamp(row: UnifiedWorkRow, now: number): string | null {
 interface WorkSection {
   key: string
   label: string
-  pinned: boolean
+  kind: 'attention' | 'pinned' | 'project'
   data: UnifiedWorkRow[]
   snoozedRows: UnifiedIssueRow[]
   closedRows: UnifiedIssueRow[]
@@ -148,45 +148,81 @@ export function WorkScreen() {
   const { pinned, groups, allWorktreePaths, now } = useSlice(worklistSlice)
   const [peek, setPeek] = useState<IssueWire | null>(null)
   const [menuTarget, setMenuTarget] = useState<WorkIssueMenuTarget | null>(null)
-  const [colorIssue, setColorIssue] = useState<IssueWire | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
 
-  const { sections, issueCount, agentCount } = useMemo(() => {
+  const { sections, orderingSections, issueCount, pinnedCount, attentionCount } = useMemo(() => {
     const list: WorkSection[] = []
-    if (pinned.length > 0) {
+    const ordering: WorkSection[] = []
+    const attentionRows = [...pinned, ...groups.flatMap((group) => group.rows)].filter(
+      (row) => rowWaitingCount(row) > 0,
+    )
+    if (attentionRows.length > 0) {
       list.push({
-        key: 'pinned',
-        label: 'Pinned',
-        pinned: true,
-        data: pinned,
+        key: 'needs-you',
+        label: 'Needs you',
+        kind: 'attention',
+        data: attentionRows,
         snoozedRows: [],
         closedRows: [],
       })
     }
+    if (pinned.length > 0) {
+      const section: WorkSection = {
+        key: 'pinned',
+        label: 'Pinned',
+        kind: 'pinned',
+        data: pinned.filter((row) => rowWaitingCount(row) === 0),
+        snoozedRows: [],
+        closedRows: [],
+      }
+      ordering.push({ ...section, data: pinned })
+      if (section.data.length > 0) list.push(section)
+    }
     for (const group of groups) {
       if (group.rows.length + group.snoozedRows.length + group.closedRows.length === 0) continue
-      list.push({
+      const section: WorkSection = {
         key: group.key,
         label: group.label,
-        pinned: false,
-        data: group.rows,
+        kind: 'project',
+        data: group.rows.filter((row) => rowWaitingCount(row) === 0),
         snoozedRows: group.snoozedRows,
         closedRows: group.closedRows,
-      })
+      }
+      ordering.push({ ...section, data: group.rows })
+      if (section.data.length + section.snoozedRows.length + section.closedRows.length > 0) {
+        list.push(section)
+      }
     }
     const open = [...pinned, ...groups.flatMap((g) => g.rows)]
     return {
       sections: list,
+      orderingSections: ordering,
       issueCount: open.filter((row) => row.kind === 'issue').length,
-      agentCount: new Set(
-        open.flatMap((row) =>
-          (row.kind === 'issue'
-            ? (row.aggregateSessions ?? row.sessions)
-            : row.worktree.sessions
-          ).map((s) => s.sessionId),
-        ),
-      ).size,
+      pinnedCount: pinned.length,
+      attentionCount: attentionRows.length,
     }
   }, [pinned, groups])
+
+  const visibleSections = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return sections
+    return sections
+      .map((section) => ({
+        ...section,
+        data: section.data.filter((row) => workRowSearchText(row, now).includes(needle)),
+        snoozedRows: section.snoozedRows.filter((row) =>
+          `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(needle),
+        ),
+        closedRows: section.closedRows.filter((row) =>
+          `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(needle),
+        ),
+      }))
+      .filter(
+        (section) =>
+          section.data.length + section.snoozedRows.length + section.closedRows.length > 0,
+      )
+  }, [now, query, sections])
 
   /**
    * A mission row opens its MISSION — the transcript of whoever is on it, with
@@ -226,7 +262,7 @@ export function WorkScreen() {
    */
   const move = useCallback(
     (issue: IssueWire, to: 'top' | 'up' | 'down') => {
-      const section = sections.find((s) => s.data.some((r) => rowIssueId(r) === issue.id))
+      const section = orderingSections.find((s) => s.data.some((r) => rowIssueId(r) === issue.id))
       if (!section) return
       const order = section.data.map(rowIssueId).filter((id): id is string => id !== null)
       const from = order.indexOf(issue.id)
@@ -243,29 +279,66 @@ export function WorkScreen() {
           .catch(() => {})
       }
     },
-    [issues, sections, store.trpc],
+    [issues, orderingSections, store.trpc],
   )
 
   const menuMoves = useMemo(() => {
     if (menuTarget?.lane !== 'live') return { top: false, up: false, down: false }
-    const section = sections.find((candidate) =>
+    const section = orderingSections.find((candidate) =>
       candidate.data.some((row) => rowIssueId(row) === menuTarget.issue.id),
     )
     const index = section?.data.findIndex((row) => rowIssueId(row) === menuTarget.issue.id) ?? -1
     const length = section?.data.length ?? 0
     return { top: index > 0, up: index > 0, down: index >= 0 && index < length - 1 }
-  }, [menuTarget, sections])
+  }, [menuTarget, orderingSections])
 
   return (
     <Screen
       large
+      monoSubtitle
       title="Work"
-      subtitle={`${issueCount} task${issueCount === 1 ? '' : 's'} · ${agentCount} agent${agentCount === 1 ? '' : 's'}`}
-      right={<NewWorkButton />}
+      subtitle={
+        <>
+          <Text style={attentionCount > 0 ? styles.headerAttention : undefined}>
+            {attentionCount} NEED YOU
+          </Text>
+          {` · ${pinnedCount} PINNED · ${issueCount} TASKS`}
+        </>
+      }
+      right={
+        <>
+          <HeaderButton
+            label={searchOpen ? 'Close search' : 'Search work'}
+            size={34}
+            onPress={() => {
+              setSearchOpen((open) => !open)
+              if (searchOpen) setQuery('')
+            }}
+          >
+            <Icon as={searchOpen ? X : Search} size={17} color={color.textDim} />
+          </HeaderButton>
+          <NewWorkButton size={34} />
+        </>
+      }
     >
       {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
           a log line. Outside the crossfade so the skeleton cannot hide it. */}
       <StorageNoticeAlert />
+      {searchOpen ? (
+        <View style={styles.searchBand}>
+          <Icon as={Search} size={15} color={color.textFaint} />
+          <TextInput
+            autoFocus
+            accessibilityLabel="Search work"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search tasks…"
+            placeholderTextColor={color.textFaint}
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+        </View>
+      ) : null}
       {/* Crossfade OUTSIDE the refresh boundary: while the replica is still
           resolving there is nothing to pull-to-refresh, so the skeleton should
           cover the refresh affordance too rather than invite a gesture that
@@ -274,7 +347,7 @@ export function WorkScreen() {
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
             ref={listRef as never}
-            sections={sections}
+            sections={visibleSections}
             keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
             refreshControl={refreshControl}
             contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
@@ -282,17 +355,33 @@ export function WorkScreen() {
             {...minimizeOnScroll}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => (
-              <View style={styles.groupLabel}>
-                {section.pinned ? <Icon as={Pin} size={9} color={color.accentTint} /> : null}
-                <Text style={styles.groupLabelText} numberOfLines={1}>
+              <View
+                style={[
+                  styles.groupLabel,
+                  section.kind === 'attention' && styles.groupLabelAttention,
+                ]}
+              >
+                {section.kind === 'attention' ? <View style={styles.attentionDot} /> : null}
+                {section.kind === 'pinned' ? (
+                  <Icon as={Pin} size={10} color={color.textFaint} />
+                ) : null}
+                <Text
+                  style={[
+                    styles.groupLabelText,
+                    section.kind === 'attention' && styles.groupLabelTextAttention,
+                  ]}
+                  numberOfLines={1}
+                >
                   {section.label}
                 </Text>
                 <View style={styles.rule} />
+                <Text style={styles.groupCount}>{section.data.length}</Text>
               </View>
             )}
-            renderItem={({ item }) => (
+            renderItem={({ item, section }) => (
               <WorkRow
                 row={item}
+                attention={section.kind === 'attention'}
                 issues={issues}
                 sessions={sessionsAll}
                 allWorktreePaths={allWorktreePaths}
@@ -300,7 +389,6 @@ export function WorkScreen() {
                 onOpenIssue={openIssue}
                 onOpenSession={(sessionId) => router.push(sessionHref(sessionId, '/work'))}
                 onLongPress={(issue) => setMenuTarget({ issue, lane: 'live' })}
-                onPickColour={(issue) => setColorIssue(issue)}
                 onTuck={
                   item.kind === 'issue' && rowAwaitsTuck(item, null, false, now)
                     ? () => void store.setIssueTucked(item.issue.id, true)
@@ -350,8 +438,12 @@ export function WorkScreen() {
               // it being built. Related conditions, not the same one.
               booting ? null : (
                 <EmptyState
-                  title="No work yet"
-                  body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
+                  title={query.trim() ? 'No matching work' : 'No work yet'}
+                  body={
+                    query.trim()
+                      ? 'Try another task title, reference, or status.'
+                      : 'Tasks and their agents appear here as soon as work begins.'
+                  }
                 />
               )
             }
@@ -380,9 +472,15 @@ export function WorkScreen() {
           onClose={() => setMenuTarget(null)}
         />
       ) : null}
-      <IssueColorSheet issue={colorIssue} onClose={() => setColorIssue(null)} />
     </Screen>
   )
+}
+
+function workRowSearchText(row: UnifiedWorkRow, now: number): string {
+  if (row.kind === 'issue') {
+    return `${issueDisplayRef(row.issue)} ${row.issue.title} ${rowStatusLine(row, now, 0)}`.toLowerCase()
+  }
+  return `${row.worktree.repoName ?? ''} ${row.worktree.branch ?? ''} ${rowStatusLine(row, now, 0)}`.toLowerCase()
 }
 
 function rowIssueId(row: UnifiedWorkRow): string | null {
@@ -454,6 +552,7 @@ function Fold({
 
 function WorkRow({
   row,
+  attention,
   issues,
   sessions: allSessions,
   allWorktreePaths,
@@ -461,10 +560,10 @@ function WorkRow({
   onOpenIssue,
   onOpenSession,
   onLongPress,
-  onPickColour,
   onTuck,
 }: {
   row: UnifiedWorkRow
+  attention: boolean
   issues: readonly IssueWire[]
   sessions: readonly SessionMeta[]
   allWorktreePaths: string[]
@@ -472,7 +571,6 @@ function WorkRow({
   onOpenIssue: (issue: IssueWire) => void
   onOpenSession: (sessionId: SessionId) => void
   onLongPress: (issue: IssueNavigationModel) => void
-  onPickColour: (issue: IssueWire) => void
   onTuck?: (() => void) | undefined
 }) {
   const issue = row.kind === 'issue' ? row.issue : undefined
@@ -482,13 +580,12 @@ function WorkRow({
   // here, so the fleet stack reads the bubbled aggregate.
   const fleetSessions = row.kind === 'issue' ? (row.aggregateSessions ?? sessions) : sessions
   const hex = issue ? issueColorHex(issue.color) : undefined
-  const rowBg = hex ? flow.rowBg(hex) : color.surface
+  const rowBg = hex ? flow.rowBg(hex) : color.engraved
   const phase = rowMotionPhase(row)
   // An ask outranks work in the phase, so the phase alone cannot answer "is an
   // agent computing" — and on a one-row-per-mission list that left a running
   // fleet reading as stopped (POD-703). Every working texture gates on this.
   const working = rowHasWorkingSession(row)
-  const waiting = rowWaitingCount(row)
   const decision = row.kind === 'issue' ? rowPendingDecision(row) : null
   const unread = rowUnreadEmphasized(row)
   // The row's own progress, at the scope it speaks for: its whole mission. The
@@ -529,44 +626,12 @@ function WorkRow({
     <View
       style={[
         styles.row,
-        hex ? { backgroundColor: rowBg } : null,
+        attention ? styles.rowAttention : hex ? { backgroundColor: rowBg } : null,
         phase === 'queued' && styles.rowQueued,
         phase === 'done' && !onTuck && styles.rowDone,
         issue?.audience === 'agent' && styles.rowInternal,
       ]}
     >
-      {/* THE SQUARE IS ITS OWN CONTROL, AND ITS OWN ELEMENT [POD-724]. On the
-          desktop the identity square opens the swatch grid, so it does here too
-          — but it cannot be a button nested inside the row's button: on the web
-          build that is invalid HTML (React says so out loud), and the browser
-          resolves it by dropping one of the two targets. So the square and the
-          row body are SIBLINGS, each with its own press area, inside a row that
-          is a plain view. The square's own padding is what carries it to a 44pt
-          target without widening the row. */}
-      {issue ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`Colour ${issueDisplayRef(issue)}`}
-          onPress={() => onPickColour(issue)}
-          onLongPress={() => onLongPress(issue)}
-          delayLongPress={350}
-          scaleTo={0.9}
-          style={({ pressed }) => [styles.squareTap, pressed && styles.pressed]}
-        >
-          <IdSquare
-            issue={issue}
-            state={SQUARE_STATE[phase]}
-            ringColor={rowBg}
-            {...(waiting > 0 ? { badge: { kind: 'waiting' as const, count: waiting } } : {})}
-          />
-        </PressableScale>
-      ) : (
-        <View style={styles.squareTap}>
-          <View style={styles.worktreeSquare}>
-            <Text style={styles.worktreeGlyph}>⌥</Text>
-          </View>
-        </View>
-      )}
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={issue ? `${issueDisplayRef(issue)} ${label}` : `Worktree ${label}`}
@@ -574,7 +639,11 @@ function WorkRow({
         onLongPress={issue ? () => onLongPress(issue) : undefined}
         delayLongPress={350}
         scaleTo={0.99}
-        style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.rowMain,
+          attention && styles.rowMainAttention,
+          pressed && styles.pressed,
+        ]}
       >
         <View style={styles.rowText}>
           <View style={styles.rowTitleLine}>
@@ -590,12 +659,13 @@ function WorkRow({
             </Text>
             {unread ? <View style={styles.unreadDot} /> : null}
             {issue?.audience === 'agent' ? <Text style={styles.internal}>internal</Text> : null}
-            {draftOnly ? null : <FleetSummary sessions={fleetSessions} />}
-            {issue?.pinned ? <Icon as={Pin} size={10} color={color.textMicro} /> : null}
             {snoozed ? <Icon as={AlarmClock} size={10} color={color.textMicro} /> : null}
             {unsnoozed ? <Text style={styles.unsnoozed}>Unsnoozed</Text> : null}
           </View>
           <View style={styles.rowStatusLine}>
+            {issue ? <Text style={styles.rowRef}>{issueDisplayRef(issue)}</Text> : null}
+            {issue?.pinned ? <Icon as={Pin} size={9} color={color.textMicro} /> : null}
+            {draftOnly ? null : <FleetSummary sessions={fleetSessions} />}
             {working && phase !== 'working' ? <WorkingMark size={11} /> : null}
             <Text
               style={[
@@ -626,6 +696,22 @@ function WorkRow({
           {progress ? <RowProgressMeter progress={progress} working={working} /> : null}
         </View>
       </PressableScale>
+      {attention && issue ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`${decision ? 'Review' : 'Answer'} ${issueDisplayRef(issue)}`}
+          onPress={press}
+          style={({ pressed }) => [
+            styles.attentionAction,
+            decision ? styles.reviewAction : styles.answerAction,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={[styles.actionText, decision && styles.reviewActionText]}>
+            {decision ? 'Review' : 'Answer'}
+          </Text>
+        </PressableScale>
+      ) : null}
       {onTuck ? (
         <PressableScale
           accessibilityRole="button"
@@ -642,22 +728,62 @@ function WorkRow({
 }
 
 const styles = StyleSheet.create({
+  headerAttention: {
+    color: color.needsYouText,
+  },
+  searchBand: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    backgroundColor: color.bar,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: color.hairlineBar,
+  },
+  searchInput: {
+    ...sans(400),
+    flex: 1,
+    minWidth: 0,
+    color: color.text,
+    fontSize: font.body,
+    paddingVertical: 0,
+  },
   listContent: {
     flexGrow: 1,
-    paddingHorizontal: space.sm + 2,
+    backgroundColor: color.engraved,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
   },
   groupLabel: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 4,
-    paddingTop: space.md,
-    paddingBottom: 3,
+    minHeight: 31,
+    paddingHorizontal: space.lg,
+  },
+  groupLabelAttention: {
+    backgroundColor: 'rgba(245, 197, 24, 0.025)',
+  },
+  attentionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: color.needsYou,
   },
   groupLabelText: {
-    ...monoLabel(),
+    ...monoLabel(10),
     color: color.label,
     flexShrink: 1,
+  },
+  groupLabelTextAttention: {
+    color: color.needsYouText,
+  },
+  groupCount: {
+    ...mono(500),
+    color: color.textMicro,
+    fontSize: font.micro,
   },
   rule: {
     flex: 1,
@@ -673,10 +799,15 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    marginBottom: 3,
-    borderRadius: radius.md + 1,
-    backgroundColor: color.surface,
+    minHeight: 62,
+    backgroundColor: color.engraved,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.hairline,
     overflow: 'hidden',
+  },
+  rowAttention: {
+    minHeight: 68,
+    backgroundColor: 'rgba(245, 197, 24, 0.05)',
   },
   rowQueued: {
     opacity: 0.72,
@@ -687,23 +818,18 @@ const styles = StyleSheet.create({
   rowInternal: {
     opacity: 0.8,
   },
-  // The square's own touch area: 26pt of ink inside a 44pt target, paid for
-  // with padding so the row keeps its height.
-  squareTap: {
-    justifyContent: 'center',
-    paddingLeft: 9,
-    paddingRight: 3,
-    paddingVertical: 9,
-  },
   rowMain: {
     flex: 1,
-    minHeight: 56,
+    minHeight: 62,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 9,
-    paddingLeft: 6,
-    paddingRight: 8,
-    paddingVertical: 7,
+    paddingLeft: space.lg,
+    paddingRight: space.md,
+    paddingVertical: 9,
+  },
+  rowMainAttention: {
+    minHeight: 68,
   },
   rowText: {
     flex: 1,
@@ -716,10 +842,10 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   rowTitle: {
-    ...sans(400),
+    ...sans(600),
     flexShrink: 1,
     color: color.body,
-    fontSize: font.small,
+    fontSize: 15,
   },
   rowTitleUnread: {
     ...sans(600),
@@ -757,6 +883,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
   },
+  rowRef: {
+    ...mono(600),
+    flexShrink: 0,
+    color: color.textMicro,
+    fontSize: font.micro,
+  },
   spacer: {
     flex: 1,
     minWidth: 4,
@@ -790,6 +922,32 @@ const styles = StyleSheet.create({
     color: color.textMicro,
     fontSize: font.micro,
   },
+  attentionAction: {
+    alignSelf: 'center',
+    minWidth: 58,
+    height: 34,
+    marginRight: space.lg,
+    paddingHorizontal: space.sm + 2,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  answerAction: {
+    backgroundColor: color.needsYou,
+  },
+  reviewAction: {
+    backgroundColor: color.surfaceHigh,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.borderStrong,
+  },
+  actionText: {
+    ...sans(700),
+    color: color.onAccent,
+    fontSize: font.tiny,
+  },
+  reviewActionText: {
+    color: color.body,
+  },
   // A chip, not a slab (desktop POD-293): the control is a quiet right-edge
   // action on a finished row, so it must not out-weigh the row it dismisses.
   tuck: {
@@ -811,21 +969,6 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
     letterSpacing: 0.2,
   },
-  worktreeSquare: {
-    width: 26,
-    height: 26,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.elevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  worktreeGlyph: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: 11,
-  },
   folds: {
     gap: 2,
   },
@@ -837,7 +980,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     minHeight: 31,
-    paddingHorizontal: 4,
+    paddingHorizontal: space.lg,
   },
   foldToggleText: {
     ...mono(500),
@@ -856,8 +999,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 9,
     minHeight: 34,
-    paddingHorizontal: 8,
-    borderRadius: radius.sm,
+    paddingHorizontal: space.lg,
   },
   foldedRef: {
     ...mono(600),

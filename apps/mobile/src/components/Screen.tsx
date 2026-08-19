@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { flow } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, font, radius, sans, space, tracking } from '../theme/theme'
+import { color, font, mono, radius, sans, space, tracking } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
@@ -32,9 +32,11 @@ export function Screen({
   noHeader,
   safeBottom,
   accent,
+  bareBack = false,
+  monoSubtitle = false,
 }: {
   title?: string
-  subtitle?: string
+  subtitle?: ReactNode
   onBack?: () => void
   backLabel?: string
   /**
@@ -52,6 +54,10 @@ export function Screen({
   /** Pay the bottom safe area when no tab bar or sheet owns that inset. */
   safeBottom?: boolean
   accent?: string
+  /** Pocket chat uses an unboxed navigation chevron. */
+  bareBack?: boolean
+  /** Ledger/chat metadata uses the compact monospace datum voice. */
+  monoSubtitle?: boolean
 }) {
   const insets = useSafeAreaInsets()
   const tint = accent
@@ -76,7 +82,10 @@ export function Screen({
                 {title}
               </Text>
               {subtitle ? (
-                <Text style={styles.largeSubtitle} numberOfLines={1}>
+                <Text
+                  style={[styles.largeSubtitle, monoSubtitle && styles.monoSubtitle]}
+                  numberOfLines={1}
+                >
                   {subtitle}
                 </Text>
               ) : null}
@@ -100,7 +109,7 @@ export function Screen({
                   accessibilityRole="button"
                   accessibilityLabel={backLabel ?? 'Back'}
                   onPress={onBack}
-                  style={styles.back}
+                  style={[styles.back, bareBack && styles.backBare]}
                   hitSlop={10}
                 >
                   <Icon as={ChevronLeft} size={17} color={color.textDim} />
@@ -115,7 +124,10 @@ export function Screen({
                 </Text>
               ) : null}
               {subtitle ? (
-                <Text style={styles.subtitle} numberOfLines={1}>
+                <Text
+                  style={[styles.subtitle, monoSubtitle && styles.monoSubtitle]}
+                  numberOfLines={1}
+                >
                   {subtitle}
                 </Text>
               ) : null}
@@ -134,10 +146,14 @@ export function HeaderButton({
   label,
   onPress,
   children,
+  size = 28,
+  bare = false,
 }: {
   label: string
   onPress: () => void
   children: ReactNode
+  size?: 28 | 32 | 34
+  bare?: boolean
 }) {
   return (
     <PressableScale
@@ -145,7 +161,12 @@ export function HeaderButton({
       accessibilityLabel={label}
       onPress={onPress}
       hitSlop={6}
-      style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
+      style={({ pressed }) => [
+        styles.headerBtn,
+        { width: size, height: size },
+        bare && styles.headerBtnBare,
+        pressed && styles.headerBtnPressed,
+      ]}
     >
       {children}
     </PressableScale>
@@ -205,6 +226,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  backBare: {
+    width: 34,
+    height: 34,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+  },
   backText: {
     ...sans(500),
     color: color.textDim,
@@ -226,6 +253,10 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
     marginTop: 1,
   },
+  monoSubtitle: {
+    ...mono(500),
+    fontSize: 11,
+  },
   right: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -243,6 +274,10 @@ const styles = StyleSheet.create({
   },
   headerBtnPressed: {
     backgroundColor: color.surfacePressed,
+  },
+  headerBtnBare: {
+    borderWidth: 0,
+    backgroundColor: 'transparent',
   },
   body: {
     flex: 1,

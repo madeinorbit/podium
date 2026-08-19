@@ -16,6 +16,8 @@ import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { dropEchoedPendingTurns } from '../lib/pending-turns'
 import { sendOfferAction } from '../lib/send-offer-action'
+import { color } from '../theme/theme'
+import { AskQuestionCard, type AskQuestionAnswer } from './AskQuestionCard'
 import { Composer } from './Composer'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
@@ -64,6 +66,7 @@ export function SessionConversation({
   session,
   issue,
   onOpenTerminalRef,
+  findRequest = 0,
 }: {
   session: SessionMeta
   /** The task this session belongs to; drives task context and the plan bridge. */
@@ -71,6 +74,8 @@ export function SessionConversation({
   /** Where a tapped `POD-…` ref in the transcript should go when it is NOT this
    *  task — absent keeps the peek sheet, which is the default everywhere. */
   onOpenTerminalRef?: (issue: IssueWire) => void
+  /** Incremented by screen chrome to open transcript search. */
+  findRequest?: number
 }) {
   const store = useMobileStore()
   const hub = useHub()
@@ -117,6 +122,7 @@ export function SessionConversation({
   // What the feed owes the floating composer. Only ever the RESTING height, so
   // growing the field does not relayout the transcript under the operator.
   const [composerHeight, setComposerHeight] = useState(0)
+  const [askHeight, setAskHeight] = useState(0)
   const [peekIssue, setPeekIssue] = useState<IssueWire | null>(null)
   // Scroll-back paging state. Refs, not state: paging must not retrigger the
   // load/subscribe effect, and onEndReached can fire in bursts.
@@ -316,6 +322,24 @@ export function SessionConversation({
         ?.item ?? null,
     [items, need, phase, session.status],
   )
+  const pendingQuestion = useMemo(
+    () => latestPendingQuestion(items) ?? pendingAsk,
+    [items, pendingAsk],
+  )
+  useEffect(() => {
+    if (!pendingQuestion) setAskHeight(0)
+  }, [pendingQuestion])
+
+  const answerAsk = useCallback(
+    async (answer: AskQuestionAnswer) => {
+      const sent = await trpc.sessions.answerAskUserQuestion.mutate({
+        sessionId,
+        ...answer,
+      })
+      if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+    },
+    [sessionId, trpc.sessions.answerAskUserQuestion],
+  )
 
   /**
    * ACCEPTING AN OFFER IS SENDING A MESSAGE, and it now looks like one.
@@ -379,10 +403,11 @@ export function SessionConversation({
               live={session.status === 'live'}
               assetContext={{ httpOrigin: store.httpOrigin, sessionId, cwd: session.cwd }}
               pendingTurns={pendingTurns}
-              pendingAsk={pendingAsk}
+              hidePendingQuestion
+              findRequest={findRequest}
               onRetryPending={retry}
               onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
-              bottomInset={composerHeight}
+              bottomInset={composerHeight + askHeight}
               streaming={
                 activity?.tone === 'working' &&
                 items.at(-1)?.role === 'assistant' &&
@@ -408,15 +433,7 @@ export function SessionConversation({
                   />
                 ) : undefined
               }
-              onAnswer={async (answer) => {
-                // A refusal must reach the card: the server types nothing when it
-                // cannot express a choice as keystrokes (POD-770).
-                const sent = await trpc.sessions.answerAskUserQuestion.mutate({
-                  sessionId,
-                  ...answer,
-                })
-                if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
-              }}
+              onAnswer={answerAsk}
               onLoadOlder={loadOlder}
               onRefPress={(ref) => {
                 const seq = Number(ref.slice(4))
@@ -446,6 +463,19 @@ export function SessionConversation({
           feed pays for it with the composer's own resting height. */}
       {readOnly && !hasTranscript ? null : (
         <View style={styles.composerLayer} pointerEvents="box-none">
+          {pendingQuestion ? (
+            <View
+              onLayout={(event) => setAskHeight(event.nativeEvent.layout.height)}
+              style={styles.askLayer}
+            >
+              <AskQuestionCard
+                item={pendingQuestion}
+                live
+                onAnswer={answerAsk}
+                presentation="band"
+              />
+            </View>
+          ) : null}
           <Composer
             placeholder={composer.placeholder}
             onSend={send}
@@ -478,5 +508,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  askLayer: {
+    backgroundColor: color.bar,
   },
 })

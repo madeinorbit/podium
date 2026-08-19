@@ -5,9 +5,11 @@ import {
   parseAskQuestions,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
+import { Pencil } from 'lucide-react-native'
 import { useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
+import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
 /**
@@ -33,10 +35,12 @@ export function AskQuestionCard({
   item,
   live,
   onAnswer,
+  presentation = 'card',
 }: {
   item: TranscriptItem
   live: boolean
   onAnswer?: (answer: AskQuestionAnswer) => Promise<void>
+  presentation?: 'card' | 'band'
 }) {
   const questions = parseAskQuestions(item.toolInputJson)
   // `picks[qi]` is the set of chosen 0-based option indices; `custom[qi]` is the
@@ -45,6 +49,8 @@ export function AskQuestionCard({
   const [picks, setPicks] = useState<Record<number, Set<number>>>({})
   const [custom, setCustom] = useState<Record<number, string>>({})
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle')
+  const [editing, setEditing] = useState<Record<number, boolean>>({})
+  const band = presentation === 'band'
   const locked = !live || state === 'sending' || state === 'sent'
 
   const typed = (source: Record<number, string>, qi: number) => source[qi]?.trim() ?? ''
@@ -147,8 +153,8 @@ export function AskQuestionCard({
 
   if (questions.length === 0) {
     return (
-      <View style={styles.card}>
-        <Text style={styles.badge}>QUESTION FOR YOU</Text>
+      <View style={[styles.card, band && styles.band]}>
+        <Text style={styles.badge}>{band ? 'CLAUDE IS ASKING' : 'QUESTION FOR YOU'}</Text>
         <Text style={styles.question}>
           {item.toolInput || 'AskUserQuestion (unparseable input)'}
         </Text>
@@ -157,17 +163,17 @@ export function AskQuestionCard({
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, band && styles.band]}>
       <View style={styles.headerRow}>
-        <Text style={styles.badge}>QUESTION FOR YOU</Text>
+        <Text style={styles.badge}>{band ? 'CLAUDE IS ASKING' : 'QUESTION FOR YOU'}</Text>
         {state === 'sending' ? <Text style={styles.meta}>sending…</Text> : null}
         {state === 'sent' ? <Text style={styles.meta}>answer sent</Text> : null}
         {state === 'failed' ? <Text style={styles.metaError}>not delivered — retry</Text> : null}
       </View>
       {questions.map((q, qi) => (
-        <View key={q.question} style={styles.questionBlock}>
-          <Text style={styles.question}>{q.question}</Text>
-          <View style={styles.options}>
+        <View key={q.question} style={[styles.questionBlock, band && styles.questionBlockBand]}>
+          <Text style={[styles.question, band && styles.questionBand]}>{q.question}</Text>
+          <View style={[styles.options, band && styles.optionsBand]}>
             {q.options.map((opt, oi) => {
               const picked = picks[qi]?.has(oi) ?? false
               const chosen = !live && isChosenOption(item.toolResult ?? '', opt.label)
@@ -181,6 +187,7 @@ export function AskQuestionCard({
                   onPress={() => onOption(qi, oi, q.multiSelect === true)}
                   style={({ pressed }) => [
                     styles.option,
+                    band && styles.optionBand,
                     highlighted && styles.optionPicked,
                     pressed && !locked && styles.optionPressed,
                   ]}
@@ -188,7 +195,7 @@ export function AskQuestionCard({
                   <Text style={[styles.optionLabel, highlighted && styles.optionLabelPicked]}>
                     {opt.label}
                   </Text>
-                  {opt.description ? (
+                  {opt.description && !band ? (
                     <Text style={styles.optionDesc} numberOfLines={3}>
                       {opt.description}
                     </Text>
@@ -196,10 +203,24 @@ export function AskQuestionCard({
                 </PressableScale>
               )
             })}
+            {band && live && state !== 'sent' ? (
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel="Write a different answer"
+                disabled={locked}
+                onPress={() => setEditing({ ...editing, [qi]: true })}
+                style={({ pressed }) => [
+                  styles.editAnswer,
+                  pressed && !locked && styles.optionPressed,
+                ]}
+              >
+                <Icon as={Pencil} size={14} color={color.textDim} />
+              </PressableScale>
+            ) : null}
           </View>
           {/* The free-text escape rides the native Other entry. Live only —
               a read-only card is a record, not a control. */}
-          {live && state !== 'sent' ? (
+          {live && state !== 'sent' && (!band || editing[qi]) ? (
             <TextInput
               testID={`ask-free-text-${qi}`}
               accessibilityLabel="Type your own answer"
@@ -217,7 +238,7 @@ export function AskQuestionCard({
           ) : null}
         </View>
       ))}
-      {showActions ? (
+      {showActions && (!band || needsConfirm) ? (
         <View style={styles.actions}>
           {needsConfirm ? (
             <PressableScale
@@ -230,16 +251,18 @@ export function AskQuestionCard({
               <Text style={styles.confirmText}>Send answer</Text>
             </PressableScale>
           ) : null}
-          <PressableScale
-            testID="ask-skip"
-            accessibilityRole="button"
-            accessibilityLabel="Skip question"
-            disabled={locked}
-            onPress={() => void skip()}
-            style={[styles.skip, locked && styles.confirmDisabled]}
-          >
-            <Text style={styles.skipText}>Skip</Text>
-          </PressableScale>
+          {!band ? (
+            <PressableScale
+              testID="ask-skip"
+              accessibilityRole="button"
+              accessibilityLabel="Skip question"
+              disabled={locked}
+              onPress={() => void skip()}
+              style={[styles.skip, locked && styles.confirmDisabled]}
+            >
+              <Text style={styles.skipText}>Skip</Text>
+            </PressableScale>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -254,6 +277,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: space.lg,
     gap: space.md,
+  },
+  band: {
+    borderRadius: 0,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    backgroundColor: color.bar,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    gap: space.sm,
   },
   headerRow: {
     flexDirection: 'row',
@@ -277,6 +309,9 @@ const styles = StyleSheet.create({
   questionBlock: {
     gap: space.sm + 2,
   },
+  questionBlockBand: {
+    gap: space.sm,
+  },
   question: {
     ...sans(600),
     color: color.text,
@@ -284,8 +319,15 @@ const styles = StyleSheet.create({
     lineHeight: leading(font.body, 'prose'),
     letterSpacing: -0.1,
   },
+  questionBand: {
+    fontSize: font.small,
+  },
   options: {
     gap: space.sm,
+  },
+  optionsBand: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
   },
   option: {
     backgroundColor: color.surfaceHigh,
@@ -295,6 +337,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingVertical: space.md + 1,
     gap: 3,
+  },
+  optionBand: {
+    minHeight: 34,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    borderRadius: radius.sm,
+  },
+  editAnswer: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.surfaceHigh,
+    borderColor: color.border,
+    borderWidth: 1,
+    borderRadius: radius.sm,
   },
   optionPressed: {
     backgroundColor: color.surfacePressed,

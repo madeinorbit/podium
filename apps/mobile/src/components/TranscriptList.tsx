@@ -11,7 +11,7 @@ import {
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import { ChevronDown, ChevronUp, Search, X } from 'lucide-react-native'
+import { ChevronDown, ChevronUp, X } from 'lucide-react-native'
 import {
   type ReactElement,
   type ReactNode,
@@ -547,6 +547,8 @@ export function TranscriptList({
   emptyComponent,
   footer,
   bottomInset = 0,
+  hidePendingQuestion = false,
+  findRequest = 0,
 }: {
   items: TranscriptItem[]
   live: boolean
@@ -589,6 +591,10 @@ export function TranscriptList({
    * composer. Without it the last row rests under the capsule forever.
    */
   bottomInset?: number
+  /** Keep the active ask out of the feed when screen chrome renders its band. */
+  hidePendingQuestion?: boolean
+  /** Incremented by header/menu chrome to reveal the find bar. */
+  findRequest?: number
 }) {
   const reduceMotion = useReduceMotion()
   const [findOpen, setFindOpen] = useState(false)
@@ -603,8 +609,20 @@ export function TranscriptList({
     () => buildMobileTranscript(items, { collapseContext }),
     [collapseContext, items],
   )
+  const pending = useMemo(() => latestPendingQuestion(items), [items])
+  const pendingKey = pending ? transcriptItemKey(pending) : null
+  const visibleModel = useMemo(
+    () =>
+      hidePendingQuestion
+        ? {
+            ...model,
+            rows: model.rows.filter((row) => row.kind !== 'question' || row.key !== pendingKey),
+          }
+        : model,
+    [hidePendingQuestion, model, pendingKey],
+  )
   const rows = useMemo(() => {
-    const built: Row[] = [...model.rows]
+    const built: Row[] = [...visibleModel.rows]
     for (const turn of pendingTurns ?? []) {
       built.push({
         key: `pending:${turn.id}`,
@@ -626,7 +644,7 @@ export function TranscriptList({
     // The question Claude Code has not written down yet, after the optimistic
     // turns because that is where its own item will arrive. It leaves on answer,
     // when the session drops out of `needs_user` and the caller stops passing it.
-    if (pendingAsk) {
+    if (pendingAsk && !hidePendingQuestion) {
       built.push({
         key: transcriptItemKey(pendingAsk),
         kind: 'question',
@@ -636,15 +654,21 @@ export function TranscriptList({
       })
     }
     return built
-  }, [model.rows, pendingAsk, pendingTurns])
+  }, [hidePendingQuestion, pendingAsk, pendingTurns, visibleModel.rows])
   const search = useMemo(
-    () => searchMobileTranscript(model, findOpen ? query : '', cursor),
-    [cursor, findOpen, model, query],
+    () => searchMobileTranscript(visibleModel, findOpen ? query : '', cursor),
+    [cursor, findOpen, query, visibleModel],
   )
-  const pending = useMemo(() => latestPendingQuestion(items), [items])
   const listRef = useRef<FlatList<Row>>(null)
   const seenKeys = useRef<Set<string> | null>(null)
   const previousKeys = useRef<string[]>([])
+  const lastFindRequest = useRef(findRequest)
+
+  useEffect(() => {
+    if (findRequest === lastFindRequest.current) return
+    lastFindRequest.current = findRequest
+    setFindOpen(true)
+  }, [findRequest])
   const arrivedKeys = useMemo(() => {
     const ordered = rows.map((row) => row.key)
     const keys = new Set(ordered)
@@ -1048,18 +1072,7 @@ export function TranscriptList({
             <Icon as={X} size={15} color={color.textDim} />
           </PressableScale>
         </View>
-      ) : (
-        <View style={styles.searchTool}>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Find in transcript"
-            onPress={() => setFindOpen(true)}
-            style={({ pressed }) => [styles.utilityButton, pressed && styles.utilityPressed]}
-          >
-            <Icon as={Search} size={15} color={color.textDim} />
-          </PressableScale>
-        </View>
-      )}
+      ) : null}
 
       <JumpToNewest
         visible={!atTail}
@@ -1088,6 +1101,7 @@ const styles = StyleSheet.create({
   listFrame: {
     flex: 1,
     minHeight: 0,
+    backgroundColor: color.engraved,
   },
   footer: {
     marginTop: space.xs,
@@ -1232,7 +1246,7 @@ const styles = StyleSheet.create({
   // Operator turn — the ONLY elevated surface on the field.
   userWrap: {
     paddingVertical: space.xs,
-    backgroundColor: color.bg,
+    backgroundColor: color.engraved,
   },
   userCard: {
     backgroundColor: color.surfaceHigh,
@@ -1509,23 +1523,6 @@ const styles = StyleSheet.create({
     flex: 1,
     height: StyleSheet.hairlineWidth,
     backgroundColor: color.hairline,
-  },
-  searchTool: {
-    position: 'absolute',
-    top: space.sm,
-    right: space.sm,
-    padding: 2,
-    borderRadius: radius.full,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.glass,
-  },
-  utilityButton: {
-    minWidth: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.full,
   },
   utilityPressed: {
     opacity: 0.55,

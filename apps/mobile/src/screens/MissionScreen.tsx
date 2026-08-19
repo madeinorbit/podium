@@ -1,6 +1,5 @@
 import { useSlice } from '@podium/client-core/react'
 import {
-  agentBadge,
   agentFleetStatus,
   candidateFromAvailability,
   isSessionWorking,
@@ -8,11 +7,11 @@ import {
   type MissionProgress,
   missionCrewLabel,
   missionProgress,
+  panelLabel,
   missionRootFor,
   missionSessions as missionSessionsOf,
   reposToViews,
   sessionNeedsHuman,
-  sessionTitle,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import {
@@ -32,8 +31,8 @@ import { Animated, Dimensions, StyleSheet, Text, View } from 'react-native'
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
+import { HarnessChip } from '../components/AgentMark'
 import { Icon } from '../components/Icon'
-import { IdSquare } from '../components/IdSquare'
 import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
@@ -46,9 +45,10 @@ import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { agentLaunchProcedure } from '../lib/agent-launch'
+import { issueAgentKind, modelLabel } from '../lib/agent-models'
 import { mostRelevantSession } from '../lib/mission-session'
 import { issueCloseBlockers } from '../lib/issue-close'
-import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
+import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, space, spring } from '../theme/theme'
 
@@ -119,6 +119,7 @@ export function MissionScreen() {
   const [launchOpen, setLaunchOpen] = useState(false)
   const [colorOpen, setColorOpen] = useState(false)
   const [fileRootPending, setFileRootPending] = useState(false)
+  const [findRequest, setFindRequest] = useState(0)
 
   // An explicit pick from the deck outranks the automatic one, but only while it
   // still names a session on THIS mission — a mission you return to hours later
@@ -237,6 +238,10 @@ export function MissionScreen() {
       ...(current
         ? [
             {
+              label: 'Find in transcript',
+              onPress: () => setFindRequest((request) => request + 1),
+            },
+            {
               label: 'Open native CLI',
               onPress: () =>
                 router.push(`/session/${encodeURIComponent(current.sessionId)}/terminal`),
@@ -247,41 +252,33 @@ export function MissionScreen() {
   }, [current, root, router])
 
   const resolved = root !== undefined || (!booting && issues.length > 0)
+  const headerIssue = currentIssue ?? root
+  const currentKind = current ? issueAgentKind(current.agentKind) : null
+  const currentModel = current?.observedModel ?? current?.model
+  const provenance = current
+    ? `${current.agentKind === 'claude-code' ? 'Claude Code' : panelLabel(current.agentKind)}${currentKind && currentModel ? ` · ${modelLabel(currentKind, currentModel)}` : ''}`
+    : null
 
   return (
     <Screen
-      title={root ? root.title : 'Mission'}
+      title={headerIssue ? headerIssue.title : 'Mission'}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
-      accent={accent}
+      bareBack
+      monoSubtitle
       subtitle={
         current
-          ? `${sessionTitle(current)} · ${agentBadge(current, currentIssue)?.label ?? current.status}`
+          ? `${headerIssue ? issueDisplayRef(headerIssue) : ''}${headerIssue ? '   ' : ''}${provenance}`
           : root
             ? 'No agent on this mission'
             : undefined
       }
-      leading={
-        root ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`Colour ${issueDisplayRef(root)}`}
-            onPress={() => setColorOpen(true)}
-            hitSlop={8}
-            scaleTo={0.9}
-          >
-            <IdSquare
-              issue={root}
-              state={attention > 0 ? 'waiting' : live > 0 ? 'working' : 'queued'}
-              size={18}
-            />
-          </PressableScale>
-        ) : undefined
-      }
+      leading={current ? <HarnessChip kind={current.agentKind} size={20} /> : undefined}
       right={
         <>
           {current ? (
             <HeaderButton
               label="Open native CLI"
+              size={32}
               onPress={() =>
                 router.push(`/session/${encodeURIComponent(current.sessionId)}/terminal`)
               }
@@ -289,7 +286,7 @@ export function MissionScreen() {
               <Icon as={SquareTerminal} size={17} color={color.textDim} />
             </HeaderButton>
           ) : null}
-          <HeaderButton label="Mission actions" onPress={() => setMenuOpen(true)}>
+          <HeaderButton label="Mission actions" onPress={() => setMenuOpen(true)} size={32} bare>
             <Icon as={MoreVertical} size={17} color={color.textDim} />
           </HeaderButton>
         </>
@@ -310,6 +307,7 @@ export function MissionScreen() {
             attention={attention}
             accent={accent ?? FLOW_HEX}
             reduceMotion={reduceMotion}
+            findRequest={findRequest}
             onOpenSession={openSession}
             onOpenTask={setPeek}
             onLaunchAgent={() => setLaunchOpen(true)}
@@ -393,6 +391,7 @@ function MissionBody({
   attention,
   accent,
   reduceMotion,
+  findRequest,
   onOpenSession,
   onOpenTask,
   onLaunchAgent,
@@ -412,6 +411,7 @@ function MissionBody({
   attention: number
   accent: string
   reduceMotion: boolean
+  findRequest: number
   onOpenSession: (session: SessionMeta) => void
   onOpenTask: (issue: IssueWire) => void
   onLaunchAgent: () => void
@@ -485,7 +485,6 @@ function MissionBody({
             live={live}
             working={working}
             attention={attention}
-            accent={accent}
             open={open}
             onToggle={() => settle(!open)}
           />
@@ -494,7 +493,12 @@ function MissionBody({
 
       <View style={styles.stage}>
         {current ? (
-          <SessionConversation key={current.sessionId} session={current} issue={currentIssue} />
+          <SessionConversation
+            key={current.sessionId}
+            session={current}
+            issue={currentIssue}
+            findRequest={findRequest}
+          />
         ) : (
           <EmptyState
             fill
@@ -576,7 +580,6 @@ function MissionBar({
   live,
   working,
   attention,
-  accent,
   open,
   onToggle,
 }: {
@@ -584,7 +587,6 @@ function MissionBar({
   live: number
   working: number
   attention: number
-  accent: string
   open: boolean
   onToggle: () => void
 }) {
@@ -601,11 +603,7 @@ function MissionBar({
       onPress={onToggle}
       scaleTo={0.995}
       haptic={false}
-      style={({ pressed }) => [
-        styles.bar,
-        { backgroundColor: flow.paneHeaderBg(accent) },
-        pressed && styles.barPressed,
-      ]}
+      style={({ pressed }) => [styles.bar, pressed && styles.barPressed]}
     >
       <Text style={styles.barLabel}>DECK</Text>
       <Text style={styles.barCount}>
@@ -657,6 +655,9 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: space.lg,
     paddingBottom: 3,
+    backgroundColor: color.bar,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairlineBar,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.hairline,
   },

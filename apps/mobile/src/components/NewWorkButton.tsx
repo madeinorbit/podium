@@ -84,7 +84,7 @@ const writeString = (value: string | null): string | null => value
  * fallback. Tracked tasks are still created from the Tasks tab — this sheet only
  * starts an agent.
  */
-export function NewWorkButton() {
+export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   const pathname = usePathname()
   const router = useRouter()
   const store = useMobileStore()
@@ -286,7 +286,7 @@ export function NewWorkButton() {
 
   return (
     <>
-      <HeaderButton label="New work" onPress={() => setStep('launch')}>
+      <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
         <Icon as={Plus} size={19} color={color.text} />
       </HeaderButton>
       <BottomSheet
