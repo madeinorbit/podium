@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-edge.14] - 2026-08-19
+
+### Fixed
+
+- Settings now reports the native desktop bundle's complete edge version instead of only
+  0.1.0, so a successful desktop update is no longer offered again.
+- Detached headless installs now accept signed-feed updates and restart their server, janitor,
+  and daemon into the downloaded release. The daemon successor waits for its predecessor to
+  release its listeners instead of racing it and exiting during startup.
+
 ## [0.1.0-edge.13] - 2026-08-19
 
 ### Fixed

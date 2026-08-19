@@ -5,7 +5,7 @@ import { captureDaemonBootBuild } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import { disarmExitSeam } from './convergence'
 import type { DaemonOptions } from './daemon-options'
-import { createDetachedRestart } from './detached-restart'
+import { createDetachedRestart, waitForDetachedRestartParent } from './detached-restart'
 import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
 import type { PortableStateControl } from './portable-state-fence'
@@ -61,6 +61,7 @@ export interface DaemonHandle {
  * each live in their owning modules; this function only wires their ports.
  */
 export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
+  await waitForDetachedRestartParent()
   const { build, installDir } = captureDaemonBootBuild(
     process.env,
     process.execPath,
