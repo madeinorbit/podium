@@ -2,8 +2,12 @@
 
 Audit date: 2026-08-19  
 Audited tip: `fdc6d8d1dfe5fa6426c2618ffbc874391cc44d46`  
-Normative specification: `docs/2026-08-07-agent-runtime-architecture.html`  
+Audit-time normative specification: `docs/2026-08-07-agent-runtime-architecture.html` at the audited tip<br>
 Implementation-plan scope: `docs/plans/pod-1761-agent-runtime-plan.md`
+
+The classifications below preserve the audit-time comparison. The four specification corrections
+identified by the audit were resolved in the normative document on 2026-08-19; the rulings are
+recorded in “Specification amendments and rulings” below.
 
 ## Method and status counts
 
@@ -54,7 +58,7 @@ settled: **S** (localized), **M** (multi-module), **L** (cross-cutting/product v
 | AS3 | **PARTIAL** | P0 | §5 requires one control lease shared by runtime writers and human attach (`spec:497`). Lease types and takeover/peek exist (`packages/agent-runtime/src/attach.ts:31-70`), as do driver implementations (`packages/agent-runtime/src/drivers/opencode/runtime.ts:1338-1369`; `codex/runtime.ts:1362-1395`). | The lease is handle-local and no production attach caller proves it arbitrates the existing websocket terminal controller, chat/mail/steward writers, and attached humans through one funnel. POD-2050 covers a holder-principal convention/coverage edge, not unification. | **M**; depends on AS2 and IS10. |
 | AS4 | **PARTIAL** | P0 | §5 requires coarse causal events to be always-on and durable-synced for board, recency, notifications, and steward (`spec:441-450`). Drivers emit the causal union (`packages/agent-runtime/src/events.ts:44-109`). | The server keeps only a bounded in-memory diagnostic tail (`apps/server/src/modules/sessions/runtime-gateway.ts:249-276`); downstream durable state is still fed through legacy projections. Build the one side-effect gate and oplog projection promised in §8. | **L**; foundation for AS5, AS9, LD16, XT2. |
 | AS5 | **PARTIAL** | P0 | §5 requires fine live-only item deltas while a viewer watches (`spec:446-456`). Driver watch levels/refcounts exist and server drivers emit fine deltas (`packages/agent-runtime/src/capabilities.ts:77-82`). | No viewer→server→daemon watch command or client delta feed exists. **Known/decided:** POD-2293 contains the pending chat-streaming spec and is awaiting approval; do not re-file. Its scope is chat streaming, not the general watch-control plane. | **L**; depends on AS4; POD-2293. |
-| AS6 | **DIVERGED** | P1 | §3/G1 specifies observed model, effort, context %, accent, open todos, native-subagent facts, and event-time `lastActivityAt` in `state()` (`spec:273-291,700-704`). | `AgentRuntimeState` has phase/need/error/subagents/provenance only (`packages/model/src/entities/session.ts:169-194`). Model/effort/context/accent instead live on `SessionMetaEntity` (`session.ts:250-336`), while open todos and event-time last activity are absent. Either fold them into the runtime state contract (preferred for family-blind consumers) or amend G1 and its coverage table. | **M**; after AS4. |
+| AS6 | **DIVERGED** | P1 | §3/G1 specifies observed model, effort, context %, accent, open todos, native-subagent facts, and event-time `lastActivityAt` in `state()` (`spec:273-291,700-704`). | `AgentRuntimeState` has phase/need/error/subagents/provenance only (`packages/model/src/entities/session.ts:169-194`). Model/effort/context/accent instead live on `SessionMetaEntity` (`session.ts:250-336`), while open todos and event-time last activity are absent. **Post-audit ruling:** the durable session projection owns the product-facing facts, open todos, and event-time recency; `handle.state()` remains the runtime verdict and native-subagent state. | **M**; after AS4. |
 | AS7 | **PARTIAL** | P1 | §3 requires bootstrap snapshot plus cursor-fenced live deltas and family-blind normalized history (`spec:273-299`). Driver snapshots, cursors, event envelopes, and transcript history are implemented (`packages/agent-runtime/src/driver.ts:39-100`; `events.ts:44-109`). | Product chat/history/board still use legacy transcript/state paths, and the runtime feed is not restart-durable. Complete AS4/AS5, then remove family-specific downstream reads. | **L**; depends on AS4/AS5. |
 | AS8 | **PARTIAL** | P1 | §3/G2 requires workspace/cwd/git/ref updates and §3/G3 requires attributed instructions/MCP/re-prime (`spec:281-287,700-707`). `SessionSpec` carries workdir, instruction channels, and MCP (`packages/agent-runtime/src/session-spec.ts:16-31,60-83`); workspace events are typed. | Several drivers honestly decline instruction/MCP support, compaction re-prime has no consumer, and product workspace features remain on legacy frames. | **M**; after AS4. |
 | AS9 | **PARTIAL** | P2 | §3 exposes draft, configure, usage, title, open-url, and accent as capability-declared seams (`spec:300-317`). Every driver declares the axes (`packages/agent-runtime/src/capabilities.ts:121-127`); server drafts and some usage/title paths work. | Terminal draft write refuses, sticky configure is declined, and runtime title/open-url/accent events do not drive product consumers. Existing legacy paths are not evidence that the runtime seam is complete. | **M**; after AS4 and the concrete runtime. |
@@ -86,7 +90,7 @@ settled: **S** (localized), **M** (multi-module), **L** (cross-cutting/product v
 |---|---|---:|---|---|---|
 | LD1 | **MISSING** | P0 | §3 requires one concrete per-machine `AgentRuntime` exposing create/resume/import/adopt/list/capabilities/accounting/accounts/login (`spec:208-237`). | `AgentRuntime` states that it is the typed surface only (`packages/agent-runtime/src/runtime.ts:33-42`); production composes separate registries and handles. Implement the machine runtime and make it the only composition root. | **L**; foundation for LD2, CLI3, XT2. |
 | LD2 | **MISSING** | P0 | §3 guarantees byte-faithful export → `runtime.import()` → resume on another machine, plus actual-process `runtime.list()` (`spec:208-249`). | Drivers can export and adopt, but `import()` and the process-table `list()` have no concrete implementation (`packages/agent-runtime/src/runtime.ts:44-69`). Build versioned archive landing, collision/refusal rules, and real inventory reconciliation. | **L**; depends on LD1/SEC4; enables XT3. |
-| LD3 | **DIVERGED** | P0 | §3 says archive export/import is byte-faithful to native stores, including opencode sqlite (`spec:247`). | Opencode explicitly declares `byteFaithful: false` and exports a reconstructed message tree (`packages/agent-runtime/src/drivers/opencode/capabilities.ts:100-117`). The honest capability is correct; either build a sqlite-native exporter/importer or amend the universal guarantee before relying on handoff/backup. | **M**; before LD2 for opencode. |
+| LD3 | **DIVERGED** | P0 | §3 says archive export/import is byte-faithful to native stores, including opencode sqlite (`spec:247`). | Opencode explicitly declares `byteFaithful: false` and exports a reconstructed message tree (`packages/agent-runtime/src/drivers/opencode/capabilities.ts:100-117`). **Post-audit ruling:** semantic import/resume is the universal archive guarantee; exact native-store preservation is capability-declared and required only by backup/restore consumers. OpenCode must not over-export its machine-shared SQLite database. | **M**; before LD2 for opencode. |
 | LD4 | **MISSING** | P0 | §§6/9 require `podium.slice` → instance slice → session scopes with `MemoryHigh`, `MemoryMax`, `TasksMax`, and `OOMPolicy`, and attach scopes reclaimed first (`spec:503-533,566`). | Scope launch currently supplies CPU/IO weights only (`packages/pty/src/abduco.ts:72-83`); no slice tree or budgets exist. **Known/decided:** telemetry is a plan non-goal, but the resource controls themselves remain a spec gap. | **L**; before fleet-scale claim; supports AS11/LD5. |
 | LD5 | **MISSING** | P0 | §6 requires real memory/RSS/OOM observation and first-class `oomKilled` events (`spec:503-533`). | `SessionHealth` types the fields (`packages/agent-runtime/src/capabilities.ts:35-40`), but production drivers report zero OOM events and no monitor emits OOM evidence. Add scope/cgroup observation and server projection. | **M** Linux; depends on LD4/AS4. |
 | LD6 | **PARTIAL** | P1 | §6 requires daemon/server restart survival, exact-identity adoption, and later reconciliation from process/native state (`spec:503-533`). | Opencode uses 0600 journals and exact secret-backed health (`apps/daemon/src/runtime/opencode-server.ts:122-175,553-595`); reaping/adoption corroborates process identity (`apps/daemon/src/runtime/server-reap.ts:166-255,336-437`). Codex/Grok cannot rebind inherited stdio and resume into fresh children; there is no unified process-table scan/list. | **M**; depends on LD1/LD2. |
@@ -108,7 +112,7 @@ settled: **S** (localized), **M** (multi-module), **L** (cross-cutting/product v
 | SA2 | **PARTIAL** | P0 | §3 requires a shared conformance corpus to pin every core primitive and permitted failure (`spec:206,382-391`). | The corpus covers send, interactions, interrupt, snapshots/adoption, causality, secrets, and leases, but omits `stageAttachment`, runtime `import/list`, production reachability, and the production Codex attach-host mismatch. | **M**; add cases alongside each P0 fix. |
 | SA3 | **PARTIAL** | P1 | §3 runtime primitives include discover, inventory, capabilities, quota/usage, accounts/login/logout, and credential export/seed (`spec:208-237`). | `AgentRuntime` includes capabilities/quota/usage/accounts/login but omits discover, inventory, logout, exportCredential, and seedCredential (`packages/agent-runtime/src/runtime.ts:44-98`); none has a unified production implementation. Existing separate services are migration inputs, not completion. | **L**; after LD1. |
 | SA4 | **PARTIAL** | P1 | §2 selects Claude terminal for subscription and embedded for API-key/Bedrock/Vertex (`spec:179-190`). | Claude always selects terminal (`packages/harness/src/manifests/claude-code.ts:167-195`). The subscription half is correct; the embedded half is absent. **Known/decided:** embedded rework is excluded. | **L**; LD8. |
-| SA5 | **DIVERGED** | P2 | §2 initial matrix leaves Grok terminal pending feasibility (`spec:179-190`). | Grok ACP is implemented and default-selected when admitted (`packages/harness/src/manifests/grok.ts:202-223`). Implementation is the better current state; update the spec's initial matrix to record the completed pilot. | **S** docs. |
+| SA5 | **DIVERGED** | P2 | §2 initial matrix leaves Grok terminal pending feasibility (`spec:179-190`). | Grok ACP is implemented and default-selected when admitted (`packages/harness/src/manifests/grok.ts:202-223`). Implementation is the better current state. **Corrected post-audit in the normative matrix.** | **S** docs. |
 | SA6 | **IMPLEMENTED** | — | §2 defines permanent terminal, harness-server, and embedded families with runtime selection context (`spec:153-190`). | The runtime axis, family/id schemas, and pure selection context exist (`packages/harness/src/manifest.ts:506-600,710-731`). Embedded is separately classified missing under LD8. | — |
 | SA7 | **IMPLEMENTED** | — | §2 requires Codex app-server by default when admitted/authenticated (`spec:179-190`). | Codex manifest selects app-server by default and records its protocol gate (`packages/harness/src/manifests/codex.ts:319-363`). | — |
 | SA8 | **IMPLEMENTED** | — | §2 requires opencode server by default when admitted (`spec:179-190`). | Opencode selects its server when version-admitted and not known logged out (`packages/harness/src/manifests/opencode.ts:162-196`). | — |
@@ -121,7 +125,7 @@ settled: **S** (localized), **M** (multi-module), **L** (cross-cutting/product v
 | ID | Status | Rank | Commitment and evidence | Gap / judgment | Size / dependencies |
 |---|---|---:|---|---|---|
 | SEC1 | **IMPLEMENTED** | — | §§3/6 require opencode loopback plus a cryptographically random per-session secret, never argv, with refusal of unauthenticated access (`spec:382-391,503-533`). | Launch creates a CSPRNG secret, passes it only through environment, scopes the process, and validates authenticated health (`apps/daemon/src/runtime/opencode-server.ts:440-595`); journal mode is 0600 (`opencode-server.ts:122-175`). | — |
-| SEC2 | **DIVERGED** | P2 | §6 specifies Codex on a per-session 0600 Unix socket (`spec:503-533`). | Production uses inherited stdio (`apps/daemon/src/runtime/codex-app-server.ts:495-584`) because live verification found the advertised Unix socket is a daemon control socket, not the app-server client channel (`packages/harness/src/manifests/codex.ts:325-342`). **Implementation is right and more isolated; amend the spec.** | **S** docs. |
+| SEC2 | **DIVERGED** | P2 | §6 specifies Codex on a per-session 0600 Unix socket (`spec:503-533`). | Production uses inherited stdio (`apps/daemon/src/runtime/codex-app-server.ts:495-584`) because live verification found the advertised Unix socket is a daemon control socket, not the app-server client channel (`packages/harness/src/manifests/codex.ts:325-342`). **Implementation is right and more isolated; corrected post-audit in the normative transport rules.** | **S** docs. |
 | SEC3 | **PARTIAL** | P1 | §5 says on-machine attach adds no new transport/auth surface, and §10 requires a written multi-user threat model before attach v2 (`spec:479,572-581`). | Engine processes and secrets are locally isolated, but the attach negotiation/relay does not exist and no dedicated attach-v2 threat model covers endpoint discovery, viewer authorization, takeover, input attribution, secret lifetime, or sibling scope. | **S** ADR before AS1. |
 | SEC4 | **PARTIAL** | P1 | §1 requires PTY input containment because it is an attack surface (`spec:127-151`). | Agent-mail rendering strips control bytes, and the terminal driver wraps injection, but raw PTY paths and composer machinery remain callable outside the driver. Complete IS3/IS13 and document the one input boundary. | **M**; depends on IS3. |
 | SEC5 | **IMPLEMENTED** | — | §6 requires one dedicated process tree and exact endpoint/session identity (`spec:503-533`). | Server drivers launch per-session processes/scopes; journals and reaping corroborate pid/start-time/secret/native identity before adoption (`apps/daemon/src/runtime/server-reap.ts:288-437`). | — |
@@ -228,16 +232,30 @@ The appendix's deliberately outside items—offers, approval broker, advisory lo
 primitive, file relay/artifacts, specs, and the Podium agent relay—correctly remain outside the
 harness runtime surface.
 
-## Specification amendments recommended independently of implementation
+## Specification amendments and rulings
 
-1. Record Grok ACP as an implemented server-family pilot (SA5).
-2. Replace Codex's Unix-socket requirement with inherited stdio plus its verified security rationale
-   (SEC2).
-3. Decide whether G1 facts belong in `handle.state()` or in the session projection and make the
-   code/spec agree (AS6).
-4. Resolve opencode's byte-faithful archive guarantee before promising portable handoff (LD3).
-5. After the native-TUI decision, either approve the AS1 build chain or remove the false/reachable
-   attach commitments and capability claims from §5 and production manifests.
+Resolved in the normative architecture document on 2026-08-19:
+
+1. Grok ACP is an implemented, preferred server-family driver when the harness is logged in and its
+   version is admitted; the terminal driver remains the explicit fallback (SA5). Evidence:
+   `packages/harness/src/manifests/grok.ts:211-231`, `packages/agent-runtime/src/drivers/grok-acp/capabilities.ts:4-47`.
+2. Codex uses the child process's inherited stdio. Its advertised Unix socket is a daemon control
+   socket, not an app-server client channel; inherited stdio has no addressable local endpoint and
+   therefore needs neither a 0600 filesystem object nor a per-session secret (SEC2). Evidence:
+   `packages/harness/src/manifests/codex.ts:330-350`, `apps/daemon/src/runtime/codex-app-server.ts:510-553`.
+3. G1 product facts belong in the durable session projection. `handle.state()` remains the smaller
+   harness-runtime verdict and owns native-subagent state; observed model/effort/context, accent,
+   open todos, and event-time recency are projected once for family-blind product consumers (AS6).
+   Evidence: `packages/model/src/entities/session.ts:214-239,295-381`.
+4. The universal archive guarantee is semantic import/resume. Exact native-store preservation is a
+   separate `byteFaithful` capability: handoff can accept either fidelity, while backup/restore must
+   require it. `opencode`'s per-session message/part archive is valid without copying its shared
+   machine-wide SQLite database (LD3). Evidence:
+   `packages/agent-runtime/src/drivers/opencode/capabilities.ts:100-117`, `runtime.ts:1006-1034`.
+
+The remaining independent recommendation is unchanged: after the native-TUI decision, either
+approve the AS1 build chain or remove the false/reachable attach commitments and capability claims
+from §5 and production manifests. These corrections do not amend POD-2293's streaming proposal.
 
 ## Bottom line
 
