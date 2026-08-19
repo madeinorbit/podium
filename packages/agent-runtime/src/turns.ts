@@ -74,12 +74,24 @@ export interface TurnInput {
   overrides?: Declared<{ model?: string; effort?: string }>
 }
 
+export type AttachmentKind = 'image' | 'file'
+
+export interface AttachmentSource {
+  bytes: Uint8Array
+  filename: string
+  mediaType: string
+}
+
 export interface AttachmentRef {
   id: string
   /** Where it landed on the session's machine. */
   path: string
-  mediaType?: string
+  filename: string
+  mediaType: string
+  kind: AttachmentKind
 }
+
+export type AttachmentStageResult = AttachmentRef | Refusal
 
 /**
  * WHO IS ACTING — carried through queueing so a deferred turn can still be

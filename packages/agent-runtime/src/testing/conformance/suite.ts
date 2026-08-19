@@ -240,6 +240,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           'interactions',
           'observation',
           'transcript',
+          'staging',
           'attach',
           'lease',
           'snapshot',
@@ -290,6 +291,56 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // only when session = process. Pooling is a DECLARED capability so a
         // pooled session visibly lacks the guarantee (spec §6).
         expect(['dedicated', 'pooled']).toContain(driver.capabilities().placement)
+      })
+    })
+
+    // -----------------------------------------------------------------------
+    // Attachment staging
+    // -----------------------------------------------------------------------
+
+    describe('attachment staging', () => {
+      it('returns a staged ref matching its declaration, or a typed refusal', async () => {
+        const { handle, driver } = setup()
+        const session = await handle
+        const declared = driver.capabilities().staging
+
+        if (!declared.supported) {
+          await expect(
+            session.stageAttachment({
+              bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+              filename: 'probe.png',
+              mediaType: 'image/png',
+            }),
+          ).resolves.toMatchObject({ reason: 'unsupported' })
+          return
+        }
+
+        for (const kind of declared.value.kinds) {
+          const source =
+            kind === 'image'
+              ? {
+                  bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+                  filename: 'probe.png',
+                  mediaType: 'image/png',
+                }
+              : {
+                  bytes: new TextEncoder().encode('attachment probe'),
+                  filename: 'probe.txt',
+                  mediaType: 'text/plain',
+                }
+          const staged = await session.stageAttachment(source)
+          expect(staged).not.toHaveProperty('reason')
+          if ('reason' in staged) continue
+          expect(staged).toMatchObject({
+            id: expect.any(String),
+            path: expect.any(String),
+            filename: source.filename,
+            mediaType: source.mediaType,
+            kind,
+          })
+          expect(staged.id.length).toBeGreaterThan(0)
+          expect(staged.path.length).toBeGreaterThan(0)
+        }
       })
     })
 

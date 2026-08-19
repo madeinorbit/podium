@@ -44,7 +44,6 @@ import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
 import type {
   AnswerOptions,
-  AttachmentRef,
   Refusal,
   SendOptions,
   TurnInput,
@@ -1102,11 +1101,11 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         return startPrompt(session, input, options, deliveredAs)
       },
 
-      async stageAttachment(_source: {
-        bytes: Uint8Array
-        filename: string
-      }): Promise<AttachmentRef> {
-        throw new Error('grok-acp does not stage attachments: ACP file blocks are not negotiated')
+      async stageAttachment() {
+        return {
+          reason: 'unsupported',
+          detail: 'Grok ACP reports promptCapabilities.image=false and no file input',
+        }
       },
 
       async interrupt() {

@@ -51,7 +51,6 @@ import type {
   ActingPrincipal,
   AgentSessionHandle,
   AttachEndpoint,
-  AttachmentRef,
   AttachRequest,
   ConfigureRequest,
   DriverCapabilities,
@@ -1360,14 +1359,15 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         })
       },
 
-      async stageAttachment(_source): Promise<AttachmentRef> {
+      async stageAttachment() {
         // The upload path that lands attachment bytes on a session's machine is
         // the daemon's existing `imageUploadRequest` flow, which is server-driven
         // and already produces a path. Minting one here would create a second
         // staging root nothing cleans up.
-        throw new Error(
-          'terminal driver: attachments are staged by the existing upload path, not the driver',
-        )
+        return {
+          reason: 'unsupported',
+          detail: 'terminal attachment staging is not wired to the daemon upload store',
+        }
       },
 
       async interrupt(): Promise<void> {

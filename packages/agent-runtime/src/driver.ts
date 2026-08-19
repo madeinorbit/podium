@@ -18,7 +18,8 @@ import type { InteractionAnswerOutcome, PendingInteraction } from './interaction
 import type { SessionSpec } from './session-spec.js'
 import type {
   AnswerOptions,
-  AttachmentRef,
+  AttachmentSource,
+  AttachmentStageResult,
   Refusal,
   SendOptions,
   TurnInput,
@@ -54,7 +55,7 @@ export interface AgentSessionHandle {
 
   // ---- Turns and control (CORE) ----
   send(input: TurnInput, options: SendOptions): Promise<TurnReceipt>
-  stageAttachment(source: { bytes: Uint8Array; filename: string }): Promise<AttachmentRef>
+  stageAttachment(source: AttachmentSource): Promise<AttachmentStageResult>
   /** REQUESTS a fence. The fence is emitted only on provider confirmation and is
    *  never manufactured — so this returns nothing to await. Watch the stream. */
   interrupt(): Promise<void>

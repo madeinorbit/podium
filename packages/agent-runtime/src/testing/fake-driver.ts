@@ -393,6 +393,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       cursorMaterial: 'in-memory-seq',
     },
     transcript: supported({ history: true }),
+    staging: supported({ kinds: ['image', 'file'], promptForm: 'file-part' }),
     attach:
       family === 'embedded'
         ? unsupported('the embedded family hosts the loop in a worker; there is no terminal')
@@ -701,6 +702,9 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         return {
           id: `att-${core.nextId++}`,
           path: `${core.spec.workdir}/.podium/attachments/${source.filename}`,
+          filename: source.filename,
+          mediaType: source.mediaType,
+          kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
         }
       },
 

@@ -9,7 +9,7 @@ import type {
   InteractionKind,
   InteractionSource,
 } from './interactions.js'
-import type { SendProof, TurnDelivery } from './turns.js'
+import type { AttachmentKind, SendProof, TurnDelivery } from './turns.js'
 
 // ---------------------------------------------------------------------------
 // Config, accounting, health (spec §3 — mostly EXTENDED tier)
@@ -141,6 +141,14 @@ export interface AttachCapability {
   kinds: readonly AttachEndpoint['kind'][]
 }
 
+/** What `stageAttachment()` can land and how `send()` presents the resulting
+ * ref to the harness. A driver that cannot map BOTH halves declares staging
+ * unsupported: writing bytes that no prompt can consume is not support. */
+export interface AttachmentStagingCapability {
+  kinds: readonly AttachmentKind[]
+  promptForm: 'path-text' | 'local-image' | 'file-part'
+}
+
 /**
  * WHEN the resume ref becomes available. The spec requires it be captured as
  * early as the harness allows AND that the capability declare when that is —
@@ -162,6 +170,7 @@ export interface DriverCapabilities {
   interactions: Declared<InteractionCapability>
   observation: ObservationCapability
   transcript: Declared<{ history: boolean }>
+  staging: Declared<AttachmentStagingCapability>
   attach: Declared<AttachCapability>
   lease: Declared<{ humanTakeover: boolean }>
   snapshot: Declared<{ includesDraft: boolean }>

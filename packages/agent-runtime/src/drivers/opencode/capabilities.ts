@@ -84,6 +84,7 @@ export function opencodeServerCapabilities(): DriverCapabilities {
       cursorMaterial: 'event-offset',
     },
     transcript: supported({ history: true }),
+    staging: unsupported('opencode attachment staging is not wired to its file-part input'),
     /**
      * `client`, not `engine`. There is no engine terminal — the session is a
      * server process with no PTY — and opencode ships its own TUI client

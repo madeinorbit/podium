@@ -85,7 +85,6 @@ import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
 import type {
   AnswerOptions,
-  AttachmentRef,
   Refusal,
   SendOptions,
   TurnInput,
@@ -1320,13 +1319,16 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         }
       },
 
-      async stageAttachment(): Promise<AttachmentRef> {
+      async stageAttachment() {
         // Codex's `UserInput` has a `localImage` arm that references a path on
         // the SESSION's machine, and this driver has no way to put bytes there —
         // the child is a process, not a filesystem service. Throwing names the
         // gap; returning a ref to a file that does not exist would fail one
         // layer later with nothing to read.
-        throw new Error('codex-app-server does not stage attachments: no upload channel is exposed')
+        return {
+          reason: 'unsupported',
+          detail: 'Codex attachment staging is not wired to its local-image input',
+        }
       },
 
       async interrupt(): Promise<void> {

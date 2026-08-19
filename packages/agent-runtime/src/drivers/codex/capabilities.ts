@@ -98,6 +98,7 @@ export function codexAppServerCapabilities(): DriverCapabilities {
       cursorMaterial: 'event-offset',
     },
     transcript: supported({ history: true }),
+    staging: unsupported('Codex attachment staging is not wired to its local-image input'),
     /**
      * `client`, not `engine`: the headless app-server remains authoritative and
      * Native launches Codex's original resume TUI beside it.

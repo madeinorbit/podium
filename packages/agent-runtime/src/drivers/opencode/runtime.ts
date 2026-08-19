@@ -62,7 +62,7 @@ import type {
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
-import type { AnswerOptions, AttachmentRef, Refusal, SendOptions, TurnInput, TurnReceipt } from '../../turns.js'
+import type { AnswerOptions, Refusal, SendOptions, TurnInput, TurnReceipt } from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import { opencodeServerCapabilities } from './capabilities.js'
 import { type OpencodeClient, type OpencodeClientConfig, createOpencodeClient } from './client.js'
@@ -1306,13 +1306,16 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         }
       },
 
-      async stageAttachment(): Promise<AttachmentRef> {
+      async stageAttachment() {
         // opencode's prompt takes `FilePartInput`s that reference a path on the
         // SESSION's machine, and this driver has no way to put bytes there — the
         // server is a process, not a filesystem service. Throwing names the gap;
         // returning a ref to a file that does not exist would fail one layer
         // later with nothing to read.
-        throw new Error('opencode-server does not stage attachments: no upload channel is exposed')
+        return {
+          reason: 'unsupported',
+          detail: 'opencode attachment staging is not wired to its file-part input',
+        }
       },
 
       async interrupt(): Promise<void> {
