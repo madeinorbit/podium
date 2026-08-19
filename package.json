@@ -39,6 +39,8 @@
     "//build": "The web app is HALF of what this repo serves, and leaving it out is how POD-1610 survived a night of rebuilding: `bun run build` looked like it rebuilt everything and left apps/web/dist three days stale. apps/desktop (tauri) and apps/mobile (expo) are NOT here — they are separately released artefacts with their own commands (desktop:build, apps/mobile) rather than something this server serves.",
     "build": "bun run --filter './packages/*' build && bun run --filter @podium/web build",
     "dev": "bun run --filter './packages/*' dev",
+    "deps:clean-local-installs": "bun scripts/clean-workspace-installs.ts",
+    "deps:rollback-hoisted": "bun run deps:clean-local-installs && bun install --frozen-lockfile --linker=hoisted",
     "host": "bun run --filter @podium/web dev & bun --conditions=@podium/source --watch scripts/host.ts",
     "host:web": "bun run --filter @podium/web dev",
     "host:backend": "bun --conditions=@podium/source --watch scripts/host.ts",

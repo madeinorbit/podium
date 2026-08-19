@@ -140,6 +140,31 @@ packages from source instead of (possibly unbuilt) `dist/`.
   step passes a `baseUrl` to the TypeScript 6 compiler, which TS 6 rejects as deprecated
   (TS5101). The shim suppresses it. Remove it once tsup no longer injects `baseUrl`.
 
+### Rolling the Bun linker back to hoisted
+
+An isolated install creates `node_modules` trees inside individual workspaces. Removing only the
+root install leaves those trees available to resolution after a rollback. From the checkout being
+rolled back, first restore `bunfig.toml` to `linker = "hoisted"`, stop processes using that
+checkout's dependencies, and preview the cleanup:
+
+```bash
+bun scripts/clean-workspace-installs.ts --dry-run
+```
+
+Then run the Stage 1 rollback command:
+
+```bash
+bun run deps:rollback-hoisted
+```
+
+The command removes every `node_modules` entry in this checkout, including workspace-local ones,
+then runs `bun install --frozen-lockfile --linker=hoisted`. The cleanup anchors itself to the
+checkout containing the script rather than the shell's current directory. It does not descend
+through symlinks; a symlink named `node_modules` is unlinked without touching its target. It never
+runs a Bun cache-cleaning command, so the shared cache outside the repository remains available to
+the reinstall. A cleanup or install error stops the chain; do not start the checkout against a
+partial install—fix the error and rerun the rollback command.
+
 ## Cross-package imports
 
 Published workspace libraries expose a local `"@podium/source": "./src/index.ts"`
