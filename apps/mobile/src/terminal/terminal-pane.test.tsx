@@ -58,7 +58,13 @@ import type { TerminalControlState } from './terminal-control'
 type MountRole = 'controller' | 'spectator'
 type MountCallbacks = {
   onReady?: () => void
-  onState?: (state: { outputSeen: boolean; role: MountRole }) => void
+  onState?: (state: {
+    outputSeen: boolean
+    role: MountRole
+    cols: number
+    rows: number
+    requestedGeometry: { cols: number; rows: number } | null
+  }) => void
   onMounted?: (mounted: unknown) => void
   gridMode?: string
 }
@@ -255,7 +261,13 @@ describe('TerminalPane startup status (POD-393)', () => {
     const opts = lastMountOpts
     if (!opts) throw new Error('the pane never mounted a session')
     await act(async () => {
-      opts.onState?.({ outputSeen, role: 'spectator' })
+      opts.onState?.({
+        outputSeen,
+        role: 'spectator',
+        cols: 103,
+        rows: 28,
+        requestedGeometry: null,
+      })
       opts.onReady?.()
       await Promise.resolve()
     })
@@ -278,7 +290,13 @@ describe('TerminalPane startup status (POD-393)', () => {
 
     // First output: the terminal itself is the affordance from here on.
     await act(async () => {
-      lastMountOpts?.onState?.({ outputSeen: true, role: 'spectator' })
+      lastMountOpts?.onState?.({
+        outputSeen: true,
+        role: 'spectator',
+        cols: 103,
+        rows: 28,
+        requestedGeometry: null,
+      })
       await Promise.resolve()
     })
     expect(view.queryByText(SILENT)).toBeNull()
@@ -306,8 +324,8 @@ describe('TerminalPane startup status (POD-393)', () => {
  * WHICH side of that line it is on (a blind "Take control" button that lies
  * while already in control is the defect), and that the takeover goes through
  * the mount's `takeControl` — not a bare `connection.requestControl()`, which
- * would hand over without reporting this phone's viewport first and leave the
- * PTY on the desk's geometry until the next debounced observer tick.
+ * would hand over without carrying this phone's measured viewport and leave
+ * the PTY on the desk's geometry until the next debounced observer tick.
  */
 describe('TerminalPane take control (POD-724)', () => {
   async function mountPane(sessionId: SessionId) {
@@ -319,9 +337,19 @@ describe('TerminalPane take control (POD-724)', () => {
     return { view, published, latest: () => published.at(-1) }
   }
 
-  async function report(role: MountRole, ready = true): Promise<void> {
+  async function report(
+    role: MountRole,
+    ready = true,
+    requestedGeometry: { cols: number; rows: number } | null = null,
+  ): Promise<void> {
     await act(async () => {
-      lastMountOpts?.onState?.({ outputSeen: true, role })
+      lastMountOpts?.onState?.({
+        outputSeen: true,
+        role,
+        cols: role === 'controller' ? 62 : 103,
+        rows: role === 'controller' ? 36 : 28,
+        requestedGeometry,
+      })
       if (ready) lastMountOpts?.onReady?.()
       await Promise.resolve()
     })
@@ -335,6 +363,7 @@ describe('TerminalPane take control (POD-724)', () => {
     // a desktop-driven PTY, so the honest published state is "spectator".
     await report('spectator')
     expect(pane.latest()?.role).toBe('spectator')
+    expect(pane.latest()?.phase).toBe('spectating')
     expect(pane.latest()?.ready).toBe(true)
 
     // The header's action. `takeControl` on the MOUNT is what carries this
@@ -346,21 +375,31 @@ describe('TerminalPane take control (POD-724)', () => {
     // happened.
     await report('controller')
     expect(pane.latest()?.role).toBe('controller')
+    expect(pane.latest()?.phase).toBe('controlling')
   })
 
-  it('says which grid is on screen, and swaps the line rather than dropping it on takeover', async () => {
+  it('keeps the claim pending until matching server geometry is acknowledged', async () => {
     const sessionId = asSessionId('sess-caption')
     const pane = await mountPane(sessionId)
-    const SPECTATING = 'Cropped to the desk grid — take control to resize it to this phone.'
-    const CONTROLLING = 'In control — this phone drives the shared grid size.'
+    const SPECTATING = 'Following the shared 103×28 terminal — take control to fit this phone.'
+    const FITTING = 'Taking control — fitting the shared terminal to this phone…'
+    const CONTROLLING = 'In control — phone grid 62×36.'
 
     await report('spectator')
     expect(pane.view.queryByText(SPECTATING)).not.toBeNull()
 
-    // A line that VANISHED here would shorten this flex column at the exact
-    // moment the takeover resizes the PTY — a second SIGWINCH chasing the first.
-    await report('controller')
+    await report('spectator', true, { cols: 62, rows: 36 })
+    expect(pane.latest()?.phase).toBe('fitting')
     expect(pane.view.queryByText(SPECTATING)).toBeNull()
+    expect(pane.view.queryByText(FITTING)).not.toBeNull()
+
+    // Controller role alone is not success: the target remains pending until
+    // the authoritative geometry arrives.
+    await report('controller', true, { cols: 62, rows: 36 })
+    expect(pane.view.queryByText(FITTING)).not.toBeNull()
+
+    await report('controller')
+    expect(pane.view.queryByText(FITTING)).toBeNull()
     expect(pane.view.queryByText(CONTROLLING)).not.toBeNull()
   })
 })

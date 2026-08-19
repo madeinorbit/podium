@@ -17,10 +17,14 @@ import type { ConnectionState } from '@podium/client-core/socket-transport'
  */
 
 export type TerminalRole = ConnectionState['role']
+export type TerminalControlPhase = 'spectating' | 'fitting' | 'controlling'
 
 /** What the pane publishes so the SCREEN's header can own the affordance. */
 export interface TerminalControlState {
   role: TerminalRole
+  phase: TerminalControlPhase
+  cols: number
+  rows: number
   /** The mount is attached: a takeover request has somewhere to land. */
   ready: boolean
   takeControl: () => void
@@ -42,12 +46,19 @@ export interface TerminalControlCopy {
   caption: string
 }
 
-export function terminalControlCopy(role: TerminalRole): TerminalControlCopy {
-  if (role === 'controller') {
+export function terminalControlCopy(control: TerminalControlState): TerminalControlCopy {
+  if (control.phase === 'fitting') {
+    return {
+      label: 'Taking control — waiting for the phone grid to be applied',
+      status: 'Fitting…',
+      caption: 'Taking control — fitting the shared terminal to this phone…',
+    }
+  }
+  if (control.phase === 'controlling') {
     return {
       label: 'In control — the terminal is sized to this phone. Tap to re-claim it.',
       status: 'In control',
-      caption: 'In control — this phone drives the shared grid size.',
+      caption: `In control — phone grid ${control.cols}×${control.rows}.`,
     }
   }
   return {
@@ -55,6 +66,6 @@ export function terminalControlCopy(role: TerminalRole): TerminalControlCopy {
     status: 'Spectating',
     // Names the crop AND the price of fixing it. Whoever is at the desk sees
     // the new geometry, so that must not be a surprise discovered afterwards.
-    caption: 'Cropped to the desk grid — take control to resize it to this phone.',
+    caption: `Following the shared ${control.cols}×${control.rows} terminal — take control to fit this phone.`,
   }
 }

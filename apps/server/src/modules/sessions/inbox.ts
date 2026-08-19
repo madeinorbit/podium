@@ -15,6 +15,7 @@ import type {
   AgentKind,
   AgentRuntimeState,
   Attribution,
+  Geometry,
   MutationId,
   SessionId,
   UserId,
@@ -962,7 +963,12 @@ export class SessionInbox {
    * Preemptive take-control (POD-1081 §3). The current controller cannot refuse;
    * rights are re-checked live against owner/grants + machine use.
    */
-  requestControl(principal: ClientPrincipal, client: ClientConn, sessionId: SessionId): void {
+  requestControl(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    sessionId: SessionId,
+    geometry?: Geometry,
+  ): void {
     const session = this.deps.getSession(sessionId)
     if (!session) return
     if (this.deps.authorizeDrive && !this.deps.authorizeDrive(principal, sessionId)) {
@@ -973,7 +979,28 @@ export class SessionInbox {
       })
       return
     }
-    session.terminal.requestControl(client.id)
+    session.terminal.requestControl(client.id, geometry)
+  }
+
+  /**
+   * If exactly one connection renders the native terminal, make it the driver.
+   * Person-level presence intentionally collapses a user's devices, so sizing
+   * policy derives from the terminal's per-connection renderer set instead.
+   */
+  reconcileActiveRenderer(sessionId: SessionId): boolean {
+    const session = this.deps.getSession(sessionId)
+    if (!session) return false
+    const [sole, second] = session.terminal.activeNativeRenderers()
+    if (!sole || second) return false
+    if (this.deps.authorizeDrive && !this.deps.authorizeDrive(sole.principal, sessionId))
+      return false
+    const previous = session.terminal.controllerId
+    // Never auto-transfer on a stale/unknown grid. A newly active renderer
+    // reports its current viewport immediately; handleResize calls back into
+    // this method after storing that measurement.
+    if (previous !== sole.id && !sole.viewports.has(sessionId)) return false
+    session.terminal.requestControl(sole.id)
+    return previous !== session.terminal.controllerId
   }
 
   handleResize(
@@ -982,9 +1009,12 @@ export class SessionInbox {
     sessionId: SessionId,
     cols: number,
     rows: number,
-  ): void {
+  ): boolean {
     void principal
-    this.deps.getSession(sessionId)?.terminal.handleResize(client.id, cols, rows)
+    const session = this.deps.getSession(sessionId)
+    if (!session) return false
+    session.terminal.handleResize(client.id, cols, rows)
+    return this.reconcileActiveRenderer(sessionId)
   }
 
   reconcileGeometry(principal: ClientPrincipal, client: ClientConn, sessionId: SessionId): void {

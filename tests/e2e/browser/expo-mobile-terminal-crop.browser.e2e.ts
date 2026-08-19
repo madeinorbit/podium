@@ -9,9 +9,9 @@ test.skip(
 )
 test.setTimeout(180_000)
 
-const ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/POD-431')
+const ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/POD-1385')
 
-test('phone crops and pans the desktop terminal grid without reflowing it', async ({
+test('phone follows an active desktop grid, then auto-fits when it is the sole renderer', async ({
   browser,
   page: phone,
 }) => {
@@ -20,6 +20,7 @@ test('phone crops and pans the desktop terminal grid without reflowing it', asyn
     viewport: { width: 1600, height: 900 },
   })
   const desktop = await desktopContext.newPage()
+  let desktopClosed = false
 
   try {
     await openApp(desktop)
@@ -168,7 +169,44 @@ test('phone crops and pans the desktop terminal grid without reflowing it', asyn
         ),
       )
       .toMatchObject({ role: 'controller', cols: desktopState.cols, rows: desktopState.rows })
-  } finally {
+
+    // The other native renderer leaves. The phone has continuously held a
+    // renderer lease and reported its viewport, so the server can atomically
+    // transfer control + geometry without a tap or keystroke.
     await desktopContext.close()
+    desktopClosed = true
+    await expect
+      .poll(
+        () =>
+          phone.evaluate(() =>
+            (
+              window as unknown as {
+                __podium?: {
+                  state(): { cols: number; rows: number; role: string; requestedGeometry: unknown }
+                }
+              }
+            ).__podium?.state(),
+          ),
+        { timeout: 30_000 },
+      )
+      .toMatchObject({ role: 'controller', requestedGeometry: null })
+    const fitted = await phone.evaluate(() =>
+      (
+        window as unknown as {
+          __podium?: { state(): { cols: number; rows: number; role: string } }
+        }
+      ).__podium?.state(),
+    )
+    if (!fitted) throw new Error('phone terminal state disappeared after control transfer')
+    expect(fitted.cols).toBeLessThan(desktopState.cols)
+    await expect(
+      phone.getByText(new RegExp(`In control — phone grid ${fitted.cols}×${fitted.rows}`)),
+    ).toBeVisible()
+    await phone.screenshot({
+      path: resolve(ARTIFACTS, 'mobile-terminal-auto-fit.png'),
+      fullPage: true,
+    })
+  } finally {
+    if (!desktopClosed) await desktopContext.close()
   }
 })

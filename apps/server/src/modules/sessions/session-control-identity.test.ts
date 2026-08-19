@@ -77,13 +77,23 @@ function control(opts: {
   let ctl!: SessionClientControl
   const inbox = {
     handleControllerInput: vi.fn(),
-    requestControl: (principal: ClientPrincipal, client: ClientConn, sessionId: SessionId) => {
+    requestControl: (
+      principal: ClientPrincipal,
+      client: ClientConn,
+      sessionId: SessionId,
+      geometry?: { cols: number; rows: number },
+    ) => {
       // Mirror production: policy gate then transfer.
       if (!ctl.authorizeDrive(principal, sessionId)) {
         client.send({ type: 'terminalOutcome', sessionId, outcome: 'unauthorized' })
         return
       }
-      opts.session.terminal.requestControl(client.id)
+      opts.session.terminal.requestControl(client.id, geometry)
+    },
+    reconcileActiveRenderer: (sessionId: SessionId) => {
+      const [sole, second] = opts.session.terminal.activeNativeRenderers()
+      if (!sole || second || !ctl.authorizeDrive(sole.principal, sessionId)) return
+      opts.session.terminal.requestControl(sole.id)
     },
     handleResize: vi.fn(),
     reconcileGeometry: vi.fn(),
@@ -235,12 +245,18 @@ describe('POD-1081 attach + take-control policy', () => {
     })
     const alice = makeClient('c-alice', ALICE, 'member')
     session.terminal.attachClient(alice)
+    alice.viewVisible = new Set([SESSION])
     owner.sent.length = 0
     alice.sent.length = 0
 
-    ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
+    ctl.onFrame(alice.principal, alice, {
+      type: 'requestControl',
+      sessionId: SESSION,
+      geometry: { cols: 62, rows: 36 },
+    })
     expect(session.terminal.controllerId).toBe('c-alice')
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: ALICE })
+    expect(session.terminal.geometry).toEqual({ cols: 62, rows: 36 })
     expect(owner.sent).toContainEqual(
       expect.objectContaining({
         type: 'controllerChanged',
@@ -248,6 +264,45 @@ describe('POD-1081 attach + take-control policy', () => {
         controllerIdentity: { kind: 'user', user: ALICE },
       }),
     )
+  })
+
+  it('auto-controls only for the sole active native renderer, not a chat-only peer', () => {
+    const session = makeSession()
+    const ctl = control({
+      session,
+      owner: { owner: OWNER, grants: [] },
+      machineUse: 'granted',
+    })
+    const desktop = makeClient('c-desktop', OWNER, 'admin')
+    const phone = makeClient('c-phone', OWNER, 'admin')
+    ctl.onFrame(desktop.principal, desktop, { type: 'attach', sessionId: SESSION })
+    ctl.onFrame(phone.principal, phone, { type: 'attach', sessionId: SESSION })
+
+    ctl.onFrame(desktop.principal, desktop, {
+      type: 'viewState',
+      visible: [SESSION],
+      focused: SESSION,
+      modes: { [SESSION]: 'native' },
+    })
+    ctl.onFrame(phone.principal, phone, {
+      type: 'viewState',
+      visible: [SESSION],
+      focused: SESSION,
+      modes: { [SESSION]: 'native' },
+    })
+    expect(session.terminal.controllerId).toBe('c-desktop')
+    phone.viewports.set(SESSION, { cols: 62, rows: 36 })
+
+    // The same person's desktop remains in the session room but switches to
+    // structured Chat. Only the phone consumes native geometry, so it becomes
+    // controller automatically.
+    ctl.onFrame(desktop.principal, desktop, {
+      type: 'viewState',
+      visible: [SESSION],
+      focused: SESSION,
+      modes: { [SESSION]: 'chat' },
+    })
+    expect(session.terminal.controllerId).toBe('c-phone')
   })
 })
 
@@ -339,6 +394,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
       inbox: {
         handleControllerInput,
         requestControl: vi.fn(),
+        reconcileActiveRenderer: vi.fn(),
         handleResize: vi.fn(),
         reconcileGeometry: vi.fn(),
       } as unknown as SessionInbox,
@@ -416,6 +472,7 @@ describe('POD-1081 agent control drops at next apply (no reaper)', () => {
         })
       },
       requestControl: vi.fn(),
+      reconcileActiveRenderer: vi.fn(),
       handleResize: vi.fn(),
       reconcileGeometry: vi.fn(),
     } as unknown as SessionInbox

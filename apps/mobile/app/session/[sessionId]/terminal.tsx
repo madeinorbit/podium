@@ -52,7 +52,7 @@ export default function TerminalRoute() {
   // Published by the pane, which owns the mount. The header owns the ACTION —
   // a phone action belongs on the 44pt bar, not floating over the grid.
   const [control, setControl] = useState<TerminalControlState | null>(null)
-  const controlCopy = control ? terminalControlCopy(control.role) : null
+  const controlCopy = control ? terminalControlCopy(control) : null
   const kindLabel = session ? panelLabel(session.agentKind) : undefined
 
   return (

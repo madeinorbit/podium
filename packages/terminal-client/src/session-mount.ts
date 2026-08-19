@@ -89,7 +89,7 @@ export interface MountedSession {
   connection: SessionConnection
   view: TerminalView
   /** Send user input, taking control first when a server-grid spectator starts
-   *  interacting. The two ordered frames make the first byte land as controller. */
+   *  interacting. The atomic claim makes the first byte land as controller. */
   sendInput(data: string): void
   /**
    * Claim control of the shared PTY WITHOUT typing anything (POD-724).
@@ -100,9 +100,9 @@ export interface MountedSession {
    * {@link sendInput} — you had to send a keystroke into someone else's session
    * to be able to READ it. This is that takeover made explicit, and it is on the
    * mount rather than on `connection` because the viewport sample belongs with
-   * the fit logic: reporting THIS client's grid and requesting control are two
-   * ordered frames on one socket, so the server applies this screen's size at
-   * the transfer instead of whatever the debounced resize observer last sent.
+   * the fit logic: THIS client's measured grid rides on the control claim, so
+   * the server applies both in one mutation instead of trusting whatever the
+   * debounced resize observer last sent.
    * Control mode has nothing to withhold, so there it is just the request.
    */
   takeControl(): void
@@ -280,12 +280,15 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         const action = decideResizeAction(grid, serverGrid, { forceRedrawIfSame })
         trace('fit:action', { grid, action, forceRedrawIfSame })
         if (action.kind === 'resize') {
-          connection.sendResize(action.cols, action.rows)
-          // Phone server-grid fits change winsize without the requestControl
-          // redraw path. Soft-nudge the PTY so alt-screen TUIs that under-paint
-          // on a single SIGWINCH (observed with Grok) fully repaint into the
-          // cleared local buffer once geometry acks.
-          if (gridMode === 'server-grid') connection.redraw()
+          if (gridMode === 'server-grid') {
+            // A controller phone repairs geometry through the same atomic claim
+            // as an explicit takeover. This is intentionally idempotent when it
+            // already owns control: the server still applies/acknowledges this
+            // viewport without bumping the controller epoch.
+            connection.requestControl({ cols: action.cols, rows: action.rows })
+          } else {
+            connection.sendResize(action.cols, action.rows)
+          }
         } else if (action.kind === 'redraw') {
           connection.redraw()
         }
@@ -476,13 +479,17 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         view.forceRepaint()
       }
       serverGrid = { cols: state.cols, rows: state.rows }
-      if (gridMode === 'server-grid' && state.role !== lastRole && eligible()) {
+      const roleChanged = state.role !== lastRole
+      // Update before an atomic claim emits its local pending state; otherwise
+      // that nested notification would look like a second role transition and
+      // recursively claim again.
+      lastRole = state.role
+      if (gridMode === 'server-grid' && roleChanged && eligible()) {
         // The first attached client is made controller by the server. It should
         // still fit a phone-only session; only a spectator follows/crops.
         if (state.role === 'controller') applyFit(false)
         else reportViewport()
       }
-      lastRole = state.role
       // Clear only on an in-session epoch bump — a controller takeover repaints the
       // grid for the new owner. The (re)attach clear is owned by onReset above, so a
       // plain reconnect that resumes from our cursor leaves the screen intact.
@@ -496,10 +503,34 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       }
       el.dataset.role = state.role
       el.dataset.epoch = String(state.epoch)
-      opts.onState?.(state)
+      // A role transition may synchronously create a pending geometry claim.
+      // Publish the connection's latest state so UI never overwrites “fitting”
+      // with the stale pre-claim controller snapshot from this callback.
+      opts.onState?.(connection.state())
     },
   })
   connection.setEchoLatencyEnabled?.(opts.echoLatencyEnabled ?? false)
+
+  // A renderer lease is the per-CONNECTION answer to “who has this terminal on
+  // screen?”. It complements person-level multiplayer presence: the same user
+  // may have a desktop and phone, and both must count independently for sizing.
+  // Acquire before any fit/control message so the server's visibility gate and
+  // sole-renderer policy see one ordered truth on this socket.
+  let releaseRendererLease: (() => void) | null = null
+  const syncRendererLease = (): void => {
+    // Optional guard keeps older embedders/test doubles source-compatible
+    // during the additive client-core rollout.
+    if (typeof hub.registerRenderedSession !== 'function') return
+    if (eligible() && releaseRendererLease === null) {
+      releaseRendererLease = hub.registerRenderedSession(sessionId, {
+        mode: 'native',
+        focused: true,
+      })
+    } else if (!eligible() && releaseRendererLease !== null) {
+      releaseRendererLease()
+      releaseRendererLease = null
+    }
+  }
 
   // An output frame is not yet a visible echo: xterm parses asynchronously and
   // the browser still has to paint its canvas/DOM. Wait for xterm's render event,
@@ -521,22 +552,23 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // Becoming the active tab of a visible page claims control (last-foregrounded-wins)
   // and fits the terminal to THIS client's viewport. We never resize/redraw/requestControl
   // while ineligible, so a hidden tab can't pin the shared PTY to its stale grid.
+  syncRendererLease()
   if (active) becomeEligible()
 
   // The takeover itself, shared by the implicit path (first keystroke) and the
   // explicit one a client can offer as an action (POD-724). Whichever triggers
-  // it, the server-grid spectator hands over its OWN viewport in the same
-  // ordered burst: reportViewport, then requestControl on one socket, so the
-  // server applies this client's size at the transfer. The resize observer is
+  // it, the server-grid spectator carries its OWN viewport on the control claim,
+  // so the server applies ownership and size atomically. The resize observer is
   // debounced, so the grid is sampled synchronously HERE — a takeover that
   // immediately follows a rotation or a keyboard change must not pin the shared
   // PTY to the previous size. The role transition in onState then fits/repaints.
   function takeControl(): void {
     if (gridMode === 'server-grid') {
       const grid = proposeViewport()
-      if (grid && (reportedViewport?.cols !== grid.cols || reportedViewport.rows !== grid.rows)) {
+      if (grid) {
         reportedViewport = grid
-        connection.reportViewport(grid.cols, grid.rows)
+        connection.requestControl(grid)
+        return
       }
     }
     connection.requestControl()
@@ -579,6 +611,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   const onVisibility = (): void => {
     trace('page:visibility-change')
+    syncRendererLease()
     if (eligible()) reveal() // page returning to the foreground is a reveal (canvas was freed)
   }
   if (typeof document !== 'undefined') {
@@ -654,6 +687,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (next === active) return
       active = next
       trace('panel:active-change', { next })
+      syncRendererLease()
       // Becoming active = a reveal: the panel was display:none (its WebGL canvas freed),
       // so recover the renderer after layout, not just refresh immediately.
       if (active) {
@@ -692,6 +726,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('dispose')
       if (readyTimer !== undefined) clearTimeout(readyTimer)
       if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
+      releaseRendererLease?.()
+      releaseRendererLease = null
       cancelScheduledFit()
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibility)

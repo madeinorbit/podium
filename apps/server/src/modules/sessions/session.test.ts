@@ -152,9 +152,7 @@ describe('Session', () => {
     s.terminal.handleInput('a', 'eA==', attribution)
     // Live only — retained on the terminal for watchers, not a durable row.
     expect(s.terminal.lastInputAttribution).toEqual(attribution)
-    expect(toDaemon).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'input', attribution }),
-    )
+    expect(toDaemon).toHaveBeenCalledWith(expect.objectContaining({ type: 'input', attribution }))
   })
 
   it('revokeController clears identity and broadcasts controllerChanged', () => {
@@ -308,8 +306,7 @@ describe('Session', () => {
     s.terminal.attachClient(a)
     s.terminal.attachClient(b)
     b.viewVisible = new Set([asSessionId('s1')]) // requester is rendering the session → snap-resizes
-    s.terminal.handleResize('b', 50, 60)
-    s.terminal.requestControl('b')
+    s.terminal.requestControl('b', { cols: 50, rows: 60 })
     expect(s.terminal.controllerId).toBe('b')
     expect(s.terminal.epoch).toBe(1)
     expect(s.terminal.geometry).toEqual({ cols: 50, rows: 60 })
@@ -353,6 +350,59 @@ describe('Session', () => {
     expect(s.terminal.controllerId).toBe('a')
     expect(a.sent).not.toContainEqual(expect.objectContaining({ type: 'controllerChanged' }))
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
+  })
+
+  it('re-requesting control atomically repairs stale geometry without an epoch bump', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.terminal.attachClient(a)
+    a.viewVisible = new Set([asSessionId('s1')])
+    const epoch0 = s.terminal.epoch
+    a.sent.length = 0
+    toDaemon.mockClear()
+
+    s.terminal.requestControl('a', { cols: 62, rows: 36 })
+
+    expect(s.terminal.epoch).toBe(epoch0)
+    expect(s.terminal.geometry).toEqual({ cols: 62, rows: 36 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 62,
+      rows: 36,
+    })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'redraw', sessionId: asSessionId('s1') })
+    expect(a.sent).not.toContainEqual(expect.objectContaining({ type: 'controllerChanged' }))
+    expect(a.sent).toContainEqual({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: 62,
+      rows: 36,
+    })
+  })
+
+  it('counts active native renderers per connection, not per person or attached client', () => {
+    const s = makeSession()
+    const desktop = makeClient('desktop')
+    const phone = makeClient('phone')
+    // Both fixtures represent connections and may belong to the same user; the
+    // renderer policy intentionally does not collapse them like room presence.
+    phone.principal = desktop.principal
+    s.terminal.attachClient(desktop)
+    s.terminal.attachClient(phone)
+    desktop.viewVisible = new Set([asSessionId('s1')])
+    desktop.viewModes = { s1: 'chat' }
+    phone.viewVisible = new Set([asSessionId('s1')])
+    phone.viewModes = { s1: 'native' }
+
+    expect(s.terminal.activeNativeRenderers().map((client) => client.id)).toEqual(['phone'])
+
+    desktop.viewModes = { s1: 'native' }
+    expect(s.terminal.activeNativeRenderers().map((client) => client.id)).toEqual([
+      'desktop',
+      'phone',
+    ])
   })
 
   it('requestControl from a client not rendering the session transfers control but does not snap-resize', () => {
@@ -618,6 +668,42 @@ describe('Session', () => {
     expect(a.viewports.has('other-session')).toBe(true)
     expect(b.sent).toContainEqual(
       expect.objectContaining({ type: 'controllerChanged', controllerId: 'b' }),
+    )
+  })
+
+  it('atomically fits the sole measured native renderer when the controller detaches', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const desktop = makeClient('desktop')
+    const phone = makeClient('phone')
+    s.terminal.attachClient(desktop)
+    s.terminal.attachClient(phone)
+    phone.viewVisible = new Set([asSessionId('s1')])
+    phone.viewModes = { s1: 'native' }
+    phone.viewports.set('s1', { cols: 42, rows: 19 })
+    toDaemon.mockClear()
+
+    s.terminal.detachClient('desktop')
+
+    expect(s.terminal.controllerId).toBe('phone')
+    expect(s.terminal.geometry).toEqual({ cols: 42, rows: 19 })
+    expect(toDaemon.mock.calls).toEqual([
+      [
+        {
+          type: 'resize',
+          sessionId: asSessionId('s1'),
+          cols: 42,
+          rows: 19,
+        },
+      ],
+      [{ type: 'redraw', sessionId: asSessionId('s1') }],
+    ])
+    expect(phone.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'controllerChanged',
+        controllerId: 'phone',
+        geometry: { cols: 42, rows: 19 },
+      }),
     )
   })
 

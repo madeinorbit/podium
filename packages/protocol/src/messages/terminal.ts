@@ -163,6 +163,13 @@ export const ResizeMessage = z.object({
 export const RequestControlMessage = z.object({
   type: z.literal('requestControl'),
   sessionId: SessionIdField,
+  /**
+   * The viewport measured at the instant control is claimed. Keeping the
+   * geometry on the claim makes controller transfer + PTY sizing one ordered
+   * server mutation instead of a resize/request race. Optional for rolling
+   * compatibility with clients that still report their viewport separately.
+   */
+  geometry: Geometry.optional(),
 })
 export const RedrawRequestMessage = z.object({
   type: z.literal('redrawRequest'),

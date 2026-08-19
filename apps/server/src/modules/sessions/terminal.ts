@@ -1,10 +1,4 @@
-import type {
-  AgentKind,
-  Attribution,
-  Geometry,
-  SessionId,
-  TranscriptItem,
-} from '@podium/model'
+import type { AgentKind, Attribution, Geometry, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationInputOrigin, PresenceIdentity, ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -296,6 +290,15 @@ export class SessionTerminal {
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
     if (this.controllerId !== clientId) return
+    // If the departure leaves one measured native renderer, hand it control
+    // through the same atomic controller+geometry path as an explicit claim.
+    // Otherwise clients would briefly receive "controller" at the departed
+    // desktop's grid, followed by a separate phone geometry correction.
+    const [soleRenderer, secondRenderer] = this.activeNativeRenderers()
+    if (soleRenderer && !secondRenderer && soleRenderer.viewports.has(this.init.sessionId)) {
+      this.requestControl(soleRenderer.id)
+      return
+    }
     // Disconnect: reassign to the next attached client (preemption policy §3).
     // Identity rides with the new controller; no refuse step.
     const nextId = this.clients.keys().next().value ?? null
@@ -412,36 +415,63 @@ export class SessionTerminal {
     })
   }
 
-  requestControl(clientId: string): void {
+  /** Connections that currently render the native terminal. Presence rooms are
+   * person-scoped; this list is deliberately device/connection-scoped so one
+   * person's desktop and phone both participate in geometry policy. */
+  activeNativeRenderers(): readonly ClientConn[] {
+    return [...this.clients.values()].filter(
+      (client) =>
+        client.viewVisible.has(this.init.sessionId) &&
+        (client.viewModes[this.init.sessionId] ?? 'native') === 'native',
+    )
+  }
+
+  requestControl(clientId: string, claimedGeometry?: Geometry): void {
     const client = this.clients.get(clientId)
-    if (!client || this.controllerId === clientId) return
-    // Preemptive transfer — current controller cannot refuse (policy §3).
-    this.setController(clientId, client)
-    this.epoch += 1
-    const viewport = client.viewports.get(this.init.sessionId)
+    if (!client) return
+    if (claimedGeometry) client.viewports.set(this.init.sessionId, { ...claimedGeometry })
+
+    const transferred = this.controllerId !== clientId
+    if (transferred) {
+      // Preemptive transfer — current controller cannot refuse (policy §3).
+      this.setController(clientId, client)
+      this.epoch += 1
+    }
+
+    const viewport = claimedGeometry ?? client.viewports.get(this.init.sessionId)
+    let geometryChanged = false
     if (client.viewVisible.has(this.init.sessionId) && viewport) {
+      geometryChanged = this.geometry.cols !== viewport.cols || this.geometry.rows !== viewport.rows
       this.setGeometry(viewport.cols, viewport.rows)
-      this.init.toDaemon({
-        type: 'resize',
+      if (geometryChanged) {
+        this.init.toDaemon({
+          type: 'resize',
+          sessionId: this.init.sessionId,
+          cols: this.geometry.cols,
+          rows: this.geometry.rows,
+        })
+      }
+      if (transferred || geometryChanged) {
+        this.init.toDaemon({ type: 'redraw', sessionId: this.init.sessionId })
+      }
+    }
+    if (transferred) {
+      this.broadcast({
+        type: 'controllerChanged',
+        sessionId: this.init.sessionId,
+        controllerId: clientId,
+        controllerIdentity: this.controllerIdentity,
+        geometry: { ...this.geometry },
+      })
+    }
+    if (transferred || geometryChanged) {
+      this.broadcast({
+        type: 'geometry',
         sessionId: this.init.sessionId,
         cols: this.geometry.cols,
         rows: this.geometry.rows,
       })
-      this.init.toDaemon({ type: 'redraw', sessionId: this.init.sessionId })
     }
-    this.broadcast({
-      type: 'controllerChanged',
-      sessionId: this.init.sessionId,
-      controllerId: clientId,
-      controllerIdentity: this.controllerIdentity,
-      geometry: { ...this.geometry },
-    })
-    this.broadcast({
-      type: 'geometry',
-      sessionId: this.init.sessionId,
-      cols: this.geometry.cols,
-      rows: this.geometry.rows,
-    })
   }
 
   /**

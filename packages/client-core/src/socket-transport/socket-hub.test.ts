@@ -591,9 +591,54 @@ describe('SessionConnection (hub-backed)', () => {
     expect(sent).toContainEqual({ type: 'input', sessionId: 's1', data: b64('x') })
     expect(sent).toContainEqual({ type: 'resize', sessionId: 's1', cols: 120, rows: 40 })
     expect(sent).toContainEqual({ type: 'resize', sessionId: 's1', cols: 63, rows: 28 })
-    expect(conn.state()).toMatchObject({ cols: 120, rows: 40 })
+    expect(conn.state()).toMatchObject({
+      cols: 80,
+      rows: 24,
+      requestedGeometry: { cols: 120, rows: 40 },
+    })
     expect(sent).toContainEqual({ type: 'requestControl', sessionId: 's1' })
     expect(sent).toContainEqual({ type: 'redrawRequest', sessionId: 's1' })
+  })
+
+  it('carries claim geometry atomically and keeps UI pending until server acknowledgment', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    sock.recv({ type: 'welcome', clientId: 'c0' })
+    const conn = hub.attach(asSessionId('s1'))
+    sock.recv({
+      type: 'attached',
+      sessionId: asSessionId('s1'),
+      controllerId: 'c9',
+      geometry: { cols: 103, rows: 28 },
+      epoch: 0,
+    })
+
+    conn.requestControl({ cols: 62, rows: 36 })
+    expect(sock.parsed()).toContainEqual({
+      type: 'requestControl',
+      sessionId: 's1',
+      geometry: { cols: 62, rows: 36 },
+    })
+    expect(conn.state()).toMatchObject({
+      role: 'spectator',
+      cols: 103,
+      rows: 28,
+      requestedGeometry: { cols: 62, rows: 36 },
+    })
+
+    sock.recv({
+      type: 'controllerChanged',
+      sessionId: asSessionId('s1'),
+      controllerId: 'c0',
+      geometry: { cols: 62, rows: 36 },
+    })
+    expect(conn.state()).toMatchObject({
+      role: 'controller',
+      cols: 62,
+      rows: 36,
+      requestedGeometry: null,
+    })
   })
 
   it('fires onAttached once when the server confirms the attach (no output required)', () => {
@@ -1406,6 +1451,36 @@ describe('view state', () => {
       focused: 's1',
       modes: { s1: 'native', s2: 'chat' },
     })
+  })
+
+  it('merges a live renderer lease over layout reports and releases it independently', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    hub.setViewState([asSessionId('s1')], asSessionId('s1'), { s1: 'chat' })
+
+    const release = hub.registerRenderedSession(asSessionId('s1'), {
+      mode: 'native',
+      focused: true,
+    })
+    expect(sock.parsed().at(-1)).toEqual({
+      type: 'viewState',
+      visible: ['s1'],
+      focused: 's1',
+      modes: { s1: 'native' },
+    })
+
+    // A later desktop-layout reaction cannot erase the mobile route's lease.
+    hub.setViewState([], null)
+    expect(sock.parsed().at(-1)).toEqual({
+      type: 'viewState',
+      visible: ['s1'],
+      focused: 's1',
+      modes: { s1: 'native' },
+    })
+
+    release()
+    expect(sock.parsed().at(-1)).toEqual({ type: 'viewState', visible: [], focused: null })
   })
 
   it('re-asserts the last view state (with modes) on reconnect', () => {

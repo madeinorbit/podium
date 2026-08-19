@@ -8,11 +8,7 @@ import { Text, View } from 'react-native'
 import { useConnected, useHub, useIssues, useSpawnPending } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { color, font, mono, sans, space } from '../theme/theme'
-import {
-  type TerminalControlState,
-  type TerminalRole,
-  terminalControlCopy,
-} from './terminal-control'
+import { type TerminalControlState, terminalControlCopy } from './terminal-control'
 
 // This accessory intentionally retains the pre-redesign mobile-web palette.
 // Parity includes its contrast hierarchy, not only its controls and gestures.
@@ -122,7 +118,9 @@ export function TerminalPane({
   // per-MOUNT state and the mount is per session (the route carries the id in
   // its path), so there is no reuse that could carry "in control" across to a
   // PTY this phone has never attached to.
-  const [role, setRole] = useState<TerminalRole>('spectator')
+  const [controlView, setControlView] = useState<
+    Pick<TerminalControlState, 'role' | 'phase' | 'cols' | 'rows'>
+  >({ role: 'spectator', phase: 'spectating', cols: 80, rows: 24 })
   // HOLD THE MOUNT UNTIL THE SPAWN IS CONFIRMED (POD-1613). The create path
   // lands here with an OPTIMISTIC session: the row is painted, so the screen
   // renders, but the server has not created the session and there is no PTY to
@@ -161,7 +159,17 @@ export function TerminalPane({
       onMounted: (mounted) => {
         mounted.view.setRefLinks(refLinks)
       },
-      onState: (state) => setRole(state.role),
+      onState: (state) =>
+        setControlView({
+          role: state.role,
+          phase: state.requestedGeometry
+            ? 'fitting'
+            : state.role === 'controller'
+              ? 'controlling'
+              : 'spectating',
+          cols: state.cols,
+          rows: state.rows,
+        }),
     })
 
   // Re-arm on every projection change, exactly as the desktop effect does: the
@@ -174,17 +182,17 @@ export function TerminalPane({
 
   const takeControl = useCallback(() => {
     // THE EXPLICIT TAKEOVER (POD-724). `takeControl` rather than a bare
-    // `connection.requestControl()`: the mount reports this phone's viewport in
-    // the same ordered burst, so the server sizes the PTY to THIS screen at the
-    // transfer instead of to whatever the debounced resize observer last sent.
+    // `connection.requestControl()`: the mount carries this phone's measured
+    // viewport on the claim, so the server sizes the PTY and transfers control
+    // in one mutation.
     mountedRef.current?.takeControl()
   }, [mountedRef])
 
   useEffect(() => {
-    onControlStateRef.current?.({ role, ready, takeControl })
-  }, [role, ready, takeControl])
+    onControlStateRef.current?.({ ...controlView, ready, takeControl })
+  }, [controlView, ready, takeControl])
 
-  const controlCopy = terminalControlCopy(role)
+  const controlCopy = terminalControlCopy({ ...controlView, ready, takeControl })
 
   return (
     <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>

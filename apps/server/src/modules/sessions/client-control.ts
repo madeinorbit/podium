@@ -87,7 +87,14 @@ export class SessionClientControl {
 
   onDetached(_principal: ClientPrincipal, client: ClientConn): void {
     for (const sessionId of client.attached) {
-      this.ports.mutate(sessionId, (session) => session.terminal.detachClient(client.id), false)
+      this.ports.mutate(
+        sessionId,
+        (session) => {
+          session.terminal.detachClient(client.id)
+          this.ports.inbox.reconcileActiveRenderer(sessionId)
+        },
+        false,
+      )
       this.ports.sessionRoomLeave?.(client, sessionId)
     }
     for (const sessionId of client.transcriptSubs) {
@@ -125,7 +132,10 @@ export class SessionClientControl {
         client.attached.add(message.sessionId)
         this.ports.mutate(
           message.sessionId,
-          (current) => current.terminal.attachClient(client, message.sinceSeq),
+          (current) => {
+            current.terminal.attachClient(client, message.sinceSeq)
+            this.ports.inbox.reconcileActiveRenderer(message.sessionId)
+          },
           false,
         )
         // Watching a terminal is room membership — clientCount derives from it.
@@ -143,7 +153,14 @@ export class SessionClientControl {
       case 'detach': {
         const startedAt = performance.now()
         client.attached.delete(message.sessionId)
-        this.ports.mutate(message.sessionId, (session) => session.terminal.detachClient(id), false)
+        this.ports.mutate(
+          message.sessionId,
+          (session) => {
+            session.terminal.detachClient(id)
+            this.ports.inbox.reconcileActiveRenderer(message.sessionId)
+          },
+          false,
+        )
         this.ports.sessionRoomLeave?.(client, message.sessionId)
         this.ports.broadcastSessions()
         this.ports.pushPriorities()
@@ -159,20 +176,25 @@ export class SessionClientControl {
         this.ports.inbox.handleControllerInput(principal, client, message.sessionId, message.data)
         break
       case 'resize':
-        this.ports.mutate(message.sessionId, () =>
-          this.ports.inbox.handleResize(
-            principal,
-            client,
-            message.sessionId,
-            message.cols,
-            message.rows,
-          ),
-        )
+        {
+          let controllerChanged = false
+          this.ports.mutate(message.sessionId, () => {
+            controllerChanged = this.ports.inbox.handleResize(
+              principal,
+              client,
+              message.sessionId,
+              message.cols,
+              message.rows,
+            )
+          })
+          if (controllerChanged) this.ports.broadcastSessions()
+        }
         break
       case 'requestControl':
         this.ports.mutate(
           message.sessionId,
-          () => this.ports.inbox.requestControl(principal, client, message.sessionId),
+          () =>
+            this.ports.inbox.requestControl(principal, client, message.sessionId, message.geometry),
           false,
         )
         this.ports.broadcastSessions()
@@ -190,17 +212,33 @@ export class SessionClientControl {
         client.transcriptSubs.delete(message.sessionId)
         this.ports.sessions.get(message.sessionId)?.terminal.unsubscribeTranscript(id)
         break
-      case 'viewState':
+      case 'viewState': {
+        const affected = new Set([...client.viewVisible, ...message.visible])
+        const previouslyVisible = client.viewVisible
+        let controllerChanged = false
         client.viewVisible = new Set(message.visible)
         client.focused = message.focused
         client.viewModes = message.modes ?? {}
-        for (const sessionId of client.viewVisible) {
-          this.ports.mutate(sessionId, () =>
-            this.ports.inbox.reconcileGeometry(principal, client, sessionId),
-          )
+        for (const sessionId of previouslyVisible) {
+          if (
+            !client.viewVisible.has(sessionId) ||
+            (client.viewModes[sessionId] ?? 'native') !== 'native'
+          ) {
+            client.viewports.delete(sessionId)
+          }
         }
+        for (const sessionId of affected) {
+          if (!this.ports.sessions.has(sessionId)) continue
+          this.ports.mutate(sessionId, () => {
+            controllerChanged =
+              this.ports.inbox.reconcileActiveRenderer(sessionId) || controllerChanged
+            this.ports.inbox.reconcileGeometry(principal, client, sessionId)
+          })
+        }
+        if (controllerChanged) this.ports.broadcastSessions()
         this.ports.pushPriorities()
         break
+      }
       case 'setSessionDraft':
         this.ports.setDraft(principal, id, message.sessionId, message.text)
         break

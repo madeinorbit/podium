@@ -3,6 +3,7 @@ import type {
   AutomationRunWire,
   AutomationWire,
   ConversationSummaryWire,
+  Geometry,
   HostMetricsWire,
   IssueDepProjection,
   IssueEventWire,
@@ -112,6 +113,12 @@ export interface ConnectionState {
   role: 'controller' | 'spectator'
   cols: number
   rows: number
+  /**
+   * Geometry this connection most recently asked the server to make
+   * authoritative. Non-null means the controller/geometry acknowledgment has
+   * not arrived yet; UI must not claim the phone is driving that grid.
+   */
+  requestedGeometry: Geometry | null
   epoch: number
   lastSeq: number
   /**
@@ -638,6 +645,23 @@ export class SocketHub {
   /** THE subscription seam: one handler Set per event kind (see HubEvents). */
   private readonly eventObservers = new Map<HubEventKind, Set<AnyHubEventHandler>>()
   private lastVisible = true
+  /** Desktop/layout-derived view state. Imperative renderer leases are merged
+   * over this before a frame is sent, so a mobile route cannot be overwritten
+   * by the desktop layout reaction's next report. */
+  private baseViewState: {
+    visible: SessionId[]
+    focused: SessionId | null
+    modes?: Record<string, 'native' | 'chat'>
+  } = {
+    visible: [],
+    focused: null,
+  }
+  /** Live renderer registrations, one per mounted/focused surface. */
+  private readonly renderedSessionLeases = new Map<
+    number,
+    { sessionId: SessionId; mode: 'native' | 'chat'; focused: boolean }
+  >()
+  private nextRenderedSessionLease = 1
   private lastViewState: {
     visible: SessionId[]
     focused: SessionId | null
@@ -1475,16 +1499,56 @@ export class SocketHub {
     focused: SessionId | null,
     modes?: Record<string, 'native' | 'chat'>,
   ): void {
-    // Omit `modes` entirely when undefined so the wire payload (and the
-    // re-assert below) stays byte-identical to the pre-modes message for clients
-    // that don't report a mode — keeps old expectations exact.
+    this.baseViewState = modes ? { visible, focused, modes } : { visible, focused }
+    this.publishViewState()
+  }
+
+  /**
+   * Register one actively rendered session independently of the desktop layout
+   * store. The returned release is idempotent. This is a live lease: callers
+   * release it on blur/background/unmount, and reconnect reasserts only leases
+   * that are still held.
+   */
+  registerRenderedSession(
+    sessionId: SessionId,
+    options: { mode: 'native' | 'chat'; focused?: boolean },
+  ): () => void {
+    const leaseId = this.nextRenderedSessionLease++
+    this.renderedSessionLeases.set(leaseId, {
+      sessionId,
+      mode: options.mode,
+      focused: options.focused ?? false,
+    })
+    this.publishViewState()
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.renderedSessionLeases.delete(leaseId)
+      this.publishViewState()
+    }
+  }
+
+  private publishViewState(): void {
+    const visible = [...this.baseViewState.visible]
+    let focused = this.baseViewState.focused
+    let modes = this.baseViewState.modes ? { ...this.baseViewState.modes } : undefined
+
+    for (const lease of this.renderedSessionLeases.values()) {
+      if (!visible.includes(lease.sessionId)) visible.push(lease.sessionId)
+      modes ??= {}
+      // A live native renderer is geometry-relevant and therefore wins over a
+      // simultaneous chat projection for the same session.
+      if (lease.mode === 'native' || modes[lease.sessionId] === undefined) {
+        modes[lease.sessionId] = lease.mode
+      }
+      if (lease.focused) focused = lease.sessionId
+    }
+
+    // Omit `modes` entirely when neither source supplied one so the legacy wire
+    // shape remains byte-identical for old callers.
     this.lastViewState = modes ? { visible, focused, modes } : { visible, focused }
-    if (this.connectedFlag)
-      this.sendRaw(
-        modes
-          ? { type: 'viewState', visible, focused, modes }
-          : { type: 'viewState', visible, focused },
-      )
+    if (this.connectedFlag) this.sendRaw({ type: 'viewState', ...this.lastViewState })
   }
 
   connectionHealth(): ConnectionHealth {
@@ -2140,6 +2204,7 @@ export class SessionConnection {
   private outcome: TerminalOutcome | null = null
   private cols: number
   private rows: number
+  private requestedGeometry: Geometry | null = null
   private epoch = 0
   private lastSeq = -1
   /** What the last attach said about the session's durable output counter. An
@@ -2199,8 +2264,11 @@ export class SessionConnection {
   }
 
   sendResize(cols: number, rows: number): void {
-    this.cols = cols
-    this.rows = rows
+    this.requestedGeometry = { cols, rows }
+    // Existing authoritative state may already equal the target; otherwise the
+    // pending target remains visible until a geometry frame acknowledges it.
+    if (this.state().role === 'controller') this.settleRequestedGeometry()
+    this.emit()
     this.hub._send({ type: 'resize', sessionId: this.sessionId, cols, rows })
   }
 
@@ -2214,8 +2282,17 @@ export class SessionConnection {
     this.hub._send({ type: 'resize', sessionId: this.sessionId, cols, rows })
   }
 
-  requestControl(): void {
-    this.hub._send({ type: 'requestControl', sessionId: this.sessionId })
+  requestControl(geometry?: Geometry): void {
+    if (geometry) {
+      this.requestedGeometry = { ...geometry }
+      if (this.state().role === 'controller') this.settleRequestedGeometry()
+      this.emit()
+    }
+    this.hub._send({
+      type: 'requestControl',
+      sessionId: this.sessionId,
+      ...(geometry ? { geometry } : {}),
+    })
   }
 
   redraw(): void {
@@ -2234,6 +2311,7 @@ export class SessionConnection {
       role: clientId !== '' && clientId === this.controllerId ? 'controller' : 'spectator',
       cols: this.cols,
       rows: this.rows,
+      requestedGeometry: this.requestedGeometry ? { ...this.requestedGeometry } : null,
       epoch: this.epoch,
       lastSeq: this.lastSeq,
       outputSeen: this.attachOutputSeen || this.frameSeen,
@@ -2255,6 +2333,7 @@ export class SessionConnection {
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
       this.epoch = msg.epoch
+      if (msg.controllerId === this.hub.clientId) this.settleRequestedGeometry()
       this.attachOutputSeen = msg.outputSeen !== false
       // A full replay (not a `resumed` catch-up) is about to re-send the whole
       // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
@@ -2280,11 +2359,14 @@ export class SessionConnection {
       this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
+      if (msg.controllerId === this.hub.clientId) this.settleRequestedGeometry()
+      else this.requestedGeometry = null
       this.emit()
     },
     geometry: (msg) => {
       this.cols = msg.cols
       this.rows = msg.rows
+      this.settleRequestedGeometry()
       this.emit()
     },
     agentExit: () => {
@@ -2295,6 +2377,7 @@ export class SessionConnection {
   /** @internal Transport outcome for this session. */
   _outcome(outcome: TerminalOutcome): void {
     this.outcome = outcome
+    this.requestedGeometry = null
     this.emit()
     this.cb.onOutcome?.(outcome)
   }
@@ -2306,5 +2389,16 @@ export class SessionConnection {
 
   private emit(): void {
     this.cb.onState?.(this.state())
+  }
+
+  private settleRequestedGeometry(): void {
+    if (
+      this.requestedGeometry &&
+      this.controllerId === this.hub.clientId &&
+      this.cols === this.requestedGeometry.cols &&
+      this.rows === this.requestedGeometry.rows
+    ) {
+      this.requestedGeometry = null
+    }
   }
 }

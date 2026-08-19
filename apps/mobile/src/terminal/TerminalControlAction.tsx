@@ -19,8 +19,8 @@ import { type TerminalControlState, terminalControlCopy } from './terminal-contr
  * of the desk keyboard takes it straight back.
  */
 export function TerminalControlAction({ control }: { control: TerminalControlState }) {
-  const copy = terminalControlCopy(control.role)
-  const controlling = control.role === 'controller'
+  const copy = terminalControlCopy(control)
+  const controlling = control.phase === 'controlling'
   return (
     <HeaderButton label={copy.label} onPress={control.takeControl}>
       <Icon
