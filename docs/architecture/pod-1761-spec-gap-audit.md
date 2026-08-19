@@ -125,7 +125,7 @@ settled: **S** (localized), **M** (multi-module), **L** (cross-cutting/product v
 | ID | Status | Rank | Commitment and evidence | Gap / judgment | Size / dependencies |
 |---|---|---:|---|---|---|
 | SEC1 | **IMPLEMENTED** | — | §§3/6 require opencode loopback plus a cryptographically random per-session secret, never argv, with refusal of unauthenticated access (`spec:382-391,503-533`). | Launch creates a CSPRNG secret, passes it only through environment, scopes the process, and validates authenticated health (`apps/daemon/src/runtime/opencode-server.ts:440-595`); journal mode is 0600 (`opencode-server.ts:122-175`). | — |
-| SEC2 | **DIVERGED** | P2 | §6 specifies Codex on a per-session 0600 Unix socket (`spec:503-533`). | Production uses inherited stdio (`apps/daemon/src/runtime/codex-app-server.ts:495-584`) because live verification found the advertised Unix socket is a daemon control socket, not the app-server client channel (`packages/harness/src/manifests/codex.ts:325-342`). **Implementation is right and more isolated; corrected post-audit in the normative transport rules.** | **S** docs. |
+| SEC2 | **DIVERGED** | P2 | §6 specifies Codex on a per-session 0600 Unix socket (`spec:503-533`). | Production engine control uses inherited stdio (`packages/harness/src/manifests/codex.ts:352-353`; `apps/daemon/src/runtime/codex-app-server.ts:510-553`). **Post-audit recheck supersedes the audit-era socket conclusion:** an isolated live Codex 0.147.0 probe created a mode-0600 app-server Unix socket and `codex resume --remote` connected to it and loaded the remote session picker. The ruling is dual: inherited stdio is the current private engine path; a per-session 0600 Unix listener is valid for addressable client attach, distinct from the fixed daemon-control socket. | **S** docs. |
 | SEC3 | **PARTIAL** | P1 | §5 says on-machine attach adds no new transport/auth surface, and §10 requires a written multi-user threat model before attach v2 (`spec:479,572-581`). | Engine processes and secrets are locally isolated, but the attach negotiation/relay does not exist and no dedicated attach-v2 threat model covers endpoint discovery, viewer authorization, takeover, input attribution, secret lifetime, or sibling scope. | **S** ADR before AS1. |
 | SEC4 | **PARTIAL** | P1 | §1 requires PTY input containment because it is an attack surface (`spec:127-151`). | Agent-mail rendering strips control bytes, and the terminal driver wraps injection, but raw PTY paths and composer machinery remain callable outside the driver. Complete IS3/IS13 and document the one input boundary. | **M**; depends on IS3. |
 | SEC5 | **IMPLEMENTED** | — | §6 requires one dedicated process tree and exact endpoint/session identity (`spec:503-533`). | Server drivers launch per-session processes/scopes; journals and reaping corroborate pid/start-time/secret/native identity before adoption (`apps/daemon/src/runtime/server-reap.ts:288-437`). | — |
@@ -239,10 +239,14 @@ Resolved in the normative architecture document on 2026-08-19:
 1. Grok ACP is an implemented, preferred server-family driver when the harness is logged in and its
    version is admitted; the terminal driver remains the explicit fallback (SA5). Evidence:
    `packages/harness/src/manifests/grok.ts:211-231`, `packages/agent-runtime/src/drivers/grok-acp/capabilities.ts:4-47`.
-2. Codex uses the child process's inherited stdio. Its advertised Unix socket is a daemon control
-   socket, not an app-server client channel; inherited stdio has no addressable local endpoint and
-   therefore needs neither a 0600 filesystem object nor a per-session secret (SEC2). Evidence:
-   `packages/harness/src/manifests/codex.ts:330-350`, `apps/daemon/src/runtime/codex-app-server.ts:510-553`.
+2. Codex production engine control uses the child process's inherited stdio, which has no
+   addressable endpoint and needs no transport secret. Codex 0.147.0 also supports real Unix/WS
+   app-server listeners and `codex resume --remote unix://…`; client attach should use a
+   per-session 0600 Unix endpoint rather than treating every Unix listener as daemon-control-only
+   (SEC2). Evidence: executable declarations at `packages/harness/src/manifests/codex.ts:352-353`
+   and `apps/daemon/src/runtime/codex-app-server.ts:510-553`; isolated live Codex 0.147.0
+   probe on 2026-08-20 created a mode-0600 Unix listener and loaded the remote session picker
+   through `codex resume --remote unix://PATH`.
 3. G1 product facts belong in the durable session projection. `handle.state()` remains the smaller
    harness-runtime verdict and owns native-subagent state; observed model/effort/context, accent,
    open todos, and event-time recency are projected once for family-blind product consumers (AS6).
