@@ -40,8 +40,10 @@ import type {
   PortableCredentialBundle,
   PortableCredentialKind,
   RepoOp,
+  RuntimeAttachmentRef,
   RuntimeLifecycleResultMessage,
   RuntimeSnapshotResultMessage,
+  RuntimeStageAttachmentResultMessage,
   ServerTransferManifest,
   ServerTransferManifestEntry,
   ServerTransferResultMessage,
@@ -217,6 +219,8 @@ const SHIPPING_REPAIR_APPLY = daemonRequestKind<Payload<ShippingRepairApplyResul
 // session's driver. They are ordinary RPC families because that is exactly what
 // they are — nothing about the contract needed a new transport, which is the
 // point of putting it in FRONT of the existing stack rather than beside it.
+const RUNTIME_STAGE_ATTACHMENT =
+  daemonRequestKind<Payload<RuntimeStageAttachmentResultMessage>>('rt')
 const RUNTIME_SEND = daemonRequestKind<TurnReceipt>('rs')
 const RUNTIME_LIFECYCLE = daemonRequestKind<Payload<RuntimeLifecycleResultMessage>>('rl')
 const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
@@ -335,6 +339,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(SHIPPING_REPAIR_APPLY, msg.requestId, machineId, payloadOf(msg)),
   credentialInstallResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
+  runtimeStageAttachmentResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_STAGE_ATTACHMENT, msg.requestId, machineId, payloadOf(msg)),
   runtimeSendResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_SEND, msg.requestId, machineId, msg.receipt),
   runtimeLifecycleResult: (broker, machineId, msg) =>
@@ -684,6 +690,7 @@ export class DaemonRpcService {
       text: string
       origin: ObservationInputOrigin
       delivery: TurnDelivery
+      attachments?: readonly RuntimeAttachmentRef[]
     },
     machineId: MachineId,
   ): Promise<TurnReceipt> {
@@ -704,6 +711,32 @@ export class DaemonRpcService {
         text: input.text,
         origin: input.origin,
         delivery: input.delivery,
+        attachments: input.attachments,
+      }),
+      machineId,
+    )
+  }
+
+  runtimeStageAttachment(
+    input: {
+      sessionId: SessionId
+      source: { bytes: Uint8Array; filename: string; mediaType: string }
+    },
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeStageAttachmentResultMessage>> {
+    return this.request(
+      RUNTIME_STAGE_ATTACHMENT,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({
+        type: 'runtimeStageAttachmentRequest',
+        requestId,
+        sessionId: input.sessionId,
+        source: {
+          dataBase64: Buffer.from(input.source.bytes).toString('base64'),
+          filename: input.source.filename,
+          mediaType: input.source.mediaType,
+        },
       }),
       machineId,
     )

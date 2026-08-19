@@ -85,6 +85,8 @@ export const HOST_EDGE_FRAMES = [
   // The Agent Runtime contract (POD-1761 W3). Session verbs and their receipts
   // on the daemon socket — never the agent relay, whose URL bakes in a session
   // identity these frames carry explicitly.
+  'runtimeStageAttachmentRequest',
+  'runtimeStageAttachmentResult',
   'runtimeSendRequest',
   'runtimeSendResult',
   'runtimeQueueDrainAbandoned',

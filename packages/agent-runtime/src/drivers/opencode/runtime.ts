@@ -133,7 +133,7 @@ export interface OpencodeRuntimeHost {
     env?: Readonly<Record<string, string>>
   }): Promise<OpencodeServerEndpoint>
 
-  stageAttachment?: AttachmentStager
+  stageAttachment: AttachmentStager
 
   /**
    * Re-bind a SURVIVING server after a supervisor restart, or `undefined`.
@@ -1174,6 +1174,10 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       outcome: 'refused',
       refusal: { reason, ...(detail ? { detail } : {}) },
     })
+    const stageRefusal = (reason: Refusal['reason'], detail?: string): Refusal => ({
+      reason,
+      ...(detail ? { detail } : {}),
+    })
 
     const handle: AgentSessionHandle = {
       get binding() {
@@ -1380,14 +1384,11 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       },
 
       async stageAttachment(source) {
-        if (session.disposed) return refuse('not_running')
-        if (!host.stageAttachment) {
-          return refuse('unsupported', 'this opencode host cannot stage file parts')
-        }
+        if (session.disposed) return stageRefusal('not_running')
         try {
           return await host.stageAttachment({ sessionId: session.sessionId, source })
         } catch (err) {
-          return refuse('staging_failed', String(err))
+          return stageRefusal('staging_failed', String(err))
         }
       },
 

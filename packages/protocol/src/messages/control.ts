@@ -46,6 +46,7 @@ import {
   RuntimeQueueDrainAbandonedAckMessage,
   RuntimeEventAckMessage,
   RuntimeSnapshotRequestMessage,
+  RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
 } from './runtime'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
@@ -152,6 +153,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   // per frame, reaching the flagged session's driver and nothing else — the
   // legacy `input`/`kill` frames above stay exactly as they are for every
   // unflagged session.
+  RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
   RuntimeInterruptRequestMessage,
   RuntimeAnswerRequestMessage,

@@ -84,6 +84,7 @@ interface WorldOptions {
    * its refused-TAKEOVER assertion — see the second `describe` below.
    */
   hostsClientTerminals?: boolean | 'spectators-only'
+  stageAttachment?: OpencodeRuntimeHost['stageAttachment']
 }
 
 function makeWorld(options: WorldOptions = {}): {
@@ -137,16 +138,18 @@ function makeWorld(options: WorldOptions = {}): {
   })
 
   const host: OpencodeRuntimeHost = {
-    stageAttachment: async ({ source }) => {
-      const id = 'attachment-' + ++seq
-      return {
-        id,
-        path: '/tmp/' + id + '-' + source.filename,
-        filename: source.filename,
-        mediaType: source.mediaType,
-        kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
-      }
-    },
+    stageAttachment:
+      options.stageAttachment ??
+      (async ({ source }) => {
+        const id = 'attachment-' + ++seq
+        return {
+          id,
+          path: '/tmp/' + id + '-' + source.filename,
+          filename: source.filename,
+          mediaType: source.mediaType,
+          kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+        }
+      }),
     async launch(input) {
       const server = await startFakeOpencodeServer({
         username: input.username,
@@ -364,6 +367,27 @@ function makeWorld(options: WorldOptions = {}): {
 
 const { target } = makeWorld()
 describe('attachment file-part prompts', () => {
+  it('returns a raw typed staging failure', async () => {
+    const world = makeWorld({
+      stageAttachment: async () => {
+        throw new Error('disk full')
+      },
+    })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await expect(
+        handle.stageAttachment({
+          bytes: new TextEncoder().encode('notes'),
+          filename: 'notes.txt',
+          mediaType: 'text/plain',
+        }),
+      ).resolves.toEqual({ reason: 'staging_failed', detail: 'Error: disk full' })
+    } finally {
+      world.target.reset()
+    }
+  })
+
   it('sends staged files as opencode file parts', async () => {
     const world = makeWorld()
     const { driver } = world.target.createDriver()

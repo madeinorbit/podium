@@ -26,17 +26,19 @@ function makeGateway(
   overrides: {
     machineOf?: (sessionId: SessionId) => MachineId | undefined
     queue?: Partial<RuntimeDurableQueuePort>
-    forwarded?: { delivery: TurnDelivery }[]
+    forwarded?: Parameters<RuntimeDaemonRpcPort['runtimeSend']>[0][]
   } = {},
 ): {
   gateway: SessionRuntimeGateway
-  forwarded: { delivery: TurnDelivery }[]
+  forwarded: Parameters<RuntimeDaemonRpcPort['runtimeSend']>[0][]
+  staged: Parameters<RuntimeDaemonRpcPort['runtimeStageAttachment']>[0][]
   enqueued: Parameters<RuntimeDurableQueuePort['enqueue']>[0][]
 } {
   const forwarded = overrides.forwarded ?? []
+  const staged: Parameters<RuntimeDaemonRpcPort['runtimeStageAttachment']>[0][] = []
   const rpc: RuntimeDaemonRpcPort = {
     runtimeSend: async (input) => {
-      forwarded.push({ delivery: input.delivery })
+      forwarded.push(input)
       return {
         outcome: 'accepted',
         turnEpoch: 1,
@@ -44,6 +46,18 @@ function makeGateway(
         provenBy: 'transcript-echo',
         at: '2026-08-14T00:00:00.000Z',
       } satisfies TurnReceipt
+    },
+    runtimeStageAttachment: async (input) => {
+      staged.push(input)
+      return {
+        result: {
+          id: 'attachment-1',
+          path: '/tmp/attachment-1.png',
+          filename: input.source.filename,
+          mediaType: input.source.mediaType,
+          kind: 'image',
+        },
+      }
     },
     runtimeInterrupt: async () => ({ result: { ok: true } }),
     runtimeAnswer: async () => ({ ok: true }),
@@ -78,9 +92,37 @@ function makeGateway(
       },
     }),
     forwarded,
+    staged,
     enqueued,
   }
 }
+
+describe('attachment staging', () => {
+  it('routes bytes to the owning machine and returns the staged ref', async () => {
+    const { gateway, staged } = makeGateway()
+    const result = await gateway.stageAttachment({
+      sessionId: SESSION,
+      source: {
+        bytes: new Uint8Array([1, 2, 3]),
+        filename: 'diagram.png',
+        mediaType: 'image/png',
+      },
+    })
+    expect(staged).toHaveLength(1)
+    expect(result).toMatchObject({ filename: 'diagram.png', kind: 'image' })
+  })
+
+  it('returns not_running before sending bytes when no machine owns the session', async () => {
+    const { gateway, staged } = makeGateway({ machineOf: () => undefined })
+    await expect(
+      gateway.stageAttachment({
+        sessionId: SESSION,
+        source: { bytes: new Uint8Array([1]), filename: 'x.png', mediaType: 'image/png' },
+      }),
+    ).resolves.toEqual({ reason: 'not_running', detail: 'no machine' })
+    expect(staged).toEqual([])
+  })
+})
 
 describe('send', () => {
   it('completes `queue` from the durable table and never forwards it', async () => {
@@ -118,6 +160,35 @@ describe('send', () => {
     await gateway.send({ sessionId: SESSION, text: 'now', origin: 'human', delivery: 'when-ready' })
     await gateway.send({ sessionId: SESSION, text: 'stop', origin: 'human', delivery: 'interrupt' })
     expect(forwarded.map((f) => f.delivery)).toEqual(['when-ready', 'interrupt'])
+  })
+
+  it('forwards attachment refs on direct sends and refuses lossy queueing', async () => {
+    const { gateway, forwarded, enqueued } = makeGateway()
+    const attachment = {
+      id: 'attachment-1',
+      path: '/tmp/attachment-1.png',
+      filename: 'diagram.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    await gateway.send({
+      sessionId: SESSION,
+      text: 'look',
+      origin: 'human',
+      delivery: 'when-ready',
+      attachments: [attachment],
+    })
+    expect(forwarded[0]?.attachments).toEqual([attachment])
+    await expect(
+      gateway.send({
+        sessionId: SESSION,
+        text: 'later',
+        origin: 'human',
+        delivery: 'queue',
+        attachments: [attachment],
+      }),
+    ).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'unsupported' } })
+    expect(enqueued).toEqual([])
   })
 
   it('refuses rather than forwarding into a socket that is not there', async () => {

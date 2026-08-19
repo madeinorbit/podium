@@ -166,7 +166,7 @@ export interface CodexRuntimeHost {
     mcpServers?: { transport: 'path'; path: string } | { transport: 'inline'; config: string }
   }): Promise<CodexServerEndpoint>
 
-  stageAttachment?: AttachmentStager
+  stageAttachment: AttachmentStager
 
   /** Read a thread's rollout JSONL, for `export()`. `undefined` when the file is
    *  gone — an archive that silently shipped zero bytes would be worse. */
@@ -1083,6 +1083,10 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       outcome: 'refused',
       refusal: { reason, ...(detail ? { detail } : {}) },
     })
+    const stageRefusal = (reason: Refusal['reason'], detail?: string): Refusal => ({
+      reason,
+      ...(detail ? { detail } : {}),
+    })
 
     const handle: AgentSessionHandle = {
       get binding() {
@@ -1339,17 +1343,14 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       },
 
       async stageAttachment(source) {
-        if (session.disposed) return refuse('not_running')
+        if (session.disposed) return stageRefusal('not_running')
         if (!source.mediaType.startsWith('image/')) {
-          return refuse('unsupported', 'Codex accepts image attachments only')
-        }
-        if (!host.stageAttachment) {
-          return refuse('unsupported', 'this Codex host cannot stage local images')
+          return stageRefusal('unsupported', 'Codex accepts image attachments only')
         }
         try {
           return await host.stageAttachment({ sessionId: session.sessionId, source })
         } catch (err) {
-          return refuse('staging_failed', String(err))
+          return stageRefusal('staging_failed', String(err))
         }
       },
 

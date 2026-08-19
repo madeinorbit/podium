@@ -74,6 +74,13 @@ function liveHost(workdir: string): {
   }
 
   const host: CodexRuntimeHost = {
+    stageAttachment: async ({ source }) => ({
+      id: 'live-attachment',
+      path: '/tmp/live-' + source.filename,
+      filename: source.filename,
+      mediaType: source.mediaType,
+      kind: 'image',
+    }),
     journal,
     now: () => Date.now(),
     mintSessionId: () => `live-${++seq}` as SessionId,

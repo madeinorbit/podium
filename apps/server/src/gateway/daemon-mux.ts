@@ -223,6 +223,7 @@ const DISPATCH: Dispatcher = {
   shippingEvidenceResult: toRpc,
   shippingRepairApplyResult: toRpc,
   // AGENT RUNTIME CONTRACT (POD-1761 W3) — five receipts, one correlator.
+  runtimeStageAttachmentResult: toRpc,
   runtimeSendResult: toRpc,
   runtimeLifecycleResult: toRpc,
   runtimeAnswerResult: toRpc,

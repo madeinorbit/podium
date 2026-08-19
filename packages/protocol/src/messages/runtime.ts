@@ -885,6 +885,22 @@ export const RuntimeFineEvent = z.intersection(
 )
 export type RuntimeFineEvent = z.infer<typeof RuntimeFineEvent>
 
+export const RuntimeAttachmentRef = z.object({
+  id: z.string().min(1),
+  path: z.string().min(1),
+  filename: z.string().min(1),
+  mediaType: z.string().min(1),
+  kind: z.enum(['image', 'file']),
+})
+export type RuntimeAttachmentRef = z.infer<typeof RuntimeAttachmentRef>
+
+export const RuntimeAttachmentSource = z.object({
+  dataBase64: z.string().max(10 * 1024 * 1024),
+  filename: z.string().min(1),
+  mediaType: z.string().min(1),
+})
+export type RuntimeAttachmentSource = z.infer<typeof RuntimeAttachmentSource>
+
 // ---------------------------------------------------------------------------
 // The frames
 // ---------------------------------------------------------------------------
@@ -913,8 +929,19 @@ export const RuntimeSendRequestMessage = z.object({
   text: z.string(),
   origin: ObservationInputOrigin,
   delivery: TurnDelivery,
+  attachments: z.array(RuntimeAttachmentRef).optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
+
+export const RuntimeStageAttachmentRequestMessage = z.object({
+  type: z.literal('runtimeStageAttachmentRequest'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  source: RuntimeAttachmentSource,
+})
+export type RuntimeStageAttachmentRequestMessage = z.infer<
+  typeof RuntimeStageAttachmentRequestMessage
+>
 
 /** server → daemon: REQUEST a fence. The fence itself only ever arrives as a
  *  provider-confirmed terminal event on the causal stream. */
@@ -1062,6 +1089,7 @@ export type RuntimeEventAckMessage = z.infer<typeof RuntimeEventAckMessage>
 
 /** server → daemon: drive one session verb, or acknowledge one durable report. */
 export const RuntimeCommandMessage = z.discriminatedUnion('type', [
+  RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
   RuntimeInterruptRequestMessage,
   RuntimeAnswerRequestMessage,
@@ -1100,6 +1128,16 @@ export const RuntimeSendResultMessage = z.object({
   receipt: TurnReceipt,
 })
 export type RuntimeSendResultMessage = z.infer<typeof RuntimeSendResultMessage>
+
+export const RuntimeStageAttachmentResultMessage = z.object({
+  type: z.literal('runtimeStageAttachmentResult'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  result: z.union([RuntimeAttachmentRef, Refusal]),
+})
+export type RuntimeStageAttachmentResultMessage = z.infer<
+  typeof RuntimeStageAttachmentResultMessage
+>
 
 /**
  * WHY A DRIVER QUEUE GAVE UP ON TURNS IT HAD ALREADY ACCEPTED.
@@ -1217,6 +1255,7 @@ export type RuntimeFineEventMessage = z.infer<typeof RuntimeFineEventMessage>
 
 /** daemon → server: receipts, results, and the causal event stream. */
 export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
+  RuntimeStageAttachmentResultMessage,
   RuntimeSendResultMessage,
   RuntimeQueueDrainAbandonedMessage,
   RuntimeLifecycleResultMessage,
@@ -1244,6 +1283,7 @@ export type RuntimeMessage = z.infer<typeof RuntimeMessage>
  * `extends never` check fails to compile otherwise.
  */
 export const RUNTIME_FRAME_TYPES = [
+  'runtimeStageAttachmentRequest',
   'runtimeSendRequest',
   'runtimeInterruptRequest',
   'runtimeAnswerRequest',
@@ -1251,6 +1291,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeSnapshotRequest',
   'runtimeQueueDrainAbandonedAck',
   'runtimeEventAck',
+  'runtimeStageAttachmentResult',
   'runtimeSendResult',
   'runtimeQueueDrainAbandoned',
   'runtimeLifecycleResult',

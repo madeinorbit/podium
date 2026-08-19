@@ -134,6 +134,7 @@ export const DAEMON_FRAME_PORTS = {
   shippingRepairApplyResult: ['rpc'],
   // AGENT RUNTIME CONTRACT (POD-1761 W3). Five correlated receipts, settled by
   // `requestId` through the one correlator — no new port, no new pending map.
+  runtimeStageAttachmentResult: ['rpc'],
   runtimeSendResult: ['rpc'],
   runtimeLifecycleResult: ['rpc'],
   runtimeAnswerResult: ['rpc'],

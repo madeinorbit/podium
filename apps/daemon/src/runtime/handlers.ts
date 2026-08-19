@@ -68,6 +68,7 @@ export function sessionIsBehindContract(ctx: DaemonContext, sessionId: SessionId
 
 export const runtimeHandlers: Pick<
   ControlHandlers,
+  | 'runtimeStageAttachmentRequest'
   | 'runtimeSendRequest'
   | 'runtimeInterruptRequest'
   | 'runtimeAnswerRequest'
@@ -81,6 +82,41 @@ export const runtimeHandlers: Pick<
   },
   runtimeEventAck: (ctx, msg) => {
     ctx.acknowledgeRuntimeEvent(msg.deliveryId)
+  },
+
+  runtimeStageAttachmentRequest: (ctx, msg) => {
+    const handle = handleFor(ctx, msg.sessionId)
+    if (!handle) {
+      ctx.send({
+        type: 'runtimeStageAttachmentResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result: { reason: 'not_running', detail: 'session is not behind the runtime contract' },
+      })
+      return
+    }
+    void handle
+      .stageAttachment({
+        bytes: new Uint8Array(Buffer.from(msg.source.dataBase64, 'base64')),
+        filename: msg.source.filename,
+        mediaType: msg.source.mediaType,
+      })
+      .then((result) => {
+        ctx.send({
+          type: 'runtimeStageAttachmentResult',
+          requestId: msg.requestId,
+          sessionId: msg.sessionId,
+          result,
+        })
+      })
+      .catch((err: unknown) => {
+        ctx.send({
+          type: 'runtimeStageAttachmentResult',
+          requestId: msg.requestId,
+          sessionId: msg.sessionId,
+          result: { reason: 'staging_failed', detail: String(err) },
+        })
+      })
   },
 
   runtimeSendRequest: (ctx, msg) => {
@@ -98,7 +134,10 @@ export const runtimeHandlers: Pick<
       return
     }
     void handle
-      .send({ id: msg.turnId, text: msg.text }, { origin: msg.origin, delivery: msg.delivery })
+      .send(
+        { id: msg.turnId, text: msg.text, attachments: msg.attachments },
+        { origin: msg.origin, delivery: msg.delivery },
+      )
       .then((receipt) => {
         ctx.send({
           type: 'runtimeSendResult',

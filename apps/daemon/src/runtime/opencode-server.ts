@@ -75,6 +75,7 @@ import {
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
+import { stageRuntimeAttachment } from './attachment-staging'
 import type { OpencodeClientTerminals } from './opencode-attach'
 import {
   createVersionProbeCache,
@@ -454,7 +455,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
 
   return {
     journal,
-    ...(deps.stageAttachment ? { stageAttachment: deps.stageAttachment } : {}),
+    stageAttachment: deps.stageAttachment ?? stageRuntimeAttachment,
     now: deps.now ?? (() => Date.now()),
     /** 32 bytes from the CSPRNG. Not a uuid, not a timestamp: this is the only
      *  thing between a local process and a credentialed agent. */

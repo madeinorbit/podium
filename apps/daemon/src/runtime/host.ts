@@ -21,6 +21,7 @@ import type { DaemonContext } from '../control/context'
 import { launchSpawn, stopSessionProcess } from '../control/session'
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
+import { stageRuntimeAttachment } from './attachment-staging'
 import type { TerminalRuntimeHost } from './terminal-driver'
 
 /**
@@ -34,11 +35,11 @@ import type { TerminalRuntimeHost } from './terminal-driver'
 export function daemonRuntimeHost(
   ctx: DaemonContext,
   send: TerminalRuntimeHost['send'],
-  stageAttachment?: AttachmentStager,
+  stageAttachment: AttachmentStager = stageRuntimeAttachment,
 ): TerminalRuntimeHost {
   return {
     send,
-    ...(stageAttachment ? { stageAttachment } : {}),
+    stageAttachment,
     bridge: (sessionId) => ctx.bridges.get(sessionId),
     trackedState: (sessionId) => ctx.observers.trackedState(sessionId),
     draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),

@@ -249,13 +249,12 @@ describe('machine scope and the writer class', () => {
     // three correlated receipts. Each takes the same rpc door; no private
     // transport appeared.
     //
-    // 33 since POD-2023: `runtimeSnapshotResult`, the observation bootstrap a
-    // server re-reads after a stream gap. It is the fourth runtime verb of the
-    // same shape and moves the ratchet by one rather than adding a port.
+    // 33 after the runtime snapshot bootstrap; 34 with POD-2408's staging result.
+    // Both reuse the same correlator rather than adding a port.
     const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
       (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
     )
-    expect(rpcFrames.length).toBe(33)
+    expect(rpcFrames.length).toBe(34)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

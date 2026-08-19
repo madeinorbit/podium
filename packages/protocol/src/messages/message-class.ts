@@ -246,6 +246,7 @@ export const CONTROL_PLANE_CLASS = {
   // AGENT RUNTIME CONTRACT (POD-1761 W3). Correlated request/reply over a live
   // path, exactly like `spawn` and every other session verb — see the argument
   // in `./runtime.ts`'s header.
+  runtimeStageAttachmentRequest: 'control.command',
   runtimeSendRequest: 'control.command',
   runtimeInterruptRequest: 'control.command',
   runtimeAnswerRequest: 'control.command',
@@ -346,6 +347,7 @@ export const DAEMON_PLANE_CLASS = {
   shippingRepairApplyResult: 'control.command',
   // Agent Runtime receipts are correlated replies. Coarse events are retained
   // until their durable server commit; fine token deltas have a separate live frame.
+  runtimeStageAttachmentResult: 'control.command',
   runtimeSendResult: 'control.command',
   // A dropped report would leave durable sender state claiming only `queued`,
   // so this correction is entity truth rather than a lossy live-stream hint.

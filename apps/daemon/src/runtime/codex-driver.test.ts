@@ -74,6 +74,13 @@ function world(options: { sendThrows?: boolean } = {}) {
   const resumed: string[] = []
   let launches = 0
   const host: CodexRuntimeHost = {
+    stageAttachment: async ({ source }) => ({
+      id: 'test-attachment',
+      path: '/tmp/test-' + source.filename,
+      filename: source.filename,
+      mediaType: source.mediaType,
+      kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+    }),
     journal: {
       read: (id) => entries.get(id) as never,
       write: (entry) => void entries.set(entry.sessionId, entry),

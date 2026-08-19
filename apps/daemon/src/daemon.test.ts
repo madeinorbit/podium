@@ -1,5 +1,13 @@
 import { execFileSync, execSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1081,6 +1089,13 @@ function defaultServerTransport(kind: 'codex' | 'grok'): DefaultServerTransport 
 function defaultCodexRuntime(sent: DaemonMessage[]) {
   const entries = new Map<SessionId, Parameters<CodexRuntimeHost['journal']['write']>[0]>()
   const host: CodexRuntimeHost = {
+    stageAttachment: async ({ source }) => ({
+      id: 'test-attachment',
+      path: '/tmp/test-' + source.filename,
+      filename: source.filename,
+      mediaType: source.mediaType,
+      kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+    }),
     journal: {
       read: (id) => entries.get(id),
       write: (entry) => void entries.set(entry.sessionId, entry),
@@ -1254,18 +1269,15 @@ describe('default server-driver spawn integration', () => {
       // Inside the readiness window: the spawn is dispatched but the launch has
       // not registered a handle yet. The answer is a refusal the server can act
       // on — never silence, never a fake acceptance.
-      runtimeHandlers.runtimeSendRequest(
-        ctx,
-        {
-          type: 'runtimeSendRequest',
-          requestId: 'req-early',
-          turnId: 'turn-early',
-          sessionId: 'readiness-codex',
-          text: 'sent before the thread exists',
-          origin: 'controller',
-          delivery: 'when-ready',
-        } as never,
-      )
+      runtimeHandlers.runtimeSendRequest(ctx, {
+        type: 'runtimeSendRequest',
+        requestId: 'req-early',
+        turnId: 'turn-early',
+        sessionId: 'readiness-codex',
+        text: 'sent before the thread exists',
+        origin: 'controller',
+        delivery: 'when-ready',
+      } as never)
       await vi.waitFor(() =>
         expect(sendResults().some((msg) => msg.requestId === 'req-early')).toBe(true),
       )
@@ -1275,18 +1287,15 @@ describe('default server-driver spawn integration', () => {
       })
 
       await waitForDefaultServerBind(sent, 'readiness-codex')
-      runtimeHandlers.runtimeSendRequest(
-        ctx,
-        {
-          type: 'runtimeSendRequest',
-          requestId: 'req-after-bind',
-          turnId: 'turn-after-bind',
-          sessionId: 'readiness-codex',
-          text: 'sent after the thread exists',
-          origin: 'controller',
-          delivery: 'when-ready',
-        } as never,
-      )
+      runtimeHandlers.runtimeSendRequest(ctx, {
+        type: 'runtimeSendRequest',
+        requestId: 'req-after-bind',
+        turnId: 'turn-after-bind',
+        sessionId: 'readiness-codex',
+        text: 'sent after the thread exists',
+        origin: 'controller',
+        delivery: 'when-ready',
+      } as never)
       await vi.waitFor(() =>
         expect(sendResults().some((msg) => msg.requestId === 'req-after-bind')).toBe(true),
       )
@@ -1295,6 +1304,50 @@ describe('default server-driver spawn integration', () => {
       ).toMatchObject({
         outcome: 'accepted',
         provenBy: 'protocol-ack',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('stages attachment bytes through the correlated runtime handler', async () => {
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'staging-codex',
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      await waitForDefaultServerBind(sent, 'staging-codex')
+      runtimeHandlers.runtimeStageAttachmentRequest(ctx, {
+        type: 'runtimeStageAttachmentRequest',
+        requestId: 'stage-1',
+        sessionId: 'staging-codex',
+        source: {
+          dataBase64: Buffer.from('image-bytes').toString('base64'),
+          filename: 'diagram.png',
+          mediaType: 'image/png',
+        },
+      } as never)
+      await vi.waitFor(() =>
+        expect(
+          sent.some(
+            (msg) => msg.type === 'runtimeStageAttachmentResult' && msg.requestId === 'stage-1',
+          ),
+        ).toBe(true),
+      )
+      const result = sent.find(
+        (msg) => msg.type === 'runtimeStageAttachmentResult' && msg.requestId === 'stage-1',
+      )
+      expect(result).toMatchObject({
+        result: { filename: 'diagram.png', mediaType: 'image/png', kind: 'image' },
       })
     } finally {
       runtime.dispose()
@@ -1369,9 +1422,7 @@ describe('default server-driver spawn integration', () => {
       // Boot inventory legitimately version-probes installed CLIs. Admission
       // must add no SECOND Codex probe once that same home's grace fact has
       // already selected the interactive path.
-      const probeCallsBeforeSpawn = existsSync(probeMarker)
-        ? readFileSync(probeMarker, 'utf8')
-        : ''
+      const probeCallsBeforeSpawn = existsSync(probeMarker) ? readFileSync(probeMarker, 'utf8') : ''
       serverSocket?.send(
         encode({
           type: 'spawn',
@@ -1386,8 +1437,7 @@ describe('default server-driver spawn integration', () => {
         expect(
           sent.find(
             (message) =>
-              message.type === 'driverSelected' &&
-              message.sessionId === productionSessionId,
+              message.type === 'driverSelected' && message.sessionId === productionSessionId,
           ),
         ).toMatchObject({ driverId: 'generic-pty' }),
       )
@@ -1527,9 +1577,7 @@ describe('server-driver admission control path', () => {
       message: expect.stringContaining("harness 'codex' login is not confirmed yet"),
     })
     expect(
-      sent.some(
-        (msg) => msg.type === 'driverSelected' && msg.sessionId === 'grace-explicit',
-      ),
+      sent.some((msg) => msg.type === 'driverSelected' && msg.sessionId === 'grace-explicit'),
     ).toBe(false)
     expect(sent.some((msg) => msg.type === 'bind')).toBe(false)
     expect(probes).toBe(0)

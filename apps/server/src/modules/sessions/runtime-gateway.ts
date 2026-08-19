@@ -36,6 +36,7 @@ import type {
   InteractionAnswerOutcome,
   ObservationInputOrigin,
   Refusal,
+  RuntimeAttachmentRef,
   RuntimeEvent,
   TurnDelivery,
   TurnReceipt,
@@ -104,9 +105,17 @@ export interface RuntimeDaemonRpcPort {
       text: string
       origin: ObservationInputOrigin
       delivery: TurnDelivery
+      attachments?: readonly RuntimeAttachmentRef[]
     },
     machineId: MachineId,
   ): Promise<TurnReceipt>
+  runtimeStageAttachment(
+    input: {
+      sessionId: SessionId
+      source: { bytes: Uint8Array; filename: string; mediaType: string }
+    },
+    machineId: MachineId,
+  ): Promise<{ result: RuntimeAttachmentRef | Refusal }>
   runtimeInterrupt(
     sessionId: SessionId,
     machineId: MachineId,
@@ -164,6 +173,7 @@ export class SessionRuntimeGateway {
     text: string
     origin: ObservationInputOrigin
     delivery: TurnDelivery
+    attachments?: readonly RuntimeAttachmentRef[]
     /**
      * The party this send acts for.
      *
@@ -181,6 +191,15 @@ export class SessionRuntimeGateway {
      */
     principal?: InboxPrincipalReference
   }): Promise<TurnReceipt> {
+    if (input.attachments?.length && (input.delivery === 'queue' || input.delivery === 'steer')) {
+      return {
+        outcome: 'refused',
+        refusal: {
+          reason: 'unsupported',
+          detail: 'durable queued turns do not yet carry attachment refs',
+        },
+      }
+    }
     if (input.delivery === 'queue' || input.delivery === 'steer') {
       const queued = this.ports.queue.enqueue({
         sessionId: input.sessionId,
@@ -215,6 +234,15 @@ export class SessionRuntimeGateway {
       return { outcome: 'refused', refusal: { reason: 'not_running', detail: 'no machine' } }
     }
     return this.ports.rpc.runtimeSend(input, machineId)
+  }
+
+  async stageAttachment(input: {
+    sessionId: SessionId
+    source: { bytes: Uint8Array; filename: string; mediaType: string }
+  }): Promise<RuntimeAttachmentRef | Refusal> {
+    const machineId = this.ports.machineOf(input.sessionId)
+    if (!machineId) return { reason: 'not_running', detail: 'no machine' }
+    return (await this.ports.rpc.runtimeStageAttachment(input, machineId)).result
   }
 
   /** REQUEST a fence. Nothing here waits for one: fences arrive only as

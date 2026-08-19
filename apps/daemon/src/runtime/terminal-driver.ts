@@ -159,7 +159,7 @@ const PENDING_FRAME_LIMIT = 256
 export interface TerminalRuntimeHost {
   /** Outbound daemon frames. The driver's only path to the server. */
   send(msg: DaemonMessage): void
-  stageAttachment?: AttachmentStager
+  stageAttachment: AttachmentStager
   /** The live PTY bridge, when this daemon holds one. */
   bridge(sessionId: SessionId): { write(dataBase64: string): void; pid: number } | undefined
   /** The observers' current folded state for a session. */
@@ -1366,9 +1366,6 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
       async stageAttachment(source) {
         if (!session.alive || !host.bridge(session.sessionId)) return refuse('not_running')
-        if (!host.stageAttachment) {
-          return refuse('unsupported', 'this terminal host cannot stage attachments')
-        }
         try {
           return await host.stageAttachment({ sessionId: session.sessionId, source })
         } catch (err) {

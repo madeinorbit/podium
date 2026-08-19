@@ -48,7 +48,7 @@ interface World {
   dispose(): void
 }
 
-async function world(): Promise<World> {
+async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Promise<World> {
   const servers = new Map<SessionId, FakeAppServer>()
   const entries = new Map<SessionId, CodexJournalEntry>()
   const authReports: World['authReports'] = []
@@ -72,13 +72,15 @@ async function world(): Promise<World> {
     },
   }
   const host: CodexRuntimeHost = {
-    stageAttachment: async ({ source }) => ({
-      id: 'image-1',
-      path: '/tmp/image-1-' + source.filename,
-      filename: source.filename,
-      mediaType: source.mediaType,
-      kind: 'image',
-    }),
+    stageAttachment:
+      stageAttachment ??
+      (async ({ source }) => ({
+        id: 'image-1',
+        path: '/tmp/image-1-' + source.filename,
+        filename: source.filename,
+        mediaType: source.mediaType,
+        kind: 'image',
+      })),
     journal,
     now: () => Date.UTC(2026, 7, 14) + ++seq * 1000,
     mintSessionId: () => 'cx-1' as SessionId,
@@ -191,6 +193,36 @@ async function world(): Promise<World> {
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('attachment local-image prompts', () => {
+  it('returns raw typed refusals for unsupported files and staging failures', async () => {
+    const ordinary = await world()
+    try {
+      await expect(
+        ordinary.handle.stageAttachment({
+          bytes: new TextEncoder().encode('notes'),
+          filename: 'notes.txt',
+          mediaType: 'text/plain',
+        }),
+      ).resolves.toEqual({ reason: 'unsupported', detail: 'Codex accepts image attachments only' })
+    } finally {
+      ordinary.dispose()
+    }
+
+    const failing = await world(async () => {
+      throw new Error('disk full')
+    })
+    try {
+      await expect(
+        failing.handle.stageAttachment({
+          bytes: new Uint8Array([1]),
+          filename: 'diagram.png',
+          mediaType: 'image/png',
+        }),
+      ).resolves.toEqual({ reason: 'staging_failed', detail: 'Error: disk full' })
+    } finally {
+      failing.dispose()
+    }
+  })
+
   it('sends staged images through Codex localImage input', async () => {
     const w = await world()
     try {

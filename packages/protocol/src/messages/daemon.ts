@@ -48,6 +48,7 @@ import {
   RuntimeInteractionAskedMessage,
   RuntimeLifecycleResultMessage,
   RuntimeQueueDrainAbandonedMessage,
+  RuntimeStageAttachmentResultMessage,
   RuntimeSendResultMessage,
   RuntimeSnapshotResultMessage,
 } from './runtime'
@@ -232,6 +233,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   // The Agent Runtime contract's read/receipt path (POD-1761 W3). The five
   // `*Result` frames settle through the one RPC correlator by `requestId`;
   // coarse runtime events are acknowledged entity deliveries; fine deltas are live.
+  RuntimeStageAttachmentResultMessage,
   RuntimeSendResultMessage,
   RuntimeQueueDrainAbandonedMessage,
   RuntimeLifecycleResultMessage,

@@ -59,6 +59,7 @@ import {
 import { stateDir } from '@podium/runtime/config'
 import WebSocket, { type RawData } from 'ws'
 import { serverChildEnv } from '../control/session-env'
+import { stageRuntimeAttachment } from './attachment-staging'
 import {
   createVersionProbeCache,
   execVersionProbe,
@@ -468,7 +469,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
 
   return {
     journal,
-    ...(deps.stageAttachment ? { stageAttachment: deps.stageAttachment } : {}),
+    stageAttachment: deps.stageAttachment ?? stageRuntimeAttachment,
     now: deps.now ?? (() => Date.now()),
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
