@@ -1,7 +1,12 @@
 import { mkdir, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { agentLaunchCommand, declaredValue, harnessDetectLogin } from '@podium/harness'
+import {
+  agentLaunchCommand,
+  buildMachineInventory,
+  declaredValue,
+  harnessDetectLogin,
+} from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
@@ -70,6 +75,7 @@ import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/cod
 import { runtimeContractEnabledByEnv } from './runtime/flag'
 import { createGrokAcpHost } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
+import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { daemonRuntimeHost } from './runtime/host'
 import { createOpencodeClientTerminals } from './runtime/opencode-attach'
 import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
@@ -142,6 +148,7 @@ export async function createDaemonHostRuntime(args: {
   let opencodeRuntime: DaemonOpencodeRuntime | undefined
   let codexRuntime: DaemonCodexRuntime | undefined
   let grokRuntime: DaemonGrokRuntime | undefined
+  let agentRuntime: DaemonMachineRuntime | undefined
   const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
   /**
    * Every outbound daemon frame, past the driver's observation tap.
@@ -153,7 +160,7 @@ export async function createDaemonHostRuntime(args: {
    * tap returns on a map lookup.
    */
   const send = (message: DaemonMessage): void => {
-    if (message.type !== 'runtimeEvent') terminalRuntime?.observe(message)
+    if (message.type !== 'runtimeEvent') agentRuntime?.observe(message)
     sendUpstream(message)
   }
   const config = loadConfig()
@@ -339,7 +346,7 @@ export async function createDaemonHostRuntime(args: {
       // accept a terminal receipt anchors to, and waiting for it to become a
       // delivered, acked, fenced observation would report `unverified` for sends
       // the harness had already taken (POD-1761 W3). No-op when unflagged.
-      terminalRuntime?.onHookPayload(sessionId, payload)
+      agentRuntime?.onHookPayload(sessionId, payload)
       observers.onHookPayload(sessionId, payload)
     },
   })
@@ -594,11 +601,10 @@ export async function createDaemonHostRuntime(args: {
   })
   ctx.clientTerminals = clientTerminals
 
-  // Built AFTER the context, because the driver's host port is that context. The
-  // assignment closes the only cycle in this wiring: handlers reach the registry
-  // through `ctx.runtime`, and the registry reaches the daemon through `ctx`.
+  // Built AFTER the context because the driver hosts need that context. The
+  // single assignment at the end closes the wiring cycle: handlers reach every
+  // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
   terminalRuntime = createTerminalRuntime(daemonRuntimeHost(ctx, send))
-  ctx.runtime = terminalRuntime
   /**
    * THE SERVER-FAMILY RUNTIME (POD-1761 W5), built the same way and for the same
    * reason: its host port is this context.
@@ -637,7 +643,6 @@ export async function createDaemonHostRuntime(args: {
       ...(homeDir ? { homeDir } : {}),
     }),
   })
-  ctx.opencodeRuntime = opencodeRuntime
   /**
    * THE SECOND SERVER-FAMILY RUNTIME (POD-1761 W6), constructed on the same
    * terms and for the same reason as the first: it allocates two maps, and no
@@ -670,7 +675,6 @@ export async function createDaemonHostRuntime(args: {
       ...(homeDir ? { homeDir } : {}),
     }),
   })
-  ctx.codexRuntime = codexRuntime
   grokRuntime = createDaemonGrokRuntime({
     send,
     host: createGrokAcpHost({
@@ -696,7 +700,17 @@ export async function createDaemonHostRuntime(args: {
       ...(homeDir ? { homeDir } : {}),
     }),
   })
-  ctx.grokRuntime = grokRuntime
+  agentRuntime = createDaemonMachineRuntime({
+    terminal: terminalRuntime,
+    opencode: opencodeRuntime,
+    codex: codexRuntime,
+    grok: grokRuntime,
+    inventory: async () =>
+      (
+        await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })
+      ).inventory,
+  })
+  ctx.agentRuntime = agentRuntime
 
   const frameGuard = createFrameGuard(ctx)
 
@@ -807,11 +821,8 @@ export async function createDaemonHostRuntime(args: {
       else turn.dispose?.()
     }
     ctx.runningHeadlessTurns.clear()
-    terminalRuntime?.dispose()
-    opencodeRuntime?.dispose()
-    codexRuntime?.dispose()
+    agentRuntime?.dispose()
     observers.disposeObservers()
-    grokRuntime?.dispose()
     composerEngine.disposeAll()
     await Promise.all(durableReaps)
   }

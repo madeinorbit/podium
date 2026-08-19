@@ -125,18 +125,29 @@ function fakeCtx(
 } {
   const sent: DaemonMessage[] = []
   const journalCleared: SessionId[] = []
-  const runtime = {
-    handleFor: (sessionId: SessionId) => (sessionId === SESSION ? input.handle : undefined),
-    journal: {
-      read: (sessionId: SessionId) => (sessionId === SESSION ? input.journalEntry : undefined),
-      clear: (sessionId: SessionId) => void journalCleared.push(sessionId),
-    },
-  }
+  const driver =
+    slot === 'opencodeRuntime' ? 'opencode' : slot === 'codexRuntime' ? 'codex' : 'grok'
   const ctx = {
-    opencodeRuntime: undefined,
-    codexRuntime: undefined,
-    grokRuntime: undefined,
-    [slot]: runtime,
+    agentRuntime: {
+      serverHandleFor: (sessionId: SessionId) =>
+        sessionId === SESSION ? input.handle : undefined,
+      journalledServerProcess: (sessionId: SessionId) => {
+        if (sessionId !== SESSION || !input.journalEntry) return undefined
+        const entry = input.journalEntry as {
+          process: { key: string; pid?: number; scopeUnit?: string }
+          baseUrl?: string
+          secret?: string
+        }
+        return {
+          driver,
+          identity: entry.process,
+          ...(driver === 'opencode' && entry.baseUrl && entry.secret
+            ? { probe: { baseUrl: entry.baseUrl, secret: entry.secret } }
+            : {}),
+          clearJournal: () => void journalCleared.push(sessionId),
+        }
+      },
+    },
     send: (msg: DaemonMessage) => void sent.push(msg),
   } as unknown as DaemonContext
   return { ctx, sent, journalCleared }
@@ -396,10 +407,6 @@ describe('the choke point: every teardown frame lands in stopSessionProcess', ()
     sessionBinding?: { transition: () => Promise<unknown> },
   ): { ctx: DaemonContext; sent: DaemonMessage[] } {
     const sent: DaemonMessage[] = []
-    const runtime = {
-      handleFor: (sessionId: SessionId) => (sessionId === SESSION ? handle : undefined),
-      journal: { read: () => undefined, clear: () => {} },
-    }
     const ctx = {
       backend: 'none',
       settingsDir: '/nonexistent/podium-test-settings',
@@ -410,10 +417,11 @@ describe('the choke point: every teardown frame lands in stopSessionProcess', ()
       observers: { clearSession: () => {} },
       outputScheduler: { remove: () => {} },
       portableStateFence: { runSync: (fn: () => void) => fn() },
-      runtime: undefined,
-      opencodeRuntime: runtime,
-      codexRuntime: undefined,
-      grokRuntime: undefined,
+      agentRuntime: {
+        serverHandleFor: (sessionId: SessionId) => (sessionId === SESSION ? handle : undefined),
+        journalledServerProcess: () => undefined,
+        clearTerminal: () => {},
+      },
       ...(sessionBinding ? { sessionBinding } : {}),
       send: (msg: DaemonMessage) => void sent.push(msg),
     } as unknown as DaemonContext

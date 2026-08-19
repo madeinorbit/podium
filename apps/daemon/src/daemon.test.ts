@@ -1152,7 +1152,20 @@ function defaultServerSpawnContext(
       setLaunchCwd: async () => {},
     },
     harnessLoginState: () => 'in',
-    ...runtimes,
+    agentRuntime: {
+      launchServer: (driverId: string, launch: never) => {
+        const runtime =
+          driverId === 'codex-app-server' ? runtimes.codexRuntime : runtimes.grokRuntime
+        if (!runtime) throw new Error("driver '" + driverId + "' is not wired")
+        return runtime.launch(launch)
+      },
+      handleFor: (sessionId: SessionId) =>
+        runtimes.codexRuntime?.handleFor(sessionId) ??
+        runtimes.grokRuntime?.handleFor(sessionId),
+      has: (sessionId: SessionId) =>
+        runtimes.codexRuntime?.handleFor(sessionId) !== undefined ||
+        runtimes.grokRuntime?.handleFor(sessionId) !== undefined,
+    },
   } as unknown as DaemonContext
 }
 

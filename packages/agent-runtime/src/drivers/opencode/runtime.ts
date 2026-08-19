@@ -253,6 +253,7 @@ export interface OpencodeRuntime {
    */
   createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  bindings(): readonly AgentSessionHandle['binding'][]
   /**
    * Is this session behind this runtime RIGHT NOW?
    *
@@ -1683,6 +1684,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     journal: host.journal,
     handleFor: (sessionId) => handles.get(sessionId),
     // ONE MAP, TWO READERS. `stop`/`hibernate`/`kill` all delete from `handles`,
+    bindings: () => [...handles.values()].map((handle) => handle.binding),
     // so both answers change together by construction.
     has: (sessionId) => handles.has(sessionId),
     forget: (sessionId) => {

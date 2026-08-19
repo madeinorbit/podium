@@ -635,15 +635,14 @@ describe('the contract bind fact', () => {
   const ctxWith = (opts: {
     terminal?: SessionId[]
     opencode?: SessionId[]
-  }): Parameters<typeof sessionIsBehindContract>[0] =>
-    ({
-      ...(opts.terminal
-        ? { runtime: { has: (id: SessionId) => opts.terminal?.includes(id) === true } }
+  }): Parameters<typeof sessionIsBehindContract>[0] => {
+    const sessions = [...(opts.terminal ?? []), ...(opts.opencode ?? [])]
+    return {
+      ...(opts.terminal || opts.opencode
+        ? { agentRuntime: { has: (id: SessionId) => sessions.includes(id) } }
         : {}),
-      ...(opts.opencode
-        ? { opencodeRuntime: { has: (id: SessionId) => opts.opencode?.includes(id) === true } }
-        : {}),
-    }) as unknown as Parameters<typeof sessionIsBehindContract>[0]
+    } as unknown as Parameters<typeof sessionIsBehindContract>[0]
+  }
 
   it('reports a TERMINAL session behind the contract', () => {
     expect(sessionIsBehindContract(ctxWith({ terminal: [SESSION] }), SESSION)).toBe(true)
@@ -664,7 +663,7 @@ describe('the contract bind fact', () => {
 
   it('reports the driver from the registry handle that owns the session', () => {
     const ctx = {
-      opencodeRuntime: {
+      agentRuntime: {
         handleFor: () => ({ binding: { driver: 'opencode-server' } }),
       },
     } as unknown as Parameters<typeof runtimeDriverIdFor>[0]

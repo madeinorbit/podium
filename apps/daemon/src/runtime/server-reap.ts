@@ -171,11 +171,7 @@ export function serverRuntimeHandleFor(
   ctx: DaemonContext,
   sessionId: SessionId,
 ): AgentSessionHandle | undefined {
-  return (
-    ctx.opencodeRuntime?.handleFor(sessionId) ??
-    ctx.codexRuntime?.handleFor(sessionId) ??
-    ctx.grokRuntime?.handleFor(sessionId)
-  )
+  return ctx.agentRuntime?.serverHandleFor(sessionId)
 }
 
 /** What a queued kill flushed after a daemon restart has to work from: the
@@ -194,32 +190,7 @@ function journalledServerProcess(
   ctx: DaemonContext,
   sessionId: SessionId,
 ): JournalledReap | undefined {
-  const opencode = ctx.opencodeRuntime?.journal.read(sessionId)
-  if (opencode) {
-    return {
-      driver: 'opencode',
-      identity: opencode.process,
-      probe: { baseUrl: opencode.baseUrl, secret: opencode.secret },
-      clearJournal: () => ctx.opencodeRuntime?.journal.clear(sessionId),
-    }
-  }
-  const codex = ctx.codexRuntime?.journal.read(sessionId)
-  if (codex) {
-    return {
-      driver: 'codex',
-      identity: codex.process,
-      clearJournal: () => ctx.codexRuntime?.journal.clear(sessionId),
-    }
-  }
-  const grok = ctx.grokRuntime?.journal.read(sessionId)
-  if (grok) {
-    return {
-      driver: 'grok',
-      identity: grok.process,
-      clearJournal: () => ctx.grokRuntime?.journal.clear(sessionId),
-    }
-  }
-  return undefined
+  return ctx.agentRuntime?.journalledServerProcess(sessionId)
 }
 
 /**

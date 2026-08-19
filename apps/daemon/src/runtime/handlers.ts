@@ -37,16 +37,8 @@ import type { ControlHandlers, DaemonContext } from '../control/context'
  * chooses a driver once and registers there — so the order below is a lookup,
  * not a precedence.
  */
-export function handleFor(
-  ctx: DaemonContext,
-  sessionId: SessionId,
-): AgentSessionHandle | undefined {
-  return (
-    ctx.runtime?.handleFor(sessionId) ??
-    ctx.opencodeRuntime?.handleFor(sessionId) ??
-    ctx.codexRuntime?.handleFor(sessionId) ??
-    ctx.grokRuntime?.handleFor(sessionId)
-  )
+export function handleFor(ctx: DaemonContext, sessionId: SessionId): AgentSessionHandle | undefined {
+  return ctx.agentRuntime?.handleFor(sessionId)
 }
 
 /** The driver that actually owns this live session, from its runtime binding. */
@@ -68,12 +60,7 @@ export function runtimeDriverIdFor(
  * where the write would go nowhere and report success.
  */
 export function sessionIsBehindContract(ctx: DaemonContext, sessionId: SessionId): boolean {
-  return (
-    ctx.runtime?.has(sessionId) === true ||
-    ctx.opencodeRuntime?.has(sessionId) === true ||
-    ctx.codexRuntime?.has(sessionId) === true ||
-    ctx.grokRuntime?.has(sessionId) === true
-  )
+  return ctx.agentRuntime?.has(sessionId) === true
 }
 
 export const runtimeHandlers: Pick<

@@ -5,8 +5,6 @@ import type {
 } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { DaemonContext } from '../control/context'
-import { serverDriverAdoptionCandidates } from '../control/session'
 import { grokAcpProcessKey, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './grok-acp-server'
 import { createDaemonGrokRuntime } from './grok-driver'
 import { availableDriverIds } from './registry'
@@ -176,28 +174,5 @@ describe('Grok ACP daemon gate', () => {
     })
     await expect(grokAcpVersionProbe(probe)).resolves.toMatchObject({ reason: 'unsupported' })
     expect(calls).toBe(1)
-  })
-})
-
-describe('server restart adoption registry', () => {
-  it('pins every shipped server runtime, including Grok ACP', () => {
-    const opencodeRuntime = { marker: 'opencode' }
-    const codexRuntime = { marker: 'codex' }
-    const grokRuntime = { marker: 'grok' }
-    const ctx = {
-      opencodeRuntime,
-      codexRuntime,
-      grokRuntime,
-    } as unknown as DaemonContext
-    expect(
-      serverDriverAdoptionCandidates(ctx).map(({ runtime, what }) => ({
-        marker: (runtime as unknown as { marker: string }).marker,
-        what,
-      })),
-    ).toEqual([
-      { marker: 'opencode', what: 'opencode serve' },
-      { marker: 'codex', what: 'codex app-server' },
-      { marker: 'grok', what: 'grok agent stdio' },
-    ])
   })
 })

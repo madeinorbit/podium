@@ -330,6 +330,7 @@ export interface CodexRuntime {
    *  handle every subsequent verb fails to find. */
   createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  bindings(): readonly AgentSessionHandle['binding'][]
   /** Drop a session's handle without touching the process. What a supervisor
    *  restart looks like from inside this process. */
   forget(sessionId: SessionId): void
@@ -2056,6 +2057,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     driver,
     createWithId,
     handleFor: (sessionId) => handles.get(sessionId),
+    bindings: () => [...handles.values()].map((handle) => handle.binding),
     forget: (sessionId) => {
       const session = sessions.get(sessionId)
       if (!session) return

@@ -490,14 +490,14 @@ function bindRuntimeContract(
   msg: SpawnControl | ReattachControl,
   rebind: boolean,
 ): void {
-  if (!ctx.runtime) return
+  if (!ctx.agentRuntime) return
   if (!runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)) return
   const profile = terminalProfileFor(msg.agentKind)
   // A shell has no turns, no transcript and no state channel — there is nothing
   // for a driver to be honest about, so the flag simply does not reach it.
   if (!profile) return
   try {
-    ctx.runtime.register(
+    ctx.agentRuntime.registerTerminal(
       {
         sessionId: msg.sessionId,
         agentKind: msg.agentKind,
@@ -657,13 +657,6 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
  * written by the server driver's own launch, so its presence IS the statement
  * that this session was server-driven.
  */
-export function serverDriverAdoptionCandidates(ctx: DaemonContext) {
-  return [
-    { runtime: ctx.opencodeRuntime, what: 'opencode serve' },
-    { runtime: ctx.codexRuntime, what: 'codex app-server' },
-    { runtime: ctx.grokRuntime, what: 'grok agent stdio' },
-  ] as const
-}
 
 async function adoptServerDriverSession(
   ctx: DaemonContext,
@@ -683,16 +676,12 @@ async function adoptServerDriverSession(
    * chose a driver once and that driver's launch wrote the entry — so this is a
    * lookup rather than a precedence, and the first entry found is the answer.
    */
-  const candidates = serverDriverAdoptionCandidates(ctx)
-  const found = candidates.find(
-    (candidate) => candidate.runtime?.journal.read(msg.sessionId) !== undefined,
-  )
-  if (!found?.runtime) return false
-  const { runtime, what } = found
-  const entry = runtime.journal.read(msg.sessionId)
-  if (!entry) return false
+  const runtime = ctx.agentRuntime
+  if (!runtime) return false
   try {
-    const handle = await runtime.adoptFromJournal(msg.sessionId)
+    const adoption = await runtime.adoptJournalled(msg.sessionId)
+    if (!adoption.found) return false
+    const { handle, what, workdir } = adoption
     if (!handle) {
       /**
        * THE JOURNAL SAID SERVER, AND NOTHING ANSWERED. Reported as a reattach
@@ -712,7 +701,7 @@ async function adoptServerDriverSession(
       type: 'bind',
       sessionId: msg.sessionId,
       cmd: `${what} (${handle.binding.driver})`,
-      cwd: entry.workdir,
+      cwd: workdir,
       agentKind: msg.agentKind,
       geometry: msg.geometry ?? { cols: 120, rows: 40 },
       // The same fact the launch path states, and for the same reason: W4's
@@ -1017,12 +1006,7 @@ export async function launchServerDriverSession(
    * by harness would hand the session to whichever registry happened to be
    * first.
    */
-  const runtime =
-    resolution.driverId === 'codex-app-server'
-      ? ctx.codexRuntime
-      : resolution.driverId === 'grok-acp'
-        ? ctx.grokRuntime
-        : ctx.opencodeRuntime
+  const runtime = ctx.agentRuntime
   if (!runtime) {
     ctx.send({
       type: 'spawnError',
@@ -1032,7 +1016,7 @@ export async function launchServerDriverSession(
     return { handled: true }
   }
   try {
-    await runtime.launch({
+    await runtime.launchServer(resolution.driverId, {
       sessionId: msg.sessionId,
       cwd: msg.cwd,
       ...(msg.model ? { model: msg.model } : {}),
@@ -1342,7 +1326,7 @@ export function stopSessionProcess(
 ): void {
   const session = ctx.bridges.get(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
-  ctx.runtime?.clear(msg.sessionId)
+  ctx.agentRuntime?.clearTerminal(msg.sessionId)
   ctx.pendingResizes.delete(msg.sessionId)
   ctx.nativeClientRequests?.delete(msg.sessionId)
   void ctx.clientTerminals?.close(msg.sessionId)

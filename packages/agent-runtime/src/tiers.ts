@@ -53,6 +53,8 @@ export type RuntimePrimitive =
   // runtime-level, per machine (./runtime.ts)
   | 'import'
   | 'list'
+  | 'inventory'
+  | 'capabilities'
   | 'quota'
   | 'usage'
   | 'accounts'
@@ -100,6 +102,10 @@ export const RUNTIME_PRIMITIVE_TIER = {
   // needs it: a supervisor that cannot enumerate survivors cannot rebind them.
   list: 'core',
 
+  // Selection and feature degradation read these machine facts before a handle
+  // exists, so both live on the runtime and every composition must answer them.
+  inventory: 'core',
+  capabilities: 'core',
   // ---- CORE: lifecycle & identity ----------------------------------------
   create: 'core',
   resume: 'core',

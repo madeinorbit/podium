@@ -2,11 +2,8 @@ import type { Inventory } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The handler builds inventory via @podium/harness, which shells out to real CLIs.
-// Mock it so the test exercises the daemon's report/cache/rebuild logic in
-// isolation without spawning anything. The mock returns the MACHINE-KEYED shape
-// (POD-397): the probe hands back the machine its facts are about, and the handler
-// must send THAT id rather than reaching for ctx.machineId a second time.
+// The machine runtime owns the real CLI probe. This fake keeps the test on the
+// report/cache/rebuild behavior and proves the handler enters through that root.
 const buildInventory = vi.fn<() => Promise<Inventory>>()
 // Same reasoning for the model probe (POD-1466): it shells out to grok/cursor/
 // opencode/codex and calls the Anthropic models API. The mock records the OPTIONS
@@ -14,10 +11,6 @@ const buildInventory = vi.fn<() => Promise<Inventory>>()
 // part of the daemon's wiring worth pinning.
 const probeModels = vi.fn<(opts: unknown) => Promise<Record<string, unknown[]>>>()
 vi.mock('@podium/harness', () => ({
-  buildMachineInventory: async (opts: { machineId: string }) => ({
-    machineId: opts.machineId,
-    inventory: await buildInventory(),
-  }),
   probeAllModels: (opts: unknown) => probeModels(opts),
 }))
 
@@ -56,6 +49,7 @@ function makeCtx(): { ctx: DaemonContext; sent: DaemonMessage[] } {
     send: (m: DaemonMessage) => sent.push(m),
     machineId: 'm-test',
     homeDir: `/fake/home/${seq++}`,
+    agentRuntime: { inventory: () => buildInventory() },
   } as unknown as DaemonContext
   return { ctx, sent }
 }

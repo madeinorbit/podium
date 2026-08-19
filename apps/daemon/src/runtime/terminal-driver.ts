@@ -423,6 +423,7 @@ export interface TerminalRuntime {
     profile: TerminalHarnessProfile,
   ): AgentSessionHandle
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  bindings(): readonly RuntimeSessionBinding[]
   /** Is this session behind the contract right now? The flag-off fast path. */
   has(sessionId: SessionId): boolean
   /** THE EVENT SOURCE. Tap on the daemon's outbound frame stream — see the
@@ -1672,6 +1673,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   return {
     register,
     handleFor: (sessionId) => handles.get(sessionId),
+    bindings: () => [...handles.values()].map((handle) => handle.binding),
     has: (sessionId) => sessions.has(sessionId),
     observe,
     onHookPayload,

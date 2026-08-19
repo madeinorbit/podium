@@ -1,8 +1,4 @@
-import {
-  buildMachineInventory,
-  type MachineHarnessInventory,
-  probeAllModels,
-} from '@podium/harness'
+import { type MachineHarnessInventory, probeAllModels } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -95,10 +91,11 @@ export async function reportInventory(
     }
     pending = opts.rebuild ? undefined : inventoryCache.get(key)
     if (!pending) {
-      pending = buildMachineInventory({
+      if (!ctx.agentRuntime) throw new Error('machine runtime is not composed')
+      pending = ctx.agentRuntime.inventory().then((inventory) => ({
         machineId: ctx.machineId,
-        ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
-      })
+        inventory,
+      }))
       inventoryCache.set(key, pending)
       inventoryInFlight.set(key, pending)
     }

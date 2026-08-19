@@ -13,11 +13,8 @@ import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
-import type { DaemonCodexRuntime } from '../runtime/codex-driver'
-import type { DaemonGrokRuntime } from '../runtime/grok-driver'
 import type { OpencodeClientTerminals } from '../runtime/opencode-attach'
-import type { DaemonOpencodeRuntime } from '../runtime/opencode-driver'
-import type { TerminalRuntime } from '../runtime/terminal-driver'
+import type { DaemonMachineRuntime } from '../runtime/machine-runtime'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
 import type { ShippingExecutionPlane } from '../shipping/executor'
@@ -97,41 +94,10 @@ export interface DaemonContext {
   nativeClientTransitions?: Map<SessionId, Promise<void>>
   /** Agent-state trackers, transcript tails, per-harness observers. */
   observers: SessionObservers
-  /**
-   * The Agent Runtime contract's terminal driver (POD-1761 W3), when this daemon
-   * was built with it.
-   *
-   * OPTIONAL, AND THAT IS THE FLAG'S SHAPE. A daemon with no registry drives
-   * every session the legacy way and answers every `runtime*` frame with
-   * `not_running` — which is true. The registry exists whenever the daemon can
-   * run the contract at all; whether a given SESSION is behind it is the
-   * registry's own per-session question, not this field's.
-   */
-  runtime?: TerminalRuntime
-  /**
-   * THE SERVER-FAMILY REGISTRY (POD-1761 W5).
-   *
-   * A SECOND FIELD, not a widened one, and the reason is that they are not
-   * interchangeable: `runtime` is the terminal driver's registry and carries
-   * terminal-only verbs (`observe`, `onHookPayload`, `register`) that the
-   * daemon's frame tap and hook ingest call directly. What the two DO share is
-   * `handleFor`, and every place that only needs that goes through
-   * `runtime/handlers.ts`'s one lookup rather than asking both in its own order.
-   */
-  opencodeRuntime?: DaemonOpencodeRuntime
-  /**
-   * THE SECOND SERVER-FAMILY REGISTRY (POD-1761 W6).
-   *
-   * A THIRD FIELD rather than a widened second one, for the same reason W5 gave
-   * for not widening the first: these registries are not interchangeable. Each
-   * holds sessions for exactly one driver, a session appears in exactly one of
-   * them by construction, and the shared question — "who owns this session" —
-   * is answered in the one lookup in `runtime/handlers.ts` rather than at each
-   * call site in its own order.
-   */
-  codexRuntime?: DaemonCodexRuntime
-  /** Grok sessions driven over ACP stdio. */
-  grokRuntime?: DaemonGrokRuntime
+  /** The one per-machine runtime. Family registries are private mechanisms
+   * behind this root; handlers never walk them independently. Optional only
+   * during bootstrap while the driver host ports close their wiring cycle. */
+  agentRuntime?: DaemonMachineRuntime
   /** The machine-wide `PODIUM_RUNTIME_CONTRACT` switch, read ONCE at bootstrap.
    *  OR-ed with each session's own `runtimeContract` field — see
    *  `runtime/flag.ts` for why both exist and why neither wins. */

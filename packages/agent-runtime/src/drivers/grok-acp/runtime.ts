@@ -161,6 +161,7 @@ export interface GrokAcpRuntime {
   driver: RuntimeDriver
   createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  bindings(): readonly AgentSessionHandle['binding'][]
   has(sessionId: SessionId): boolean
   readonly journal: GrokAcpJournal
   forget(sessionId: SessionId): void
@@ -1339,6 +1340,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     journal: host.journal,
     handleFor: (sessionId) => handles.get(sessionId),
     has: (sessionId) => handles.has(sessionId),
+    bindings: () => [...handles.values()].map((handle) => handle.binding),
     forget(sessionId) {
       const session = sessions.get(sessionId)
       if (!session) return

@@ -1,11 +1,11 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./index.ts for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { Declared, DriverId } from '@podium/harness'
-import type { ResumeRef } from '@podium/model'
+import { type Declared, type DriverId, manifestFor, unsupported } from '@podium/harness'
+import type { AgentKind, Inventory, ResumeRef, SessionId } from '@podium/model'
 import type { SessionArchive, SessionBinding } from './binding.js'
 import type { DriverCapabilities } from './capabilities.js'
-import type { AgentSessionHandle } from './driver.js'
+import type { AgentSessionHandle, RuntimeDriver } from './driver.js'
 import type { InteractionKind } from './interactions.js'
 import type { SessionSpec } from './session-spec.js'
 
@@ -31,15 +31,14 @@ import type { SessionSpec } from './session-spec.js'
  * on this side of the boundary to honour it.
  *
  * ---------------------------------------------------------------------------
- * WHAT W1 SHIPS AND WHAT IT DOES NOT
+ * THE CONCRETE COMPOSITION
  * ---------------------------------------------------------------------------
  *
- * This is the TYPED SURFACE only — the same status as everything else in this
- * package. The daemon composes an implementation in W3; nothing implements it
- * today except in so far as the existing manifest inventory and discovery
- * already answer several of these questions, which is why those verbs are typed
- * in terms of the shapes `@podium/harness` already returns rather than inventing
- * parallel ones.
+ * {@link createAgentRuntime} implements this surface once for the machine. A
+ * host supplies driver sources plus the effects that necessarily know native
+ * storage (archive landing and process inventory); selection, exact driver
+ * lookup, capability reads, and handle ownership are composed here. Features
+ * therefore never need to know how many family-specific registries the host uses internally.
  */
 export interface AgentRuntime {
   // ---- Sessions (CORE) ----
@@ -64,6 +63,9 @@ export interface AgentRuntime {
    *  database thinks is running. The difference between the two is where ghost
    *  sessions live. */
   list(): Promise<readonly SessionBinding[]>
+
+  /** What this machine can run and which harness accounts are logged in. */
+  inventory(): Promise<Inventory>
 
   // ---- Capability introspection (CORE) ----
   capabilities(harness: string, driver: DriverId): DriverCapabilities
@@ -95,6 +97,174 @@ export interface AgentRuntime {
    * transport for the interaction's payload rather than surface of its own.
    */
   login: Declared<(harness: string, method: string) => Promise<LoginFlow>>
+}
+
+/**
+ * One family registry behind the machine runtime.
+ *
+ * A source may own one driver (the server-family runtimes) or resolve several
+ * harness-specific drivers (the terminal runtime). `bindings()` deliberately
+ * returns only a candidate set for {@link AgentRuntime.list}: registered handles
+ * are not proof that their processes still exist. The host's `list` effect owns
+ * process truth.
+ */
+export interface AgentRuntimeDriverSource {
+  driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined
+  handleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  bindings(): readonly SessionBinding[]
+}
+
+export interface AgentRuntimeComposition {
+  /** Read lazily so a daemon can close its bootstrap wiring cycle once. */
+  sources(): readonly AgentRuntimeDriverSource[]
+  /** Land harness-native bytes and return the resume ref to continue from. */
+  landArchive(archive: SessionArchive, spec: SessionSpec): Promise<ResumeRef>
+  /** Authoritative process-table inventory, never a projection of handle maps. */
+  list(): Promise<readonly SessionBinding[]>
+  inventory(): Promise<Inventory>
+  quota?: Declared<(harness: string) => Promise<QuotaSnapshot>>
+  usage?: Declared<(window: UsageWindow) => Promise<UsageBuckets>>
+  accounts?: Declared<(harness: string) => Promise<readonly AccountRef[]>>
+  login?: Declared<(harness: string, method: string) => Promise<LoginFlow>>
+}
+
+/** The host-facing superset used by daemon command routing. */
+export interface MachineAgentRuntime extends AgentRuntime {
+  handleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  has(sessionId: SessionId): boolean
+  driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined
+  /** Every binding currently indexed by a family registry (not process truth). */
+  registeredBindings(): readonly SessionBinding[]
+}
+
+const unsupportedQuota = unsupported('this machine does not expose harness plan accounting')
+const unsupportedUsage = unsupported('this machine does not expose native-store usage accounting')
+const unsupportedAccounts = unsupported('this machine does not expose multi-account enumeration')
+const unsupportedLogin = unsupported('this machine does not expose runtime-managed login flows')
+
+/**
+ * Build the ONE runtime for a machine.
+ *
+ * The returned object owns every cross-family decision. Driver sources remain
+ * private mechanism adapters: they may keep the maps and journals their process
+ * protocols require, but callers resolve neither a driver nor a session by
+ * walking those registries themselves.
+ */
+export function createAgentRuntime(composition: AgentRuntimeComposition): MachineAgentRuntime {
+  const sources = (): readonly AgentRuntimeDriverSource[] => composition.sources()
+
+  const driverFor = (harness: string, driver: DriverId): RuntimeDriver | undefined => {
+    let found: RuntimeDriver | undefined
+    for (const source of sources()) {
+      const candidate = source.driverFor(harness, driver)
+      if (!candidate) continue
+      if (found) {
+        throw new Error(
+          "runtime driver '" + driver + "' is wired more than once for '" + harness + "'",
+        )
+      }
+      found = candidate
+    }
+    return found
+  }
+
+  const selectedDriver = (spec: SessionSpec): RuntimeDriver => {
+    const manifest = manifestFor(spec.harness as AgentKind)
+    if (!manifest) throw new Error("no runtime manifest for harness '" + spec.harness + "'")
+    const driverId = manifest.runtime.select(spec.selection)
+    const driver = driverFor(spec.harness, driverId)
+    if (!driver) {
+      throw new Error(
+        "runtime driver '" + driverId + "' is not wired for harness '" + spec.harness + "'",
+      )
+    }
+    return driver
+  }
+
+  const remember = (handle: AgentSessionHandle): AgentSessionHandle => {
+    const indexed = handleFor(handle.binding.sessionId)
+    if (indexed !== handle) {
+      throw new Error(
+        "session '" + handle.binding.sessionId + "' was not indexed by its runtime driver",
+      )
+    }
+    return handle
+  }
+
+  const handleFor = (sessionId: SessionId): AgentSessionHandle | undefined => {
+    let found: AgentSessionHandle | undefined
+    for (const source of sources()) {
+      const candidate = source.handleFor(sessionId)
+      if (!candidate) continue
+      if (found) {
+        throw new Error("session '" + sessionId + "' is indexed by more than one runtime driver")
+      }
+      found = candidate
+    }
+    return found
+  }
+
+  const registeredBindings = (): readonly SessionBinding[] => {
+    const bySession = new Map<SessionId, SessionBinding>()
+    for (const source of sources()) {
+      for (const binding of source.bindings()) {
+        const existing = bySession.get(binding.sessionId)
+        if (existing) {
+          throw new Error(
+            "session '" + binding.sessionId + "' is indexed by more than one runtime driver",
+          )
+        }
+        bySession.set(binding.sessionId, binding)
+      }
+    }
+    return [...bySession.values()]
+  }
+
+  return {
+    async create(spec) {
+      return remember(await selectedDriver(spec).create(spec))
+    },
+    async resume(ref, spec) {
+      return remember(await selectedDriver(spec).resume(ref, spec))
+    },
+    async import(archive, spec) {
+      if (archive.harness !== spec.harness) {
+        throw new Error(
+          "archive harness '" + archive.harness + "' cannot be imported as '" + spec.harness + "'",
+        )
+      }
+      const ref = await composition.landArchive(archive, spec)
+      return remember(await selectedDriver(spec).resume(ref, spec))
+    },
+    async adopt(binding) {
+      const driver = driverFor(binding.harness, binding.driver)
+      if (!driver) {
+        throw new Error(
+          "runtime driver '" + binding.driver + "' is not wired for harness '" + binding.harness + "'",
+        )
+      }
+      return remember(await driver.adopt(binding))
+    },
+    list: () => composition.list(),
+    inventory: () => composition.inventory(),
+    capabilities(harness, driver) {
+      const selected = driverFor(harness, driver)
+      if (!selected) {
+        throw new Error(
+          "runtime driver '" + driver + "' is not wired for harness '" + harness + "'",
+        )
+      }
+      return selected.capabilities()
+    },
+    quota: composition.quota ?? unsupportedQuota,
+    usage: composition.usage ?? unsupportedUsage,
+    accounts: composition.accounts ?? unsupportedAccounts,
+    login: composition.login ?? unsupportedLogin,
+    handleFor,
+    has: (sessionId) => handleFor(sessionId) !== undefined,
+    driverFor,
+    registeredBindings,
+  }
 }
 
 /** An opaque harness account name — see `SessionSpec.principal` for why this
