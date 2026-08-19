@@ -54,7 +54,8 @@ export class FileLinkPathIndex {
   private readonly paths = new Set<string>()
 
   constructor(private readonly cap = FILE_LINK_PATH_CAP) {
-    if (!Number.isInteger(cap) || cap < 1) throw new RangeError('file-link path cap must be positive')
+    if (!Number.isInteger(cap) || cap < 1)
+      throw new RangeError('file-link path cap must be positive')
   }
 
   get knownPaths(): ReadonlySet<string> {
@@ -372,22 +373,57 @@ export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): Que
     .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
 }
 
-/** Hide server-restored rows already represented by an optimistic bubble.
- * Duplicate prompt text is consumed FIFO so two identical queued sends still
- * render twice after refresh and only once each before it. */
-export function withoutOptimisticDuplicates(
-  queued: QueuedChatMessage[],
+/** Collapse the optimistic bubble, durable ledger row, and transcript echo into
+ * one visible message. Reconciliation effects can lag a paint; this projection
+ * is synchronous so that lag never becomes a duplicate frame. */
+export function projectOptimisticMessages(
   pending: PendingItem[],
-): QueuedChatMessage[] {
-  const optimisticTexts = pending
-    .filter((item) => item.state !== 'failed')
-    .map((item) => item.text.trim())
-  return queued.filter((item) => {
-    const index = optimisticTexts.indexOf(item.text.trim())
+  queued: QueuedChatMessage[],
+  transcript: TranscriptItem[],
+): { pending: PendingItem[]; queued: QueuedChatMessage[] } {
+  const unmatchedQueued = [...queued]
+  const logical: Array<{
+    pending?: PendingItem
+    queued?: QueuedChatMessage
+    text: string
+    at: number
+  }> = []
+
+  for (const item of pending) {
+    let durable: QueuedChatMessage | undefined
+    if (item.state !== 'failed') {
+      const index = unmatchedQueued.findIndex((message) => message.text.trim() === item.text.trim())
+      if (index !== -1) [durable] = unmatchedQueued.splice(index, 1)
+    }
+    logical.push({ pending: item, queued: durable, text: item.text.trim(), at: item.at })
+  }
+  for (const message of unmatchedQueued) {
+    logical.push({ queued: message, text: message.text.trim(), at: message.at })
+  }
+  logical.sort((a, b) => a.at - b.at)
+
+  const available = transcript
+    .filter((item) => item.role === 'user')
+    .map((item) => ({ text: item.text.trim(), at: item.ts ? Date.parse(item.ts) : Number.NaN }))
+  const visible = logical.filter((message) => {
+    const index = available.findIndex(
+      (item) =>
+        item.text === message.text &&
+        // Provider clocks and parsing can differ slightly. The lower bound only
+        // prevents an old identical prompt from consuming a new local row.
+        (Number.isNaN(item.at) || item.at >= message.at - 5_000),
+    )
     if (index === -1) return true
-    optimisticTexts.splice(index, 1)
+    available.splice(index, 1)
     return false
   })
+
+  return {
+    pending: visible.flatMap((message) => (message.pending ? [message.pending] : [])),
+    queued: visible.flatMap((message) =>
+      !message.pending && message.queued ? [message.queued] : [],
+    ),
+  }
 }
 
 /**

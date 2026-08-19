@@ -26,8 +26,8 @@
     "@fontsource-variable/geist-mono": "^5.2.8",
     "@lezer/highlight": "^1.2.3",
     "@podium/client-core": "workspace:*",
-    "@podium/composer": "workspace:*",
     "@podium/commands": "workspace:*",
+    "@podium/composer": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
@@ -50,12 +50,13 @@
     "lucide-react": "^1.18.0",
     "marked": "^18.0.5",
     "motion": "^12.42.2",
+    "qrcode.react": "^4.2.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "qrcode.react": "^4.2.0",
     "shadcn": "^4.11.0",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "use-stick-to-bottom": "1.1.6"
   },
   "scripts": {
     "//build": "The stamp is written LAST, and the order is load-bearing (POD-1986): `podium-build.json` is what every reader — assertDevWebDistMatchesVersion, the dev publisher, the bundle copy — takes to mean `dist is complete`. Written earlier, it named a dist that precompression was still writing into, and a headless bundle copied in that window shipped without its .br/.gz files.",

@@ -100,6 +100,38 @@ describe('per-message actions', () => {
     mount(prose('   '))
     expect(actions()).toBeNull()
   })
+
+  it('retains markdown text nodes when ambient row chrome changes', () => {
+    const item = prose('selectable answer text')
+    const openFile = vi.fn()
+    const onOpenImage = vi.fn()
+    const onAnswerAsk = vi.fn(async () => {})
+    const render = (highlighted: boolean): void => {
+      act(() => {
+        root.render(
+          <ChatBlockView
+            block={{ item }}
+            index={0}
+            highlighted={highlighted}
+            dimmed={false}
+            sessionId={asSessionId('s1')}
+            cwd="/r"
+            openFile={openFile}
+            httpOrigin="http://x"
+            onOpenImage={onOpenImage}
+            askLivePending={false}
+            onAnswerAsk={onAnswerAsk}
+          />,
+        )
+      })
+    }
+
+    render(false)
+    const text = host.querySelector('.chat-md')?.firstChild
+    expect(text).toBeDefined()
+    render(true)
+    expect(host.querySelector('.chat-md')?.firstChild).toBe(text)
+  })
 })
 
 /**

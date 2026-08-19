@@ -134,7 +134,7 @@ test('Tray and command palette use the live issue-reference glyph', async ({ pag
   ).toBeVisible()
 })
 
-test('chat issue references show and live-update their stage glyph', async ({ page, request }) => {
+test('chat issue references remain stable across issue updates', async ({ page, request }) => {
   const repos = await request.get(`${HTTP}/trpc/repos.list`)
   const repoPath = ((await repos.json()) as { result?: { data?: string[] } }).result?.data?.[0]
   if (!repoPath) throw new Error('harness registered no repo')
@@ -176,7 +176,7 @@ test('chat issue references show and live-update their stage glyph', async ({ pa
   await openApp(page)
   await newSession(page, 'Claude')
   const sessionId = await page
-    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .locator('div[data-session].absolute:visible')
     .first()
     .getAttribute('data-session')
   if (!sessionId) throw new Error('active harness session missing')
@@ -186,13 +186,28 @@ test('chat issue references show and live-update their stage glyph', async ({ pa
   const chatRef = page
     .locator(`.chat-md:visible a.ref-link--issue[data-ref="${issue.displayRef}"]`)
     .first()
-  await expect(chatRef).toHaveAttribute('data-issue-stage', 'review', { timeout: 20_000 })
-  await expect
-    .poll(() => chatRef.evaluate((element) => getComputedStyle(element, '::before').maskImage))
-    .not.toBe('none')
+  await expect(chatRef).toBeVisible({ timeout: 20_000 })
+  await expect(chatRef).not.toHaveAttribute('data-issue-stage')
+  const original = await chatRef.elementHandle()
+  if (!original) throw new Error('chat reference did not mount')
+
+  await chatRef.evaluate((element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  })
 
   await rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'done' } })
-  await expect(chatRef).toHaveAttribute('data-issue-stage', 'done')
+  // Deliberately outlive the six-second transcript heartbeat as well as the
+  // issue-feed update. The alpha contract keeps transcript references static:
+  // issue state can update elsewhere without rewriting the selected message.
+  await page.waitForTimeout(7_000)
+  expect(await original.evaluate((element) => element.isConnected)).toBe(true)
+  expect(await chatRef.evaluate((element, before) => element === before, original)).toBe(true)
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(issue.displayRef)
+  await expect(chatRef).not.toHaveAttribute('data-issue-stage')
 })
 
 test('chat proposal reference opens reliable approval and harness controls', async ({

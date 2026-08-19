@@ -1,3 +1,4 @@
+import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   type AskAnswerChoice,
@@ -34,6 +35,7 @@ import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem, QueuedChatMessage } from './chat'
+import { projectOptimisticMessages } from './chat'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
@@ -206,7 +208,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     getUserFocus,
     attachedSessionId,
     clearAttachedSession,
-    issues,
     superThreads,
   } = useStoreSelector(
     (s) => ({
@@ -223,13 +224,18 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       getUserFocus: s.getUserFocus,
       attachedSessionId: s.attachedSessionId,
       clearAttachedSession: s.clearAttachedSession,
-      issues: s.issues,
       superThreads: s.superThreads,
     }),
     shallowEqual,
   )
   const session = useSession(sessionId)
   const sessionExitKind = useSessionExitKind(sessionId)
+  const storeHandle = useStoreHandle()
+  const getIssueSeq = useCallback(
+    (issueId: string): number | null =>
+      storeHandle.getSnapshot().issues?.find((issue) => issue.id === issueId)?.seq ?? null,
+    [storeHandle],
+  )
 
   // The chat's referent, resolved over a PARTIAL world. `exitKind` is optional
   // on the replica CONTRACT (POD-1510) — test fakes and the legacy TanStack
@@ -287,9 +293,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     loadOlder,
     ensureSearchDepth,
     setRenderCount,
-    pinnedToBottom,
-    didInitialScroll,
-    prependAnchor,
     search,
     markdownHtml,
     computeReady,
@@ -300,7 +303,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     replica,
     active,
     session,
-    scrollerRef,
     verbosity,
     query,
     cursor: matchCursor,
@@ -358,6 +360,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const attribution = useMemo(() => transcriptAttributionTable(session), [session])
 
   const scroll = useTranscriptScroll({
+    sessionId,
     scrollerRef,
     active,
     blockCount: blocks.length,
@@ -365,9 +368,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     stickyEnabled,
     moreAbove,
     loadOlder,
-    pinnedToBottom,
-    didInitialScroll,
-    prependAnchor,
     rowsToRender,
   })
 
@@ -457,7 +457,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     getUserFocus,
     attachedSessionId,
     clearAttachedSession,
-    issues,
+    getIssueSeq,
     headless,
     superThread,
     compact,
@@ -471,15 +471,22 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     initialPendingText,
   })
 
-  const queued = useMemo(
+  const messageProjection = useMemo(
     () =>
-      queuedState({
-        session,
-        queuedMessages: send.queuedMessages,
-        pending: send.pending,
-      }),
-    [session, send.queuedMessages, send.pending],
+      projectOptimisticMessages(
+        send.pending,
+        send.queuedMessages,
+        blocks.map((block) => block.item),
+      ),
+    [blocks, send.pending, send.queuedMessages],
   )
+  const queued = useMemo(() => {
+    return queuedState({
+      session,
+      queuedMessages: messageProjection.queued,
+      pending: messageProjection.pending,
+    })
+  }, [messageProjection, session])
 
   const phase = useMemo(
     () =>
@@ -699,7 +706,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     phase,
     moreAbove,
     loadingOlder,
-    loadOlder,
+    loadOlder: scroll.loadOlder,
     offlineAsOf,
     livePendingAskIndex,
     pendingAskBlock,
@@ -724,7 +731,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     isMobile,
     taRef,
     submitDraft,
-    pending: send.pending,
+    pending: messageProjection.pending,
     restoredQueued: queued.restored,
     ctxSeq: send.ctxSeq,
     offer,

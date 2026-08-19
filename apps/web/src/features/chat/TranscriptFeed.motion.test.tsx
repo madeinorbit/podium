@@ -1,6 +1,6 @@
 import type { RenderableRow } from '@podium/client-core/viewmodels'
 import { asSessionId, type TranscriptItem } from '@podium/model'
-import { act, createRef } from 'react'
+import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildChatRows, pairToolResults } from './chat'
@@ -36,9 +36,10 @@ function render(
   act(() => {
     root.render(
       <TranscriptFeed
-        scrollerRef={createRef<HTMLDivElement>()}
+        setScrollerRef={() => {}}
+        setContentRef={() => {}}
         onScroll={() => {}}
-        claimScrollForArrival={() => {}}
+        onPointerUp={() => {}}
         compact={false}
         superagent={false}
         phase={opts.phase ?? 'ready'}
@@ -97,9 +98,13 @@ describe('TranscriptFeed — arrival', () => {
   it('animates only the row that landed', () => {
     const held = [say('a', 'one'), say('b', 'two')]
     render(held)
+    const first = [...host.querySelectorAll('[data-block]')][0]
     render([...held, say('c', 'three')])
     expect(arriving()).toHaveLength(1)
     expect(arriving()[0]).toContain('three')
+    // Appending a sibling must not replace settled message DOM. This is what
+    // keeps selection, focus, and native scroll anchoring intact.
+    expect([...host.querySelectorAll('[data-block]')][0]).toBe(first)
   })
 
   it('holds the marker while the row stays mounted, so the one-shot is never cut short', () => {
@@ -128,57 +133,6 @@ describe('TranscriptFeed — arrival', () => {
   })
 })
 
-// THE UNROLL NEEDS A HEIGHT, AND REFUSES TO GUESS ONE (POD-1158).
-//
-// Found in real WebKit against the running app, which is the only place it can
-// be found: `offsetHeight` is zero for a row inside a `display: none` subtree,
-// and this feed genuinely produces those, because the panel deck keeps
-// inactive panes mounted and hidden. Stamping such a row is the worst outcome
-// available — it would animate to `--arrive-h: 0px`, and an animation on a
-// hidden element never runs and therefore never fires `animationend`, so the
-// clip stays on forever. The reader switches to that pane and the message is
-// simply not there.
-describe('TranscriptFeed — the unroll', () => {
-  const unrolling = (): Element[] => [...host.querySelectorAll('.transcript-row[data-unroll]')]
-
-  /** jsdom lays nothing out, so the one number this hook depends on is given. */
-  function withOffsetHeight(px: number, body: () => void): void {
-    const proto = window.HTMLElement.prototype
-    const original = Object.getOwnPropertyDescriptor(proto, 'offsetHeight')
-    Object.defineProperty(proto, 'offsetHeight', { configurable: true, get: () => px })
-    try {
-      body()
-    } finally {
-      if (original) Object.defineProperty(proto, 'offsetHeight', original)
-      else delete (proto as unknown as Record<string, unknown>).offsetHeight
-    }
-  }
-
-  it('opens an arriving row to its measured height', () => {
-    withOffsetHeight(48, () => {
-      const held = [say('a', 'one')]
-      render(held)
-      render([...held, say('b', 'two')])
-      const rows = unrolling()
-      expect(rows).toHaveLength(1)
-      expect((rows[0] as HTMLElement).style.getPropertyValue('--arrive-h')).toBe('48px')
-    })
-  })
-
-  it('refuses to clip a row it cannot measure — a hidden pane must not eat a message', () => {
-    withOffsetHeight(0, () => {
-      const held = [say('a', 'one')]
-      render(held)
-      render([...held, say('b', 'two')])
-      // The row still counts as ARRIVED — the latch is unchanged — it simply
-      // gets no clip and no animation, and so is visible the instant its pane
-      // is shown.
-      expect(arriving()).toHaveLength(1)
-      expect(unrolling()).toEqual([])
-    })
-  })
-})
-
 describe('TranscriptFeed — the streaming caret', () => {
   const streaming = (): Element | null => host.querySelector('[data-testid="streaming-text"]')
 
@@ -196,6 +150,7 @@ describe('TranscriptFeed — the streaming caret', () => {
   it('carries no caret when the driver is only reporting status', () => {
     render([say('a', 'one')], { status: 'running Bash…' })
     expect(streaming()).toBeNull()
+    expect(host.querySelector('[data-testid="feed-tail"]')?.textContent).toContain('running Bash')
   })
 })
 

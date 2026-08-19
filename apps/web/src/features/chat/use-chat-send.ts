@@ -55,7 +55,8 @@ export interface UseChatSendOptions {
    *  the next superagent turn, and the way to drop it once it has been. */
   attachedSessionId: Store['attachedSessionId']
   clearAttachedSession: Store['clearAttachedSession']
-  issues: Store['issues']
+  /** Command-time lookup: issue updates must not subscribe the transcript. */
+  getIssueSeq: (issueId: string) => number | null
   headless: boolean
   superThread: SuperThreadRef | undefined
   /** Narrow-dock mode: the arriving answer is labelled with the issue the turn
@@ -111,7 +112,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     getUserFocus,
     attachedSessionId,
     clearAttachedSession,
-    issues,
+    getIssueSeq,
     headless,
     superThread,
     compact,
@@ -290,11 +291,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           // Compact label context: remember which issue this turn was answered
           // with, so the arriving answer carries "· POD-x context".
           if (compact && route.kind !== 'refused') {
-            setCtxSeq(
-              focus.issueId
-                ? ((issues ?? []).find((i) => i.id === focus.issueId)?.seq ?? null)
-                : null,
-            )
+            setCtxSeq(focus.issueId ? getIssueSeq(focus.issueId) : null)
           }
           // THE ATTACHMENT IS SPENT BY THE TURN THAT CARRIES IT (POD-1069), and
           // only by a turn that was actually accepted. A rejected send leaves it
@@ -353,7 +350,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       attachedSessionId,
       clearAttachedSession,
       compact,
-      issues,
+      getIssueSeq,
       headlessTurn,
       trpc,
       sessionId,

@@ -14,7 +14,7 @@ import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
-import { type IssueReferenceLookup, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
+import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
@@ -26,8 +26,6 @@ import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
-
-const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
 
 /** Shared chat-md click handling: code-copy buttons, ref-link chips (#474 —
  *  plain click opens the floating miniview, Cmd/Ctrl-click jumps to the full
@@ -208,6 +206,43 @@ function PromptBubble({ children }: { children: ReactNode }): JSX.Element {
   )
 }
 
+/**
+ * A settled message is a DOM island. Feed state (follow mode, timers, issue
+ * updates, search chrome) may re-render its ancestors, but identical markdown
+ * must not be assigned through `innerHTML` again: browsers discard the text
+ * nodes that own an active selection when that happens. Primitive props plus
+ * `memo` make the message body update only when its own content or link-routing
+ * context actually changes.
+ */
+const StableMarkdown = memo(function StableMarkdown({
+  html,
+  className = 'chat-md',
+  sessionId,
+  cwd,
+  openFile,
+}: {
+  html: string
+  className?: string
+  sessionId: SessionId
+  cwd: string
+  openFile: (sessionId: SessionId, path: string) => void
+}): JSX.Element {
+  const onClick = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      handleChatMdClick(event, sessionId, cwd, openFile)
+    },
+    [cwd, openFile, sessionId],
+  )
+  return (
+    <div
+      className={className}
+      onClick={onClick}
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify before this boundary
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
+})
+
 // Memoized: ChatView re-renders on every search keystroke, every 700ms
 // transcript poll, and every session-state change in the store. Block identity
 // is stable across renders that don't change `items` (the compute client reuses
@@ -233,7 +268,6 @@ export const ChatBlockView = memo(function ChatBlockView({
   turn,
   arrived = false,
   onQuote,
-  issueReferences = EMPTY_ISSUE_REFERENCES,
   markdownHtml,
 }: {
   block: ChatBlock
@@ -273,7 +307,6 @@ export const ChatBlockView = memo(function ChatBlockView({
   arrived?: boolean
   /** Quote this message into the composer. Absent → no Quote action. */
   onQuote?: ((markdown: string) => void) | undefined
-  issueReferences?: IssueReferenceLookup
   /** Unsafe HTML produced off-thread; sanitation and link policy stay here. */
   markdownHtml?: ReadonlyMap<string, string>
 }): JSX.Element | null {
@@ -303,11 +336,9 @@ export const ChatBlockView = memo(function ChatBlockView({
     return unsafeHtml === undefined
       ? renderMarkdown(displayText)
       : sanitizeRenderedMarkdown(unsafeHtml)
-    // `issueReferences` is deliberately NOT a dependency (POD-1290 follow-up):
-    // the chip html is state-free, and liveness arrives as attribute writes.
-    // A dependency here is what rewrote every visible row's innerHTML on
-    // every issue delta — killing the reader's selection on the fleet's 2-5s
-    // cadence and shifting the feed under the scroller.
+    // Issue refs are state-free transcript content. Dynamic fleet state must
+    // never become a dependency here: rewriting innerHTML killed selection and
+    // shifted the feed on the issue-update cadence.
   }, [displayText, markdownHtml])
   // Envelopes render as rows AHEAD of this block's own row (a provider turn can
   // deliver several frames before the operator's text), so when they exist they
@@ -375,14 +406,7 @@ export const ChatBlockView = memo(function ChatBlockView({
             <span className="transcript-role transcript-role--answer">Recap</span>
             <BlockClock ts={item.ts} />
           </div>
-          <div
-            className="chat-md"
-            onClick={(e) => {
-              handleChatMdClick(e, sessionId, cwd, openFile)
-            }}
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
+          <StableMarkdown html={html} sessionId={sessionId} cwd={cwd} openFile={openFile} />
         </div>
       </div>
     )
@@ -476,7 +500,6 @@ export const ChatBlockView = memo(function ChatBlockView({
       envelopes={envelopeBatch.envelopes}
       className={cn(nonStickyRowClass, turnClass(turn))}
       blockIndex={envelopeBatch.operatorText === '' ? index : undefined}
-      issueReferences={issueReferences}
       markdownHtml={markdownHtml}
       ts={item.ts}
       onBodyClick={(e: ReactMouseEvent) => {
@@ -499,14 +522,7 @@ export const ChatBlockView = memo(function ChatBlockView({
 
   const turnBody = (
     <>
-      <div
-        className="chat-md"
-        onClick={(e) => {
-          handleChatMdClick(e, sessionId, cwd, openFile)
-        }}
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <StableMarkdown html={html} sessionId={sessionId} cwd={cwd} openFile={openFile} />
       {nextSplit && <div className="chat-next">{nextSplit.next}</div>}
       {/* Attached media (POD-178): a turn's referenced files render as real
         inline previews — images as clickable thumbnails (→ lightbox), other

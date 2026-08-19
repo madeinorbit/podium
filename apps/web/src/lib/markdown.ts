@@ -1,4 +1,3 @@
-import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import DOMPurify from 'dompurify'
 import { renderMarkdownUnsafe } from './markdown-renderer'
@@ -80,8 +79,6 @@ export function isKnownRefPrefix(prefix: string): boolean {
  * and reads data-ref; externalizeLinks keeps these in-window. The kind modifier
  * picks the chip icon (issue vs session).
  */
-export type IssueReferenceLookup = ReadonlyMap<string, IssueReferenceModel>
-
 /** The chip anchor for one already-validated ref token, or null if the token is
  *  not a ref of a registered prefix. */
 function refAnchor(tok: string): string | null {
@@ -92,8 +89,8 @@ function refAnchor(tok: string): string | null {
   // html a function of the issue store, so each of the fleet's deltas
   // rewrote referenced rows' innerHTML, destroying their subtrees: the
   // reader's text selection died on a 2-5s clock and the layout shifted
-  // under the scroller. The chip is stable now; liveness is an attribute
-  // pass over the existing anchors (issue-chip-liveness.ts).
+  // under the scroller. The alpha keeps the chip deliberately state-free;
+  // liveness is not transcript content and may not rewrite this string.
   return `<a class="ref-link ref-link--${ref.kind}" href="#${tok}" data-ref="${tok}">${tok}</a>`
 }
 
@@ -124,8 +121,7 @@ export function linkifyRefs(html: string): string {
         // the code wrapper and let the chip stand on its own, rather than
         // nesting chip chrome inside mono chrome.
         const tok = inPre === 0 && inAnchor === 0 ? soleRefToken(parts[i + 1] ?? '') : null
-        const anchor =
-          tok && /^<\/code>/i.test(parts[i + 2] ?? '') ? refAnchor(tok) : null
+        const anchor = tok && /^<\/code>/i.test(parts[i + 2] ?? '') ? refAnchor(tok) : null
         if (anchor) {
           parts[i] = ''
           parts[i + 1] = anchor

@@ -4635,32 +4635,6 @@ html[data-density="compact"] .brief-shelf {
 [data-theme="superade"]:not(.dark) .work-line {
   --work-line-carve: rgb(29 28 25 / 0.07);
 }
-/* THE RUN THAT ENDS THE FEED (POD-747). When a call is in flight the tail stands
-   down and this row is the last thing in the transcript, so it inherits the
-   tail's job of showing that the document ENDS — one hairline under the run, in
-   the live hue, the same weight and alpha the tail's own rule carries. It is a
-   ::after on the container rather than a border on the chip so the fanned deck
-   behind a folded run still reads between the two. */
-.work-line[data-ends-feed="true"] {
-  margin-bottom: 16px;
-}
-.work-line[data-ends-feed="true"]::after {
-  content: "";
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  left: 0;
-  height: 1px;
-  background: var(--live, var(--info));
-  opacity: 0.2;
-  pointer-events: none;
-}
-.work-line[data-ends-feed="true"][data-state="wait"]::after {
-  background: var(--muted-foreground);
-}
-.work-line[data-open="true"][data-ends-feed="true"]::after {
-  display: none;
-}
 .work-line-deck {
   position: absolute;
   inset: 0;
@@ -4737,15 +4711,6 @@ html[data-density="compact"] .brief-shelf {
   text-overflow: ellipsis;
   color: var(--muted-foreground);
 }
-.work-line[data-state="live"] .work-line-phrase {
-  color: var(--foreground);
-}
-.work-line[data-state="wait"] .work-line-glyph {
-  color: var(--live, var(--info));
-}
-.work-line[data-state="wait"] .work-line-phrase {
-  color: color-mix(in oklab, var(--foreground) 88%, transparent);
-}
 .work-line-fail {
   flex: none;
   padding: 1px 5px;
@@ -4766,12 +4731,6 @@ html[data-density="compact"] .brief-shelf {
   font-variant-numeric: tabular-nums;
 }
 .work-line-time {
-  color: var(--text-dim, var(--muted-foreground));
-}
-.work-line[data-state="live"] .work-line-time {
-  color: var(--live, var(--info));
-}
-.work-line[data-state="wait"] .work-line-time {
   color: var(--text-dim, var(--muted-foreground));
 }
 .work-line-count {
@@ -5673,50 +5632,6 @@ html[data-density="compact"] .brief-shelf {
   margin-top: 2px;
 }
 
-/* THE ENGINE'S ANCHOR FOLLOWS THE PIN (POD-1160).
-
-   KNOW WHICH ENGINE THE MEASUREMENTS BELOW CAME FROM (round 2): every one of
-   them ran in Playwright's TRUNK WebKit, which ships scroll anchoring.
-   RELEASE Safari — the operator's browser — has none at all
-   (`CSS.supports('overflow-anchor: none')` is false there), so this whole
-   block is inert for it; the bug that browser actually has is a stale async
-   scroll maximum, owned by `writeBottom` and arrival-by-intent in
-   use-transcript-scroll.ts. This regime manages the engine the automated
-   tests run in today and the one release Safari becomes when anchoring ships.
-
-   In an anchoring WebKit this feed is an authority problem: the engine picks
-   an anchor row and then REVERTS whatever moves it — the app's bottom writes
-   (measured: a -200px write applied late, partially, or never, then snapped
-   back) and the reader's own wheel (measured: 0px of escape against it).
-   Turning anchoring off wholesale is worse in two ways that are both on the
-   record: `overflow-anchor: none` on the SCROLLER makes WebKit under-compute
-   the scrollable region outright (POD-993, 444px unreachable), and excluding
-   every child starves the same geometry-refresh channel, so the engine's idea
-   of the maximum runs stale and it drags the view up to it — 115-161px short,
-   exactly the "it jumps up a second or two after I reach the bottom" report.
-
-   So eligibility follows the reader's intent, which the scroll hook already
-   tracks (use-transcript-scroll.ts):
-
-   - PINNED (`data-anchor-end` present): only the LAST child is eligible. The
-     engine anchors the end of the feed — native stick-to-bottom, and its
-     geometry stays fresh. Measured: pull-up 0px, growth at the end heals on
-     the next layout pass, in both engines.
-   - RELEASED (attribute absent, set on wheel-up/touch intent): nothing is
-     eligible, so the engine has no anchor to defend and the reader is free.
-     Measured: 1440-1481px of escape against a bottom-writer, position holds.
-
-   The hook re-grants eligibility on any DOWNWARD movement, before arrival:
-   in an anchoring engine the style flip refreshes the stale maximum on its
-   own; in release Safari it does nothing, which is why a write that falls
-   short heals the geometry itself with one frame of real padding. */
-[data-feed-scroller] .feed-column > * {
-  overflow-anchor: none;
-}
-[data-feed-scroller][data-anchor-end] .feed-column > :last-child {
-  overflow-anchor: auto;
-}
-
 /* THE TAIL — where the transcript ENDS, in three weights. One shape (mark,
    phrase, mono figure, rule running out to the right edge); what changes is
    what the state deserves. See TranscriptTail.tsx for the reasoning.
@@ -5881,60 +5796,15 @@ html[data-density="compact"] .brief-shelf {
   }
 }
 
-/* ── POD-423 arrival, re-aimed by POD-1158 ───────────────────────────────────
-   A row that just landed was indistinguishable from one that had been there an
-   hour, so POD-423 gave it a lift on the house curve. The MECHANISM was right
-   and stays exactly as it is — `use-feed-arrivals` latches, so opening a
-   session animates none of three hundred rows, a page from disk is history, and
-   a backfill over MAX_ARRIVALS stays still. What was wrong was the motion.
-
-   Measured at 1x, that lift travelled 7.1px, then 2.2px, then 0.5px at
-   0 / 55 / 110ms: four fifths of it was over inside one sample, on six pixels.
-   `cubic-bezier(0.22, 1, 0.36, 1)` is the right curve everywhere else in this
-   file because its whole job is to get OUT of the way — which is exactly the
-   wrong job for the one motion here that has to be caught by an eye looking
-   somewhere else on the screen. The operator's report was "a new message is
-   just suddenly there", and the animation firing correctly the whole time is
-   what makes that report worth trusting rather than explaining away.
-
-   THE TURN NOW OPENS. The row's own height runs from zero to its measured
-   height on `cubic-bezier(0.4, 0, 0.2, 1)`, which spends real time in the
-   middle, while the content inside holds still and is revealed by the frame.
-   The document grows, which is what actually happened. Two things make that
-   affordable in THIS scroller, and neither is optional:
-
-   1. THE HEIGHT IS MEASURED, NOT INTERPOLATED TO A KEYWORD. `--arrive-h` is
-      written by TranscriptFeed from one `offsetHeight` read at mount. The
-      `0fr`/`1fr` grid trick and `interpolate-size` both say this far more
-      neatly, and both are recent enough in WebKit that this file — the one with
-      an open Safari scroll bug against it — is the wrong place to find out. A
-      measured pixel height animates identically in every engine ever shipped.
-
-   2. THE ARRIVAL OWNS THE SCROLL WHILE IT RUNS. A row growing at the bottom of
-      a bottom-pinned feed is a moving target for three separate writers: the
-      ResizeObserver over every row, the MutationObserver beside it, and (since
-      POD-993 removed `overflow-anchor: none`) WebKit's own anchoring.
-      `claimScrollForArrival` stands the first two down for the duration and
-      runs a single rAF pin instead — FEWER writes and fewer forced layouts than
-      a landing message costs today, not more. See use-transcript-scroll.
-
-   `overflow: hidden` and the animation both hang off `data-unroll`, which is
-   removed on `animationend`, so an arrived row carries no clip, no containing
-   block and no residue once it is simply a row again. Under reduced motion the
-   attribute is never set at all. */
+/* A landed row may animate its paint, never its layout. Height animation made
+   the end of the document move on every frame and forced the scroll follower to
+   chase it. `use-feed-arrivals` already excludes initial history, paging and
+   large backfills, so the small opacity/transform lift runs only for genuinely
+   new rows and leaves scroll geometry stable in every engine. */
 @media (prefers-reduced-motion: no-preference) {
-  .transcript-placeholder {
+  .transcript-placeholder,
+  .transcript-arrive {
     animation: transcript-arrive 180ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  .transcript-row[data-unroll] {
-    /* `--arrive-h` is `offsetHeight`, which is the BORDER box. Stated here
-       rather than inherited from preflight, because a content-box row would
-       animate to its full height PLUS its padding, overshoot by 22px and snap
-       back on the last frame — which is exactly what the engine harness caught
-       (see e2e/pod1158-unroll-engine.ts). */
-    box-sizing: border-box;
-    overflow: hidden;
-    animation: transcript-unroll 260ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   /* THE CARD ARRIVES AS A CARD (POD-993 round 2). A row of prose slides up six
      pixels; the operator's turn is an OBJECT, so it comes in from a little
@@ -5965,26 +5835,6 @@ html[data-density="compact"] .brief-shelf {
     transform: none;
   }
 }
-/* The padding travels with the height, so a row at zero occupies zero rather
-   than opening as a 22px stub. `--arrive-h` is the full border box including
-   that padding, which is what `offsetHeight` reads. The opacity floor is 0.6
-   and not 0: the frame is the thing revealing the content, and fading the
-   content out from under it as well reads as two effects, not one. */
-@keyframes transcript-unroll {
-  from {
-    height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    opacity: 0.6;
-  }
-  to {
-    height: var(--arrive-h);
-    padding-top: 11px;
-    padding-bottom: 11px;
-    opacity: 1;
-  }
-}
-
 /* THE STREAMING CARET. An answer being written now looks like one that finished
    an hour ago; the caret says which. It does NOT blink: the braille spinner and
    its timer are the system's only perpetual motion (DESIGN.md §5), and a caret
@@ -6005,9 +5855,7 @@ html[data-density="compact"] .brief-shelf {
 @media (prefers-reduced-motion: reduce) {
   .transcript-placeholder,
   .transcript-arrive,
-  .transcript-arrive-bubble,
-  .transcript-row[data-unroll] {
-    overflow: visible;
+  .transcript-arrive-bubble {
     animation: none;
   }
   .msg-foot .chat-clk,
