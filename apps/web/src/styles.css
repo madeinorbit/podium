@@ -2930,7 +2930,13 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
 /* First-sync screen (SyncLoader, POD-1249): the detailed sync progress shown
    instead of the ASCII splash when this launch opened a COLD replica. Text and
    hairlines ride the theme tokens; the hero tile stays dark in both themes
-   because it is the app icon, and the accent is the icon's brand gold. */
+   because it is the app icon, and the accent is the icon's brand gold — now
+   bisque #d9b477 [POD-1427], which is also what POD-1431 made --primary, so
+   the loader's writing matches the rest of the dark UI again. It stays a
+   literal rather than var(--primary) because this surface is dark in both
+   appearances and --primary is not. Deliberately a step brighter than the
+   tile's own plane (#b8944f, the icon's dark cut): the tide is the plane lit,
+   which is the same relationship the yellow pair had before. */
 .sync-loading {
   /* Same subtraction as .app-loading: #root has already padded this down. */
   height: calc(var(--viewport-h, 100dvh) - var(--wire-skew-banner-h, 0px));
@@ -2939,7 +2945,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   justify-content: center;
   overflow: hidden;
   background: var(--background);
-  --sync-acc: #d99725;
+  --sync-acc: #d9b477;
   --sync-glyph-well: color-mix(in srgb, var(--foreground) 18%, var(--background));
 }
 .sync-loader {

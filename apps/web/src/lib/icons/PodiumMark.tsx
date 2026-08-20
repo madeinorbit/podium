@@ -16,8 +16,8 @@ import { cn } from '@/lib/utils'
  * corner has to be applied here. 22.4% is Apple's icon-grid radius
  * (180 ÷ 824 on the macOS cut), which keeps the About tile reading as the
  * same object as the one in the Dock. The inset hairline is the dialog's own
- * ring: the icon's ground starts at #232428, within a hair of panel ink, and
- * without a rim its top-left corner dissolves into the sheet.
+ * ring: the icon's ground starts at #232019 (bisque, POD-1427), within a hair
+ * of panel ink, and without a rim its top-left corner dissolves into the sheet.
  */
 export function PodiumMark({
   size = 72,

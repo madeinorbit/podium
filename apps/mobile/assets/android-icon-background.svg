@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="">
   <!--
-    Android adaptive icon, BACKGROUND layer [POD-1108] — the 9a ground on its
-    own, full bleed.
+    Android adaptive icon, BACKGROUND layer [POD-1108] — the bisque ground on
+    its own, full bleed.
 
     It carries no artwork by design. The launcher parallaxes the two layers
     against each other, so anything recognisable down here would slide out from
@@ -14,9 +14,8 @@
   -->
   <defs>
     <linearGradient id="bg" x1="120" y1="40" x2="920" y2="1000" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#232428"/>
-      <stop offset=".6" stop-color="#131417"/>
-      <stop offset="1" stop-color="#08080a"/>
+      <stop stop-color="#232019"/>
+      <stop offset="1" stop-color="#0b0a08"/>
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" fill="url(#bg)"/>

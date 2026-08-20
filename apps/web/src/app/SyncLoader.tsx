@@ -20,25 +20,26 @@ import type { SyncProgressSnapshot, SyncProgressStore } from '@/lib/sync-progres
 const P_PATH =
   'M366.5 237.84C382.17 237.71 397.83 237.84 413.5 237.78C425.68 237.74 439.18 238.04 448.67 246.85C460.33 257.68 459.8 274.99 458.13 289.5C455.82 309.57 451.8 329.66 448.22 349.54C444.43 370.55 440.9 393.5 423.35 407.89C414.65 415.02 403.67 419.09 392.5 419.97C382.97 420.71 372.86 419.07 363.5 420.64C355.77 457.07 348.03 493.51 340.3 529.94C325.83 529.94 311.37 529.94 296.9 529.94C320.1 432.57 343.3 335.21 366.5 237.84ZM394.5 273.09C386.93 309.23 379.35 345.36 371.78 381.5C374.8 382.45 377.72 382.46 380.97 382.5C384.65 382.54 388.56 382.49 392.13 381.56C405.6 378.03 406.84 360.73 409.13 349.53C411.59 337.55 413.67 325.5 416.04 313.5C417.79 304.62 423.82 285.42 418.98 277.55C414.65 270.5 401.34 272.07 394.5 273.09Z'
 
+/**
+ * The bisque letter [POD-1427]. Flat, not the stone ramp the 9a tile used — the
+ * hero tile is the app icon reproduced in SVG, so it tracks
+ * apps/web/public/icon.svg rather than carrying a palette of its own.
+ */
+const LETTER = '#f5eddd'
+
 /** Shared paint definitions for the hero tile and the ledger's charge glyph. */
 function SyncDefs(): JSX.Element {
   return (
     <svg width="0" height="0" className="sync-loader-defs" aria-hidden="true">
       <defs>
-        <linearGradient id="podsync-stone" x1="20" y1="4" x2="86" y2="98" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#ffffff" />
-          <stop offset=".55" stopColor="#eeeef1" />
-          <stop offset="1" stopColor="#b4b5bf" />
-        </linearGradient>
         <linearGradient id="podsync-ground" x1="12" y1="4" x2="90" y2="98" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#232428" />
-          <stop offset=".6" stopColor="#131417" />
-          <stop offset="1" stopColor="#08080a" />
+          <stop stopColor="#232019" />
+          <stop offset="1" stopColor="#0b0a08" />
         </linearGradient>
         <linearGradient id="podsync-charge" x1="0" y1="0" x2="0" y2="106" gradientUnits="userSpaceOnUse">
           <stop stopColor="#ffe0a8" />
-          <stop offset=".08" stopColor="var(--sync-acc, #d99725)" />
-          <stop offset="1" stopColor="var(--sync-acc, #d99725)" stopOpacity=".72" />
+          <stop offset=".08" stopColor="var(--sync-acc, #d9b477)" />
+          <stop offset="1" stopColor="var(--sync-acc, #d9b477)" stopOpacity=".72" />
         </linearGradient>
         <clipPath id="podsync-tile">
           <rect width="100" height="100" rx="22" />
@@ -66,16 +67,16 @@ function HeroTile(): JSX.Element {
           className="sync-loader-tide-b"
           points="-24,96 124,72 124,150 -24,150"
           opacity=".4"
-          fill="var(--sync-acc, #d99725)"
+          fill="var(--sync-acc, #d9b477)"
         />
         <polygon
           className="sync-loader-tide-a"
           points="-24,92 124,70 124,150 -24,150"
-          fill="var(--sync-acc, #d99725)"
+          fill="var(--sync-acc, #d9b477)"
         />
         <path
           transform="translate(50 46) scale(.235) translate(-378.45 -383.85)"
-          fill="url(#podsync-stone)"
+          fill={LETTER}
           d={P_PATH}
         />
       </g>
