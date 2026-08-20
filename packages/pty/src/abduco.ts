@@ -15,9 +15,6 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import { instanceSessionSliceName } from '@podium/runtime/instance'
-import { resolveAbducoBin } from './abduco-bin.js'
-import { defaultPtyBackend } from './backends/index.js'
-import type { PtyBackend, PtyProcess } from './backends/types.js'
 import {
   resolveScopeBudget,
   resolveSessionsSliceHigh,
@@ -25,7 +22,10 @@ import {
   type ScopeRole,
   scopeBudgetProperties,
   sliceBudgetArgv,
-} from './scope.js'
+} from '@podium/runtime/scope'
+import { resolveAbducoBin } from './abduco-bin.js'
+import { defaultPtyBackend } from './backends/index.js'
+import type { PtyBackend, PtyProcess } from './backends/types.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
 import { shellQuote } from './tmux.js'
 

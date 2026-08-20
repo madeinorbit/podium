@@ -12,6 +12,7 @@
     "./sqlite": "./src/sqlite/index.ts",
     "./config": "./src/config.ts",
     "./instance": "./src/instance.ts",
+    "./scope": "./src/scope.ts",
     "./connectivity": "./src/connectivity.ts",
     "./run-registry": "./src/run-registry.ts",
     "./crash-store": "./src/crash-store.ts",

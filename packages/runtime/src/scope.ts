@@ -1,6 +1,14 @@
 /**
- * SESSION RESOURCE SCOPES: the slice tree, the budgets, and the argv that
- * applies them (POD-2413; agent-runtime spec §6).
+ * RESOURCE SCOPES: the slice tree, the budgets, and the argv that applies them
+ * (POD-2413 for sessions, POD-2472 for builds; agent-runtime spec §6).
+ *
+ * It lives in `@podium/runtime` because it has TWO consumers on opposite sides
+ * of a dependency boundary: the daemon scopes agent sessions through
+ * `@podium/pty`, and the server scopes development builds
+ * (`apps/server/src/modules/updates/build-scope.ts`). `check-boundaries.ts`
+ * rule 2 keeps `@podium/pty` out of the server — reasonably, since importing it
+ * means driving real PTYs — so a home inside pty would have left the server
+ * writing a SECOND resource policy. Two policies drift; one does not.
  *
  * A transient `--user` scope already kept an agent alive across a redeploy
  * (see `abduco.ts`). What it never did was BOUND one: every session ran with
@@ -11,10 +19,31 @@
  *
  * ```
  * podium.slice                                  (or podium-<instance>.slice)
- * └─ podium-sessions.slice                      MemoryHigh= (aggregate throttle)
- *    ├─ podium-<sessionId>.scope                MemoryHigh/Max, TasksMax, OOMPolicy=continue
- *    └─ podium-oc-attach-<sessionId>.scope      a client TUI, reclaimed FIRST
+ * ├─ podium-sessions.slice                      MemoryHigh= (aggregate THROTTLE)
+ * │  ├─ podium-<sessionId>.scope                MemoryMax/SwapMax, TasksMax, OOMPolicy=continue
+ * │  └─ podium-oc-attach-<sessionId>.scope      a client TUI, reclaimed FIRST
+ * └─ podium-builds.slice                        MemoryMax=  (aggregate CAP)
+ *    └─ podium-dev-bundle-build.scope           MemoryMax/SwapMax, TasksMax, OOMPolicy=continue
+ *
+ * (No scope carries a `MemoryHigh` by default — trap 1. The session knob still
+ * accepts one as an explicit reclaim-only policy; a build has no such knob.)
  * ```
+ *
+ * BUILDS ARE A SIBLING OF SESSIONS, NOT A MEMBER — twice deliberately.
+ *
+ * Placement: `scope-monitor.ts` reads the SESSIONS slice's memory pressure and
+ * the reclaim policy parks sessions on it. A build inside that slice would make
+ * every redeploy read as session memory pressure and park innocent agents; a
+ * repo typecheck run in the sessions slice was measured taking that trigger from
+ * 11 firings to 40. Builds still get bounded — they just do not contaminate the
+ * signal the reclaim reads.
+ *
+ * Budget: the sessions slice carries a `High` and never a `Max`, because
+ * collective OOM death of every agent on the box is the one outcome the spec
+ * forbids. The builds slice carries a `Max`, because collective death of BUILDS
+ * is not a catastrophe — it is the correct answer. A build is restartable, it
+ * owns no conversation, and a build killed at its ceiling fails visibly with the
+ * kernel's own exit 137 while the sessions beside it keep running.
  *
  * The attach scope's NAME is the client terminal's own durable label, which is
  * deliberately not a suffix of the session's (see `opencode-attach.ts`: memory
@@ -95,6 +124,57 @@ const SESSION_TASKS_MAX = 4096
  *  so the sessions slice throttles as a group and kills only per session. */
 const SESSIONS_SLICE_SHARE = 0.75
 
+/**
+ * WHAT ONE DEVELOPMENT BUILD MAY TAKE (POD-2472).
+ *
+ * Not a share of host RAM, because a build's appetite does not scale with the
+ * box: the compile and the two dists want what they want, and doubling the RAM
+ * does not make them want more. So the default is the MEASURED peak with
+ * headroom. Each real update-build step, run in its own scope on this host and
+ * read from the cgroup's own `memory.peak` (the larger of two runs):
+ *
+ * | step                                  | peak     | tasks | wall  |
+ * |---------------------------------------|----------|-------|-------|
+ * | `@podium/web build:dist` (vite)       | 1.26 GiB |    40 | 73 s  |
+ * | `@podium/mobile build:web` (expo)     | 1.07 GiB |     — | 428 s |
+ * | `scripts/build-bun.ts` (compile+tar)  | 712 MiB  |    17 | 17 s  |
+ *
+ * 4 GiB is a bit over 3x the largest, which is the right shape for a ceiling
+ * that must never kill a legitimate build: builds grow, and an update path that
+ * dies at its own cap is worse than one that is slow. The steps also overlap
+ * only in pairs (the two website steps are sequential), so the aggregate below
+ * clears their combined peak with room to spare.
+ */
+const BUILD_MEMORY_CEILING = 4 * 1024 ** 3
+
+/**
+ * And the share that keeps that ceiling honest on a smaller box, where a cap
+ * above host RAM would bound nothing at all — it is also the aggregate cap on
+ * the builds slice itself ({@link resolveBuildsSliceBudget}).
+ */
+const BUILDS_SLICE_SHARE = 0.5
+
+/**
+ * A build tree is bun, turbo, vite and their worker pools — 40 tasks at its
+ * widest in the table above. Like the session cap, this number exists to stop a
+ * fork bomb rather than to size normal work, so it sits two orders of magnitude
+ * clear of a real build.
+ */
+const BUILD_TASKS_MAX = 2048
+
+/**
+ * NO SWAP FOR A BUILD — the same answer trap 2 reaches for a session, and for a
+ * build there is not even a case for the other side.
+ *
+ * `MemoryMax` alone bounds nothing on a host with swap: the kernel pages the
+ * excess out and the machine stops responding without a single OOM kill (this
+ * host carries 40 GiB of it). A session at least has an argument for an
+ * allowance, since a paged-out idle agent costs nothing. A build is never idle
+ * — every page it holds it is about to touch again — so swap buys it nothing
+ * and costs the host everything.
+ */
+const BUILD_SWAP_MAX = 0
+
 export interface ScopeBudgetEnv {
   // The index signature is what lets a bare `process.env` be passed: the named
   // knobs below are documentation and typo protection, not a closed set.
@@ -105,7 +185,14 @@ export interface ScopeBudgetEnv {
   PODIUM_SESSION_MEMORY_SWAP_MAX?: string | undefined
   PODIUM_SESSION_TASKS_MAX?: string | undefined
   PODIUM_SESSIONS_MEMORY_HIGH?: string | undefined
-  /** Escape hatch: keep the scopes and the slice tree, drop every limit. */
+  /** Per-build scope. `0` is expressible on the swap axis and means "none". */
+  PODIUM_BUILD_MEMORY_MAX?: string | undefined
+  PODIUM_BUILD_MEMORY_SWAP_MAX?: string | undefined
+  PODIUM_BUILD_TASKS_MAX?: string | undefined
+  PODIUM_BUILDS_MEMORY_MAX?: string | undefined
+  /** Escape hatch: keep the scopes and the slice tree, drop every limit. One
+   *  flag for sessions and builds alike — an operator reaching for it is
+   *  disabling the policy, not one half of it. */
   PODIUM_NO_SESSION_BUDGET?: string | undefined
 }
 
@@ -257,6 +344,98 @@ export function resolveSessionsSliceHigh(
   const configured = parseByteSize(env.PODIUM_SESSIONS_MEMORY_HIGH)
   if (configured === null) return undefined
   return configured ?? Math.floor(totalMemoryBytes * SESSIONS_SLICE_SHARE)
+}
+
+/**
+ * The budget ONE DEVELOPMENT BUILD launches with (POD-2472).
+ *
+ * A separate resolver rather than a third {@link ScopeRole}, because a build is
+ * not a small session — it is a different policy on every axis, and folding it
+ * into the session/attach derivation would have made one expression answer
+ * three unrelated questions:
+ *
+ *  - NO `MemoryHigh`, and no knob that could introduce one. Trap 1 above is why
+ *    a session has none either, but a build cannot even be given the choice: a
+ *    throttled build holds the update lock, blocks the next redeploy, and
+ *    reports nothing, so an operator's reclaim-only policy would be a wedge.
+ *    A build over its budget must DIE, visibly.
+ *  - No swap ({@link BUILD_SWAP_MAX}).
+ *  - Its own knobs. An operator who raised the SESSION cap for a big agent did
+ *    not thereby ask for bigger builds, and the reverse is just as true.
+ */
+export function resolveBuildBudget(
+  env: ScopeBudgetEnv = process.env,
+  totalMemoryBytes: number = totalmem(),
+): ScopeBudget {
+  if (env.PODIUM_NO_SESSION_BUDGET) return {}
+
+  /**
+   * The ceiling and the share, whichever binds first. On this 12 GiB host that
+   * is the ceiling; on a 4 GiB VPS it is the share, and a build too big for the
+   * box fails fast instead of taking the box with it.
+   */
+  const sliceMax = resolveBuildsSliceBudget(env, totalMemoryBytes).memoryMaxBytes
+  const derivedMax = Math.min(BUILD_MEMORY_CEILING, sliceMax ?? BUILD_MEMORY_CEILING)
+
+  const configuredMax = parseByteSize(env.PODIUM_BUILD_MEMORY_MAX)
+  const memoryMaxBytes = configuredMax === null ? undefined : (configuredMax ?? derivedMax)
+
+  const configuredSwap = parseByteSize(env.PODIUM_BUILD_MEMORY_SWAP_MAX, { allowZero: true })
+  const memorySwapMaxBytes =
+    configuredSwap === null ? undefined : (configuredSwap ?? BUILD_SWAP_MAX)
+
+  const configuredTasks = parseTaskCount(env.PODIUM_BUILD_TASKS_MAX)
+  const tasksMax = configuredTasks === null ? undefined : (configuredTasks ?? BUILD_TASKS_MAX)
+
+  return {
+    ...(memoryMaxBytes !== undefined ? { memoryMaxBytes } : {}),
+    ...(memorySwapMaxBytes !== undefined ? { memorySwapMaxBytes } : {}),
+    ...(tasksMax !== undefined ? { tasksMax } : {}),
+  }
+}
+
+/**
+ * The aggregate cap on the instance's BUILDS slice — a `Max`, not a `High`.
+ *
+ * Per-scope caps alone do not bound the builds: the bundle compile and the two
+ * website steps are separate units under separate names, so three of them can
+ * be live at once and three times one cap is not a bound. The slice is where
+ * that is answered, and it may kill, because killing every live build on the
+ * box costs a redeploy and no conversation.
+ */
+export function resolveBuildsSliceBudget(
+  env: ScopeBudgetEnv = process.env,
+  totalMemoryBytes: number = totalmem(),
+): ScopeBudget {
+  if (env.PODIUM_NO_SESSION_BUDGET) return {}
+  const configured = parseByteSize(env.PODIUM_BUILDS_MEMORY_MAX)
+  if (configured === null) return {}
+  const memoryMaxBytes = configured ?? Math.floor(totalMemoryBytes * BUILDS_SLICE_SHARE)
+  const configuredSwap = parseByteSize(env.PODIUM_BUILD_MEMORY_SWAP_MAX, { allowZero: true })
+  const memorySwapMaxBytes =
+    configuredSwap === null ? undefined : (configuredSwap ?? BUILD_SWAP_MAX)
+  return {
+    memoryMaxBytes,
+    ...(memorySwapMaxBytes !== undefined ? { memorySwapMaxBytes } : {}),
+  }
+}
+
+/**
+ * `systemctl --user set-property --runtime` argv for the builds slice.
+ *
+ * Runtime-only for the same reason as the sessions slice: the tree is
+ * transient. Verified on this host that the property applies to a slice with no
+ * members yet, materializes for the first scope launched into it, and survives
+ * that scope exiting — so the aggregate cap is in force from the first build,
+ * not the second.
+ */
+export function buildsSliceBudgetArgv(slice: string, budget: ScopeBudget): string[] {
+  const props: string[] = []
+  if (budget.memoryMaxBytes !== undefined) props.push(`MemoryMax=${budget.memoryMaxBytes}`)
+  if (budget.memorySwapMaxBytes !== undefined) {
+    props.push(`MemorySwapMax=${budget.memorySwapMaxBytes}`)
+  }
+  return props.length === 0 ? [] : ['--user', 'set-property', '--runtime', slice, ...props]
 }
 
 /**

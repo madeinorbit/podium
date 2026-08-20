@@ -18,9 +18,11 @@ actually recorded. It closes audit items LD4 and LD5 of
 
 ```
 podium.slice                                   (podium-<instance>.slice for a named instance)
-└─ podium-sessions.slice                       MemoryHigh = 75% of host RAM  (aggregate throttle, never a Max)
-   ├─ podium-<sessionId>.scope                 MemoryHigh/MemoryMax/MemorySwapMax, TasksMax, OOMPolicy=continue
-   └─ podium-oc-attach-<sessionId>.scope       a client TUI — a terminal-sized budget, reclaimed FIRST
+├─ podium-sessions.slice                       MemoryHigh = 75% of host RAM  (aggregate throttle, never a Max)
+│  ├─ podium-<sessionId>.scope                 MemoryHigh/MemoryMax/MemorySwapMax, TasksMax, OOMPolicy=continue
+│  └─ podium-oc-attach-<sessionId>.scope       a client TUI — a terminal-sized budget, reclaimed FIRST
+└─ podium-builds.slice                         MemoryMax = 50% of host RAM   (aggregate cap — POD-2472)
+   └─ podium-dev-bundle-build.scope            MemoryMax/MemorySwapMax=0, TasksMax, OOMPolicy=continue, NO High
 ```
 
 An attach scope is not named as a suffix of its session's label, and that is
@@ -46,6 +48,40 @@ overridable (`PODIUM_SESSION_MEMORY_MAX`, … see the env table in
 `packages/runtime/src/config.ts`), and `PODIUM_NO_SESSION_BUDGET` keeps the tree
 while dropping every limit — an operator who needs a 40 GiB build is a real person,
 and a budget they cannot raise is a budget they will disable wholesale.
+
+### Builds are a sibling, not a member (POD-2472)
+
+Development builds — the bundle compile and the two website steps in
+`apps/server/src/modules/updates/build-scope.ts` — already ran in their own
+transient scopes, but with a CPU tier and *nothing else*: no `MemoryMax`, no swap
+bound, no OOM policy, no slice. That is the pre-POD-2413 shape on the same live
+host, and it fails the same way.
+
+They now carry a budget from the same module. `MemoryMax` defaults to 4 GiB,
+capped at the slice share on a smaller box — measured rather than guessed, from
+the real steps peaking at 1.26 GiB (vite), 1.07 GiB (expo) and 712 MiB
+(compile+tar). `MemorySwapMax` is `0` and there is no `MemoryHigh`, which is
+trap 1's conclusion and matters more here than for a session: a wedged build
+holds the update lock, blocks the next redeploy, and reports nothing, so a build
+over its budget must DIE. Driven end to end against a hog under a 256 MiB cap —
+the kernel kills it, and because `--scope` execs the build in place the SIGKILL
+reaches the process the server waits on, which then reports a build failure
+naming the cap. (It arrives as a *signal*, not as exit 137. The first cut of
+that message read "exited with status unknown", which names neither the kill nor
+the cap.)
+
+One deliberate difference from a session's budget: **the slice carries a `Max`
+where the sessions slice carries a `High`.** The bundle and website steps are
+separate units under separate names, so three can be live at once and three
+per-scope caps are not a bound. Collective OOM death is forbidden for sessions
+and correct for builds: it costs a redeploy, not a conversation.
+
+And the placement itself is the point of the separate slice. A build inside
+`podium-sessions.slice` would be bounded just as well and would still be wrong —
+the reclaim below reads *that slice's* memory pressure to choose which agents to
+park, so every redeploy would read as agents starving. Measured on this host: a
+repo typecheck run inside the sessions slice took the trigger from 11 firings to
+40.
 
 ## What the live probes settled
 

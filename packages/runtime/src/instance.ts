@@ -163,6 +163,21 @@ export function instanceSessionSliceName(instanceId: string = resolveInstanceId(
   return id === DEFAULT_INSTANCE_ID ? 'podium-sessions.slice' : `podium-${id}-sessions.slice`
 }
 
+/**
+ * Parent slice for every development BUILD scope of one instance (POD-2472) —
+ * a sibling of the sessions slice, not a member of it.
+ *
+ * A build placed inside the sessions slice would be bounded just as well and
+ * would still be wrong: the reclaim policy reads that slice's memory pressure
+ * to decide which agents to park, so every redeploy would read as agents under
+ * memory pressure and park innocent sessions. The budgets and the reasoning are
+ * in `scope.ts`.
+ */
+export function instanceBuildSliceName(instanceId: string = resolveInstanceId()): string {
+  const id = validateInstanceId(instanceId)
+  return id === DEFAULT_INSTANCE_ID ? 'podium-builds.slice' : `podium-${id}-builds.slice`
+}
+
 /** Stable durable PTY/scope identity; default keeps pre-instance labels reattachable. */
 export function durableSessionLabel(
   sessionId: SessionId,

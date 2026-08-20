@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildsSliceBudgetArgv,
   parseByteSize,
   parseTaskCount,
+  resolveBuildBudget,
+  resolveBuildsSliceBudget,
   resolveScopeBudget,
   resolveSessionsSliceHigh,
   scopeBudgetProperties,
@@ -135,6 +138,82 @@ describe('scope budgets', () => {
     // the parent kept running, and the scope stayed active.
     expect(scopeBudgetProperties({})).toEqual(['--property=OOMPolicy=continue'])
     expect(scopeBudgetProperties({ memoryMaxBytes: 42 })).toContain('--property=MemoryMax=42')
+  })
+})
+
+describe('build budgets', () => {
+  it('kills rather than throttles: a build scope carries no MemoryHigh at all', () => {
+    // A `High` throttles reclaim, and a workload whose demand exceeds `Max`
+    // never escapes the throttle to REACH `Max` — measured, a hog under a high
+    // band survived two minutes while the same hog without one died in 507 ms.
+    // A wedged build holds the update lock and reports nothing; a killed one
+    // fails visibly. So: no band.
+    const budget = resolveBuildBudget({}, HOST)
+    expect(budget.memoryHighBytes).toBeUndefined()
+    expect(scopeBudgetProperties(budget).some((p) => p.startsWith('--property=MemoryHigh='))).toBe(
+      false,
+    )
+    expect(scopeBudgetProperties(budget)).toContain('--property=OOMPolicy=continue')
+  })
+
+  it('gives a build no swap, because a build is never idle', () => {
+    // `MemoryMax` alone bounds nothing on a host with swap: the kernel pages the
+    // excess out and the box stops responding without one OOM kill.
+    expect(resolveBuildBudget({}, HOST).memorySwapMaxBytes).toBe(0)
+    expect(scopeBudgetProperties(resolveBuildBudget({}, HOST))).toContain(
+      '--property=MemorySwapMax=0',
+    )
+    // And an operator's explicit `0` must read as the value it is rather than
+    // as a typo that quietly restores a default.
+    expect(resolveBuildBudget({ PODIUM_BUILD_MEMORY_SWAP_MAX: '0' }, HOST).memorySwapMaxBytes).toBe(
+      0,
+    )
+    expect(
+      resolveBuildBudget({ PODIUM_BUILD_MEMORY_SWAP_MAX: '512M' }, HOST).memorySwapMaxBytes,
+    ).toBe(512 * 1024 ** 2)
+  })
+
+  it('caps at a measured ceiling, and at a share of RAM where the box is smaller', () => {
+    // A build's appetite does not scale with the host, so the default is the
+    // measured peak with headroom rather than a share…
+    expect(resolveBuildBudget({}, HOST).memoryMaxBytes).toBe(4 * GIB)
+    // …but a ceiling above what the host has bounds nothing, so the share wins
+    // on a small VPS and a build too big for the box fails fast.
+    expect(resolveBuildBudget({}, 4 * GIB).memoryMaxBytes).toBe(2 * GIB)
+  })
+
+  it('takes its own knobs, never the session ones', () => {
+    // An operator who raised the cap for one big AGENT did not thereby ask for
+    // bigger builds.
+    expect(resolveBuildBudget({ PODIUM_SESSION_MEMORY_MAX: '40G' }, HOST).memoryMaxBytes).toBe(
+      4 * GIB,
+    )
+    expect(resolveBuildBudget({ PODIUM_BUILD_MEMORY_MAX: '40G' }, HOST).memoryMaxBytes).toBe(
+      40 * GIB,
+    )
+    expect(
+      resolveBuildBudget({ PODIUM_BUILD_MEMORY_MAX: 'infinity' }, HOST).memoryMaxBytes,
+    ).toBeUndefined()
+    expect(resolveBuildBudget({ PODIUM_BUILD_TASKS_MAX: '8' }, HOST).tasksMax).toBe(8)
+    expect(resolveBuildBudget({ PODIUM_NO_SESSION_BUDGET: '1' }, HOST)).toEqual({})
+  })
+
+  it('caps the builds slice as a group, and MAY kill it', () => {
+    // The opposite call from the sessions slice, and for a reason: three build
+    // units can be live at once, so three per-scope caps are not a bound — and
+    // collective death of builds costs a redeploy, not a conversation.
+    const budget = resolveBuildsSliceBudget({}, HOST)
+    expect(budget.memoryMaxBytes).toBe(Math.floor(HOST * 0.5))
+    expect(buildsSliceBudgetArgv('podium-builds.slice', budget)).toEqual([
+      '--user',
+      'set-property',
+      '--runtime',
+      'podium-builds.slice',
+      `MemoryMax=${Math.floor(HOST * 0.5)}`,
+      'MemorySwapMax=0',
+    ])
+    expect(buildsSliceBudgetArgv('podium-builds.slice', {})).toEqual([])
+    expect(resolveBuildsSliceBudget({ PODIUM_NO_SESSION_BUDGET: '1' }, HOST)).toEqual({})
   })
 })
 

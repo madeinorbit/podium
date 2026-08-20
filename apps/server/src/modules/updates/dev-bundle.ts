@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
 import { resolveInstanceId } from '@podium/runtime/config'
+import { instanceBuildSliceName } from '@podium/runtime/instance'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
 
 const log = createLogger('server:updates')
@@ -660,8 +661,10 @@ function developmentSigningKey(root: string): string {
  */
 async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
+  const instanceId = ctx.instanceId ?? resolveInstanceId()
   await runLowTierBuild({
-    unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, ctx.instanceId ?? resolveInstanceId()),
+    unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, instanceId),
+    slice: instanceBuildSliceName(instanceId),
     description: `Podium development bundle build (${ctx.version})`,
     command: devBuildCommand(process.env),
     args: ['scripts/build-bun.ts'],

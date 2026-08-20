@@ -10,9 +10,11 @@ import {
   defaultInstancePorts,
   durableSessionLabel,
   ensureInstanceStateIdentity,
+  instanceBuildSliceName,
   instanceCommandName,
   instanceInstallDir,
   instanceServiceName,
+  instanceSessionSliceName,
   instanceStateDir,
   instanceTimerName,
   instanceUpdateTimerName,
@@ -150,4 +152,16 @@ it('named durable backend env is private unless explicitly overridden', () => {
   applyInstanceRuntimeEnv('blue', shared, dir)
   expect(shared.ABDUCO_SOCKET_DIR).toBe('/shared/a')
   expect(shared.TMUX_TMPDIR).toBe('/shared/t')
+})
+
+it('gives builds their own slice, a sibling of the sessions slice', () => {
+  // systemd cuts a slice name at the last `-` to find its parent, so these two
+  // names ARE the tree: both hang off podium[-<instance>].slice, and neither is
+  // inside the other. A build inside the SESSIONS slice would still be bounded
+  // and would still be wrong — the reclaim policy parks agents on that slice's
+  // memory pressure, so every redeploy would read as agents starving.
+  expect(instanceBuildSliceName('default')).toBe('podium-builds.slice')
+  expect(instanceSessionSliceName('default')).toBe('podium-sessions.slice')
+  expect(instanceBuildSliceName('blue')).toBe('podium-blue-builds.slice')
+  expect(instanceSessionSliceName('blue')).toBe('podium-blue-sessions.slice')
 })
