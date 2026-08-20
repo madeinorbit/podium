@@ -816,7 +816,7 @@ const styles = StyleSheet.create({
   },
   rowAttention: {
     minHeight: 68,
-    backgroundColor: 'rgba(245, 197, 24, 0.05)',
+    backgroundColor: alpha(color.needsYou, 0.05),
   },
   rowQueued: {
     opacity: 0.72,

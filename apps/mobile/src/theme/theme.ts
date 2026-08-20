@@ -17,12 +17,22 @@ import { Platform } from 'react-native'
  * 2. THE FRAME LIFTS. The tier order inverts the old navy ramp: `bg` #16171a
  *    is the darkest thing on screen and every surface steps UP from it, so the
  *    tab bar and section bars sit ABOVE the ground rather than below it.
- * 3. YELLOW FILLS, GOLD WRITES. `accent` #f5c518 is the fill (buttons, dots,
- *    spines, the active tab glyph); `accentTint` #e3ba52 does every yellow
- *    `color:`. Pure yellow as running text against neutral ink reads as a
- *    highlighter smear.
+ * 3. BISQUE FILLS AND WRITES. `accent` #d9b477 — the app icon's light-cut
+ *    plane — is the fill (buttons, dots, spines, the active tab glyph) and
+ *    every accent `color:` alike. This rule used to read YELLOW FILLS, GOLD
+ *    WRITES: Superade Yellow #f5c518 could not be running text against neutral
+ *    ink (a highlighter smear), so `accentTint` #e3ba52 existed for nothing but
+ *    the `color:` cases. Bisque writes at 9.2:1 on the ground as well as it
+ *    fills, so the two values collapse into one. `accentTint` survives as a
+ *    NAME, not a second colour, so a call site still says which job it means.
  *
- * Status semantics are unchanged and still strict: Superade Yellow means
+ * The swap [POD-1436] follows the web accent (POD-1431) and is a chroma cut,
+ * not a repaint: bisque sits within a point of the yellow's lightness, so every
+ * ./mix.ts recipe keeps the dose it was tuned at. The yellow is not softened,
+ * it is retired from the phone — it survives on the web only as `--warning`,
+ * and this app has no alarm surface to spend it on.
+ *
+ * Status semantics are otherwise unchanged and still strict: the accent means
  * "waiting on you" and marks the primary action (The Signal Rule); blue keeps
  * its two jobs — `working` #6f9dff is what is MOVING (spinners, live rings)
  * and `success`/`info` #2a62f0 the settled fill behind them, because Superade
@@ -76,28 +86,31 @@ export const color = {
   /** Mono section labels (project names). */
   label: '#949aa4',
 
-  // Accent = Superade Yellow. One signal everywhere (The Signal Rule).
-  accent: '#f5c518',
-  accentSoft: 'rgba(245, 197, 24, 0.13)',
-  accentBorder: 'rgba(245, 197, 24, 0.45)',
-  accentGradient: ['#f7d031', '#e3b40e'] as const,
-  /** Ink on yellow is always Dark Ink — never white. */
+  // Accent = bisque. One signal everywhere (The Signal Rule).
+  accent: '#d9b477',
+  accentSoft: 'rgba(217, 180, 119, 0.13)',
+  accentBorder: 'rgba(217, 180, 119, 0.45)',
+  /** The fill's own lightness ±5 points, hue and chroma held — the same throw
+   *  the yellow gradient had, so a filled button keeps its modelling. */
+  accentGradient: ['#dfc08c', '#d3a861'] as const,
+  /** Ink on the accent is always Dark Ink — never white. */
   onAccent: '#16171a',
-  /** Gold WRITES (rule 3): every yellow `color:` — tinted labels, the lit ⏎
-   *  key, attention text. #f5c518 stays the fill. */
-  accentTint: '#e3ba52',
+  /** Every accent `color:` — tinted labels, the lit ⏎ key, attention text.
+   *  Same value as {@link accent} since the swap (rule 3), kept under its own
+   *  name because the call sites mean different things by it. */
+  accentTint: '#d9b477',
   // Legacy alias
   accentText: '#16171a',
 
   // Attention semantics — reserved hues, never issue colours
-  needsYou: '#f5c518',
-  needsYouSoft: 'rgba(245, 197, 24, 0.12)',
-  needsYouBorder: 'rgba(245, 197, 24, 0.4)',
-  needsYouBg: 'rgba(245, 197, 24, 0.12)',
-  /** "Waiting on you" as a `color:` — the gold write of {@link accentTint},
-   *  kept under its own name so the SIGNAL stays legible at the call site.
+  needsYou: '#d9b477',
+  needsYouSoft: 'rgba(217, 180, 119, 0.12)',
+  needsYouBorder: 'rgba(217, 180, 119, 0.4)',
+  needsYouBg: 'rgba(217, 180, 119, 0.12)',
+  /** "Waiting on you" as a `color:` — the write of {@link accentTint}, kept
+   *  under its own name so the SIGNAL stays legible at the call site.
    *  `needsYou` above remains the fill (dots, spines, bars). */
-  needsYouText: '#e3ba52',
+  needsYouText: '#d9b477',
   /** What is MOVING — spinners, live rings, meters. Superade has no green. */
   working: '#6f9dff',
   workingSoft: 'rgba(111, 157, 255, 0.13)',

@@ -23,7 +23,7 @@ const C = {
   success: '#10b981',
   error: '#f43f5e',
   errorText: '#f87171',
-  amber: '#f59e0b',
+  waiting: '#d9b477',
   text: '#f3f3f8',
   textDim: '#9a9aa8',
   textFaint: '#7a7a86',
@@ -120,7 +120,7 @@ export function LoginScreen({
           ? '#34d399'
           : state === 'typing'
             ? C.textDim
-            : C.amber
+            : C.waiting
   const statText =
     state === 'ok'
       ? '✓ signed in — welcome back'

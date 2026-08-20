@@ -10,8 +10,11 @@ import { Icon } from '../components/Icon'
 import { color, font, mono, sans, space } from '../theme/theme'
 import { type TerminalControlState, terminalControlCopy } from './terminal-control'
 
-// This accessory intentionally retains the pre-redesign mobile-web palette.
-// Parity includes its contrast hierarchy, not only its controls and gestures.
+// This accessory intentionally retains the pre-redesign mobile-web SURFACES:
+// parity includes its contrast hierarchy, not only its controls and gestures.
+// The accent is not part of that parity — it is the brand mark on the one lit
+// key, so it tracks `color.accent` (POD-1436) rather than staying a generation
+// behind on the pre-redesign amber.
 const LEGACY_MOBILE_KEYBOARD_THEME = {
   bar: '#08080c',
   card: '#16161c',
@@ -20,8 +23,8 @@ const LEGACY_MOBILE_KEYBOARD_THEME = {
   hairlineSoft: '#25252f',
   hairlineBar: '#2e2e38',
   muted: '#9a9aa8',
-  accent: '#f59e0b',
-  onAccent: '#161006',
+  accent: '#d9b477',
+  onAccent: '#191308',
   danger: '#f87171',
   fontFamily: 'GeistMono_400Regular, ui-monospace, Menlo, monospace',
 } as const

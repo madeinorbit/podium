@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.accentSoft,
   },
   screenRowPressed: {
-    backgroundColor: 'rgba(245, 197, 24, 0.2)',
+    backgroundColor: alpha(color.accent, 0.2),
   },
   screenIcon: {
     width: 26,
