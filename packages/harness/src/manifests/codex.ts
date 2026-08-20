@@ -333,23 +333,19 @@ export const codexManifest: AgentManifest = {
       kind: 'jsonrpc',
       spawn: ['codex', 'app-server'],
       /**
-       * STDIO, NOT A UNIX SOCKET — CORRECTED BY W6 AGAINST THE LIVE BINARY.
+       * A PRIVATE PER-SESSION UNIX LISTENER, SHARED WITH THE STOCK TUI.
        *
-       * W1 declared `unix-socket` on the strength of `--listen unix://PATH`,
-       * which does exist on 0.147.0 and does create a socket at mode 0600. It is
-       * not the client surface: a JSON-RPC `initialize` written to it gets the
-       * connection CLOSED, and so does the same request sent through codex's own
-       * `app-server proxy --sock` bridge. Codex's own log calls it the
-       * "app-server control socket", and `app-server daemon` puts one at a
-       * fixed, machine-global path for `daemon version`/`stop` to speak.
+       * The audit-era stdio host was a valid private engine path, but it could
+       * not support `codex resume --remote`. The pinned 0.147.0 listener carries
+       * JSON-RPC as WebSocket text frames over Unix and accepts multiple clients,
+       * so Podium's driver and the stock TUI now share one app-server process.
        *
-       * The client channel is the child's inherited stdio, which satisfies spec
-       * §6 more strongly than the socket would: there is no filesystem object,
-       * no port, and no name by which a process that did not fork the child
-       * could reach it. That is why `requiresPerSessionSecret` is false here for
-       * a reason rather than as an omission.
+       * The socket lives below the instance state root in a 0700 directory and
+       * is mode 0600. Those filesystem permissions are the local authentication
+       * boundary, so a separate correlation secret is neither accepted by this
+       * transport nor required.
        */
-      transport: 'stdio',
+      transport: 'unix-socket',
       requiresPerSessionSecret: false,
       // PINNED AGAINST RECORDED FIXTURES, not guessed (W6). Every shape the
       // driver reads was captured from a live 0.147.0 app-server and replays in

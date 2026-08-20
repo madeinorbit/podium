@@ -95,6 +95,7 @@ function world() {
       }
       return {
         transport: proxy,
+        clientAddress: `unix:///tmp/${input.sessionId}.sock`,
         process: { key: `podium-cx-${input.sessionId}` },
         stop: async () => {},
         kill: async () => {},

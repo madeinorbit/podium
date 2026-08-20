@@ -11,10 +11,9 @@
  * WHERE IT DIVERGES FROM W5, IT DIVERGES FOR A MEASURED REASON, and each one is
  * argued at the place a reader meets its consequence:
  *
- *   - The transport is the CHILD'S STDIO, not a socket. `--listen unix://` exists
- *     on the pinned binary and creates a 0600 socket, but that socket is a
- *     daemon CONTROL plane: it closes the connection on a JSON-RPC `initialize`,
- *     and so does the first-party `app-server proxy` bridge. See ./client.ts.
+ *   - The transport is WebSocket text frames over a private per-session Unix
+ *     listener. The pinned server accepts multiple clients, so Podium's driver
+ *     and `codex resume --remote` share one process. See ./client.ts.
  *   - `adopt()` RESUMES rather than rebinds, because `codex app-server` exits on
  *     stdin EOF and therefore cannot outlive the daemon. See ./runtime.ts.
  *   - The transcript mapper is NEW rather than reused, because the app-server's
@@ -22,7 +21,7 @@
  *     `packages/transcript`'s codex mapper parses. See ./map.ts.
  *   - Interactions are ANSWERED BY RESPONDING TO A BLOCKED REQUEST, not by a
  *     side-channel reply, so there is no server reconciliation to do: the asks
- *     this driver holds are the open requests on a pipe it owns.
+ *     this driver holds are the open requests on a connection it owns.
  */
 
 export { codexAppServerCapabilities } from './capabilities.js'

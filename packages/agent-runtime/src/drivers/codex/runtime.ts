@@ -11,7 +11,7 @@
  *      driver in the fleet degrades `steer` to `queue` and reports the
  *      downgrade; this one reports `deliveredAs: 'steer'` because it actually
  *      steered.
- *   2. THE APPROVAL INVERSION. The server asks US questions over the same pipe
+ *   2. THE APPROVAL INVERSION. The server asks US questions over the same link
  *      and BLOCKS until answered. An interaction here is not an event we
  *      observed and later reply to out of band — it is an open JSON-RPC request
  *      whose response is the answer.
@@ -37,11 +37,11 @@
  *
  * The contract says `adopt()` rebinds a SURVIVING process tree on exact
  * identity. For this family there is never one, and that is a measured property
- * of the transport rather than a limitation of the implementation: the channel
- * is the child's stdio, and `codex app-server` EXITS CLEANLY (code 0) the moment
- * its stdin reaches EOF — verified live. When the daemon dies its pipes close,
- * so the child dies with it. There is no orphan to find and nothing to rebind
- * to.
+ * of the host lifetime rather than a limitation of the implementation: protocol
+ * clients use the private Unix listener, while the child still exits cleanly
+ * when the daemon-owned stdin reaches EOF. When the daemon dies that lifetime
+ * tether closes, so the child dies with it. There is no orphan to find and
+ * nothing to rebind to.
  *
  * What survives is the thing that matters: the conversation. Codex persists each
  * thread to its own rollout JSONL, so `adopt()` starts a fresh app-server and
@@ -113,8 +113,12 @@ import {
 
 /** One live `codex app-server` child, as the driver needs it. */
 export interface CodexServerEndpoint {
-  /** The connected pipe. The driver owns the protocol; the host owns the pipe. */
+  /** The driver's connected client. The driver owns JSON-RPC; the host owns I/O. */
   transport: CodexClientConfig['transport']
+  /** The per-session address Codex's stock TUI connects to. */
+  clientAddress: string
+  /** Open another protocol client on the SAME app-server, when supported. */
+  reconnect?(): Promise<CodexClientConfig['transport']>
   /** What a rebind matches on. Opaque and EXACT. */
   process: ProcessIdentity
   stop(): Promise<void>
@@ -126,10 +130,10 @@ export interface CodexServerEndpoint {
 /** What the driver needs from whoever owns processes and disks. */
 export interface CodexRuntimeHost {
   /**
-   * Spawn an app-server for one session and return its connected pipe.
+   * Spawn an app-server for one session and return its connected transport.
    *
    * NO READINESS PROBE IS NEEDED HERE, unlike opencode's host: the handshake IS
-   * the probe. `initialize` either answers over the pipe or the pipe is not
+   * the probe. `initialize` either answers over the transport or it is not
    * usable, so there is no window in which the child is up but not driveable.
    */
   launch(input: {
@@ -182,10 +186,10 @@ export interface CodexRuntimeHost {
   attachClient?(input: {
     sessionId: SessionId
     threadId: CodexThreadId
+    clientAddress: string
     mode: AttachRequest['mode']
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
-  /** Stop the stock TUI before the app-server resumes the thread. Codex permits
-   *  one writer per thread, so its native takeover is serialized, not warm. */
+  /** Stop the stock TUI when its parent session ends. */
   detachClient?(input: { sessionId: SessionId }): Promise<void>
 
   journal: CodexJournal
@@ -195,8 +199,8 @@ export interface CodexRuntimeHost {
   makeClient?(config: CodexClientConfig): CodexClient
 }
 
-/** What survives a supervisor restart. No secret here — the transport is a pipe,
- *  so there is nothing to authenticate with and nothing to leak. */
+/** What survives a supervisor restart. The transient listener address does not:
+ *  its 0600 filesystem boundary is recreated with the next child. */
 export interface CodexJournalEntry {
   sessionId: SessionId
   threadId: CodexThreadId
@@ -234,7 +238,7 @@ const WHEN_READY_TIMEOUT_MS = 10 * 60_000
  * THIS WINDOW IS REAL AND WAS MEASURED. `turn/start`'s response lands BEFORE the
  * `turn/started` notification, and a `turn/steer` fired in between is refused
  * with "no active turn to steer". Short, because it is a local race between two
- * frames on one pipe, not a wait on the model.
+ * frames on one connection, not a wait on the model.
  */
 const STEER_OPEN_TIMEOUT_MS = 15_000
 
@@ -305,11 +309,9 @@ interface DriverSession {
   watchers: { coarse: number; fine: number }
   /** The level the CURRENT connection negotiated at its handshake. */
   connectedLevel: WatchLevel
-  /** An upgrade is mid-flight. Guards against two viewers each spawning a
-   *  child — see `upgradeToFine`. */
+  /** An upgrade is mid-flight. Guards against two viewers each opening a
+   *  candidate connection — see `upgradeToFine`. */
   upgrading: boolean
-  /** The stock TUI owns Codex's single thread-writer slot while true. */
-  nativeParked: boolean
   log: { seq: number; event: RuntimeEvent }[]
   wakers: Set<() => void>
   state: AgentRuntimeState
@@ -907,7 +909,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       // ---- lifecycle ----
       async stop() {
         session.disposed = true
-        if (session.nativeParked) await host.detachClient?.({ sessionId: session.sessionId })
+        await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.stop()
         handles.delete(session.sessionId)
@@ -922,7 +924,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         // server-family session cheap to park.
         if (!session.binding.resume) return { reason: 'no_resume_ref' as const }
         session.disposed = true
-        if (session.nativeParked) await host.detachClient?.({ sessionId: session.sessionId })
+        await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.stop()
         handles.delete(session.sessionId)
@@ -932,7 +934,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
       async kill() {
         session.disposed = true
-        if (session.nativeParked) await host.detachClient?.({ sessionId: session.sessionId })
+        await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.kill()
         host.journal.clear(session.sessionId)
@@ -944,7 +946,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       async health(): Promise<SessionHealth> {
         const bytes = session.endpoint.memoryBytes()
         return {
-          // THE PIPE IS THE LIVENESS SIGNAL. A closed client means the child is
+          // THE CONNECTION IS THE LIVENESS SIGNAL. A closed client means the child is
           // gone or unreachable, which are the same thing for this transport.
           alive: !session.disposed,
           ...(bytes !== undefined ? { memoryBytes: bytes } : {}),
@@ -1167,7 +1169,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           /**
            * ALREADY-ANSWERED vs UNKNOWN is a real distinction and this driver
            * can draw it, WITHOUT the server round-trip W5 needed. An ask here is
-           * an open JSON-RPC request on a pipe we own: there is no second party
+           * an open JSON-RPC request on a connection we own: there is no second party
            * that could have raised one we have not seen, so a `refreshInteractions`
            * against the server would be asking a question whose answer we
            * already hold.
@@ -1258,7 +1260,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
        * Refcounted, and NEGOTIATED RATHER THAN FILTERED (spec §5).
        *
        * Codex's `optOutNotificationMethods` is a real protocol knob: at `coarse`
-       * the token deltas never cross the pipe at all, which is strictly better
+       * the token deltas never cross the connection at all, which is strictly better
        * than receiving and discarding them. The cost is that the level is fixed
        * for a CONNECTION's life — the handshake happens once — so a `fine`
        * demand on a `coarse` connection cannot take effect until the connection
@@ -1380,33 +1382,17 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
               name: `Podium ${session.sessionId.slice(0, 8)}`,
             })
           }
-          if (req.mode === 'takeover' && !session.nativeParked) {
-            // `codex resume` and app-server cannot hold the same thread writer.
-            // The lease keeps every headless send queued while the app-server
-            // is parked, so no words can cross this transfer boundary.
-            session.nativeParked = true
-            session.client.close()
-            await session.endpoint.stop()
-          }
           client = await host.attachClient?.({
             sessionId: session.sessionId,
             threadId: session.threadId,
+            clientAddress: session.endpoint.clientAddress,
             mode: req.mode,
           })
         } catch (err) {
-          let restoreError: unknown
-          if (session.nativeParked) {
-            try {
-              await restoreAfterNative(session)
-            } catch (restoreErr) {
-              restoreError = restoreErr
-            }
-          }
           if (acquired && session.lease?.holder === req.holder) session.lease = previousLease
-          throw restoreError ?? err
+          throw err
         }
         if (!client) {
-          if (session.nativeParked) await restoreAfterNative(session)
           if (acquired && session.lease?.holder === req.holder) session.lease = previousLease
           return {
             reason: 'unsupported',
@@ -1433,10 +1419,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         },
         async release(holder) {
           if (session.lease?.holder !== holder) return
-          if (session.nativeParked) {
-            await host.detachClient?.({ sessionId: session.sessionId })
-            await restoreAfterNative(session)
-          }
           session.lease = null
           /**
            * RELEASING THE LEASE IS A DRAIN EDGE — the same bug the opencode
@@ -1542,57 +1524,12 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     }
   }
 
-  /** Reclaim Codex's single writer from the stock TUI without replacing the
-   *  runtime handle that owns queued sends, watchers, event cursors and lease. */
-  async function restoreAfterNative(session: DriverSession): Promise<void> {
-    if (!session.nativeParked) return
-    let endpoint: CodexServerEndpoint | undefined
-    let connection: CodexConnection | undefined
-    try {
-      endpoint = await host.launch({
-        sessionId: session.sessionId,
-        workdir: session.spec.workdir,
-        ...(session.spec.env ? { env: session.spec.env } : {}),
-        ...mcpOf(session.spec),
-      })
-      connection = await connect(endpoint, session.connectedLevel)
-      const resumed = await connection.client.call<{
-        thread?: { id?: string; path?: string | null }
-      }>(CODEX_METHODS.threadResume, { threadId: session.threadId })
-
-      session.endpoint = endpoint
-      session.connection = connection
-      session.client = connection.client
-      session.threadId = resumed.thread?.id ?? session.threadId
-      session.rolloutPath = resumed.thread?.path ?? session.rolloutPath
-      session.binding = {
-        ...session.binding,
-        process: endpoint.process,
-        resume: { kind: 'codex-thread', value: session.threadId },
-        bindingVersion: session.binding.bindingVersion + 1,
-      }
-      session.observerGeneration += 1
-      session.nativeParked = false
-      wire(session, connection)
-      persist(session)
-      emit(
-        session,
-        { t: 'process', ev: { ev: 'adopted', bindingVersion: session.binding.bindingVersion } },
-        iso(),
-      )
-    } catch (err) {
-      connection?.client.close()
-      await endpoint?.stop().catch(() => undefined)
-      throw err
-    }
-  }
-
   /**
    * Re-handshake this session's connection at `fine`, when it is safe to.
    *
    * SAFE MEANS: no turn open and no ask outstanding. A reconnect abandons both —
    * an in-flight turn's notifications would be lost and an unanswered
-   * server→client request would die with the pipe, stranding the agent. So a
+   * server→client request would die with the connection, stranding the agent. So a
    * demand that arrives at a bad moment is simply not applied; the next one
    * (viewers re-watch constantly) finds a better one.
    *
@@ -1607,60 +1544,75 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
      *
      * `watch()` cannot await this — it must hand a viewer its release function
      * immediately — so the call is fire-and-forget, and two viewers opening a
-     * chat at the same moment would otherwise start two upgrades. Each spawns a
-     * child; the second overwrites `session.endpoint`, and the first's child is
-     * left running with nobody holding it. An in-flight flag is what keeps a UI
-     * navigation from leaking processes.
+     * chat at the same moment would otherwise start two upgrades. A Unix-backed
+     * endpoint opens another client on the same child; older hosts fall back to
+     * launching a replacement child. Either way, an in-flight flag keeps one UI
+     * navigation from creating two candidate connections.
      *
      * The second check matters just as much and is easy to miss: the guards
-     * below run BEFORE two awaits (a process spawn and a handshake), and a turn
+     * below run BEFORE two awaits (a connection open and a handshake), and a turn
      * or an approval can arrive during them. Swapping the connection then would
      * abandon an in-flight turn's notifications, or kill a blocked
      * server->client request that no longer has anywhere to be answered. So the
      * state is re-read after the awaits, and a session that got busy in the
-     * meantime keeps the connection it has — the freshly-launched child is
-     * stopped rather than adopted.
+     * meantime keeps the connection it has — the candidate connection is closed
+     * and a fallback child, if one was needed, is stopped rather than adopted.
      */
-    if (session.disposed || session.upgrading || session.nativeParked) return
+    if (session.disposed || session.upgrading || session.lease !== null) return
     if (busy(session) || session.asks.size > 0) return
     if (session.connectedLevel === 'fine') return
     session.upgrading = true
+    let endpoint: CodexServerEndpoint | undefined
+    let connection: CodexConnection | undefined
+    let replacementProcess = false
     try {
-      const endpoint = await host.launch({
-        sessionId: session.sessionId,
-        workdir: session.spec.workdir,
-        ...(session.spec.env ? { env: session.spec.env } : {}),
-        ...mcpOf(session.spec),
-      })
-      const connection = await connect(endpoint, 'fine')
+      if (session.endpoint.reconnect) {
+        endpoint = {
+          ...session.endpoint,
+          transport: await session.endpoint.reconnect(),
+        }
+      } else {
+        replacementProcess = true
+        endpoint = await host.launch({
+          sessionId: session.sessionId,
+          workdir: session.spec.workdir,
+          ...(session.spec.env ? { env: session.spec.env } : {}),
+          ...mcpOf(session.spec),
+        })
+      }
+      connection = await connect(endpoint, 'fine')
       // RE-READ, not remembered. Everything above took real time.
-      if (session.disposed || busy(session) || session.asks.size > 0) {
+      if (session.disposed || session.lease !== null || busy(session) || session.asks.size > 0) {
         connection.client.close()
-        await endpoint.stop()
+        if (replacementProcess) await endpoint.stop()
         return
       }
       await connection.client.call(CODEX_METHODS.threadResume, { threadId: session.threadId })
       const old = session.client
-      const oldEndpoint = session.endpoint
       session.connection = connection
       session.client = connection.client
-      session.endpoint = endpoint
       session.connectedLevel = 'fine'
-      session.binding = {
-        ...session.binding,
-        process: endpoint.process,
-        bindingVersion: session.binding.bindingVersion + 1,
-      }
       wire(session, connection)
       old.close()
-      await oldEndpoint.stop()
-      persist(session)
-      emit(
-        session,
-        { t: 'process', ev: { ev: 'adopted', bindingVersion: session.binding.bindingVersion } },
-        iso(),
-      )
+      if (replacementProcess) {
+        const oldEndpoint = session.endpoint
+        session.endpoint = endpoint
+        session.binding = {
+          ...session.binding,
+          process: endpoint.process,
+          bindingVersion: session.binding.bindingVersion + 1,
+        }
+        await oldEndpoint.stop()
+        persist(session)
+        emit(
+          session,
+          { t: 'process', ev: { ev: 'adopted', bindingVersion: session.binding.bindingVersion } },
+          iso(),
+        )
+      }
     } catch {
+      connection?.client.close()
+      if (replacementProcess) await endpoint?.stop().catch(() => undefined)
       // See the note above: the fine watch degrades to complete items.
     } finally {
       session.upgrading = false
@@ -1736,23 +1688,28 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       },
       onClose: () => sink.closed?.(),
     })
-    await client.handshake({
-      clientInfo: { name: 'podium', title: 'Podium', version: '1' },
-      capabilities: {
-        // Codex gates newer methods behind this; the driver reads only shapes it
-        // pinned, so opting in costs nothing and keeps the surface uniform.
-        experimentalApi: true,
-        requestAttestation: false,
-        /**
-         * THE WATCH LEVEL, NEGOTIATED (spec §5). At `coarse` the deltas are
-         * suppressed AT THE SERVER. Nothing the coarse observation plane needs
-         * is ever on this list — `turn/completed` and `item/completed` above all,
-         * since a fence that was opted out of is a session that never goes idle.
-         */
-        ...(level === 'coarse' ? { optOutNotificationMethods: [...DELTA_NOTIFICATIONS] } : {}),
-      },
-    })
-    return { client, sink }
+    try {
+      await client.handshake({
+        clientInfo: { name: 'podium', title: 'Podium', version: '1' },
+        capabilities: {
+          // Codex gates newer methods behind this; the driver reads only shapes it
+          // pinned, so opting in costs nothing and keeps the surface uniform.
+          experimentalApi: true,
+          requestAttestation: false,
+          /**
+           * THE WATCH LEVEL, NEGOTIATED (spec §5). At `coarse` the deltas are
+           * suppressed AT THE SERVER. Nothing the coarse observation plane needs
+           * is ever on this list — `turn/completed` and `item/completed` above all,
+           * since a fence that was opted out of is a session that never goes idle.
+           */
+          ...(level === 'coarse' ? { optOutNotificationMethods: [...DELTA_NOTIFICATIONS] } : {}),
+        },
+      })
+      return { client, sink }
+    } catch (err) {
+      client.close()
+      throw err
+    }
   }
 
   /** Point a connection's callbacks at a live session. */
@@ -1771,11 +1728,11 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
        * failed turn is how ghost sessions happen.
        *
        * `classification: 'crashed'` rather than 'clean': this driver cannot see
-       * the exit code from inside the pipe, and a child that closed its stdout
+       * the exit code from inside the protocol link, and a child that closed it
        * while Podium still held the session is not a clean exit from the
        * session's point of view whatever its status line said.
        */
-      if (session.disposed || session.nativeParked) return
+      if (session.disposed) return
       const ev: ProcessEvent = {
         ev: 'exited',
         code: null,
@@ -1836,7 +1793,6 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       watchers: { coarse: 0, fine: 0 },
       connectedLevel: input.level,
       upgrading: false,
-      nativeParked: false,
       log: [],
       wakers: new Set(),
       state: { phase: 'idle', since: iso(), nativeSubagentCount: 0 },
@@ -2009,9 +1965,9 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
     /**
      * REBIND AFTER A SUPERVISOR RESTART — by resuming, because there is nothing
-     * left to rebind to. The full argument is in this file's header: the channel
-     * is the child's stdio and `codex app-server` exits on stdin EOF, so the
-     * child dies with the daemon. What survives is the thread on disk.
+     * left to rebind to. The full argument is in this file's header: the child
+     * remains lifetime-tethered to the daemon's stdin even though JSON-RPC rides
+     * its Unix listener, so it dies with the daemon. The thread on disk survives.
      *
      * THE JOURNAL IS STILL CHECKED FOR EXACT IDENTITY, and that is not
      * ceremonial: a binding whose journal entry names a different process key

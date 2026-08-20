@@ -13,34 +13,21 @@
  * `CodexRuntimeHost` implementation and it is deliberately nothing but that.
  *
  * ---------------------------------------------------------------------------
- * THE TRANSPORT IS THE CHILD'S STDIO (spec §6), AND THAT WAS MEASURED
+ * THE TRANSPORT IS A PER-SESSION UNIX LISTENER (spec §§5–6)
  * ---------------------------------------------------------------------------
  *
- * The plan preferred a per-session unix socket at 0600. `codex app-server
- * --listen unix://PATH` exists on the pinned binary and does create one — and it
- * is NOT the client surface. It is a daemon CONTROL socket: a JSON-RPC
- * `initialize` written to it gets the connection closed, and so does the same
- * request sent through Codex's own `app-server proxy --sock` bridge. The
- * `daemon` subcommand puts one at a fixed, machine-GLOBAL path, which would
- * contradict this epic's process-per-session decision anyway.
- *
- * So the channel is the pipe pair the daemon holds from forking the child. That
- * satisfies spec §6 more strongly than the socket would, not less: there is no
- * filesystem object to find, no path to leak, no mode bits to get wrong, no
- * stale socket to reclaim, and no `SUN_LEN` limit — which is a real constraint,
- * since a socket under this instance's state dir is refused outright for path
- * length. A process that did not fork the child has no name by which to reach
- * it.
- *
- * THE PRICE IS THAT THE CHILD CANNOT OUTLIVE US. `codex app-server` exits
- * cleanly on stdin EOF (verified), so a daemon restart takes every session's
- * child with it. `adopt()` therefore resumes the thread in a fresh child rather
- * than rebinding a survivor — the argument is in the driver's own header, and
- * what makes it work is that Codex persists each thread to its own rollout file.
+ * Pinned Codex 0.147.0 accepts JSON-RPC clients on `--listen unix://PATH`, and
+ * its stock TUI connects with `codex resume <thread> --remote unix://PATH`.
+ * Podium's driver and the TUI therefore share one harness server without
+ * stopping or replacing it. The socket lives under the instance state root,
+ * its directory is 0700, and its mode is forced to 0600 before the endpoint is
+ * exposed. A short random incarnation suffix prevents a stale pathname from
+ * being reused across child incarnations.
  */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
@@ -62,6 +49,7 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
+import WebSocket, { type RawData } from 'ws'
 import { serverChildEnv } from '../control/session-env'
 import {
   createVersionProbeCache,
@@ -88,6 +76,18 @@ export { STRIPPED_CODEX_CREDENTIALS }
 const journalDir = (): string => join(stateDir(), 'codex-app-servers')
 const journalPath = (sessionId: SessionId): string =>
   join(journalDir(), `${encodeURIComponent(sessionId)}.json`)
+
+const socketDir = (): string => join(stateDir(), 'runtime', 'codex-app-server-sockets')
+
+/** A short basename preserves room under Unix's sockaddr limit. */
+export function codexClientSocketPath(
+  sessionId: SessionId,
+  nonce: string = randomUUID(),
+): string {
+  const session = createHash('sha256').update(sessionId).digest('hex').slice(0, 12)
+  const incarnation = nonce.replaceAll('-', '').slice(0, 12)
+  return join(socketDir(), `${session}-${incarnation}.sock`)
+}
 
 /**
  * A file per session.
@@ -313,10 +313,11 @@ export interface CodexHostDeps {
   attachClient?(input: {
     sessionId: SessionId
     threadId: string
+    clientAddress: string
     workdir: string
     mode: 'takeover' | 'peek'
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
-  /** Stop Codex's stock TUI so the app-server can reclaim the thread writer. */
+  /** Stop Codex's stock TUI when its parent session ends. */
   detachClient?(input: { sessionId: SessionId }): Promise<void>
   /**
    * The instance agent home (`ctx.homeDir`), overriding the child's `HOME` the
@@ -339,16 +340,16 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
   /**
    * EVERY LIVE CHILD OF A SESSION, NOT "THE" CHILD (POD-2024 review, finding 3).
    *
-   * This was a `Map<SessionId, child>`, on the assumption that a session has one
-   * app-server at a time. `upgradeToFine` breaks that assumption on purpose: it
-   * launches a SECOND child for a session whose first is still live and still
-   * serving, then swaps and stops the old one. With a single-slot map the second
-   * launch overwrote the entry, so `stop()` on the OLD endpoint resolved to the
-   * NEW child and killed the session it had just adopted.
+   * An endpoint must terminate the child it captured, even when lifecycle work
+   * overlaps an older child's retirement with a successor's launch. A
+   * `Map<SessionId, child>` retargeted an old endpoint's `stop()` to whichever
+   * child was registered most recently and could kill the successor instead.
    *
-   * A set per session fixes that half and is also what makes the scope guards
+   * A set per session preserves exact ownership and also makes the scope guard
    * below answerable: "is any child of this session still running" is a question
-   * a single slot cannot answer once two exist.
+   * a single slot cannot answer during an overlap. The current Unix fine-watch
+   * path opens another connection to the same child, so it does not normally add
+   * a second entry here.
    */
   const children = new Map<SessionId, Set<ReturnType<typeof spawn>>>()
 
@@ -479,10 +480,10 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
        * The reclaim used to be unconditional, justified by "an app-server child
        * cannot outlive the daemon that forked it, so a unit still squatting this
        * name belongs to a process that is already gone". That is true of a
-       * DAEMON RESTART and false of an in-daemon relaunch: `upgradeToFine`
-       * launches a second child for a session whose first is still live, and
-       * both share this unit, so `systemctl --user stop` took the whole cgroup
-       * and killed the session the upgrade was serving.
+       * DAEMON RESTART and false while this daemon still owns a live child. A
+       * successor launch can overlap the older child's retirement, and both
+       * share this unit, so `systemctl --user stop` would take the whole cgroup
+       * and kill the session the successor is serving.
        *
        * The guard is our own bookkeeping rather than a liveness probe, and that
        * is the honest instrument here: a child this process forked is a child
@@ -510,7 +511,12 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
           }
         },
       })
-      const argv = ['codex', 'app-server', ...config.args]
+      const socketPath = codexClientSocketPath(input.sessionId)
+      mkdirSync(socketDir(), { recursive: true, mode: 0o700 })
+      chmodSync(socketDir(), 0o700)
+      rmSync(socketPath, { force: true })
+      const clientAddress = `unix://${socketPath}`
+      const argv = ['codex', 'app-server', ...config.args, '--listen', clientAddress]
       const [command, ...args] = scoped ? ['systemd-run', ...systemdScopeArgv(unit, argv)] : argv
 
       const env: NodeJS.ProcessEnv = serverChildEnv({
@@ -523,12 +529,9 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       const child = spawn(command ?? 'codex', args, {
         cwd: input.workdir,
         env,
-        /**
-         * ALL THREE PIPED, and stdin is not optional: it IS the request channel.
-         * stderr is captured because Codex writes its diagnostics there, and a
-         * child that dies during the handshake has nothing else to explain
-         * itself with.
-         */
+        // stdout/stderr remain captured for startup diagnostics. JSON-RPC rides
+        // WebSocket text frames over the Unix listener; stdin stays open because
+        // Codex treats its EOF as the app-server lifetime boundary.
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: false,
       })
@@ -537,6 +540,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       // SIBLING can tell whether it was the last one and reclaim the scope.
       child.once('exit', () => {
         children.get(input.sessionId)?.delete(child)
+        rmSync(socketPath, { force: true })
       })
 
       let banner = ''
@@ -553,9 +557,23 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
         log.warn('codex app-server session is running unscoped', { sessionId: input.sessionId })
       }
 
-      const transport = childTransport(child, () => banner)
+      let transport: CodexTransport
+      try {
+        const socket = await connectCodexWebSocket(socketPath, child, () => banner)
+        chmodSync(socketPath, 0o600)
+        transport = websocketTransport(socket, child, () => banner)
+      } catch (err) {
+        await terminate(input.sessionId, 'SIGKILL', child)
+        rmSync(socketPath, { force: true })
+        throw err
+      }
       const endpoint: CodexServerEndpoint = {
         transport,
+        clientAddress,
+        reconnect: async () => {
+          const socket = await connectCodexWebSocket(socketPath, child, () => banner)
+          return websocketTransport(socket, child, () => banner)
+        },
         process: {
           /**
            * THE SESSION'S IDENTITY, NOT THE INCARNATION'S.
@@ -569,13 +587,17 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
           ...(child.pid !== undefined ? { pid: child.pid } : {}),
           ...(scoped ? { scopeUnit: unit } : {}),
         },
-        // THIS endpoint's child, captured — not "whatever is registered for this
-        // session", which after an upgrade is a different process entirely.
+        // THIS endpoint's child, captured — never "whatever is registered for
+        // this session" at the moment stop happens.
         stop: async () => {
+          transport.close()
           await terminate(input.sessionId, 'SIGTERM', child)
+          rmSync(socketPath, { force: true })
         },
         kill: async () => {
+          transport.close()
           await terminate(input.sessionId, 'SIGKILL', child)
+          rmSync(socketPath, { force: true })
           journal.clear(input.sessionId)
         },
         memoryBytes: () =>
@@ -632,6 +654,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
         (await deps.attachClient?.({
           sessionId: input.sessionId,
           threadId: input.threadId,
+          clientAddress: input.clientAddress,
           workdir: entry.workdir,
           mode: input.mode,
         })) ?? undefined
@@ -644,39 +667,97 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
   }
 }
 
+const CODEX_SOCKET_CONNECT_TIMEOUT_MS = 20_000
+
 /**
- * A child's stdio as the driver's transport.
+ * Wait for Codex's Unix listener, then complete its WebSocket upgrade.
+ *
+ * The pinned remote client uses `ws://localhost/rpc` as the HTTP handshake URI
+ * while carrying those bytes over the Unix socket. `ws`'s `ws+unix` URL is the
+ * same arrangement. Compression must stay off: Codex's tungstenite acceptor
+ * deliberately offers plain text frames only.
+ */
+async function connectCodexWebSocket(
+  path: string,
+  child: ReturnType<typeof spawn>,
+  banner: () => string,
+): Promise<WebSocket> {
+  const deadline = Date.now() + CODEX_SOCKET_CONNECT_TIMEOUT_MS
+  let lastError: unknown
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const detail = banner().trim()
+      throw new Error(
+        `codex app-server exited before its Unix listener was ready${detail ? `: ${detail.slice(-500)}` : ''}`,
+      )
+    }
+    try {
+      const socket = await new Promise<WebSocket>((resolve, reject) => {
+        const candidate = new WebSocket(`ws+unix://${path}:/rpc`, {
+          maxPayload: 128 << 20,
+          perMessageDeflate: false,
+        })
+        // Listener startup is polled by opening real connections. `ws` can emit
+        // another error after the first failed attempt is terminated; keep one
+        // durable listener so that expected retry cleanup cannot become an
+        // unhandled EventEmitter `error` under Bun.
+        candidate.on('error', () => undefined)
+        const failed = (err: Error): void => {
+          candidate.off('open', opened)
+          candidate.terminate()
+          reject(err)
+        }
+        const opened = (): void => {
+          candidate.off('error', failed)
+          resolve(candidate)
+        }
+        candidate.once('open', opened)
+        candidate.once('error', failed)
+      })
+      return socket
+    } catch (err) {
+      lastError = err
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+  }
+  const reason = lastError instanceof Error ? lastError.message : String(lastError ?? 'timeout')
+  throw new Error(`codex app-server Unix listener was not ready at ${path}: ${reason}`)
+}
+
+/**
+ * One WebSocket-over-Unix client as the driver's transport.
  *
  * THE LINE SPLITTING LIVES HERE, not in the client, because framing is a
- * property of the pipe: a chunk boundary can land anywhere, including mid-frame,
- * and a client that assumed one chunk was one line would corrupt every large
- * payload — which for this protocol means every turn carrying a real transcript.
+ * `CodexTransport` calls its unit a line because stdio needs newline framing;
+ * the remote listener instead carries exactly one JSON-RPC document per text
+ * frame. This adapter removes/adds that framing difference at the host edge.
  */
-function childTransport(child: ReturnType<typeof spawn>, banner: () => string): CodexTransport {
-  let buffer = ''
+function websocketTransport(
+  socket: WebSocket,
+  child: ReturnType<typeof spawn>,
+  banner: () => string,
+): CodexTransport {
   let closed = false
   return {
     write(line) {
       if (closed) return
       try {
-        child.stdin?.write(line)
+        const payload = line.endsWith('\n') ? line.slice(0, -1) : line
+        socket.send(payload, (err) => {
+          if (err) log.warn('could not write to the codex app-server Unix listener', { err })
+        })
       } catch (err) {
-        // A write to a dead pipe is the child being gone; the `close` handler
+        // A write to a dead connection is the child being gone; the close handler
         // below is what reports it, and throwing here would surface the same
         // fact twice in two vocabularies.
-        log.warn('could not write to the codex app-server child', { err })
+        log.warn('could not write to the codex app-server Unix listener', { err })
       }
     },
     onLine(handler) {
-      child.stdout?.on('data', (chunk: Buffer) => {
-        buffer += chunk.toString('utf8')
-        let boundary = buffer.indexOf('\n')
-        while (boundary >= 0) {
-          const line = buffer.slice(0, boundary)
-          buffer = buffer.slice(boundary + 1)
-          boundary = buffer.indexOf('\n')
-          if (line.trim()) handler.line(line)
-        }
+      socket.on('message', (message: RawData, binary: boolean) => {
+        if (binary) return
+        const frame = message.toString()
+        if (frame.trim()) handler.line(frame)
       })
       const ended = (): void => {
         if (closed) return
@@ -686,14 +767,15 @@ function childTransport(child: ReturnType<typeof spawn>, banner: () => string): 
         handler.closed()
       }
       child.once('exit', ended)
-      child.stdout?.once('end', ended)
+      socket.once('close', ended)
       child.once('error', ended)
+      socket.once('error', ended)
     },
     close() {
       if (closed) return
       closed = true
       try {
-        child.stdin?.end()
+        socket.terminate()
       } catch {
         // Already closed; that is the state we wanted.
       }

@@ -77,6 +77,7 @@ function makeWorld(): { target: ConformanceTarget } {
       servers.set(input.sessionId, server)
       const endpoint: CodexServerEndpoint = {
         transport: server.transport,
+        clientAddress: `unix:///tmp/${input.sessionId}.sock`,
         process: {
           key: processKey(input.sessionId),
           pid: 4242 + seq,
@@ -156,8 +157,8 @@ function makeWorld(): { target: ConformanceTarget } {
 
     processEvent(sessionId, ev) {
       if (ev.ev !== 'exited') return
-      // THE PIPE CLOSING IS THE EXIT, for this transport. There is no port to
-      // stop answering and no signal to deliver — see `onClose` in ../client.ts.
+      // THE CONNECTION CLOSING IS THE EXIT from the driver's point of view —
+      // see `onClose` in ../client.ts.
       serverFor(sessionId).crash()
     },
 
@@ -198,22 +199,21 @@ function makeWorld(): { target: ConformanceTarget } {
     restartSupervisor() {
       // Handles die. So, for this family, do the CHILDREN — `codex app-server`
       // exits on stdin EOF, so a daemon restart takes every one of them with it.
-      // `forget` closes the client, which closes the pipe, which is precisely
-      // what the real ending looks like from in here.
+      // `forget` closes the client connection, which is precisely what the real
+      // ending looks like from in here.
       for (const sessionId of [...servers.keys()]) runtime?.forget(sessionId)
     },
 
     connectWithoutSecret(sessionId) {
       /**
-       * REFUSED BY CONSTRUCTION, WHICH IS STRONGER THAN REFUSED BY CHECK.
+       * REFUSED BY THE FILESYSTEM BOUNDARY, NOT A PROTOCOL TOKEN.
        *
        * The corpus requires a server-family driver to refuse an unauthenticated
        * connection, because opencode's loopback port is reachable by every local
-       * process and needs a secret to be safe. This transport has no port, no
-       * socket and no secret: the channel is a pipe the daemon inherited when it
-       * forked the child, and a process that did not fork it has no name to
-       * reach it by. There is nothing to authenticate because there is nothing
-       * to connect to.
+       * process and needs a secret to be safe. Codex instead uses a per-session
+       * Unix listener below a mode-0700 instance directory with a mode-0600
+       * socket. An actor outside that OS-user boundary cannot open the transport
+       * at all; the host-level regression pins both modes.
        *
        * `true` is therefore the honest answer rather than a stub — and it is the
        * reason `requiresPerSessionSecret` is `false` in the manifest for a better

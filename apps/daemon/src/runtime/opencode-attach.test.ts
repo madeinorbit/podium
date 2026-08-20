@@ -248,7 +248,12 @@ describe('the client terminal a server-family attach produces', () => {
     const codex = harness()
     await codex.terminals.attach({
       sessionId: SESSION,
-      target: { kind: 'codex', threadId: 'thread-9', workdir: '/work/codex' },
+      target: {
+        kind: 'codex',
+        threadId: 'thread-9',
+        clientAddress: 'unix:///instance/runtime/codex-9.sock',
+        workdir: '/work/codex',
+      },
     })
     expect(codex.state.spawns[0]).toMatchObject({
       label: codexAttachLabel(SESSION),
@@ -261,6 +266,8 @@ describe('the client terminal a server-family attach produces', () => {
         'thread-9',
         '-c',
         'sandbox_workspace_write.network_access=true',
+        '--remote',
+        'unix:///instance/runtime/codex-9.sock',
       ],
     })
 

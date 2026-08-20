@@ -47,15 +47,14 @@ const LIVE = process.env.PODIUM_CODEX_LIVE === '1'
 const describeLive = LIVE ? describe : describe.skip
 
 /**
- * The daemon's host, re-implemented in miniature.
+ * A protocol live host, deliberately using Codex's default stdio transport.
  *
  * NOT IMPORTED FROM THE DAEMON, deliberately: `apps/daemon` depends on this
  * package and not the other way round, and inverting that for a test would
- * create the cycle the layer manifest exists to prevent. What matters is that
- * the pieces under test are the REAL ones — the child, the pipe, the line
- * splitting, the client, the driver — and they are. The spawn flags mirror
- * `codexAppServerConfigArgs` exactly; if they drift, this test stops
- * demonstrating what the daemon does, which is why they are named here.
+ * create the cycle the layer manifest exists to prevent. This opt-in test spends
+ * quota to prove the real protocol and subscription path. The daemon's
+ * production WebSocket-over-Unix adapter is covered at the host boundary and by
+ * isolated UI acceptance; keeping stdio here avoids duplicating that host code.
  */
 function liveHost(workdir: string): {
   host: CodexRuntimeHost
@@ -129,6 +128,7 @@ function liveHost(workdir: string): {
       }
       return {
         transport,
+        clientAddress: `unix:///tmp/${input.sessionId}.sock`,
         process: { key: `live-${input.sessionId}`, ...(child.pid ? { pid: child.pid } : {}) },
         stop: async () => void child.stdin?.end(),
         kill: async () => void child.kill('SIGKILL'),

@@ -1092,6 +1092,7 @@ function defaultCodexRuntime(sent: DaemonMessage[]) {
       const transport = defaultServerTransport('codex') as CodexTransport
       return {
         transport,
+        clientAddress: `unix:///tmp/${input.sessionId}.sock`,
         process: { key: `podium-cx-${input.sessionId}` },
         stop: async () => transport.close(),
         kill: async () => transport.close(),

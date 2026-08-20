@@ -203,29 +203,20 @@ describe('server specs carry their security posture', () => {
     expect(server.value.requiresPerSessionSecret).toBe(true)
   })
 
-  it('needs no secret for Codex, because an inherited pipe has no other end to reach', () => {
+  it('needs no separate secret for Codex because the Unix listener is mode 0600', () => {
     /**
-     * THE POSTURE IS THE SAME; THE MECHANISM IS NOT WHAT W1 EXPECTED (POD-2024).
+     * THE SOCKET MODE IS THE AUTHENTICATION BOUNDARY.
      *
-     * W1 declared `unix-socket` and justified the absent secret with "a 0600
-     * socket already authenticates". W6 measured the pinned binary and found
-     * that socket is not the client surface at all: `codex app-server --listen
-     * unix://PATH` does create one at 0600, and it CLOSES THE CONNECTION on a
-     * JSON-RPC `initialize` — including through codex's own `app-server proxy
-     * --sock` bridge. Codex's own log calls it the app-server CONTROL socket,
-     * and `app-server daemon` puts one at a fixed, machine-global path for
-     * `daemon version`/`stop` to speak.
-     *
-     * The client channel is the child's inherited stdio, which reaches the same
-     * conclusion by a stronger route: there is no filesystem object to find, no
-     * port, no mode bits to get wrong, and no name by which a process that did
-     * not fork the child could reach it. So `requiresPerSessionSecret: false`
-     * survives the correction — for a better reason than the one it shipped with.
+     * Codex 0.147.0 serves WebSocket text frames over a Unix socket and its
+     * stock TUI consumes that same endpoint. Podium places the socket in the
+     * instance state root under a 0700 directory and verifies mode 0600 before
+     * exposing it, which excludes other local users without inventing a secret
+     * the listener has no place to validate.
      */
     const server = AGENT_MANIFESTS.codex.runtime.server
     expect(server.supported).toBe(true)
     if (!server.supported) return
-    expect(server.value.transport).toBe('stdio')
+    expect(server.value.transport).toBe('unix-socket')
     expect(server.value.requiresPerSessionSecret).toBe(false)
   })
 

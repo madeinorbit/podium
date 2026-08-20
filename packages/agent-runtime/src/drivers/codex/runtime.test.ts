@@ -30,12 +30,13 @@ import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-
 interface World {
   handle: AgentSessionHandle
   server: FakeAppServer
-  /** Children the host was asked to start, and to stop. */
-  counts(): { launches: number; stopped: number; detached: number }
-  /** Hold the NEXT launch open until `releaseLaunch()` is called, so a test can
+  /** Children/connections the host was asked to start, and children stopped. */
+  counts(): { launches: number; reconnects: number; stopped: number; detached: number }
+  /** Hold the NEXT connection open until `releaseConnect()` is called, so a test can
    *  act INSIDE the window between "an upgrade started" and "it finished". */
-  gateNextLaunch(): void
-  releaseLaunch(): void
+  gateNextConnect(): void
+  releaseConnect(): void
+  attachedAddresses: string[]
   authReports: { authMethod: string | undefined; subscription: boolean }[]
   events(): RuntimeEvent[]
   dispose(): void
@@ -45,8 +46,10 @@ async function world(): Promise<World> {
   const servers = new Map<SessionId, FakeAppServer>()
   const entries = new Map<SessionId, CodexJournalEntry>()
   const authReports: World['authReports'] = []
+  const attachedAddresses: string[] = []
   let seq = 0
   let launches = 0
+  let reconnects = 0
   let stopped = 0
   let detached = 0
   let gate: Promise<void> | undefined
@@ -75,25 +78,45 @@ async function world(): Promise<World> {
         await waiting
       }
       const server = startFakeAppServer()
+      const clients = [server]
       servers.set(input.sessionId, server)
       return {
         transport: server.transport,
+        clientAddress: `unix:///tmp/${input.sessionId}.sock`,
+        reconnect: async () => {
+          reconnects += 1
+          if (gate) {
+            const waiting = gate
+            gate = undefined
+            await waiting
+          }
+          // A distinct protocol connection to the same logical child. The fake
+          // speaks per-connection handshake state, just as Codex's listener does.
+          const client = startFakeAppServer()
+          clients.push(client)
+          return client.transport
+        },
         process: { key: `podium-cx-${input.sessionId}`, pid: 1000 + seq },
         stop: async () => {
           stopped += 1
-          server.close()
+          for (const client of clients) client.close()
         },
-        kill: async () => server.close(),
+        kill: async () => {
+          for (const client of clients) client.close()
+        },
         memoryBytes: () => 1024,
       }
     },
     reportAuthMode: (report) =>
       void authReports.push({ authMethod: report.authMethod, subscription: report.subscription }),
     rolloutExists: async () => false,
-    attachClient: async ({ sessionId }) => ({
-      streamId: `cx-attach-${sessionId}`,
-      warmTtlMs: 300_000,
-    }),
+    attachClient: async ({ sessionId, clientAddress }) => {
+      attachedAddresses.push(clientAddress)
+      return {
+        streamId: `cx-attach-${sessionId}`,
+        warmTtlMs: 300_000,
+      }
+    },
     detachClient: async () => {
       detached += 1
     },
@@ -120,13 +143,14 @@ async function world(): Promise<World> {
   return {
     handle,
     server,
-    counts: () => ({ launches, stopped, detached }),
-    gateNextLaunch: () => {
+    counts: () => ({ launches, reconnects, stopped, detached }),
+    gateNextConnect: () => {
       gate = new Promise<void>((resolve) => {
         openGate = resolve
       })
     },
-    releaseLaunch: () => openGate?.(),
+    releaseConnect: () => openGate?.(),
+    attachedAddresses,
     authReports,
     events: () => [...collected],
     dispose: () => runtime.dispose(),
@@ -367,9 +391,13 @@ describe('the human take-over lease', () => {
     expect(endpoint).toMatchObject({ kind: 'client', placement: 'on-machine' })
     expect(w.server.threadNames).toEqual(['Podium cx-1'])
     expect(w.server.turnStarts).toBe(0)
+    expect(w.attachedAddresses).toEqual(['unix:///tmp/cx-1.sock'])
 
     await w.handle.lease.release('human-1')
-    expect(w.counts()).toMatchObject({ launches: 2, stopped: 1, detached: 1 })
+    // Native is another client of the SAME app-server. Returning to Chat drops
+    // the write lease but leaves that TUI warm; the engine is neither stopped
+    // nor relaunched.
+    expect(w.counts()).toMatchObject({ launches: 1, stopped: 0, detached: 0 })
     w.dispose()
   })
 
@@ -408,23 +436,22 @@ describe('the human take-over lease', () => {
 })
 
 describe('the fine-watch upgrade, which reconnects', () => {
-  it('starts ONE child when two viewers ask at once', async () => {
+  it('opens ONE new client and keeps the same child when two viewers ask at once', async () => {
     /**
      * `watch()` cannot await the upgrade — it owes a viewer its release function
      * immediately — so the call is fire-and-forget. Two viewers opening a chat
-     * in the same tick would otherwise each spawn a `codex app-server`, the
-     * second would overwrite the endpoint, and the first child would be left
-     * running with nobody holding it. A UI navigation must not leak processes.
+     * in the same tick would otherwise each open and handshake a new client.
      */
     const w = await world()
-    const before = w.counts().launches
+    const bindingBefore = w.handle.binding.bindingVersion
     const [releaseA, releaseB] = await Promise.all([
       w.handle.watch('fine'),
       w.handle.watch('fine'),
     ])
     await settle()
     await settle()
-    expect(w.counts().launches - before).toBeLessThanOrEqual(1)
+    expect(w.counts()).toMatchObject({ launches: 1, reconnects: 1, stopped: 0 })
+    expect(w.handle.binding.bindingVersion).toBe(bindingBefore)
     releaseA()
     releaseB()
     w.dispose()
@@ -432,20 +459,20 @@ describe('the fine-watch upgrade, which reconnects', () => {
 
   it('ABANDONS the upgrade when a turn opened while it was launching', async () => {
     /**
-     * The safety guards run BEFORE a process spawn and a handshake, and a turn
+     * The safety guards run BEFORE a connection open and a handshake, and a turn
      * can arrive during them. Swapping the connection then would abandon the
-     * in-flight turn's notifications — so the freshly-launched child is stopped
-     * rather than adopted, and the session keeps the connection it has.
+     * in-flight turn's notifications — so the candidate client is closed and
+     * the session keeps the connection it has.
      */
     const w = await world()
     const bindingBefore = w.handle.binding.bindingVersion
-    // The upgrade's launch is held open, so the turn genuinely lands INSIDE the
+    // The upgrade's connection is held open, so the turn genuinely lands INSIDE the
     // window rather than after it.
-    w.gateNextLaunch()
+    w.gateNextConnect()
     const release = await w.handle.watch('fine')
     await settle()
     await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
-    w.releaseLaunch()
+    w.releaseConnect()
     await settle()
     await settle()
     await settle()
@@ -453,13 +480,10 @@ describe('the fine-watch upgrade, which reconnects', () => {
     /**
      * THE ASSERTION IS THE HARM, NOT THE BOOKKEEPING.
      *
-     * Counting launches and stops cannot tell "abandoned the new child" from
-     * "swapped and stopped the old one" — both are one launch and one stop. What
-     * separates them is whether the session can still hear the turn it has: a
-     * driver that swapped is now connected to a child that never saw this turn,
-     * so the completion arrives at a pipe nobody is reading and the session never
-     * fences. `w.server` is the ORIGINAL child, and it is the one running the
-     * turn.
+     * Counting connections cannot tell "abandoned the candidate" from "swapped
+     * to it". What separates them is whether the session can still hear the turn
+     * it has: a driver that swapped loses the completion on its original client
+     * and never fences. `w.server` is that original connection's server view.
      */
     expect(w.handle.binding.bindingVersion).toBe(bindingBefore)
     w.server.completeTurn('completed')
@@ -548,6 +572,6 @@ describe('the handshake, whose violation is silence', () => {
     server.stallNextRequest()
     const pending = client.call('thread/read', { threadId: 'nope' })
     server.crash()
-    await expect(pending).rejects.toThrow(/closed its pipe/)
+    await expect(pending).rejects.toThrow(/closed its transport/)
   })
 })

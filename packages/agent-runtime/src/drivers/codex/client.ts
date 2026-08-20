@@ -6,7 +6,7 @@
  * ---------------------------------------------------------------------------
  *
  * opencode's client is request/response over HTTP with a separate one-way event
- * stream, so nothing the server says can BLOCK. This one is a single duplex pipe
+ * stream, so nothing the server says can BLOCK. This one is a single duplex link
  * on which the server asks US questions and waits for answers — the approval
  * inversion, and the novel machinery of this driver. Three consequences shape
  * everything below:
@@ -14,7 +14,7 @@
  *   1. A server→client request that is never answered PARKS THE TURN forever.
  *      There is no timeout on Codex's side that rescues it. So the handler is
  *      mandatory, and {@link CodexClient.respond} is the only way out.
- *   2. The transport is a PIPE, not a socket per call. One dead pipe kills every
+ *   2. The transport is a persistent connection, not a socket per call. One dead link kills every
  *      in-flight request at once, which is why `close()` rejects them all rather
  *      than letting callers hang on promises that can no longer settle.
  *   3. Ordering is the protocol. See the handshake note below.
@@ -48,11 +48,12 @@ import {
 } from './protocol.js'
 
 /**
- * The pipe, abstracted.
+ * The framed duplex transport, abstracted.
  *
  * The driver package may not spawn a process (that is the daemon's, per the
  * split W3 and W5 both use), so the transport arrives already connected. Tests
- * hand in an in-memory pair; the daemon hands in a child's stdin/stdout.
+ * hand in an in-memory pair; the daemon adapts WebSocket text frames over the
+ * app-server's private Unix listener.
  */
 export interface CodexTransport {
   /** Write one framed line. The client appends the newline. */
@@ -60,8 +61,8 @@ export interface CodexTransport {
   /**
    * Register the reader. Called ONCE, by the client, at construction.
    *
-   * PUSH, NOT PULL, and the choice matters twice over. It is how a pipe actually
-   * behaves — Node invokes a stream's `data` handler synchronously as bytes
+   * PUSH, NOT PULL, and the choice matters twice over. It is how a connection
+   * actually behaves — Node invokes its event handler as frames arrive, so an
    * arrive, so an async-iterator wrapper adds a scheduling hop that the real
    * transport does not have. And that hop is not harmless: a server→client
    * approval request would then be observable by the driver only after a
@@ -69,10 +70,10 @@ export interface CodexTransport {
    * arrived would be told the session is unblocked when it is not. Delivering on
    * the same tick removes the gap rather than papering over it.
    *
-   * `onClose` fires when the pipe ends for any reason.
+   * `onClose` fires when the connection ends for any reason.
    */
   onLine(handler: { line(line: string): void; closed(): void }): void
-  /** Tear the pipe down. Idempotent. */
+  /** Tear the connection down. Idempotent. */
   close(): void
 }
 
@@ -92,11 +93,11 @@ export interface CodexClientConfig {
    *  `respond` — an unanswered approval parks the turn with no timeout. */
   onServerRequest(request: CodexServerRequest): void
   /**
-   * The pipe ended without anyone asking it to.
+   * The connection ended without anyone asking it to.
    *
    * THE ONLY LIVENESS SIGNAL THIS TRANSPORT HAS, and the reason it is a callback
    * rather than something a caller polls: there is no port to probe and no
-   * health endpoint. The child writing EOF is the child being gone, and a driver
+   * health endpoint on the Unix surface. A close is the child being gone, and a driver
    * that learned about it only when its next RPC timed out would report a dead
    * session as a slow one for however long that timeout is.
    *
@@ -152,7 +153,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
   let closed = false
 
   const fail = (err: Error): void => {
-    // ONE DEAD PIPE KILLS EVERY IN-FLIGHT REQUEST. Leaving them pending would
+    // ONE DEAD CONNECTION KILLS EVERY IN-FLIGHT REQUEST. Leaving them pending would
     // hang whichever session verb is awaiting one, forever.
     for (const [, entry] of pending) {
       clearTimer(entry.timer)
@@ -219,19 +220,19 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
       dispatch(line)
     },
     closed() {
-      // The pipe ended. Everything still awaiting an answer will never get one,
+      // The connection ended. Everything still awaiting an answer will never get one,
       // so they are rejected rather than left to their timeouts.
       if (closed) return
       /**
        * AND THE CLIENT IS CLOSED, not merely drained (POD-2024 review nit).
        *
-       * Only `close()` used to set this, so a `call()` issued AFTER the pipe died
+       * Only `close()` used to set this, so a `call()` issued AFTER the connection died
        * was accepted, written to a dead transport and left to time out — 120
-       * seconds to learn something the client already knew. A dead pipe is a
+       * seconds to learn something the client already knew. A dead connection is a
        * closed client whoever noticed first.
        */
       closed = true
-      fail(new CodexProtocolError('codex app-server closed its pipe'))
+      fail(new CodexProtocolError('codex app-server closed its transport'))
       config.onClose?.()
     },
   })

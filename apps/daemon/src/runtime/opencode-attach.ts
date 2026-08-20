@@ -8,9 +8,9 @@
  * A terminal-family session IS a terminal: `attach()` there is a typed
  * description of a frames path that already exists. A server-family session has
  * no PTY at all, so `attach()` has to PRODUCE the terminal. Each supported
- * harness ships the original UI this needs: `opencode attach`, `codex resume`,
- * and `grok --resume`. The client runs beside the headless engine and opens the
- * same native conversation.
+ * harness ships the original UI this needs: `opencode attach`, `codex resume
+ * --remote`, and `grok --resume`. The client runs beside the headless engine and
+ * opens the same native conversation.
  *
  * Beside, never inside. The client is a convenience the user opened and closed;
  * the session is the work. Spec §5 makes that structural: the client runs under
@@ -127,6 +127,8 @@ export interface OpencodeClientTerminalTarget {
 export interface CodexClientTerminalTarget {
   kind: 'codex'
   threadId: string
+  /** The running session's mode-0600 Unix app-server listener. */
+  clientAddress: string
   workdir: string
 }
 
@@ -336,6 +338,7 @@ export function createOpencodeClientTerminals(
               args: ['attach', target.url, '--session', target.opencodeSessionId],
               cwd: target.workdir,
             }
+    if (target.kind === 'codex') launch.args.push('--remote', target.clientAddress)
     const podiumEnv = {
       ...(launch.env ?? {}),
       ...harnessCompatEnv(kind),

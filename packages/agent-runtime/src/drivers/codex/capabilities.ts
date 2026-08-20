@@ -85,7 +85,7 @@ export function codexAppServerCapabilities(): DriverCapabilities {
        * BOTH LEVELS, and `fine` is NATIVE here rather than filtered in user
        * space (spec §5). `optOutNotificationMethods` on the initialize handshake
        * tells the server which notifications not to send at all, so at `coarse`
-       * the token deltas never cross the pipe. That is the watch-level knob the
+       * the token deltas never cross the connection. That is the watch-level knob the
        * spec asks for, implemented by the protocol instead of by discarding.
        *
        * The cost is that the level is fixed for the CONNECTION's life: the

@@ -7,8 +7,8 @@
  *
  * REAL: every line of the driver, the JSON-RPC client, the frame parsing, the
  * notification mapping, the receipt logic, the approval inversion — AND THE
- * FRAMING. This server writes newline-delimited JSON over a duplex the client
- * reads exactly as it reads a child's stdout, it omits the `jsonrpc` member from
+ * FRAMING AT THE CLIENT CONTRACT. This server writes newline-delimited JSON over
+ * an in-memory duplex, it omits the `jsonrpc` member from
  * its responses because the real one does, it answers nothing before
  * `initialize`, and its server→client request ids start at ZERO. Each of those
  * is a property the recorded fixtures pin and a real client would trip over.
@@ -17,17 +17,14 @@
  * what makes the conformance run deterministic end to end.
  *
  * ---------------------------------------------------------------------------
- * WHY NOT A REAL SOCKET, WHEN W5's FAKE USED ONE
+ * WHY THIS UNIT FAKE IS NOT THE PRODUCTION UNIX LISTENER
  * ---------------------------------------------------------------------------
  *
- * The opencode fixture stands up an actual `node:http` listener, and it does so
- * for one specific reason: opencode's per-session secret is a security property
- * that can only be PROVED by opening a real unauthenticated connection. This
- * transport has no listener and no secret — it is an inherited pipe — so there
- * is no equivalent thing to prove by binding a port. Using a real socket here
- * would test node's networking rather than this driver, and the property it
- * would be standing in for is one this transport satisfies by construction (see
- * `connectWithoutSecret` in the conformance fixture).
+ * Production adapts WebSocket text frames over a mode-0600 Unix socket into the
+ * small `CodexTransport` surface below. The daemon host test exercises that real
+ * handshake and pins both directory and socket modes. Rebuilding WebSocket here
+ * would duplicate the host test while obscuring the runtime behaviours this fake
+ * exists to drive: request ordering, notifications, approvals and close fan-out.
  */
 
 import type { CodexTransport } from '../client.js'
@@ -36,8 +33,7 @@ import type { CodexTurn } from '../protocol.js'
 /**
  * The server→client half of the pipe.
  *
- * SYNCHRONOUS DELIVERY, because that is what a pipe does: Node calls a stream's
- * `data` handler as the bytes arrive, not a tick later. It also makes the
+ * SYNCHRONOUS DELIVERY, matching the transport callback contract. It also makes the
  * corpus's synchronous control surface meaningful — `askInteraction` returns an
  * id, and the very next `interactions()` must already see the ask, exactly as a
  * caller reading a session that just blocked must.

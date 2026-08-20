@@ -659,11 +659,11 @@ export async function createDaemonHostRuntime(args: {
           [],
           { selfPid: process.pid },
         ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
-      attachClient: async ({ sessionId, threadId, workdir }) => {
+      attachClient: async ({ sessionId, threadId, clientAddress, workdir }) => {
         try {
           return await clientTerminals.attach({
             sessionId,
-            target: { kind: 'codex', threadId, workdir },
+            target: { kind: 'codex', threadId, clientAddress, workdir },
           })
         } catch (err) {
           log.warn('could not host a Codex client terminal', { err, sessionId })
