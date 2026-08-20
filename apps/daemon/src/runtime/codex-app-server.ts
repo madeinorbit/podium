@@ -695,8 +695,19 @@ const CODEX_SOCKET_CONNECT_TIMEOUT_MS = 20_000
  * consulted between attempts — so the first stalled attempt was also the last,
  * and `launch()` never settled either way. A connection that cannot complete
  * must fail, not hang (POD-2484).
+ *
+ * WHY 2s IS SAFE, SINCE IT IS A CEILING ON HANDSHAKE LATENCY. It bounds ONE
+ * attempt, not the launch: an attempt that trips it is retried against the same
+ * listener, and only the 20s deadline above can end the wait. So the way 2s
+ * loses a working session is for EVERY attempt inside 20s to exceed it, which
+ * takes a box too starved to have finished in 20s under any bound.
+ *
+ * It is deliberately not the answer to a SLOW-TO-BIND child either — the
+ * reviewer's cold-start caveat, a codex that once took >15s to create its
+ * socket. That path never reaches this timer: `connect` on an unbound socket is
+ * refused in microseconds, and the loop simply retries until the deadline.
  */
-const CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS = 2_000
+export const CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS = 2_000
 
 /** What the connect loop needs of a child; a test supplies it without spawning. */
 export interface CodexChildLiveness {
@@ -709,6 +720,26 @@ export interface CodexChildLiveness {
  * because only one of the two is evidence about the peer. See the catch below.
  */
 class HandshakeTimeout extends Error {}
+
+/**
+ * THE REASON A FAILED CONNECT CARRIES, WHATEVER SHAPE IT ARRIVES IN.
+ *
+ * `ws` under Node rejects with an `Error`; Bun's `ws` rejects with a DOM-style
+ * `ErrorEvent`, which is not an `Error` at all. An `instanceof Error` test and a
+ * `String()` fallback therefore printed `[object ErrorEvent]` on the runtime the
+ * daemon actually runs — throwing away the reason ("… failed: Failed to
+ * connect") that was sitting one property away. The ordinary failure is the one
+ * an operator reads, so it is the one that must name its cause.
+ */
+function connectFailureReason(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'object' && err !== null) {
+    const event = err as { message?: unknown; error?: unknown }
+    if (event.error instanceof Error) return event.error.message
+    if (typeof event.message === 'string' && event.message.length > 0) return event.message
+  }
+  return String(err ?? 'timeout')
+}
 
 /**
  * Wait for Codex's Unix listener, then complete its WebSocket upgrade.
@@ -799,7 +830,7 @@ export async function connectCodexWebSocket(
       await new Promise((resolve) => setTimeout(resolve, 25))
     }
   }
-  const reason = lastError instanceof Error ? lastError.message : String(lastError ?? 'timeout')
+  const reason = lastError === undefined ? 'timeout' : connectFailureReason(lastError)
   throw new Error(`codex app-server Unix listener was not ready at ${path}: ${reason}`)
 }
 

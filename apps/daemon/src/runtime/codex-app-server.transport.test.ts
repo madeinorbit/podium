@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type WebSocket from 'ws'
-import { connectCodexWebSocket } from './codex-app-server'
+import { CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS, connectCodexWebSocket } from './codex-app-server'
 
 /** RFC 6455 §1.3, concatenated with the client's key to derive the accept value. */
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -61,10 +61,18 @@ function socketPath(): string {
 function listen(
   path: string,
   answer: (key: string) => string | undefined,
-): { path: string; frames: Buffer[]; write: (frame: Buffer) => void } {
+): {
+  path: string
+  frames: Buffer[]
+  write: (frame: Buffer) => void
+  /** How many times the caller opened a connection — one per attempt. */
+  accepted: () => number
+} {
   const frames: Buffer[] = []
+  let accepted = 0
   let peer: Socket | undefined
   const server = createServer((socket) => {
+    accepted += 1
     peer = socket
     let pending = ''
     let upgraded = false
@@ -86,7 +94,7 @@ function listen(
   })
   servers.push(server)
   server.listen(path)
-  return { path, frames, write: (frame) => peer?.write(frame) }
+  return { path, frames, write: (frame) => peer?.write(frame), accepted: () => accepted }
 }
 
 /** The bytes a conforming acceptor answers with — Codex's included. */
@@ -108,6 +116,17 @@ function accepted(key: string): string {
 function serverTextFrame(payload: string): Buffer {
   const body = Buffer.from(payload, 'utf8')
   return Buffer.concat([Buffer.from([0x81, body.length]), body])
+}
+
+/** The error a connect rejected with — and a failure if it did not reject. */
+async function failureOf(connecting: Promise<WebSocket>): Promise<Error> {
+  return await connecting.then(
+    (socket) => {
+      opened.push(socket)
+      return new Error('the connect resolved when it should have failed')
+    },
+    (reason: Error) => reason,
+  )
 }
 
 /** Poll until a condition holds, so an assertion never races the wire. */
@@ -179,12 +198,33 @@ describe('connecting to a listener that cannot complete', () => {
     await expect(connectCodexWebSocket(peer.path, alive, noBanner, 3_000)).rejects.toThrow(
       /Unix listener was not ready.*did not complete the upgrade/s,
     )
-    // TIED TO THE DEADLINE IT WAS GIVEN, not to a round number. A generous
-    // absolute ceiling would still pass if the per-attempt bound were raised
-    // past the whole wait, or if the deadline were consulted every few attempts
-    // — which is the property this test exists to hold.
+    // TIED TO THE DEADLINE IT WAS GIVEN, not to a round number — this bound is
+    // what separates "fails" from "hangs". It does NOT pin the per-attempt
+    // constant: while the deadline is shorter than the constant, the clamp
+    // makes the two indistinguishable from out here. The next test does that.
     expect(Date.now() - started).toBeLessThan(3_000 * 2)
   }, 20_000)
+
+  it('gives each attempt the per-attempt bound, not the whole wait', async () => {
+    /**
+     * WHERE THE CONSTANT IS ACTUALLY OBSERVABLE — and it needs a deadline
+     * LONGER than the constant to be so. Given a shorter one, `attemptMs` is
+     * clamped to the deadline either way, so raising the constant to 60s
+     * changes nothing a test can see. That is exactly how an earlier version of
+     * this suite came to claim it pinned the bound when it did not.
+     *
+     * With room to breathe, two things separate a 2s attempt bound from one
+     * raised past the wait: the stalled peer is reconnected to more than once,
+     * and the reported cause names the constant rather than the deadline.
+     */
+    const deadline = CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS * 2 + 1_000
+    const peer = listen(socketPath(), () => undefined)
+
+    const err = await failureOf(connectCodexWebSocket(peer.path, alive, noBanner, deadline))
+
+    expect(err.message).toContain(`within ${CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS}ms`)
+    expect(peer.accepted()).toBeGreaterThan(1)
+  }, 30_000)
 
   it('FAILS within the deadline when nothing ever binds the path', async () => {
     const started = Date.now()
@@ -194,22 +234,24 @@ describe('connecting to a listener that cannot complete', () => {
     expect(Date.now() - started).toBeLessThan(500 + 2_000)
   })
 
-  it('blames the missing listener rather than the handshake', async () => {
-    // NOT A TIMING TEST — see the cause-preference note in the host. This pins
-    // the ordinary reading of a path nothing bound: the reported cause is the
-    // connect refusal, never the upgrade. A test for the clipped-timer race
-    // itself is deliberately absent: on this runtime the connect rejection
-    // lands in a microtask ahead of ANY timer, so such a test passes with the
-    // guard removed and discriminates nothing.
-    const err = await connectCodexWebSocket(socketPath(), alive, noBanner, 500).then(
-      (socket) => {
-        opened.push(socket)
-        return new Error('the connect resolved against a path nothing bound')
-      },
-      (reason: Error) => reason,
-    )
+  it('NAMES THE CAUSE of an ordinary connect failure', async () => {
+    /**
+     * The failure an operator actually reads, and the one that shipped mute:
+     * Bun's `ws` rejects with a DOM `ErrorEvent`, which is not an `Error`, so an
+     * `instanceof Error` test fell through to `String()` and rendered
+     * `[object ErrorEvent]` — discarding the reason sitting one property away.
+     * Nothing here asserted that a cause was PRESENT, which is how it survived.
+     *
+     * This also pins the cause PREFERENCE: the report blames the connect, never
+     * the upgrade, for a socket nothing ever bound. (The clipped-timer race that
+     * guard exists for is not itself tested — under Bun a connect rejection
+     * lands in a microtask ahead of any timer, so such a test passes with the
+     * guard removed and discriminates nothing.)
+     */
+    const err = await failureOf(connectCodexWebSocket(socketPath(), alive, noBanner, 500))
 
-    expect(err.message).toMatch(/Unix listener was not ready/)
+    expect(err.message).toMatch(/Unix listener was not ready at .+: \S/)
+    expect(err.message).not.toMatch(/\[object \w+\]/)
     expect(err.message).not.toMatch(/did not complete the upgrade/)
   })
 
