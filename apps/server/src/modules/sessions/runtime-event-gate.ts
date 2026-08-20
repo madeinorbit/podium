@@ -2,7 +2,7 @@ import { createLogger } from '@podium/logger'
 import { compareProviderCursor } from '@podium/harness/metadata'
 import type { SessionId } from '@podium/model'
 import type { InteractionEvent } from '@podium/protocol'
-import type { RuntimeEvent, TurnEvent } from '@podium/protocol/daemon'
+import { isRuntimeFineEvent, type RuntimeEvent, type TurnEvent } from '@podium/protocol/daemon'
 import {
   RUNTIME_EVENT_LOG_KIND,
   type EventsRepository,
@@ -101,10 +101,6 @@ export interface RuntimeEventGatePorts {
   now(): number
 }
 
-function isFineOnly(event: RuntimeEvent): boolean {
-  return event.t === 'item' && event.item.kind === 'delta'
-}
-
 function closesTurn(event: RuntimeEvent): boolean {
   return event.t === 'turn' && (event.ev.ev === 'completed' || event.ev.ev === 'failed')
 }
@@ -132,7 +128,7 @@ export class RuntimeEventGate {
   private projectionRequested = false
 
   record(sessionId: SessionId, event: RuntimeEvent): RuntimeEventGateResult {
-    if (isFineOnly(event)) return { kind: 'fine-live-only' }
+    if (isRuntimeFineEvent(event)) return { kind: 'fine-live-only' }
     const session = this.ports.session(sessionId)
     if (!session) return { kind: 'rejected', reason: 'unknown-session' }
     if (!Number.isFinite(Date.parse(event.at))) {

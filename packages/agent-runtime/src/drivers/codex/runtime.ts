@@ -521,7 +521,30 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
          * transcript twice, the first time with its result missing — and the
          * durable transcript path has never carried partial items.
          */
-        if (note.method !== 'item/completed') break
+        if (note.method !== 'item/completed') {
+          /**
+           * EXCEPT AS A LIVE-ONLY PARTIAL, WHICH IS NOT THE SAME THING
+           * (POD-2293).
+           *
+           * The argument above is about the DURABLE path and it still holds: an
+           * `item/started` must not become a `complete`, or the transcript
+           * carries the tool call twice. But a viewer watching a two-minute
+           * command run has nothing to look at until it finishes, and codex is
+           * the only one of the three families with that hole — opencode
+           * re-publishes a growing tool part and grok emits its `tool_call`
+           * immediately, so both are already visible mid-run.
+           *
+           * So the started item goes out on the fine plane instead, under the
+           * same two guards the fragment stream uses: a watcher must be asking
+           * for it, and the turn it belongs to must still be open.
+           */
+          if (session.watchers.fine <= 0) break
+          if (session.openTurnId === undefined) break
+          for (const item of threadItemToItems(note.params.item, at)) {
+            emit(session, { t: 'item', item: { kind: 'partial', item } }, at)
+          }
+          break
+        }
         for (const item of threadItemToItems(note.params.item, at)) {
           emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
         }

@@ -46,6 +46,7 @@ import {
 } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
+import { isRuntimeFineEvent } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { reportQueueAbandonment } from './queue-abandonment'
 
@@ -142,8 +143,8 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
     // THE CONTRACT STREAM GOES OUT AS ITSELF TOO. A consumer that speaks the
     // contract (W4's migrated callers) reads this; the legacy frames below are
     // for the surfaces that do not, and both describe the same fact.
-    if (event.t === 'item' && event.item.kind === 'delta') {
-      deps.send({ type: 'runtimeFineEvent', sessionId, event: { ...event, item: event.item } })
+    if (isRuntimeFineEvent(event)) {
+      deps.send({ type: 'runtimeFineEvent', sessionId, event })
     } else {
       deps.send({ type: 'runtimeEvent', sessionId, event })
     }

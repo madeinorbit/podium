@@ -116,6 +116,21 @@ export interface GitActivity {
 export type TranscriptItemDelta =
   | { kind: 'complete'; item: TranscriptItem }
   | { kind: 'delta'; itemId: string; textDelta: string }
+  /**
+   * AN ITEM THAT EXISTS AND IS STILL RUNNING (POD-2293) — a tool call between
+   * its start and its result, carrying whatever the provider knows so far.
+   *
+   * The third arm exists because "stream the reply" is not only about text.
+   * Two of the three headless families already publish a running tool call as a
+   * `complete` item and correct it later, so their in-progress work is visible
+   * without this arm; codex publishes ONLY `item/completed`, deliberately — one
+   * item updated in place would otherwise enter the durable transcript twice,
+   * the first time with its result missing. That decision is right for the
+   * durable path and is exactly what leaves a codex viewer staring at nothing
+   * while a long tool runs. This arm is where that item goes instead: live-only,
+   * never journalled, retired by the `complete` that shares its stream identity.
+   */
+  | { kind: 'partial'; item: TranscriptItem }
 
 /**
  * Two watch levels, refcounted (spec §5). `coarse` is durable-synced and always

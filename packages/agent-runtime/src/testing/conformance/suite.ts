@@ -120,6 +120,22 @@ type DeltaEvent = RuntimeEvent & {
 const isDeltaEvent = (event: RuntimeEvent): event is DeltaEvent =>
   event.t === 'item' && event.item.kind === 'delta'
 
+/** Every arm the live-only fine plane carries: a fragment of an item still
+ *  being written, and a whole item still being run. Neither may reach a coarse
+ *  watcher, and both are retired by the `complete` that shares their stream
+ *  identity — so the properties below quantify over both rather than over the
+ *  one arm that happened to exist first. */
+const isFineOnlyEvent = (event: RuntimeEvent): boolean =>
+  event.t === 'item' && event.item.kind !== 'complete'
+
+/** The stream identity a fine-only event claims, whichever arm it is. */
+const fineOnlyStreamId = (event: RuntimeEvent): string | undefined => {
+  if (event.t !== 'item') return undefined
+  if (event.item.kind === 'delta') return event.item.itemId
+  if (event.item.kind === 'partial') return streamItemIdOf(event.item.item)
+  return undefined
+}
+
 /**
  * GIVE A FINE WATCH A BOUNDED MOMENT TO BECOME REAL.
  *
@@ -949,7 +965,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         await control.completeTurn(session.binding.sessionId)
         const events = await collected
         release()
-        expect(events.filter(isDeltaEvent)).toEqual([])
+        expect(events.filter(isFineOnlyEvent)).toEqual([])
       })
 
       it('streams fragments under a fine watch, and every one joins its completed item', async () => {
@@ -985,10 +1001,11 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           if (event.t !== 'item' || event.item.kind !== 'complete') continue
           completedIds.add(streamItemIdOf(event.item.item))
         }
-        for (const delta of deltas) {
+        for (const event of events.filter(isFineOnlyEvent)) {
+          const claimed = fineOnlyStreamId(event)
           expect(
-            completedIds.has(delta.item.itemId),
-            `fragment '${delta.item.itemId}' joins no completed item in this turn ` +
+            claimed !== undefined && completedIds.has(claimed),
+            `live-only item '${claimed}' joins no completed item in this turn ` +
               `(completed: ${[...completedIds].join(', ') || 'none'})`,
           ).toBe(true)
         }
@@ -1044,8 +1061,8 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         await control.streamAssistantText?.(session.binding.sessionId, CHUNKS)
         await control.completeTurn(session.binding.sessionId)
         const events = await collected
-        for (const delta of events.filter(isDeltaEvent)) {
-          expect(delta.turnEpoch).toBe(receipt.turnEpoch)
+        for (const event of events.filter(isFineOnlyEvent)) {
+          expect(event.turnEpoch).toBe(receipt.turnEpoch)
         }
 
         // AND NOTHING AFTER THE FENCE. A late fragment for a closed epoch is the
@@ -1057,7 +1074,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           400,
         )
         await control.streamAssistantText?.(session.binding.sessionId, ['late'])
-        expect((await after).filter(isDeltaEvent)).toEqual([])
+        expect((await after).filter(isFineOnlyEvent)).toEqual([])
         release()
       })
 
@@ -1080,7 +1097,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         )
         await control.streamAssistantText?.(session.binding.sessionId, CHUNKS)
         await control.completeTurn(session.binding.sessionId)
-        expect((await collected).filter(isDeltaEvent)).toEqual([])
+        expect((await collected).filter(isFineOnlyEvent)).toEqual([])
       })
     })
 

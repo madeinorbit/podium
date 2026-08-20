@@ -104,7 +104,12 @@ import type {
   TranscriptItem,
 } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import {
+  type AgentObservation,
+  isRuntimeFineEvent,
+  type ObservationProvenance,
+  type ProviderCursor,
+} from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { SpawnControl } from '../session-observers'
 
@@ -624,12 +629,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       session.log.splice(0, session.log.length - EVENT_LOG_LIMIT)
     }
     for (const wake of [...session.wakers]) wake()
-    if (event.t === 'item' && event.item.kind === 'delta') {
-      host.send({
-        type: 'runtimeFineEvent',
-        sessionId: session.sessionId,
-        event: { ...event, item: event.item },
-      })
+    if (isRuntimeFineEvent(event)) {
+      host.send({ type: 'runtimeFineEvent', sessionId: session.sessionId, event })
     } else {
       host.send({ type: 'runtimeEvent', sessionId: session.sessionId, event })
     }

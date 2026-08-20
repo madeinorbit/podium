@@ -18,6 +18,7 @@ import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
+import { streamItemIdOf } from '../../stream-identity.js'
 import { createCodexClient } from './client.js'
 import {
   type CodexJournal,
@@ -37,6 +38,11 @@ interface World {
   gateNextConnect(): void
   releaseConnect(): void
   attachedAddresses: string[]
+  /** The fake serving the session's CURRENT connection. A fine upgrade opens a
+   *  second connection to the same logical child, and the fake speaks
+   *  per-connection state — so a test that kept the original would be pushing
+   *  frames at a transport the driver has stopped reading. */
+  liveServer(): FakeAppServer
   authReports: { authMethod: string | undefined; subscription: boolean }[]
   /** Every `onQueueAbandoned` the driver raised, in order (POD-2297). */
   abandonments: { turnIds: (string | undefined)[]; reason: string }[]
@@ -111,6 +117,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
           // speaks per-connection handshake state, just as Codex's listener does.
           const client = startFakeAppServer()
           clients.push(client)
+          servers.set(input.sessionId, client)
           return client.transport
         },
         process: { key: `podium-cx-${input.sessionId}`, pid: 1000 + seq },
@@ -179,6 +186,11 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
     attachedAddresses,
     authReports,
     abandonments,
+    liveServer: () => {
+      const live = servers.get(handle.binding.sessionId)
+      if (!live) throw new Error('no live fake server')
+      return live
+    },
     events: () => [...collected],
     adopt: () => runtime.driver.adopt(handle.binding),
     failNextAbandonment: () => {
@@ -869,5 +881,89 @@ describe('a throwing report does not leak the child — POD-2297 review, 2', () 
     // left to report rather than reporting them a second time.
     w.dispose()
     expect(w.abandonments).toEqual([])
+  })
+})
+
+
+/**
+ * THE IN-PROGRESS TOOL CALL (POD-2293).
+ *
+ * Codex updates one item in place, so the durable path publishes only
+ * `item/completed` — correct, and the reason a viewer sees nothing at all while
+ * a two-minute command runs. The started half goes out on the live-only fine
+ * plane instead. These pin both halves of that: it is there for a fine watcher,
+ * it is NOT there for a coarse one, and it carries the identity that retires it
+ * when the result lands.
+ */
+describe('in-progress tool calls on the fine plane', () => {
+  const partials = (events: RuntimeEvent[]): RuntimeEvent[] =>
+    events.filter((e) => e.t === 'item' && e.item.kind === 'partial')
+  const completes = (events: RuntimeEvent[]): RuntimeEvent[] =>
+    events.filter((e) => e.t === 'item' && e.item.kind === 'complete')
+
+  it('publishes a started command to a fine watcher, and retires it on the result', async () => {
+    const w = await world()
+    const release = await w.handle.watch('fine')
+    // The upgrade is a reconnect and a handshake; `watch` deliberately does not
+    // await it (see `upgradeToFine`), so the test must.
+    await settle()
+    await settle()
+    await w.handle.send({ text: 'run it' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    const run = w.liveServer().emitCommandExecution('sleep 120', 'done\n')
+    await settle()
+
+    const started = partials(w.events())
+    expect(started).toHaveLength(1)
+    const startedItem = started[0]
+    if (startedItem?.t !== 'item' || startedItem.item.kind !== 'partial') throw new Error('shape')
+    // THE CALL WITHOUT ITS RESULT — which is what `item/started` means, and what
+    // makes this safe to show and unsafe to journal.
+    expect(startedItem.item.item.toolName).toBe('Bash')
+    expect(startedItem.item.item.toolInput).toBe('sleep 120')
+    expect(startedItem.item.item.toolResult).toBeUndefined()
+
+    run.complete()
+    await settle()
+    const landed = completes(w.events()).at(-1)
+    if (landed?.t !== 'item' || landed.item.kind !== 'complete') throw new Error('shape')
+    expect(landed.item.item.toolResult).toBe('done\n')
+    // The join: the preview the partial opened is the one the result closes.
+    expect(streamItemIdOf(landed.item.item)).toBe(streamItemIdOf(startedItem.item.item))
+    // And no second partial was invented for the completion.
+    expect(partials(w.events())).toHaveLength(1)
+    release()
+    w.dispose()
+  })
+
+  it('publishes NOTHING started to a coarse watcher', async () => {
+    const w = await world()
+    await w.handle.send({ text: 'run it' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    const run = w.liveServer().emitCommandExecution('sleep 120', 'done\n')
+    await settle()
+    expect(partials(w.events())).toEqual([])
+    run.complete()
+    await settle()
+    expect(completes(w.events()).length).toBeGreaterThan(0)
+    w.dispose()
+  })
+
+  it('publishes nothing started once the turn is fenced', async () => {
+    const w = await world()
+    const release = await w.handle.watch('fine')
+    await settle()
+    await settle()
+    await w.handle.send({ text: 'run it' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    w.liveServer().completeTurn('completed')
+    await settle()
+    // A started item arriving after the fence can only revive a preview the
+    // durable transcript already replaced.
+    w.liveServer().emitCommandExecution('late', 'out')
+    await settle()
+    expect(partials(w.events())).toEqual([])
+    release()
+    w.dispose()
   })
 })

@@ -246,6 +246,10 @@ export const TranscriptItemDelta = z.discriminatedUnion('kind', [
     itemId: z.string().min(1),
     textDelta: z.string(),
   }),
+  /** An item that EXISTS and is still running — a tool call between its start
+   *  and its result. Live-only, like `delta`, and superseded by the `complete`
+   *  that carries the same stream identity (POD-2293). */
+  z.object({ kind: z.literal('partial'), item: TranscriptItem }),
 ])
 export type TranscriptItemDelta = z.infer<typeof TranscriptItemDelta>
 
@@ -286,16 +290,29 @@ export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
 export const RuntimeEvent = z.intersection(CausalEnvelope, RuntimeEventBody)
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 
-/** The only payload legal on the live-only fine plane. */
+/**
+ * The only payloads legal on the live-only fine plane.
+ *
+ * BOTH ARMS ARE LIVE-ONLY BY THE SAME ARGUMENT, which is why they share a plane
+ * rather than each getting one. A `delta` is a fragment of an item still being
+ * written; a `partial` is a whole item still being run — a tool call between its
+ * start and its result. Neither is durable, neither is acknowledged, neither is
+ * replayed on bootstrap, and each is retired by the `complete` carrying the same
+ * stream identity. What the durable coarse stream commits is unchanged: complete
+ * items only (POD-2293).
+ */
 export const RuntimeFineEvent = z.intersection(
   CausalEnvelope,
   z.object({
     t: z.literal('item'),
-    item: z.object({
-      kind: z.literal('delta'),
-      itemId: z.string().min(1),
-      textDelta: z.string(),
-    }),
+    item: z.discriminatedUnion('kind', [
+      z.object({
+        kind: z.literal('delta'),
+        itemId: z.string().min(1),
+        textDelta: z.string(),
+      }),
+      z.object({ kind: z.literal('partial'), item: TranscriptItem }),
+    ]),
   }),
 )
 export type RuntimeFineEvent = z.infer<typeof RuntimeFineEvent>
@@ -315,6 +332,22 @@ export const RuntimeAttachmentSource = z.object({
   mediaType: z.string().min(1),
 })
 export type RuntimeAttachmentSource = z.infer<typeof RuntimeAttachmentSource>
+
+/**
+ * WHICH PLANE AN EVENT BELONGS ON — asked in ONE place (POD-2293).
+ *
+ * Five call sites decide this: the three headless daemon translators, the
+ * terminal driver's emitter, and the server's durable gate. They must agree
+ * exactly, because a producer and the gate disagreeing is not a cosmetic drift
+ * — an event the producer sends as durable and the gate treats as live-only is
+ * retained and acknowledged forever by a daemon whose ack never comes, and one
+ * sent as live-only but expected as durable silently leaves the restart head
+ * behind. They were five copies of `item.kind === 'delta'` before the `partial`
+ * arm existed; this is the predicate all five now read.
+ */
+export function isRuntimeFineEvent(event: RuntimeEvent): event is RuntimeFineEvent {
+  return event.t === 'item' && event.item.kind !== 'complete'
+}
 
 // ---------------------------------------------------------------------------
 // The frames

@@ -131,6 +131,13 @@ export interface FakeAppServer {
   emitAgentMessage(text: string, itemId?: string): void
   /** Emit a token fragment. Suppressed when the handshake opted out, exactly as
    *  the real server suppresses it. */
+  /** Start a command execution and hand back the closer for it — the in-place
+   *  item update that only becomes durable when it finishes. */
+  emitCommandExecution(
+    command: string,
+    output: string,
+    itemId?: string,
+  ): { complete: () => void; id: string }
   emitDelta(itemId: string, delta: string): void
   /** Did this connection's handshake opt out of the deltas? */
   optedOutOfDeltas: boolean
@@ -272,6 +279,35 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         item: { ...item, text, phase: 'final_answer' },
         completedAtMs: 1_786_700_071_000,
       })
+    },
+    emitCommandExecution(command, output, itemId) {
+      const id = itemId ?? `cmd_${++itemSeq}`
+      // ONE ITEM, UPDATED IN PLACE — which is the codex shape the driver's
+      // durable path refuses to publish twice, and the reason the fine plane
+      // carries the in-progress half instead.
+      notify('item/started', {
+        threadId: server.threadId,
+        turnId: openTurn,
+        item: { type: 'commandExecution', id, command, status: 'inProgress' },
+        startedAtMs: 1_786_700_072_000,
+      })
+      return {
+        complete: () => {
+          notify('item/completed', {
+            threadId: server.threadId,
+            turnId: openTurn,
+            item: {
+              type: 'commandExecution',
+              id,
+              command,
+              status: 'completed',
+              aggregatedOutput: output,
+            },
+            completedAtMs: 1_786_700_073_000,
+          })
+        },
+        id,
+      }
     },
     emitDelta(itemId, delta) {
       // THE SERVER HONOURS ITS OWN OPT-OUT. A fake that sent deltas anyway would
