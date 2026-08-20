@@ -26,8 +26,7 @@
 
 interface Slot {
   readonly key: string
-  readonly present: boolean
-  readonly value: unknown
+  readonly descriptor: PropertyDescriptor | undefined
 }
 
 export interface NativeGlobals {
@@ -49,21 +48,22 @@ export function installNativeGlobals(
   const holder = globalThis as unknown as Record<string, unknown>
   const saved: Slot[] = NATIVE_KEYS.map((key) => ({
     key,
-    present: key in holder,
-    value: holder[key],
+    descriptor: Object.getOwnPropertyDescriptor(holder, key),
   }))
   const navigator = overrides.navigator ?? { product: 'ReactNative' }
   // RN's window is its global object: it answers `typeof`, and it has neither
   // `location` nor `addEventListener`.
   const window: Record<string, unknown> = { navigator, ...overrides.window }
-  holder.window = window
-  holder.navigator = navigator
+  Object.defineProperties(holder, {
+    window: { configurable: true, enumerable: true, value: window, writable: true },
+    navigator: { configurable: true, enumerable: true, value: navigator, writable: true },
+  })
   delete holder.document
   return {
     window,
     restore: () => {
       for (const slot of saved) {
-        if (slot.present) holder[slot.key] = slot.value
+        if (slot.descriptor) Object.defineProperty(holder, slot.key, slot.descriptor)
         else delete holder[slot.key]
       }
     },
