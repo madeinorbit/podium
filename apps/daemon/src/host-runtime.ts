@@ -40,7 +40,6 @@ import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
-import { nativeClientStateObserved } from './control/session'
 import {
   createSchemaGate,
   MAX_CONVERGENCE_ATTEMPTS,
@@ -152,13 +151,6 @@ export async function createDaemonHostRuntime(args: {
   let codexRuntime: DaemonCodexRuntime | undefined
   let grokRuntime: DaemonGrokRuntime | undefined
   let agentRuntime: DaemonMachineRuntime | undefined
-  /**
-   * The context, once it exists, for the outbound tap below. Declared here for
-   * the same reason the four runtimes above are: `send` is built before the
-   * context that the context's own consumers need, and the assignment at the end
-   * closes that cycle.
-   */
-  let context: DaemonContext | undefined
   const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
   /**
    * Every outbound daemon frame, past the driver's observation tap.
@@ -172,18 +164,6 @@ export async function createDaemonHostRuntime(args: {
   const send = (message: DaemonMessage): void => {
     if (message.type !== 'runtimeEvent' && message.type !== 'runtimeFineEvent') {
       agentRuntime?.observe(message)
-    }
-    /**
-     * THE SECOND READER OF THE SAME TAP (POD-2489): a Native attach the session
-     * refused with `busy`/`needs_user` is re-armed when that session reports a
-     * state it could actually be handed over in. Every family's state change
-     * already becomes this one frame — the three server drivers and the terminal
-     * observers all send it — so reading it here is one hook where a per-driver
-     * callback would have been three. It costs a discriminant check for every
-     * other frame and a map lookup for sessions owed nothing.
-     */
-    if (message.type === 'agentState' && context) {
-      nativeClientStateObserved(context, message.sessionId, message.state)
     }
     sendUpstream(message)
   }
@@ -572,7 +552,6 @@ export async function createDaemonHostRuntime(args: {
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     nativeClientRequests: new Set<SessionId>(),
     nativeClientTransitions: new Map<SessionId, Promise<void>>(),
-    nativeClientRetries: new Map<SessionId, number>(),
     composerEngine,
     outputScheduler,
     observers,
@@ -748,7 +727,6 @@ export async function createDaemonHostRuntime(args: {
       (await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })).inventory,
   })
   ctx.agentRuntime = agentRuntime
-  context = ctx
 
   const frameGuard = createFrameGuard(ctx)
 

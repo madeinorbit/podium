@@ -357,3 +357,12 @@ traps have produced false "green" claims on the record: piping the gate into `ta
 and reading `$?` (tail's status, not the gate's), and reading a background run's
 capture file before the run wrote it. Verify the baseline with a parent-vs-tip
 throwaway-worktree comparison when in doubt; POD-2472's review shows the method.
+
+### Lesson: a test that derives its inputs from the constant it claims to pin, pins nothing
+Twice on POD-2484 the code was right and the SENTENCE about what the tests guaranteed
+was wrong: the pin derived its deadline from the constant under test and asserted
+against the same constant, so it was scale-invariant — inflate the constant fourfold
+and everything stays green. Pin a constant's BEHAVIOR with injectable parameters and
+literal-number assertions, and pin its VALUE separately (from below with the real
+default, and by an explicit band). When a safety claim is withdrawn, write the
+withdrawal into the artifact — do not edit the claim away.
