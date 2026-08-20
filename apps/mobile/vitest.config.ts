@@ -48,13 +48,35 @@ export default defineConfig({
     // screen that imports `../terminal/TerminalPane` has only `.native.tsx` and
     // `.web.tsx` on disk; without this the import is unresolvable and the
     // failure names the module rather than the missing extension list.
-    extensions: ['.web.tsx', '.web.ts', '.tsx', '.ts', '.jsx', '.js', '.json'],
+    extensions: [
+      '.web.tsx',
+      '.web.ts',
+      '.web.jsx',
+      '.web.js',
+      '.tsx',
+      '.ts',
+      '.jsx',
+      '.js',
+      '.json',
+    ],
     alias: [
       ...sharedAliases,
       { find: 'react-native', replacement: 'react-native-web' },
       {
         find: 'expo-sqlite',
         replacement: fileURLToPath(new URL('./test/expo-sqlite-absent.ts', import.meta.url)),
+      },
+      // react-native-svg publishes native CJS as its Node entrypoint. Its web
+      // build is the same implementation Expo's web bundler selects, and an
+      // absolute replacement keeps its imports inside Vite's alias pipeline.
+      {
+        find: /^react-native-svg$/,
+        replacement: fileURLToPath(
+          new URL(
+            '../../node_modules/react-native-svg/lib/module/ReactNativeSVG.web.js',
+            import.meta.url,
+          ),
+        ),
       },
       // ONE COPY OF REACT, AND IT HAS TO BE THE ROOT'S.
       //
@@ -82,6 +104,17 @@ export default defineConfig({
   ssr: { resolve: { conditions } },
   test: {
     ...sharedVitestConfig.test,
+    server: {
+      deps: {
+        // Native packages commonly publish CJS entrypoints whose internal
+        // `require('react-native')` calls bypass Vite aliases when externalized.
+        // Keep the native dependency boundary in Vite so the react-native-web
+        // alias and `.web.*` resolution above apply transitively. Otherwise
+        // react-native-svg reaches RN's Flow-typed index.js and Node fails on
+        // its `import typeof` declaration.
+        inline: ['lucide-react-native', 'react-native-svg'],
+      },
+    },
     // `one-react.ts` last: it turns a drifted checkout into a message that names the
     // fix, instead of react-native-web's `useContext` of null. See that file.
     setupFiles: [
