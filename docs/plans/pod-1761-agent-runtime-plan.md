@@ -366,3 +366,12 @@ and everything stays green. Pin a constant's BEHAVIOR with injectable parameters
 literal-number assertions, and pin its VALUE separately (from below with the real
 default, and by an explicit band). When a safety claim is withdrawn, write the
 withdrawal into the artifact — do not edit the claim away.
+
+### Lesson: mutation testing in a shared worktree contaminates everyone's measurements
+Two reviewers on one issue ran mutation matrices in the same worktree without a lock;
+each measured the other's mutations as flakes, producing a false fix-needed verdict, a
+false reopen, and one "logically impossible" test failure (a mutated file mid-batch).
+If you mutate files for testing: take `podium lock acquire wt:<worktree-name>` (or work
+in a clone), verify file content BETWEEN runs, not just at batch start, and never leave
+a mutation uncommitted while yielding. A verdict built on unverified file state is not
+evidence.
