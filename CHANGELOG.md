@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-20
+
 ### Added
 
 **The first stable release.** Podium is mission control for coding agents: run Claude Code, Codex,
