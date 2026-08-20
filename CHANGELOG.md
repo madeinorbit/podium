@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1-edge.1] - 2026-08-20
+
 ### Added
 
 - Desktop: macOS Intel builds. The desktop app now ships a signed, notarized x86_64 DMG alongside
