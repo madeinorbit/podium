@@ -134,4 +134,27 @@ describe('mobile boot failure surface', () => {
     })
     await waitFor(() => expect(fetchCalls).toBeGreaterThan(before))
   })
+
+  it('keeps a loading surface visible while a retry is in flight', async () => {
+    fetchCalls = 0
+    vi.stubGlobal('fetch', async () => {
+      fetchCalls += 1
+      if (fetchCalls === 1) throw new Error('Load failed')
+      return new Promise<Response>(() => {})
+    })
+    render(
+      <MobileClientProvider>
+        <div>app</div>
+      </MobileClientProvider>,
+    )
+    await screen.findByText('CANNOT START')
+
+    await act(async () => {
+      ;(await screen.findByText('Retry')).click()
+    })
+
+    await waitFor(() => expect(fetchCalls).toBeGreaterThan(1))
+    expect(screen.getByText(/^RETRYING/)).toBeTruthy()
+    expect(screen.queryByText('app')).toBeNull()
+  })
 })
