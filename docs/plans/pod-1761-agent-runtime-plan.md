@@ -404,3 +404,9 @@ Every incident cluster this week traces to sessions sharing a checkout. Binding 
    (`git commit -m … -- <files>`) and is verified with `git show --stat HEAD`.
 4. Mutation testing follows the contamination lesson above: private checkout, verify
    content between runs.
+
+Addendum to the rule above, stated plainly because the tooling defaults the WRONG way:
+`podium agent spawn --issue <id>` CO-LOCATES the delegate in the implementer's
+worktree. Isolation is not something you get by default — it exists only if the spawn
+brief orders the delegate into its own detached checkout. Every reviewer spawn brief
+must carry that instruction explicitly.
