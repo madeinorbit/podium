@@ -79,6 +79,26 @@ interface MobileTrpcExtras {
       { ok: boolean; reason?: string }
     >
   }
+  /**
+   * THE BLOCKING-ASK ANSWER (POD-2414).
+   *
+   * §4 requires a blocking ask to be answerable from the phone as well as from
+   * the web and the CLI, and the aggregate's answer command is one procedure for
+   * all of them. Declared here rather than in the shared seam because the shared
+   * seam is what the store/actions layer calls, and nothing shared answers an
+   * interaction — the two SHELLS do, and the desktop reads the server's router
+   * type directly.
+   *
+   * `answer` is the already-typed arm: the card the phone renders comes from
+   * `pendingInteractionCard`, which carries the typed value, so the phone never
+   * builds one and never needs the free-text arm the CLI uses.
+   */
+  interactions: {
+    answer: MutationProcedure<
+      { id: string; answer: { kind: string } },
+      { ok: boolean; reason?: string; detail?: string }
+    >
+  }
   superagent: {
     // THE SHADOW TYPES ARE GONE (POD-332, audit item `superagent-shadow-types`).
     // `listThreads` and `history` were declared here over two mobile-local row

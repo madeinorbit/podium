@@ -14,6 +14,7 @@ import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
 import { ImageLightbox } from './ImageLightbox'
+import { PendingInteractionBar } from './PendingInteractionBar'
 import { PinnedBrief } from './PinnedBrief'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatSurface } from './use-chat-surface'
@@ -432,6 +433,11 @@ export function ChatView({
           </button>
         )}
       </div>
+      {/* THE BLOCKED-SESSION BAR (POD-2414). Between the feed and the composer,
+          because an ask that scrolls away is the failure the aggregate exists to
+          fix — and because the composer is where a person's attention already is
+          when they come to unblock something. */}
+      <PendingInteractionBar sessionId={sessionId} compact={compact} />
       <ScopedChatComposer
         sessionId={sessionId}
         superThread={superThread}
