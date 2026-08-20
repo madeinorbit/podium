@@ -10,8 +10,6 @@ import {
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
 } from '../codex-auth-identity.js'
-import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
-import { buildInventory, type ProbeExec } from './build-inventory.js'
 
 let home: string
 const prevCodexHome = process.env.CODEX_HOME
