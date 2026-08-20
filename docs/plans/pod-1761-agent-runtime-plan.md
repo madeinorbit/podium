@@ -434,3 +434,7 @@ decoration — the reviewer mutated two such comments' code and nothing went red
 one regression would kill the child every fleet reattach speaks to and the other would
 reintroduce the exact silent loss the issue closes. When a comment says a thing is
 deliberate, that sentence is the test's specification.
+
+Fourth face, from the same issue's close: when a claim lives in more than one home
+(a rule stated in three comments; a count in a message and a state line), the homes
+are ONE artefact and drift is the default — edit them as one or they will contradict.
