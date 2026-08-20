@@ -104,6 +104,16 @@ describe('queued message projection', () => {
     expect(projectOptimisticMessages([], [q], [echoed])).toEqual({ pending: [], queued: [] })
   })
 
+  it('collapses attachment sends when the transcript retains the path only in text', () => {
+    const at = Date.parse('2026-08-19T10:00:00.000Z')
+    const path = '/home/u/.podium/uploads/s1/shot.png'
+    const text = `${path}\nlook at this`
+    const q = queued('q1', text, at)
+    const p = pending('p1', text, at, [path])
+    const echoed = user('u1', text, at)
+    expect(projectOptimisticMessages([p], [q], [echoed])).toEqual({ pending: [], queued: [] })
+  })
+
   it('reconciles a newly arrived undated attachment echo by id freshness', () => {
     const path = '/home/u/.podium/uploads/s1/shot.png'
     const q = queued('q1', `${path}\nlook at this`, Date.now())

@@ -488,7 +488,10 @@ function messageMatchesItem(
 ): boolean {
   const messagePaths = message.toolPaths ?? []
   const itemPaths = item.toolPaths ?? []
-  if (messagePaths.length > 0) return samePaths(messagePaths, itemPaths)
+  if (messagePaths.length > 0) {
+    if (itemPaths.length > 0) return samePaths(messagePaths, itemPaths)
+    return textCarriesPaths(item.text, messagePaths)
+  }
   if (itemPaths.length > 0) return textCarriesPaths(message.text, itemPaths)
   return item.text.trim() === message.text.trim()
 }
