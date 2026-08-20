@@ -81,6 +81,11 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
   it.each([
     'never-live',
     'teardown',
+    // POD-2297's arm: a server-family driver took the turn off its own queue and
+    // the send failed. It reaches this path through the same frame the terminal
+    // family has always used, which is the whole point of not inventing a second
+    // one for the server drivers.
+    'delivery-failed',
   ] as const)('a %s frame from the owning machine ends the queued receipt', (reason) => {
     const { sessionId, messageId } = queuedMessageFor(`abandoned by ${reason}`)
 
@@ -150,7 +155,33 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     //
     // READ THIS ONE HONESTLY: it is a negative, so unlike its neighbours it
     // still passes with the consumer wiring cut out entirely. It pins the
-    // refusal, not the path. The three above are what prove the path.
+    // refusal, not the path. The cases above are what prove the path.
     expect(store.messages.getMessage(messageId)?.status).toBe('queued')
+  })
+
+  it('tells the sender what happened, in words about their message', () => {
+    /**
+     * A dead-letter row nobody is told about is the original defect wearing a
+     * durable status. `delivery-failed` gets its own sentence because the other
+     * two would misdescribe it: nothing failed to START here, and nothing was
+     * torn down — the session took the turn and then could not hand it on.
+     */
+    const { sessionId, messageId } = queuedMessageFor('tell me why')
+    const sentBy = store.messages.getMessage(messageId)?.fromKind
+
+    registry.gateway.routeDaemonFrame(MACHINE, {
+      type: 'runtimeQueueDrainAbandoned',
+      sessionId,
+      turnIds: [messageId],
+      reason: 'delivery-failed',
+    })
+
+    const notice = store.messages
+      .listQueued()
+      .find((m) => m.kind === 'notification' && m.body.includes(messageId))
+    expect(notice?.body).toContain('could not be delivered')
+    expect(notice?.body).toContain('then failed to hand it to the agent')
+    // Sent back to whoever sent the original, not broadcast at the session.
+    expect(notice?.toKind).toBe(sentBy)
   })
 })

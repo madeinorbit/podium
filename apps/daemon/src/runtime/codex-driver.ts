@@ -43,6 +43,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:codex-driver')
 
@@ -110,7 +111,12 @@ export interface DaemonCodexRuntime extends CodexRuntime {
 }
 
 export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRuntime {
-  const runtime = createCodexRuntime(deps.host)
+  const runtime = createCodexRuntime({
+    ...deps.host,
+    // A queue this driver loses becomes a durable server-side receipt
+    // correction, so the port is wired HERE, next to `send` (POD-2297).
+    onQueueAbandoned: reportQueueAbandonment('codex', deps.send),
+  })
 
   /**
    * Fan one session's contract events out onto the daemon's frame stream.

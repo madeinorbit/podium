@@ -51,6 +51,7 @@
  * outcome.
  */
 
+import type { QueueDrainAbandonedReason as WireQueueDrainAbandonedReason } from '@podium/protocol'
 import type { ActingPrincipal, InputOrigin, TurnDelivery, TurnReceipt } from '../../turns.js'
 
 // ---------------------------------------------------------------------------
@@ -217,7 +218,17 @@ export interface TerminalInjectionPorts {
   onDrainAbandoned?(turns: readonly QueuedTurn[], reason: QueueDrainAbandonedReason): void
 }
 
-export type QueueDrainAbandonedReason = 'never-live' | 'teardown'
+/**
+ * Terminal's OWN arms of the wire vocabulary, derived from it rather than
+ * restated: widening `@podium/protocol`'s enum must never silently widen what
+ * this family claims it can report. `delivery-failed` is the server family's
+ * (POD-2297) — a drain that never got the session typeable has not attempted a
+ * send, so it cannot honestly say one failed.
+ */
+export type QueueDrainAbandonedReason = Extract<
+  WireQueueDrainAbandonedReason,
+  'never-live' | 'teardown'
+>
 
 export interface DeliverOptions {
   origin: InputOrigin

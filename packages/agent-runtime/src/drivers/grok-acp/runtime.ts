@@ -13,7 +13,11 @@ import {
   translateGrokUpdatePayload,
 } from '@podium/harness'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
-import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type {
+  ObservationProvenance,
+  ProviderCursor,
+  QueueDrainAbandonedReason,
+} from '@podium/protocol'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ArchiveFile,
@@ -36,6 +40,7 @@ import type {
   PendingInteraction,
   PermissionAnswer,
 } from '../../interactions.js'
+import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
 import type {
   AnswerOptions,
@@ -101,6 +106,14 @@ export interface GrokAcpRuntimeHost {
     grokSessionId: string
     mode: AttachRequest['mode']
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
+  /**
+   * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
+   *
+   * The server family's counterpart to `TerminalInjectionPorts.onDrainAbandoned`
+   * — see `../../queue-abandonment.ts`. Optional; the daemon's adapter logs every
+   * abandonment either way.
+   */
+  onQueueAbandoned?: OnQueueAbandoned
   journal: GrokAcpJournal
   now(): number
   mintSessionId(): SessionId
@@ -665,6 +678,16 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           at,
         )
         foldState(session, { kind: 'session_ended' }, at, 'live')
+        /**
+         * THE QUEUE DIED WITH THE CHILD (POD-2297).
+         *
+         * `disposed` stays false — that is the handle owner's call, and this arm
+         * has always reported the process fact and stopped. The parked turns are
+         * finished regardless: the state just folded to `session_ended` and every
+         * remaining drain would prompt a link that is gone, while each sender
+         * holds a `queued` receipt that POD-2291 made the ledger's last word.
+         */
+        abandonQueue(session, 'teardown')
       },
     })
     persist(session)
@@ -806,6 +829,31 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     }
   }
 
+  /**
+   * SAY WHAT THIS SESSION IS LOSING (POD-2297).
+   *
+   * `host.onQueueAbandoned` is the server family's `onDrainAbandoned`, and its
+   * one rule is the terminal port's: THE REPORT IS THE POINT OF NO RETURN. So
+   * the turns leave `session.queue` here, in the same statement that hands them
+   * over.
+   */
+  function abandonQueue(session: DriverSession, reason: QueueDrainAbandonedReason): void {
+    if (session.queue.length === 0) return
+    const turns = session.queue.splice(0, session.queue.length)
+    host.onQueueAbandoned?.({ sessionId: session.sessionId, turns, reason })
+  }
+
+  /**
+   * THIS SESSION CAN NO LONGER DRAIN — the one place that becomes true, so the
+   * one place its queue's fate is stated. Every caller used to be a bare
+   * `session.disposed = true` that discarded the queue against a caller holding
+   * a `queued` receipt.
+   */
+  function endSession(session: DriverSession): void {
+    session.disposed = true
+    abandonQueue(session, 'teardown')
+  }
+
   async function drainQueue(session: DriverSession): Promise<void> {
     if (
       session.disposed ||
@@ -818,7 +866,27 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     if (session.lease?.kind === 'human-controller') return
     const queued = session.queue.shift()
     if (!queued) return
-    startPrompt(session, queued.input, queued.options, 'queue')
+    try {
+      startPrompt(session, queued.input, queued.options, 'queue')
+    } catch {
+      /**
+       * UNLIKE codex AND opencode, THIS FAMILY'S SEND FAILURE IS NORMALLY A TURN
+       * EVENT: `startPrompt` opens the turn synchronously — epoch, `started`,
+       * transcript item — and a rejected `session/prompt` reaches the caller
+       * through `finishPrompt` as a turn FAILURE, which is honest because a turn
+       * really did open.
+       *
+       * This arm is the other case: `startPrompt` threw before any of that, so
+       * no turn opened, nothing was emitted, and the shifted turn would simply
+       * cease to exist (as a rejected promise `void drainQueue` never reads).
+       * That is the POD-2297 shape, and it gets the POD-2297 answer.
+       */
+      host.onQueueAbandoned?.({
+        sessionId: session.sessionId,
+        turns: [queued],
+        reason: 'delivery-failed',
+      })
+    }
   }
 
   function buildHandle(session: DriverSession): AgentSessionHandle {
@@ -833,7 +901,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       },
 
       async stop() {
-        session.disposed = true
+        endSession(session)
         session.client.close()
         await session.endpoint.stop()
         sessions.delete(session.sessionId)
@@ -843,7 +911,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
 
       async hibernate() {
         if (!session.binding.resume) return { reason: 'no_resume_ref' as const }
-        session.disposed = true
+        endSession(session)
         session.client.close()
         await session.endpoint.stop()
         sessions.delete(session.sessionId)
@@ -853,7 +921,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       },
 
       async kill() {
-        session.disposed = true
+        endSession(session)
         session.client.close()
         await session.endpoint.kill()
         host.journal.clear(session.sessionId)
@@ -1374,14 +1442,14 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     forget(sessionId) {
       const session = sessions.get(sessionId)
       if (!session) return
-      session.disposed = true
+      endSession(session)
       sessions.delete(sessionId)
       handles.delete(sessionId)
       wakeIdle(session)
     },
     dispose() {
       for (const session of sessions.values()) {
-        session.disposed = true
+        endSession(session)
         session.client.close()
         wakeIdle(session)
       }

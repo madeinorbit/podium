@@ -1071,9 +1071,34 @@ export const RuntimeSendResultMessage = z.object({
 export type RuntimeSendResultMessage = z.infer<typeof RuntimeSendResultMessage>
 
 /**
- * daemon → server: a terminal queue reached its ready deadline or was torn down
- * before delivery. No turn was started, so this is a receipt correction, not a
- * turn event — the daemon is saying these turns were never typed and will not be.
+ * WHY A DRIVER QUEUE GAVE UP ON TURNS IT HAD ALREADY ACCEPTED.
+ *
+ * Each arm is a DIFFERENT thing to tell the person holding the `queued` receipt,
+ * which is why they are not collapsed into one "undelivered":
+ *
+ *  - `never-live`      the terminal drain reached its readiness deadline with the
+ *                      session still not typeable (POD-2107, POD-2202).
+ *  - `teardown`        the session stopped, was killed, hibernated, crashed or was
+ *                      forgotten while turns were still parked in its queue. True
+ *                      of every family; the server families reach it through their
+ *                      own disposal paths (POD-2297).
+ *  - `delivery-failed` a server-family driver took the turn off its queue and the
+ *                      send itself threw — the link to the agent's own server was
+ *                      gone or refused it (POD-2297). Distinct from `teardown`
+ *                      because nobody tore anything down: the turn was attempted.
+ *
+ * WIDENING THIS ENUM IS A ROLLING-UPGRADE EVENT. A server too old to parse a new
+ * arm rejects the frame, and the daemon's outbox then replays it forever — which
+ * is the same shape as an offline server and heals on upgrade, but it is the cost
+ * to weigh before adding a fourth.
+ */
+export const QueueDrainAbandonedReason = z.enum(['never-live', 'teardown', 'delivery-failed'])
+export type QueueDrainAbandonedReason = z.infer<typeof QueueDrainAbandonedReason>
+
+/**
+ * daemon → server: a driver queue gave up on turns it had accepted. No turn was
+ * started, so this is a receipt correction, not a turn event — the daemon is
+ * saying these turns were never delivered and will not be.
  *
  * THE FRAME is at-least-once, not fire-and-forget. Before the driver discards
  * these turns the daemon durably records this report, replays it while connected
@@ -1089,7 +1114,7 @@ export const RuntimeQueueDrainAbandonedMessage = z.object({
   reportId: z.string().min(1).optional(),
   sessionId: z.string().min(1).pipe(SessionIdField),
   turnIds: z.array(z.string().min(1)).min(1),
-  reason: z.enum(['never-live', 'teardown']),
+  reason: QueueDrainAbandonedReason,
 })
 export type RuntimeQueueDrainAbandonedMessage = z.infer<typeof RuntimeQueueDrainAbandonedMessage>
 

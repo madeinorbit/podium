@@ -47,6 +47,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:opencode-driver')
 
@@ -85,7 +86,12 @@ export interface DaemonOpencodeRuntime extends OpencodeRuntime {
 }
 
 export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOpencodeRuntime {
-  const runtime = createOpencodeRuntime(deps.host)
+  const runtime = createOpencodeRuntime({
+    ...deps.host,
+    // A queue this driver loses becomes a durable server-side receipt
+    // correction, so the port is wired HERE, next to `send` (POD-2297).
+    onQueueAbandoned: reportQueueAbandonment('opencode', deps.send),
+  })
 
   /**
    * Fan one session's contract events out onto the daemon's frame stream.

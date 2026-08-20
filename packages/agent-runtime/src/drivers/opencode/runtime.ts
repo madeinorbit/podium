@@ -38,7 +38,11 @@
  */
 
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
-import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type {
+  ObservationProvenance,
+  ProviderCursor,
+  QueueDrainAbandonedReason,
+} from '@podium/protocol'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type { ProcessIdentity, SessionArchive, SessionBinding, SessionSnapshot } from '../../binding.js'
 import type {
@@ -56,6 +60,7 @@ import type {
   InteractionAnswerOutcome,
   PendingInteraction,
 } from '../../interactions.js'
+import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
 import type { AnswerOptions, AttachmentRef, Refusal, SendOptions, TurnInput, TurnReceipt } from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
@@ -136,6 +141,16 @@ export interface OpencodeRuntimeHost {
     url: string
     mode: AttachRequest['mode']
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
+
+  /**
+   * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
+   *
+   * The server family's counterpart to `TerminalInjectionPorts.onDrainAbandoned`
+   * — see `../../queue-abandonment.ts` for why the promise needs one here too,
+   * and the terminal port for the at-least-once and dedupe rules the host owes.
+   * Optional; the daemon's adapter logs every abandonment either way.
+   */
+  onQueueAbandoned?: OnQueueAbandoned
 
   /** Persist enough to rebind after a daemon restart: port, secret, opencode
    *  session id, scope unit. Written before the first turn, cleared on kill. */
@@ -800,6 +815,18 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         const at = iso()
         const ev: ProcessEvent = { ev: 'exited', code: null, signal: null, classification: 'crashed' }
         emit(session, { t: 'process', ev }, at)
+        /**
+         * THE QUEUE DIED WITH THE SERVER (POD-2297).
+         *
+         * The session is deliberately NOT marked disposed here — that decision
+         * belongs to whoever owns the handle, and the corroborated-death path
+         * has always reported the process fact and stopped. But the parked turns
+         * are finished either way: every remaining drain would `deliver` into a
+         * server three probes have just proved gone, and each of their senders
+         * holds a `queued` receipt that POD-2291 made the ledger's last word.
+         * Waiting for a teardown that may never come is how they vanished.
+         */
+        abandonQueue(session, 'teardown')
         return
       }
     })()
@@ -906,6 +933,41 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     return { providerID: raw.slice(0, slash), modelID: raw.slice(slash + 1) }
   }
 
+  /**
+   * SAY WHAT THIS SESSION IS LOSING (POD-2297).
+   *
+   * `host.onQueueAbandoned` is the server family's `onDrainAbandoned`, and its
+   * one rule is the terminal port's: THE REPORT IS THE POINT OF NO RETURN. So
+   * the turns leave `session.queue` here, in the same statement that hands them
+   * over — a queue that kept its copy could deliver, after a rebind, bytes the
+   * ledger has already recorded as never delivered.
+   */
+  function abandonQueue(session: DriverSession, reason: QueueDrainAbandonedReason): void {
+    if (session.queue.length === 0) return
+    const turns = session.queue.splice(0, session.queue.length)
+    host.onQueueAbandoned?.({ sessionId: session.sessionId, turns, reason })
+  }
+
+  /** One turn, already off the queue, that will not be retried by anybody. */
+  function abandonTurn(
+    session: DriverSession,
+    turn: QueuedTurn,
+    reason: QueueDrainAbandonedReason,
+  ): void {
+    host.onQueueAbandoned?.({ sessionId: session.sessionId, turns: [turn], reason })
+  }
+
+  /**
+   * THIS SESSION CAN NO LONGER DRAIN — the one place that becomes true, so the
+   * one place its queue's fate is stated. Every caller used to be a bare
+   * `session.disposed = true`, and every one of them discarded whatever was
+   * parked in the queue against a caller holding a `queued` receipt.
+   */
+  function endSession(session: DriverSession): void {
+    session.disposed = true
+    abandonQueue(session, 'teardown')
+  }
+
   async function drainQueue(session: DriverSession): Promise<void> {
     while (session.queue.length > 0 && !session.busy && !session.disposed) {
       // A queued turn must not jump an open ask: the session is blocked, and
@@ -916,10 +978,19 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       try {
         await deliver(session, next.input, next.options.origin)
       } catch {
-        // The turn could not be delivered and the caller is long gone — its
-        // receipt said `queued`, which was true. Dropping it silently would be
-        // worse than the process event the stream loop will raise if the server
-        // is actually dead, so nothing is invented here.
+        /**
+         * THE SEND ITSELF FAILED, AND THE CALLER IS LONG GONE.
+         *
+         * Still no turn EVENT — the turn never opened, and the contract is
+         * explicit that a consumer told a turn failed believes one ran. What is
+         * owed is a RECEIPT CORRECTION, which is what this is (POD-2297): the
+         * process event the stream loop raises when the server is really dead
+         * tells the SESSION's story, never this sender's.
+         *
+         * ONLY `next` IS REPORTED — the rest is still queued and may yet drain;
+         * the disposal that follows a truly dead server reports those.
+         */
+        abandonTurn(session, next, 'delivery-failed')
         return
       }
     }
@@ -957,7 +1028,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
 
       // ---- lifecycle ----
       async stop() {
-        session.disposed = true
+        endSession(session)
         session.stream.abort()
         await session.endpoint.stop()
         handles.delete(session.sessionId)
@@ -975,14 +1046,14 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         }
         session.stream.abort()
         await session.endpoint.stop()
-        session.disposed = true
+        endSession(session)
         handles.delete(session.sessionId)
         sessions.delete(session.sessionId)
         return { ok: true as const }
       },
 
       async kill() {
-        session.disposed = true
+        endSession(session)
         session.stream.abort()
         await session.endpoint.kill()
         host.journal.clear(session.sessionId)
@@ -1713,14 +1784,14 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       if (!session) return
       // The HANDLE dies; the PROCESS does not. That is what a supervisor restart
       // looks like from in here, and it is what `adopt()` then has to find.
-      session.disposed = true
+      endSession(session)
       session.stream.abort()
       sessions.delete(sessionId)
       handles.delete(sessionId)
     },
     dispose: () => {
       for (const session of sessions.values()) {
-        session.disposed = true
+        endSession(session)
         session.stream.abort()
       }
       sessions.clear()

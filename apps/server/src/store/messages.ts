@@ -16,6 +16,7 @@ import {
   type IssueId,
   type SessionId,
 } from '@podium/model'
+import type { QueueDrainAbandonedReason } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
@@ -493,9 +494,11 @@ export class MessagesRepository {
   }
 
   /**
-   * queued → dead_letter, because the drain gave up: the session never went live
-   * before its ready deadline (`never-live`) or was torn down with the turn still
-   * undelivered (`teardown`) [POD-2132, POD-2202]. TERMINAL — this is the write
+   * queued → dead_letter, because a driver queue gave up: the session never went
+   * live before its ready deadline (`never-live`), it was torn down with the turn
+   * still undelivered (`teardown`), or a server-family driver took the turn off
+   * its own queue and the send failed (`delivery-failed`) [POD-2132, POD-2202,
+   * POD-2297]. TERMINAL — this is the write
    * that ends the stale `queued` receipt the sender was left holding, and after it
    * the server never re-sends this row (`countPending` drops it, the sweep skips
    * it, a blocked `waitFor` gets its answer).
@@ -512,7 +515,7 @@ export class MessagesRepository {
     id: string,
     deliveredTo: SessionId,
     at: string,
-    reason: 'never-live' | 'teardown',
+    reason: QueueDrainAbandonedReason,
   ): boolean {
     const r = this.db
       .prepare(

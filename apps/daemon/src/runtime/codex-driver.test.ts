@@ -257,3 +257,99 @@ describe('restart-adoption, at the layer that was missing it', () => {
     expect(handle === undefined || handle.binding.sessionId === sessionId).toBe(true)
   })
 })
+
+describe('a queue the driver loses reaches the server — POD-2297', () => {
+  /** Park a turn behind a human take-over lease, which is the queue a real
+   *  session fills: a steward's nudge arriving while somebody is driving. */
+  async function parked(w: ReturnType<typeof world>, ids: readonly (string | undefined)[]) {
+    const sessionId = 'cx-abandon' as SessionId
+    w.entries.set(sessionId, {
+      sessionId,
+      threadId: '019fff94-7326-7032-b90b-3cc7e1805190',
+      workdir: '/work/project',
+      process: { key: `podium-cx-${sessionId}` },
+      seq: 0,
+      turnEpoch: 0,
+      bindingVersion: 1,
+    })
+    const handle = await w.runtime.adoptFromJournal(sessionId)
+    if (!handle) throw new Error('adopt failed')
+    await handle.lease.acquire('operator', 'human-controller')
+    for (const id of ids) {
+      const receipt = await handle.send(
+        { ...(id ? { id } : {}), text: `nudge ${id ?? 'anonymous'}` },
+        { origin: 'steward', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('queued')
+    }
+    return handle
+  }
+
+  it('turns the driver report into ONE durable abandonment frame', async () => {
+    /**
+     * THE FRAME IS THE POINT OF THIS WHOLE ISSUE. `send` puts a
+     * `runtimeQueueDrainAbandoned` on the daemon's fsynced outbox before it
+     * returns, which is what makes the report survive a disconnect — the driver
+     * drops its in-memory copy the moment the callback returns, so anything less
+     * durable would just move the loss one layer down (POD-2202).
+     */
+    const w = world()
+    const handle = await parked(w, ['msg-a', 'msg-b'])
+    await handle.stop()
+
+    const reports = w.sent.filter((msg) => msg.type === 'runtimeQueueDrainAbandoned')
+    expect(reports).toHaveLength(1)
+    expect(reports[0]).toMatchObject({
+      sessionId: 'cx-abandon',
+      turnIds: ['msg-a', 'msg-b'],
+      reason: 'teardown',
+    })
+    // The outbox is keyed by it, and `connection-state` throws without one.
+    expect(reports[0]).toHaveProperty('reportId', expect.any(String))
+  })
+
+  it('sends nothing for turns no receipt was ever issued against', async () => {
+    /**
+     * `TurnInput.id` is OPTIONAL by the contract, and the frame's `turnIds` is
+     * `min(1)` because a report naming nothing corrects nothing. A synthetic id
+     * would be worse than no frame: the server would look it up, find no row,
+     * and record a correction it did not make. The log line still carries the
+     * count — that part is not optional — but the wire stays quiet.
+     */
+    const w = world()
+    const handle = await parked(w, [undefined])
+    await handle.stop()
+
+    expect(w.sent.filter((msg) => msg.type === 'runtimeQueueDrainAbandoned')).toHaveLength(0)
+  })
+
+  it('frames only the turns a receipt exists for, when a queue holds both', async () => {
+    const w = world()
+    const handle = await parked(w, [undefined, 'msg-real'])
+    await handle.stop()
+
+    const reports = w.sent.filter((msg) => msg.type === 'runtimeQueueDrainAbandoned')
+    expect(reports).toHaveLength(1)
+    expect(reports[0]).toMatchObject({ turnIds: ['msg-real'], reason: 'teardown' })
+  })
+
+  it('stays silent for a session that ends with an empty queue', async () => {
+    // Every session that ever ends reaches this path. A frame here would put a
+    // durable report on the outbox for each one of them.
+    const w = world()
+    const sessionId = 'cx-quiet' as SessionId
+    w.entries.set(sessionId, {
+      sessionId,
+      threadId: '019fff94-7326-7032-b90b-3cc7e1805191',
+      workdir: '/work/project',
+      process: { key: `podium-cx-${sessionId}` },
+      seq: 0,
+      turnEpoch: 0,
+      bindingVersion: 1,
+    })
+    const handle = await w.runtime.adoptFromJournal(sessionId)
+    await handle?.stop()
+
+    expect(w.sent.filter((msg) => msg.type === 'runtimeQueueDrainAbandoned')).toHaveLength(0)
+  })
+})

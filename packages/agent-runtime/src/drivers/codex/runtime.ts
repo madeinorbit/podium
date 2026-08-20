@@ -54,7 +54,11 @@
  */
 
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
-import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type {
+  ObservationProvenance,
+  ProviderCursor,
+  QueueDrainAbandonedReason,
+} from '@podium/protocol'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -77,6 +81,7 @@ import type {
   InteractionAnswerOutcome,
   PendingInteraction,
 } from '../../interactions.js'
+import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
 import type {
   AnswerOptions,
@@ -199,6 +204,16 @@ export interface CodexRuntimeHost {
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
   /** Stop the stock TUI when its parent session ends. */
   detachClient?(input: { sessionId: SessionId }): Promise<void>
+
+  /**
+   * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
+   *
+   * The server family's counterpart to `TerminalInjectionPorts.onDrainAbandoned`
+   * — see `../../queue-abandonment.ts` for why the promise needs one here too,
+   * and the terminal port for the at-least-once and dedupe rules the host owes.
+   * Optional; the daemon's adapter logs every abandonment either way.
+   */
+  onQueueAbandoned?: OnQueueAbandoned
 
   journal: CodexJournal
   now(): number
@@ -869,6 +884,46 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     return spec.mcpServers.supported ? { mcpServers: spec.mcpServers.value } : {}
   }
 
+  /**
+   * SAY WHAT THIS SESSION IS LOSING (POD-2297).
+   *
+   * `host.onQueueAbandoned` is the server family's `onDrainAbandoned`, and its
+   * one rule is the terminal port's: THE REPORT IS THE POINT OF NO RETURN. So
+   * the turns leave `session.queue` here, in the same statement that hands them
+   * over — a queue that kept its copy could deliver, after a rebind, bytes the
+   * ledger has already recorded as never delivered, which is the silent loss
+   * again with a dead-letter row on top of it.
+   */
+  function abandonQueue(session: DriverSession, reason: QueueDrainAbandonedReason): void {
+    if (session.queue.length === 0) return
+    const turns = session.queue.splice(0, session.queue.length)
+    host.onQueueAbandoned?.({ sessionId: session.sessionId, turns, reason })
+  }
+
+  /** One turn, already off the queue, that will not be retried by anybody. */
+  function abandonTurn(
+    session: DriverSession,
+    turn: QueuedTurn,
+    reason: QueueDrainAbandonedReason,
+  ): void {
+    host.onQueueAbandoned?.({ sessionId: session.sessionId, turns: [turn], reason })
+  }
+
+  /**
+   * THIS SESSION CAN NO LONGER DRAIN — the one place that becomes true, so the
+   * one place its queue's fate is stated.
+   *
+   * Every caller used to be a bare `session.disposed = true`: `stop`, `kill`,
+   * `hibernate`, `forget`, the runtime's own `dispose`, and the child closing
+   * the link under us. All six discarded whatever was parked in the queue, and
+   * a `queued` receipt is exactly the custody POD-2291 hands the driver — so all
+   * six now say so on the way out.
+   */
+  function endSession(session: DriverSession): void {
+    session.disposed = true
+    abandonQueue(session, 'teardown')
+  }
+
   async function drainQueue(session: DriverSession): Promise<void> {
     while (session.queue.length > 0 && !busy(session) && !session.disposed) {
       // A queued turn must not jump an open ask: the session is blocked, and
@@ -879,10 +934,22 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       try {
         await deliver(session, next.input, next.options.origin)
       } catch {
-        // The turn could not be delivered and the caller is long gone — its
-        // receipt said `queued`, which was true when it was issued. Inventing a
-        // failure event here would report a turn that never opened as one that
-        // failed.
+        /**
+         * THE SEND ITSELF FAILED, AND THE CALLER IS LONG GONE.
+         *
+         * Still no turn EVENT: the contract is explicit that a consumer told a
+         * turn failed believes a turn ran, and this one never opened. What is
+         * owed is a RECEIPT CORRECTION — the caller holds a `queued` that was
+         * true when issued and is now permanently false — and that is what
+         * `abandonTurn` is (POD-2297). Until it existed this `return` was the
+         * whole handler and the turn simply ceased to exist.
+         *
+         * ONLY `next` IS REPORTED. The rest of the queue is still in the queue
+         * and may yet drain if the link recovers; if it does not, the disposal
+         * that follows reports them as `teardown`. Declaring them lost here
+         * would dead-letter turns this driver may still deliver.
+         */
+        abandonTurn(session, next, 'delivery-failed')
         return
       }
     }
@@ -932,7 +999,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
 
       // ---- lifecycle ----
       async stop() {
-        session.disposed = true
+        endSession(session)
         await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.stop()
@@ -947,7 +1014,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         // it is a rollout file that outlives it, which is exactly what makes a
         // server-family session cheap to park.
         if (!session.binding.resume) return { reason: 'no_resume_ref' as const }
-        session.disposed = true
+        endSession(session)
         await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.stop()
@@ -957,7 +1024,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       },
 
       async kill() {
-        session.disposed = true
+        endSession(session)
         await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.kill()
@@ -1759,7 +1826,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         classification: 'crashed',
       }
       emit(session, { t: 'process', ev }, iso())
-      session.disposed = true
+      endSession(session)
     }
   }
 
@@ -2048,14 +2115,14 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       // The HANDLE dies; the PROCESS does not — not because it survives, but
       // because killing it is not `forget`'s job. What a supervisor restart
       // looks like from in here.
-      session.disposed = true
+      endSession(session)
       session.client.close()
       sessions.delete(sessionId)
       handles.delete(sessionId)
     },
     dispose: () => {
       for (const session of sessions.values()) {
-        session.disposed = true
+        endSession(session)
         session.client.close()
       }
       sessions.clear()

@@ -24,6 +24,8 @@ export interface OpencodeTestHostOptions {
    *  the host answer "this machine hosts none", which is the refusal path. */
   onAttachClient?(input: { sessionId: SessionId; url: string; mode: 'takeover' | 'peek' }): void
   hostsClientTerminals?: boolean
+  /** Hear the turns this driver accepted and will never deliver (POD-2297). */
+  onQueueAbandoned?: OpencodeRuntimeHost['onQueueAbandoned']
 }
 
 /** The host, plus a handle on the fake servers it started — a test that wants to
@@ -78,6 +80,8 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
       if (options.hostsClientTerminals === false) return undefined
       return { streamId: `test-attach-${input.sessionId}`, warmTtlMs: 60_000 }
     },
+
+    ...(options.onQueueAbandoned ? { onQueueAbandoned: options.onQueueAbandoned } : {}),
 
     journal: {
       read: (sessionId) => entries.get(sessionId),

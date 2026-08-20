@@ -18,7 +18,11 @@ import type {
   UserId,
   VisibilityClass,
 } from '@podium/model'
-import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type {
+  ObservationProvider,
+  QueueDrainAbandonedReason,
+  SessionObservationCheckpointV1,
+} from '@podium/protocol'
 
 /** ALIASES @podium/model's PinKind (POD-380). The three literals had four
  *  declarations — here, router.ts, the presence contract and the model family — and
@@ -586,8 +590,9 @@ export interface MessageRow {
    * `delivery_deferred_*` name from the migration that introduced it.) */
   deliveryDeferredAt?: string | null
   /** Typed machine observation behind `deliveryDeferredAt`: the session never
-   * became ready inside the deadline, or it was torn down still holding the turn. */
-  deliveryDeferredReason?: 'never-live' | 'teardown' | null
+   * became ready inside the deadline, it was torn down still holding the turn,
+   * or a server-family driver's send for it failed outright (POD-2297). */
+  deliveryDeferredReason?: QueueDrainAbandonedReason | null
   /** When status reached `dead_letter` — the target was gone, or the drain that
    * owned the turn gave up on it (see `deliveryDeferredReason`). */
   deadLetteredAt?: string | null

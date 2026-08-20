@@ -27,6 +27,7 @@ import {
 import type {
   LiveServerMessage,
   LocalPortableStateControl,
+  QueueDrainAbandonedReason,
   VisibilityResolver,
 } from '@podium/protocol'
 import {
@@ -932,7 +933,7 @@ export class SessionRegistry {
       abandoned?: (input: {
         sessionId: SessionId
         turnIds: readonly string[]
-        reason: 'never-live' | 'teardown'
+        reason: QueueDrainAbandonedReason
       }) => void
     } = {}
     const queuedMessageApply = new QueuedMessageApply({

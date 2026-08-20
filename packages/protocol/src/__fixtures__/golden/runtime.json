@@ -1346,6 +1346,24 @@
       "encoded": "{\"optionIndices\":[1],\"text\":\"text\"}"
     },
     {
+      "schema": "QueueDrainAbandonedReason",
+      "variant": "minimal",
+      "wire": "never-live",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"never-live\""
+    },
+    {
+      "schema": "QueueDrainAbandonedReason",
+      "variant": "full",
+      "wire": "never-live",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"never-live\""
+    },
+    {
       "schema": "RecoveryAnswer",
       "variant": "minimal",
       "wire": {

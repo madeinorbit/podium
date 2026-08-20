@@ -38,6 +38,8 @@ interface World {
   releaseConnect(): void
   attachedAddresses: string[]
   authReports: { authMethod: string | undefined; subscription: boolean }[]
+  /** Every `onQueueAbandoned` the driver raised, in order (POD-2297). */
+  abandonments: { turnIds: (string | undefined)[]; reason: string }[]
   events(): RuntimeEvent[]
   dispose(): void
 }
@@ -46,6 +48,7 @@ async function world(): Promise<World> {
   const servers = new Map<SessionId, FakeAppServer>()
   const entries = new Map<SessionId, CodexJournalEntry>()
   const authReports: World['authReports'] = []
+  const abandonments: World['abandonments'] = []
   const attachedAddresses: string[] = []
   let seq = 0
   let launches = 0
@@ -120,6 +123,9 @@ async function world(): Promise<World> {
     detachClient: async () => {
       detached += 1
     },
+    onQueueAbandoned: ({ turns, reason }) => {
+      abandonments.push({ turnIds: turns.map((turn) => turn.input.id), reason })
+    },
   }
   const runtime = createCodexRuntime(host)
   const handle = await runtime.driver.create({
@@ -152,6 +158,7 @@ async function world(): Promise<World> {
     releaseConnect: () => openGate?.(),
     attachedAddresses,
     authReports,
+    abandonments,
     events: () => [...collected],
     dispose: () => runtime.dispose(),
   }
@@ -573,5 +580,119 @@ describe('the handshake, whose violation is silence', () => {
     const pending = client.call('thread/read', { threadId: 'nope' })
     server.crash()
     await expect(pending).rejects.toThrow(/closed its transport/)
+  })
+})
+
+describe('a queue this driver loses says so — POD-2297', () => {
+  it('reports the turn a failed drain dropped, instead of swallowing it', async () => {
+    /**
+     * THE BUG, HELD STILL.
+     *
+     * Before this issue `drainQueue`'s handler was `catch { return }` and a
+     * commentary paragraph. The turn had already been `shift()`ed off the queue,
+     * its sender was holding a `queued` receipt that POD-2291 made the ledger's
+     * last word, and the driver's answer was to do nothing at all — no event, no
+     * log, no row. The turn simply stopped existing.
+     */
+    const w = await world()
+    const open = await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    expect(open.outcome).toBe('accepted')
+    // Parked behind the open turn, and told so: this is the receipt that has to
+    // stop being true out loud.
+    const parked = await w.handle.send(
+      { id: 'msg-parked', text: 'and then this' },
+      { origin: 'human', delivery: 'queue' },
+    )
+    expect(parked.outcome).toBe('queued')
+
+    // The turn ends, the drain runs, and the app-server refuses the send.
+    w.server.failNextTurn()
+    w.server.completeTurn()
+    await settle()
+
+    expect(w.abandonments).toEqual([{ turnIds: ['msg-parked'], reason: 'delivery-failed' }])
+    // NOT a turn event: this turn never opened, and the contract is explicit
+    // that a consumer told a turn failed believes one ran.
+    expect(w.events().some((e) => e.t === 'turn' && e.ev.ev === 'failed')).toBe(false)
+    w.dispose()
+  })
+
+  it('leaves the rest of the queue alone — a failed send is not a dead session', async () => {
+    // Only the turn that was actually attempted is declared lost. The others are
+    // still in the queue and may still drain; dead-lettering them here would
+    // strand turns this driver can deliver.
+    const w = await world()
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await w.handle.send({ id: 'a', text: 'a' }, { origin: 'human', delivery: 'queue' })
+    await w.handle.send({ id: 'b', text: 'b' }, { origin: 'human', delivery: 'queue' })
+
+    w.server.failNextTurn()
+    w.server.completeTurn()
+    await settle()
+
+    expect(w.abandonments).toEqual([{ turnIds: ['a'], reason: 'delivery-failed' }])
+    // `b` is still owed, so `stop()` is what finally reports it.
+    await w.handle.stop()
+    expect(w.abandonments).toEqual([
+      { turnIds: ['a'], reason: 'delivery-failed' },
+      { turnIds: ['b'], reason: 'teardown' },
+    ])
+    w.dispose()
+  })
+
+  it('reports the whole queue when the session is stopped out from under it', async () => {
+    const w = await world()
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await w.handle.send({ id: 'x', text: 'x' }, { origin: 'human', delivery: 'queue' })
+    await w.handle.send({ id: 'y', text: 'y' }, { origin: 'human', delivery: 'queue' })
+
+    await w.handle.stop()
+
+    // ONE report, in queue order: the consumer dedupes by turn id and corrects
+    // both receipts from a single durable frame.
+    expect(w.abandonments).toEqual([{ turnIds: ['x', 'y'], reason: 'teardown' }])
+    w.dispose()
+  })
+
+  it('reports the queue when the child dies under the session', async () => {
+    const w = await world()
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await w.handle.send({ id: 'orphan', text: 'orphan' }, { origin: 'human', delivery: 'queue' })
+
+    w.server.crash()
+    await settle()
+
+    expect(w.abandonments).toEqual([{ turnIds: ['orphan'], reason: 'teardown' }])
+    w.dispose()
+  })
+
+  it('says nothing when there is nothing to say', async () => {
+    // An empty queue at teardown is not an abandonment, and a report naming no
+    // turns would put a frame on the daemon's durable outbox for every session
+    // that ever ends.
+    const w = await world()
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    w.server.completeTurn()
+    await settle()
+    await w.handle.stop()
+    expect(w.abandonments).toEqual([])
+    w.dispose()
+  })
+
+  it('reports a turn once — the queue does not keep its own copy', async () => {
+    /**
+     * THE REPORT IS THE POINT OF NO RETURN (`TerminalInjectionPorts.onDrainAbandoned`).
+     * A queue that retained its turns after reporting them could deliver, on a
+     * later drain, words the ledger has already recorded as never delivered —
+     * the silent loss again, with a dead-letter row on top of it.
+     */
+    const w = await world()
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    await w.handle.send({ id: 'once', text: 'once' }, { origin: 'human', delivery: 'queue' })
+
+    await w.handle.stop()
+    w.dispose()
+
+    expect(w.abandonments).toEqual([{ turnIds: ['once'], reason: 'teardown' }])
   })
 })

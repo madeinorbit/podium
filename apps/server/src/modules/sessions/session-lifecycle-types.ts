@@ -16,7 +16,11 @@ import type {
   MachineId,
 } from '@podium/model'
 import type { AgentKind, UserId } from '@podium/model'
-import type { MetadataChange, SubscriptionRegistry } from '@podium/protocol'
+import type {
+  MetadataChange,
+  QueueDrainAbandonedReason,
+  SubscriptionRegistry,
+} from '@podium/protocol'
 import type { EntityChangeSpec, MutationLedgerPort } from '@podium/sync'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -90,7 +94,7 @@ export interface SessionLifecycleDeps {
   queueDrainAbandoned?(input: {
     sessionId: SessionId
     turnIds: readonly string[]
-    reason: 'never-live' | 'teardown'
+    reason: QueueDrainAbandonedReason
   }): void
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE

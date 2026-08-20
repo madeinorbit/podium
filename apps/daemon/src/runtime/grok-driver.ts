@@ -13,6 +13,7 @@ import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { grokAcpProcessKey } from './grok-acp-server.js'
+import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:grok-driver')
 
@@ -35,7 +36,12 @@ export function createDaemonGrokRuntime(deps: {
   send(msg: DaemonMessage): void
   host: GrokAcpRuntimeHost
 }): DaemonGrokRuntime {
-  const runtime = createGrokAcpRuntime(deps.host)
+  const runtime = createGrokAcpRuntime({
+    ...deps.host,
+    // A queue this driver loses becomes a durable server-side receipt
+    // correction, so the port is wired HERE, next to `send` (POD-2297).
+    onQueueAbandoned: reportQueueAbandonment('grok', deps.send),
+  })
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
     if (event.t === 'item' && event.item.kind === 'delta') {
