@@ -4,7 +4,7 @@
 
 Please **do not open a public issue** for security problems.
 
-Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/madeinorbit/podium/security/advisories/new) ("Report a vulnerability"). If you cannot use GitHub, email <mike.wirth@gmail.com> with `[podium security]` in the subject.
+Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/madeinorbit/podium/security/advisories/new) ("Report a vulnerability"). If you cannot use GitHub, email <michael@lumenfall.ai> with `[podium security]` in the subject.
 
 You can expect an acknowledgement within 7 days. Please include reproduction steps and the affected version/commit if you can.
 

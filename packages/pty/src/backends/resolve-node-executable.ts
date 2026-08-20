@@ -54,6 +54,6 @@ export function resolveNodeExecutable(): string {
   throw new Error(
     'Real Node.js ≥ 22 not found on PATH (only Bun shims). ' +
       'Install Node or set PODIUM_NODE_BIN to its absolute path. ' +
-      'Do not symlink node → bun (see README § Testing).',
+      'Do not symlink node → bun (see CONTRIBUTING.md § Testing).',
   )
 }
