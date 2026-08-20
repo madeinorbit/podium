@@ -389,3 +389,18 @@ source files in its stat is not a docs commit.
 `podium lock acquire test:heavy && <heavy command>` runs the command UNLEASED while the
 acquire merely queues — the exit code does not mean "acquired". Always pass `--wait`,
 or check the output text for "acquired" before proceeding.
+
+### RULE: one session, one checkout — worktree isolation (operator order, 2026-08-20)
+Every incident cluster this week traces to sessions sharing a checkout. Binding rules:
+1. The ISSUE worktree belongs to the IMPLEMENTER alone. Reviewers and any second
+   session on an issue create their OWN detached checkout of the SHA under review
+   (`git -C /home/mgw/src/podium worktree add --detach ~/review-<issue> <sha>`,
+   removed when done) — never run mutations, gates, or even `git add` in a worktree
+   another session owns.
+2. The INTEGRATION worktree (issue-1761-agent-runtime) is a landing target only:
+   ff-only merges under integration:1761 and nothing else. No development, no staging,
+   no scratch files.
+3. Any commit in a checkout that could be shared uses an explicit pathspec
+   (`git commit -m … -- <files>`) and is verified with `git show --stat HEAD`.
+4. Mutation testing follows the contamination lesson above: private checkout, verify
+   content between runs.
