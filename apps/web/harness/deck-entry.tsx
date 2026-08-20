@@ -30,7 +30,7 @@ declare global {
       setWidth: (px: number) => void
       /** Swap the fixture; `bump` re-renders against the new one. */
       setMission: (name: keyof typeof MISSIONS) => void
-      setMode: (mode: 'full' | 'active' | 'needs-you') => void
+      setMode: (mode: 'full' | 'working' | 'needs-you') => void
       setIssueColor: (hex: string | null) => void
       point: (sessionId: string | null) => void
     }
@@ -382,6 +382,163 @@ const MISSIONS = {
         name: 'Menu wording',
         title: 'Menu wording',
         status: 'hibernated',
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
+  /**
+   * THE FILED CASE FOR POD-1452 — the operator's screenshot, verbatim.
+   *
+   * One mission in `review`, its only agent finished and wearing the ✓, and one
+   * proposed spinoff hanging off it. `Working` — `Active`, as it was then
+   * called — showed all of it, because it matched the TASK (open) and then
+   * handed the row its whole crew without asking anything about the agent.
+   * Nothing here is being worked: the view should be the header, its own
+   * sentence, and nothing else.
+   */
+  agentFilters: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1429',
+        title: 'Bug: Mobile Import Syntax',
+        description:
+          'Two mobile component suites fail during module import before collecting tests.',
+        stage: 'review',
+        memberSessionIds: ['s1'],
+      }),
+      issue('p1', {
+        parentId: 'root',
+        displayRef: 'POD-1437',
+        stage: 'proposed',
+        title: 'Bug: MobileSyncBoundary render leak',
+      }),
+    ]
+    state.sessions = [
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'POD-1429-A',
+        name: 'Typeof syntax error at import',
+        title: 'Typeof syntax error at import',
+        agentState: {
+          phase: 'idle',
+          since: '2026-01-01T00:00:00.000Z',
+          idle: { kind: 'done' },
+          workingMsTotal: 1_018_000,
+        },
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
+  /**
+   * THE SAME RULE WITH SOMETHING TO COMPARE (POD-1452) — one mission carrying
+   * every agent state the bar sorts on, so the three views can be read side by
+   * side rather than as one empty column.
+   *
+   * `Full spine` shows five agents. `Working` keeps the one mid-turn and drops
+   * every other — the finished ✓, the parked one, the one standing by, and the
+   * one stopped on an offer. That last belongs to `Needs you`, which is what
+   * makes the two tabs disjoint: `Needs you` keeps the asker, plus `t4`'s row,
+   * which is in review with nobody left on it and is an obligation the operator
+   * still owns.
+   */
+  agentFiltersMix: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1429',
+        title: 'Bug: Mobile Import Syntax',
+        stage: 'in_progress',
+        memberSessionIds: ['s1'],
+      }),
+      issue('t1', {
+        parentId: 'root',
+        displayRef: 'POD-1430',
+        title: 'Native globals in the RN lane',
+        memberSessionIds: ['s2'],
+      }),
+      issue('t2', {
+        parentId: 'root',
+        displayRef: 'POD-1431',
+        title: 'Suite import order',
+        memberSessionIds: ['s3'],
+      }),
+      issue('t3', {
+        parentId: 'root',
+        displayRef: 'POD-1432',
+        title: 'Mock factory keys',
+        stage: 'done',
+        closedReason: 'done',
+        memberSessionIds: ['s4'],
+      }),
+      issue('t4', {
+        parentId: 'root',
+        displayRef: 'POD-1433',
+        title: 'Sync boundary teardown',
+        stage: 'review',
+        memberSessionIds: ['s5'],
+      }),
+      issue('t5', {
+        parentId: 'root',
+        displayRef: 'POD-1434',
+        title: 'Transform cache warmup',
+        stage: 'backlog',
+      }),
+    ]
+    state.sessions = [
+      // Finished its turn, still here, still wearing the ✓ — the filed case.
+      session('s1', {
+        issueId: 'root',
+        displayRef: 'POD-1429-A',
+        name: 'Typeof syntax error at import',
+        title: 'Typeof syntax error at import',
+        agentState: {
+          phase: 'idle',
+          since: '2026-01-01T00:00:00.000Z',
+          idle: { kind: 'done' },
+          workingMsTotal: 1_018_000,
+        },
+      }),
+      session('s2', {
+        issueId: 't1',
+        displayRef: 'POD-1430-A',
+        name: 'Globals sweep',
+        title: 'Globals sweep',
+        // The working timer counts from the WALL clock, not from the stub's
+        // frozen `now`, so a fixed `since` renders a five-digit hour count.
+        agentState: { phase: 'working', since: new Date(Date.now() - 214_000).toISOString() },
+      }),
+      session('s3', {
+        issueId: 't2',
+        displayRef: 'POD-1431-A',
+        name: 'Import order probe',
+        title: 'Import order probe',
+        // Wall-clock, like the working `since` above: an ask with no agentState
+        // dates its timer off `lastActiveAt`, and a fixed one prints "232d ago".
+        lastActiveAt: new Date(Date.now() - 640_000).toISOString(),
+        offer: { message: 'Ready to merge', actions: [], createdAt: '2026-01-01T00:20:00.000Z' },
+      }),
+      // Parked on a finished task: not asking, not working, not going.
+      session('s4', {
+        issueId: 't3',
+        displayRef: 'POD-1432-A',
+        name: 'Mock key audit',
+        title: 'Mock key audit',
+        status: 'hibernated',
+      }),
+      // Standing by: alive, attached, and doing nothing at all.
+      session('s5', {
+        issueId: 't4',
+        displayRef: 'POD-1433-A',
+        name: 'Teardown review',
+        title: 'Teardown review',
+        agentState: {
+          phase: 'idle',
+          since: '2026-01-01T00:10:00.000Z',
+          idle: { kind: 'done' },
+        },
       }),
     ]
     state.selectedIssueId = 'root'

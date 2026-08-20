@@ -15,7 +15,19 @@ import { motionPhase } from './session-status'
 import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './slices/issues'
 import { isCoordinatorSession } from './slices/terminal'
 
-export type FlightDeckMode = 'full' | 'active' | 'needs-you'
+/**
+ * THE VIEW BAR'S THREE VIEWS, AND THEY ARE DISJOINT (POD-1452).
+ *
+ * `working` was `active` — a word that named no state anything else on this
+ * column shows, and so meant whatever the reader assumed. `Working` is the word
+ * the mission chip directly above the bar already uses (`1 working`), the row's
+ * own spinner already answers, and {@link motionPhase} already defines: the tab
+ * and the count beside it now agree by construction.
+ *
+ * The old value is still read from persisted UI state, so nobody's chosen view
+ * resets — see each app's `readMode`.
+ */
+export type FlightDeckMode = 'full' | 'working' | 'needs-you'
 
 /**
  * What a folded branch is hiding, so the fold can still say it.
@@ -67,6 +79,19 @@ export interface FlightDeckRow {
    */
   workingAgentCount: number
   /**
+   * Sessions in the subtree stopped and asking the operator for something.
+   *
+   * The counterpart to {@link workingAgentCount}, and the reason it exists is
+   * the `Working` view's empty column (POD-1452): splitting the askers out of
+   * that view is what makes the two narrowed tabs distinct, but it means a
+   * mission whose every agent is blocked on the operator draws a blank there.
+   * This is what lets the empty line say so instead of implying nothing is here.
+   *
+   * Counted over the UNFILTERED subtree, like the two counts above it, so the
+   * chosen view can never change the number.
+   */
+  waitingAgentCount: number
+  /**
    * Did this row match the view's filter ITSELF, or is it only here as the path
    * to something that did (POD-1245)?
    *
@@ -109,6 +134,7 @@ function sameFlightDeckRow(a: FlightDeckRow, b: FlightDeckRow): boolean {
     a.actionableCount === b.actionableCount &&
     a.liveAgentCount === b.liveAgentCount &&
     a.workingAgentCount === b.workingAgentCount &&
+    a.waitingAgentCount === b.waitingAgentCount &&
     a.matched === b.matched &&
     sameCollapsedSummary(a.collapsedSummary, b.collapsedSummary)
   )
@@ -195,6 +221,40 @@ export function sessionSettled(session: SessionMeta): boolean {
  */
 function sessionWorking(session: SessionMeta): boolean {
   return openSession(session) && motionPhase(session) === 'working'
+}
+
+/**
+ * IS THIS AGENT AT WORK RIGHT NOW — the question the `Working` view asks, once
+ * per agent (POD-1452).
+ *
+ * The bar used to ask nothing about agents at all: `Active` kept every task that
+ * was not closed, and then {@link deckSessions} handed the row its whole crew.
+ * So a task in `review` listed the agent that had finished it, ✓ and all, under
+ * a tab promising live work — which is the one thing a filtered view may not do.
+ *
+ * THE TWO NARROWED VIEWS ARE DISJOINT, NOT NESTED. An agent stopped on a
+ * question is not working, so it does not appear here — it appears under
+ * `Needs you`, and only there. The alternative was a nesting where every row in
+ * the strictest view was already in the middle one, which made `Needs you` read
+ * as having done nothing and gave the operator no way to separate "the machine
+ * is busy" from "the machine is stuck on me". Those are the two questions this
+ * bar exists to answer, and each tab now answers exactly one of them.
+ *
+ * `starting` and `reconnecting` are at work without a phase to prove it: an
+ * agent mid-spawn has no transcript yet and reads as `queued`, and dropping it
+ * would blank the view for exactly as long as the operator is watching for the
+ * agent they just started. Everything else `queued` — parked, hibernated, an
+ * idle uninstrumented shell — is not in play, which is the reading POD-1245
+ * already settled on for this same view.
+ *
+ * Deliberately NOT {@link sessionWorking} itself: that predicate feeds
+ * `workingAgentCount` and the row's own spinner, and a spawning agent has
+ * nothing to spin yet. Same core question, one extra beat at the start.
+ */
+export function sessionAtWork(session: SessionMeta): boolean {
+  if (!openSession(session)) return false
+  if (session.status === 'starting' || session.status === 'reconnecting') return true
+  return sessionWorking(session)
 }
 
 /** The census behind a fold: deduplicated, ordered working → present → settled,
@@ -1085,10 +1145,24 @@ export function buildFlightDeckRows(
       deckSessionOrder(issue, sessionsForIssue(issue, sessionList, worktreePaths)),
     ]),
   )
+  /**
+   * THE NARROWED VIEWS MATCH ON AGENTS, NOT ON STAGES (POD-1452).
+   *
+   * `Working` asked `!issueClosed(issue)` under its old name and so kept every
+   * open task whether or not anybody was on it — a backlog row, an untriaged
+   * proposal and a task in `review` all read as live work. It asks
+   * {@link sessionAtWork} now, once per agent, which is the same question the
+   * row's own spinner answers.
+   *
+   * `Needs you` keeps its task-level clause deliberately. A task in `review`
+   * whose agent went home is a real obligation with no agent left to carry it,
+   * and {@link issueNeedsHuman} is the only thing that can see it; `Working` has
+   * no such orphan case, because work with nobody on it is not being done.
+   */
   const selfMatches = (issue: IssueNavigationModel): boolean => {
     const ownSessions = sessionsByIssue.get(issue.id) ?? []
     if (mode === 'needs-you') return issueNeedsHuman(issue, ownSessions)
-    if (mode === 'active') return !issueClosed(issue) || ownSessions.some(sessionWorking)
+    if (mode === 'working') return ownSessions.some(sessionAtWork)
     return true
   }
   // Walk up the RENDERED tree, not raw parentId edges: a grafted agent-started
@@ -1128,6 +1202,15 @@ export function buildFlightDeckRows(
       const candidate = byId.get(issueId)
       return candidate ? issueNeedsHuman(candidate, sessionsByIssue.get(issueId) ?? []) : false
     }).length
+    // Per-issue rather than over the flattened `subtreeSessions`, because
+    // `sessionAsksOnIssue` has to see the task: a standing offer on a task
+    // somebody already closed is not an ask (POD-1072).
+    const waitingAgentCount = [id, ...descendantIds].reduce((total, issueId) => {
+      const candidate = byId.get(issueId)
+      if (!candidate) return total
+      const own = sessionsByIssue.get(issueId) ?? []
+      return total + own.filter((session) => sessionAsksOnIssue(candidate, session)).length
+    }, 0)
     const hidden = descendantIds
       .map((issueId) => byId.get(issueId))
       .filter((candidate): candidate is IssueNavigationModel => Boolean(candidate))
@@ -1139,6 +1222,7 @@ export function buildFlightDeckRows(
       actionableCount,
       liveAgentCount: subtreeSessions.filter(openSession).length,
       workingAgentCount: subtreeSessions.filter(sessionWorking).length,
+      waitingAgentCount,
       matched: selfMatches(issue),
       collapsedSummary: {
         tasks: hidden.length,
@@ -1339,18 +1423,25 @@ export function deckIssueState(
 }
 
 /**
- * Which sessions a row shows in the given view.
+ * Which agents a row shows in the given view.
  *
- * `Needs you` is a filter over SESSIONS shown with their task path, so a matched
- * task lists only the agents that actually stopped. When the TASK itself is the
- * exception (review, an explicit `needsHuman`) and no session is asking, every
- * session stays: that row IS the thing needing a decision, and hiding its crew
- * would leave it claiming to be unattended when it is not.
+ * BOTH NARROWED VIEWS FILTER AGENTS, BY THE SAME RULE AS THE ROWS (POD-1452).
+ * `Working` and `Needs you` are two disjoint questions about one agent — is it
+ * busy, is it stuck on me — so an agent row survives a view only by answering
+ * that view's own question. The bar used to ask nothing here and returned the
+ * whole crew, which is how a finished agent kept its ✓ on a tab promising live
+ * work.
  *
- * A CONTEXT ROW SHOWS NO AGENTS AT ALL (POD-1245). The rule above used to run on
- * every row, and a row kept purely as the PATH to a match has nothing asking on
- * it — so it fell through to "every session stays" and arrived carrying its full
- * crew. On a three-deep mission `Needs you` was one stopped agent underneath a
+ * `Needs you` no longer falls back to the whole crew on a task that is itself
+ * the exception (review, an explicit `needsHuman`). That fallback was the same
+ * bug in the other view: the row already says `In review` in its own state
+ * word, and listing the agent that finished and left underneath it dressed a
+ * settled session up as the thing asking. The obligation is the ROW's, and the
+ * row is what stays.
+ *
+ * A CONTEXT ROW SHOWS NO AGENTS AT ALL (POD-1245). A row kept purely as the PATH
+ * to a match has nothing matching on it, and used to arrive carrying its full
+ * crew — on a three-deep mission `Needs you` was one stopped agent underneath a
  * parade of busy ones, which reads as the filter having done nothing. The path
  * still draws — {@link FlightDeckRow.matched} is what separates the two — but it
  * draws as scaffolding.
@@ -1359,10 +1450,11 @@ export function deckSessions(
   row: Pick<FlightDeckRow, 'issue' | 'sessions' | 'matched'>,
   mode: FlightDeckMode,
 ): SessionMeta[] {
-  if (mode !== 'needs-you') return row.sessions
+  if (mode === 'full') return row.sessions
   if (!row.matched) return []
-  const asking = row.sessions.filter((session) => sessionAsksOnIssue(row.issue, session))
-  return asking.length > 0 ? asking : row.sessions
+  return row.sessions.filter((session) =>
+    mode === 'working' ? sessionAtWork(session) : sessionAsksOnIssue(row.issue, session),
+  )
 }
 
 /**
@@ -1377,10 +1469,25 @@ export function deckSessions(
  * `full` returns null: there the blank really is about the mission, and the
  * caller's own presence note is the honest line.
  */
-export function deckViewEmptyLine(mode: FlightDeckMode): string | null {
-  if (mode === 'needs-you') return 'Nothing in this mission is asking for you.'
-  if (mode === 'active') return 'Nothing in this mission is still under way.'
-  return null
+export function deckViewEmptyLine(mode: FlightDeckMode, waiting = 0): string | null {
+  if (mode === 'needs-you') return 'No agent in this mission is asking for you.'
+  if (mode !== 'working') return null
+  // Says AGENT, because that is what the view now filters on (POD-1452): a
+  // mission full of open backlog tasks nobody has started is empty here, and
+  // "nothing is under way" was the honest word for tasks but the wrong one for
+  // a view that only ever shows agents.
+  //
+  // AND IT NAMES THE AGENTS THE OTHER TAB HAS (POD-1452). Splitting the asking
+  // agents out of this view is what makes the two tabs distinct, but it also
+  // creates the one shape that could mislead: a mission whose every agent is
+  // blocked on the operator draws an empty `Working` column, which reads as
+  // "nothing here" when the truth is "all of it is waiting on you". The empty
+  // line is the only thing on screen at that moment, so it is where the count
+  // belongs — and it points at the tab that has them.
+  if (waiting > 0) {
+    return `No agent is working — ${waiting} ${waiting === 1 ? 'is' : 'are'} waiting on you.`
+  }
+  return 'No agent in this mission is working right now.'
 }
 
 /*

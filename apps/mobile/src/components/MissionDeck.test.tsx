@@ -124,7 +124,7 @@ describe('MissionDeck view bar', () => {
    * Most missions here are a single issue with an agent on it and no sub-tasks,
    * so the spine is empty and the whole deck IS the header's roster. That roster
    * was read with `matched` forced true, which meant no view could ever remove
-   * it: `Full`, `Active` and `Needs you` drew the identical screen, and the bar
+   * it: `Full`, `Working` and `Needs you` drew the identical screen, and the bar
    * looked broken because on that mission it was.
    */
   describe('a mission with no sub-tasks and an idle agent', () => {
@@ -150,12 +150,18 @@ describe('MissionDeck view bar', () => {
       agentState: { phase: 'idle', since: '2026-08-04T20:15:44.230Z' },
     } as unknown as SessionMeta
 
-    const mountSolo = async () =>
+    /** The same agent, mid-turn — the one thing `Working` is about (POD-1452). */
+    const busy = {
+      ...idle,
+      agentState: { phase: 'working', since: '2026-08-04T20:15:44.230Z' },
+    } as unknown as SessionMeta
+
+    const mountSolo = async (session: SessionMeta = idle) =>
       renderWithMobileStore(
         <MissionDeck
           root={solo}
           issues={[solo]}
-          sessions={[idle]}
+          sessions={[session]}
           allWorktreePaths={[]}
           accent="#8b5cf6"
           currentSessionId={undefined}
@@ -166,7 +172,7 @@ describe('MissionDeck view bar', () => {
           onFileRoot={() => {}}
           onOpenDeparture={() => {}}
         />,
-        { issues: [solo], sessions: [idle] },
+        { issues: [solo], sessions: [session] },
       )
 
     it('shows the agent in Full', async () => {
@@ -178,14 +184,26 @@ describe('MissionDeck view bar', () => {
       await mountSolo()
       fireEvent.click(screen.getByText('Needs you'))
       expect(screen.queryByText('Agent menu entry semantics')).toBeNull()
-      expect(screen.getByText('Nothing in this mission is asking for you.')).toBeTruthy()
+      expect(screen.getByText('No agent in this mission is asking for you.')).toBeTruthy()
     })
 
-    /** `Active` is about work still in play, and this task is open with a live
-     *  agent on it — so it stays, and the view is right to keep it. */
-    it('keeps the agent in Active', async () => {
+    /**
+     * POD-1452. `Active` — as `Working` was called — kept this agent because the
+     * TASK was open, and it asked nothing about the agent itself, so a
+     * standing-by session and a finished one wearing its ✓ both read as live
+     * work. The view filters agents now: this one is idle, so it goes, and the
+     * line says which view removed it.
+     */
+    it('drops a standing-by agent in Working and says which view emptied the deck', async () => {
       await mountSolo()
-      fireEvent.click(screen.getByText('Active'))
+      fireEvent.click(screen.getByText('Working'))
+      expect(screen.queryByText('Agent menu entry semantics')).toBeNull()
+      expect(screen.getByText('No agent in this mission is working right now.')).toBeTruthy()
+    })
+
+    it('keeps the same agent in Working once it is mid-turn', async () => {
+      await mountSolo(busy)
+      fireEvent.click(screen.getByText('Working'))
       expect(screen.getByText('Agent menu entry semantics')).toBeTruthy()
     })
   })
