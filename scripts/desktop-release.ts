@@ -17,7 +17,7 @@ import { basename, join } from 'node:path'
 import { extractRelease } from './changelog'
 
 export type DesktopReleaseChannel = 'stable' | 'edge'
-export type DesktopReleaseTarget = 'linux-x86_64' | 'darwin-aarch64'
+export type DesktopReleaseTarget = 'linux-x86_64' | 'darwin-aarch64' | 'darwin-x86_64'
 
 export type DesktopReleaseArtifact = {
   target: DesktopReleaseTarget
@@ -36,7 +36,13 @@ type TargetBundle = {
   updaterSuffix: string
   publishedUpdaterName?: (version: string) => string
   requiredDownloadSuffixes: string[]
+  // Both macOS targets emit the same bundle suffixes (.app.tar.gz, .dmg), so suffix matching
+  // alone is ambiguous. Tauri stamps the arch into the path (x86_64-apple-darwin target dir,
+  // _x64 in DMG names); this predicate scopes a bundle to its own architecture's files.
+  matches?: (path: string) => boolean
 }
+
+const macIntelMarker = /x86_64|_x64/
 
 const targetBundles: TargetBundle[] = [
   { target: 'linux-x86_64', updaterSuffix: '.AppImage', requiredDownloadSuffixes: [] },
@@ -45,6 +51,14 @@ const targetBundles: TargetBundle[] = [
     updaterSuffix: '.app.tar.gz',
     publishedUpdaterName: (version) => `Podium_${version}_aarch64.app.tar.gz`,
     requiredDownloadSuffixes: ['.dmg'],
+    matches: (path) => !macIntelMarker.test(path),
+  },
+  {
+    target: 'darwin-x86_64',
+    updaterSuffix: '.app.tar.gz',
+    publishedUpdaterName: (version) => `Podium_${version}_x64.app.tar.gz`,
+    requiredDownloadSuffixes: ['.dmg'],
+    matches: (path) => macIntelMarker.test(path),
   },
 ]
 
@@ -208,8 +222,9 @@ export function prepareDesktopRelease(input: {
   const downloadSources: string[] = []
 
   for (const bundle of targetBundles) {
+    const bundleFiles = files.filter((path) => bundle.matches?.(path) ?? true)
     const updaterSource = exactlyOne(
-      files.filter((path) => !path.endsWith('.sig')),
+      bundleFiles.filter((path) => !path.endsWith('.sig')),
       bundle.updaterSuffix,
       `${bundle.target} updater artifact ending in ${bundle.updaterSuffix}`,
     )
@@ -230,7 +245,7 @@ export function prepareDesktopRelease(input: {
     })
     for (const suffix of bundle.requiredDownloadSuffixes) {
       downloadSources.push(
-        exactlyOne(files, suffix, `${bundle.target} download ending in ${suffix}`),
+        exactlyOne(bundleFiles, suffix, `${bundle.target} download ending in ${suffix}`),
       )
     }
   }

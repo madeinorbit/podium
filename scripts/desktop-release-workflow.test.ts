@@ -77,6 +77,23 @@ describe('desktop release workflow', () => {
     expect(prune).toBeGreaterThan(upload)
   })
 
+  it('builds both macOS architectures with the same signing pipeline', () => {
+    // Every darwin leg — not just Apple Silicon — must sign, notarize, and verify; a target
+    // check that names one architecture silently ships the other unsigned.
+    expect(desktopWorkflow).toContain('target: darwin-x86_64')
+    expect(desktopWorkflow).toContain('runner: macos-15-intel')
+    expect(desktopWorkflow).toContain('--target x86_64-apple-darwin')
+    expect(desktopWorkflow).not.toContain("matrix.target == 'darwin-aarch64'")
+    expect(desktopWorkflow).toContain("startsWith(matrix.target, 'darwin-')")
+    // notarize-dmg.sh and verify-macos-signing.sh default to the aarch64 bundle dir; each darwin
+    // leg must pass its own.
+    expect(desktopWorkflow).toContain('notarize-dmg.sh "${{ matrix.bundle_dir }}"')
+    expect(desktopWorkflow).toContain('verify-macos-signing.sh "${{ matrix.bundle_dir }}"')
+    expect(desktopWorkflow).toContain(
+      'bundle_dir: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle',
+    )
+  })
+
   it('builds Linux and Apple Silicon macOS with signing before an atomic upload', () => {
     expect(desktopWorkflow).toContain('release_notes:')
     expect(desktopWorkflow).toContain('TAURI_SIGNING_PRIVATE_KEY:')
