@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Desktop: macOS Intel builds. The desktop app now ships a signed, notarized x86_64 DMG alongside
+  the Apple Silicon one, and Intel macs get auto-updates via their own updater feed entry.
+
+### Fixed
+
+- Web: bundle CodeMirror's singletons exactly once, fixing editor breakage from duplicated state.
+
 ## [0.1.0] - 2026-08-20
 
 ### Added
