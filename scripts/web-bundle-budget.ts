@@ -130,6 +130,48 @@ const BROWSER_HOSTILE_SOURCES = [
 
 const BROWSER_HOSTILE_EXCEPTIONS = ['packages/harness/src/browser.ts'] as const
 
+/**
+ * PACKAGES THAT MUST BE BUNDLED EXACTLY ONCE (POD-2469).
+ *
+ * Like BROWSER_HOSTILE_SOURCES above, this is a correctness check wearing a size
+ * check's clothes. Every package here hands out objects that its own code then
+ * recognises with `instanceof` or by reference, so a second copy in the bundle
+ * does not cost bytes — it breaks the feature. `@codemirror/state` is the one
+ * that taught us: `EditorState.create` walks the extension set, meets a `Facet`
+ * minted by the other copy, fails the check and throws "Unrecognized extension
+ * value in extension set". The file panel died on mount in edit and
+ * side-by-side mode; view mode renders a preview, so it looked fine.
+ *
+ * `@lezer/highlight` is the quiet one. Its `tags` are the objects a grammar
+ * marks its tree with AND the objects `HighlightStyle` matches against, so a
+ * split there throws nothing at all — the code just stops being coloured.
+ *
+ * WHAT MAKES A COPY. One entry in the lockfile is not one module: what counts
+ * is the resolved path on disk, and a mixed node_modules yields two of them for
+ * the same version. `apps/web/node_modules/@codemirror/` carries symlinks into
+ * `node_modules/.bun/` for some of these and not others, so some imports landed
+ * on the `.bun` copy and the rest on the hoisted root one. That is why the fix
+ * is `resolve.dedupe` in apps/web/vite.config.ts rather than an install step,
+ * and why this check counts DISTINCT RESOLVED PATHS rather than chunks.
+ *
+ * If this fires, something reached one of these packages by a path `dedupe` does
+ * not cover — a new dependency of its own, or a specifier not on that list.
+ */
+const SINGLETON_PACKAGES = [
+  '@codemirror/state',
+  '@codemirror/view',
+  '@codemirror/language',
+  '@codemirror/autocomplete',
+  '@codemirror/commands',
+  '@codemirror/search',
+  '@codemirror/lint',
+  '@lezer/common',
+  '@lezer/highlight',
+  '@lezer/lr',
+  'react',
+  'react-dom',
+] as const
+
 const args = process.argv.slice(2)
 const checkBudget = args.includes('--check')
 const dist = resolve(args.find((arg) => !arg.startsWith('--')) ?? 'apps/web/dist')
@@ -208,6 +250,34 @@ const allChunks = readdirSync(join(dist, 'assets'))
   .filter((file) => file.endsWith('.js') && statSync(join(dist, 'assets', file)).isFile())
   .map((file) => sourceMapFor(`assets/${file}`))
 
+/**
+ * Every source in the bundle as an ABSOLUTE path. `sources` are recorded
+ * relative to the map that names them, and every chunk map here sits in
+ * `dist/assets`, so that is the base. The absolute form is what
+ * `packageInstallations` needs: two installations of one package differ only in
+ * the directory above them, and the relative spelling of the same directory
+ * differs with how deep the build ran.
+ */
+const allChunkSourcePaths = allChunks.flatMap((chunk) =>
+  chunk.sources.map((source) => resolve(join(dist, 'assets'), source)),
+)
+
+/** Distinct on-disk installations of `pkg` that reached the bundle. Keyed by the
+ *  directory the sources sit in rather than by version or lockfile entry: one
+ *  entry can still be two modules, and it is the module identity that decides
+ *  whether `instanceof` holds. See SINGLETON_PACKAGES. */
+function packageInstallations(sourcePaths: readonly string[], pkg: string): string[] {
+  const needle = `node_modules/${pkg}/`
+  return [
+    ...new Set(
+      sourcePaths.flatMap((path) => {
+        const at = path.lastIndexOf(needle)
+        return at < 0 ? [] : [path.slice(0, at + needle.length - 1)]
+      }),
+    ),
+  ].sort()
+}
+
 const report = {
   dist,
   eager: {
@@ -239,6 +309,10 @@ const report = {
     commandSources: matchingSources([settings], 'packages/commands/src/'),
   },
   allBrowserChunks: {
+    duplicatedSingletons: SINGLETON_PACKAGES.flatMap((pkg) => {
+      const installations = packageInstallations(allChunkSourcePaths, pkg)
+      return installations.length > 1 ? [{ package: pkg, installations }] : []
+    }),
     ownershipMatrixSources: matchingSources(allChunks, 'packages/model/src/annotations/matrix.ts'),
     browserHostileSources: BROWSER_HOSTILE_SOURCES.flatMap((fragment) =>
       matchingSources(allChunks, fragment).filter(
@@ -373,6 +447,25 @@ if (checkBudget) {
     errors.push('ownership matrix is present in a browser chunk')
   if (report.eager.commandSources.length > 0)
     errors.push(`command sources are eager: ${report.eager.commandSources.join(', ')}`)
+
+  // The other check phrased as a crash rather than as weight. See
+  // SINGLETON_PACKAGES for why a duplicate here is a broken feature and not a
+  // bigger download, and note that one of these fails silently: a split
+  // `@lezer/highlight` stops colouring code without throwing anything.
+  if (report.allBrowserChunks.duplicatedSingletons.length > 0) {
+    const { duplicatedSingletons: duplicated } = report.allBrowserChunks
+    errors.push(
+      `${duplicated.length} package(s) are in the bundle more than once: ` +
+        `${duplicated.map(({ package: pkg, installations }) => `${pkg} (${installations.length})`).join(', ')}. ` +
+        `Each hands out objects its own code recognises with instanceof, so a second copy breaks ` +
+        `the feature rather than costing bytes — POD-2469 was EditorState.create throwing ` +
+        `"Unrecognized extension value in extension set", which killed the file panel on mount in ` +
+        `edit and side-by-side mode, and a split @lezer/highlight does the same thing silently by ` +
+        `simply not colouring code. One lockfile entry is not one module: pin the specifier in ` +
+        `resolve.dedupe in apps/web/vite.config.ts. Installations: ` +
+        `${duplicated.flatMap(({ installations }) => installations).join(', ')}`,
+    )
+  }
 
   // Deliberately phrased as a crash, not as weight: this is the one check here
   // whose breach means a route does not render at all. See

@@ -284,10 +284,53 @@ export default defineConfig(({ mode }) => {
         ),
       },
       conditions: ['@podium/source'],
-      // apps/mobile pins react-dom 19.2.3, which bun hoists to the repo root;
-      // without dedupe, root-hoisted libs (base-ui, testing-library) resolve that
-      // copy while our sources get 19.2.7 and react-dom hard-errors on mismatch.
-      dedupe: ['react', 'react-dom'],
+      /**
+       * ONE COPY EACH, OR THE EDITOR DOES NOT OPEN.
+       *
+       * react/react-dom are here because apps/mobile pins react-dom 19.2.3, which
+       * bun hoists to the repo root; without dedupe, root-hoisted libs (base-ui,
+       * testing-library) resolve that copy while our sources get 19.2.7 and
+       * react-dom hard-errors on mismatch.
+       *
+       * The CodeMirror and Lezer rows are the same class of failure with a louder
+       * ending (POD-2469). `@codemirror/state` builds every extension out of
+       * `Facet` objects and recognises them with `instanceof`, so a second copy in
+       * the same bundle is not duplicated weight — it is a crash: `EditorState.create`
+       * rejects a facet minted by the other copy with "Unrecognized extension value
+       * in extension set", and the file panel throws the moment it mounts an editor.
+       * View mode renders a preview and survived; edit and side-by-side did not.
+       *
+       * Two copies is what a MIXED node_modules gives you, and one lockfile entry
+       * does not prevent it. This checkout's `apps/web/node_modules/@codemirror/`
+       * holds symlinks into `node_modules/.bun/` for `state` and `view` but not for
+       * `language`, and none at all for `@lezer/*`, so `SourceEditor.tsx` took
+       * `EditorState` from the `.bun` copy while `editor-theme.ts` reached
+       * `syntaxHighlighting` through the hoisted root one. Same version, same
+       * lockfile line, two physical modules — and it is the layout that decides,
+       * which is why the fix belongs here rather than in an install step.
+       *
+       * `@lezer/highlight` earns its row without any crash to point at: the `tags`
+       * a grammar marks its tree with must be the same objects `HighlightStyle`
+       * matches against, so a split there does not throw, it just silently stops
+       * colouring code.
+       *
+       * scripts/web-bundle-budget.ts fails the build if any of these is bundled
+       * more than once again.
+       */
+      dedupe: [
+        'react',
+        'react-dom',
+        '@codemirror/state',
+        '@codemirror/view',
+        '@codemirror/language',
+        '@codemirror/autocomplete',
+        '@codemirror/commands',
+        '@codemirror/search',
+        '@codemirror/lint',
+        '@lezer/common',
+        '@lezer/highlight',
+        '@lezer/lr',
+      ],
     },
     // Source maps ship with EVERY build, as `hidden` (POD-1658): the `.map` files land
     // in dist, but no `//# sourceMappingURL=` comment is emitted, so no browser ever
