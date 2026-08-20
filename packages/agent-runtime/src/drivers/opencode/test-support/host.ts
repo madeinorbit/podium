@@ -47,6 +47,17 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
   return {
     serverFor: (sessionId) => bySession.get(sessionId),
 
+    async stageAttachment({ source }) {
+      const id = 'test-attachment-' + ++seq
+      return {
+        id,
+        path: '/tmp/' + id + '-' + source.filename,
+        filename: source.filename,
+        mediaType: source.mediaType,
+        kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+      }
+    },
+
     async launch(input) {
       const server = await startFakeOpencodeServer({
         username: input.username,
@@ -110,8 +121,11 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
     ...(options.wrapClient
       ? {
           makeClient: (config) => {
-            const { createOpencodeClient } = require('../client.js') as typeof import('../client.js')
-            return options.wrapClient?.(createOpencodeClient(config)) ?? createOpencodeClient(config)
+            const { createOpencodeClient } =
+              require('../client.js') as typeof import('../client.js')
+            return (
+              options.wrapClient?.(createOpencodeClient(config)) ?? createOpencodeClient(config)
+            )
           },
         }
       : {}),

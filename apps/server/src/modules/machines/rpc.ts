@@ -711,7 +711,7 @@ export class DaemonRpcService {
         text: input.text,
         origin: input.origin,
         delivery: input.delivery,
-        attachments: input.attachments,
+        attachments: input.attachments ? [...input.attachments] : undefined,
       }),
       machineId,
     )

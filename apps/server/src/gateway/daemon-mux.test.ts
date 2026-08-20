@@ -254,7 +254,7 @@ describe('machine scope and the writer class', () => {
     const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
       (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
     )
-    expect(rpcFrames.length).toBe(34)
+    expect(rpcFrames.length).toBe(35)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
