@@ -5,17 +5,45 @@ use tauri::{Url, WebviewUrl};
 
 const SERVER_TRANSFER_JOURNAL: &str = ".server-transfer/journal.json";
 
-/// Bind an ephemeral loopback port and return it (best-effort; falls back to 18787).
+/// Default local server port — must match `@podium/runtime` `defaultInstancePorts().server`.
+pub const DEFAULT_LOCAL_PORT: u16 = 18787;
+
+/// Bind an ephemeral loopback port and return it (best-effort; falls back to [`DEFAULT_LOCAL_PORT`]).
+///
+/// Prefer [`resolve_local_port`] for the all-in-one / local-server webview origin: SW cache,
+/// cookies, and IndexedDB are origin-keyed, so the port must be stable across restarts.
+/// Kept for callers that intentionally want an ephemeral listen (tests, one-off probes).
 ///
 /// NOTE: The port is not reserved between this call and when the backend binds it (TOCTOU).
-/// This is acceptable for a localhost picker — the window between pick and bind is tiny and
-/// the port is only used locally.
 pub fn pick_free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .ok()
         .and_then(|l| l.local_addr().ok())
         .map(|a| a.port())
-        .unwrap_or(18787)
+        .unwrap_or(DEFAULT_LOCAL_PORT)
+}
+
+/// Stable local server port for the desktop webview origin.
+///
+/// Precedence matches `@podium/runtime` `resolvePort`: `PODIUM_PORT` → `config.port` →
+/// [`DEFAULT_LOCAL_PORT`]. Documented in the updater-convergence spec §2.1.
+pub fn resolve_local_port(config: &DesktopConfig) -> u16 {
+    if let Ok(raw) = std::env::var("PODIUM_PORT") {
+        if let Ok(port) = raw.parse::<u16>() {
+            if port > 0 {
+                return port;
+            }
+        }
+    }
+    match config.port {
+        Some(port) if port > 0 => port,
+        _ => DEFAULT_LOCAL_PORT,
+    }
+}
+
+/// Loopback http origin the all-in-one / local-server webview loads when the sidecar is up.
+pub fn local_served_http_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}")
 }
 
 /// Desktop release channel persisted in the shared Podium config or stamped into the build.
@@ -58,6 +86,8 @@ pub fn build_update_channel() -> UpdateChannel {
 pub struct DesktopConfig {
     pub mode: Option<String>,
     pub server_url: Option<String>,
+    /// Stable local listen port (`resolvePort` / webview origin). See [`resolve_local_port`].
+    pub port: Option<u16>,
     /// A valid user choice from config.json. Absence and unknown values deliberately remain
     /// distinguishable so the updater can fall back to the channel stamped into this build.
     pub update_channel: Option<UpdateChannel>,
@@ -66,10 +96,11 @@ pub struct DesktopConfig {
 /// What the shell should do at launch, derived purely from the config.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LaunchAction {
-    /// Default: pick a free port, spawn the local `podium` (server+daemon), point the window local.
+    /// Default: bind the stable local port, spawn the local `podium` (server+daemon), load the
+    /// UI from that server (baked dist only if the sidecar is unreachable).
     LocalAllInOne,
-    /// `mode=server` (hub-only box): pick a free port, spawn `podium server` — the SERVER role
-    /// only, no local daemon/agents — and point the window at the local server port (#176).
+    /// `mode=server` (hub-only box): bind the stable local port, spawn `podium server` — the
+    /// SERVER role only, no local daemon/agents — and load the UI from that port (#176).
     /// The explicit `server` subcommand (rather than a bare `podium` reading config.mode) also
     /// bypasses the CLI's persistence-managed path, so a systemd/detached-configured hub still
     /// gets a real in-process server child the desktop shell can supervise.
@@ -139,8 +170,9 @@ fn is_local_host(action: &LaunchAction) -> bool {
 }
 
 /// Read `$PODIUM_STATE_DIR/config.json` else `~/.podium/config.json`, extracting `mode`,
-/// `serverUrl`, and `updateChannel`. A missing or corrupt file yields an empty config; the updater
-/// resolves the missing channel against the build stamp rather than inventing a persisted choice.
+/// `serverUrl`, `port`, and `updateChannel`. A missing or corrupt file yields an empty config; the
+/// updater resolves the missing channel against the build stamp rather than inventing a persisted
+/// choice.
 pub fn read_config() -> DesktopConfig {
     let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -164,6 +196,9 @@ pub fn read_config() -> DesktopConfig {
             .get("serverUrl")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        port: json.get("port").and_then(|v| v.as_u64()).and_then(|n| {
+            u16::try_from(n).ok().filter(|p| *p > 0)
+        }),
         // [spec:SP-7f2c] Missing or unrecognized values are not user choices, so the channel
         // stamped into the installed build remains authoritative.
         update_channel: UpdateChannel::from_config(
@@ -448,8 +483,12 @@ pub fn resolve_launch(mode: Option<&str>, server_url: Option<&str>) -> LaunchAct
     }
 }
 
-/// The script injected before page load so the bundled web UI talks to the local backend
-/// (Phase 2 serverConfig reads window.__PODIUM_SERVER__ first).
+/// The script injected before page load so the **baked** (tauri-scheme) fallback UI talks to
+/// the local backend (Phase 2 serverConfig reads window.__PODIUM_SERVER__ first).
+///
+/// Served-local loads (`http://127.0.0.1:<port>`) are same-origin with the sidecar and use
+/// [`local_served_injection_script`] instead — they must not pin `__PODIUM_SERVER__` to a
+/// loopback URL that would override same-origin discovery after a transfer navigation.
 pub fn injection_script(port: u16) -> String {
     // The script stays installed when the existing WebView moves to the transferred remote
     // origin. Apply the loopback endpoint only on Tauri's bundled origin so it cannot override
@@ -458,6 +497,31 @@ pub fn injection_script(port: u16) -> String {
         "if (window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') {{ {}\nwindow.__PODIUM_LOCAL_SETUP__ = true; }}",
         server_injection_script(&format!("ws://127.0.0.1:{port}"))
     )
+}
+
+/// Injection for a webview that LOADS the local server's http origin (all-in-one / server mode
+/// when the sidecar is reachable). Same-origin discovery covers the relay; local-setup still
+/// needs the explicit flag so SetupGate treats this shell as the host box.
+pub fn local_served_injection_script() -> &'static str {
+    "window.__PODIUM_LOCAL_SETUP__ = true;"
+}
+
+/// Decide what a local-host window loads after the sidecar readiness probe.
+///
+/// Reachable → External `http://127.0.0.1:<port>` (UI always matches the server).
+/// Unreachable → baked `frontendDist` with reconnect injection (offline / boot-race fallback).
+pub fn local_window_target(port: u16, server_reachable: bool) -> (WebviewUrl, String) {
+    if server_reachable {
+        match Url::parse(&local_served_http_url(port)) {
+            Ok(url) => (
+                WebviewUrl::External(url),
+                local_served_injection_script().to_string(),
+            ),
+            Err(_) => (WebviewUrl::default(), injection_script(port)),
+        }
+    } else {
+        (WebviewUrl::default(), injection_script(port))
+    }
 }
 
 /// Like `injection_script` but for an arbitrary (remote) server URL — used in client/daemon modes.
@@ -733,12 +797,65 @@ mod tests {
     }
 
     #[test]
+    fn resolve_local_port_matches_runtime_precedence() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let prev = std::env::var_os("PODIUM_PORT");
+        std::env::remove_var("PODIUM_PORT");
+        assert_eq!(resolve_local_port(&DesktopConfig::default()), DEFAULT_LOCAL_PORT);
+        assert_eq!(
+            resolve_local_port(&DesktopConfig {
+                port: Some(19191),
+                ..DesktopConfig::default()
+            }),
+            19191
+        );
+        std::env::set_var("PODIUM_PORT", "20202");
+        assert_eq!(
+            resolve_local_port(&DesktopConfig {
+                port: Some(19191),
+                ..DesktopConfig::default()
+            }),
+            20202
+        );
+        std::env::set_var("PODIUM_PORT", "nope");
+        assert_eq!(
+            resolve_local_port(&DesktopConfig {
+                port: Some(19191),
+                ..DesktopConfig::default()
+            }),
+            19191
+        );
+        match prev {
+            Some(value) => std::env::set_var("PODIUM_PORT", value),
+            None => std::env::remove_var("PODIUM_PORT"),
+        }
+    }
+
+    #[test]
     fn injection_script_embeds_the_port() {
         let s = injection_script(18799);
         assert!(s.contains("ws://127.0.0.1:18799"));
         assert!(s.contains("__PODIUM_SERVER__"));
         assert!(s.contains("window.location.protocol === 'tauri:'"));
         assert!(s.contains("__PODIUM_LOCAL_SETUP__ = true"));
+    }
+
+    #[test]
+    fn local_window_target_loads_loopback_when_reachable() {
+        let (url, injection) = local_window_target(18787, true);
+        assert!(
+            matches!(url, WebviewUrl::External(u) if u.as_str() == "http://127.0.0.1:18787/")
+        );
+        assert!(injection.contains("__PODIUM_LOCAL_SETUP__ = true"));
+        assert!(!injection.contains("__PODIUM_SERVER__"));
+    }
+
+    #[test]
+    fn local_window_target_falls_back_to_baked_when_unreachable() {
+        let (url, injection) = local_window_target(18787, false);
+        assert!(!matches!(url, WebviewUrl::External(_)));
+        assert!(injection.contains("__PODIUM_SERVER__"));
+        assert!(injection.contains("ws://127.0.0.1:18787"));
     }
 
     #[test]

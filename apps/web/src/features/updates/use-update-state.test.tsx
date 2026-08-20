@@ -176,6 +176,13 @@ describe('native desktop update surface', () => {
     stubDesktopShell({ launchMode })
     expect(surfaceFromDesktopBridge()).toBe(expected)
   })
+
+  it('keeps served-local as desktop-all-in-one via launchMode, not page origin', () => {
+    // Served-local all-in-one loads http://127.0.0.1 from the sidecar. The old
+    // origin heuristic would have called that desktop-remote; launchMode must win.
+    stubDesktopShell({ launchMode: 'all-in-one' })
+    expect(surfaceFromDesktopBridge()).toBe('desktop-all-in-one')
+  })
 })
 
 describe('desktopChannelOf', () => {

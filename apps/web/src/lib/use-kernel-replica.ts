@@ -57,10 +57,12 @@ export type KernelReplicaGate =
 
 export interface ResolveReplicaPrincipalOptions {
   /** The server's HTTP origin from `serverConfig`. The status fetch must target
-   *  it explicitly: the desktop all-in-one webview runs on tauri://localhost,
-   *  where a relative /auth/status is answered by the bundled SPA's index.html —
-   *  a 200 whose HTML body used to surface as WebKit's bare "The string did not
-   *  match the expected pattern." and kill the boot gate. */
+   *  it explicitly when the page is NOT same-origin with the server (baked
+   *  tauri-scheme fallback). Served-local all-in-one loads http://127.0.0.1 and
+   *  is same-origin; relative /auth/status is fine there. On tauri://, a relative
+   *  fetch is answered by the bundled SPA's index.html — a 200 whose HTML body
+   *  used to surface as WebKit's bare "The string did not match the expected
+   *  pattern." and kill the boot gate. */
   readonly httpOrigin?: string
   readonly fetchStatus?: () => Promise<Response>
   readonly inspectNamespaces?: () => readonly string[]

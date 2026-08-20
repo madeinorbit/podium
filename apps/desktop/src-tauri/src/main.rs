@@ -590,29 +590,33 @@ fn main() {
             let child_state: Arc<Mutex<Option<std::process::Child>>> = Arc::new(Mutex::new(None));
             app.manage(child_state.clone());
 
-            // The server URL the window will be pointed at. Local-all-in-one fills this with the
-            // local ws URL once a port is picked; remote modes use the configured serverUrl.
-            let window_injection: String;
+            // Injection for remote modes (set below). Local modes decide injection after the
+            // sidecar readiness probe — served-local vs baked fallback differ.
+            let mut window_injection = String::new();
             // Whether to block on a local /health before opening the window (only local server).
             let wait_local_port: Option<u16>;
-            // What the window LOADS. All-in-one loads the bundled UI (tauri://localhost) and talks
-            // to the local relay. Remote modes load the relay's own URL directly so the page is
-            // same-origin with it — WKWebView's WebSocket from a tauri://localhost page to a remote
-            // TLS relay fails (1006), but a same-origin load connects, exactly like a browser tab.
-            let mut webview_url: WebviewUrl;
+            // What the window LOADS. Local modes prefer the sidecar's http origin (UI matches
+            // the server); baked `frontendDist` is only the offline / boot-race fallback.
+            // Remote modes load the relay's own URL so the page is same-origin with it —
+            // WKWebView's WebSocket from a tauri:// page to a remote TLS relay fails (1006).
+            // Placeholder until the readiness probe (local) or remote_window_target (remote).
+            let mut webview_url = WebviewUrl::default();
+            // Origin that needs CapabilityBuilder::remote grants. Local served-local uses the
+            // stable loopback URL; remote modes use the configured serverUrl.
             let remote_window_server_url: Option<String>;
 
             // mode=server (#176): the sidecar gets the explicit `server` subcommand so it runs
             // the SERVER role only — no local daemon/agents — and bypasses the CLI's
             // persistence-managed dispatch (which would start systemd units and exit, leaving
-            // nothing on our picked port to supervise).
+            // nothing on our resolved port to supervise).
             let server_only = action == bootstrap::LaunchAction::LocalServerOnly;
             let initial_action = action.clone();
 
             match action {
                 bootstrap::LaunchAction::LocalAllInOne
                 | bootstrap::LaunchAction::LocalServerOnly => {
-                    // Shared local path: pick a port, spawn the sidecar, point the window local.
+                    // Shared local path: stable port (SW/cookie/IDB origin), spawn the sidecar,
+                    // load the UI from that server when reachable.
                     // `--takeover`: the desktop SUPERVISES its sidecar — an orphan left by a
                     // force-killed desktop must be reclaimed, so it opts into the CLI's
                     // otherwise-refused displacement of a live same-role instance (#18).
@@ -621,13 +625,15 @@ fn main() {
                     } else {
                         vec!["--takeover".to_string()]
                     };
-                    let port = bootstrap::pick_free_port();
+                    let port = bootstrap::resolve_local_port(&cfg);
 
                     // Resolve the bundled podium binary (plain resource, never patchelf'd).
                     let podium_res = app
                         .path()
                         .resolve("resources/podium", BaseDirectory::Resource)?;
-                    // Bundled web resource dir for the backend to serve external clients.
+                    // Bundled web resource dir the sidecar serves (external clients + this
+                    // webview once it loads the server origin). Baked `frontendDist` stays in
+                    // the .app as the offline fallback only.
                     let web_dir = app
                         .path()
                         .resolve("resources/web", BaseDirectory::Resource)?;
@@ -671,7 +677,7 @@ fn main() {
                     let sidecar_args2 = sidecar_args.clone();
                     let transition_action = initial_action.clone();
                     let monitor_app = app.handle().clone();
-                    let source_cookie_url = Url::parse(&format!("http://127.0.0.1:{port}"))
+                    let source_cookie_url = Url::parse(&bootstrap::local_served_http_url(port))
                         .expect("loopback desktop URL is valid");
                     spawn_respawn_monitor(
                         child_state.clone(),
@@ -695,10 +701,12 @@ fn main() {
                         format!("on port {port}"),
                     );
 
-                    window_injection = bootstrap::injection_script(port);
+                    // Grant IPC to the served-local origin even before the readiness probe:
+                    // when the sidecar is up we load it; grants for an unused origin are
+                    // harmless if we fall back to baked.
                     wait_local_port = Some(port);
-                    webview_url = WebviewUrl::default();
-                    remote_window_server_url = None;
+                    remote_window_server_url =
+                        Some(bootstrap::local_served_http_url(port));
                 }
 
                 bootstrap::LaunchAction::LocalDaemon { server_url } => {
@@ -749,24 +757,6 @@ fn main() {
                     remote_window_server_url = Some(server_url.clone());
                     (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
                     wait_local_port = None;
-                }
-            }
-
-            // Native runtime proof seam: debug builds may load the scratch host origin directly
-            // so a tiny test server can set an HttpOnly cookie before the committed transition.
-            // Production builds cannot enter this path, and the state/sidecar remain isolated by
-            // PODIUM_STATE_DIR and the staged scratch resource.
-            if cfg!(debug_assertions)
-                && std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref() == Ok("1")
-            {
-                if let Some(port) = wait_local_port {
-                    webview_url = WebviewUrl::External(
-                        Url::parse(&format!("http://127.0.0.1:{port}"))
-                            .expect("runtime probe loopback URL is valid"),
-                    );
-                    log::info!(
-                        "runtime probe loading scratch host origin on port {port}"
-                    );
                 }
             }
 
@@ -1007,24 +997,57 @@ fn main() {
                 &logging::take_pending_crashes(),
                 machine_id.as_deref(),
             );
-            // External-link shim (ALL modes): route window.open/_blank to the OS browser.
-            let init = format!(
-                "{window_injection}\n{restart_hook}\n{native_desktop_hook}\n{}\n{native_crash_report}",
-                bootstrap::opener_shim_script()
-            );
+            let opener_shim = bootstrap::opener_shim_script();
+            // Remote modes already resolved webview_url + window_injection. Local modes
+            // fill them after the readiness probe inside the spawn below.
+            let remote_init_injection = window_injection;
             std::thread::spawn(move || {
-                if let Some(port) = wait_local_port {
+                let (resolved_url, resolved_injection) = if let Some(port) = wait_local_port {
                     let ready = bootstrap::wait_for_port(port, 200, 150);
                     if ready {
                         // Log-only shell↔backend check: read the local backend's /version.
                         log_backend_version(port);
                     } else {
-                        log::warn!("backend did not become ready within timeout");
+                        log::warn!(
+                            "backend did not become ready within timeout; loading baked dist fallback"
+                        );
                     }
-                }
+                    // Native runtime proof seam: debug builds may force the scratch host
+                    // origin so a tiny test server can set an HttpOnly cookie before the
+                    // committed transition. Production cannot enter this path.
+                    if cfg!(debug_assertions)
+                        && std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref() == Ok("1")
+                    {
+                        log::info!(
+                            "runtime probe loading scratch host origin on port {port}"
+                        );
+                        (
+                            WebviewUrl::External(
+                                Url::parse(&bootstrap::local_served_http_url(port))
+                                    .expect("runtime probe loopback URL is valid"),
+                            ),
+                            bootstrap::local_served_injection_script().to_string(),
+                        )
+                    } else {
+                        let (url, injection) = bootstrap::local_window_target(port, ready);
+                        if ready {
+                            log::info!(
+                                "loading UI from local server {}",
+                                bootstrap::local_served_http_url(port)
+                            );
+                        }
+                        (url, injection)
+                    }
+                } else {
+                    (webview_url, remote_init_injection)
+                };
+                // External-link shim (ALL modes): route window.open/_blank to the OS browser.
+                let init = format!(
+                    "{resolved_injection}\n{restart_hook}\n{native_desktop_hook}\n{opener_shim}\n{native_crash_report}"
+                );
                 let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
-                    let window_builder = WebviewWindowBuilder::new(&handle2, "main", webview_url)
+                    let window_builder = WebviewWindowBuilder::new(&handle2, "main", resolved_url)
                         .title("Podium ADE")
                         .inner_size(1200.0, 800.0)
                         .initialization_script(&init);
