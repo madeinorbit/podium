@@ -82,7 +82,7 @@
 import { totalmem } from 'node:os'
 import { createLogger } from '@podium/logger'
 
-const log = createLogger('pty:scope')
+const log = createLogger('runtime:scope')
 
 /** What a scope holds: an agent's whole process tree, or one attached TUI. */
 export type ScopeRole = 'session' | 'attach'
@@ -146,6 +146,12 @@ const SESSIONS_SLICE_SHARE = 0.75
  * dies at its own cap is worse than one that is slow. The steps also overlap
  * only in pairs (the two website steps are sequential), so the aggregate below
  * clears their combined peak with room to spare.
+ *
+ * THE OPERATING FLOOR IS ABOUT 2.6 GiB OF HOST RAM. Below that the share binds
+ * under vite's 1.26 GiB peak and every website build fails at its cap. That is
+ * the trade taken deliberately — a build too big for the box fails fast instead
+ * of swapping the box down — but it is a floor, and an operator sizing a small
+ * host should know where it is rather than discover it.
  */
 const BUILD_MEMORY_CEILING = 4 * 1024 ** 3
 
@@ -162,6 +168,17 @@ const BUILD_MEMORY_CEILING = 4 * 1024 ** 3
  * the sessions number throttles, this one kills — so the failure mode of the
  * overlap is a build dying at its own cap while sessions slow down, which is
  * the order of preference this whole module is arguing for.
+ *
+ * WHAT THE OVERCOMMIT COSTS, measured. A separate slice keeps a build off the
+ * sessions slice's own accounting, but not off the machine's: on a squeezed
+ * box, a 700 MiB build in the builds slice still lifted the sessions slice's
+ * `full avg10` from a 1.16 baseline to 7.9 — 79% of the way to the reclaim's
+ * firing line — through global reclaim alone. The shipped ceiling is 5.7x that
+ * probe. The same workload placed INSIDE the sessions slice reached 50.65, so
+ * the placement is worth 6.4x and the difference between firing and not; at
+ * production fidelity a real repo typecheck moved that signal not at all. But
+ * "separate slice" means separately ACCOUNTED, not isolated, and a small host
+ * is where that distinction shows up.
  */
 const BUILDS_SLICE_SHARE = 0.5
 
@@ -419,15 +436,34 @@ export function resolveBuildsSliceBudget(
   totalMemoryBytes: number = totalmem(),
 ): ScopeBudget {
   if (env.PODIUM_NO_SESSION_BUDGET) return {}
-  const configured = parseByteSize(env.PODIUM_BUILDS_MEMORY_MAX)
-  if (configured === null) return {}
-  const memoryMaxBytes = configured ?? Math.floor(totalMemoryBytes * BUILDS_SLICE_SHARE)
+
+  /**
+   * THE SWAP AXIS IS SHARED WITH THE PER-BUILD KNOB, ON PURPOSE. A slice pinned
+   * at `MemorySwapMax=0` would defeat a per-build allowance an operator granted
+   * — the scope's own limit cannot be reached through a swap ceiling its parent
+   * denies — so `PODIUM_BUILD_MEMORY_SWAP_MAX` sets both. The consequence is
+   * worth stating: the allowance is per build in the scope and TOTAL in the
+   * slice, so N concurrent builds share the one an operator wrote.
+   *
+   * It also survives `PODIUM_BUILDS_MEMORY_MAX=infinity`. Lifting the aggregate
+   * memory cap is not a request to hand every build unlimited swap, and the
+   * earlier shape dropped the swap bound with it.
+   */
   const configuredSwap = parseByteSize(env.PODIUM_BUILD_MEMORY_SWAP_MAX, { allowZero: true })
   const memorySwapMaxBytes =
     configuredSwap === null ? undefined : (configuredSwap ?? BUILD_SWAP_MAX)
+  const swap = memorySwapMaxBytes !== undefined ? { memorySwapMaxBytes } : {}
+
+  const configuredTasks = parseTaskCount(env.PODIUM_BUILD_TASKS_MAX)
+  const tasksMax = configuredTasks === null ? undefined : (configuredTasks ?? BUILD_TASKS_MAX)
+  const tasks = tasksMax !== undefined ? { tasksMax } : {}
+
+  const configured = parseByteSize(env.PODIUM_BUILDS_MEMORY_MAX)
+  if (configured === null) return { ...swap, ...tasks }
   return {
-    memoryMaxBytes,
-    ...(memorySwapMaxBytes !== undefined ? { memorySwapMaxBytes } : {}),
+    memoryMaxBytes: configured ?? Math.floor(totalMemoryBytes * BUILDS_SLICE_SHARE),
+    ...swap,
+    ...tasks,
   }
 }
 
@@ -439,14 +475,25 @@ export function resolveBuildsSliceBudget(
  * members yet, materializes for the first scope launched into it, and survives
  * that scope exiting — so the aggregate cap is in force from the first build,
  * not the second.
+ *
+ * EVERY AXIS IS ALWAYS STATED, `infinity` included, because this call has to
+ * RESET as well as set. The slice outlives the build that created it, so a
+ * budget that only emits the axes it bounds leaves an earlier build's cap
+ * standing on the ones it does not — and an operator who just lifted a limit
+ * would watch the old one keep killing. `infinity` is how systemd spells "no
+ * bound", so `PODIUM_NO_SESSION_BUDGET` clears the slice rather than skipping
+ * it.
  */
 export function buildsSliceBudgetArgv(slice: string, budget: ScopeBudget): string[] {
-  const props: string[] = []
-  if (budget.memoryMaxBytes !== undefined) props.push(`MemoryMax=${budget.memoryMaxBytes}`)
-  if (budget.memorySwapMaxBytes !== undefined) {
-    props.push(`MemorySwapMax=${budget.memorySwapMaxBytes}`)
-  }
-  return props.length === 0 ? [] : ['--user', 'set-property', '--runtime', slice, ...props]
+  return [
+    '--user',
+    'set-property',
+    '--runtime',
+    slice,
+    `MemoryMax=${budget.memoryMaxBytes ?? 'infinity'}`,
+    `MemorySwapMax=${budget.memorySwapMaxBytes ?? 'infinity'}`,
+    `TasksMax=${budget.tasksMax ?? 'infinity'}`,
+  ]
 }
 
 /**

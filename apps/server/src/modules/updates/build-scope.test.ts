@@ -99,6 +99,32 @@ describe('development build scopes', () => {
     ).toContain('--slice=podium-blue-builds.slice')
   })
 
+  it('names the SLICE cap too, because the kill looks the same either way', () => {
+    // The blocker POD-2472's review found: when the builds slice's aggregate cap
+    // is the binding one the kernel still attributes the kill to the scope, so
+    // naming only the per-scope Max reported a number the build never reached
+    // (measured: a victim died at a 378 MiB peak and was told to raise a 500 MiB
+    // scope limit) and prescribed a knob that could not help.
+    const scope = { memoryMaxBytes: 500 * 1024 ** 2, memorySwapMaxBytes: 0 }
+    const slice = { memoryMaxBytes: 600 * 1024 ** 2, memorySwapMaxBytes: 0 }
+    const both = describeBuildExit('bun', { status: null, signal: 'SIGKILL' }, scope, slice)
+    expect(both).toContain('this build at 500 MiB (PODIUM_BUILD_MEMORY_MAX)')
+    expect(both).toContain('all concurrent builds at 600 MiB (PODIUM_BUILDS_MEMORY_MAX)')
+    // And the peak is what separates them, so say where it is recorded.
+    expect(both).toContain('journal')
+
+    // PODIUM_BUILD_MEMORY_MAX=infinity leaves the scope unbounded while the
+    // slice cap still kills — the arm that used to degenerate to a bare signal.
+    const sliceOnly = describeBuildExit('bun', { status: null, signal: 'SIGKILL' }, {}, slice)
+    expect(sliceOnly).toContain('all concurrent builds at 600 MiB (PODIUM_BUILDS_MEMORY_MAX)')
+    expect(sliceOnly).not.toContain('PODIUM_BUILD_MEMORY_MAX')
+
+    // Nothing bounded (no systemd, or the budget escape hatch): no cap to name.
+    expect(describeBuildExit('bun', { status: null, signal: 'SIGKILL' }, {}, {})).toBe(
+      'bun was killed by SIGKILL',
+    )
+  })
+
   it('names the cap when the kernel kills a build', () => {
     // The kill arrives as a SIGNAL, not a code: `--scope` execs the build in
     // place, so node sees `code: null, signal: 'SIGKILL'` and the old message
@@ -108,7 +134,7 @@ describe('development build scopes', () => {
     const killed = describeBuildExit('bun', { status: null, signal: 'SIGKILL' }, budget)
     expect(killed).toContain('killed by SIGKILL')
     expect(killed).toContain('4.0 GiB')
-    expect(killed).toContain('swap disabled')
+    expect(killed).toContain('swap is disabled')
     expect(killed).toContain('PODIUM_BUILD_MEMORY_MAX')
     // A wrapper (the unscoped fallback path) reports the same death as 137.
     expect(describeBuildExit('bun', { status: 137 }, budget)).toContain('4.0 GiB')

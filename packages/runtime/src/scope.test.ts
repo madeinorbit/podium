@@ -211,9 +211,35 @@ describe('build budgets', () => {
       'podium-builds.slice',
       `MemoryMax=${Math.floor(HOST * 0.5)}`,
       'MemorySwapMax=0',
+      'TasksMax=2048',
     ])
-    expect(buildsSliceBudgetArgv('podium-builds.slice', {})).toEqual([])
     expect(resolveBuildsSliceBudget({ PODIUM_NO_SESSION_BUDGET: '1' }, HOST)).toEqual({})
+  })
+
+  it('states every slice axis, so lifting a limit actually lifts it', () => {
+    // The slice outlives the build that created it, so an argv that omits the
+    // axes it does not bound leaves an earlier build's cap standing — an
+    // operator who just raised a limit would watch the old one keep killing.
+    expect(buildsSliceBudgetArgv('podium-builds.slice', {})).toEqual([
+      '--user',
+      'set-property',
+      '--runtime',
+      'podium-builds.slice',
+      'MemoryMax=infinity',
+      'MemorySwapMax=infinity',
+      'TasksMax=infinity',
+    ])
+    // Lifting the aggregate MEMORY cap is not a request for unlimited swap, and
+    // the task cap is a fork-bomb guard that has nothing to do with either.
+    const lifted = resolveBuildsSliceBudget({ PODIUM_BUILDS_MEMORY_MAX: 'infinity' }, HOST)
+    expect(lifted.memoryMaxBytes).toBeUndefined()
+    expect(lifted.memorySwapMaxBytes).toBe(0)
+    expect(lifted.tasksMax).toBe(2048)
+    // The swap axis is deliberately shared with the per-build knob: a slice
+    // pinned at zero would defeat an allowance an operator granted one build.
+    expect(
+      resolveBuildsSliceBudget({ PODIUM_BUILD_MEMORY_SWAP_MAX: '512M' }, HOST).memorySwapMaxBytes,
+    ).toBe(512 * 1024 ** 2)
   })
 })
 

@@ -53,8 +53,8 @@
  * | PODIUM_SESSION_TASKS_MAX      | — → 4096 (attach: 256)  | per-session scope TasksMax                             |
  * | PODIUM_SESSIONS_MEMORY_HIGH   | — → 75% RAM             | aggregate throttle on the instance's sessions slice     |
  * | PODIUM_BUILD_MEMORY_MAX       | — → 4 GiB (≤50% RAM)    | per-build scope MemoryMax (`infinity` lifts it)        |
- * | PODIUM_BUILD_MEMORY_SWAP_MAX  | — → 0 (no swap)         | per-build MemorySwapMax; a build never idles           |
- * | PODIUM_BUILD_TASKS_MAX        | — → 2048                | per-build scope TasksMax                               |
+ * | PODIUM_BUILD_MEMORY_SWAP_MAX  | — → 0 (no swap)         | MemorySwapMax per build AND for the builds slice total  |
+ * | PODIUM_BUILD_TASKS_MAX        | — → 2048                | TasksMax per build and for the builds slice            |
  * | PODIUM_BUILDS_MEMORY_MAX      | — → 50% RAM             | aggregate CAP on the instance's builds slice           |
  * | PODIUM_NO_SESSION_BUDGET      | — (env-only flag)       | keep the slice/scope tree, drop every limit            |
  * | PODIUM_CGROUP_ROOT            | — → /sys/fs/cgroup      | cgroup2 mount for session observation (tests point it) |

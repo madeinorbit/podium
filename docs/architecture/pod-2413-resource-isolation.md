@@ -89,6 +89,35 @@ The two slice budgets overcommit the machine on purpose — 75% for sessions plu
 reservations, and sizing them to sum to 100% would throttle agents on an idle
 box because a build might start.
 
+**Separately accounted is not isolated, and the residual is measured.** POD-2472's
+review drove the same churn workload three ways against a live decoy session,
+sampling the sessions slice's `full avg10` (the reclaim fires at 10):
+
+| arm | sessions `full avg10` peak |
+|---|---|
+| decoy session only, no build | 1.16 |
+| 700 MiB build in `podium-builds.slice` (shipped) | 7.9 |
+| the same build in `podium-sessions.slice` | 50.65 |
+
+So the placement is worth 6.4x and is the difference between firing and not —
+and at production fidelity, a real repo typecheck (1174 MiB peak, 74 s) through
+the shipped path with a session live moved that signal *not at all*, peak 0. But
+on a squeezed box the sibling build still reached 79% of the firing line through
+global reclaim, with a probe 5.7x smaller than the shipped ceiling. That is what
+the overcommit costs, and it is the number to reason from when sizing a small
+host.
+
+**The operating floor is about 2.6 GiB of host RAM.** Below that the 50% share
+binds under vite's 1.26 GiB peak, and every website build fails at its cap —
+fast and legibly, rather than by swapping the box down, which is the trade taken
+deliberately.
+
+(Historical note: the commit that introduced the builds slice, `9851bfc4a`,
+justifies the placement with a "from 11 firings to 40" figure. That number
+compares two *metrics* on one run and does not measure build contamination; the
+table above is the evidence that does. The prose was corrected in `b053cf142`,
+but a commit message cannot be rewritten once it is in a shared branch.)
+
 ## What the live probes settled
 
 Measured on this host (systemd 259, cgroup v2 with `memory`+`pids` delegated to the

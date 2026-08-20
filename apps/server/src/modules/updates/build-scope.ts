@@ -89,6 +89,7 @@ import {
   resolveBuildBudget,
   resolveBuildsSliceBudget,
   type ScopeBudget,
+  type ScopeBudgetEnv,
   scopeBudgetProperties,
 } from '@podium/runtime/scope'
 
@@ -277,33 +278,58 @@ export function lowTierSpawnPlan(
  * still accepted here: a build the fallback path runs through a wrapper reports
  * it that way.)
  *
- * Deliberately NOT confirmed against the cgroup's `memory.events`: `--collect`
- * removes the scope the moment its last process exits, so by the time this runs
- * there is nothing left to read, and a check that answers "no OOM here" because
- * the cgroup is already gone would be worse than an honest hedge. systemd's own
- * journal line for the unit ("A process of this unit has been killed by the OOM
- * killer") is the corroboration, and it is already where operators look — which
- * is why this says "killed" and lets the journal say "by the OOM killer".
+ * BOTH CAPS, BECAUSE ONLY THE KERNEL KNOWS WHICH ONE BOUND. Two limits can end
+ * a build: its own scope's `MemoryMax` and the builds slice's aggregate. When
+ * the SLICE cap is the binding one the kernel still attributes the kill to the
+ * scope unit, so an earlier version of this message named the per-scope cap and
+ * prescribed `PODIUM_BUILD_MEMORY_MAX` — a number the build never reached and a
+ * knob that could not help. Reproduced by POD-2472's reviewer with two
+ * concurrent builds under a tight slice cap: the victim died at a 378 MiB peak
+ * and was told to raise a 500 MiB scope limit. An 8 GiB host hides it, because
+ * there the two caps are the same number.
+ *
+ * So the message states every bound that is set and points at the peak, which
+ * is the fact that separates them. Naming both is deliberate over guessing one:
+ * `--collect` removes the scope the moment its last process exits, so its
+ * `memory.peak` is gone before this line runs, and a guess that reads "no OOM
+ * here" because the cgroup already vanished is worse than an honest pair.
+ * systemd's own journal line for the unit records both the OOM kill and the
+ * peak, and it is already where operators look.
  */
 export function describeBuildExit(
   command: string,
   exit: { status: number | null; signal?: NodeJS.Signals | null },
   budget: ScopeBudget,
+  sliceBudget: ScopeBudget = {},
 ): string {
   const base = exit.signal
     ? `${command} was killed by ${exit.signal}`
     : `${command} exited with status ${exit.status ?? 'unknown'}`
   const killed = exit.signal === 'SIGKILL' || exit.status === 137
-  if (!killed || budget.memoryMaxBytes === undefined) return base
-  // MiB below a GiB: an operator who set 256M should read their own number
-  // back, not "0.3 GiB".
-  const cap =
-    budget.memoryMaxBytes < 1024 ** 3
-      ? `${Math.round(budget.memoryMaxBytes / 1024 ** 2)} MiB`
-      : `${(budget.memoryMaxBytes / 1024 ** 3).toFixed(1)} GiB`
-  return `${base} — the build scope is capped at ${cap}${
-    budget.memorySwapMaxBytes === 0 ? ' with swap disabled' : ''
-  }; raise PODIUM_BUILD_MEMORY_MAX if this build legitimately needs more`
+  if (!killed) return base
+
+  const bounds: string[] = []
+  if (budget.memoryMaxBytes !== undefined) {
+    bounds.push(`this build at ${formatCap(budget.memoryMaxBytes)} (PODIUM_BUILD_MEMORY_MAX)`)
+  }
+  if (sliceBudget.memoryMaxBytes !== undefined) {
+    bounds.push(
+      `all concurrent builds at ${formatCap(sliceBudget.memoryMaxBytes)} (PODIUM_BUILDS_MEMORY_MAX)`,
+    )
+  }
+  if (bounds.length === 0) return base
+  const swapOff = budget.memorySwapMaxBytes === 0 || sliceBudget.memorySwapMaxBytes === 0
+  return (
+    `${base} — memory is capped: ${bounds.join(', ')}${swapOff ? ', and swap is disabled' : ''}. ` +
+    "The unit's journal line records the peak, which says which bound it hit."
+  )
+}
+
+/** MiB below a GiB: an operator who set `256M` reads their own number back. */
+function formatCap(bytes: number): string {
+  return bytes < 1024 ** 3
+    ? `${Math.round(bytes / 1024 ** 2)} MiB`
+    : `${(bytes / 1024 ** 3).toFixed(1)} GiB`
 }
 
 function runQuietly(file: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
@@ -328,8 +354,9 @@ export async function runLowTierBuild(build: LowTierBuild): Promise<void> {
   const scoped = canScopeDevBuild()
   const env = scoped ? scopeEnv(build.env) : build.env
   const budget = scoped ? resolveBuildBudget(build.env) : {}
+  const sliceBudget = scoped ? resolveBuildsSliceBudget(build.env) : {}
   if (scoped) {
-    await applyBuildsSliceBudget(build.slice ?? instanceBuildSliceName(), env)
+    await applyBuildsSliceBudget(build.slice ?? instanceBuildSliceName(), build.env, env)
     for (const args of devBuildScopeReclaimArgvs(build.unit)) {
       await runQuietly('systemctl', args, env)
     }
@@ -344,7 +371,9 @@ export async function runLowTierBuild(build: LowTierBuild): Promise<void> {
     child.once('error', reject)
     child.once('close', (status, signal) => {
       if (status === 0) resolve()
-      else reject(new Error(describeBuildExit(build.command, { status, signal }, budget)))
+      else {
+        reject(new Error(describeBuildExit(build.command, { status, signal }, budget, sliceBudget)))
+      }
     })
   })
 }
@@ -360,9 +389,36 @@ export async function runLowTierBuild(build: LowTierBuild): Promise<void> {
  * into it. A failure is not fatal: every build scope still carries its own
  * `MemoryMax`, so losing the aggregate loses the bound on CONCURRENT builds,
  * not the bound.
+ *
+ * BUT IT IS SAID OUT LOUD. `runQuietly` (right for the reclaim calls beside it,
+ * where "no such unit" is the normal answer) resolves on a non-zero exit too,
+ * which left a refused `set-property` with no trace anywhere — the operator
+ * would learn that concurrent builds were unbounded only from the outage. The
+ * degraded state is worth one warn line.
  */
-async function applyBuildsSliceBudget(slice: string, env: NodeJS.ProcessEnv): Promise<void> {
-  const argv = buildsSliceBudgetArgv(slice, resolveBuildsSliceBudget(env))
-  if (argv.length === 0) return
-  await runQuietly('systemctl', argv, env)
+async function applyBuildsSliceBudget(
+  slice: string,
+  buildEnv: ScopeBudgetEnv,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  const argv = buildsSliceBudgetArgv(slice, resolveBuildsSliceBudget(buildEnv))
+  const status = await runReporting('systemctl', argv, env)
+  if (status === 0) return
+  log.warn('could not bound the builds slice; concurrent builds are capped only per build', {
+    slice,
+    status,
+  })
+}
+
+/** Like {@link runQuietly}, but the caller is told how it went. */
+function runReporting(
+  file: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): Promise<number | null> {
+  return new Promise((resolve) => {
+    const child = spawn(file, args, { stdio: 'ignore', env })
+    child.once('error', () => resolve(null))
+    child.once('close', (status) => resolve(status))
+  })
 }
