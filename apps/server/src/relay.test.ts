@@ -3400,6 +3400,152 @@ describe('hibernation', () => {
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
+  /**
+   * POD-2456: the same unknown-driver-id inversion as POD-2327, at the guard
+   * whose recorded consequence is a SPAWN LOOP, so the safe direction flips.
+   *
+   * The guard used to ask `driverIdIsServerFamily`, and an id no manifest here
+   * declares answers false — which both let the revive through AND skipped the
+   * durable `resume.kind` fallback, so it was less safe WITH a driver id than
+   * without one. A newer daemon binding a renamed or brand-new server driver
+   * therefore walked the row into `adoptFromJournal`, and codex's `adopt()`
+   * starts a fresh app-server: a second credentialed child per `killed:false`.
+   *
+   * The driver ids below are SYNTHETIC AND DELIBERATELY UNKNOWN. Nothing is
+   * meant to add them to the manifests later — the point is that this server
+   * cannot enumerate what a future daemon will bind.
+   */
+  const parkedCodexRow = (
+    reg: SessionRegistry,
+    bindFields: { driverId?: string; runtimeContract?: true },
+    resumeValue: string,
+  ) => {
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'codex',
+      agentKind: 'codex',
+      ...bindFields,
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: resumeValue },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    return sessionId
+  }
+
+  const unconfirmedKill = (reg: SessionRegistry, sessionId: SessionId, label: string) =>
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel: label,
+      killed: false,
+      reason: 'the server-driver process is still running',
+    })
+
+  it('holds the park for a driver id no manifest declares — no reattach, no adopt [POD-2456]', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    // A newer daemon's server driver. This build has never heard of it.
+    const sessionId = parkedCodexRow(
+      reg,
+      { driverId: 'codex-app-server-v2', runtimeContract: true },
+      '019fff94-7326-7032-b90b-3cc7e1805190',
+    )
+
+    daemon.length = 0
+    unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon.map((m) => m.type)).not.toContain('reattach')
+
+    // …and once per receipt, unbounded, is the shape that made this a spawn
+    // loop rather than a single stray child. Repeat it.
+    unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
+    unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  it('holds the park for an EMBEDDED driver id too — it has no PTY either [POD-2456]', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      runtimeContract: true,
+      driverId: 'claude-sdk', // declared, but as claude-code's EMBEDDED driver
+    })
+    // claude-code declares NO server driver, so the durable fallback would let
+    // this row through. The hold has to come from the driver id alone.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'abc-456' },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+
+    daemon.length = 0
+    unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  it('…and the durable resume kind still holds that row after a redeploy drops the unknown id [POD-2456]', () => {
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = parkedCodexRow(
+      reg,
+      { driverId: 'codex-app-server-v2', runtimeContract: true },
+      '019fff94-7326-7032-b90b-3cc7e1805191',
+    )
+
+    // The redeploy: a new server over the same store. `driverId` never
+    // persisted, so the unknown id is gone and only the resume kind is left —
+    // the two facts have to compose, not mask each other.
+    const reg2 = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon2: ControlMessage[] = []
+    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
+
+    daemon2.length = 0
+    unconfirmedKill(reg2, sessionId, `podium-cx-${sessionId}`)
+
+    expect(reg2.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon2.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  // The guard must not have become "always hold": a manifest-declared TERMINAL
+  // driver PROVES a PTY behind the row, so its reattach is the passive bind and
+  // receipt-driven repair stays on — even for a harness that also declares a
+  // server driver, whose per-harness resume kind alone cannot tell the two
+  // apart. This is the one case where believing `driverId` is a proof.
+  it('still revives a row bound to a manifest-declared TERMINAL driver [POD-2456]', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = parkedCodexRow(
+      reg,
+      { driverId: 'generic-pty' },
+      '019fff94-7326-7032-b90b-3cc7e1805192',
+    )
+
+    daemon.length = 0
+    unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('reconnecting')
+    expect(daemon.map((m) => m.type)).toContain('reattach')
+  })
+
   it('leaves a parked row alone when the daemon confirms the kill', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
