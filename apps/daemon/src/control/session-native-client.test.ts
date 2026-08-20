@@ -35,7 +35,10 @@ function world() {
     nativeClientRequests: new Set([SESSION]),
     nativeClientTransitions: new Map(),
     pendingResizes: new Map(),
-    agentRuntime: { handleFor: (id: string) => (id === SESSION ? handle : undefined) },
+    agentRuntime: {
+      handleFor: (id: string) => (id === SESSION ? handle : undefined),
+      has: (id: string) => id === SESSION,
+    },
     bridges: new Map(),
     observers: { recordInputOrigin: vi.fn() },
     composerEngine: { onInputByte: vi.fn(), onResize: vi.fn() },
@@ -66,6 +69,7 @@ describe('server-family native client control', () => {
       nativeView: false,
     })
     await vi.waitFor(() => expect(release).toHaveBeenCalledWith(`podium-native:${SESSION}`))
+    expect(clientTerminals.close).toHaveBeenCalledWith(SESSION, undefined)
     expect(clientTerminals.viewers).toHaveBeenLastCalledWith(SESSION, false)
   })
 

@@ -88,6 +88,14 @@ export function reconcileNativeClientTerminal(ctx: DaemonContext, sessionId: Ses
           ctx.pendingResizes.delete(sessionId)
         }
       } else {
+        // The stock TUI owns a direct WebSocket to the Codex Unix listener.
+        // Releasing the lease must revoke that writer before another client can
+        // take control; leaving it warm would let queued keystrokes bypass the
+        // daemon's lease gate. The next Native view starts a fresh client.
+        await ctx.clientTerminals?.close(
+          sessionId,
+          handle.binding.driver === 'codex-app-server' ? 'codex' : undefined,
+        )
         await handle.lease.release(nativeClientHolder(sessionId))
       }
       applied = wanted
