@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preserve server-only versus all-in-one roles across restart, and refuse schema-unsafe rollback.
 - Native installs are pinned to the operation version so a moving edge feed cannot install a
   different release, and source-host systemd deployments now manage and restart janitor explicitly.
+- Linux AppImages now leave distro platform libraries to the host instead of bundling incompatible
+  Wayland, GLib, media, and networking copies that crash WebKit on current Linux distributions.
 
 ## [0.1.0-edge.16] - 2026-08-19
 
