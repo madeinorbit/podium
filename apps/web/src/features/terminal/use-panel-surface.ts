@@ -116,6 +116,7 @@ export function usePanelSurface(input: {
     chatCapable,
     isMobile,
     terminalCapable,
+    serverFamily: session?.driverFamily === 'server',
     saved: savedMode,
     deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
   })

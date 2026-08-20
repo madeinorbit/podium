@@ -32,7 +32,7 @@ function world() {
   const ctx = {
     outputScheduler: { setPriority: vi.fn() },
     clientTerminals,
-    nativeClientRequests: new Set(),
+    nativeClientRequests: new Set([SESSION]),
     nativeClientTransitions: new Map(),
     pendingResizes: new Map(),
     agentRuntime: { handleFor: (id: string) => (id === SESSION ? handle : undefined) },
@@ -88,5 +88,17 @@ describe('server-family native client control', () => {
     expect(clientTerminals.resize).toHaveBeenCalledWith(SESSION, 91, 33)
     expect(clientTerminals.redraw).toHaveBeenCalledWith(SESSION)
     expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+  })
+
+  it('drops stale client-terminal input after Chat releases Native', () => {
+    const { ctx, clientTerminals } = world()
+    ctx.nativeClientRequests?.delete(SESSION)
+    sessionHandlers.input(ctx, {
+      type: 'input',
+      sessionId: SESSION,
+      data: 'c3RhbGU=',
+      inputOrigin: 'human',
+    })
+    expect(clientTerminals.input).not.toHaveBeenCalled()
   })
 })

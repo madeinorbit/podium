@@ -88,6 +88,15 @@ describe('workspace ui-state routing', () => {
         terminalCapable: true,
       }),
     ).toBe('chat')
+    expect(
+      effectivePanelMode({
+        startScreen: 'native',
+        chatCapable: true,
+        isMobile: false,
+        terminalCapable: true,
+        serverFamily: true,
+      }),
+    ).toBe('chat')
     // …and a session with no PTY behind the native view takes neither branch:
     // there is no second view for the saved entry to be a preference between
     // (POD-2290).

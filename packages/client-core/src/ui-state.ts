@@ -474,6 +474,8 @@ export function effectivePanelMode(input: {
    *  false for the embedded driver family. Required so a new caller has to
    *  answer it; `sessionHasTerminal` is the one place "unknown" becomes true. */
   terminalCapable: boolean
+  /** Server-family sessions default to Chat until Native is explicitly picked. */
+  serverFamily?: boolean
   /** Persisted per-session mode when known. */
   saved?: PanelMode | null
   /** Personal default (PANEL_MODE_DEFAULT_KEY). */
@@ -482,6 +484,7 @@ export function effectivePanelMode(input: {
   if (!input.terminalCapable) return 'chat'
   if (!input.chatCapable) return 'native'
   if (input.saved === 'native' || input.saved === 'chat') return input.saved
+  if (input.serverFamily) return 'chat'
   if (input.deviceDefault === 'native' || input.deviceDefault === 'chat') return input.deviceDefault
   if (input.startScreen === 'auto') return input.isMobile ? 'chat' : 'native'
   if (input.startScreen === 'chat') return 'chat'

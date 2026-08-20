@@ -1473,7 +1473,14 @@ export const sessionHandlers: Pick<
       ctx.observers.recordInputOrigin(msg.sessionId, msg.inputOrigin)
     }
     const bridge = ctx.bridges.get(msg.sessionId)
-    if (!bridge && ctx.clientTerminals?.input(msg.sessionId, msg.data)) {
+    // The client terminal is a leased takeover surface, not a second write
+    // path. Once Chat releases the native request, stale frames must not reach
+    // the warm abduco master.
+    if (
+      !bridge &&
+      ctx.nativeClientRequests?.has(msg.sessionId) &&
+      ctx.clientTerminals?.input(msg.sessionId, msg.data)
+    ) {
       ctx.composerEngine.onInputByte(msg.sessionId)
       return
     }
