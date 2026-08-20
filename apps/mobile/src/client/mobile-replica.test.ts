@@ -796,6 +796,30 @@ function onlineWithBootstrap(
 }
 
 describe('feed delivery through the assembled sink (POD-1241)', () => {
+  it('publishes one React notification burst for a large bootstrap install', async () => {
+    const file = freshDatabaseFile()
+    const opened = await open({ file, storage: legacyDevice({}) })
+    const paintedSizes: number[] = []
+    opened.replica.subscribeRows('issues', () => {
+      paintedSizes.push(opened.replica.rows('issues').length)
+    })
+    const changes = Array.from({ length: 1_000 }, (_, index) => ({
+      seq: index + 1,
+      entity: 'issue',
+      entityId: `i-batch-${index}`,
+      value: { id: `i-batch-${index}`, title: `Issue ${index}`, status: 'open' },
+    }))
+
+    onlineWithBootstrap(opened, bootstrapFrame({ seq: changes.length, changes }))
+
+    await waitUntil('large bootstrap install', () => opened.replica.getCursor() === changes.length)
+    expect(opened.replica.rows('issues')).toHaveLength(changes.length)
+    // Without the mobile composition root's batchEvents hook this is 1,001
+    // synchronous drains (one per row plus bootstrap-installed), which is the
+    // measured multi-second input freeze this regression guards.
+    expect(paintedSizes).toEqual([changes.length])
+  })
+
   it('a bootstrap that carries rows paints them — proves the sink is not a silent drop', async () => {
     const file = freshDatabaseFile()
     const opened = await open({ file, storage: legacyDevice({}) })

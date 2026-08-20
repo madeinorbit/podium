@@ -79,6 +79,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform } from 'react-native'
+import { BootSplash } from '../components/BootSplash'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
@@ -94,6 +95,8 @@ import {
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
+import { MobileSyncBoundary } from './MobileSyncBoundary'
+import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
 import { createPlatformConnectivity } from './platform-connectivity'
 import { type MobileShell, MobileShellProvider } from './shell'
@@ -243,6 +246,8 @@ export interface MobileReplica {
   readonly replica: Replica
   /** Wire-v2 feed sink. Supplied WITH the replica; neither half is meaningful alone. */
   readonly feed: FeedSinkPort
+  /** Cold-start gate and warm catch-up status, driven from the kernel lifecycle. */
+  readonly syncProgress: MobileSyncProgressStore
   /**
    * The engine's write queue: the kernel `Outbox` state machine, already open
    * over this principal's SQLite outbox rows (POD-2073).
@@ -460,6 +465,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     },
   })
 
+  const syncProgress = new MobileSyncProgressStore()
   const kernel = new KernelReplica({
     store: view.cache,
     authority: new FeedAuthorityClient({
@@ -467,15 +473,35 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
       bootstraps,
     }),
     onEvent: (event: ReplicaEvent) => {
+      syncProgress.noteEvent(event)
       facade.onKernelEvent(event)
     },
+    // ONE DRAIN PER COMMIT, matching the web assembly. A bootstrap install
+    // emits one event per row; without this hook every event synchronously
+    // drained React subscribers and a large mobile world froze input for tens
+    // of seconds after content had already painted.
+    batchEvents: (emitAll) => facade.batch(emitAll),
   })
 
-  const feed = new FeedSink({ replica: kernel, bootstraps })
+  // The initial posture is fixed synchronously from the persisted cursor, so
+  // the UI can distinguish a truly empty cold start from a stale-visible warm
+  // catch-up before the first network frame arrives.
+  syncProgress.begin(kernel.posture)
+  const sink = new FeedSink({ replica: kernel, bootstraps })
+  const feed: FeedSinkPort = {
+    helloFields: () => sink.helloFields(),
+    connected: (worldPromised) => sink.connected(worldPromised),
+    disconnected: () => sink.disconnected(),
+    frame: (frame) => {
+      if (frame.type === 'feedBootstrap') syncProgress.noteBootstrapFrame(frame)
+      sink.frame(frame)
+    },
+  }
 
   return {
     replica: facade,
     feed,
+    syncProgress,
     createOutboxFn,
     outcome,
     store,
@@ -530,6 +556,31 @@ function DemoProvider({ children }: { children: ReactNode }) {
   const config = useMemo(readServerConfig, [])
   const trpc = useMemo(demoTrpc, [])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
+  // Design-harness states for the two lifecycle treatments. They use the real
+  // boundary and remain opt-in so the ordinary fixture keeps representing a
+  // fully settled app (`?demo=1&syncDemo=cold|warm`).
+  const syncProgress = useMemo(() => {
+    const progress = new MobileSyncProgressStore()
+    const mode =
+      typeof window === 'undefined'
+        ? null
+        : new URLSearchParams(window.location.search).get('syncDemo')
+    if (mode === 'cold') {
+      progress.begin('cold')
+      progress.noteBootstrapFrame({
+        seq: 1,
+        last: false,
+        changes: Array.from({ length: 638 }),
+        totalRows: 1_024,
+      })
+    } else if (mode === 'warm') {
+      progress.begin('stale')
+      progress.noteEvent({ type: 'posture', posture: 'healing', previous: 'stale' })
+    } else {
+      progress.begin('live')
+    }
+    return progress
+  }, [])
   const createReplicaFn = useMemo(() => {
     const replica = createReplica()
     replica.applySnapshot('sessions', DEMO_SESSIONS)
@@ -545,7 +596,9 @@ function DemoProvider({ children }: { children: ReactNode }) {
       createReplicaFn={createReplicaFn}
       routerWindow={routerWindow}
     >
-      <MobileShellProvider value={DEMO_SHELL}>{children}</MobileShellProvider>
+      <MobileShellProvider value={DEMO_SHELL}>
+        <MobileSyncBoundary store={syncProgress}>{children}</MobileSyncBoundary>
+      </MobileShellProvider>
     </StoreProvider>
   )
 }
@@ -886,7 +939,17 @@ function LiveProvider({ children }: { children: ReactNode }) {
   }
   // LaunchBoundary stays mounted above auth + replica assembly. A null subtree
   // here leaves that one branded transition in place instead of remounting it.
-  if (!openedReplica) return null
+  if (!openedReplica) {
+    // The first attempt is covered by LaunchBoundary's one branded splash.
+    // A retry starts only after that boundary has intentionally retired it to
+    // show BootTroubleScreen, so it needs its own visible loading surface rather
+    // than dropping the user onto an empty root while storage reopens.
+    return bootAttempt === 0 ? null : (
+      <LaunchReadyView>
+        <BootSplash label="RETRYING" />
+      </LaunchReadyView>
+    )
+  }
   return (
     <StoreProvider
       config={config}
@@ -922,7 +985,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
       {...nativeClientSeams(connectivity)}
     >
       <MobileHubAttach attachHub={openedReplica.attachHub} connectivity={connectivity} />
-      <MobileShellProvider value={shell}>{children}</MobileShellProvider>
+      <MobileShellProvider value={shell}>
+        <MobileSyncBoundary store={openedReplica.syncProgress} onRetry={retryBoot}>
+          {children}
+        </MobileSyncBoundary>
+      </MobileShellProvider>
     </StoreProvider>
   )
 }

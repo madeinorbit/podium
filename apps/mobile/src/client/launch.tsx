@@ -4,7 +4,11 @@ import { Animated, Easing, Platform, StyleSheet, View } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { color } from '../theme/theme'
-import { LaunchReadyProvider } from './launch-ready'
+import {
+  LaunchReadyProvider,
+  type LaunchSplashStatus,
+  LaunchSplashStatusProvider,
+} from './launch-ready'
 
 // The route-ready signal lives in `./launch-ready`, which does NOT import
 // expo-router — see the note there. Re-exported so existing importers of
@@ -39,6 +43,7 @@ export function LaunchBoundary({
   const reduceMotion = useReduceMotion()
   const [routeReady, setRouteReady] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
+  const [splashStatus, setSplashStatus] = useState<LaunchSplashStatus | null>(null)
   const contentOpacity = useRef(new Animated.Value(0)).current
   const splashOpacity = useRef(new Animated.Value(1)).current
   const ready = fontsReady && routeReady
@@ -80,21 +85,23 @@ export function LaunchBoundary({
 
   const context = useMemo(() => markRouteReady, [markRouteReady])
   return (
-    <LaunchReadyProvider value={context}>
-      <View style={styles.root}>
-        <Animated.View style={[styles.content, { opacity: contentOpacity }]}>
-          {children}
-        </Animated.View>
-        {showSplash ? (
-          <Animated.View
-            pointerEvents="auto"
-            style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
-          >
-            <BootSplash />
+    <LaunchSplashStatusProvider value={setSplashStatus}>
+      <LaunchReadyProvider value={context}>
+        <View style={styles.root}>
+          <Animated.View style={[styles.content, { opacity: contentOpacity }]}>
+            {children}
           </Animated.View>
-        ) : null}
-      </View>
-    </LaunchReadyProvider>
+          {showSplash ? (
+            <Animated.View
+              pointerEvents="auto"
+              style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
+            >
+              <BootSplash {...(splashStatus ?? {})} />
+            </Animated.View>
+          ) : null}
+        </View>
+      </LaunchReadyProvider>
+    </LaunchSplashStatusProvider>
   )
 }
 
