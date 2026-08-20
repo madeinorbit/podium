@@ -61,9 +61,16 @@ export function fileChainSource(
 // opencode cursor stamping + in-memory slicing (the SQLite source's pure half).
 // ---------------------------------------------------------------------------
 
-/** Stable file-id tag for an opencode session's cursor namespace. */
+/**
+ * Stable file-id tag for an opencode session's cursor namespace.
+ *
+ * EXPORTED so the live driver can derive a part's stream identity (POD-2293)
+ * without restating the prefix. A second literal `opencode:` would be a second
+ * cursor namespace the day either one changed, and the two would silently stop
+ * joining.
+ */
 /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-function opencodeFileId(sessionId: string): string {
+export function opencodeFileId(sessionId: string): string {
   return `opencode:${sessionId}`
 }
 

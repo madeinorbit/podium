@@ -537,6 +537,11 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
          * avoid.
          */
         if (session.watchers.fine <= 0) break
+        // NOT INTO A CLOSED TURN (POD-2293). `closeTurn` clears `openTurnId`, so
+        // an absent one means the fence already landed and the viewer already
+        // has the durable item — a fragment now could only revive a preview that
+        // was correctly replaced. The absorb rule, stated in fragment terms.
+        if (session.openTurnId === undefined) break
         emit(
           session,
           {

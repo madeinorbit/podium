@@ -149,6 +149,19 @@ function makeWorld(options: WorldOptions = {}): {
       await Promise.resolve()
     },
 
+    /**
+     * The chunk run alone — no item follows it here, because in this family
+     * nothing does. grok accumulates chunks into a buffer and flushes ONE
+     * complete item at the prompt's resolution, so the completed item the
+     * corpus joins against is produced by `completeTurn`, not by this call. That
+     * is the whole reason the join property is stated over the TURN rather than
+     * over an adjacent pair of events.
+     */
+    async streamAssistantText(sessionId, chunks) {
+      serverFor(sessionId).streamAgentText(chunks)
+      await Promise.resolve()
+    },
+
     async failTurn(sessionId) {
       serverFor(sessionId).completeTurn('refusal')
       await Promise.resolve()

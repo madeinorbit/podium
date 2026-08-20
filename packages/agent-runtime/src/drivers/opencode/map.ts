@@ -28,13 +28,14 @@
 
 import type { AgentStateEvent } from '@podium/harness'
 import type { TranscriptItem } from '@podium/model'
-import { type OpencodeMessagePartRow, stampOpencodeItems } from '@podium/transcript'
-import type {
-  InteractionAnswer,
-  PendingInteraction,
-  QuestionPrompt,
-  Refusal,
-} from '../../index.js'
+import {
+  encodeCursor,
+  type OpencodeMessagePartRow,
+  opencodeFileId,
+  stampOpencodeItems,
+} from '@podium/transcript'
+import type { InteractionAnswer, PendingInteraction, QuestionPrompt, Refusal } from '../../index.js'
+import { streamItemIdOf } from '../../stream-identity.js'
 import type {
   OpencodeMessageInfo,
   OpencodePart,
@@ -76,20 +77,43 @@ export function partToItems(
 /**
  * The identity a `delta` fragment and its eventual `complete` item share.
  *
- * NOT THE ITEM'S `id`, and the difference is not a detail. `opencodePartToItems`
- * derives `id` from the part id AND ITS TEXT, so the id of a growing assistant
- * message CHANGES on every update — it cannot be what a token stream accumulates
- * against. The stamped `cursor` is derived from (fileId, timeUpdated, partId,
- * sub) and is stable for the part's whole life, which is why the transcript
- * slice contract already dedupes on it.
+ * NOT THE ITEM'S `id`, AND NOT ITS `cursor` EITHER — and the second half of that
+ * is what this function got wrong until POD-2293 measured it.
  *
- * So this driver's `{kind:'delta'}` fragments carry the part's stamped cursor as
- * `itemId`, and the `{kind:'complete'}` item that closes them carries the same
- * value in its `cursor` field. A consumer reconciles on that. Stated here
- * because a consumer that reconciled on `id` would accumulate an orphan.
+ * `opencodePartToItems` derives `id` from the part id AND ITS TEXT, so the id of
+ * a growing assistant message changes on every update; that much was always
+ * documented here. The stamped `cursor` was then offered as the stable
+ * alternative, and it is not one: `stampOpencodeItems` puts the row's
+ * `timeUpdated` in the cursor's `offset`, and `timeUpdated` is
+ * `part.time.end ?? part.time.start`. A streaming text part is announced with
+ * `time:{start}` and closed with `time:{start,end}` — recorded in
+ * `__fixtures__/events-turn.json`, where `prt_…833` arrives at `1786682763315`
+ * and closes at `1786682766449`. So the FINAL complete item, the authoritative
+ * one, carried a different cursor from every fragment that built it, and a
+ * consumer reconciling on the cursor accumulated exactly the orphan this comment
+ * warned about.
+ *
+ * What is stable for the part's whole life is the rest of the cursor —
+ * `(fileId, partId, sub)` — which is what `streamItemIdOf` returns. Both halves
+ * of the join now call the contract's own function: this one for a complete
+ * item, {@link deltaItemIdForPart} for a fragment that has no item yet.
  */
 export function deltaItemIdOf(items: readonly TranscriptItem[]): string | undefined {
-  return items[0]?.cursor
+  const first = items[0]
+  return first ? streamItemIdOf(first) : undefined
+}
+
+/**
+ * The same identity, for a fragment whose complete item does not exist yet.
+ *
+ * A `message.part.delta` names only the part, and the first token arrives before
+ * opencode has published any text to stamp — so the driver derives the identity
+ * from the coordinates the cursor is built out of. `sub: 0` because the delta
+ * arm is text-only (`field !== 'text'` is dropped upstream) and a text part maps
+ * to exactly one item; a tool part's two items are never a fragment stream.
+ */
+export function deltaItemIdForPart(sessionId: string, partId: string): string {
+  return encodeCursor({ fileId: opencodeFileId(sessionId), offset: 0, uuid: partId, sub: 0 })
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +321,8 @@ export function answerAction(
         call: 'refuse',
         refusal: {
           reason: 'unsupported',
-          detail: 'this ask did not offer an always-allow; answering once instead would report a grant that was never made',
+          detail:
+            'this ask did not offer an always-allow; answering once instead would report a grant that was never made',
         },
       }
     }
@@ -317,7 +342,10 @@ export function answerAction(
     // dedicated reject route and no way to express "none of these" as labels;
     // mapping the empty case onto `answers: [[]]` would leave the tool call
     // waiting on a reply it cannot interpret.
-    if (answer.selections.length === 0 || answer.selections.every((s) => s.optionIndices.length === 0 && !s.text)) {
+    if (
+      answer.selections.length === 0 ||
+      answer.selections.every((s) => s.optionIndices.length === 0 && !s.text)
+    ) {
       return { call: 'question-reject' }
     }
     const answers: string[][] = []

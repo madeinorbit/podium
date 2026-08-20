@@ -234,6 +234,10 @@ function makeWorld(options: WorldOptions = {}): {
     return id
   }
 
+  /** Distinct message/part ids per streamed reply, so two turns in one property
+   *  cannot alias each other's fragments. */
+  let streamSeq = 0
+
   const control: ConformanceControl = {
     askInteraction(sessionId, spec) {
       const server = serverFor(sessionId)
@@ -298,6 +302,89 @@ function makeWorld(options: WorldOptions = {}): {
 
     completeTurn(sessionId) {
       serverFor(sessionId).goIdle(opencodeIdFor(sessionId))
+    },
+
+    /**
+     * THE RECORDED SHAPE, NOT A CONVENIENT ONE.
+     *
+     * Replayed from `__fixtures__/events-turn.json`, which is what opencode
+     * 1.18.16 actually emitted for a two-token reply: the assistant message, an
+     * EMPTY text part carrying `time:{start}`, the `message.part.delta` run, and
+     * a closing `message.part.updated` carrying the whole text and
+     * `time:{start,end}`.
+     *
+     * The closing time is the fixture detail that matters and the one a
+     * hand-written stub would have left out. `stampOpencodeItems` puts
+     * `time.end ?? time.start` in the cursor's `offset`, so the authoritative
+     * item's cursor differs from every partial's — which is exactly how the
+     * fragments came to carry an identity no consumer could join, and exactly
+     * what this fixture makes the corpus able to see.
+     */
+    async streamAssistantText(sessionId, chunks) {
+      const server = serverFor(sessionId)
+      const opencodeId = opencodeIdFor(sessionId)
+      const messageId = `msg_stream_${streamSeq++}`
+      const partId = `prt_stream_${streamSeq++}`
+      const start = Date.now()
+      server.emit('message.updated', {
+        sessionID: opencodeId,
+        info: {
+          id: messageId,
+          role: 'assistant',
+          sessionID: opencodeId,
+          time: { created: start },
+        },
+      })
+      const part = (text: string, time: Record<string, number>): Record<string, unknown> => ({
+        type: 'text',
+        text,
+        messageID: messageId,
+        sessionID: opencodeId,
+        id: partId,
+        time,
+      })
+      server.emit('message.part.updated', {
+        sessionID: opencodeId,
+        part: part('', { start }),
+        time: start,
+      })
+      let text = ''
+      for (const chunk of chunks) {
+        text += chunk
+        server.emit('message.part.delta', {
+          sessionID: opencodeId,
+          messageID: messageId,
+          partID: partId,
+          field: 'text',
+          delta: chunk,
+        })
+      }
+      // A field the driver must DROP, and an empty delta it must drop too —
+      // both real arms of the protocol, and both silently forwarded before the
+      // driver grew its filters.
+      server.emit('message.part.delta', {
+        sessionID: opencodeId,
+        messageID: messageId,
+        partID: partId,
+        field: 'reasoning',
+        delta: 'not text',
+      })
+      server.emit('message.part.delta', {
+        sessionID: opencodeId,
+        messageID: messageId,
+        partID: partId,
+        field: 'text',
+        delta: '',
+      })
+      server.emit('message.part.updated', {
+        sessionID: opencodeId,
+        part: part(text, { start, end: start + 1 }),
+        time: start + 1,
+      })
+      // The SSE hop is a real socket. Let the driver's reader drain it before
+      // the corpus asks what it saw, or the assertion races the transport
+      // rather than measuring the driver.
+      await new Promise((resolve) => setTimeout(resolve, 20))
     },
 
     failTurn(sessionId) {

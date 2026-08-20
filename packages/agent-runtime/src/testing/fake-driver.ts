@@ -205,6 +205,10 @@ export interface FakeControl {
   connectWithoutSecret(sessionId: SessionId): { refused: true } | { refused: false }
   /** Append a transcript item, as a harness writing its native store would. */
   emitItem(sessionId: SessionId, item: TranscriptItem): void
+  /** Stream one assistant reply as fragments, then land it whole — the provider
+   *  behaviour a fine watcher exists to see. See
+   *  `ConformanceControl.streamAssistantText`. */
+  streamAssistantText(sessionId: SessionId, chunks: readonly string[]): void
 }
 
 export interface FakeDriver extends RuntimeDriver {
@@ -1078,6 +1082,27 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       const core = coreFor(sessionId)
       core.items.push(item)
       push(core, { t: 'item', item: { kind: 'complete', item } })
+    },
+    streamAssistantText(sessionId, chunks) {
+      const core = coreFor(sessionId)
+      // The fake's items carry no cursor, so `streamItemIdOf` reads the `id` —
+      // and the fragments carry that same id. Which is the whole point of the
+      // corpus property: this is the EASY case, and the driver that could not
+      // pass it was the one whose ids were derived from their own text.
+      const itemId = `fake-assistant-${core.turnEpoch}`
+      let text = ''
+      for (const chunk of chunks) {
+        text += chunk
+        // Gated exactly as a real driver gates it: no watcher, no fragment; and
+        // never into an epoch the fence already closed.
+        if ((core.watchers.get('fine') ?? 0) > 0 && core.turnOpen) {
+          push(core, { t: 'item', item: { kind: 'delta', itemId, textDelta: chunk } })
+        }
+      }
+      const item: TranscriptItem = { id: itemId, role: 'assistant', text }
+      core.items.push(item)
+      push(core, { t: 'item', item: { kind: 'complete', item } })
+      for (const wake of [...core.wakers]) wake()
     },
   }
 

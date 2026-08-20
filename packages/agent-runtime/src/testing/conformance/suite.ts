@@ -54,6 +54,7 @@ import {
   type RuntimeDriver,
   type RuntimeEvent,
   type SessionSpec,
+  streamItemIdOf,
   type TurnReceipt,
 } from '../../index.js'
 import { defaultAskFor } from '../fake-driver.js'
@@ -108,6 +109,36 @@ const drainUntil = (
   match: (event: RuntimeEvent) => boolean,
   timeoutMs = 2000,
 ): Promise<RuntimeEvent[]> => collectUntil(stream, (event) => match(event), timeoutMs)
+
+/** A token fragment, narrowed. Written as a guard rather than a filter
+ *  predicate so the assertions below can read `.item.itemId` without a cast —
+ *  the union arm is what every property in the fine-watch group is about. */
+type DeltaEvent = RuntimeEvent & {
+  t: 'item'
+  item: { kind: 'delta'; itemId: string; textDelta: string }
+}
+const isDeltaEvent = (event: RuntimeEvent): event is DeltaEvent =>
+  event.t === 'item' && event.item.kind === 'delta'
+
+/**
+ * GIVE A FINE WATCH A BOUNDED MOMENT TO BECOME REAL.
+ *
+ * `watch('fine')` resolves as soon as the refcount moves, deliberately: it must
+ * hand a viewer its release function immediately, and for two of the three
+ * headless families the level is live by then. Codex is the exception, and the
+ * reason is structural rather than incidental — its handshake opts OUT of delta
+ * notifications, so upgrading is a reconnect: a second connection, a
+ * `thread/resume`, and a swap. A corpus that sent the instant `watch` resolved
+ * would be measuring the race, not the driver.
+ *
+ * A FIXED WAIT, NOT A POLL, because there is nothing to poll: the contract
+ * exposes no "which level is live now", by the same argument. The consequence is
+ * stated rather than hidden — a driver whose fine watch takes longer than this
+ * fails these properties LOUDLY, which is correct: the daemon's watch lifecycle
+ * has the same problem and needs the same budget, and a silent skip here would
+ * be the corpus declining to notice.
+ */
+const settleWatch = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50))
 
 /**
  * The one read loop both drains are, with the deadline handled properly
@@ -869,6 +900,187 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         await control.completeTurn(session.binding.sessionId)
         const events = await drainUntil(session.events(before.cursor), (e) => e.t === 'turn')
         expect(events.filter((e) => e.t === 'turn').length).toBeGreaterThan(0)
+      })
+    })
+
+    // -----------------------------------------------------------------------
+    // Fine watch: the token-fragment stream, and the join that makes it usable
+    // (POD-2293). The corpus asserted NOTHING about `kind:'delta'` before this
+    // group, which is how opencode shipped fragments that joined to no item for
+    // three work items — every driver test that exercised deltas synthesized
+    // them, and a synthesized fragment agrees with whatever the test invented.
+    // -----------------------------------------------------------------------
+
+    describe('fine watch — token fragments', () => {
+      const CHUNKS = ['Hel', 'lo, ', 'world'] as const
+      const WHOLE = CHUNKS.join('')
+
+      it('supplies a fragment stream EXACTLY when it declares `fine`', () => {
+        const { driver, control } = setup()
+        const declared = driver.capabilities().observation.watchLevels.includes('fine')
+        // The converse is the half that matters. A driver declaring `fine` with
+        // no way to induce a fragment would make every property below vacuous,
+        // and a green suite that proves nothing is worse than a red one.
+        expect(
+          typeof control.streamAssistantText === 'function',
+          declared
+            ? `driver declares watch level 'fine' but its control cannot stream a reply`
+            : `driver declares no 'fine' watch level but its control streams fragments`,
+        ).toBe(declared)
+      })
+
+      it('emits NO fragment while every watcher is coarse', async () => {
+        const { handle, control, driver } = setup()
+        if (!driver.capabilities().observation.watchLevels.includes('fine')) return
+        const session = await handle
+        const release = await session.watch('coarse')
+        await settleWatch()
+        const receipt = await session.send(
+          { text: 'quiet' },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        expect(receipt.outcome).toBe('accepted')
+        const collected = drainUntil(
+          session.events('bootstrap'),
+          (e) => e.t === 'turn' && (e.ev.ev === 'completed' || e.ev.ev === 'failed'),
+          3000,
+        )
+        await control.streamAssistantText?.(session.binding.sessionId, CHUNKS)
+        await control.completeTurn(session.binding.sessionId)
+        const events = await collected
+        release()
+        expect(events.filter(isDeltaEvent)).toEqual([])
+      })
+
+      it('streams fragments under a fine watch, and every one joins its completed item', async () => {
+        const { handle, control, driver } = setup()
+        if (!driver.capabilities().observation.watchLevels.includes('fine')) return
+        const session = await handle
+        const release = await session.watch('fine')
+        await settleWatch()
+        const receipt = await session.send(
+          { text: 'stream it' },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        expect(receipt.outcome).toBe('accepted')
+        const collected = drainUntil(
+          session.events('bootstrap'),
+          (e) => e.t === 'turn' && (e.ev.ev === 'completed' || e.ev.ev === 'failed'),
+          3000,
+        )
+        await control.streamAssistantText?.(session.binding.sessionId, CHUNKS)
+        await control.completeTurn(session.binding.sessionId)
+        const events = await collected
+        release()
+
+        const deltas = events.filter(isDeltaEvent)
+        expect(deltas.length, 'a fine watcher saw no fragments at all').toBeGreaterThan(0)
+
+        // THE JOIN. Every fragment must name an item the same turn completed, by
+        // the contract's own identity function — which is the assertion opencode
+        // could not pass before POD-2293, because its fragments carried a raw
+        // part id and its items carried a stamped cursor.
+        const completedIds = new Set<string>()
+        for (const event of events) {
+          if (event.t !== 'item' || event.item.kind !== 'complete') continue
+          completedIds.add(streamItemIdOf(event.item.item))
+        }
+        for (const delta of deltas) {
+          expect(
+            completedIds.has(delta.item.itemId),
+            `fragment '${delta.item.itemId}' joins no completed item in this turn ` +
+              `(completed: ${[...completedIds].join(', ') || 'none'})`,
+          ).toBe(true)
+        }
+
+        // THE FRAGMENTS ARE A PREFIX OF WHAT LANDED, not an independent second
+        // copy of it. Stated as a prefix rather than as equality because the
+        // families differ in what else the item may pick up before it closes —
+        // grok flushes ONE buffered item at the fence, so a provider chunk
+        // emitted between the reply and the terminal is part of the same item —
+        // and because the contract lets a consumer miss any prefix of a fragment
+        // stream. What a driver may NOT do is re-send the whole reply per
+        // fragment, or emit text the item never contained, and both fail here.
+        const completedText = new Map<string, string>()
+        for (const event of events) {
+          if (event.t !== 'item' || event.item.kind !== 'complete') continue
+          completedText.set(streamItemIdOf(event.item.item), event.item.item.text ?? '')
+        }
+        const byItem = new Map<string, string>()
+        for (const delta of deltas) {
+          byItem.set(
+            delta.item.itemId,
+            (byItem.get(delta.item.itemId) ?? '') + delta.item.textDelta,
+          )
+        }
+        for (const [itemId, streamed] of byItem) {
+          const landed = completedText.get(itemId) ?? ''
+          expect(
+            landed.startsWith(streamed),
+            `fragments for '${itemId}' are not a prefix of the item that landed:\n` +
+              `  fragments: ${JSON.stringify(streamed)}\n  item:      ${JSON.stringify(landed)}`,
+          ).toBe(true)
+        }
+        expect([...byItem.values()].join('')).toContain(WHOLE)
+      })
+
+      it('stamps every fragment with the OPEN turn epoch, never a fenced one', async () => {
+        const { handle, control, driver } = setup()
+        if (!driver.capabilities().observation.watchLevels.includes('fine')) return
+        const session = await handle
+        const release = await session.watch('fine')
+        await settleWatch()
+        const receipt = await session.send(
+          { text: 'epoch' },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        expect(receipt.outcome).toBe('accepted')
+        if (receipt.outcome !== 'accepted') return
+        const collected = drainUntil(
+          session.events('bootstrap'),
+          (e) => e.t === 'turn' && (e.ev.ev === 'completed' || e.ev.ev === 'failed'),
+          3000,
+        )
+        await control.streamAssistantText?.(session.binding.sessionId, CHUNKS)
+        await control.completeTurn(session.binding.sessionId)
+        const events = await collected
+        for (const delta of events.filter(isDeltaEvent)) {
+          expect(delta.turnEpoch).toBe(receipt.turnEpoch)
+        }
+
+        // AND NOTHING AFTER THE FENCE. A late fragment for a closed epoch is the
+        // absorb rule stated in fragment terms: the preview it would revive was
+        // already replaced by the durable item.
+        const after = drainUntil(
+          session.events(events.at(-1)?.cursor ?? 'bootstrap'),
+          isDeltaEvent,
+          400,
+        )
+        await control.streamAssistantText?.(session.binding.sessionId, ['late'])
+        expect((await after).filter(isDeltaEvent)).toEqual([])
+        release()
+      })
+
+      it('stops streaming once the last fine watcher releases', async () => {
+        const { handle, control, driver } = setup()
+        if (!driver.capabilities().observation.watchLevels.includes('fine')) return
+        const session = await handle
+        const release = await session.watch('fine')
+        await settleWatch()
+        release()
+        const receipt = await session.send(
+          { text: 'released' },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        expect(receipt.outcome).toBe('accepted')
+        const collected = drainUntil(
+          session.events('bootstrap'),
+          (e) => e.t === 'turn' && (e.ev.ev === 'completed' || e.ev.ev === 'failed'),
+          3000,
+        )
+        await control.streamAssistantText?.(session.binding.sessionId, CHUNKS)
+        await control.completeTurn(session.binding.sessionId)
+        expect((await collected).filter(isDeltaEvent)).toEqual([])
       })
     })
 

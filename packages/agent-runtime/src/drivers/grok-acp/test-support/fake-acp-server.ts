@@ -18,6 +18,11 @@ export interface FakeGrokAcpServer {
   promptCount: number
   answers: Map<string | number, unknown>
   askPermission(): string
+  /** One assistant reply, chunk by chunk, exactly as grok streams it: a run of
+   *  `agent_message_chunk` updates under monotonic `_meta.eventId`s. The item
+   *  itself is not pushed — this family flushes its buffer at the fence, which
+   *  is the behaviour the corpus is there to hold. */
+  streamAgentText(chunks: readonly string[]): void
   completeTurn(stopReason?: 'end_turn' | 'cancelled' | 'refusal'): void
   failProviderTurn(detail: string): void
   failNextPrompt(detail?: string): void
@@ -192,6 +197,14 @@ export function startFakeGrokAcpServer(
         },
       })
       return String(id)
+    },
+    streamAgentText(chunks) {
+      for (const chunk of chunks) {
+        notifyUpdate({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: chunk },
+        })
+      }
     },
     completeTurn(stopReason = 'end_turn') {
       const replayed = pendingPrompt === undefined

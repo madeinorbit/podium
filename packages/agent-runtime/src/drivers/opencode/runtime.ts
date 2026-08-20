@@ -46,7 +46,12 @@ import type {
   QueueDrainAbandonedReason,
 } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
-import type { ProcessIdentity, SessionArchive, SessionBinding, SessionSnapshot } from '../../binding.js'
+import type {
+  ProcessIdentity,
+  SessionArchive,
+  SessionBinding,
+  SessionSnapshot,
+} from '../../binding.js'
 import type {
   ConfigureRequest,
   ScopeResources,
@@ -77,6 +82,7 @@ import { opencodeServerCapabilities } from './capabilities.js'
 import { type OpencodeClient, type OpencodeClientConfig, createOpencodeClient } from './client.js'
 import {
   answerAction,
+  deltaItemIdForPart,
   idleToStateEvent,
   partToItems,
   permissionAsk,
@@ -462,16 +468,32 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         if (event.properties.field !== 'text') break
         const delta = event.properties.delta
         if (!delta) break
+        // No opencode session id means no cursor namespace, so no identity a
+        // consumer could join on. The child-session filter above makes this
+        // unreachable for a delta that names a session; dropping the fragment
+        // is still right for one that does not, because an unjoinable fragment
+        // is an orphan preview by construction.
+        const streamSessionId = session.opencodeSessionId
+        if (!streamSessionId) break
+        // NOT INTO A CLOSED EPOCH (POD-2293). The absorb rule stated in fragment
+        // terms: a turn that has been fenced already handed the viewer its
+        // durable item, so a fragment arriving after it can only revive a
+        // preview that was correctly replaced. Enforced here rather than left to
+        // each consumer, so the invariant holds for every one of them.
+        if (session.turnEpoch <= session.fencedTurnEpoch) break
         emit(
           session,
           {
             t: 'item',
             item: {
               kind: 'delta',
-              // Keyed by the PART, which is the identity a `complete` item
-              // carries in its `cursor`. See `deltaItemIdOf` in ./map.ts for
-              // why the item's own `id` cannot be this key.
-              itemId: event.properties.partID,
+              // THE JOINABLE IDENTITY, not the raw part id (POD-2293). A bare
+              // `partID` joins to nothing a consumer can see: the complete item
+              // carries the part id folded into a stamped cursor, never on its
+              // own. `deltaItemIdForPart` derives the same value `streamItemIdOf`
+              // returns for that item, which is what makes the preview clear
+              // when the real text lands instead of rendering beside it.
+              itemId: deltaItemIdForPart(streamSessionId, event.properties.partID),
               textDelta: delta,
             },
           },

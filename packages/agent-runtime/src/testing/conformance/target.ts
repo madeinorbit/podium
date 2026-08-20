@@ -45,6 +45,26 @@ export interface ConformanceControl {
   /** Deliver a provider-confirmed failed terminal for the open turn. Omitted
    *  only when the harness has no observable failed-turn signal to induce. */
   failTurn?(sessionId: SessionId, reason: 'provider-error'): void | Promise<void>
+  /**
+   * STREAM ONE ASSISTANT REPLY, FRAGMENT BY FRAGMENT, AND THEN CLOSE THE ITEM.
+   *
+   * REQUIRED OF EVERY DRIVER WHOSE CAPABILITIES DECLARE `fine` — the corpus
+   * checks that pairing rather than trusting it, so a driver cannot claim a
+   * watch level it has no way to exercise. Optional only because the terminal
+   * family declares `coarse` alone: a PTY produces bytes, and there is no
+   * fragment stream to induce.
+   *
+   * The implementation must produce what the PROVIDER produces, not what the
+   * driver wants to see. That is the whole value of the property: opencode's
+   * fragment identity bug (POD-2293) was invisible to every test that
+   * synthesized a delta event, and visible immediately to one that replayed the
+   * real `message.part.updated` → `message.part.delta` → `message.part.updated`
+   * shape its own fixtures recorded.
+   *
+   * The turn must already be open — the corpus sends first — and this call must
+   * NOT close it; `completeTurn` still owns the terminal.
+   */
+  streamAssistantText?(sessionId: SessionId, chunks: readonly string[]): void | Promise<void>
   processEvent(sessionId: SessionId, ev: ProcessEvent): void
   failNextVerification(sessionId: SessionId): void
   /**

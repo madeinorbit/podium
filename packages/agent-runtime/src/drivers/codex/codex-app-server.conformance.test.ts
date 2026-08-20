@@ -80,6 +80,9 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   /** World-wide thread minting — see `launch`. */
   let mintedThreads = 0
   const servers = new Map<SessionId, FakeAppServer>()
+  /** Servers a relaunch superseded. The driver stops them through the endpoint;
+   *  `reset` closes any the property left standing. */
+  const retired: FakeAppServer[] = []
   const entries = new Map<SessionId, CodexJournalEntry>()
 
   const journal: CodexJournal = {
@@ -111,10 +114,6 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
     mintSessionId: () => `cx-session-${++seq}` as SessionId,
 
     async launch(input) {
-      // A RELAUNCH REPLACES THE SERVER FOR THIS SESSION, which is exactly what
-      // happens on the real host: the old child is gone (it died with the
-      // daemon, or was stopped) and a new one takes its place under the same
-      // session-derived identity.
       /**
        * THREAD IDS ARE MINTED PER WORLD, NOT PER SERVER (POD-2703).
        *
@@ -132,7 +131,26 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
        * which is the single thing that property exists to tell.
        */
       const server = startFakeAppServer({ threadIds: [`thr-w${++mintedThreads}`] })
-      servers.get(input.sessionId)?.close()
+      /**
+       * A RELAUNCH REPLACES THE SERVER FOR THIS SESSION under the same
+       * session-derived identity — but it does NOT kill the outgoing one, and
+       * that distinction cost POD-2293 an afternoon.
+       *
+       * This used to `close()` the previous server here, on the argument that a
+       * relaunch means the old child is already gone. True of the path this
+       * fixture was written for (adopt after a supervisor restart) and FALSE of
+       * the fine-watch upgrade, where the old child is alive, still serving the
+       * session, and stopped by the driver itself — `upgradeToFine` swaps the
+       * connection first and only then awaits `oldEndpoint.stop()`. Killing it
+       * at launch made every send during an upgrade refuse `not_running`
+       * against a connection the real world would have kept answering.
+       *
+       * So the outgoing server stays up and `endpoint.stop()`/`kill()` closes
+       * it, exactly as the driver expects. `retired` keeps a handle on it so
+       * `reset` can still close everything this fixture ever started.
+       */
+      const outgoing = servers.get(input.sessionId)
+      if (outgoing) retired.push(outgoing)
       servers.set(input.sessionId, server)
       const endpoint: CodexServerEndpoint = {
         transport: server.transport,
@@ -182,6 +200,10 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
     return server
   }
 
+  /** Distinct item ids per streamed reply, so two turns in one property cannot
+   *  alias each other's fragments. */
+  let streamSeq = 0
+
   const control: ConformanceControl = {
     askInteraction(sessionId, spec) {
       const server = serverFor(sessionId)
@@ -216,6 +238,21 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
 
     completeTurn(sessionId) {
       serverFor(sessionId).completeTurn('completed')
+    },
+
+    /**
+     * The fragment run and then the item that closes it, carrying the SAME
+     * `msg_…` id — which is what codex does and why this family's join was never
+     * in doubt. The corpus still runs the property here: a driver that dropped
+     * the id on the floor, or emitted fragments for a fenced turn, would be
+     * caught by the same assertions that caught opencode.
+     */
+    async streamAssistantText(sessionId, chunks) {
+      const server = serverFor(sessionId)
+      const itemId = `msg_stream_${streamSeq++}`
+      for (const chunk of chunks) server.emitDelta(itemId, chunk)
+      server.emitAgentMessage(chunks.join(''), itemId)
+      await new Promise((resolve) => setTimeout(resolve, 20))
     },
 
     failTurn(sessionId) {
@@ -303,6 +340,8 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
         runtime?.dispose()
         runtime = undefined
         for (const server of servers.values()) server.close()
+        for (const server of retired) server.close()
+        retired.length = 0
         servers.clear()
         entries.clear()
         seq = 0
