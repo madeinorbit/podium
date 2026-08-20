@@ -68,13 +68,26 @@ import { type FakeOpencodeServer, startFakeOpencodeServer } from './test-support
  * answered at an attached TUI, visible at all.
  */
 interface WorldOptions {
-  /** `false` is a machine with nowhere to run `opencode attach <url>`. The
-   *  driver turns that into the corpus's typed refusal; see `attachClient`. */
-  hostsClientTerminals?: boolean
+  /**
+   * WHICH ATTACH MODES THIS MACHINE CAN RUN `opencode attach <url>` FOR. A host
+   * fact, not a driver fact — the capability declares `client` in every one of
+   * them, and what changes is whether this box can start one.
+   *
+   *   `true` (default)     both, the ordinary machine;
+   *   `false`              neither — nowhere to run a terminal at all;
+   *   `'spectators-only'`  a stream for watchers, but no CONTROL terminal.
+   *
+   * The driver turns each `undefined` into the corpus's typed refusal; see
+   * `attachClient`. The third is not a hypothetical shape invented for a test:
+   * it is a box that can pipe a read-only stream out but has no seat to put a
+   * controlling human in, and it is the ONLY host on which the corpus reaches
+   * its refused-TAKEOVER assertion — see the second `describe` below.
+   */
+  hostsClientTerminals?: boolean | 'spectators-only'
 }
 
 function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
-  const hostsClientTerminals = options.hostsClientTerminals !== false
+  const hostsClientTerminals = options.hostsClientTerminals ?? true
   let runtime: OpencodeRuntime | undefined
   let seq = 0
   const servers = new Map<SessionId, FakeOpencodeServer>()
@@ -155,8 +168,16 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
        * still declares `client`, because the variant this family produces does
        * not change with the host. What changes is whether this box can run one,
        * and the driver turns that into the typed refusal the corpus branches on.
+       *
+       * AND THE ANSWER MAY DEPEND ON THE MODE, which is what makes the corpus's
+       * second refusal assertion reachable at all. `input.mode` has always been
+       * on the host contract — a real host needs it to decide what to spawn —
+       * and a machine that can hand a watcher a read-only stream while refusing
+       * to seat a controller is the one shape under which a TAKEOVER gets
+       * refused after a peek has already succeeded.
        */
-      if (!hostsClientTerminals) return undefined
+      if (hostsClientTerminals === false) return undefined
+      if (hostsClientTerminals === 'spectators-only' && input.mode === 'takeover') return undefined
       return { streamId: `oc-attach-${input.sessionId}`, warmTtlMs: 300_000 }
     },
 
@@ -352,11 +373,9 @@ const { target } = makeWorld()
  *
  * Reaching it needs a host that hosts a SPECTATOR STREAM but no control
  * terminal, so the peek succeeds and only the takeover is refused — the shape
- * `attachLease: 'refuses-after-taking'` drives in `fake.test.ts:291`. That is a
- * machine this driver has no reason to model yet, so the corpus's own teeth test
- * is what proves the assertion bites, and THIS driver's attach ORDERING stays
- * unpinned. Filed as deferred on POD-2121 rather than left for a reader to
- * discover.
+ * `attachLease: 'refuses-after-taking'` drives in `fake.test.ts:291`. That host
+ * is the `describe` below (POD-2131), and it is where this driver's refused
+ * take-over is judged; this world stops at the classification.
  */
 describe('opencode-server on a host with nowhere to run a terminal', () => {
   it('refuses the attach, typed, and does not walk off with the lease', async () => {
@@ -388,6 +407,90 @@ describe('opencode-server on a host with nowhere to run a terminal', () => {
         reason: 'unsupported',
       })
 
+      await assertAttachHonoursOneControlLease(handle, driver.capabilities(), world.target.family)
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
+/**
+ * THE HALF WITH THE TEETH: A REFUSED TAKE-OVER IS NOT HOLDING THE LEASE
+ * (POD-2131; the invariant is POD-2059's, the assertion is POD-2085's).
+ *
+ * ---------------------------------------------------------------------------
+ * THE MACHINE
+ * ---------------------------------------------------------------------------
+ *
+ * A box that can pipe a read-only stream to watchers and has no seat to put a
+ * controlling human in. Peek succeeds, take-over is refused — and that ordering
+ * is the whole point, because `assertAttachHonoursOneControlLease` RETURNS at a
+ * refused peek. The world above refuses everything, so it never gets as far as
+ * asking for control; every other landed fixture hosts both, so it takes the
+ * endpoint branch and never refuses at all. This is the only host shape under
+ * which a real driver is asked the question at all — the same shape the corpus's
+ * own teeth test drives against a fake as `attachLease: 'refuses-after-taking'`.
+ *
+ * WHAT IT BUYS OVER THAT TEETH TEST, since the two look alike from a distance.
+ * The teeth test proves the ASSERTION bites, using a fake built to fail it. It
+ * says nothing about opencode. This says the invariant holds in the driver that
+ * broke it: a refusal for want of a terminal host is correct, and doing it while
+ * holding the lease would leave an orphaned controller on a session the caller
+ * was just refused control of.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT MAKES IT RED, MEASURED — AND A CORRECTION TO THIS ISSUE'S BRIEF
+ * ---------------------------------------------------------------------------
+ *
+ * The brief said to verify by moving the guarded lease assignment ABOVE the
+ * `attachClient` call and watching this go red. That mutation is a no-op today:
+ * the code already does exactly that. `52781e293` moved the assignment ahead of
+ * the await ON PURPOSE, to close a race in which two take-overs both won while
+ * the first was still starting its client (`lease.test.ts`, "reserves the lease
+ * before awaiting client startup"). The lease is now RESERVED before the client
+ * is started and ROLLED BACK if the host produces none.
+ *
+ * So the ordering half of POD-2059's fix is no longer carried by the ordering.
+ * It is carried by that rollback, and the rollback is what this test pins.
+ * Deleting the `session.lease = previousLease` line in `attach`'s `!client`
+ * branch — a driver that reserved the lease, found no terminal, and refused
+ * anyway — leaves the whole rest of the package green and turns exactly this
+ * test red, on `suite.ts`'s own "the refusal landed after the client started".
+ * That mutation was run, and reverted.
+ */
+describe('opencode-server on a host that streams to watchers but seats no controller', () => {
+  it('refuses the take-over without walking off with the lease', async () => {
+    const world = makeWorld({ hostsClientTerminals: 'spectators-only' })
+    const { driver } = world.target.createDriver()
+    try {
+      /**
+       * THE ARM IS PINNED ON A SESSION OF ITS OWN, and the separate session is
+       * the load-bearing part rather than tidiness.
+       *
+       * The pin has to establish that on this world a peek yields an ENDPOINT
+       * and a take-over is REFUSED — without which the property would be
+       * satisfied through the endpoint branch and prove nothing, the failure
+       * that kept this arm dormant in the first place. But the pin's own
+       * take-over is the very call under test, and a driver with the bug would
+       * leave the lease taken behind it. Pinning on the judged session would
+       * then hand the property a poisoned starting state: it reads the lease
+       * BEFORE its own take-over and compares the two, so a lease already
+       * wrongly held reads as "unchanged" and the bug passes. Measured, not
+       * reasoned — under the mutation named above this `describe`, the
+       * one-session version of this test is GREEN.
+       *
+       * Two fresh sessions on one host answer that: the pin is a statement about
+       * the MACHINE — which the host decides per call, off `input.mode` alone —
+       * and the judged session reaches the property untouched.
+       */
+      const probe = await driver.create(world.target.spec())
+      expect(driver.capabilities().attach.supported).toBe(true)
+      expect('kind' in (await probe.attach({ mode: 'peek', holder: 'probe' }))).toBe(true)
+      expect(await probe.attach({ mode: 'takeover', holder: 'probe' })).toMatchObject({
+        reason: 'unsupported',
+      })
+
+      const handle = await driver.create(world.target.spec())
       await assertAttachHonoursOneControlLease(handle, driver.capabilities(), world.target.family)
     } finally {
       world.target.reset()
