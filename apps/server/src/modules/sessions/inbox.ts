@@ -824,8 +824,21 @@ export class SessionInbox {
               // terminal driver from a newer daemon, for which `unverified`
               // IS honest ("typed it, could not prove it"). Keeping the row
               // queued is still the right answer — an unproven send is not a
-              // delivered one — it just costs a re-drain instead of naming a
-              // broken frame.
+              // delivered one.
+              //
+              // NAME THE COST, WHICH IS NOT MERELY "A RE-DRAIN" (POD-2297).
+              // `unverified` means UNKNOWN, not "did not arrive": the send may
+              // genuinely have been typed. The re-drain re-sends the SAME
+              // `turnId`, so a proven-but-unverified prompt is delivered TWICE
+              // and the agent sees it twice. THIS PATH IS THEREFORE
+              // AT-LEAST-ONCE, DELIBERATELY — of the two ways to be wrong under
+              // a two-generals gap, a duplicate prompt is recoverable by a
+              // reader and a vanished one is not, which is the same ordering
+              // POD-2132/POD-2202 and POD-2297 chose everywhere else. Driver-
+              // local dedupe by `turnId` would close the common window (a
+              // re-drain inside one driver lifetime) but not the one that
+              // matters most (across a daemon restart the driver's memory is
+              // gone), so it narrows this and never removes it.
               stop()
               return
             }

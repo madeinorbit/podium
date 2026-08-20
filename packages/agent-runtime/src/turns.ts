@@ -23,6 +23,22 @@ export interface TurnInput {
    * Stable identity supplied by the caller when a later delivery outcome has
    * to reconcile durable state outside the driver. Drivers must carry it
    * through any local queue unchanged; absent callers get a driver-local id.
+   *
+   * THE WRITE PATH IS AT-LEAST-ONCE, AND THIS ID IS WHAT MAKES THAT SURVIVABLE
+   * (POD-2297). A send whose outcome is UNKNOWN — an `unverified` receipt, an
+   * RPC window that closed with no daemon reply — leaves the caller's durable
+   * row queued, and the next bind, reconnect or enqueue re-sends it under this
+   * same id. So a turn that WAS delivered but could not be proven is delivered
+   * TWICE. That is the deliberate direction: under a two-generals gap a
+   * duplicate prompt is something a reader can recover from and a vanished one
+   * is not.
+   *
+   * WHAT THE ID THEREFORE OBLIGES. A driver may dedupe by it, and a CONSUMER of
+   * delivery outcomes MUST — an abandonment report carries ids a consumer may
+   * already have handled, and repeats across daemon restarts (see
+   * `TerminalInjectionPorts.onDrainAbandoned`). No driver may claim
+   * exactly-once on the strength of it: driver-local memory dies with the
+   * process, so dedupe there narrows the duplicate window and never closes it.
    */
   id?: string
   text: string

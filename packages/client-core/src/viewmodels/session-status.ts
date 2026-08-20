@@ -77,13 +77,18 @@ const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
  * terminal. Failing the other way would strand a PTY session on the chat view
  * with no way back the moment a bind frame was late.
  *
- * A COUNTERPART EXISTS AND IS NOT THIS ONE. The daemon's reap guard prefers the
- * durable `resume.kind` (`isServerFamilyResumeKind`) and fails CLOSED, because
- * there a wrong guess spawns a second credentialed child. That tell is a
- * per-HARNESS fact — true of PTY-driven codex and grok rows too — so a view that
- * used it would take the terminal away from sessions that have one. Views fail
- * open; reaps fail closed. The two questions have the same subject and opposite
- * safe directions, which is why they do not share an answer.
+ * A COUNTERPART EXISTS AND IS NOT THIS ONE. The server's reap guard
+ * (`machine-reconciler.ts`, `mayBeServerDriven`) fails CLOSED, because there a
+ * wrong guess spawns a second credentialed child. It prefers the bound
+ * `driverId` — the bind MEASURED which driver is running the row, which is
+ * strictly better evidence than any per-harness tell — and falls back to the
+ * durable `resume.kind` (`isServerFamilyResumeKind`) only for a row that holds
+ * no `driverId`, which is the parked-through-a-redeploy case the fallback exists
+ * for. That fallback is a per-HARNESS fact — true of PTY-driven codex and grok
+ * rows too — so a view that leaned on it would take the terminal away from
+ * sessions that have one. Views fail open; reaps fail closed. The two questions
+ * have the same subject and opposite safe directions, which is why they do not
+ * share an answer.
  */
 export type TerminalOutlook = 'terminal' | 'none' | 'unknown'
 

@@ -431,9 +431,11 @@ export const SessionMetaEntity = z.object({
    * DELIBERATELY NOT DERIVED FROM `resume.kind`. That is the DURABLE
    * server-family tell (`isServerFamilyResumeKind`) and it is a per-HARNESS
    * fact, so it is equally true of PTY-driven codex, grok and opencode rows.
-   * The daemon's reap guard prefers it because there failing closed is cheap;
-   * for a VIEW the same guess takes the terminal away from a session that has
-   * one, so this side fails open instead.
+   * The server's reap guard reaches for it only as a FALLBACK — it prefers the
+   * bound `driverId`, and takes the per-harness tell just for rows that hold
+   * none — and it can afford that fallback because there failing closed is
+   * cheap. For a VIEW the same guess takes the terminal away from a session
+   * that has one, so this side fails open instead.
    */
   driverFamily: z.enum(['server', 'embedded', 'terminal']).optional(),
   /** Number of durable server-held messages waiting to be typed into this agent
