@@ -346,3 +346,14 @@ mid-session, vitest/typecheck runs failing at import, sqlite "disk I/O error" â€
 `df` shows free space. Fix: run big test/build steps with TMPDIR set to a short path
 on the root filesystem, and never keep instance state on /tmp. Multiple sessions have
 independently lost time to this; check quota before debugging your tools.
+
+### Lesson: the boundary gate is a SET comparison, and exit codes lie in pipelines
+The canonical boundary gate for this epic is: run `bun run lint:boundaries` (or
+`scripts/check-boundaries.ts --manifest-only` for the manifest half), capture the FULL
+violation list, and compare it byte-for-byte against the recorded baseline (`comm`
+empty both ways = pass). The raw exit code is NOT the gate â€” the branch carries
+accepted pre-existing violations, so both spellings exit 1 by design. Two measurement
+traps have produced false "green" claims on the record: piping the gate into `tail`
+and reading `$?` (tail's status, not the gate's), and reading a background run's
+capture file before the run wrote it. Verify the baseline with a parent-vs-tip
+throwaway-worktree comparison when in doubt; POD-2472's review shows the method.
