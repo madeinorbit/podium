@@ -130,6 +130,8 @@ export interface AgentRuntimeComposition {
 
 /** The host-facing superset used by daemon command routing. */
 export interface MachineAgentRuntime extends AgentRuntime {
+  /** Scope declaration: this foundation runtime lists indexed handles only. */
+  readonly inventoryScope: 'registered-only'
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   has(sessionId: SessionId): boolean
   driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined
@@ -221,6 +223,7 @@ export function createAgentRuntime(composition: AgentRuntimeComposition): Machin
   }
 
   return {
+    inventoryScope: 'registered-only' as const,
     async create(spec) {
       return remember(await selectedDriver(spec).create(spec))
     },

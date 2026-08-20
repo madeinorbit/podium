@@ -98,7 +98,7 @@ export function createDaemonMachineRuntime(input: {
   runtime = createAgentRuntime({
     sources: () => [terminalSource, ...serverSources],
     async landArchive() {
-      throw new Error('archive landing is not yet composed on this machine')
+      throw new Error('unsupported: archive import requires the daemon archive storage adapter (POD-2415)')
     },
     async list() {
       const bindings = runtime.registeredBindings()
@@ -128,32 +128,14 @@ export function createDaemonMachineRuntime(input: {
           : undefined
 
   const journalled = (sessionId: SessionId) => {
-    const opencode = input.opencode.journal.read(sessionId)
-    if (opencode) {
-      return {
-        runtime: input.opencode,
-        what: 'opencode serve',
-        entry: opencode,
-      } as const
-    }
-    const codex = input.codex.journal.read(sessionId)
-    if (codex) {
-      return {
-        runtime: input.codex,
-        what: 'codex app-server',
-        entry: codex,
-      } as const
-    }
-    const grok = input.grok.journal.read(sessionId)
-    if (grok) {
-      return {
-        runtime: input.grok,
-        what: 'grok agent stdio',
-        entry: grok,
-      } as const
-    }
-    return undefined
+    const found = [
+      [input.opencode, input.opencode.journal.read(sessionId), 'opencode serve'] as const,
+      [input.codex, input.codex.journal.read(sessionId), 'codex app-server'] as const,
+      [input.grok, input.grok.journal.read(sessionId), 'grok agent stdio'] as const,
+    ].filter((entry) => entry[1] !== undefined)
+    return found
   }
+
 
   return {
     ...runtime,
@@ -178,20 +160,21 @@ export function createDaemonMachineRuntime(input: {
       for (const server of servers) server.reportOomKill(sessionId, scopeUnit)
     },
     async launchServer(driverId, launch) {
+      const existing = journalled(launch.sessionId)
+      if (existing.length > 0) {
+        throw new Error(`session '${launch.sessionId}' already has a persisted server journal`)
+      }
       const selected = serverFor(driverId)
       if (!selected) throw new Error("driver '" + driverId + "' is not wired on this daemon")
       await selected.launch(launch)
     },
     async adoptJournalled(sessionId) {
       const found = journalled(sessionId)
-      if (!found) return { found: false }
-      const handle = await found.runtime.adoptFromJournal(sessionId)
-      return {
-        found: true,
-        what: found.what,
-        workdir: found.entry.workdir,
-        ...(handle ? { handle } : {}),
-      }
+      if (found.length === 0) return { found: false }
+      if (found.length > 1) throw new Error(`session '${sessionId}' has duplicate server journals`)
+      const [runtime, entry, what] = found[0]
+      const handle = await runtime.adoptFromJournal(sessionId)
+      return { found: true, what, workdir: entry.workdir, ...(handle ? { handle } : {}) }
     },
     serverHandleFor(sessionId) {
       for (const server of servers) {
@@ -201,6 +184,8 @@ export function createDaemonMachineRuntime(input: {
       return undefined
     },
     journalledServerProcess(sessionId) {
+      const matches = journalled(sessionId)
+      if (matches.length > 1) throw new Error(`session '${sessionId}' has duplicate server journals`)
       const opencode = input.opencode.journal.read(sessionId)
       if (opencode) {
         return {

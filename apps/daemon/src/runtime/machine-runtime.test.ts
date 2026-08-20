@@ -87,13 +87,14 @@ describe('daemon machine runtime composition', () => {
       grok,
       inventory,
     } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
+    expect(runtime.inventoryScope).toBe('registered-only')
 
     await expect(runtime.inventory()).resolves.toBe(INVENTORY)
     expect(runtime.capabilities('grok', 'grok-acp')).toEqual({ marker: 'grok-acp' })
     expect(runtime.handleFor(SESSION)).toBe(handle)
 
     await runtime.launchServer('grok-acp', {
-      sessionId: SESSION,
+      sessionId: 'new-server-session' as SessionId,
       cwd: '/tmp/grok',
     })
     expect(grok.launch).toHaveBeenCalledOnce()
