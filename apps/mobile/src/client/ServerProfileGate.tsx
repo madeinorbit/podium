@@ -1,16 +1,7 @@
 import { parseServerOrigin, type ServerConfig } from '@podium/client-core/transport'
 import * as Haptics from 'expo-haptics'
 import { useRouter } from 'expo-router'
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -60,34 +51,12 @@ import { clearLocalCredentialSurfaces, preflightNativeOverride } from './overrid
 import { envServer, setActiveServerRuntime } from './trpc'
 import { logout } from './auth'
 import { LaunchReadyView } from './launch-ready'
+import { ServerProfileContext, type ServerProfileContextValue } from './server-profile-context'
 
-interface ServerProfileContextValue {
-  profile: ServerProfile
-  profiles: ServerProfile[]
-  config: ServerConfig
-  bearer: string | null
-  runtimeKey: string
-  isEphemeralOverride: boolean
-  beginAddServer(): void
-  switchProfile(profileId: string): Promise<void>
-  renameProfile(profileId: string, name: string): Promise<void>
-  removeProfile(profileId: string): Promise<void>
-  updateCredential(bearer: string | null): Promise<void>
-  recordUser(userId: string): Promise<void>
-}
-
-const ServerProfileContext = createContext<ServerProfileContextValue | null>(null)
-
-export function useServerProfile(): ServerProfileContextValue {
-  const value = useContext(ServerProfileContext)
-  if (!value) throw new Error('useServerProfile must be used inside ServerProfileGate')
-  return value
-}
-
-/** Composition-root compatibility seam for isolated provider tests. */
-export function useOptionalServerProfile(): ServerProfileContextValue | null {
-  return useContext(ServerProfileContext)
-}
+// The context and its two hooks live in `./server-profile-context`, which does
+// NOT import expo-router, expo-camera or expo-crypto — see the note there.
+// Re-exported so existing importers of `./ServerProfileGate` are unaffected.
+export { useOptionalServerProfile, useServerProfile } from './server-profile-context'
 
 function configFor(origin: string, override: boolean): ServerConfig {
   const parsed = parseServerOrigin(origin)

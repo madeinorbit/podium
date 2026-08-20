@@ -20,6 +20,26 @@ import { sharedVitestConfig } from '../../vitest.config'
  *     what `expo export -p web` builds against), so the alias runs the same
  *     mapping the web build does rather than inventing a test-only stub.
  *
+ *     THE ALIAS ONLY REACHES CODE VITE TRANSFORMS (POD-1429). Third-party React
+ *     Native packages under `node_modules` are externalized as CommonJS and
+ *     `require`d by Node directly, so their own `require('react-native')` is
+ *     resolved by Node — it lands on React Native's Flow source, and the file
+ *     that names the failure is never the one under test: Node reports a bare
+ *     `SyntaxError: Unexpected token 'typeof'` at import, before a single test
+ *     is collected. Node also has no notion of Metro's `.web.js` platform
+ *     suffix, so even a package that ships a DOM implementation loads its
+ *     native one.
+ *
+ *     There are two ways out, and which one is right depends on whether the
+ *     package belongs in the graph at all. A package the app genuinely renders
+ *     comes back INSIDE vite — `server.deps.inline` plus an alias onto its web
+ *     entry, as `react-native-svg` and `lucide-react-native` do below. A package
+ *     that is only there because a leaf imported a composition root to read one
+ *     context should not be in the graph in the first place: the context moves
+ *     to its own module (`./launch-ready`, `./server-profile-context`) and the
+ *     leaf imports that instead. `readiness-gate.test.tsx` needs no stubs at all
+ *     for exactly that reason — if stubs reappear there, the split has regressed.
+ *
  *   `happy-dom` — react-native-web touches `document` at import time.
  *
  *   the `expo-sqlite` alias — it pulls `expo-modules-core`, which reads the

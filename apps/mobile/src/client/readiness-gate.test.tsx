@@ -2,23 +2,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ReadinessGate } from './ReadinessGate'
 
-// ReadinessGate shares its production module graph with the launch and profile
-// composition roots plus the press-feedback primitive. None of those native
-// integrations is under test here, and loading their CommonJS graphs bypasses
-// Vite's react-native-web alias.
-vi.mock('expo-router', () => ({
-  SplashScreen: {
-    preventAutoHideAsync: vi.fn(async () => {}),
-    hideAsync: vi.fn(async () => {}),
-  },
-  useRouter: () => ({ replace: vi.fn() }),
-}))
-vi.mock('expo-haptics', () => ({
-  ImpactFeedbackStyle: { Light: 'light' },
-  impactAsync: vi.fn(async () => {}),
-}))
-vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
-
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
