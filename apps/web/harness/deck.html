@@ -6,7 +6,16 @@
   hand-rolling this file again. Served at /harness/deck.html (vite's root is
   apps/web).
 -->
-<html lang="en">
+<!--
+  THE THEME LIVES ON THE ROOT ELEMENT, and this page did not have it (POD-1452).
+  `index.css` defines every colour token under `[data-theme="podium"]`, which the
+  app's own index.html sets statically — so a harness page without it resolved
+  `--tabstrip`, `--ok` and the rest to nothing: unfilled strips, an uncoloured
+  gauge, and agent rows wrapped to two lines because their grid never applied.
+  A harness whose whole job is measuring geometry may not be missing the tokens
+  the geometry is drawn from. `dark` matches the app's own default.
+-->
+<html lang="en" class="dark" data-theme="podium">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

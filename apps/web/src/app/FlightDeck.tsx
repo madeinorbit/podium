@@ -109,9 +109,21 @@ import { useSessionHovered } from './session-hover'
 import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT } from './shell-state'
 import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
 
+/**
+ * TWO QUESTIONS, NOT ONE SLIDER (POD-1452). `Active` sat between `Full spine`
+ * and `Needs you` as a vaguer version of both — it named no state the column
+ * shows anywhere else, so it meant whatever the reader assumed, and it was the
+ * word that let a finished agent look like live work.
+ *
+ * `Working` is the word the mission chip a few pixels above this bar already
+ * uses (`1 working`) and the one the row's spinner already answers, so the tab
+ * and the count beside it agree by construction. And it no longer contains the
+ * asking agents: busy and stuck-on-you are different facts, and a tab that held
+ * both left `Needs you` looking like it had done nothing.
+ */
 const MODES: Array<{ id: FlightDeckMode; label: string }> = [
   { id: 'full', label: 'Full spine' },
-  { id: 'active', label: 'Active' },
+  { id: 'working', label: 'Working' },
   { id: 'needs-you', label: 'Needs you' },
 ]
 
@@ -397,8 +409,10 @@ const railFor = (tone: RailTone): Rail =>
  * title rather than a broken row.
  */
 
+/** `active` is `working`'s old id (POD-1452), still read so an operator who had
+ *  chosen that view does not silently land back on `Full spine`. */
 const readMode = (raw: string | null): FlightDeckMode =>
-  raw === 'active' || raw === 'needs-you' ? raw : 'full'
+  raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
 const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
 
 /**
@@ -1509,10 +1523,14 @@ const TaskRow = memo(
      * getting to the match. No fill, no outline, no seat, no note, no state
      * word, and (via `deckSessions`) no agents. What survives is the rail, the
      * ref and the title, one tier down: enough to place the match, not enough to
-     * compete with it. `Active` is left alone — everything it keeps is live work
-     * the operator is meant to read.
+     * compete with it.
+     *
+     * `Active` draws context rows the same way now (POD-1452). It used to be
+     * exempt because it matched whole open tasks, so its path rows were live
+     * work in their own right; it matches AGENTS now, and a row on the path to a
+     * working agent is scaffolding exactly as it is under `Needs you`.
      */
-    const context = mode === 'needs-you' && !row.matched
+    const context = mode !== 'full' && !row.matched
     // A PROPOSAL IS A DIFFERENT KIND OF ROW (round 3 §7b): nobody has accepted it,
     // so it holds no seat for an agent and takes the shorter band. Only one with
     // sub-tasks reaches this component — the childless ones leave the tree
@@ -3532,7 +3550,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                       narrowed view says that about a task with a live agent on
                       it. The view's own sentence comes first, and only `full`
                       falls through to the note. */}
-                  {deckViewEmptyLine(mode) ??
+                  {deckViewEmptyLine(mode, rows[0]?.waitingAgentCount ?? 0) ??
                     rootEmptyNote?.text ??
                     'No sessions or sub-tasks are attached.'}
                 </p>

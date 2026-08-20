@@ -86,7 +86,7 @@ const toRailStyle = (rail: Rail) => ({ width: rail.width, backgroundColor: rail.
 
 const MODES: Array<{ id: FlightDeckMode; label: string }> = [
   { id: 'full', label: 'Full' },
-  { id: 'active', label: 'Active' },
+  { id: 'working', label: 'Working' },
   { id: 'needs-you', label: 'Needs you' },
 ]
 
@@ -94,8 +94,10 @@ const MODES: Array<{ id: FlightDeckMode; label: string }> = [
  *  chevron, so "collapse all" must not claim to have folded it either. */
 const hasPayload = flightDeckRowHasPayload
 
+/** `active` is `working`'s old id (POD-1452), still read so an operator who had
+ *  chosen that view does not silently land back on `Full`. */
 const readMode = (raw: string | null): FlightDeckMode =>
-  raw === 'active' || raw === 'needs-you' ? raw : 'full'
+  raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
 const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
 
 export function MissionDeck({
@@ -414,7 +416,7 @@ export function MissionDeck({
           ) : (
             <EmptyState
               title={
-                deckViewEmptyLine(mode) ??
+                deckViewEmptyLine(mode, rootRow?.waitingAgentCount ?? 0) ??
                 rootEmptyNote?.text ??
                 'No sessions or sub-tasks are attached.'
               }
@@ -524,7 +526,7 @@ function SpineRow({
   onOpenSession: (s: SessionMeta) => void
 }) {
   const state = deckIssueState(row.issue, row.sessions, byId)
-  const context = mode === 'needs-you' && !row.matched
+  const context = mode !== 'full' && !row.matched
   const note = context ? null : issueNote(row.issue, byId, row.sessions)
   const bands = folded ? [] : deckSessions(row, mode)
   // The seat is held for work that could be picked up — never under a proposal,

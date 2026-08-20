@@ -150,6 +150,9 @@ const session = (id: string, over: Record<string, unknown> = {}): SessionMeta =>
     ...over,
   }) as unknown as SessionMeta
 
+/** An agent mid-turn — what `Working` asks about, once per agent (POD-1452). */
+const WORKING = { phase: 'working', since: '2026-01-01T00:00:00.000Z' } as const
+
 const deck = (): void => {
   render(
     // ConfirmProvider because the task menu's Archive/Delete now use the
@@ -1360,8 +1363,8 @@ describe('flight deck without a mission', () => {
 /**
  * THE VIEW BAR ACTUALLY NARROWS THE COLUMN (POD-1245).
  *
- * `Active` and `Needs you` both looked broken in the field — an operator with
- * `Active` on was reading a spine of finished and cancelled tasks. Two separate
+ * `Working` and `Needs you` both looked broken in the field — an operator with
+ * that view on was reading a spine of finished and cancelled tasks. Two separate
  * causes, and the tests below hold each at the level it is fixed: the viewmodel
  * decides WHICH rows survive (mission.test.ts), and this file decides what a row
  * that survived only as somebody else's path is allowed to draw.
@@ -1393,7 +1396,7 @@ describe('flight deck view filters (POD-1245)', () => {
     harness.sessions = [session('busy', { issueId: 'mid' }), session('busy2', { issueId: 'mid' })]
   })
 
-  it('drops a finished task whose only agent is parked, in Active', () => {
+  it('drops a finished task whose only agent is parked, in Working', () => {
     harness.issues = [
       issue('root', { title: 'Mission' }),
       issue('parked', {
@@ -1402,10 +1405,18 @@ describe('flight deck view filters (POD-1245)', () => {
         stage: 'done',
         memberSessionIds: ['p'],
       }),
-      issue('running', { parentId: 'root', title: 'Running', stage: 'in_progress' }),
+      issue('running', {
+        parentId: 'root',
+        title: 'Running',
+        stage: 'in_progress',
+        memberSessionIds: ['r'],
+      }),
     ]
-    harness.sessions = [session('p', { issueId: 'parked', status: 'hibernated' })]
-    harness.ui.set('podium.flightDeck.mode', 'active')
+    harness.sessions = [
+      session('p', { issueId: 'parked', status: 'hibernated' }),
+      session('r', { issueId: 'running', agentState: WORKING }),
+    ]
+    harness.ui.set('podium.flightDeck.mode', 'working')
     deck()
     expect(document.querySelector('[data-flight-issue="parked"]')).toBeNull()
     expect(document.querySelector('[data-flight-issue="running"]')).not.toBeNull()
@@ -1436,14 +1447,88 @@ describe('flight deck view filters (POD-1245)', () => {
     expect(band('leaf').className).toContain('bg-tabstrip')
   })
 
-  it('leaves every row a full strip in the other views', () => {
-    for (const mode of ['full', 'active'] as const) {
-      cleanup()
-      harness.ui.set('podium.flightDeck.mode', mode)
-      deck()
-      expect(band('mid').className).toContain('bg-tabstrip')
-      expect(strip('mid').textContent).toContain('busy')
-    }
+  it('leaves every row a full strip in Full spine', () => {
+    harness.ui.set('podium.flightDeck.mode', 'full')
+    deck()
+    expect(band('mid').className).toContain('bg-tabstrip')
+    expect(strip('mid').textContent).toContain('busy')
+  })
+
+  /**
+   * POD-1452. This view was exempt from both rules above, because it matched
+   * whole open TASKS: every row it kept was live work in its own right and its
+   * crew came with it. It matches agents now, so the same fixture reads the same
+   * way here — the row on the path to the working agent is scaffolding, and the
+   * two idle agents on it are not what `Working` means.
+   */
+  it('renders a path-only row as scaffolding in Working too', () => {
+    harness.issues = [
+      issue('root', { title: 'Mission' }),
+      issue('mid', {
+        parentId: 'root',
+        title: 'Finished parent',
+        stage: 'done',
+        memberSessionIds: ['busy', 'busy2'],
+      }),
+      issue('leaf', {
+        parentId: 'mid',
+        title: 'Wants a decision',
+        stage: 'review',
+        memberSessionIds: ['runner'],
+      }),
+    ]
+    harness.sessions = [
+      session('busy', { issueId: 'mid' }),
+      session('busy2', { issueId: 'mid' }),
+      session('runner', { issueId: 'leaf', agentState: WORKING }),
+    ]
+    harness.ui.set('podium.flightDeck.mode', 'working')
+    deck()
+    expect(band('mid').className).toContain('bg-transparent')
+    expect(strip('mid').textContent).not.toContain('busy')
+    expect(band('leaf').className).toContain('bg-tabstrip')
+    expect(document.querySelector('[data-flight-session="runner"]')).not.toBeNull()
+  })
+
+  // The other half: an open task nobody is on is not active work, whatever its
+  // stage says (POD-1452).
+  it('drops an open task with no agent on it, in Working', () => {
+    harness.ui.set('podium.flightDeck.mode', 'working')
+    deck()
+    expect(document.querySelector('[data-flight-issue="leaf"]')).toBeNull()
+    expect(screen.getByText('No agent in this mission is working right now.')).toBeTruthy()
+  })
+
+  /**
+   * THE TWO NARROWED VIEWS ARE DISJOINT (POD-1452) — and this is the shape that
+   * makes the split safe.
+   *
+   * An agent stopped on a question is not working, so it leaves `Working`
+   * entirely. On a mission where that is the ONLY agent, `Working` therefore
+   * draws a blank column — which reads as "nothing here" when the truth is "all
+   * of it is waiting on you". The empty line is the only thing on screen at that
+   * moment, so it is where the count belongs, and it points at the tab that has
+   * them.
+   */
+  it('sends an asking agent to Needs you and counts it on the empty Working column', () => {
+    harness.issues = [
+      issue('root', { title: 'Mission' }),
+      issue('leaf', { parentId: 'root', title: 'Wants a decision', memberSessionIds: ['asker'] }),
+    ]
+    harness.sessions = [
+      session('asker', {
+        issueId: 'leaf',
+        agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' },
+      }),
+    ]
+    harness.ui.set('podium.flightDeck.mode', 'working')
+    deck()
+    expect(document.querySelector('[data-flight-session="asker"]')).toBeNull()
+    expect(screen.getByText('No agent is working — 1 is waiting on you.')).toBeTruthy()
+    cleanup()
+    harness.ui.set('podium.flightDeck.mode', 'needs-you')
+    deck()
+    expect(document.querySelector('[data-flight-session="asker"]')).not.toBeNull()
   })
 
   /**
@@ -1470,7 +1555,7 @@ describe('flight deck view filters (POD-1245)', () => {
       harness.ui.set('podium.flightDeck.mode', 'needs-you')
       deck()
       expect(document.querySelector('[data-flight-session="idle"]')).toBeNull()
-      expect(screen.getByText('Nothing in this mission is asking for you.')).toBeTruthy()
+      expect(screen.getByText('No agent in this mission is asking for you.')).toBeTruthy()
       // The old line claimed an unstaffed mission, about one with a live agent.
       expect(screen.queryByText('No sessions or sub-tasks are attached.')).toBeNull()
     })
