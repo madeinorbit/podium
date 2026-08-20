@@ -169,19 +169,22 @@ export class RuntimeEventGate {
   replayBoardProjection(): Promise<void> {
     this.projectionRequested = true
     if (this.projectionDrain) return this.projectionDrain
-    const run = this.runBoardProjection()
-    const tracked = run.finally(() => {
-      if (this.projectionDrain === tracked) this.projectionDrain = undefined
-    })
-    this.projectionDrain = tracked
-    return tracked
+    const drain = this.runBoardProjection()
+    this.projectionDrain = drain
+    return drain
   }
 
   private async runBoardProjection(): Promise<void> {
-    do {
-      this.projectionRequested = false
-      await this.drainBoardProjection()
-    } while (this.projectionRequested)
+    try {
+      do {
+        this.projectionRequested = false
+        await this.drainBoardProjection()
+      } while (this.projectionRequested)
+    } finally {
+      // Clear before this runner resolves: a later microtask must start a new
+      // drain rather than observe a completed promise during teardown.
+      this.projectionDrain = undefined
+    }
   }
 
   private scheduleBoardProjection(): void {

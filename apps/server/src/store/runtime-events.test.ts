@@ -1,7 +1,13 @@
+import { asSessionId } from '@podium/model'
 import type { RuntimeEvent } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import {
+  RuntimeEventGate,
+  type RuntimeEventGatePorts,
+} from '../modules/sessions/runtime-event-gate'
 import { SessionRegistry } from '../relay'
 import { SessionStore } from '../store'
+import type { RuntimeEventLogRecord } from './events'
 
 function stateEvent(input: {
   at: string
@@ -440,5 +446,58 @@ describe('durable runtime observation gate', () => {
 
     restarted.dispose()
     store.close()
+  })
+
+  it('starts a new drain for a request arriving during prior drain teardown', async () => {
+    const sessionId = asSessionId('teardown-session')
+    const event = stateEvent({
+      at: '2026-08-20T00:00:00.000Z',
+      seq: 1,
+      observerGeneration: 1,
+    })
+    let cursor = 0
+    let records: RuntimeEventLogRecord[] = []
+    let armed = true
+    let lateReplay: Promise<void> | undefined
+    let gate: RuntimeEventGate
+    const events = {
+      appendEvent: () => 1,
+      announceEvent: () => {},
+      listRuntimeEvents: () => [],
+      runtimeEventCheckpoint: () => null,
+      saveRuntimeEventCheckpoint: () => {},
+      runtimeEventProjectionCursor: () => cursor,
+      saveRuntimeEventProjectionCursor: (_projector: string, eventId: number) => {
+        cursor = eventId
+      },
+      listRuntimeEventsAfter: (afterId: number) => {
+        if (armed) {
+          armed = false
+          queueMicrotask(() =>
+            queueMicrotask(() => {
+              records = [{ id: 1, sessionId, event }]
+              lateReplay = gate.replayBoardProjection()
+            }),
+          )
+        }
+        return records.filter((record) => record.id > afterId)
+      },
+    } as unknown as RuntimeEventGatePorts['events']
+    gate = new RuntimeEventGate({
+      events,
+      session: () => undefined,
+      persist: () => {},
+      board: () => {},
+      now: () => 0,
+    })
+
+    await gate.replayBoardProjection()
+    await Promise.resolve()
+    await Promise.resolve()
+    if (!lateReplay) throw new Error('late replay was not scheduled')
+    await lateReplay
+
+    expect(cursor).toBe(1)
+    expect(records.filter((record) => record.id > cursor)).toEqual([])
   })
 })
