@@ -25,9 +25,8 @@ import { useReplicaIssues, useStoreSelector } from './store'
  *     it at window scope — the sidebar shows only rows you can see),
  *   · which task the shell is pointed at, which is the one fact that says what
  *     this WINDOW is about,
- *   · the fleet's API-equivalent token burn and confirmed-merge velocity — two
- *     rolling rates whose traces make sudden changes visible without opening
- *     analytics,
+ *   · the fleet's recent API-equivalent token burn, whose trace makes sudden
+ *     changes visible without opening analytics,
  *   · whether the link is healthy, and only while it is not.
  *
  * The "⌘K commands" hint is gone with it. It failed the same test: a keycap is

@@ -1683,9 +1683,6 @@ html[data-density="balanced"] .header-quota-pools {
 .status-strip-metric[data-tone="burn"] {
   --metric-color: var(--claude);
 }
-.status-strip-metric[data-tone="ship"] {
-  --metric-color: oklch(0.68 0.16 153);
-}
 .status-strip-metric-value {
   color: var(--metric-color);
 }
