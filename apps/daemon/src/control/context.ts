@@ -104,6 +104,14 @@ export interface DaemonContext {
   nativeClientRequests?: Set<SessionId>
   /** Per-session serialization for attach/release transitions. */
   nativeClientTransitions?: Map<SessionId, Promise<void>>
+  /**
+   * Native requests a transient attach refusal left owing, and how many attempts
+   * each has spent (POD-2489). An entry means "the user still wants Native here
+   * and the session said not right now" — the next attachable `agentState` frame
+   * re-runs the reconcile. Absent for every session that attached, never asked,
+   * or was refused for a standing reason.
+   */
+  nativeClientRetries?: Map<SessionId, number>
   /** Agent-state trackers, transcript tails, per-harness observers. */
   observers: SessionObservers
   /** The one per-machine runtime. Family registries are private mechanisms

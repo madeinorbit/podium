@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import type { RefusalReason } from '@podium/agent-runtime'
 import {
   bindHarnessLaunch,
   agentStateProviderFor,
@@ -11,7 +12,13 @@ import {
   manifestFor,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import { type AgentKind, asMachineId, type Geometry, type SessionId } from '@podium/model'
+import {
+  type AgentKind,
+  type AgentRuntimeState,
+  asMachineId,
+  type Geometry,
+  type SessionId,
+} from '@podium/model'
 import {
   type AgentSession,
   abducoHasSession,
@@ -59,6 +66,71 @@ const log = createLogger('daemon:session')
 
 const nativeClientHolder = (sessionId: SessionId): string => `podium-native:${sessionId}`
 
+/**
+ * THE REFUSALS THAT CLEAR ON THEIR OWN (POD-2489).
+ *
+ * A take-over attach is a single-writer handoff, and codex refuses it outright
+ * while a turn is open or an ask is unanswered: `busy` and `needs_user` are the
+ * driver saying NOT RIGHT NOW, not NOT EVER. The reconcile below used to treat
+ * every refusal alike and return, and nothing rescheduled it — so a user who
+ * opened Native mid-turn had the request dropped on the floor, and only toggling
+ * to Chat and back made the view ask again.
+ *
+ * EVERY OTHER REFUSAL STAYS TERMINAL, and the distinction is not a severity
+ * ranking. `unsupported` and `not_running` are standing facts about this machine
+ * and this session; `session_ended` is final; `lease_held` names SOMEBODY ELSE as
+ * the one human-controller, and retrying against it is precisely the interleaving
+ * the lease exists to prevent. Only a refusal the session itself will stop
+ * issuing is worth re-arming.
+ */
+const TRANSIENT_ATTACH_REFUSALS: ReadonlySet<RefusalReason> = new Set(['busy', 'needs_user'])
+
+/**
+ * How many transient refusals one Native request may spend.
+ *
+ * The retry is armed by a STATE CHANGE, not a timer, so this bound is not about
+ * pacing — it is what stops a session flapping between idle and working from
+ * re-attempting the handoff forever. Leaving Native clears the count (see the
+ * release arm below), so the user's own toggle is always a fresh start.
+ */
+const NATIVE_ATTACH_RETRY_LIMIT = 3
+
+/**
+ * A REFUSED NATIVE REQUEST, RE-ARMED BY THE SESSION'S OWN STATE (POD-2489).
+ *
+ * Called for every `agentState` frame this daemon emits, from the outbound sink
+ * in `host-runtime.ts` — the same tap the terminal driver reads, and for the same
+ * reason: the frame is already computed and already carries the fact, so a second
+ * observer channel would only be a second thing to keep in sync. A session with
+ * no refused request costs one map lookup here.
+ *
+ * WHY THE PHASE IS GATED. The retry budget is small on purpose, and `working`,
+ * `compacting` and `needs_user` are the refusal restated — spending an attempt on
+ * one would burn the budget before the session ever reached the phase that clears
+ * it. `ended` cannot be honoured at all, so the request is dropped rather than
+ * spending an attempt proving it. `errored` is live and idle-in-fact: a turn that
+ * failed is a turn that is over, and the person watching that failure is exactly
+ * who wants the native TUI.
+ *
+ * THE RETRY GOES THROUGH THE RECONCILE, never around it — so it re-reads the
+ * request set (the user may have left Native since), takes the lease through the
+ * same `attach` call, and serializes against any in-flight transition.
+ */
+export function nativeClientStateObserved(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  state: AgentRuntimeState,
+): void {
+  const retries = ctx.nativeClientRetries
+  if (!retries?.has(sessionId)) return
+  if (state.phase === 'ended') {
+    retries.delete(sessionId)
+    return
+  }
+  if (state.phase !== 'idle' && state.phase !== 'errored') return
+  reconcileNativeClientTerminal(ctx, sessionId)
+}
+
 /** Reconcile one server-family session's on-demand original harness TUI. */
 export function reconcileNativeClientTerminal(ctx: DaemonContext, sessionId: SessionId): void {
   const requests = (ctx.nativeClientRequests ??= new Set<SessionId>())
@@ -76,18 +148,35 @@ export function reconcileNativeClientTerminal(ctx: DaemonContext, sessionId: Ses
           holder: nativeClientHolder(sessionId),
         })
         if ('reason' in result) {
+          const retries = (ctx.nativeClientRetries ??= new Map<SessionId, number>())
+          const spent = (retries.get(sessionId) ?? 0) + 1
+          const rearmed =
+            TRANSIENT_ATTACH_REFUSALS.has(result.reason) && spent <= NATIVE_ATTACH_RETRY_LIMIT
+          if (rearmed) retries.set(sessionId, spent)
+          else retries.delete(sessionId)
           log.warn('could not attach the native client terminal', {
             sessionId,
             reason: result.reason,
             detail: result.detail,
+            // The request is still live: the session's next attachable state
+            // change re-runs this reconcile. `false` is the old behaviour and
+            // now means what it says — nobody is coming back for this one.
+            rearmed,
+            ...(rearmed ? { attempt: spent } : {}),
           })
           return
         }
+        // Attached: the request is honoured, so nothing is owed a retry.
+        ctx.nativeClientRetries?.delete(sessionId)
         const pending = ctx.pendingResizes.get(sessionId)
         if (pending && ctx.clientTerminals?.resize(sessionId, pending.cols, pending.rows)) {
           ctx.pendingResizes.delete(sessionId)
         }
       } else {
+        // LEAVING NATIVE RETIRES A PENDING RETRY. The bounded re-arm above exists
+        // to honour a request the user still has open; firing it after they went
+        // back to Chat would take the lease behind their back.
+        ctx.nativeClientRetries?.delete(sessionId)
         // The stock TUI owns a direct WebSocket to the Codex Unix listener.
         // Releasing the lease must revoke that writer before another client can
         // take control; leaving it warm would let queued keystrokes bypass the
@@ -1337,6 +1426,9 @@ export function stopSessionProcess(
   ctx.agentRuntime?.clearTerminal(msg.sessionId)
   ctx.pendingResizes.delete(msg.sessionId)
   ctx.nativeClientRequests?.delete(msg.sessionId)
+  // The request is gone, so the retry it was owed is too — there is no session
+  // left to become idle, and a stale entry would outlive the id.
+  ctx.nativeClientRetries?.delete(msg.sessionId)
   void ctx.clientTerminals?.close(msg.sessionId)
   if (session) {
     session.dispose()
