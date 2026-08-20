@@ -130,12 +130,19 @@ upgrades a row already stamped.
 Attachment-first reclaim under memory pressure already existed (spec §5); what it
 lacked was evidence about *whose* pressure it was. Host-wide `MemAvailable` moves
 identically whether the memory went to agent sessions or to a browser someone left
-open, and only one of those is fixed by parking a session. The daemon now reports the
-sessions slice's `memory.current` against its aggregate `MemoryHigh`
-(`HostMetricsWire.sessionsMemory`), and the server treats "the sessions are over
-their own budget" as a trigger alongside the host-wide one. Attach scopes are named
-as siblings (`<label>-attach.scope`) and reclaimed before session scopes on every
-teardown path.
+open, and only one of those is fixed by parking a session.
+
+The signal is stall time, not bytes. The obvious version of this — "the sessions
+slice is at or over its `MemoryHigh`" — is wrong in a way worth writing down:
+`memory.current` counts reclaimable page cache and the kernel only reclaims *at*
+the high line, so a build-heavy instance settles pinned at its watermark with
+memory genuinely free. That test would be chronically true and would park a
+session every cooldown on a host under no pressure at all. PSI's `some avg10`
+for the slice — the share of the last ten seconds in which a session task
+actually waited for memory — says what the bytes cannot. The daemon reports it
+with the two byte counts as context (`HostMetricsWire.sessionsMemory`), and the
+server treats sustained stalling as a trigger alongside the host-wide one.
+Client terminals carry the attach budget and are still reclaimed first.
 
 ## Where the flag line falls
 

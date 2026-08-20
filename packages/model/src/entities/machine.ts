@@ -260,7 +260,24 @@ export const HostMetricsWire = z.object({
    * needs, since the machine picks which session to give back. Optional for
    * mixed-version fleets and for every host without cgroups.
    */
-  sessionsMemory: z.object({ currentBytes: byteCount, highBytes: byteCount }).optional(),
+  sessionsMemory: z
+    .object({
+      currentBytes: byteCount,
+      highBytes: byteCount,
+      /**
+       * PSI `some avg10` for the slice: the share of the last ten seconds in
+       * which at least one session task STALLED waiting for memory.
+       *
+       * THIS is the pressure signal; the two byte counts are context. cgroup
+       * `memory.current` counts reclaimable page cache and the kernel only
+       * reclaims at the high line, so a build-heavy slice sits pinned at its
+       * watermark with memory genuinely free — acting on "current >= high"
+       * would park sessions on a host under no pressure at all. Optional: a
+       * kernel without PSI reports nothing rather than a zero.
+       */
+      stalledPct: z.number().nonnegative().optional(),
+    })
+    .optional(),
 })
 export type HostMetricsWire = z.infer<typeof HostMetricsWire>
 

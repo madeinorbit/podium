@@ -42,6 +42,27 @@ describe('scope budgets', () => {
     expect(attach.tasksMax).toBe(256)
   })
 
+  it('never lets a session knob raise or lift an attach budget', () => {
+    // Clamping the max alone left two holes: a high band taken from the session
+    // knob can sit ABOVE the attach hard cap (a warning line the scope can
+    // never reach), and `infinity` parses to "unbounded", which passed straight
+    // through and left a client terminal with no limit at all.
+    const attach = resolveScopeBudget(
+      'attach',
+      { PODIUM_SESSION_MEMORY_HIGH: '4G', PODIUM_SESSION_MEMORY_MAX: 'infinity' },
+      HOST,
+    )
+    expect(attach.memoryMaxBytes).toBe(1 * GIB)
+    expect(attach.memoryHighBytes as number).toBeLessThanOrEqual(attach.memoryMaxBytes as number)
+    expect(resolveScopeBudget('attach', { PODIUM_SESSION_TASKS_MAX: 'off' }, HOST).tasksMax).toBe(
+      256,
+    )
+    // Lowering still works: an operator shrinking sessions shrinks terminals.
+    expect(
+      resolveScopeBudget('attach', { PODIUM_SESSION_MEMORY_MAX: '256M' }, HOST).memoryMaxBytes,
+    ).toBe(256 * 1024 ** 2)
+  })
+
   it('lets an operator raise, lower, or lift each limit', () => {
     const raised = resolveScopeBudget(
       'session',

@@ -108,6 +108,16 @@ export interface HostsDeps {
  * memory/load/count auto-hibernate sweep, and the memory-breakdown daemon RPC
  * (issue #13 Phase 2 — peeled off SessionRegistry).
  */
+/**
+ * How much stall time makes the sessions slice "the pressure" (POD-2413).
+ *
+ * PSI `some avg10` in percent. Well clear of the noise a healthy build makes,
+ * and well under the 60% systemd-oomd defaults to before it KILLS — the action
+ * here is reclaiming a warm terminal or parking one idle session, so it can
+ * afford to be more eager than that and still not be trigger-happy.
+ */
+const SESSIONS_STALL_PCT = 25
+
 export class HostsService {
   // Latest health sample per daemon host, keyed by machineId — each connected
   // machine reports its own sample, scoped to it so a detach drops only its row.
@@ -194,23 +204,27 @@ export class HostsService {
      * `usedPct` is the whole machine, so it fires the same way whether the
      * memory went to agent sessions or to a browser someone left open — and
      * only in the first case does parking a session help. The sessions slice
-     * carries an aggregate `MemoryHigh` precisely so this question has an
-     * answer: at or over it, the sessions ARE the pressure, whatever the rest
-     * of the host is doing. Reported only by daemons that have cgroups and have
-     * scoped at least one session; absent leaves the host-wide trigger exactly
-     * as it was.
+     * answers whose pressure it is.
+     *
+     * THE SIGNAL IS STALL TIME, NOT BYTES. The slice's `memory.current` counts
+     * reclaimable page cache and the kernel only reclaims at the `MemoryHigh`
+     * line, so a build-heavy instance sits pinned at its watermark with memory
+     * genuinely free; "over its budget" would then be chronically true and
+     * would park a session every cooldown on a host under no pressure at all.
+     * PSI's `some avg10` is the share of the last ten seconds in which a
+     * session task actually WAITED for memory, which is the thing worth acting
+     * on. Reported only by daemons with cgroups and PSI; absent leaves the
+     * host-wide trigger exactly as it was.
      *
      * An OR, not a replacement: a host genuinely out of memory still reclaims
-     * even when its sessions are inside their budget, because the sessions are
-     * what this server can give back either way.
+     * even when its sessions are not stalling, because the sessions are what
+     * this server can give back either way.
      */
     const sessions = sample.sessionsMemory
-    const sessionsOverBudget =
-      sessions !== undefined &&
-      sessions.highBytes > 0 &&
-      sessions.currentBytes >= sessions.highBytes
+    const sessionsStalling =
+      sessions?.stalledPct !== undefined && sessions.stalledPct >= SESSIONS_STALL_PCT
     const memoryReady =
-      ((usedPct !== undefined && usedPct >= cfg.memoryPct) || sessionsOverBudget) &&
+      ((usedPct !== undefined && usedPct >= cfg.memoryPct) || sessionsStalling) &&
       now - (this.lastAutoHibernateMsByMachine.get(machineId) ?? 0) >= MEMORY_HIBERNATE_COOLDOWN_MS
 
     if (memoryReady) {
@@ -249,7 +263,7 @@ export class HostsService {
           hostname: sample.hostname,
           usedPct,
           thresholdPct: cfg.memoryPct,
-          sessionsOverBudget,
+          sessionsStallPct: sessions?.stalledPct,
           attachments: reclaimable,
         })
       } else {

@@ -50,6 +50,12 @@ export interface ScopeResources {
    *  where there is no cgroup. */
   memoryBytes?: number
   peakMemoryBytes?: number
+  /** Swap this tree is using, and the ceiling on it. Reported beside the memory
+   *  pair because a budget whose swap half is invisible reads as half the real
+   *  bound — a session capped at 6 GiB of memory and 6 GiB of swap can hold
+   *  twice what `memoryMaxBytes` alone suggests. */
+  swapBytes?: number
+  swapMaxBytes?: number
   /** Processes/threads in the tree, against the scope's `TasksMax`. */
   tasks?: number
   tasksMax?: number
@@ -70,7 +76,13 @@ export interface SessionHealth {
   alive: boolean
   memoryBytes?: number
   peakMemoryBytes?: number
+  /** Swap in use, and its ceiling — the other half of the memory budget. */
+  swapBytes?: number
+  swapMaxBytes?: number
   tasks?: number
+  /** The task cap this session is counted against. A count without its scale is
+   *  the same "number with no scale" this surface exists to stop reporting. */
+  tasksMax?: number
   /** The memory budget in force for this session, where one is. */
   memoryMaxBytes?: number
   scopeUnit?: string

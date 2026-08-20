@@ -42,6 +42,9 @@
  */
 
 import { totalmem } from 'node:os'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('pty:scope')
 
 /** What a scope holds: an agent's whole process tree, or one attached TUI. */
 export type ScopeRole = 'session' | 'attach'
@@ -106,11 +109,18 @@ export function parseByteSize(value: string | undefined): number | null | undefi
   const lowered = raw.toLowerCase()
   if (lowered === 'infinity' || lowered === 'off' || lowered === 'none') return null
   const match = /^(\d+(?:\.\d+)?)\s*([kmgt]i?b?)?$/.exec(lowered)
-  if (!match?.[1]) return undefined
   const scale: Record<string, number> = { k: 1024, m: 1024 ** 2, g: 1024 ** 3, t: 1024 ** 4 }
-  const unit = match[2]?.[0]
-  const bytes = Number.parseFloat(match[1]) * (unit ? (scale[unit] ?? 1) : 1)
-  return Number.isFinite(bytes) && bytes > 0 ? Math.floor(bytes) : undefined
+  const unit = match?.[2]?.[0]
+  const bytes = match?.[1]
+    ? Number.parseFloat(match[1]) * (unit ? (scale[unit] ?? 1) : 1)
+    : Number.NaN
+  if (Number.isFinite(bytes) && bytes > 0) return Math.floor(bytes)
+  // SAY SO. A typo'd override is indistinguishable from "not configured" and
+  // silently restores the derived default — so the operator who raised the cap
+  // for a 40 GiB build gets the 16 GiB ceiling and an OOM kill with no evidence
+  // that their setting was ignored.
+  log.warn('ignoring an unparseable size override; using the derived default', { value: raw })
+  return undefined
 }
 
 /** Same three-way answer as {@link parseByteSize}, for task counts. */
@@ -119,7 +129,9 @@ export function parseTaskCount(value: string | undefined): number | null | undef
   if (!raw) return undefined
   if (raw === 'infinity' || raw === 'off' || raw === 'none') return null
   const parsed = Number.parseInt(raw, 10)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+  if (Number.isInteger(parsed) && parsed > 0) return parsed
+  log.warn('ignoring an unparseable task-count override; using the derived default', { value: raw })
+  return undefined
 }
 
 function clamp(value: number, low: number, high: number): number {
@@ -150,35 +162,56 @@ export function resolveScopeBudget(
           SESSION_MEMORY_FLOOR,
           SESSION_MEMORY_CEILING,
         )
+  /**
+   * A SESSION KNOB CAN ONLY EVER LOWER AN ATTACH BUDGET — including `infinity`.
+   *
+   * Clamping the max alone was not enough. `…_MEMORY_MAX=infinity` parses to
+   * `null`, and letting that through left a client terminal completely
+   * unbounded — the opposite of what the clamp beside it claimed. The high band
+   * has the same hazard from the other side: one taken from the session knob
+   * can sit ABOVE the attach hard cap, which is a warning line the scope can
+   * never cross before the kernel kills it.
+   */
+  const clampToAttach = (configured: number | null | undefined, derived: number): number =>
+    configured == null ? derived : Math.min(derived, configured)
+
   const configuredMax = parseByteSize(env.PODIUM_SESSION_MEMORY_MAX)
   const memoryMaxBytes =
-    configuredMax === null
-      ? undefined
-      : role === 'attach'
-        ? // An attach scope is never sized by the session knob: it hosts a
-          // terminal client, and inheriting a session's several gigabytes would
-          // defeat the whole point of reclaiming it first.
-          Math.min(derivedMax, configuredMax ?? derivedMax)
+    role === 'attach'
+      ? clampToAttach(configuredMax, derivedMax)
+      : configuredMax === null
+        ? undefined
         : (configuredMax ?? derivedMax)
 
+  const derivedHigh =
+    memoryMaxBytes === undefined ? undefined : Math.floor(memoryMaxBytes * HIGH_BAND)
   const configuredHigh = parseByteSize(env.PODIUM_SESSION_MEMORY_HIGH)
   const memoryHighBytes =
-    configuredHigh === null
-      ? undefined
-      : (configuredHigh ??
-        (memoryMaxBytes === undefined ? undefined : Math.floor(memoryMaxBytes * HIGH_BAND)))
+    role === 'attach'
+      ? derivedHigh === undefined
+        ? undefined
+        : clampToAttach(configuredHigh, derivedHigh)
+      : configuredHigh === null
+        ? undefined
+        : (configuredHigh ?? derivedHigh)
 
   const configuredSwap = parseByteSize(env.PODIUM_SESSION_MEMORY_SWAP_MAX)
   const memorySwapMaxBytes =
-    configuredSwap === null ? undefined : (configuredSwap ?? memoryMaxBytes)
+    role === 'attach'
+      ? memoryMaxBytes === undefined
+        ? undefined
+        : clampToAttach(configuredSwap, memoryMaxBytes)
+      : configuredSwap === null
+        ? undefined
+        : (configuredSwap ?? memoryMaxBytes)
 
   const configuredTasks = parseTaskCount(env.PODIUM_SESSION_TASKS_MAX)
   const derivedTasks = role === 'attach' ? ATTACH_TASKS_MAX : SESSION_TASKS_MAX
   const tasksMax =
-    configuredTasks === null
-      ? undefined
-      : role === 'attach'
-        ? Math.min(derivedTasks, configuredTasks ?? derivedTasks)
+    role === 'attach'
+      ? clampToAttach(configuredTasks, derivedTasks)
+      : configuredTasks === null
+        ? undefined
         : (configuredTasks ?? derivedTasks)
 
   return {

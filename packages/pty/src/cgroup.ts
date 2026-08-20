@@ -53,6 +53,10 @@ export interface CgroupSample {
   memoryBytes?: number
   peakMemoryBytes?: number
   swapBytes?: number
+  /** `memory.swap.max`. Reported beside the memory ceiling because a budget
+   *  whose swap half is invisible reads as half the real bound — the exact trap
+   *  `MemorySwapMax` exists to close. */
+  swapMaxBytes?: number
   memoryHighBytes?: number
   memoryMaxBytes?: number
   tasks?: number
@@ -153,6 +157,7 @@ export function readCgroupSample(path: string): CgroupSample | undefined {
   const memoryBytes = readNumber(`${path}/memory.current`)
   const peakMemoryBytes = readNumber(`${path}/memory.peak`)
   const swapBytes = readNumber(`${path}/memory.swap.current`)
+  const swapMaxBytes = readNumber(`${path}/memory.swap.max`)
   const memoryHighBytes = readNumber(`${path}/memory.high`)
   const memoryMaxBytes = readNumber(`${path}/memory.max`)
   const tasks = readNumber(`${path}/pids.current`)
@@ -163,6 +168,7 @@ export function readCgroupSample(path: string): CgroupSample | undefined {
     ...(memoryBytes !== undefined ? { memoryBytes } : {}),
     ...(peakMemoryBytes !== undefined ? { peakMemoryBytes } : {}),
     ...(swapBytes !== undefined ? { swapBytes } : {}),
+    ...(swapMaxBytes !== undefined ? { swapMaxBytes } : {}),
     ...(memoryHighBytes !== undefined ? { memoryHighBytes } : {}),
     ...(memoryMaxBytes !== undefined ? { memoryMaxBytes } : {}),
     ...(tasks !== undefined ? { tasks } : {}),
@@ -252,4 +258,42 @@ export function sessionScopeCgroupPath(
     `${base}/${unit}`,
   ]
   return candidates.find((path) => existsSync(path))
+}
+
+/**
+ * Parse a cgroup PSI file (`memory.pressure`) into its `some`/`full` averages.
+ *
+ * PSI IS THE ONLY CACHE-FREE PRESSURE SIGNAL A CGROUP OFFERS. `memory.current`
+ * counts reclaimable page cache, and the kernel only reclaims cache AT the
+ * `memory.high` line — so on any build-heavy host a slice settles pinned at its
+ * high watermark with plenty of memory genuinely free, and "current >= high"
+ * becomes chronically true while nothing is actually short of memory. `some
+ * avg10` instead measures the share of the last ten seconds in which at least
+ * one task STALLED waiting for memory, which is the thing worth acting on.
+ *
+ * `undefined` where the kernel was built without PSI: absent is honest, and a
+ * zero would read as "measured, and there is no pressure".
+ */
+export function parseCgroupPressure(
+  text: string,
+): { some10?: number; full10?: number } | undefined {
+  const out: { some10?: number; full10?: number } = {}
+  for (const line of text.split('\n')) {
+    const match = /^(some|full)\s+avg10=([\d.]+)/.exec(line.trim())
+    if (!match?.[2]) continue
+    const value = Number.parseFloat(match[2])
+    if (!Number.isFinite(value)) continue
+    if (match[1] === 'some') out.some10 = value
+    else out.full10 = value
+  }
+  return out.some10 === undefined && out.full10 === undefined ? undefined : out
+}
+
+/** Read a cgroup's memory PSI, or `undefined` when the kernel has none. */
+export function readCgroupPressure(path: string): { some10?: number; full10?: number } | undefined {
+  try {
+    return parseCgroupPressure(readFileSync(`${path}/memory.pressure`, 'utf8'))
+  } catch {
+    return undefined
+  }
 }

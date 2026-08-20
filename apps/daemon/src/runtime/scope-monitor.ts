@@ -40,7 +40,9 @@ import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import {
   type CgroupSample,
+  cgroupPathForPid,
   cgroupRoot,
+  readCgroupPressure,
   readCgroupSample,
   sessionScopeCgroupPath,
   sliceChainPath,
@@ -85,14 +87,23 @@ export interface ScopeMonitor {
   resources(subject: ScopeMonitorSubject): ScopeResources | undefined
   /**
    * What every session on this instance is using, against the aggregate
-   * throttle their slice carries.
+   * throttle their slice carries — plus how much the kernel is actually making
+   * them wait for it.
    *
    * ATTRIBUTABLE PRESSURE, which host-wide `MemAvailable` is not: a browser and
    * a fleet of runaway agents move the host number identically, and only one of
-   * them is fixed by parking a session. `undefined` where there is no slice to
-   * read — no cgroups, or no session has ever been scoped on this machine.
+   * them is fixed by parking a session.
+   *
+   * `stalledPct` IS THE SIGNAL, and the two byte counts beside it are context.
+   * `memory.current` counts reclaimable page cache and the kernel only reclaims
+   * at the high line, so a build-heavy slice sits pinned at its watermark with
+   * memory genuinely free — "current >= high" would be chronically true and
+   * would park sessions on a host under no pressure at all. PSI's `some avg10`
+   * measures the share of the last ten seconds in which a task actually stalled
+   * on memory. `undefined` where there is no slice to read — no cgroups, or no
+   * session has ever been scoped on this machine.
    */
-  sessionsMemory(): { currentBytes: number; highBytes: number } | undefined
+  sessionsMemory(): { currentBytes: number; highBytes: number; stalledPct?: number } | undefined
   /** One sampling pass. Exposed for tests and for callers that want a reading
    *  right now (the reclaim policy) rather than at the next tick. */
   poll(): void
@@ -104,6 +115,8 @@ interface Tracked {
   path?: string
   sample?: CgroupSample
   at: number
+  /** The cgroup's creation stamp, so a re-created scope is recognised. */
+  createdAtMs?: number
   /** Kills that predate this observer — see the baseline note in the header. */
   baseline?: number
   reported: number
@@ -136,6 +149,22 @@ export function createScopeMonitor(deps: ScopeMonitorDeps): ScopeMonitor {
     const currentUid = uid()
     if (!subject.scopeUnit || currentUid === undefined) return undefined
     if (state.path) return state.path
+    /**
+     * THE PID IS AUTHORITATIVE WHERE IT IS IN THE SCOPE, AND ONLY THERE.
+     *
+     * `/proc/<pid>/cgroup` names a process's cgroup exactly, with no guessing
+     * about where the user manager put a slice — but not every subject's pid is
+     * INSIDE the session's scope: the terminal family reports the daemon's own
+     * `abduco -a` client, which lives in the DAEMON's cgroup, and trusting that
+     * would bill the daemon's memory (and its OOM history) to the session. The
+     * answer is self-validating: use the pid's cgroup only when it is this
+     * session's scope, and otherwise fall through to the derived candidates.
+     */
+    const byPid = subject.pid === undefined ? undefined : cgroupPathForPid(subject.pid)
+    if (byPid?.endsWith(`/${subject.scopeUnit}`)) {
+      state.path = byPid
+      return byPid
+    }
     const path = sessionScopeCgroupPath(subject.scopeUnit, { uid: currentUid, slice })
     if (path) state.path = path
     return path
@@ -150,12 +179,33 @@ export function createScopeMonitor(deps: ScopeMonitorDeps): ScopeMonitor {
       // the remembered path so the next look re-derives it.
       state.path = undefined
     }
-    state.sample = read
-    state.at = now()
     if (read) {
+      /**
+       * A NEW CGROUP RESTARTS THE COUNTER, SO IT MUST RESTART OUR BOOKKEEPING.
+       *
+       * `oom_kill` is cumulative for the life of ONE cgroup. A session that
+       * respawns under the same durable label gets the same unit name and a
+       * BRAND NEW cgroup counting from zero — so a baseline (or a reported
+       * count) carried over from the previous incarnation swallows exactly that
+       * many kills in the new one. Two independent signals catch it: the
+       * creation stamp changing, and the counter going backwards.
+       */
+      const reborn =
+        (read.createdAtMs !== undefined &&
+          state.createdAtMs !== undefined &&
+          read.createdAtMs !== state.createdAtMs) ||
+        read.oomKills < state.reported ||
+        (state.baseline !== undefined && read.oomKills < state.baseline)
+      if (reborn) {
+        state.baseline = undefined
+        state.reported = 0
+      }
+      state.createdAtMs = read.createdAtMs
       state.baseline ??=
         read.createdAtMs !== undefined && read.createdAtMs < observingSince ? read.oomKills : 0
     }
+    state.sample = read
+    state.at = now()
     return read
   }
 
@@ -178,6 +228,8 @@ export function createScopeMonitor(deps: ScopeMonitorDeps): ScopeMonitor {
       ...(cgroup?.peakMemoryBytes !== undefined ? { peakMemoryBytes: cgroup.peakMemoryBytes } : {}),
       ...(cgroup?.tasks !== undefined ? { tasks: cgroup.tasks } : {}),
       ...(cgroup?.tasksMax !== undefined ? { tasksMax: cgroup.tasksMax } : {}),
+      ...(cgroup?.swapBytes !== undefined ? { swapBytes: cgroup.swapBytes } : {}),
+      ...(cgroup?.swapMaxBytes !== undefined ? { swapMaxBytes: cgroup.swapMaxBytes } : {}),
       ...(cgroup?.memoryHighBytes !== undefined ? { memoryHighBytes: cgroup.memoryHighBytes } : {}),
       ...(cgroup?.memoryMaxBytes !== undefined ? { memoryMaxBytes: cgroup.memoryMaxBytes } : {}),
       // A cgroup answers the counter; without one the honest answer is still 0,
@@ -229,7 +281,14 @@ export function createScopeMonitor(deps: ScopeMonitorDeps): ScopeMonitor {
       if (sample?.memoryBytes === undefined || sample.memoryHighBytes === undefined) {
         return undefined
       }
-      return { currentBytes: sample.memoryBytes, highBytes: sample.memoryHighBytes }
+      const stalled = readCgroupPressure(path)?.some10
+      return {
+        currentBytes: sample.memoryBytes,
+        highBytes: sample.memoryHighBytes,
+        // Absent on a kernel without PSI, and absent is honest: a zero would
+        // read as "measured, and nothing is stalling".
+        ...(stalled !== undefined ? { stalledPct: stalled } : {}),
+      }
     },
     resources(subject) {
       const state = entry(subject.sessionId)
@@ -239,7 +298,19 @@ export function createScopeMonitor(deps: ScopeMonitorDeps): ScopeMonitor {
     poll,
     start() {
       if (timer) return
-      timer = setInterval(poll, deps.intervalMs ?? POLL_INTERVAL_MS)
+      /**
+       * A TIMER CALLBACK THAT THROWS TAKES THE DAEMON DOWN. `subjects()` reaches
+       * into the machine runtime, which throws by contract when a session is
+       * indexed by two drivers — a diagnosis that used to surface on a request
+       * path and must not become an uncaught exception every ten seconds.
+       */
+      timer = setInterval(() => {
+        try {
+          poll()
+        } catch (err) {
+          log.warn('a cgroup sampling pass failed', { err })
+        }
+      }, deps.intervalMs ?? POLL_INTERVAL_MS)
       timer.unref?.()
     },
     dispose() {

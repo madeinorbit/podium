@@ -277,7 +277,12 @@ export function canScopeMaster(): Promise<boolean> {
   pending = new Promise<boolean>((resolve) => {
     execFile(
       'systemd-run',
-      ['--user', '--scope', '--collect', '--quiet', '--', 'true'],
+      // THE PROBE RUNS THE REAL ARGV, not a bare scope. A user manager that
+      // accepts `--scope` but rejects the budget — no memory controller
+      // delegated, an older systemd — would otherwise pass here and then fail
+      // every actual spawn, so each session would silently take the "will NOT
+      // survive a podium restart" fallback. A gate must test what it gates.
+      systemdScopeArgv(`podium-scope-probe-${process.pid}.scope`, ['true']),
       { timeout: 8000, env: scopeEnv(liveEnv()) },
       (error) => resolve(error === null),
     )

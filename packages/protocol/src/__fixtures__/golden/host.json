@@ -143,7 +143,8 @@
             "reclaimableAttachments": 1,
             "sessionsMemory": {
               "currentBytes": 1,
-              "highBytes": 1
+              "highBytes": 1,
+              "stalledPct": 1
             }
           }
         ]
@@ -151,7 +152,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hostMetricsChanged\",\"hosts\":[{\"hostname\":\"hosts[0].hostname\",\"machineId\":\"hosts[0].machineId\",\"name\":\"hosts[0].name\",\"sampledAt\":\"hosts[0].sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1}}]}"
+      "encoded": "{\"type\":\"hostMetricsChanged\",\"hosts\":[{\"hostname\":\"hosts[0].hostname\",\"machineId\":\"hosts[0].machineId\",\"name\":\"hosts[0].name\",\"sampledAt\":\"hosts[0].sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1}}]}"
     },
     {
       "schema": "HostMetricsMessage",
@@ -197,13 +198,14 @@
         "reclaimableAttachments": 1,
         "sessionsMemory": {
           "currentBytes": 1,
-          "highBytes": 1
+          "highBytes": 1,
+          "stalledPct": 1
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hostMetrics\",\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1}}"
+      "encoded": "{\"type\":\"hostMetrics\",\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1}}"
     },
     {
       "schema": "MachineDiagnosticMessage",

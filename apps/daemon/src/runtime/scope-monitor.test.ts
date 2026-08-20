@@ -144,6 +144,27 @@ describe('the scope monitor', () => {
     expect(monitor.resources({ sessionId: SESSION })).toBeUndefined()
   })
 
+  it('states a kill in a RE-CREATED scope, whose counter restarts at zero', () => {
+    // The counter is per-CGROUP, and a session respawning under the same label
+    // gets the same unit name with a brand new cgroup counting from 0. Carrying
+    // the previous incarnation's tally over swallows exactly that many kills in
+    // the new one — silently, since nothing else reports them.
+    writeScope({ 'memory.events': 'oom_kill 2\n' })
+    const { monitor, kills, clock } = monitorFor()
+    monitor.poll()
+    expect(kills).toEqual([{ sessionId: SESSION, kills: 2 }])
+
+    rmSync(scope, { recursive: true, force: true })
+    mkdirSync(scope, { recursive: true })
+    writeScope({ 'memory.events': 'oom_kill 1\n' })
+    clock.ms += 10_000
+    monitor.poll()
+    expect(kills).toEqual([
+      { sessionId: SESSION, kills: 2 },
+      { sessionId: SESSION, kills: 1 },
+    ])
+  })
+
   it('re-derives the path when a scope is collected and recreated', () => {
     writeScope({ 'memory.events': 'oom_kill 0\n', 'memory.current': '1\n' })
     const { monitor, clock } = monitorFor()
@@ -159,6 +180,34 @@ describe('the scope monitor', () => {
     writeScope({ 'memory.events': 'oom_kill 0\n', 'memory.current': '2\n' })
     clock.ms += 10_000
     expect(monitor.resources({ sessionId: SESSION, scopeUnit: UNIT })?.memoryBytes).toBe(2)
+  })
+
+  it('reports slice pressure as stall time, not as bytes over a watermark', () => {
+    // `memory.current` counts reclaimable page cache and the kernel reclaims AT
+    // the high line, so a build-heavy slice sits pinned at its watermark with
+    // memory genuinely free. PSI's `some avg10` is what says a task actually
+    // waited.
+    const sliceDir = join(
+      root,
+      `user.slice/user-${UID}.slice/user@${UID}.service/podium.slice/podium-sessions.slice`,
+    )
+    const { monitor } = monitorFor()
+    writeFileSync(join(sliceDir, 'memory.events'), 'oom_kill 0\n')
+    writeFileSync(join(sliceDir, 'memory.current'), '1000\n')
+    writeFileSync(join(sliceDir, 'memory.high'), '1000\n')
+    // Pinned at the watermark and NOT stalling: no pressure number at all
+    // rather than a zero, because this kernel reported none.
+    expect(monitor.sessionsMemory()).toEqual({ currentBytes: 1000, highBytes: 1000 })
+
+    writeFileSync(
+      join(sliceDir, 'memory.pressure'),
+      'some avg10=42.13 avg60=8.00 avg300=1.00 total=1\nfull avg10=3.00 avg60=0.00 avg300=0.00 total=1\n',
+    )
+    expect(monitor.sessionsMemory()).toEqual({
+      currentBytes: 1000,
+      highBytes: 1000,
+      stalledPct: 42.13,
+    })
   })
 
   it('reads the sessions slice as attributable pressure, or nothing', () => {
