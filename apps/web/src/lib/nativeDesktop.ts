@@ -36,7 +36,11 @@ export interface NativeDesktopBridge {
    * Older shells may omit this command; legacy zero-argument implementations
    * ignore the extra argument when it is present.
    */
-  installUpdate?: (channel: NativeDesktopUpdateChannel) => Promise<void>
+  installUpdate?: (
+    channel: NativeDesktopUpdateChannel,
+    /** Exact operation/feed version; current shells fail closed if the rolling feed moved. */
+    expectedVersion?: string,
+  ) => Promise<void>
   /** Persists the user's production feed choice for native update checks without a page. */
   setUpdateChannel?: (channel: NativeDesktopUpdateChannel) => Promise<void>
   /**

@@ -34,7 +34,8 @@ import {
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
  * `podium update`'s installDir() resolves to the bundle root, independent of cwd / the
- * compiled binary's execPath) and PODIUM_WEB_DIR, then execs the compiled CLI.
+ * compiled binary's execPath), PODIUM_WEB_DIR and PODIUM_MOBILE_WEB_DIR, then execs the
+ * compiled CLI.
  *
  * It resolves symlinks before computing DIR so the bundle root is found even when invoked
  * via the `~/.local/bin/podium` symlink that install.sh creates — `$0` would otherwise be
@@ -85,13 +86,21 @@ export function assertDevWebDistMatchesVersion(
   version: string,
   stamp: { sourceSha?: string } | null,
 ): void {
+  assertDevClientDistMatchesVersion(version, 'apps/web/dist', stamp)
+}
+
+export function assertDevClientDistMatchesVersion(
+  version: string,
+  label: string,
+  stamp: { sourceSha?: string } | null,
+): void {
   if (!version.startsWith('dev+')) return
   const expected = version.slice('dev+'.length)
   if (!stamp?.sourceSha || stamp.sourceSha !== expected) {
     throw new Error(
-      `build-bun: apps/web/dist was not built from ${version} ` +
+      `build-bun: ${label} was not built from ${version} ` +
         `(stamp sourceSha=${stamp?.sourceSha ?? 'missing'}). ` +
-        'Rebuild the web app, then retry.',
+        'Rebuild the client apps, then retry.',
     )
   }
 }
@@ -145,8 +154,8 @@ export function updateArtifactPath(
 }
 
 /**
- * The Windows launcher: same job as {@link launcherShim} (export PODIUM_HOME +
- * PODIUM_WEB_DIR relative to the bundle root, then run the compiled CLI) as a batch
+ * The Windows launcher: same job as {@link launcherShim} (export PODIUM_HOME,
+ * PODIUM_WEB_DIR and PODIUM_MOBILE_WEB_DIR relative to the bundle root, then run the compiled CLI) as a batch
  * file. `%~dp0` is the batch file's own directory (trailing backslash stripped so
  * PODIUM_HOME is the clean bundle root); no symlink resolution — Windows installs
  * put the bundle dir on PATH rather than symlinking. `setlocal` keeps the vars from
@@ -159,6 +168,7 @@ set "DIR=%~dp0"\r
 if "%DIR:~-1%"=="\\" set "DIR=%DIR:~0,-1%"\r
 set "PODIUM_HOME=%DIR%"\r
 if not defined PODIUM_WEB_DIR set "PODIUM_WEB_DIR=%DIR%\\web"\r
+if not defined PODIUM_MOBILE_WEB_DIR set "PODIUM_MOBILE_WEB_DIR=%DIR%\\mobile"\r
 "%DIR%\\podium-cli.exe" %*\r
 exit /b %errorlevel%\r
 `
@@ -179,6 +189,7 @@ done
 DIR="$(cd "$(dirname "$SELF")" && pwd)"
 export PODIUM_HOME="$DIR"
 export PODIUM_WEB_DIR="\${PODIUM_WEB_DIR:-$DIR/web}"
+export PODIUM_MOBILE_WEB_DIR="\${PODIUM_MOBILE_WEB_DIR:-$DIR/mobile}"
 exec "$DIR/podium-cli" "$@"
 `
 }
@@ -244,6 +255,28 @@ function main(): void {
     webStamp = null
   }
   assertDevWebDistMatchesVersion(version, webStamp)
+  const mobileDist = `${root}apps/mobile/dist`
+  if (!existsSync(`${mobileDist}/index.html`)) {
+    throw new Error(
+      'build-bun: apps/mobile/dist not built - run `bun run --filter @podium/mobile build:web` first',
+    )
+  }
+  let mobileStamp: { sourceSha?: string } | null = null
+  try {
+    const raw = JSON.parse(readFileSync(`${mobileDist}/podium-build.json`, 'utf8')) as {
+      sourceSha?: unknown
+    }
+    mobileStamp = typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}
+  } catch {
+    mobileStamp = null
+  }
+  assertDevClientDistMatchesVersion(version, 'apps/mobile/dist', mobileStamp)
+  if (webStamp?.sourceSha !== mobileStamp?.sourceSha) {
+    throw new Error(
+      'build-bun: apps/web/dist and apps/mobile/dist were built from different commits ' +
+        `(web=${webStamp?.sourceSha ?? 'missing'}, mobile=${mobileStamp?.sourceSha ?? 'missing'}).`,
+    )
+  }
 
   if (!abducoSupported()) {
     // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
@@ -315,15 +348,18 @@ function main(): void {
   // agree with the VERSION file and the compiled /version. A dest publish
   // already wrote dev+<sha>; a channel package overwrites dev+<sha> with
   // PODIUM_APP_VERSION / package.json (e.g. 0.4.2).
-  execFileSync(
-    'bun',
-    ['--conditions=@podium/source', 'scripts/write-web-build-stamp.ts', webDist],
-    { cwd: root, stdio: 'inherit', env: { ...process.env, PODIUM_APP_VERSION: version } },
-  )
+  for (const clientDist of [webDist, mobileDist]) {
+    execFileSync(
+      'bun',
+      ['--conditions=@podium/source', 'scripts/write-web-build-stamp.ts', clientDist],
+      { cwd: root, stdio: 'inherit', env: { ...process.env, PODIUM_APP_VERSION: version } },
+    )
+  }
   mkdirSync(headless, { recursive: true })
   // Release units are generated from the same renderer used by runtime setup and the dev host.
   writeSystemdFiles(`${headless}/systemd`, { profile: 'packaged', instanceId: 'default' })
   syncBundleWeb(webDist, `${headless}/web`)
+  syncBundleWeb(mobileDist, `${headless}/mobile`)
 
   // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
   const bundledCli = `${headless}/${names.cli}`

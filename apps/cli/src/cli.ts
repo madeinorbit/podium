@@ -179,7 +179,7 @@ export type LaunchPlan =
       kind: 'in-process'
       port: number
       /** Which components this PID hosts. */
-      roles: { server: boolean; daemon: boolean }
+      roles: { server: boolean; janitor: boolean; daemon: boolean }
       /** Run-registry role to claim before binding; undefined = no claim (the
        *  headless `podium setup` path, which only serves the web setup UI). */
       claimRole: 'server' | 'daemon' | 'all-in-one' | undefined
@@ -690,6 +690,15 @@ export function resolvePlan(
   // the web setup UI (server only), claim no run-registry role.
   const runServer = forceSetup || modePlan.mode === 'all-in-one' || modePlan.mode === 'server'
   const runDaemon = !forceSetup && (modePlan.mode === 'all-in-one' || modePlan.mode === 'daemon')
+  // The native shell supervises one child, so its server-only and all-in-one
+  // shapes must carry the janitor in that child too. A foreground all-in-one
+  // process has the same three-role contract. Explicit headless `server`
+  // components do not: systemd/detached persistence starts their janitor as an
+  // independent sibling.
+  const runJanitor =
+    !forceSetup &&
+    runServer &&
+    (modePlan.mode === 'all-in-one' || env.PODIUM_DESKTOP_SUPERVISED === '1')
   const claimRole = forceSetup
     ? undefined
     : modePlan.mode === 'server'
@@ -711,7 +720,7 @@ export function resolvePlan(
   return {
     kind: 'in-process',
     port,
-    roles: { server: runServer, daemon: runDaemon },
+    roles: { server: runServer, janitor: runJanitor, daemon: runDaemon },
     claimRole,
     runRecordMode,
     logSinkMode,
@@ -1056,7 +1065,7 @@ async function runInProcess(
   let serverPort = port
   let localBootstrapToken: string | undefined
   let localDaemonLink: LocalDaemonLink | undefined
-  const host = roles.server || roles.daemon ? await loadHost() : undefined
+  const host = roles.server || roles.janitor || roles.daemon ? await loadHost() : undefined
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
     let server: Awaited<ReturnType<typeof startServer>>
@@ -1080,6 +1089,15 @@ async function runInProcess(
       console.log(`\n  → Open setup:  ${localServerUrl(serverPort)}/\n`)
       console.log('  → …or run: podium setup   (configure here in the terminal)')
     }
+  }
+  let janitorHandle: Awaited<ReturnType<HostModules['startJanitor']>> | undefined
+  if (roles.janitor && host) {
+    const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
+    janitorHandle = await host.startJanitor({
+      serverUrl: localServerUrl(serverPort),
+      token: readOrCreateDaemonSecret(),
+    })
+    console.log(`podium janitor up -> ${localServerUrl(serverPort)}`)
   }
   if (roles.daemon && host) {
     let daemonOptions: DaemonStartOptions
@@ -1139,6 +1157,7 @@ async function runInProcess(
   const shutdown = (): void => {
     stopWatchdog?.()
     stopSupervisorWatch?.()
+    janitorHandle?.close()
     // Drain the log sink before exiting; best-effort, never a reason to hang.
     void (componentLogging?.close() ?? Promise.resolve())
       .catch(() => {})

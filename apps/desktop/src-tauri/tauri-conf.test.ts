@@ -26,6 +26,16 @@ describe('tauri desktop config', () => {
       expect(existsSync(join(__dirname, icon)), icon).toBe(true)
     }
   })
+  it('bundles both server-served web clients beside the native sidecar', () => {
+    expect(conf.bundle.resources).toEqual([
+      'resources/web',
+      'resources/mobile',
+      'resources/podium',
+      'resources/licenses',
+    ])
+    expect(mainSource).toContain('"PODIUM_MOBILE_WEB_DIR"')
+    expect(mainSource).toContain('.resolve("resources/mobile", BaseDirectory::Resource)')
+  })
   it('ships the entitlements notarization requires', () => {
     // Without an entitlements file the hardened runtime kills the JIT the bundled Bun sidecar
     // needs, and without the hardened runtime Apple refuses to notarize at all.

@@ -49,7 +49,8 @@ const resourcesDir = `${desktopDir}src-tauri/resources`
 mkdirSync(resourcesDir, { recursive: true })
 // bundleNames: the compiled binary is podium.exe on Windows (see build-bun.ts).
 const podiumSrc = `${repoRoot}/dist-bun/${bundleNames().compiled}`
-if (!existsSync(podiumSrc)) throw new Error(`missing ${podiumSrc} — package:headless did not produce it`)
+if (!existsSync(podiumSrc))
+  throw new Error(`missing ${podiumSrc} — package:headless did not produce it`)
 const podiumDst = `${resourcesDir}/${bundleNames().compiled}`
 cpSync(podiumSrc, podiumDst)
 chmodSync(podiumDst, 0o755)
@@ -94,6 +95,12 @@ const webDst = `${resourcesDir}/web`
 rmSync(webDst, { recursive: true, force: true })
 cpSync(webSrc, webDst, { recursive: true })
 
+// 3b. Stage the Expo web export served at /mobile by a native-hosted server.
+const mobileSrc = `${repoRoot}/apps/mobile/dist`
+const mobileDst = `${resourcesDir}/mobile`
+rmSync(mobileDst, { recursive: true, force: true })
+cpSync(mobileSrc, mobileDst, { recursive: true })
+
 // 4. Stage license notices (Apache-2.0 NOTICE convention + generated third-party inventory)
 //    so the desktop bundle ships them alongside the sidecar.
 const licensesDst = `${resourcesDir}/licenses`
@@ -105,4 +112,6 @@ for (const f of ['LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md']) {
   cpSync(src, `${licensesDst}/${f}`)
 }
 
-console.log(`[stage-sidecar] resources/podium + resources/web + resources/licenses staged`)
+console.log(
+  `[stage-sidecar] resources/podium + resources/web + resources/mobile + resources/licenses staged`,
+)

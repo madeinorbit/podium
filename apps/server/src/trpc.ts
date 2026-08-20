@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { MobileWebIdentity } from '@podium/protocol'
+import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
@@ -71,6 +71,10 @@ export interface Context {
   /** Source-host only: schedule the verified redeploy unit after an operator
    * authorizes a target newer than this server's boot identity. */
   requestCoordinatorRestart?: () => void
+  /** This server process is supervised and replaced by the native desktop shell. */
+  desktopSupervised?: boolean
+  /** Installed coordinator-only exact-target delivery before the process-manager restart. */
+  prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
   /** Source-host only: rebuild BOTH websites via podium-web when the server is
    *  current — the unit builds apps/web/dist and apps/mobile/dist together. */
   requestWebRebuild?: () => void

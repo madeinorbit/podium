@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- One desktop update operation now converges every connected headless machine before the native
+  shell replaces its own server, janitor, supervised daemon, operator web app, and Expo web app.
+- Installed server-only coordinators can fetch and atomically install their exact signed target,
+  preserve server-only versus all-in-one roles across restart, and refuse schema-unsafe rollback.
+- Native installs are pinned to the operation version so a moving edge feed cannot install a
+  different release, and source-host systemd deployments now manage and restart janitor explicitly.
+
 ## [0.1.0-edge.16] - 2026-08-19
 
 ### Fixed

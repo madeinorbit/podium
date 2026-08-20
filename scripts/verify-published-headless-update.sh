@@ -72,13 +72,28 @@ download_release
 
 TARGET_VERSION="$(jq -er '.version' "$MANIFEST")"
 SIGNATURE="$(jq -er '.platforms["linux-x86_64"].signature' "$MANIFEST")"
+WEB_DIGEST="$(jq -er '.artifacts.web.digest' "$MANIFEST")"
 [ -n "$TARGET_VERSION" ] || { echo "ABORT: published manifest has no version" >&2; exit 1; }
 [ -n "$SIGNATURE" ] || { echo "ABORT: published manifest has no x64 signature" >&2; exit 1; }
+[ -n "$WEB_DIGEST" ] || { echo "ABORT: published manifest has no shared web digest" >&2; exit 1; }
 
 echo "=== published manifest points linux-x86_64 at version $TARGET_VERSION ==="
 tar -xzf "$ARTIFACT" -C "$WORK"
 EXTRACTED="$WORK/headless"
 [ -x "$EXTRACTED/podium" ] || { echo "ABORT: published bundle has no executable headless/podium" >&2; exit 1; }
+for site in web mobile; do
+  [ -f "$EXTRACTED/$site/index.html" ] || { echo "ABORT: published bundle has no $site/index.html" >&2; exit 1; }
+  SITE_DIGEST="$(jq -er '.sourceSha' "$EXTRACTED/$site/podium-build.json")"
+  SITE_VERSION="$(jq -er '.appVersion' "$EXTRACTED/$site/podium-build.json")"
+  [ "$SITE_DIGEST" = "$WEB_DIGEST" ] || {
+    echo "ABORT: published $site digest $SITE_DIGEST does not match manifest $WEB_DIGEST" >&2
+    exit 1
+  }
+  [ "$SITE_VERSION" = "$TARGET_VERSION" ] || {
+    echo "ABORT: published $site version $SITE_VERSION does not match target $TARGET_VERSION" >&2
+    exit 1
+  }
+done
 
 stage_current() {
   local destination="$1"

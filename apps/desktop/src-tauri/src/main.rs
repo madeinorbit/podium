@@ -16,10 +16,10 @@ use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-#[cfg(target_os = "macos")]
-use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::path::BaseDirectory;
 use tauri::tray::TrayIconBuilder;
+#[cfg(target_os = "macos")]
+use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use updater::{check_update, claim_update_ownership, install_update, set_update_channel};
 
@@ -51,6 +51,7 @@ fn local_host_sidecar_command(
     sidecar_args: &[String],
     port: u16,
     web_dir: &Path,
+    mobile_web_dir: &Path,
 ) -> Command {
     let mut command = Command::new(runnable);
     command
@@ -60,6 +61,10 @@ fn local_host_sidecar_command(
         .env(PODIUM_CLI_PATH_ENV, runnable)
         .env("PODIUM_PORT", port.to_string())
         .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
+        .env(
+            "PODIUM_MOBILE_WEB_DIR",
+            mobile_web_dir.to_string_lossy().to_string(),
+        )
         .env(DESKTOP_SUPERVISED_ENV, "1")
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string());
     command
@@ -394,7 +399,7 @@ fn native_desktop_hook(
     };
     // Desktop updates are available in every launch mode. The page may be remote or older
     // than this shell, so these methods are always present and are feature-detected by the page.
-    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('install_update', { channel }),\n            setUpdateChannel: (channel) => window.__TAURI_INTERNALS__.invoke('set_update_channel', { channel })";
+    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel, expectedVersion) => window.__TAURI_INTERNALS__.invoke('install_update', { channel, expectedVersion }),\n            setUpdateChannel: (channel) => window.__TAURI_INTERNALS__.invoke('set_update_channel', { channel })";
     // Hand a URL to the OS browser on purpose. The injected opener shim only rescues
     // CROSS-origin links (bootstrap::opener_shim_script); a page that wants the real browser
     // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
@@ -626,6 +631,9 @@ fn main() {
                     let web_dir = app
                         .path()
                         .resolve("resources/web", BaseDirectory::Resource)?;
+                    let mobile_web_dir = app
+                        .path()
+                        .resolve("resources/mobile", BaseDirectory::Resource)?;
 
                     // Ensure the binary is on a writable, executable filesystem.
                     // AppImage mounts are read-only; ensure_executable copies it to ~/.podium/bin/.
@@ -644,6 +652,7 @@ fn main() {
                         &sidecar_args,
                         port,
                         &web_dir,
+                        &mobile_web_dir,
                     )
                         .spawn()
                         .map_err(|e| {
@@ -658,6 +667,7 @@ fn main() {
                     let runnable2 = runnable.clone();
                     let runnable_daemon = runnable.clone();
                     let web_dir2 = web_dir.clone();
+                    let mobile_web_dir2 = mobile_web_dir.clone();
                     let sidecar_args2 = sidecar_args.clone();
                     let transition_action = initial_action.clone();
                     let monitor_app = app.handle().clone();
@@ -674,6 +684,7 @@ fn main() {
                                 &sidecar_args2,
                                 port,
                                 &web_dir2,
+                                &mobile_web_dir2,
                             )
                                 .spawn()
                         },
@@ -1238,7 +1249,9 @@ mod tests {
     fn a_backend_that_exits_on_its_own_is_reported_to_supervision() {
         use std::time::Duration;
 
-        let child = Command::new("true").spawn().expect("spawn an immediate exit");
+        let child = Command::new("true")
+            .spawn()
+            .expect("spawn an immediate exit");
         let child_state = Arc::new(Mutex::new(Some(child)));
         let shutting_down = Arc::new(AtomicBool::new(false));
 
@@ -1257,10 +1270,14 @@ mod tests {
             &["--takeover".to_string()],
             18787,
             Path::new("web"),
+            Path::new("mobile"),
         );
         let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
 
-        for (label, command) in [("local host sidecar", &host), ("replacement daemon", &daemon)] {
+        for (label, command) in [
+            ("local host sidecar", &host),
+            ("replacement daemon", &daemon),
+        ] {
             assert_eq!(
                 command_env(command, DESKTOP_SUPERVISED_ENV).as_deref(),
                 Some("1"),
@@ -1273,6 +1290,11 @@ mod tests {
             );
         }
 
+        assert_eq!(
+            command_env(&host, "PODIUM_MOBILE_WEB_DIR").as_deref(),
+            Some("mobile"),
+            "a native-hosted server must serve the bundled Expo web app"
+        );
         assert_eq!(
             daemon
                 .get_args()
@@ -1293,11 +1315,15 @@ mod tests {
             &["--takeover".to_string()],
             18787,
             Path::new("web"),
+            Path::new("mobile"),
         );
         let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
         let expected = std::process::id().to_string();
 
-        for (label, command) in [("local host sidecar", &host), ("replacement daemon", &daemon)] {
+        for (label, command) in [
+            ("local host sidecar", &host),
+            ("replacement daemon", &daemon),
+        ] {
             assert_eq!(
                 command_env(command, SUPERVISOR_PID_ENV),
                 Some(expected.clone()),
@@ -1378,8 +1404,8 @@ mod tests {
             let hook = test_native_desktop_hook(mode, None);
             assert!(hook.contains("claimUpdateOwnership"));
             assert!(hook.contains("checkUpdate: (channel)"));
-            assert!(hook.contains("installUpdate: (channel)"));
-            assert!(hook.contains("invoke('install_update', { channel })"));
+            assert!(hook.contains("installUpdate: (channel, expectedVersion)"));
+            assert!(hook.contains("invoke('install_update', { channel, expectedVersion })"));
             assert!(hook.contains("setUpdateChannel: (channel)"));
             assert!(hook.contains("invoke('set_update_channel', { channel })"));
         }
@@ -1406,7 +1432,9 @@ mod tests {
         for mode in ["all-in-one", "server", "daemon", "client"] {
             let hook = test_native_desktop_hook(mode, None);
             assert!(hook.contains("setTheme: (theme) =>"));
-            assert!(hook.contains("invoke('plugin:window|set_theme', { label: 'main', value: theme })"));
+            assert!(
+                hook.contains("invoke('plugin:window|set_theme', { label: 'main', value: theme })")
+            );
         }
     }
 

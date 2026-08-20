@@ -111,6 +111,8 @@ fi
 INSTALL_V0="$WORK/install-0.1.0"
 cp -a "dist-bun/headless" "$INSTALL_V0"
 printf '0.1.0\n' > "$INSTALL_V0/VERSION"
+printf 'operator-web-0.1.0\n' > "$INSTALL_V0/web/updater-fixture-version"
+printf 'expo-mobile-0.1.0\n' > "$INSTALL_V0/mobile/updater-fixture-version"
 echo "=== staged v0.1.0 install at $INSTALL_V0 (VERSION=$(cat "$INSTALL_V0/VERSION")) ==="
 
 # --- stage a v0.1.1 tarball (the update artifact the feed serves) -----------
@@ -118,9 +120,15 @@ STAGE_V1="$WORK/stage-0.1.1"
 mkdir -p "$STAGE_V1"
 cp -a "dist-bun/headless" "$STAGE_V1/headless"
 printf '0.1.1\n' > "$STAGE_V1/headless/VERSION"
+printf 'operator-web-0.1.1\n' > "$STAGE_V1/headless/web/updater-fixture-version"
+printf 'expo-mobile-0.1.1\n' > "$STAGE_V1/headless/mobile/updater-fixture-version"
 TARBALL="$WORK/podium-headless-0.1.1.tar.gz"
 tar -czf "$TARBALL" -C "$STAGE_V1" headless
 echo "=== staged v0.1.1 tarball $TARBALL ($(stat -c%s "$TARBALL") bytes) ==="
+# The tarball is now the immutable delivery input. Keeping its 470+ MB expanded
+# source beside two isolated install copies only wastes tmpfs and can make the
+# verifier fail for disk space before it reaches the updater.
+rm -rf "$STAGE_V1"
 
 # Sign the tarball with the ephemeral fixture key -> SIG (base64).
 if ! SIG="$(bun -e '
@@ -173,14 +181,13 @@ serve({
 console.error(`headless feed v${version} on :${port}`)
 EOF
 
-run_update() { # <tarball-to-serve> <copy> <source|compiled> <expected-exit>
+run_update() { # <tarball-to-serve> <install> <source|compiled> <expected-exit>
   local serve_tar="$1" copy="$2" mode="$3" expected_exit="$4"
   local log="$WORK/update-$mode.log"
   FEED_PID=""
   bun "$FEED_SCRIPT" "$serve_tar" 0.1.1 "$SIG" "$PORT" &
   FEED_PID=$!
   sleep 1
-  cp -a "$INSTALL_V0" "$copy"
   local -a command=(
     env
     -u PODIUM_AGENT_RELAY
@@ -225,25 +232,44 @@ run_update() { # <tarball-to-serve> <copy> <source|compiled> <expected-exit>
   fi
 }
 
-# --- CASE 1: valid signature -> SWAP ----------------------------------------
-echo "=== CASE 1: valid signed tarball via runUpdate pubkey seam (expect SWAP) ==="
-GOOD="$WORK/copy-good"
-run_update "$TARBALL" "$GOOD" source 10
-GOOD_POST="$(cat "$GOOD/VERSION" 2>/dev/null || echo ABSENT)"
-
-# --- CASE 2: tampered tarball under same sig -> REJECT (no swap) -------------
-echo "=== CASE 2: tampered tarball via compiled podium (expect REJECT, no swap) ==="
-BAD="$WORK/copy-bad"
+# --- CASE 1: tampered tarball under same sig -> REJECT (no swap) -------------
+# Run refusal first on the one staged install. Its unchanged result is the
+# precondition for applying the valid artifact next, and avoids full-install
+# copies that can hide updater behavior behind a tmpfs quota failure.
+echo "=== CASE 1: tampered tarball via compiled podium (expect REJECT, no swap) ==="
+BAD="$INSTALL_V0"
 run_update "$TAMPERED" "$BAD" compiled 1
 BAD_POST="$(cat "$BAD/VERSION" 2>/dev/null || echo ABSENT)"
+BAD_WEB_POST="$(cat "$BAD/web/updater-fixture-version" 2>/dev/null || echo ABSENT)"
+BAD_MOBILE_POST="$(cat "$BAD/mobile/updater-fixture-version" 2>/dev/null || echo ABSENT)"
+
+# --- CASE 2: valid signature -> SWAP ----------------------------------------
+echo "=== CASE 2: valid signed tarball via runUpdate pubkey seam (expect SWAP) ==="
+GOOD="$INSTALL_V0"
+run_update "$TARBALL" "$GOOD" source 10
+GOOD_POST="$(cat "$GOOD/VERSION" 2>/dev/null || echo ABSENT)"
+GOOD_WEB_POST="$(cat "$GOOD/web/updater-fixture-version" 2>/dev/null || echo ABSENT)"
+GOOD_MOBILE_POST="$(cat "$GOOD/mobile/updater-fixture-version" 2>/dev/null || echo ABSENT)"
+GOOD_EXECUTABLE=0
+[ -x "$GOOD/podium" ] && GOOD_EXECUTABLE=1
 
 # --- assert -----------------------------------------------------------------
 echo "---- RESULT ----"
 echo "good copy VERSION: 0.1.0 -> $GOOD_POST  (expect 0.1.1)"
+echo "good copy web:     operator-web-0.1.0 -> $GOOD_WEB_POST  (expect operator-web-0.1.1)"
+echo "good copy mobile:  expo-mobile-0.1.0 -> $GOOD_MOBILE_POST  (expect expo-mobile-0.1.1)"
 echo "bad  copy VERSION: 0.1.0 -> $BAD_POST   (expect 0.1.0, rejected)"
-if [ "$GOOD_POST" = "0.1.1" ] && [ -x "$GOOD/podium" ] && [ "$BAD_POST" = "0.1.0" ]; then
-  echo "HEADLESS UPDATE VERIFIED ✓ — source-seam signed tarball SWAPPED, compiled podium tamper REJECTED"
+echo "bad  copy web:     operator-web-0.1.0 -> $BAD_WEB_POST  (expect unchanged)"
+echo "bad  copy mobile:  expo-mobile-0.1.0 -> $BAD_MOBILE_POST  (expect unchanged)"
+if [ "$GOOD_POST" = "0.1.1" ] \
+  && [ "$GOOD_WEB_POST" = "operator-web-0.1.1" ] \
+  && [ "$GOOD_MOBILE_POST" = "expo-mobile-0.1.1" ] \
+  && [ "$GOOD_EXECUTABLE" = "1" ] \
+  && [ "$BAD_POST" = "0.1.0" ] \
+  && [ "$BAD_WEB_POST" = "operator-web-0.1.0" ] \
+  && [ "$BAD_MOBILE_POST" = "expo-mobile-0.1.0" ]; then
+  echo "HEADLESS UPDATE VERIFIED ✓ — signed binary + operator web + Expo mobile SWAPPED, compiled podium tamper REJECTED"
   exit 0
 fi
-echo "HEADLESS UPDATE NOT verified — good='$GOOD_POST' (want 0.1.1), bad='$BAD_POST' (want 0.1.0)"
+echo "HEADLESS UPDATE NOT verified — binary/web/mobile did not move atomically or tamper changed the old install"
 exit 2

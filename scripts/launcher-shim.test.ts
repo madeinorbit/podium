@@ -7,7 +7,8 @@ import { launcherShim } from './build-bun'
 
 // A `podium-cli` stub standing in for the real compiled CLI: it prints exactly what the
 // launcher exported + the args it was handed, so we can assert what the shim resolved.
-const CLI_STUB = '#!/bin/sh\necho "PODIUM_HOME=$PODIUM_HOME"\necho "ARGS=$*"\n'
+const CLI_STUB =
+  '#!/bin/sh\necho "PODIUM_HOME=$PODIUM_HOME"\necho "PODIUM_WEB_DIR=$PODIUM_WEB_DIR"\necho "PODIUM_MOBILE_WEB_DIR=$PODIUM_MOBILE_WEB_DIR"\necho "ARGS=$*"\n'
 
 // The ORIGINAL buggy shim (resolves DIR from `dirname "$0"`, no symlink resolution). Kept
 // here so the test can prove RED: invoked via a symlink it resolves DIR to the symlink's own
@@ -55,9 +56,18 @@ describe('launcher shim symlink resolution', () => {
     writeExec(join(dest, 'podium'), launcherShim())
     writeExec(join(dest, 'podium-cli'), CLI_STUB)
     const link = writeSymlink(join(dest, 'podium'), join(bin, 'podium'))
-    const out = execFileSync(link, ['daemon'], { encoding: 'utf8' })
+    const out = execFileSync(link, ['daemon'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PODIUM_WEB_DIR: '',
+        PODIUM_MOBILE_WEB_DIR: '',
+      },
+    })
     expect(out).toContain(`PODIUM_HOME=${dest}`) // the real bundle, not BIN
     expect(out).not.toContain(`PODIUM_HOME=${bin}`)
+    expect(out).toContain(`PODIUM_WEB_DIR=${dest}/web`)
+    expect(out).toContain(`PODIUM_MOBILE_WEB_DIR=${dest}/mobile`)
     expect(out).toContain('ARGS=daemon')
   })
 

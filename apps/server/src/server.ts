@@ -79,7 +79,10 @@ import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
-import { createInstalledCoordinatorRestart } from './modules/updates/installed-restart'
+import {
+  createInstalledCoordinatorRestart,
+  createInstalledCoordinatorUpdate,
+} from './modules/updates/installed-restart'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
@@ -354,6 +357,7 @@ export async function startServer(
   // Role composition (roles.ts): which optional module groups this process
   // activates. Explicit opts win; else the H1 shape, core + hub.
   const config = loadConfig()
+  const desktopSupervised = process.env.PODIUM_DESKTOP_SUPERVISED === '1'
   const host = resolveBindHost(opts)
   const role = resolveServerRole(opts.role)
   // WHO THIS HOST IS, read (or minted) once, before anything can write a row. Every
@@ -561,7 +565,14 @@ export async function startServer(
   const developmentSourceRoot = process.env.PODIUM_APP_VERSION ? undefined : DEVELOPMENT_SOURCE_ROOT
   const requestCoordinatorRestart = developmentSourceRoot
     ? createSourceRedeployRequest({ instanceId })
-    : createInstalledCoordinatorRestart({ instanceId, port: () => boundPort })
+    : createInstalledCoordinatorRestart({
+        instanceId,
+        port: () => boundPort,
+        includeDaemon: config.mode === 'all-in-one',
+      })
+  const prepareCoordinatorUpdate = developmentSourceRoot
+    ? undefined
+    : createInstalledCoordinatorUpdate({ pinnedPubkey: updateSigningKey.publicKey })
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,
@@ -613,9 +624,11 @@ export async function startServer(
       channel: registry.modules.updates.operationChannel(hostMachineId),
       appVersion: () => appVersion,
       hostMachineId,
+      ...(desktopSupervised ? { desktopSupervised: true } : {}),
       createDatabaseSnapshot: (from, target) =>
         registry.sessionStore.snapshotBeforeUpdate(from, target),
       latestDatabaseSnapshot: () => registry.sessionStore.latestDatabaseSnapshot(),
+      ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
       ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
       ...(devPublisher.requestWebRebuild
         ? { requestWebRebuild: devPublisher.requestWebRebuild }
@@ -866,6 +879,8 @@ export async function startServer(
           // Hub-only procs (machines fleet admin + pairing) 404 when the hub
           // role is off — see the hubProc guard in router.ts.
           role,
+          ...(desktopSupervised ? { desktopSupervised: true } : {}),
+          ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
           ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
           // The web build is the server's own step now, not a systemd unit to
           // restart (POD-1985) — but the context shape is unchanged, so the
