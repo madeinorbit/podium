@@ -283,13 +283,16 @@ describe('the corpus has teeth', () => {
     ).rejects.toThrow()
   })
 
-  it('REFUSES an attach whose refusal lands after it took the lease', async () => {
+  it('REFUSES an attach that keeps the lease it took', async () => {
     // The ordering half: refusing for want of a terminal host is correct, doing
-    // it after taking the lease leaves an orphaned controller on a session the
-    // caller was just refused control of.
+    // it while still holding the lease leaves an orphaned controller on a
+    // session the caller was just refused control of. Real drivers reach that
+    // state by reserving the lease and failing to roll it back; the fake reaches
+    // it by taking the lease and refusing anyway. The assertion cannot tell the
+    // two apart, which is the point — it reads the LEASE, not the route.
     await expect(
       attachScenario(createFakeServerDriver({ attachLease: 'refuses-after-taking' })),
-    ).rejects.toThrow(/refusal landed after the client started/)
+    ).rejects.toThrow(/reservation was never rolled back/)
   })
 
   it('ACCEPTS an attach that holds one lease and admits every spectator', async () => {

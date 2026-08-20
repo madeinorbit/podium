@@ -142,9 +142,13 @@ export interface FakeDriverOptions {
    * already taken the lease, which is what left an orphaned TUI attached to a
    * session it had just been refused control of.
    *
-   * Both matter because the corpus's two refusal assertions are DORMANT on every
-   * landed target (they all host a client), so without these they are the two
-   * checks nobody could ever watch fail (POD-2085 review round 2, finding 2).
+   * Both matter because the corpus's two refusal assertions were DORMANT on
+   * every landed target when they were written (every fixture hosted a client),
+   * so without these they were the two checks nobody could ever watch fail
+   * (POD-2085 review round 2, finding 2). Each server fixture has since grown a
+   * host that refuses, so the assertions now bite real drivers too; these stay
+   * because a driver built to FAIL them is still the only thing that shows the
+   * assertions themselves have not been weakened.
    */
   attachLease?: 'honest' | 'displaces' | 'refuses-after-taking'
 }

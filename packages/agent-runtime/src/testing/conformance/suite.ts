@@ -1050,9 +1050,21 @@ export function describeDriverConformance(target: ConformanceTarget): void {
          * The assertions live in {@link assertAttachHonoursOneControlLease} so
          * the corpus's own teeth tests can drive them with a driver built to
          * break each one — see `fake.test.ts`. That is not a style preference:
-         * this property's two refusal assertions are DORMANT on every landed
-         * target, so without a construction that reaches them they are the two
-         * nobody could ever show had bitten (review round 2, finding 2).
+         * this property's two refusal assertions were DORMANT on every landed
+         * target when it was written, so without a construction that reaches
+         * them they were the two nobody could ever show had bitten (review
+         * round 2, finding 2).
+         *
+         * THEY ARE NO LONGER DORMANT, and the export is how they stopped being.
+         * Each server-family fixture now also builds a world whose HOST refuses
+         * to start a client terminal and calls this function against it
+         * directly: `hostsClientTerminals: false` reaches the refused peek
+         * (POD-2121), `'spectators-only'` reaches the refused take-over
+         * (POD-2131 for opencode, POD-2486 for codex and grok-acp). The plain
+         * `runConformance` pass below still takes the endpoint branch on every
+         * target, because an ordinary machine hosts a terminal — which is why
+         * those worlds are separate `describe`s in the driver files and not a
+         * flag on the corpus.
          */
         const { handle, driver } = setup()
         await assertAttachHonoursOneControlLease(await handle, driver.capabilities(), target.family)
@@ -1170,8 +1182,9 @@ export function runConformance(
  * one screen down in the same file, refused that exact case with `lease_held`.
  * One verb handing out for free what its sibling refuses is worse than neither
  * enforcing it, because callers read the refusal and believe it. Exported so
- * the teeth tests can build that driver and watch this refuse it, which is the
- * only way the two DORMANT refusal assertions below can be shown to bite at all.
+ * the teeth tests can build that driver and watch this refuse it — and so the
+ * driver fixtures can reach the refusal assertions below on a host that has no
+ * terminal to give, which their own `runConformance` pass never does.
  *
  * BOTH BRANCHES OF EVERY ANSWER ARE ASSERTED. A driver that DECLARES attach can
  * still refuse a particular call — the machine may have no terminal host to
@@ -1183,11 +1196,26 @@ export function runConformance(
  * code spawned the TUI and only then took it, so a refusal would have left an
  * orphaned terminal attached to a session it had just been refused control of.
  *
- * THAT ARM IS DORMANT ON TODAY'S TARGETS and that is sequencing, not oversight:
- * every landed fixture hosts a client, so no target reaches it. The opencode
- * fixture that returns a fabricated endpoint is POD-2023's file, filed as
- * POD-2121 and dep-blocked on this corpus landing — the property has to exist
- * first, or a fixture change would alter nothing under test.
+ * THE DRIVERS NO LONGER FIX THAT BY ORDERING, so neither does the failure text.
+ * All three now RESERVE the lease before awaiting the host's client and ROLL IT
+ * BACK when no client comes — deliberately, to close a race in which two
+ * take-overs both won while the first was still starting (opencode's
+ * `52781e293`, mirrored in the other two). "The refusal landed after the client
+ * started" therefore names a sequence none of them still has; what this
+ * assertion catches now is a reservation that was never rolled back, which is
+ * the same orphaned controller by a different route.
+ *
+ * THAT ARM WAS DORMANT ON THE TARGETS THIS WAS WRITTEN AGAINST, and that was
+ * sequencing rather than oversight: every fixture hosted a client, so no target
+ * reached it, and the fixtures could only be changed once this property existed
+ * to change them against. All three server-family fixtures have since been
+ * given a host that refuses — opencode in POD-2121/POD-2131, codex-app-server
+ * and grok-acp in POD-2486 — so both refusal assertions are now reached by a
+ * REAL driver on every target that has one, and not only by the fake below.
+ *
+ * WHAT THE FAKE STILL BUYS, since the two now look alike from a distance: it
+ * proves the ASSERTIONS bite, using a driver built to fail them. The driver
+ * worlds prove the INVARIANT holds in the implementations that broke it.
  */
 export async function assertAttachHonoursOneControlLease(
   session: AgentSessionHandle,
@@ -1214,9 +1242,33 @@ export async function assertAttachHonoursOneControlLease(
       expect(declared.value.kinds).toContain(answer.kind)
       return 'endpoint'
     }
-    // A TYPED refusal, never a bare shrug — the caller has to be able to branch
-    // on why they did not get a terminal.
-    expect(['unsupported', 'not_running', 'lease_held']).toContain(answer.reason)
+    /**
+     * A TYPED refusal, never a bare shrug — the caller has to be able to branch
+     * on why they did not get a terminal. The list is narrower than
+     * `RefusalReason` because the type only proves the string is a MEMBER, and
+     * the reasons a failed attach can honestly mean are a subset of the reasons
+     * a failed SEND can.
+     *
+     * `busy` AND `needs_user` ARE ON IT DELIBERATELY (POD-2486). The list used
+     * to stop at the three above, which made the codex driver's own refusals
+     * illegal: it hands Codex's single writer to the native TUI only while the
+     * session is IDLE, so a take-over during an open turn is `busy` and one
+     * with an unanswered ask is `needs_user` (`drivers/codex/runtime.ts`). The
+     * alternative was to normalize both to `unsupported` at the driver, and
+     * that would be a lie in the direction that costs the caller most: they
+     * mean "ask again in a moment" and "answer the prompt first", while
+     * `unsupported` means "this will never work on this machine". Collapsing
+     * them would defeat the very thing this line exists to assert, which is
+     * that the caller can BRANCH on why.
+     *
+     * The two left off are left off on purpose: `no_resume_ref` is
+     * `hibernate`'s alone, and `session_ended` is not an attach answer any
+     * driver gives — a session that ended has no endpoint and no lease, and a
+     * driver reaching for it should have to come here and say why.
+     */
+    expect(['unsupported', 'not_running', 'lease_held', 'busy', 'needs_user']).toContain(
+      answer.reason,
+    )
     return 'refused'
   }
 
@@ -1239,7 +1291,7 @@ export async function assertAttachHonoursOneControlLease(
   if (took === 'refused') {
     expect(
       await session.lease.state(),
-      'a refused take-over took the control lease anyway — the refusal landed after the client started',
+      'a refused take-over kept the control lease — the reservation was never rolled back',
     ).toEqual(before)
     return
   }

@@ -366,9 +366,9 @@ const { target } = makeWorld()
  * assertions and only the weaker one runs here. A refused PEEK is judged for a
  * TYPED reason and for leaving the lease alone — but no mode-guarded
  * implementation can fail the second, since a peek never touches the lease. The
- * assertion with real teeth is the refused TAKEOVER at `suite.ts:1171-1176`
- * ("the refusal landed after the client started"), and this world cannot reach
- * it: `assertAttachHonoursOneControlLease` returns at the refused peek and never
+ * assertion with real teeth is the refused TAKEOVER ("a refused take-over kept
+ * the control lease"), and this world cannot reach it:
+ * `assertAttachHonoursOneControlLease` returns at the refused peek and never
  * asks for a takeover.
  *
  * Reaching it needs a host that hosts a SPECTATOR STREAM but no control
@@ -455,7 +455,7 @@ describe('opencode-server on a host with nowhere to run a terminal', () => {
  * Deleting the `session.lease = previousLease` line in `attach`'s `!client`
  * branch — a driver that reserved the lease, found no terminal, and refused
  * anyway — leaves the whole rest of the package green and turns exactly this
- * test red, on `suite.ts`'s own "the refusal landed after the client started".
+ * test red, on `suite.ts`'s own "a refused take-over kept the control lease".
  * That mutation was run, and reverted.
  */
 describe('opencode-server on a host that streams to watchers but seats no controller', () => {
