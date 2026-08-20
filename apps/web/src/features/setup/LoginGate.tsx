@@ -24,7 +24,8 @@ const C = {
   success: '#10b981',
   error: '#f43f5e',
   errorText: '#f87171',
-  amber: '#f59e0b',
+  waiting: '#d9b477',
+  warn: '#f5c518',
   text: '#f3f3f8',
   textDim: '#9a9aa8',
   textFaint: '#7a7a86',
@@ -159,7 +160,7 @@ export function LoginView({
           ? '#34d399'
           : state === 'typing'
             ? C.textDim
-            : C.amber
+            : C.waiting
   const statText =
     state === 'ok'
       ? '✓ signed in — welcome back'
@@ -339,7 +340,7 @@ export function LoginView({
               fontSize: 9,
               letterSpacing: '.08em',
               color: '#161006',
-              background: C.amber,
+              background: C.warn,
               borderRadius: 99,
               padding: '2px 8px',
               animation: 'podium-login-pop .3s ease',

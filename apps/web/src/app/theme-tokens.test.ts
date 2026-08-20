@@ -98,15 +98,40 @@ describe('Podium token blocks', () => {
     expect(dark).toContain('--issue-line-scale: 1%')
   })
 
-  it('never assigns Podium Yellow to a text token in light', () => {
+  it('never assigns the light fill to a text token', () => {
     // --attention is a `color:` in six places (styles.css .chat-next,
     // text-attention in UnifiedIssueRow/sidebar-common/the Flight Deck).
-    // #f5c518 as text is 1.6:1 on paper. Yellow fills; ochre writes.
+    // Bisque measures 1.6:1 on paper — exactly the constraint the yellow it
+    // replaced had — so the fill must never reach a text token here.
+    // Bisque fills; bronze writes.
     const attention = /--attention:\s*(#[0-9a-f]{6})/i.exec(light)?.[1]
-    expect(attention?.toLowerCase()).not.toBe('#f5c518')
-    expect(attention?.toLowerCase()).toBe('#8a6200')
-    // The fill keeps the brand yellow.
-    expect(light).toContain('--primary: #f5c518')
+    expect(attention?.toLowerCase()).not.toBe('#d9b477')
+    expect(attention?.toLowerCase()).toBe('#7a6134')
+    // The fill takes the bisque accent.
+    expect(light).toContain('--primary: #d9b477')
+  })
+
+  it('collapses fill and ink onto one accent in dark, warning held apart', () => {
+    // Rule 3 after the bisque swap: bisque clears 9.9:1 on the dark ground, so
+    // --primary and --attention stop diverging and become one value. The yellow
+    // is demoted rather than deleted — it is the only high-chroma warm left, and
+    // it must stay distinct from the accent or "alarm" and "material" collapse
+    // into the same signal.
+    const hex = (blk: string, token: string) =>
+      new RegExp(`${token}:\\s*(#[0-9a-f]{6})`, 'i').exec(blk)?.[1]?.toLowerCase()
+    expect(hex(dark, '--attention')).toBe(hex(dark, '--primary'))
+    expect(hex(dark, '--primary')).toBe('#d9b477')
+    expect(hex(dark, '--warning')).toBe('#f5c518')
+    expect(hex(dark, '--warning')).not.toBe(hex(dark, '--primary'))
+  })
+
+  it('gives the primary button a rim in both appearances', () => {
+    // The yellow carried its own silhouette on warm stone, so light set this to
+    // `transparent`. Bisque, at half the chroma, does not — .btn-primary-rim is
+    // the whole reason the button still reads as an object.
+    expect(light).toContain('--primary-rim: #b08c4e')
+    expect(dark).toContain('--primary-rim: #e8ca97')
+    expect(light).not.toContain('--primary-rim: transparent')
   })
 
   it('keeps the utilities reading the scales rather than a hardcoded 1%', () => {

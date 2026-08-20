@@ -186,9 +186,9 @@ export const seatFor = (note: PresenceNote | null): PresenceNote | null =>
  * BLOCKED WEARS A HATCH — a shallow diagonal rule over the same grey ground.
  *
  * No border and no hue: blocked is a stopped state, not an obligation, and in
- * this theme the warning tone IS the attention tone (#f5c518), so a
- * "warning-coloured" strip would read as "answer me" on the exact surface built
- * to tell those apart.
+ * this theme the warning tone is the loudest warm on screen while the attention
+ * tone is the accent itself — so a strip in either would shout alarm or "answer
+ * me" on the exact surface built to tell those apart.
  */
 /** The theme's own ink at 5% — one step of texture, and no hue. */
 const HATCH_INK = alpha(color.text, 0.05)

@@ -417,7 +417,7 @@ export function RepoPickerModal({
                   className={cn(
                     'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
                     source === 'local'
-                      ? 'bg-[#2a2718] text-[#e3ba52] shadow-[inset_0_0_0_1.5px_#e3ba52]'
+                      ? 'bg-[#2a2418] text-[#d9b477] shadow-[inset_0_0_0_1.5px_#d9b477]'
                       : 'bg-[#1b1e24] text-[#8a9099] shadow-[inset_0_0_0_1px_#2f343d] hover:bg-[#252a31]',
                   )}
                   onClick={() => {
@@ -447,7 +447,7 @@ export function RepoPickerModal({
                   className={cn(
                     'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
                     source === 'github'
-                      ? 'bg-[#2a2718] text-[#e3ba52] shadow-[inset_0_0_0_1.5px_#e3ba52]'
+                      ? 'bg-[#2a2418] text-[#d9b477] shadow-[inset_0_0_0_1.5px_#d9b477]'
                       : 'bg-[#1b1e24] text-[#8a9099] shadow-[inset_0_0_0_1px_#2f343d] hover:bg-[#252a31]',
                   )}
                   onClick={() => {
@@ -604,7 +604,7 @@ export function RepoPickerModal({
                     {onCreateRepo && (
                       <Button
                         size="sm"
-                        className="h-9 rounded-[9px] border-0 bg-[#e3ba52] px-[15px] text-[12.5px] font-semibold text-[#1a1408] hover:bg-[#efc964] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37]"
+                        className="h-9 rounded-[9px] border-0 bg-[#d9b477] px-[15px] text-[12.5px] font-semibold text-[#191308] hover:bg-[#efc964] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37]"
                         disabled={!listing || busy}
                         onClick={() => startEdit({ kind: 'repo', name: '' })}
                       >
@@ -656,7 +656,7 @@ export function RepoPickerModal({
                   <EditRow
                     icon={
                       edit.kind === 'repo' ? (
-                        <FolderGit2 size={19} className="flex-none text-[#e3ba52]" />
+                        <FolderGit2 size={19} className="flex-none text-[#d9b477]" />
                       ) : (
                         <Folder size={19} className="flex-none text-[#8a9099]" />
                       )
@@ -704,7 +704,7 @@ export function RepoPickerModal({
                         key={entry.path}
                         icon={
                           entry.isRepo ? (
-                            <FolderGit2 size={19} className="flex-none text-[#e3ba52]" />
+                            <FolderGit2 size={19} className="flex-none text-[#d9b477]" />
                           ) : (
                             <Folder size={19} className="flex-none text-[#8a9099]" />
                           )
@@ -753,7 +753,7 @@ export function RepoPickerModal({
                           {entry.isRepo ? (
                             <FolderGit2
                               size={19}
-                              className="flex-none text-[#e3ba52]"
+                              className="flex-none text-[#d9b477]"
                               aria-hidden="true"
                             />
                           ) : (
@@ -781,7 +781,7 @@ export function RepoPickerModal({
                           <button
                             type="button"
                             data-pressable
-                            className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] group-hover:bg-[#e3ba52] group-hover:text-[#1a1408] group-hover:shadow-none"
+                            className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] group-hover:bg-[#d9b477] group-hover:text-[#191308] group-hover:shadow-none"
                             disabled={busy}
                             onClick={() => void pickPath(entry.path)}
                             aria-label={`Use repository ${entry.name}`}
@@ -818,7 +818,7 @@ export function RepoPickerModal({
                     }}
                   />
                   <Button
-                    className="h-[38px] rounded-[9px] border-0 bg-[#e3ba52] px-[15px] text-[12.5px] font-semibold text-[#1a1408] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37] max-sm:w-full"
+                    className="h-[38px] rounded-[9px] border-0 bg-[#d9b477] px-[15px] text-[12.5px] font-semibold text-[#191308] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37] max-sm:w-full"
                     disabled={writing || !machineReady || manualTarget === ''}
                     onClick={() => void pickManual()}
                   >
@@ -1021,7 +1021,7 @@ function EditRow({
         <Input
           autoFocus
           aria-label={label}
-          className="h-8 min-w-0 flex-1 rounded-[7px] border-0 bg-[#15171b] px-[10px] font-mono text-[13px] text-[#f2f3f5] shadow-[inset_0_0_0_1.5px_#e3ba52] placeholder:text-[#6f757f]"
+          className="h-8 min-w-0 flex-1 rounded-[7px] border-0 bg-[#15171b] px-[10px] font-mono text-[13px] text-[#f2f3f5] shadow-[inset_0_0_0_1.5px_#d9b477] placeholder:text-[#6f757f]"
           value={value}
           placeholder={placeholder}
           disabled={busy}
@@ -1043,7 +1043,7 @@ function EditRow({
         <button
           type="button"
           data-pressable
-          className="h-8 flex-none rounded-[9px] bg-[#e3ba52] px-[13px] text-[12.5px] leading-none font-semibold text-[#1a1408] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37]"
+          className="h-8 flex-none rounded-[9px] bg-[#d9b477] px-[13px] text-[12.5px] leading-none font-semibold text-[#191308] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37]"
           disabled={busy || value.trim() === ''}
           onClick={onCommit}
         >

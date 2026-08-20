@@ -98,7 +98,7 @@ export function MachinePairing(props: MachinePairingProps): JSX.Element {
               className={cn(
                 'mt-2',
                 guidedVps &&
-                  '-ml-2 h-8 px-2 text-[13px] font-semibold text-[#e3ba52] hover:bg-[#e3ba52]/10 hover:text-[#efc95f]',
+                  '-ml-2 h-8 px-2 text-[13px] font-semibold text-[#d9b477] hover:bg-[#d9b477]/10 hover:text-[#e8ca97]',
               )}
               onClick={props.onChangeUrl}
             >
@@ -242,7 +242,7 @@ export function PairingCodeDisplay({
                 size="sm"
                 className={cn(
                   'flex-none',
-                  guidedVps && 'text-[#e3ba52] hover:bg-[#e3ba52]/10 hover:text-[#efc95f]',
+                  guidedVps && 'text-[#d9b477] hover:bg-[#d9b477]/10 hover:text-[#e8ca97]',
                 )}
                 onClick={onChangeUrl}
               >
@@ -276,7 +276,7 @@ export function PairingCodeDisplay({
           <div className="flex gap-3 px-4 py-4">
             <CheckCircle2
               size={18}
-              className="mt-0.5 flex-none text-[#e3ba52]"
+              className="mt-0.5 flex-none text-[#d9b477]"
               aria-hidden="true"
             />
             <div className="min-w-0">
@@ -302,7 +302,7 @@ export function PairingCodeDisplay({
               <label className="flex items-start gap-3">
                 <input
                   type="checkbox"
-                  className="mt-0.5 accent-[#e3ba52]"
+                  className="mt-0.5 accent-[#d9b477]"
                   checked={podiumManaged}
                   disabled={busy}
                   onChange={(event) => onManagedChange(event.currentTarget.checked)}
@@ -321,7 +321,7 @@ export function PairingCodeDisplay({
                 <label className="flex items-start gap-3 border-t border-[#2b2f37] pt-3">
                   <input
                     type="checkbox"
-                    className="mt-0.5 accent-[#e3ba52]"
+                    className="mt-0.5 accent-[#d9b477]"
                     checked={makeServerAfterPair}
                     disabled={busy}
                     onChange={(event) => onMakeServerAfterPairChange(event.currentTarget.checked)}
@@ -414,7 +414,7 @@ export function PairingCodeDisplay({
               size="sm"
               className={cn(
                 'flex-none',
-                guidedVps && 'bg-[#e3ba52] text-[#1a1408] hover:bg-[#efc95f]',
+                guidedVps && 'bg-[#d9b477] text-[#191308] hover:bg-[#e8ca97]',
               )}
               disabled={busy}
               onClick={copy}

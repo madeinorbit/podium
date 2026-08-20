@@ -121,7 +121,7 @@ export function OnboardingWizard({
             </p>
             <Button
               type="button"
-              className="mt-5 h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+              className="mt-5 h-[42px] rounded-[10px] border-0 bg-[#d9b477] px-4 text-[13.5px] font-semibold text-[#191308] hover:bg-[#e8ca97]"
               onClick={() => onRouteChange('local-project')}
             >
               Find a project
