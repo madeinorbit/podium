@@ -61,15 +61,23 @@ let previousStateDir: string | undefined
 
 /**
  * A fake harness binary. A `/bin/sh` wrapper exec's the test runtime itself
- * (`process.execPath`) on a helper that: writes its env to the landing file
- * named by `PODIUM_TEST_LANDING`, then — when launched as `opencode serve`
- * (`--port` present) — answers `/global/health` so `waitForReady` passes, or
- * otherwise just stays alive on a timer until the endpoint kills it.
+ * (`process.execPath`) on a helper that writes its env to the landing file named
+ * by `PODIUM_TEST_LANDING` and then plays whichever harness it was invoked as:
+ *
+ *   - `--listen unix://…` (codex app-server) — accepts the WebSocket upgrade so
+ *     `launch()`'s connect can complete;
+ *   - `--port` (opencode serve) — answers `/global/health` so `waitForReady`
+ *     passes;
+ *   - neither (grok, on stdio) — just stays alive until the endpoint kills it.
+ *
+ * IT RUNS UNDER THE TEST RUNTIME, which is what makes the choice of listener
+ * below load-bearing rather than incidental.
  */
 const HELPER_SOURCE = `
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 const http = require('node:http')
+const net = require('node:net')
 fs.writeFileSync(process.env.PODIUM_TEST_LANDING, JSON.stringify({
   HOME: process.env.HOME,
   PATH: process.env.PATH,
@@ -81,22 +89,39 @@ const listenIx = process.argv.indexOf('--listen')
 if (listenIx >= 0 && process.argv[listenIx + 1]?.startsWith('unix://')) {
   const path = process.argv[listenIx + 1].slice('unix://'.length)
   try { fs.unlinkSync(path) } catch {}
-  const server = http.createServer()
-  server.on('upgrade', (req, socket) => {
-    const key = req.headers['sec-websocket-key']
-    const accept = crypto
-      .createHash('sha1')
-      .update(String(key) + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
-      .digest('base64')
-    socket.write([
-      'HTTP/1.1 101 Switching Protocols',
-      'Upgrade: websocket',
-      'Connection: Upgrade',
-      'Sec-WebSocket-Accept: ' + accept,
-      '',
-      '',
-    ].join('\\r\\n'))
-    socket.on('data', () => {})
+  // A RAW listener, deliberately not \`node:http\`. This fake runs under the test
+  // runtime, which is Bun, and Bun's http server never delivers a hand-written
+  // 101 out of an 'upgrade' handler — the client just waits, which is how this
+  // rig used to hang for its whole timeout instead of failing (POD-2484). Real
+  // Codex speaks the same bytes off a raw socket anyway.
+  const server = net.createServer((socket) => {
+    let pending = ''
+    let upgraded = false
+    socket.on('data', (chunk) => {
+      if (upgraded) return // Everything after the handshake is framed traffic.
+      pending += chunk.toString('latin1')
+      const end = pending.indexOf('\\r\\n\\r\\n')
+      if (end < 0) return
+      const key = /sec-websocket-key:[ \\t]*([^\\r\\n]+)/i.exec(pending.slice(0, end))
+      upgraded = true
+      if (!key) return socket.end('HTTP/1.1 400 Bad Request\\r\\n\\r\\n')
+      const accept = crypto
+        .createHash('sha1')
+        .update(key[1].trim() + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+        .digest('base64')
+      socket.write([
+        'HTTP/1.1 101 Switching Protocols',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        'Sec-WebSocket-Accept: ' + accept,
+        '',
+        '',
+      ].join('\\r\\n'))
+    })
+    // \`kill()\` terminates the client socket before the SIGKILL lands, and a
+    // destroy that arrives as an RST rather than a FIN would otherwise be an
+    // unhandled 'error' that takes this whole fake down mid-teardown.
+    socket.on('error', () => {})
   })
   server.listen(path)
 } else if (portIx >= 0) {
@@ -199,9 +224,9 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       expect(seen.MANAGED).toBe('rides-through')
       const socketPath = endpoint.clientAddress.slice('unix://'.length)
       expect(socketPath.startsWith(join(root, 'state', 'runtime'))).toBe(true)
-      expect(statSync(join(root, 'state', 'runtime', 'codex-app-server-sockets')).mode & 0o777).toBe(
-        0o700,
-      )
+      expect(
+        statSync(join(root, 'state', 'runtime', 'codex-app-server-sockets')).mode & 0o777,
+      ).toBe(0o700)
       expect(statSync(socketPath).mode & 0o777).toBe(0o600)
     } finally {
       await endpoint.kill()

@@ -87,10 +87,7 @@ const journalPath = (sessionId: SessionId): string =>
 const socketDir = (): string => join(stateDir(), 'runtime', 'codex-app-server-sockets')
 
 /** A short basename preserves room under Unix's sockaddr limit. */
-export function codexClientSocketPath(
-  sessionId: SessionId,
-  nonce: string = randomUUID(),
-): string {
+export function codexClientSocketPath(sessionId: SessionId, nonce: string = randomUUID()): string {
   const session = createHash('sha256').update(sessionId).digest('hex').slice(0, 12)
   const incarnation = nonce.replaceAll('-', '').slice(0, 12)
   return join(socketDir(), `${session}-${incarnation}.sock`)
@@ -688,19 +685,50 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
 const CODEX_SOCKET_CONNECT_TIMEOUT_MS = 20_000
 
 /**
+ * ONE ATTEMPT'S BOUND, WELL UNDER THE WHOLE WAIT'S.
+ *
+ * A `connect` that is refused because nothing is listening yet fails in
+ * microseconds, and a local handshake completes in milliseconds. What has no
+ * bound of its own is the case in between: a listener that ACCEPTS and then
+ * never finishes the upgrade. `ws` will wait on that forever, and an `await`
+ * with no timeout inside the retry loop meant the deadline below was only ever
+ * consulted between attempts — so the first stalled attempt was also the last,
+ * and `launch()` never settled either way. A connection that cannot complete
+ * must fail, not hang (POD-2484).
+ */
+const CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS = 2_000
+
+/** What the connect loop needs of a child; a test supplies it without spawning. */
+export interface CodexChildLiveness {
+  exitCode: number | null
+  signalCode: NodeJS.Signals | null
+}
+
+/**
+ * One attempt's bound elapsing — kept distinguishable from a connect failure
+ * because only one of the two is evidence about the peer. See the catch below.
+ */
+class HandshakeTimeout extends Error {}
+
+/**
  * Wait for Codex's Unix listener, then complete its WebSocket upgrade.
  *
  * The pinned remote client uses `ws://localhost/rpc` as the HTTP handshake URI
  * while carrying those bytes over the Unix socket. `ws`'s `ws+unix` URL is the
  * same arrangement. Compression must stay off: Codex's tungstenite acceptor
  * deliberately offers plain text frames only.
+ *
+ * BOUNDED BY CONSTRUCTION. Listener startup is polled by opening real
+ * connections, and each attempt carries its own timeout clamped to what is left
+ * of the deadline. This returns a socket or throws; it cannot outlive the wait.
  */
-async function connectCodexWebSocket(
+export async function connectCodexWebSocket(
   path: string,
-  child: ReturnType<typeof spawn>,
+  child: CodexChildLiveness,
   banner: () => string,
+  timeoutMs: number = CODEX_SOCKET_CONNECT_TIMEOUT_MS,
 ): Promise<WebSocket> {
-  const deadline = Date.now() + CODEX_SOCKET_CONNECT_TIMEOUT_MS
+  const deadline = Date.now() + timeoutMs
   let lastError: unknown
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null) {
@@ -709,6 +737,11 @@ async function connectCodexWebSocket(
         `codex app-server exited before its Unix listener was ready${detail ? `: ${detail.slice(-500)}` : ''}`,
       )
     }
+    // Floored at 1ms: the deadline can lapse between the loop's test and here,
+    // and a negative timer is a warning on some runtimes and immediate on all.
+    const remaining = deadline - Date.now()
+    const attemptMs = Math.max(1, Math.min(CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS, remaining))
+    const clipped = attemptMs < CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS
     try {
       const socket = await new Promise<WebSocket>((resolve, reject) => {
         const candidate = new WebSocket(`ws+unix://${path}:/rpc`, {
@@ -720,21 +753,49 @@ async function connectCodexWebSocket(
         // durable listener so that expected retry cleanup cannot become an
         // unhandled EventEmitter `error` under Bun.
         candidate.on('error', () => undefined)
+        let timer: ReturnType<typeof setTimeout>
         const failed = (err: Error): void => {
+          clearTimeout(timer)
           candidate.off('open', opened)
           candidate.terminate()
           reject(err)
         }
         const opened = (): void => {
+          clearTimeout(timer)
           candidate.off('error', failed)
           resolve(candidate)
         }
+        timer = setTimeout(
+          () =>
+            failed(
+              new HandshakeTimeout(
+                `the listener did not complete the upgrade within ${attemptMs}ms`,
+              ),
+            ),
+          attemptMs,
+        )
         candidate.once('open', opened)
         candidate.once('error', failed)
       })
       return socket
     } catch (err) {
-      lastError = err
+      /**
+       * PREFER THE CAUSE THAT SAYS SOMETHING ABOUT THE PEER.
+       *
+       * The last attempt of a lapsing wait gets a sliver of the deadline, and
+       * its timer can beat an otherwise-instant connect refusal. Letting that
+       * overwrite the real cause would report "the listener did not complete the
+       * upgrade within 1ms" — a stalled handshake — for a socket nothing ever
+       * bound, sending the reader to the wrong end of the problem. A timeout on
+       * an attempt the DEADLINE shortened is just the wait ending, so it only
+       * becomes the reported cause when there is nothing better to report.
+       *
+       * DEFENSIVE, NOT OBSERVED. The race did not reproduce on Bun, where a
+       * connect rejection arrives in a microtask ahead of any timer — which is
+       * also why no test pins it: one would pass with this guard removed. The
+       * guard stays because the ordering it assumes is a runtime's to change.
+       */
+      if (!(clipped && err instanceof HandshakeTimeout) || lastError === undefined) lastError = err
       await new Promise((resolve) => setTimeout(resolve, 25))
     }
   }
