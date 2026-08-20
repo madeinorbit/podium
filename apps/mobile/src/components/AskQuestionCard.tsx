@@ -8,6 +8,7 @@ import type { TranscriptItem } from '@podium/model'
 import { Pencil } from 'lucide-react-native'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { alpha } from '../theme/mix'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
@@ -316,7 +317,7 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderLeftWidth: 0,
     borderRightWidth: 0,
-    backgroundColor: 'rgba(245, 197, 24, 0.05)',
+    backgroundColor: alpha(color.needsYou, 0.05),
     paddingTop: 15,
     paddingRight: 11,
     paddingBottom: 15,

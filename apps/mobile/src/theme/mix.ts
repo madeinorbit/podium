@@ -32,7 +32,7 @@ export function mix(colour: string, percent: number, base: string): string {
   return toHex(r1 * p + r2 * (1 - p), g1 * p + g2 * (1 - p), b1 * p + b2 * (1 - p))
 }
 
-/** `alpha('#f59e0b', 0.45)` → `rgba(245,158,11,0.45)` (CSS `rgba(C, .45)`). */
+/** `alpha('#d9b477', 0.45)` → `rgba(217,180,119,0.45)` (CSS `rgba(C, .45)`). */
 export function alpha(hex: string, a: number): string {
   const [r, g, b] = parseHex(hex)
   return `rgba(${r}, ${g}, ${b}, ${a})`

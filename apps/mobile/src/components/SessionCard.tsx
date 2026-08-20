@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.surface,
   },
   rowNeedsYou: {
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    backgroundColor: alpha(color.needsYou, 0.08),
     borderColor: color.needsYouBorder,
   },
   topRow: {
