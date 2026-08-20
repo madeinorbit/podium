@@ -5,10 +5,8 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { nativeDesktopBridge } from '../lib/nativeDesktop'
 import { useStoreSelector } from './store'
 
-export type ThemePreset = 'shadcn' | 'podium' | 'superade'
 export type ThemeMode = 'light' | 'dark' | 'system'
 export interface ThemeState {
-  preset: ThemePreset
   mode: ThemeMode
 }
 
@@ -18,39 +16,30 @@ export function resolveDark(mode: ThemeMode, prefersDark: boolean): boolean {
   return mode === 'system' ? prefersDark : mode === 'dark'
 }
 
-// Theme keys live in RAW localStorage on purpose (not only ui-state): they're
+// The theme mode lives in RAW localStorage on purpose (not only ui-state): it is
 // read BEFORE the store exists — by index.html's anti-flash script (pre-React)
 // and by ThemeProvider (which wraps StoreProvider) — so the fast path must not
 // depend on the replica. ThemeUiStateMirror below write-throughs every change
 // into the ui-state collection so the one UI persistence layer stays complete.
-// Spellings come from the model vocabulary (THEME_UI_KEYS) — no local restatement.
-export const THEME_PRESET_KEY = THEME_UI_KEYS[0]
-export const THEME_MODE_KEY = THEME_UI_KEYS[1]
+// The spelling comes from the model vocabulary — no local restatement.
+export const THEME_MODE_KEY = THEME_UI_KEYS[0]
 
-// PWA status-bar / address-bar tint per theme. Must mirror each preset/mode block's
-// --background in index.css; the anti-flash script in index.html duplicates these.
-export const THEME_BG: Record<string, string> = {
-  'podium-dark': '#0e0e12',
-  'podium-light': '#f7f7f9',
-  'shadcn-dark': '#09090b',
-  'shadcn-light': '#ffffff',
-  'superade-dark': '#16171a',
-  'superade-light': '#f2f1ed',
+// PWA status-bar / address-bar tint. Must mirror each Podium appearance block's
+// --background in index.css; the anti-flash script in index.html duplicates it.
+export const THEME_BG: Record<'dark' | 'light', string> = {
+  dark: '#16171a',
+  light: '#f2f1ed',
 }
 
 export function readStoredTheme(): ThemeState {
-  const p = readPreAuthTheme(THEME_PRESET_KEY)
   const m = readPreAuthTheme(THEME_MODE_KEY)
   return {
-    preset: p === 'shadcn' || p === 'podium' || p === 'superade' ? p : 'superade',
     mode: m === 'light' || m === 'dark' || m === 'system' ? m : 'dark',
   }
 }
 
 export function applyTheme(state: ThemeState, root: HTMLElement, prefersDark = false): void {
-  // shadcn is the bare default (no data-theme); every other preset is keyed by name.
-  if (state.preset === 'shadcn') root.removeAttribute('data-theme')
-  else root.setAttribute('data-theme', state.preset)
+  root.setAttribute('data-theme', 'podium')
   root.classList.toggle('dark', resolveDark(state.mode, prefersDark))
   // Desktop shell: keep the native window appearance on the page's theme. The macOS
   // vibrancy layer behind the transparent command bar renders with the window's
@@ -63,7 +52,6 @@ export function applyTheme(state: ThemeState, root: HTMLElement, prefersDark = f
 }
 
 interface ThemeContextValue extends ThemeState {
-  setPreset: (preset: ThemePreset) => void
   setMode: (mode: ThemeMode) => void
 }
 const Ctx = createContext<ThemeContextValue | null>(null)
@@ -86,18 +74,15 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
 
   useEffect(() => {
     applyTheme(state, document.documentElement, prefersDark)
-    writePreAuthTheme(THEME_PRESET_KEY, state.preset)
     writePreAuthTheme(THEME_MODE_KEY, state.mode)
     const meta = document.querySelector('meta[name="theme-color"]')
     const isDark = resolveDark(state.mode, prefersDark)
     const resolvedMode = isDark ? 'dark' : 'light'
-    const bg = THEME_BG[`${state.preset}-${resolvedMode}`]
-    if (meta && bg) meta.setAttribute('content', bg)
+    if (meta) meta.setAttribute('content', THEME_BG[resolvedMode])
   }, [state, prefersDark])
 
   const value: ThemeContextValue = {
     ...state,
-    setPreset: (preset) => setState((s) => ({ ...s, preset })),
     setMode: (mode) => setState((s) => ({ ...s, mode })),
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
@@ -115,11 +100,10 @@ export function useTheme(): ThemeContextValue {
  * store exists — see the key comment above). Render-less.
  */
 export function ThemeUiStateMirror(): null {
-  const { preset, mode } = useTheme()
+  const { mode } = useTheme()
   const ui = useStoreSelector((s) => s.uiState)
   useEffect(() => {
-    ui.set(THEME_PRESET_KEY, preset)
     ui.set(THEME_MODE_KEY, mode)
-  }, [ui, preset, mode])
+  }, [ui, mode])
   return null
 }

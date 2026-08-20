@@ -133,7 +133,7 @@ html[data-density="compact"] {
 
    `data-pressable` says hover with `filter: brightness(1.08)` (index.css), which
    can only ever BRIGHTEN. That was fine while this control was a `--secondary`
-   grey. It is `--chip` now, and `--chip` is #ffffff in every light preset — so
+   grey. It is `--chip` now, and `--chip` is #ffffff in light mode — so
    the brightest thing on screen got a brightening filter and the control had no
    hover feedback at all in light mode. The artboard hovers the other way:
    #faf9f7 under a #ffffff rest, and #282c33 under #23262d in the dark board.
@@ -3196,11 +3196,11 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
    not the same token in both modes, nor is the face of a fanned deck, and a
    shelf floated over the feed has no token at all. Naming the ROLES once here
    and binding each to the palette keeps two properties that matter — the chat
-   still follows the theme (all three presets, both modes, no literal hexes in
+   still follows the theme (both modes, no literal hexes in
    the rules), and retuning any one surface is one line rather than forty.
 
    Only the two carve/shadow inks are literal, because they are ground-agnostic:
-   every dark preset has a dark ground and every light one a light ground, and a
+   dark mode has a dark ground and light mode a light ground, and a
    shadow is black either way.
 
    ONE DEVIATION FROM THE DELIVERED DESIGN, RECORDED HERE. The design sets its
@@ -4632,7 +4632,7 @@ html[data-density="compact"] .brief-shelf {
 /* Paper carves in its own warm ink, like every other groove there (POD-725) —
    black on paper reads as dirt even at this alpha, and a cool ink over stone
    reads as a bruise. */
-[data-theme="superade"]:not(.dark) .work-line {
+[data-theme="podium"]:not(.dark) .work-line {
   --work-line-carve: rgb(29 28 25 / 0.07);
 }
 .work-line-deck {
@@ -8867,7 +8867,7 @@ a.ref-link--session::before {
    second box, no hue — the tint channel and the elevation vocabulary are both
    left alone.
 
-   IT IS NOT AMBER, and cannot become amber. In the Superade theme `--warning`
+   IT IS NOT AMBER, and cannot become amber. In the Podium theme `--warning`
    IS `--attention` (#f5c518), so a "warning-toned" blocked strip would read as
    "answer me" on the exact surface built to tell obligation from state. Blocked
    asks nothing; it just is not moving. The rule is drawn in the theme's own
@@ -9134,8 +9134,7 @@ a.ref-link--session::before {
 /* DONE IS THE GAUGE'S ONLY SOLID BAND, and everything unfinished is a tint.
    Finished work is settled, so it is dense; work in flight is light and carries
    the motion. That one weight step is what keeps done and running apart in
-   Daylight, where `--success` is itself a blue and hue alone could not carry it
-   — and in the presets that DO have a green it simply reinforces the hue.
+   Podium, where `--success` is itself a blue and hue alone cannot carry it.
    `--success-solid` rather than `--success`: a fill under 10.5px type is a
    different job from a line, and on paper it wants one step darker to clear the
    contrast floor. */

@@ -17,7 +17,7 @@ import '@/index.css'
 import '@/styles.css'
 
 const params = new URLSearchParams(location.search)
-document.documentElement.dataset.theme = params.get('theme') ?? 'superade'
+document.documentElement.dataset.theme = 'podium'
 document.documentElement.classList.toggle('dark', (params.get('mode') ?? 'light') === 'dark')
 
 const machine = {

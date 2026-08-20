@@ -216,12 +216,11 @@ export function WorkRowShell({
           // top — the hue is the row's resting ground, and mixing more of it
           // into the selected row made selection read as "this one is greener".
           //
-          // `--chip`, NOT `--card`: two of the six theme blocks give card and
-          // sidebar the SAME value (default dark and Podium dark are both flat
-          // near-black frames), so the design's card-toned band would have been
+          // `--chip`, NOT `--card`: Podium dark gives card and sidebar the SAME
+          // value, so the design's card-toned band would have been
           // a selected row you cannot see. `--chip` is the "raised above what it
           // sits on" tier by definition and steps above `--sidebar` in every
-          // preset — including paper, where it IS white, the design's value.
+          // appearance — including paper, where it IS white, the design's value.
           active && 'bg-chip',
           !active && !hex && 'hover:bg-muted',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',

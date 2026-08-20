@@ -1,8 +1,8 @@
 import { Platform } from 'react-native'
 
 /**
- * Podium mobile design language — Superade "Dark Ink". [POD-784, mirrors
- * apps/web/DESIGN.md and the `[data-theme="superade"].dark` block of
+ * Podium mobile design language — "Dark Ink". [POD-784, mirrors
+ * apps/web/DESIGN.md and the `[data-theme="podium"].dark` block of
  * apps/web/src/index.css]
  *
  * The chassis is NEUTRAL INK, not navy. It was a deep race navy (#0a0f1c

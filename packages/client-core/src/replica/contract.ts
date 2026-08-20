@@ -334,10 +334,10 @@ export const LEGACY_UI_MAP_PREFIXES: Record<string, string> = {
   'podium.mdmode:': 'podium.mdmode',
 }
 
-/** Keys MIRRORED into ui-state but NOT removed from localStorage: the theme is
+/** Keys MIRRORED into ui-state but NOT removed from localStorage: theme mode is
  *  read before React (index.html's anti-flash script) and before the store
  *  exists, so the raw localStorage fast path must keep working. */
-export const MIRRORED_UI_KEYS = ['podium.theme.preset', 'podium.theme.mode'] as const
+export const MIRRORED_UI_KEYS = ['podium.theme.mode'] as const
 
 /** Spec §2.3: "last ~200 items per conversation, LRU cap ~50 conversations". */
 export const REPLICA_TRANSCRIPT_ITEM_CAP = 200

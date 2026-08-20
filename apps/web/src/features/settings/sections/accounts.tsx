@@ -18,10 +18,9 @@ function managedLabel(a: AccountView): string {
   return `${providerLabel(a.provider as ManagedProvider)} API key`
 }
 
-/** Connected: a filled signal dot + the masked identity in machine voice. In the
- *  Superade theme `--success` is calm blue (the "all good" hue — this theme has no
- *  green); other themes map it to their own success color. Kept as the semantic
- *  token so it stays on-brand per theme. */
+/** Connected: a filled signal dot + the masked identity in machine voice.
+ *  Podium's `--success` is calm blue (the "all good" hue — this theme has no
+ *  green), so the semantic token keeps the status aligned with the palette. */
 function StatusConnected({ identity }: { identity: string }): JSX.Element {
   return (
     <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full bg-success/10 py-0.5 pr-2 pl-1.5 text-[12px] text-success">

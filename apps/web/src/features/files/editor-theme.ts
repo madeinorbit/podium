@@ -7,8 +7,8 @@ import { tags as t } from '@lezer/highlight'
  * THE SOURCE EDITOR'S THEME [POD-788].
  *
  * Every colour here is a `var(--syntax-*)` read straight from the shell's theme
- * (index.css, "Syntax channel"), so the editor follows light/dark and every
- * preset with NO JavaScript in the loop: no theme hook, no reconfiguration, no
+ * (index.css, "Syntax channel"), so the editor follows light/dark with NO
+ * JavaScript in the loop: no theme hook, no reconfiguration, no
  * remount when the operator flips the switch — the browser recomputes the
  * cascade and the code changes colour. That is also why this is one extension
  * rather than a light one and a dark one; there is nothing mode-specific left in

@@ -201,8 +201,8 @@ export const DEVICE_LOCAL_UI_KEYS = [
   'podium:sidebar:width',
 ] as const
 
-/** Pre-auth exception: theme is mirrored raw, never namespaced, never a layout row. */
-export const THEME_UI_KEYS = ['podium.theme.preset', 'podium.theme.mode'] as const
+/** Pre-auth exception: theme mode is mirrored raw, never namespaced, never a layout row. */
+export const THEME_UI_KEYS = ['podium.theme.mode'] as const
 
 // ---------------------------------------------------------------------------
 // Schema

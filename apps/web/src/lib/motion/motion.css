@@ -18,12 +18,12 @@
   --motion-total: #6c6c78; /* grey ∑ total on done rows */
 }
 
-/* Paper (Superade light, POD-725). The values above are tuned to be legible on
+/* Podium light (Paper, POD-725). The values above are tuned to be legible on
    near-black; on warm stone the same blue is washed out, the amber is illegible
    as text, and a navy badge fill is a hole in the page. Restated here rather
    than tokenized because these five are a closed set the motion grammar owns —
    see index.css for the theme palette they mirror (--live / --attention). */
-[data-theme="superade"]:not(.dark) {
+[data-theme="podium"]:not(.dark) {
   --motion-working: #2a62f0;
   --motion-working-bright: #ffffff;
   --motion-badge-bg: #2a62f0;
