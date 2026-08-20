@@ -21,6 +21,7 @@
 
 import type { CodexRuntimeHost, CodexTransport } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
+import { addSink, type LogRecord } from '@podium/logger'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { createDaemonCodexRuntime } from './codex-driver'
@@ -67,7 +68,7 @@ function stubTransport(): { transport: CodexTransport; resumedThreads: string[] 
   }
 }
 
-function world() {
+function world(options: { sendThrows?: boolean } = {}) {
   const sent: DaemonMessage[] = []
   const entries = new Map<string, unknown>()
   const resumed: string[] = []
@@ -109,7 +110,18 @@ function world() {
     entries,
     resumed,
     launches: () => launches,
-    runtime: createDaemonCodexRuntime({ send: (msg) => void sent.push(msg), host }),
+    runtime: createDaemonCodexRuntime({
+      send: (msg) => {
+        // What `connection-state.send` does for this frame: enqueue onto the
+        // fsynced outbox, which throws on ENOSPC/EDQUOT/EIO and on a reportId
+        // collision.
+        if (options.sendThrows && msg.type === 'runtimeQueueDrainAbandoned') {
+          throw new Error('ENOSPC: no space left on device, write')
+        }
+        sent.push(msg)
+      },
+      host,
+    }),
   }
 }
 
@@ -258,33 +270,33 @@ describe('restart-adoption, at the layer that was missing it', () => {
   })
 })
 
-describe('a queue the driver loses reaches the server — POD-2297', () => {
-  /** Park a turn behind a human take-over lease, which is the queue a real
-   *  session fills: a steward's nudge arriving while somebody is driving. */
-  async function parked(w: ReturnType<typeof world>, ids: readonly (string | undefined)[]) {
-    const sessionId = 'cx-abandon' as SessionId
-    w.entries.set(sessionId, {
-      sessionId,
-      threadId: '019fff94-7326-7032-b90b-3cc7e1805190',
-      workdir: '/work/project',
-      process: { key: `podium-cx-${sessionId}` },
-      seq: 0,
-      turnEpoch: 0,
-      bindingVersion: 1,
-    })
-    const handle = await w.runtime.adoptFromJournal(sessionId)
-    if (!handle) throw new Error('adopt failed')
-    await handle.lease.acquire('operator', 'human-controller')
-    for (const id of ids) {
-      const receipt = await handle.send(
-        { ...(id ? { id } : {}), text: `nudge ${id ?? 'anonymous'}` },
-        { origin: 'steward', delivery: 'when-ready' },
-      )
-      expect(receipt.outcome).toBe('queued')
-    }
-    return handle
+/** Park a turn behind a human take-over lease, which is the queue a real
+ *  session fills: a steward's nudge arriving while somebody is driving. */
+async function parked(w: ReturnType<typeof world>, ids: readonly (string | undefined)[]) {
+  const sessionId = 'cx-abandon' as SessionId
+  w.entries.set(sessionId, {
+    sessionId,
+    threadId: '019fff94-7326-7032-b90b-3cc7e1805190',
+    workdir: '/work/project',
+    process: { key: `podium-cx-${sessionId}` },
+    seq: 0,
+    turnEpoch: 0,
+    bindingVersion: 1,
+  })
+  const handle = await w.runtime.adoptFromJournal(sessionId)
+  if (!handle) throw new Error('adopt failed')
+  await handle.lease.acquire('operator', 'human-controller')
+  for (const id of ids) {
+    const receipt = await handle.send(
+      { ...(id ? { id } : {}), text: `nudge ${id ?? 'anonymous'}` },
+      { origin: 'steward', delivery: 'when-ready' },
+    )
+    expect(receipt.outcome).toBe('queued')
   }
+  return handle
+}
 
+describe('a queue the driver loses reaches the server — POD-2297', () => {
   it('turns the driver report into ONE durable abandonment frame', async () => {
     /**
      * THE FRAME IS THE POINT OF THIS WHOLE ISSUE. `send` puts a
@@ -353,3 +365,46 @@ describe('a queue the driver loses reaches the server — POD-2297', () => {
     expect(w.sent.filter((msg) => msg.type === 'runtimeQueueDrainAbandoned')).toHaveLength(0)
   })
 })
+
+describe('the abandonment is said out loud before it is made durable — POD-2297 review, R2', () => {
+  it('still logs when the durable send throws', async () => {
+    /**
+     * THE ORDERING THE DRIVERS' SWALLOW LEANS ON, PINNED.
+     *
+     * All three drivers deliberately swallow a throw from `onQueueAbandoned` so
+     * a failed report cannot leak the agent's child (review finding 2). That is
+     * only honest because THIS helper logs BEFORE it calls `send`, so a turn
+     * whose durable correction fails has still been said out loud.
+     *
+     * Nothing enforced that. The reviewer moved `log.warn` below `send()` and
+     * all 254 daemon and server tests stayed green — a later refactor doing the
+     * same (to log the reportId, say) would turn a persist failure back into
+     * precisely the silent loss this issue closes, with nothing red. This is the
+     * test that goes red.
+     */
+    const w = world({ sendThrows: true })
+    const records: LogRecord[] = []
+    const dispose = addSink({ name: 'pod-2297-r2', write: (r) => records.push(r) })
+    try {
+      const handle = await parked(w, ['msg-unpersistable'])
+      // The driver's own guard: teardown completes despite the throw.
+      await expect(handle.stop()).resolves.toBeUndefined()
+
+      const warned = records.filter((r) => r.msg === 'queued turns were never delivered')
+      expect(warned).toHaveLength(1)
+      // The turn is NAMED in the log, which is what makes the loss recoverable
+      // by a human when the durable correction could not be written.
+      expect(warned[0]).toMatchObject({
+        level: 'warn',
+        family: 'codex',
+        reason: 'teardown',
+        turnIds: ['msg-unpersistable'],
+      })
+      // …and the frame really did fail to go out, so the log is the only record.
+      expect(w.sent.filter((m) => m.type === 'runtimeQueueDrainAbandoned')).toHaveLength(0)
+    } finally {
+      dispose()
+    }
+  })
+})
+

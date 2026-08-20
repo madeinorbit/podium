@@ -172,6 +172,29 @@ describe('a session adopted OVER a live one takes its queue with it — POD-2297
       expect(adopted.binding.sessionId).toBe(handle.binding.sessionId)
 
       expect(reports).toEqual([{ turnIds: ['nudge-adopted-away'], reason: 'teardown' }])
+
+      /**
+       * AND THE CHILD IS STILL THERE (POD-2297 review, R1).
+       *
+       * `registerSession` ends the displaced session but deliberately does NOT
+       * close its client or endpoint, because an adopt re-binds the SAME child —
+       * and nothing enforced that. The reviewer added `endpoint.stop()` to the
+       * displacement branch and every test here stayed green, while the
+       * regression would have killed the process the new session is about to
+       * speak to on every reattach in the fleet. Asserting the REPORT is not
+       * enough; this drives the adopted handle through to the server.
+       */
+      await adopted.lease.release('operator')
+      const landed = await adopted.send(
+        { id: 'after-adopt', text: 'reaches the same child' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(landed.outcome).toBe('accepted')
+      const opencodeSessionId = adopted.binding.resume?.value
+      expect(opencodeSessionId).toBeDefined()
+      expect(
+        host.serverFor(adopted.binding.sessionId)?.promptCount(String(opencodeSessionId)),
+      ).toBe(1)
     } finally {
       runtime.dispose()
     }
@@ -264,4 +287,38 @@ describe('a dead server stops promising delivery — POD-2297 review, 3', () => 
       runtime.dispose()
     }
   }, 30_000)
+})
+
+describe('a throwing report does not leak the child — POD-2297 review, low 1', () => {
+  it('still stops the endpoint when the host port throws', async () => {
+    /**
+     * `reportAbandoned` is character-identical in all three server drivers, and
+     * identical code tested in only one of them is how a family quietly diverges.
+     * codex has this pin; this is opencode's.
+     */
+    const runtime = createOpencodeRuntime(
+      makeOpencodeTestHost({
+        onQueueAbandoned: () => {
+          // What an fsync-backed outbox raises.
+          throw new Error('EDQUOT: disk quota exceeded, write')
+        },
+      }),
+    )
+    try {
+      const handle = await runtime.driver.create(spec())
+      await handle.lease.acquire('operator', 'human-controller')
+      await handle.send({ id: 'boom', text: 'x' }, { origin: 'steward', delivery: 'when-ready' })
+
+      await expect(handle.stop()).resolves.toBeUndefined()
+      // The teardown ran past the throw: a later send finds no session at all
+      // rather than one still holding a live `opencode serve`.
+      const after = await handle.send(
+        { id: 'after', text: 'y' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(after.outcome).toBe('refused')
+    } finally {
+      runtime.dispose()
+    }
+  })
 })

@@ -48,6 +48,20 @@ export function reportQueueAbandonment(
 ): OnQueueAbandoned {
   return ({ sessionId, turns, reason }) => {
     const turnIds = turns.flatMap((turn) => (turn.input.id ? [turn.input.id] : []))
+    /**
+     * THE LOG COMES FIRST, AND THAT ORDER IS LOAD-BEARING (POD-2297 review, R2).
+     *
+     * The drivers swallow a throw from this port so that a failed report cannot
+     * leak the agent's child, and the ONLY thing that makes swallowing honest is
+     * that the abandonment has already been said out loud by the time anything
+     * can fail. `send` below fsyncs a durable outbox — ENOSPC, EDQUOT, EIO and a
+     * reportId collision all throw from it.
+     *
+     * SO DO NOT MOVE THIS BELOW `send`, and do not fold a value `send` produces
+     * (a reportId, a queue depth) into it. Doing so turns a persist failure back
+     * into the exact silent loss this issue closes. Pinned by
+     * `codex-driver.test.ts` — 'still logs when the durable send throws'.
+     */
     log.warn('queued turns were never delivered', {
       family,
       sessionId,

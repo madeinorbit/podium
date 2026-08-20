@@ -1017,6 +1017,19 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   function endSession(session: DriverSession): void {
     session.disposed = true
     abandonQueue(session, 'teardown')
+    /**
+     * RELEASE ANYONE WAITING ON A SESSION THAT WILL NEVER ANSWER
+     * (POD-2297 review, low 2).
+     *
+     * A `when-ready` send parks on these waiters for up to
+     * WHEN_READY_TIMEOUT_MS. Ending the session without waking them left such a
+     * caller blocked on a full timeout for an answer that could not come — the
+     * same state-the-fate-promptly instinct this whole issue is about, one layer
+     * up. Each waiter re-evaluates its own predicate, so waking them turns a
+     * ten-minute hang into the immediate refusal the caller should have had.
+     */
+    for (const wake of [...session.idleWaiters]) wake()
+    session.idleWaiters.clear()
   }
 
   /**
@@ -1253,6 +1266,18 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
           if (!idle) return refuse('busy', 'a turn was still open when the ready window closed')
           if (session.interactions.size > 0) return refuse('needs_user')
         }
+
+        /**
+         * THE SESSION MAY HAVE ENDED WHILE THIS SEND WAS PARKED
+         * (POD-2297 review, low 3).
+         *
+         * `waitForIdle` above is an await, and an adopt, a stop or a kill can
+         * land inside it. Without this re-check the send delivered through a
+         * session nobody can reach any more and answered `accepted` carrying the
+         * DEAD object's turnEpoch — an epoch no consumer can match to anything.
+         * The entry guard cannot cover this: it ran before the await.
+         */
+        if (session.disposed || session.serverGone) return refuse('not_running')
 
         try {
           await deliver(session, input, options.origin)

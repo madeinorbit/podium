@@ -886,6 +886,18 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
   function endSession(session: DriverSession): void {
     session.disposed = true
     abandonQueue(session, 'teardown')
+    /**
+     * RELEASE ANYONE WAITING ON A SESSION THAT WILL NEVER ANSWER
+     * (POD-2297 review, low 2).
+     *
+     * A `when-ready` send parks on these waiters for up to
+     * WHEN_READY_TIMEOUT_MS. Ending the session without waking them left such a
+     * caller blocked on a full timeout for an answer that could not come — the
+     * same state-the-fate-promptly instinct this whole issue is about, one layer
+     * up. Each waiter re-evaluates its own predicate, so waking them turns a
+     * ten-minute hang into the immediate refusal the caller should have had.
+     */
+    wakeIdle(session)
   }
 
   /**
@@ -1054,15 +1066,27 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           }
         }
         if (session.busy) {
+        /**
+         * THE SESSION MAY HAVE ENDED WHILE THIS SEND WAS PARKED
+         * (POD-2297 review, low 3).
+         *
+         * `waitForIdle` above is an await, and an adopt, a stop or a kill can
+         * land inside it. Without this re-check the send delivered through a
+         * session nobody can reach any more and answered `accepted` carrying the
+         * DEAD object's turnEpoch — an epoch no consumer can match to anything.
+         * The entry guard cannot cover this: it ran before the await.
+         */
           if (options.delivery === 'interrupt') {
             await this.interrupt()
             if (!(await waitForIdle(session)))
               return refused('busy', 'Grok did not confirm cancellation')
+            if (session.disposed || !session.endpoint.alive()) return refused('not_running')
             return startPrompt(session, input, options, 'interrupt')
           }
           if (options.delivery === 'when-ready') {
             if (!(await waitForIdle(session))) return refused('busy', 'Grok turn did not finish')
             if (session.interactions.size > 0) return refused('needs_user')
+            if (session.disposed || !session.endpoint.alive()) return refused('not_running')
             return startPrompt(session, input, options, 'when-ready')
           }
           session.queue.push({ input, options })

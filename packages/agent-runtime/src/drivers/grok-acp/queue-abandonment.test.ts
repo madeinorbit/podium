@@ -235,3 +235,28 @@ describe('a session adopted OVER a live one takes its queue with it — POD-2297
     }
   })
 })
+
+describe('a throwing report does not leak the child — POD-2297 review, low 1', () => {
+  it('still stops the endpoint when the host port throws', async () => {
+    // grok's half of the same pin — see the codex and opencode files.
+    const w = world()
+    w.host.onQueueAbandoned = () => {
+      throw new Error('EDQUOT: disk quota exceeded, write')
+    }
+    const runtime = createGrokAcpRuntime(w.host)
+    try {
+      const handle = await runtime.driver.create(spec())
+      await handle.lease.acquire('operator', 'human-controller')
+      await handle.send({ id: 'boom', text: 'x' }, { origin: 'steward', delivery: 'when-ready' })
+
+      await expect(handle.stop()).resolves.toBeUndefined()
+      const after = await handle.send(
+        { id: 'after', text: 'y' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(after.outcome).toBe('refused')
+    } finally {
+      runtime.dispose()
+    }
+  })
+})
