@@ -23,19 +23,23 @@
  *
  * WHEN IT MAY RUN, which is narrower than "whenever the website is stale".
  *
- * The server SERVES this dist to browsers, so writing it changes what every open
- * tab will load next — while the server itself keeps running the commit it
- * booted with. The first version of this sequenced the web build on the
- * `/version` path, which used to ask for a build on every read: the website was then
- * rebuilt each time main moved and the page ran AHEAD of the server, wire schema
- * digests disagreed, and the out-of-sync banner appeared on a host where nothing
- * automatically restarts the server (one server on dev+e10795a was measured
- * rebuilding the website six times for five commits it was not running).
+ * The server SERVES this dist to browsers AND desktop webviews (all-in-one /
+ * client / daemon shells load the connected server's origin — updater-convergence
+ * spec §2.1 / gap 22). Writing the dist changes what every open consumer will
+ * load next — while the server itself keeps running the commit it booted with.
+ * The first version of this sequenced the web build on the `/version` path, which
+ * used to ask for a build on every read: the website was then rebuilt each time
+ * main moved and the page ran AHEAD of the server, wire schema digests disagreed,
+ * and the out-of-sync banner appeared on a host where nothing automatically
+ * restarts the server (one server on dev+e10795a was measured rebuilding the
+ * website six times for five commits it was not running).
  *
- * So the website only moves during an operator-driven update. On the polling
- * and start-up paths a stale website merely leaves the identity target unpacked
- * — see `prepareWebDist` in `dev-bundle.ts`. A page ahead of its server costs
- * every open tab; waiting for confirmation costs no CPU.
+ * So the website only moves during an operator-driven update / restart. On the
+ * polling and start-up paths a stale website merely leaves the identity target
+ * unpacked — see `prepareWebDist` in `dev-bundle.ts`. A page ahead of its server
+ * costs every open browser tab and every desktop webview; waiting for confirmation
+ * costs no CPU. Desktop consumers do not widen that blast radius: they join
+ * browsers as readers of the same served dist.
  *
  * WHAT COVERS WHAT THE UNIT COVERED:
  * - Boot (`WantedBy=default.target`): observes the existing dist and starts no

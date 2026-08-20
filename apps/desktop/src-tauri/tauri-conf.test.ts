@@ -36,6 +36,15 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('"PODIUM_MOBILE_WEB_DIR"')
     expect(mainSource).toContain('.resolve("resources/mobile", BaseDirectory::Resource)')
   })
+
+  it('loads the all-in-one UI from the local server with a stable port (POD-2510)', () => {
+    // Served-local: prefer the sidecar origin; baked frontendDist is fallback only.
+    expect(mainSource).toContain('resolve_local_port')
+    expect(mainSource).toContain('local_window_target')
+    expect(mainSource).toContain('local_served_http_url')
+    // frontendDist remains packaged as the offline / boot-race fallback.
+    expect(conf.build.frontendDist).toBe('../../web/dist')
+  })
   it('ships the entitlements notarization requires', () => {
     // Without an entitlements file the hardened runtime kills the JIT the bundled Bun sidecar
     // needs, and without the hardened runtime Apple refuses to notarize at all.
