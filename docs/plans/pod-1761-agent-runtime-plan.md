@@ -338,3 +338,11 @@ If you background a lock wait, `podium lock cancel <name> --repo-path …` withd
 your entry and is safe to run speculatively on abandon. Diagnosing staleness: check
 the holder SESSION's liveness *and* whether any process of it still runs — an
 [alive] session with a dead wait process is exactly the zombie shape.
+
+### Lesson: /tmp EDQUOT masquerades as broken tooling
+This host enforces a per-user quota on tmpfs /tmp. Under load, writes there fail with
+EDQUOT and the failure surfaces as broken tools — empty command output, shells dying
+mid-session, vitest/typecheck runs failing at import, sqlite "disk I/O error" — while
+`df` shows free space. Fix: run big test/build steps with TMPDIR set to a short path
+on the root filesystem, and never keep instance state on /tmp. Multiple sessions have
+independently lost time to this; check quota before debugging your tools.
