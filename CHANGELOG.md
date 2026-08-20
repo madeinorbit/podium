@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+**The first stable release.** Podium is mission control for coding agents: run Claude Code, Codex,
+and other agent CLIs on your own machines, and drive them from a fast web UI — at your desk or from
+your phone.
+
+Everything from the `0.1.0-edge` series is folded in here. `stable` is now a channel you can
+actually install from, not a promise.
+
+- **Real terminals, remotely.** Every agent runs in a persistent PTY session on your machine — the
+  real CLI in a real terminal, not a `-p` flag wrapper around it. Attach from any browser; nothing
+  dies when you close the tab, lose your connection, or reboot.
+- **Mobile first-class.** The web UI is a PWA built for running agents from a phone: check on a long
+  task, answer an agent's question, kick off the next one.
+- **Agents that track their own work.** A built-in issue tracker with CLI and MCP surfaces that
+  agents drive themselves — they claim issues, file work they discover, and report progress while
+  you watch the board.
+- **Worktree-native.** Sessions group by git worktree, so parallel feature work across worktrees is
+  the default workflow rather than something you fight for.
+- **Multi-machine.** One server, many daemons: pair a VPS or a second workstation with a code, and
+  start agents on whichever machine has the repo.
+- **Self-hosted, single binary.** A compiled Bun binary for the headless server and daemon, plus an
+  optional native desktop app. Your code and your agent credentials stay on your machines.
+- **Signed self-updates.** Every release carries Ed25519 signatures, and every update — headless or
+  desktop — is signature-checked before it is swapped in.
+
+Podium is pre-1.0 and moves quickly: `edge` tracks `main`, and `stable` is this. Please file what
+you find.
+
 ## [0.1.0-edge.20] - 2026-08-20
 
 ## [0.1.0-edge.19] - 2026-08-20
