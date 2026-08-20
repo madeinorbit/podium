@@ -454,6 +454,62 @@ function lastActiveAt(issue: IssueNavigationModel, sessions: readonly SessionMet
   return latest
 }
 
+function preferredSpinOffTip(
+  candidates: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+): IssueNavigationModel | null {
+  if (candidates.length === 0) return null
+  const staffed = candidates.filter((issue) =>
+    sessions.some((session) => session.issueId === issue.id && openSession(session)),
+  )
+  const pool =
+    staffed.length > 0
+      ? staffed
+      : candidates.filter((issue) => !issue.closedReason && issue.stage !== 'done')
+  const pick = (pool.length > 0 ? pool : candidates).slice()
+  pick.sort((a, b) => lastActiveAt(b, sessions).localeCompare(lastActiveAt(a, sessions)))
+  return pick[0] ?? null
+}
+
+/**
+ * One live destination for every independent spin-off branch from an origin.
+ *
+ * A branch may hop through several finished spin-offs, so each result is still
+ * its preferred live tip. Sibling branches remain separate: collapsing all
+ * descendants to one preferred issue made the Flight Deck hide concurrent
+ * work that happened to share the same origin.
+ */
+function liveSpinOffTips(
+  origin: Pick<IssueNavigationModel, 'id'>,
+  byId: ReadonlyMap<string, IssueNavigationModel> | undefined,
+  sessions: readonly SessionMeta[] = [],
+): IssueNavigationModel[] {
+  if (!byId) return []
+  const descendants = spinOffDescendants(origin.id, byId)
+  const branches = new Map<string, IssueNavigationModel[]>()
+  for (const issue of descendants) {
+    if (!hasLeftMission(issue) && !staffedSpinOff(issue, sessions)) continue
+    let branchRoot = issue
+    let parentId = spinOffOriginId(branchRoot)
+    while (parentId && parentId !== origin.id) {
+      const parent = byId.get(parentId)
+      if (!parent) break
+      branchRoot = parent
+      parentId = spinOffOriginId(parent)
+    }
+    if (parentId !== origin.id) continue
+    const branch = branches.get(branchRoot.id) ?? []
+    branch.push(issue)
+    branches.set(branchRoot.id, branch)
+  }
+  const tips: IssueNavigationModel[] = []
+  for (const branch of branches.values()) {
+    const tip = preferredSpinOffTip(branch, sessions)
+    if (tip) tips.push(tip)
+  }
+  return tips
+}
+
 /**
  * Where the work went after a hopscotch spin-off.
  *
@@ -467,21 +523,7 @@ export function liveSpinOffTip(
   byId: ReadonlyMap<string, IssueNavigationModel> | undefined,
   sessions: readonly SessionMeta[] = [],
 ): IssueNavigationModel | null {
-  if (!byId) return null
-  const left = spinOffDescendants(origin.id, byId).filter(
-    (issue) => hasLeftMission(issue) || staffedSpinOff(issue, sessions),
-  )
-  if (left.length === 0) return null
-  const staffed = left.filter((issue) =>
-    sessions.some((session) => session.issueId === issue.id && openSession(session)),
-  )
-  const pool =
-    staffed.length > 0
-      ? staffed
-      : left.filter((issue) => !issue.closedReason && issue.stage !== 'done')
-  const pick = (pool.length > 0 ? pool : left).slice()
-  pick.sort((a, b) => lastActiveAt(b, sessions).localeCompare(lastActiveAt(a, sessions)))
-  return pick[0] ?? null
+  return preferredSpinOffTip(liveSpinOffTips(origin, byId, sessions), sessions)
 }
 
 /** Sessionless, and the work continued on a started spin-off. A signpost, not a task. */
@@ -940,17 +982,18 @@ export function missionDepartures(
   const seen = new Set<string>()
   for (const origin of issues) {
     if (!ids.has(origin.id) || origin.archived || origin.deletedAt) continue
-    const tip = liveSpinOffTip(origin, byId, sessions)
-    if (!tip || ids.has(tip.id) || seen.has(tip.id)) continue
     const originSessions = sessionsForIssue(origin, sessionList, worktreePaths)
     const originEmpty = !originSessions.some(openSession)
-    if (!originEmpty && (tip.stage === 'done' || tip.closedReason)) continue
-    seen.add(tip.id)
-    out.push({
-      issue: tip,
-      originId: origin.id,
-      state: deckIssueState(tip, sessionsForIssue(tip, sessionList, worktreePaths), byId),
-    })
+    for (const tip of liveSpinOffTips(origin, byId, sessions)) {
+      if (ids.has(tip.id) || seen.has(tip.id)) continue
+      if (!originEmpty && (tip.stage === 'done' || tip.closedReason)) continue
+      seen.add(tip.id)
+      out.push({
+        issue: tip,
+        originId: origin.id,
+        state: deckIssueState(tip, sessionsForIssue(tip, sessionList, worktreePaths), byId),
+      })
+    }
   }
   return out.sort((a, b) => a.issue.seq - b.issue.seq)
 }

@@ -528,6 +528,23 @@ describe('missionDepartures', () => {
     expect(out[0]?.state.label).toBe('Not started')
   })
 
+  it('keeps concurrent sibling spin-offs from the same task', () => {
+    const first = departed({ id: 'first', seq: 44 })
+    const second = departed({ id: 'second', seq: 45 })
+    const active = [
+      ...sessions,
+      sess('s-first', { issueId: 'first' }),
+      sess('s-second', { issueId: 'second' }),
+    ]
+
+    const out = missionDepartures([...base, first, second], active, 'root')
+
+    expect(out.map((d) => [d.issue.id, d.originId])).toEqual([
+      ['first', 'c1'],
+      ['second', 'c1'],
+    ])
+  })
+
   it('says nothing about a proposal — that one is still on the spine', () => {
     const proposal = departed({ stage: 'proposed' })
     expect(missionDepartures([...base, proposal], sessions, 'root')).toEqual([])
