@@ -536,6 +536,46 @@ export const RuntimeEventAckMessage = z.object({
 export type RuntimeEventAckMessage = z.infer<typeof RuntimeEventAckMessage>
 
 /** server → daemon: drive one session verb, or acknowledge one durable report. */
+/**
+ * The two watch levels, mirrored from the contract's `WatchLevel`.
+ *
+ * Restated as a zod enum rather than imported because this package sits BELOW
+ * `@podium/agent-runtime` — the same directional constraint that put the rest of
+ * these schemas here. Two values, and the contract's own type is the authority
+ * on what they mean.
+ */
+export const RuntimeWatchLevel = z.enum(['coarse', 'fine'])
+export type RuntimeWatchLevel = z.infer<typeof RuntimeWatchLevel>
+
+/**
+ * server → daemon: the watch level this session's viewers are asking for.
+ *
+ * ---------------------------------------------------------------------------
+ * A DESIRED STATE, NOT A VERB — AND UNCORRELATED ON PURPOSE (POD-2293)
+ * ---------------------------------------------------------------------------
+ *
+ * It carries the LEVEL, not "acquire"/"release", so it is idempotent and
+ * last-write-wins: a duplicate is a no-op and a dropped one is corrected by the
+ * next. The alternative — a pair of acquire/release verbs — makes the daemon's
+ * refcount a function of a delivery history, and a single lost frame leaves a
+ * fine watch pinned on for the life of the session, streaming tokens to nobody.
+ *
+ * NO REPLY, because there is no answer worth correlating. A driver's fine watch
+ * is best-effort by contract: codex must reconnect to get one and declines while
+ * a turn is open, and the documented degradation is that the chat renders
+ * complete items instead of fragments. A `*Result` would report "asked", which
+ * the sender already knows, and could not report "live" without inventing a
+ * readiness the contract does not expose. What the server observes instead is
+ * frames arriving or not — which is the truth, and is what the preview plane is
+ * built to tolerate either way.
+ */
+export const RuntimeWatchMessage = z.object({
+  type: z.literal('runtimeWatch'),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  level: RuntimeWatchLevel,
+})
+export type RuntimeWatchMessage = z.infer<typeof RuntimeWatchMessage>
+
 export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
@@ -545,6 +585,7 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeSnapshotRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
   RuntimeEventAckMessage,
+  RuntimeWatchMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -739,6 +780,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeSnapshotRequest',
   'runtimeQueueDrainAbandonedAck',
   'runtimeEventAck',
+  'runtimeWatch',
   'runtimeStageAttachmentResult',
   'runtimeSendResult',
   'runtimeQueueDrainAbandoned',

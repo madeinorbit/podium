@@ -48,6 +48,7 @@ import {
   RuntimeSnapshotRequestMessage,
   RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
+  RuntimeWatchMessage,
 } from './runtime'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
 import {
@@ -161,5 +162,8 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RuntimeSnapshotRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
   RuntimeEventAckMessage,
+  /** The desired watch level for a session's live observation (POD-2293).
+   *  Uncorrelated: it carries a state, not an increment — see the frame. */
+  RuntimeWatchMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>

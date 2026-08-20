@@ -15,7 +15,10 @@ function state(phase: AgentRuntimeState['phase'], since: string): AgentRuntimeSt
   return { phase, since, nativeSubagentCount: 0 }
 }
 
-function makeSession(toDaemon = vi.fn(), seed: { outputCount?: number } = {}) {
+function makeSession(
+  toDaemon = vi.fn(),
+  seed: { outputCount?: number; turnPreviewEnabled?: boolean } = {},
+) {
   return new Session({
     ...seed,
     sessionId: asSessionId('s1'),
@@ -1316,5 +1319,116 @@ describe('OOM truth on the row (POD-2413)', () => {
     session.onExit(137)
     expect(session.status).toBe('hibernated')
     expect(session.stopReason).toBeUndefined()
+  })
+})
+
+
+/**
+ * THE PREVIEW PLANE ON THE TERMINAL (POD-2293).
+ *
+ * The terminal owns the transcript-subscriber set, so it owns the two things
+ * that follow from it: telling the daemon what level this session's viewers
+ * need, and catching a late subscriber up on the turn already in progress.
+ */
+describe('Session turn preview', () => {
+  const frame = (turnEpoch: number, text: string, done?: boolean) =>
+    ({
+      type: 'turnPreview' as const,
+      sessionId: asSessionId('s1'),
+      turnEpoch,
+      seq: 1,
+      items: [{ kind: 'text' as const, itemId: 'a', text }],
+      ...(done ? { done: true } : {}),
+    })
+
+  it('asks for fine on the FIRST subscriber and coarse on the last unsubscribe', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: true })
+    const a = makeClient('a')
+    const b = makeClient('b')
+
+    s.terminal.subscribeTranscript(a)
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'runtimeWatch',
+      sessionId: asSessionId('s1'),
+      level: 'fine',
+    })
+    // A SECOND viewer is not a second request. The frame carries a desired
+    // state, and re-sending it per subscriber would be noise the daemon has to
+    // dedupe on the other side.
+    toDaemon.mockClear()
+    s.terminal.subscribeTranscript(b)
+    expect(toDaemon).not.toHaveBeenCalled()
+
+    // Nor is losing ONE of two viewers a reason to stop streaming.
+    s.terminal.unsubscribeTranscript('a')
+    expect(toDaemon).not.toHaveBeenCalled()
+
+    s.terminal.unsubscribeTranscript('b')
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'runtimeWatch',
+      sessionId: asSessionId('s1'),
+      level: 'coarse',
+    })
+  })
+
+  it('asks for nothing at all while the switch is off', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: false })
+    s.terminal.subscribeTranscript(makeClient('a'))
+    expect(toDaemon.mock.calls.filter(([m]) => m.type === 'runtimeWatch')).toEqual([])
+  })
+
+  it('fans a frame out to subscribers and catches the next one up on it', () => {
+    const s = makeSession(vi.fn(), { turnPreviewEnabled: true })
+    const a = makeClient('a')
+    s.terminal.subscribeTranscript(a)
+    s.terminal.applyTurnPreview(frame(1, 'half a rep'))
+    expect(a.sent.at(-1)).toEqual(frame(1, 'half a rep'))
+
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    expect(late.sent.at(-1)).toEqual(frame(1, 'half a rep'))
+  })
+
+  it('replays the preview AFTER the durable items it follows', () => {
+    const s = makeSession(vi.fn(), { turnPreviewEnabled: true })
+    s.terminal.applyDelta(
+      [{ id: 'u1', role: 'user' as const, text: 'hi', cursor: 'c1' }],
+      { tail: 'c1' },
+    )
+    s.terminal.applyTurnPreview(frame(1, 'repl'))
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    // Order matters: the preview is the part of the turn the transcript does
+    // not have yet, so a client receiving it first would briefly render the
+    // in-progress rows above the items they follow.
+    expect(late.sent.map((m) => m.type)).toEqual(['transcriptDelta', 'turnPreview'])
+  })
+
+  it('stops retaining a preview once the turn is done', () => {
+    const s = makeSession(vi.fn(), { turnPreviewEnabled: true })
+    const a = makeClient('a')
+    s.terminal.subscribeTranscript(a)
+    s.terminal.applyTurnPreview(frame(1, 'half'))
+    s.terminal.applyTurnPreview({ ...frame(1, ''), items: [], done: true })
+    // The terminal frame still reaches the open viewer — it is what clears the
+    // rows — but nothing is kept for the next one.
+    expect(a.sent.at(-1)).toMatchObject({ type: 'turnPreview', done: true })
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    expect(late.sent.filter((m) => m.type === 'turnPreview')).toEqual([])
+  })
+
+  it('drops the retained preview when every viewer detaches', () => {
+    const s = makeSession(vi.fn(), { turnPreviewEnabled: true })
+    s.terminal.subscribeTranscript(makeClient('a'))
+    s.terminal.applyTurnPreview(frame(1, 'half'))
+    s.terminal.detachAll()
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    // A preview replayed after a gap describes a turn that has very likely
+    // ended, and shows a session that looks like it is still typing.
+    expect(late.sent.filter((m) => m.type === 'turnPreview')).toEqual([])
   })
 })

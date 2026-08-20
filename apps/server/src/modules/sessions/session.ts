@@ -25,6 +25,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
 import type { SessionRow } from '../../store'
 import { SessionTerminal, type SessionTerminalState } from './terminal'
+import { turnPreviewEnabled } from './turn-preview-flag'
 
 const log = createLogger('server:sessions')
 
@@ -122,6 +123,9 @@ export interface SessionInit {
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
+  /** Streamed turn previews for this session (POD-2293). Omitted reads the
+   *  machine switch; supplied is a test seam and the composition override. */
+  turnPreviewEnabled?: boolean
   /**
    * Called on a TERMINAL transition so the registry can re-arm unread (POD-1076).
    *
@@ -374,6 +378,7 @@ export class Session {
       onTranscriptAvailable: () => {
         this.transcriptAvailable = true
       },
+      turnPreviewEnabled: init.turnPreviewEnabled ?? turnPreviewEnabled(),
     })
     this.machineId = init.machineId
     this.durableLabel = init.durableLabel

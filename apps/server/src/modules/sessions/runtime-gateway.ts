@@ -147,12 +147,27 @@ export interface SessionRuntimeGatewayPorts {
 
 export type RuntimeEventListener = (sessionId: SessionId, event: RuntimeEvent) => void
 
-/** Fine delivery is deliberately receiver-only in this board/recency slice.
- * POD-2293 owns the watch(fine) activation frame and reference-count lifecycle. */
+/**
+ * Fine delivery is WIRED as of POD-2293, and the two halves are named because a
+ * receiver alone was the state this constant existed to refuse to overstate.
+ *
+ * `activation: 'subscriber-driven'` is the whole policy: a session asks its
+ * daemon for a fine watch while at least one client holds a transcript
+ * subscription on it, and drops back to coarse (after a debounce) when the last
+ * one leaves. `plane: 'turn-preview'` is what a consumer actually reads —
+ * fragments are folded server-side and published as coalesced snapshots, so
+ * nothing downstream subscribes to raw token deltas.
+ *
+ * What it still does NOT promise is that a fine watch is LIVE. Codex must
+ * reconnect to reach the level and declines while a turn is open; the documented
+ * degradation is a chat that renders complete items. That is a property of the
+ * driver contract, not of this activation, and no field here can assert it.
+ */
 export const RUNTIME_FINE_WATCH_AVAILABILITY = {
-  kind: 'deferred',
-  prerequisite: 'POD-2293',
-  activation: 'not-wired',
+  kind: 'wired',
+  since: 'POD-2293',
+  activation: 'subscriber-driven',
+  plane: 'turn-preview',
 } as const
 export type RuntimeFineWatchAvailability = typeof RUNTIME_FINE_WATCH_AVAILABILITY
 
@@ -288,9 +303,11 @@ export class SessionRuntimeGateway {
     return result
   }
 
-  /** Subscribe to events that already reached the server. This receiver does
-   * not activate driver fine watches; callers must inspect
-   * {@link fineWatchAvailability}. Returns an unsubscribe. */
+  /** Subscribe to events that already reached the server, coarse and fine
+   * alike. Subscribing does not itself activate a driver's fine watch — that is
+   * driven by transcript subscriptions (see {@link fineWatchAvailability}), so a
+   * listener registered here sees fragments only for sessions somebody is
+   * watching. Returns an unsubscribe. */
   onEvent(listener: RuntimeEventListener): () => void {
     this.listeners.add(listener)
     return () => {
@@ -298,9 +315,7 @@ export class SessionRuntimeGateway {
     }
   }
 
-  /** Typed declaration of the intentionally unimplemented fine-watch control
-   * plane. POD-2293 must add daemon activation before a production consumer can
-   * rely on token deltas; receiving an already-arrived frame is not activation. */
+  /** What this build does about fine watches — see the constant. */
   fineWatchAvailability(): RuntimeFineWatchAvailability {
     return RUNTIME_FINE_WATCH_AVAILABILITY
   }

@@ -263,6 +263,150 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"transcriptUnsubscribe\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "TurnPreviewItem",
+      "variant": "minimal",
+      "wire": {
+        "kind": "text",
+        "itemId": "itemId",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"text\",\"itemId\":\"itemId\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "TurnPreviewItem",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "text",
+        "itemId": "itemId",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"text\",\"itemId\":\"itemId\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "TurnPreviewItem",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "running",
+        "itemId": "itemId",
+        "item": {
+          "id": "item.id",
+          "cursor": "item.cursor",
+          "role": "assistant",
+          "ts": "item.ts",
+          "text": "item.text",
+          "toolName": "item.toolName",
+          "toolInput": "item.toolInput",
+          "toolTitle": "item.toolTitle",
+          "toolInputJson": "item.toolInputJson",
+          "toolResult": "item.toolResult",
+          "toolUseId": "item.toolUseId",
+          "tags": [
+            {
+              "kind": "file",
+              "label": "item.tags[0].label"
+            }
+          ],
+          "toolPaths": ["item.toolPaths[0]"],
+          "event": "interrupt",
+          "answer": false,
+          "systemKind": "duration",
+          "durationMs": 2
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"running\",\"itemId\":\"itemId\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"assistant\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}"
+    },
+    {
+      "schema": "TurnPreviewMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "turnPreview",
+        "sessionId": "sessionId",
+        "turnEpoch": 1,
+        "seq": 1,
+        "items": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":1,\"seq\":1,\"items\":[]}"
+    },
+    {
+      "schema": "TurnPreviewMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "turnPreview",
+        "sessionId": "sessionId",
+        "turnEpoch": 1,
+        "seq": 1,
+        "items": [
+          {
+            "kind": "text",
+            "itemId": "items[0].itemId",
+            "text": "items[0].text"
+          }
+        ],
+        "done": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":1,\"seq\":1,\"items\":[{\"kind\":\"text\",\"itemId\":\"items[0].itemId\",\"text\":\"items[0].text\"}],\"done\":true}"
+    },
+    {
+      "schema": "TurnPreviewMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "turnPreview",
+        "sessionId": "sessionId",
+        "turnEpoch": 2,
+        "seq": 2,
+        "items": [
+          {
+            "kind": "running",
+            "itemId": "items[0].itemId",
+            "item": {
+              "id": "items[0].item.id",
+              "cursor": "items[0].item.cursor",
+              "role": "assistant",
+              "ts": "items[0].item.ts",
+              "text": "items[0].item.text",
+              "toolName": "items[0].item.toolName",
+              "toolInput": "items[0].item.toolInput",
+              "toolTitle": "items[0].item.toolTitle",
+              "toolInputJson": "items[0].item.toolInputJson",
+              "toolResult": "items[0].item.toolResult",
+              "toolUseId": "items[0].item.toolUseId",
+              "tags": [
+                {
+                  "kind": "file",
+                  "label": "items[0].item.tags[0].label"
+                }
+              ],
+              "toolPaths": ["items[0].item.toolPaths[0]"],
+              "event": "interrupt",
+              "answer": false,
+              "systemKind": "duration",
+              "durationMs": 2
+            }
+          }
+        ],
+        "done": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":2,\"seq\":2,\"items\":[{\"kind\":\"running\",\"itemId\":\"items[0].itemId\",\"item\":{\"id\":\"items[0].item.id\",\"cursor\":\"items[0].item.cursor\",\"role\":\"assistant\",\"ts\":\"items[0].item.ts\",\"text\":\"items[0].item.text\",\"toolName\":\"items[0].item.toolName\",\"toolInput\":\"items[0].item.toolInput\",\"toolTitle\":\"items[0].item.toolTitle\",\"toolInputJson\":\"items[0].item.toolInputJson\",\"toolResult\":\"items[0].item.toolResult\",\"toolUseId\":\"items[0].item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].item.tags[0].label\"}],\"toolPaths\":[\"items[0].item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}],\"done\":false}"
     }
   ]
 }

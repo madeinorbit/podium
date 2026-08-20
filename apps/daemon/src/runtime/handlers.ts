@@ -78,7 +78,26 @@ export const runtimeHandlers: Pick<
   | 'runtimeSnapshotRequest'
   | 'runtimeQueueDrainAbandonedAck'
   | 'runtimeEventAck'
+  | 'runtimeWatch'
 > = {
+  /**
+   * THE ONE VERB THAT ANSWERS NOTHING, AND SHOULD NOT (POD-2293).
+   *
+   * Every frame above ends in a send because it is a correlated request whose
+   * caller is waiting. This one carries a DESIRED STATE — "this session's
+   * viewers want fragments" — and there is no answer worth correlating: a
+   * driver's fine watch is best-effort by contract (codex must reconnect for one
+   * and declines mid-turn), so a reply could only say "asked", which the sender
+   * already knows. What the server observes instead is preview frames arriving,
+   * or not.
+   *
+   * A session with no runtime is not an error either. The frame follows a
+   * viewer's subscription, and a viewer can be looking at a session this daemon
+   * does not drive.
+   */
+  runtimeWatch: (ctx, msg) => {
+    ctx.agentRuntime?.setWatchLevel(msg.sessionId, msg.level)
+  },
   runtimeQueueDrainAbandonedAck: (ctx, msg) => {
     ctx.acknowledgeQueueDrainReport(msg.reportId)
   },

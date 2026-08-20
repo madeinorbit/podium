@@ -18,7 +18,7 @@ import {
   type SessionSpec,
 } from '@podium/agent-runtime'
 import type { AgentKind, SessionId } from '@podium/model'
-import type { RuntimeContractRequest } from '@podium/protocol'
+import type { RuntimeContractRequest, RuntimeWatchLevel } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type {
   TerminalHarnessProfile,
@@ -29,6 +29,7 @@ import { resolveRuntimeDriver, terminalProfileFor, type DriverResolution } from 
 import type { DaemonCodexRuntime } from './codex-driver'
 import type { DaemonGrokRuntime } from './grok-driver'
 import type { DaemonOpencodeRuntime } from './opencode-driver'
+import { createRuntimeWatchLifecycle } from './watch'
 
 export interface JournalledServerProcess {
   driver: 'opencode' | 'codex' | 'grok'
@@ -74,6 +75,17 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
   }): DaemonDriverResolution
   adoptJournalled(sessionId: SessionId): Promise<JournalledAdoption>
   serverHandleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  /**
+   * Reconcile one session's DESIRED watch level (POD-2293).
+   *
+   * Lives on the machine runtime rather than in the control handler because the
+   * release function `watch()` returns must be held for the session's life and
+   * dropped with it — and this is the object whose lifetime that is. Capability
+   * gating happens inside: a coarse-only family takes no path at all.
+   */
+  setWatchLevel(sessionId: SessionId, level: RuntimeWatchLevel): void
+  /** Drop any watch held for a session whose handle is gone or replaced. */
+  forgetWatch(sessionId: SessionId): void
   journalledServerProcess(sessionId: SessionId): JournalledServerProcess | undefined
   dispose(): void
 }
@@ -209,6 +221,25 @@ export function createDaemonMachineRuntime(input: {
     inventory: input.inventory,
   })
 
+  /**
+   * The declaration for whoever owns this session.
+   *
+   * Read through `driverFor(harness, driver)` off the LIVE BINDING rather than
+   * from a family guess: the binding is what says which driver actually holds
+   * the session, and after a fine upgrade or an adopt it is the only thing that
+   * still says it correctly.
+   */
+  const capabilitiesFor = (sessionId: SessionId): DriverCapabilities | undefined => {
+    const binding = runtime.handleFor(sessionId)?.binding
+    if (!binding) return undefined
+    return runtime.driverFor(binding.harness, binding.driver)?.capabilities()
+  }
+
+  const watches = createRuntimeWatchLifecycle({
+    handleFor: (sessionId) => runtime.handleFor(sessionId),
+    capabilitiesFor,
+  })
+
   return {
     ...runtime,
     observe(message) {
@@ -254,7 +285,17 @@ export function createDaemonMachineRuntime(input: {
       }
     },
     clearTerminal(sessionId) {
+      // The handle is going, and the release function this daemon holds belongs
+      // to it. Dropping the watch here is what keeps a cleared session from
+      // leaving a refcount on a driver nobody can reach any more.
+      watches.forget(sessionId)
       input.terminal.clear(sessionId)
+    },
+    setWatchLevel(sessionId, level) {
+      watches.want(sessionId, level)
+    },
+    forgetWatch(sessionId) {
+      watches.forget(sessionId)
     },
     reportOomKill(sessionId, scopeUnit) {
       // Every family is asked; only the one holding the session emits. A
@@ -344,6 +385,7 @@ export function createDaemonMachineRuntime(input: {
       return undefined
     },
     dispose() {
+      watches.dispose()
       input.terminal.dispose()
       input.opencode.dispose()
       input.codex.dispose()

@@ -308,12 +308,13 @@ describe('the event sink', () => {
     expect(gateway.recentEvents(SESSION).at(-1)?.cursor.components.seq).toBe(199)
   })
 
-  it('declares fine delivery receiver-only until POD-2293 wires watch activation', () => {
+  it('declares fine delivery wired, and names the policy rather than a promise', () => {
     const { gateway } = makeGateway()
     expect(gateway.fineWatchAvailability()).toEqual({
-      kind: 'deferred',
-      prerequisite: 'POD-2293',
-      activation: 'not-wired',
+      kind: 'wired',
+      since: 'POD-2293',
+      activation: 'subscriber-driven',
+      plane: 'turn-preview',
     })
   })
 })

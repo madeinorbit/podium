@@ -1,5 +1,10 @@
 import type { AgentKind, Attribution, Geometry, SessionId, TranscriptItem } from '@podium/model'
-import type { ObservationInputOrigin, PresenceIdentity, ServerMessage } from '@podium/protocol'
+import type {
+  ObservationInputOrigin,
+  PresenceIdentity,
+  ServerMessage,
+  TurnPreviewMessage,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../gateway/client-registry'
 import { feedPrincipalOf } from '../../gateway/client-principal'
@@ -70,6 +75,12 @@ export interface SessionTerminalInit {
   lastResumedAt?: string | null
   onActivity?: (at: string, changed: boolean) => void
   onTranscriptAvailable?: () => void
+  /**
+   * Whether this session asks its daemon for a token-level watch while a viewer
+   * has the chat open (POD-2293). The flag lives on the terminal because the
+   * subscriber count that drives it does — see `reconcileWatchLevel`.
+   */
+  turnPreviewEnabled?: boolean
 }
 
 /**
@@ -111,12 +122,26 @@ export class SessionTerminal {
   private shellBusyTimer: ReturnType<typeof setTimeout> | undefined
   private shellCommandRunning = false
   private nextSeq = 0
+  /** The level last sent to the daemon, so a crossing sends one frame and a
+   *  no-op sends none. */
+  private watchLevelSent: 'coarse' | 'fine' | undefined
   private readonly clients = new Map<string, ClientConn>()
   private readonly outputLog: { seq: number; data: string }[] = []
   private outputLogBytes = 0
   private transcript: TranscriptItem[] = []
   private transcriptAvailable = false
   private readonly transcriptSubscribers = new Map<string, ClientConn>()
+  /**
+   * THE LATEST PREVIEW FRAME, AND ONLY THE LATEST (POD-2293).
+   *
+   * One slot, newest wins — which IS the backpressure policy rather than a
+   * simplification of one. Every frame is a complete snapshot of the in-progress
+   * turn, so a client that missed the last three has lost nothing by receiving
+   * only the fourth, and a client subscribing mid-turn is caught up by replaying
+   * this one. A queue here would buy ordering nobody needs and would grow under
+   * exactly the slowness it was meant to survive.
+   */
+  private turnPreview: TurnPreviewMessage | undefined
 
   constructor(private readonly init: SessionTerminalInit) {
     this.geometry = { ...init.geometry }
@@ -280,10 +305,47 @@ export class SessionTerminal {
     if (replay.length > 0) {
       client.send({ type: 'transcriptDelta', sessionId: this.init.sessionId, items: replay })
     }
+    // AFTER the durable replay, never before: the preview is the part of the
+    // turn the transcript does NOT have yet, so a client that received it first
+    // would briefly show the in-progress rows above the items they follow.
+    if (this.turnPreview) client.send(this.turnPreview)
+    this.reconcileWatchLevel()
   }
 
   unsubscribeTranscript(clientId: string): void {
     this.transcriptSubscribers.delete(clientId)
+    this.reconcileWatchLevel()
+  }
+
+  /**
+   * Tell the daemon what this session's viewers need.
+   *
+   * SUBSCRIBER-DRIVEN rather than always-on: a fine watch costs a token stream
+   * per session, and on codex it costs a reconnect to acquire — paying that for
+   * sessions nobody is looking at is the exact cost the two watch levels exist
+   * to avoid. The frame carries a desired STATE, so calling this on every
+   * crossing (and only on crossings) is safe: a duplicate is a no-op and a lost
+   * one is corrected by the next.
+   *
+   * Sent for EVERY session, contract or not. Deciding whether a fine watch means
+   * anything is the daemon's job — it holds the driver and its capability
+   * declaration — and a server that guessed would be wrong for exactly the
+   * sessions whose family it could not see.
+   */
+  private reconcileWatchLevel(): void {
+    if (!this.init.turnPreviewEnabled) return
+    const wanted = this.transcriptSubscribers.size > 0 ? 'fine' : 'coarse'
+    if (wanted === this.watchLevelSent) return
+    this.watchLevelSent = wanted
+    this.init.toDaemon({ type: 'runtimeWatch', sessionId: this.init.sessionId, level: wanted })
+  }
+
+  /** Fan one preview frame out, and retain it for whoever subscribes next. A
+   *  terminal frame clears the slot rather than filling it — there is nothing
+   *  left to catch a late subscriber up on. */
+  applyTurnPreview(frame: TurnPreviewMessage): void {
+    this.turnPreview = frame.done ? undefined : frame
+    for (const client of this.transcriptSubscribers.values()) client.send(frame)
   }
 
   transcriptItems(): TranscriptItem[] {
@@ -321,6 +383,7 @@ export class SessionTerminal {
     client?.viewports.delete(this.init.sessionId)
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
+    this.reconcileWatchLevel()
     if (this.controllerId !== clientId) return
     // If the departure leaves one measured native renderer, hand it control
     // through the same atomic controller+geometry path as an explicit claim.
@@ -354,6 +417,11 @@ export class SessionTerminal {
     for (const client of this.clients.values()) client.viewports.delete(this.init.sessionId)
     this.clients.clear()
     this.transcriptSubscribers.clear()
+    // The retained frame goes with the viewers. It describes a turn that may
+    // well have ended by the time anyone comes back, and a stale preview
+    // replayed to a fresh subscriber is a session that looks like it is typing.
+    this.turnPreview = undefined
+    this.reconcileWatchLevel()
     this.clearController()
   }
 

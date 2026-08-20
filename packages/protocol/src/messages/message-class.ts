@@ -105,6 +105,14 @@ export const SERVER_PLANE_CLASS = {
   // ADR 7 D5: keystroke volume; durable recovery via the entity path.
   sessionDraftChanged: 'stream.live',
   headlessActivity: 'stream.live',
+  /**
+   * The in-progress half of a turn (POD-2293). `stream.live` by the same
+   * argument as `transcriptDelta` and more strongly: this frame is a SNAPSHOT of
+   * a preview, so a dropped one is corrected by the next and the last one is
+   * superseded by durable items on the transcript plane. Nothing is lost when
+   * every frame is lost — the reply still lands, it simply lands whole.
+   */
+  turnPreview: 'stream.live',
 
   // Advisory broadcasts re-served in full on attach — not (yet) oplog entities.
   // machinesChanged is a candidate for a durable entity kind; promoting it is an
@@ -259,6 +267,16 @@ export const CONTROL_PLANE_CLASS = {
    *  like every other session verb, so the same class for the same reason: a
    *  lost one is a failed RPC the caller already handles. */
   runtimeSnapshotRequest: 'control.command',
+  /**
+   * The desired watch level (POD-2293). `control.command` like every other
+   * session verb, though it correlates no reply: it is a command about a
+   * session's live observation, and a lost one is corrected by the next because
+   * the frame carries a desired STATE rather than an increment. What it must not
+   * be is `stream.live` — the daemon acts on it, and a plane whose contract is
+   * "drop freely" is the wrong promise for a frame that changes what a driver
+   * does.
+   */
+  runtimeWatch: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**

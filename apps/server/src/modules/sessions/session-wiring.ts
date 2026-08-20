@@ -15,7 +15,7 @@
  */
 
 import { asUserId, computePriorities, type SessionId } from '@podium/model'
-import { asDelegationRef } from '@podium/protocol'
+import { asDelegationRef, type RuntimeEvent } from '@podium/protocol'
 import { MutationLedger, type SyncRepository } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { userCommandPrincipal } from '../../command-principal'
@@ -57,6 +57,8 @@ import { SessionRepository } from './repository'
 import { ReceiptSender } from './receipt-send'
 import { RuntimeEventGate } from './runtime-event-gate'
 import { SessionRuntimeGateway } from './runtime-gateway'
+import { TurnPreviewAccumulator } from './turn-preview'
+import { turnPreviewEnabled } from './turn-preview-flag'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
 import { SessionAuthz } from './session-authz'
 import { SessionBindingReceipts } from './session-binding'
@@ -625,6 +627,35 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     now: () => bag.now(),
     events: runtimeEventGate,
   })
+  /**
+   * THE PREVIEW PLANE (POD-2293), SUBSCRIBED TO A RECEIVER THAT ALREADY EXISTED.
+   *
+   * POD-2411 built the fine plane's daemon→server carriage and its receiver and
+   * deferred activation here. This is that activation: one listener on the
+   * gateway's already-fanned-out stream, folding the in-progress turn and
+   * publishing coalesced snapshots to whoever has the chat open. The daemon side
+   * of the activation is the `runtimeWatch` frame the terminal sends when its
+   * subscriber count crosses zero.
+   *
+   * The listener takes the WHOLE stream, coarse arms included, because two of
+   * the three things the fold reacts to are coarse: the complete item that
+   * retires a preview row, and the turn terminal that clears the epoch.
+   *
+   * Flag-gated at the SUBSCRIPTION, not inside the fold: with the switch off
+   * nothing is constructed, nothing listens, and no session sends a watch frame
+   * — which is what "flag off means zero diff" has to mean for a plane that
+   * would otherwise touch every open chat.
+   */
+  if (turnPreviewEnabled()) {
+    const previews = new TurnPreviewAccumulator({
+      publish: (sessionId, frame) => bag.sessions.get(sessionId)?.terminal.applyTurnPreview(frame),
+      now: () => bag.now(),
+    })
+    bag.runtimeGateway.onEvent((sessionId: SessionId, event: RuntimeEvent) =>
+      previews.record(sessionId, event),
+    )
+    bag.turnPreviews = previews
+  }
   /**
    * THE SEND SEAM W4'S MIGRATED CALLERS ROUTE THROUGH.
    *

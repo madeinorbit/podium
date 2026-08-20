@@ -146,6 +146,7 @@ import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { ReceiptSender, ReceiptSendInput, ReceiptSendVia } from './receipt-send'
 import type { SessionRuntimeGateway } from './runtime-gateway'
+import type { TurnPreviewAccumulator } from './turn-preview'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionSpawnResult } from './session-start'
 
@@ -268,6 +269,10 @@ export class SessionLifecycle {
    *  for the five machine verbs, the durable completion of `queue`, and the sink
    *  for the driver's causal stream. No caller routes through it until W4. */
   readonly runtimeGateway!: SessionRuntimeGateway
+  /** The in-progress turn's preview fold (POD-2293). Absent when the machine
+   *  switch is off — the plane is not constructed at all, so an unflagged server
+   *  runs no listener and holds no per-session preview state. */
+  turnPreviews?: TurnPreviewAccumulator
   /** The send seam W4's migrated callers route through: one legacy-shaped answer
    *  now, one honest receipt to reconcile with later, and the single place the
    *  per-session contract flag is read. */
@@ -362,6 +367,9 @@ export class SessionLifecycle {
     return (this.sessionAuthz as any).authorizeQueuedInputAtApply(...args)
   }
   dispose(): void {
+    // Ahead of everything else: it owns coalescing timers, and a timer that
+    // fires into a half-disposed registry publishes into sessions that are gone.
+    this.turnPreviews?.dispose()
     this.concurrencyHistory.dispose()
     this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)
