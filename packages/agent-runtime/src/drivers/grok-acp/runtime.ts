@@ -1066,16 +1066,18 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           }
         }
         if (session.busy) {
-        /**
-         * THE SESSION MAY HAVE ENDED WHILE THIS SEND WAS PARKED
-         * (POD-2297 review, low 3).
-         *
-         * `waitForIdle` above is an await, and an adopt, a stop or a kill can
-         * land inside it. Without this re-check the send delivered through a
-         * session nobody can reach any more and answered `accepted` carrying the
-         * DEAD object's turnEpoch — an epoch no consumer can match to anything.
-         * The entry guard cannot cover this: it ran before the await.
-         */
+          /**
+           * THE SESSION MAY HAVE ENDED WHILE THIS SEND WAS PARKED
+           * (POD-2297 review, low 3). Governs the `not_running` re-check in BOTH
+           * arms below, which is why it sits here rather than being said twice.
+           *
+           * Each arm awaits `waitForIdle`, and an adopt, a stop or a kill can
+           * land inside that await. Without the re-check the send delivered
+           * through a session nobody can reach any more and answered `accepted`
+           * carrying the DEAD object's turnEpoch — an epoch no consumer can match
+           * to anything. The entry guard cannot cover it: that ran before the
+           * await.
+           */
           if (options.delivery === 'interrupt') {
             await this.interrupt()
             if (!(await waitForIdle(session)))

@@ -1143,8 +1143,12 @@ export type QueueDrainAbandonedReason = z.infer<typeof QueueDrainAbandonedReason
  * these turns the daemon durably records this report, replays it while connected
  * and across daemon restarts, and retires it only after the server acknowledges
  * the durable correction. THE DELIVERY it reports on is not retried by anybody.
- * Consumers still dedupe by turn id, so hearing a replay corrects the same
- * receipt once.
+ * Consumers must therefore be IDEMPOTENT UNDER REPEATS, keyed on turn id, so
+ * hearing a replay corrects the same receipt once — the same rule, in the same
+ * words, as `RuntimeSendResultMessage`. Idempotent rather than deduplicating:
+ * a status write guarded on `status = 'queued'` is already safe however often it
+ * is replayed, and append-only observation events may legitimately fire once per
+ * report.
  */
 export const RuntimeQueueDrainAbandonedMessage = z.object({
   type: z.literal('runtimeQueueDrainAbandoned'),

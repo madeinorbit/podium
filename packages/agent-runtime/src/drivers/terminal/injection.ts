@@ -206,14 +206,21 @@ export interface TerminalInjectionPorts {
    * goes terminal on the report (POD-2132) and a queue that typed its retained copy
    * afterwards would deliver bytes the ledger already recorded as undelivered, with
    * no receipt anywhere. What is owed is stated once, here, and then owed by nobody.
+   * (The RULE governing consumers is stated in three places and must agree in all
+   * of them — here, `RuntimeQueueDrainAbandonedMessage` and
+   * `RuntimeSendResultMessage`. It is only the OWING of these particular turns
+   * that ends here.)
    *
    * THE HOST MUST MAKE THE TRANSPORT AT-LEAST-ONCE. Before this callback returns,
    * it durably records the report; it replays while connected and across host
    * restarts, and removes that record only after the receipt consumer
    * acknowledges its durable correction. A report can therefore repeat and may
-   * carry turn ids a consumer already handled. CONSUMERS MUST DEDUPE BY TURN ID
-   * before correcting receipts or emitting transitions — retryable means "safe
-   * to hear twice", never "safe to deliver twice".
+   * carry turn ids a consumer already handled. CONSUMERS MUST BE IDEMPOTENT UNDER
+   * REPEATS, keyed on turn id, before correcting receipts — retryable means "safe
+   * to hear twice", never "safe to deliver twice". NOT the same as "must dedupe":
+   * a status write guarded on its own current state is already safe to replay,
+   * and an append-only observation event may honestly fire once per report
+   * rather than once per turn (POD-2297 review, E3).
    */
   onDrainAbandoned?(turns: readonly QueuedTurn[], reason: QueueDrainAbandonedReason): void
 }
