@@ -1771,11 +1771,10 @@ describe('SessionRegistry', () => {
     reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
       type: 'spawnError',
       sessionId,
-      message: "explicit codex-app-server request cannot be honoured",
+      message: 'explicit codex-app-server request cannot be honoured',
     })
     expect(store1.sessions.loadSessions().at(0)?.selectedDriverId).toBeNull()
     store1.close()
-
 
     const store2 = new SessionStore(file, TEST_MACHINE)
     const reg2 = new SessionRegistry(store2, undefined, { instanceId: 'default' })
@@ -1995,7 +1994,6 @@ describe('memory breakdown relay', () => {
       vi.useRealTimers()
     }
   })
-
 })
 
 describe('agent state', () => {
@@ -5049,8 +5047,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
   const inputFramesWith = (daemon: ControlMessage[], needle: string) =>
     daemon.filter(
       (message) =>
-        message.type === 'input' &&
-        Buffer.from(message.data, 'base64').toString().includes(needle),
+        message.type === 'input' && Buffer.from(message.data, 'base64').toString().includes(needle),
     )
 
   it('a prompt sent during the starting window delivers through the contract on bind — never as PTY bytes', async () => {
@@ -5161,6 +5158,218 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
     } finally {
       registry.dispose()
+    }
+  })
+})
+
+/**
+ * POD-2327: the same vanish as POD-2291, reached through a VERSION-SKEW door.
+ *
+ * A daemon newer than this server binds a driver id no manifest here declares —
+ * a renamed server driver, a brand-new one, the embedded driver whose id is
+ * already written down. The drain's no-PTY test used to ask "is this id
+ * server-family?", and an unknown id answers false, so the row went down the
+ * PTY path at a session that has no bridge: the daemon warns and discards, this
+ * side confirms the row, and the operator's message is gone.
+ *
+ * The driver ids below are SYNTHETIC AND DELIBERATELY UNKNOWN. They are not
+ * placeholders for something to add to the manifests later — the point is that
+ * the server cannot enumerate what a future daemon will bind, so the predicate
+ * has to be right for ids it has never seen.
+ */
+describe('unknown driver ids fail toward keep-queued [POD-2327]', () => {
+  /** No manifest declares this. That is the entire fixture. */
+  const FUTURE_DRIVER = 'codex-app-server-v2'
+
+  const contractBind = (sessionId: SessionId, driverId: string) =>
+    ({
+      ...bind(sessionId),
+      cmd: `codex (${driverId})`,
+      agentKind: 'codex',
+      runtimeContract: true,
+      driverId,
+    }) as const
+
+  const inputFramesWith = (daemon: ControlMessage[], needle: string) =>
+    daemon.filter(
+      (message) =>
+        message.type === 'input' && Buffer.from(message.data, 'base64').toString().includes(needle),
+    )
+
+  const sendPrompt = (registry: SessionRegistry, sessionId: SessionId) =>
+    registry.modules.messages.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: sessionId }, body: 'skewed prompt', urgency: 'next-turn' },
+    )
+
+  it('drains a queued row through the contract when bind reports a driver id this build has never heard of', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      const sent = sendPrompt(registry, sessionId)
+      expect(sent.message.status).toBe('queued')
+
+      registry.gateway.routeDaemonFrame(
+        registry.sessionStore.hostMachineId,
+        contractBind(sessionId, FUTURE_DRIVER),
+      )
+      // Real timers, for the reason the POD-2291 pins above give: a fake clock
+      // around a live SessionRegistry orphans its background intervals.
+      //
+      // THE PTY ASSERTION IS INSIDE THE WAIT, AND FIRST, ON PURPOSE. With the
+      // fix the contract request lands in well under a second and this returns
+      // immediately — the generous timeout costs a passing run nothing. WITHOUT
+      // it, the terminal path types the row at the bridgeless session once the
+      // woken drain's 10s state grace expires, so the window has to outlast
+      // that; what this test then prints is the discarded payload itself
+      // rather than an opaque "no contract request".
+      await vi.waitFor(
+        () => {
+          expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
+          expect(
+            daemon.filter(
+              (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+            ),
+          ).toHaveLength(1)
+        },
+        { timeout: 12_000 },
+      )
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  it('leaves the row visibly queued when the unknown driver refuses — never delivered, never gone', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      const sent = sendPrompt(registry, sessionId)
+      registry.gateway.routeDaemonFrame(
+        registry.sessionStore.hostMachineId,
+        contractBind(sessionId, FUTURE_DRIVER),
+      )
+      await vi.waitFor(() =>
+        expect(
+          daemon.some(
+            (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+          ),
+        ).toBe(true),
+      )
+      const request = daemon.find(
+        (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: request!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'refused',
+          refusal: { reason: 'not_running', detail: 'the daemon dropped the handle' },
+        },
+      })
+      await new Promise((resolve) => setTimeout(resolve, 250))
+
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
+      expect(registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
+      expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  /**
+   * THE OTHER HALF OF THE CONJUNCTION. `runtimeContract` is true for
+   * terminal-driver sessions too, and their drain is still PTY bytes — the
+   * negative test is what stops "unknown means no PTY" from quietly becoming
+   * "the contract means no PTY" and stranding every PTY session's queue.
+   */
+  it('still types at a runtimeContract session whose bound driver IS terminal-family', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        contractBind(sessionId, 'generic-pty'),
+      )
+      reg.modules.sessions.queueText({ sessionId, text: 'typed-not-contracted' })
+      // Past the silent-spawn fallback window: a PTY session with no output
+      // still gets served.
+      vi.advanceTimersByTime(7000)
+
+      expect(inputFramesWith(daemon, 'typed-not-contracted')).not.toEqual([])
+      expect(daemon.filter((m) => m.type === 'runtimeSendRequest')).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * FINDING 4 OF THE POD-2291 REVIEW: `typeText`'s server-family refusal was
+   * pinned only through the inbox's mock harness, where `serverDriven` is a
+   * hand-written dep. Nothing drove the DIRECT chat-send path at a bound
+   * session through production wiring, so a regression in how that dep is
+   * composed would have gone unnoticed — which is precisely the class of bug
+   * the rest of this file is about.
+   */
+  it('refuses a direct chat send at a bound server-family session, in production wiring', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        contractBind(sessionId, 'codex-app-server'),
+      )
+
+      expect(
+        reg.modules.sessions.sendText({ sessionId, text: 'typed at a server session' }),
+      ).toEqual({ ok: false })
+      expect(inputFramesWith(daemon, 'typed at a server session')).toEqual([])
+    } finally {
+      reg.dispose()
+    }
+  })
+
+  it('refuses a direct chat send at an UNKNOWN-driver session too', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        contractBind(sessionId, FUTURE_DRIVER),
+      )
+
+      expect(
+        reg.modules.sessions.sendText({ sessionId, text: 'typed at a skewed session' }),
+      ).toEqual({ ok: false })
+      expect(inputFramesWith(daemon, 'typed at a skewed session')).toEqual([])
+    } finally {
+      reg.dispose()
     }
   })
 })

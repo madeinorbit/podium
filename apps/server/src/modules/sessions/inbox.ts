@@ -262,8 +262,8 @@ export interface SessionInboxDeps {
    */
   authorizeDrive?(principal: ClientPrincipal, sessionId: SessionId): boolean
   /**
-   * Is this session driven by a SERVER-family runtime driver — a session with
-   * no PTY bridge behind it (POD-2291)?
+   * Is this session driven by a runtime driver with NO PTY bridge behind it
+   * (POD-2291)?
    *
    * The drain below branches on it because typing at such a session is not
    * merely suboptimal, it is a guaranteed silent loss: the daemon's `input`
@@ -272,6 +272,11 @@ export interface SessionInboxDeps {
    * read off the bind-reported `driverId`, so it is only ever true for a LIVE
    * session; a `starting` one stays on the queue until bind says which family
    * it became.
+   *
+   * Production answers it by ruling a terminal driver IN rather than a server
+   * driver OUT, so an id this build's manifests do not know still takes the
+   * contract path (POD-2327) — see `session-wiring.ts` for why that asymmetry
+   * is the safe one.
    */
   serverDriven?(session: Session): boolean
   /**
@@ -813,6 +818,14 @@ export class SessionInbox {
               // reached any daemon, so confirming would be the vanish-shape
               // again through a different door. The row STAYS visibly
               // queued; the next bind, reconnect or enqueue re-drains it.
+              //
+              // POD-2327 widened this branch's reachable senders: an UNKNOWN
+              // driver id also arrives here, and one of those could be a
+              // terminal driver from a newer daemon, for which `unverified`
+              // IS honest ("typed it, could not prove it"). Keeping the row
+              // queued is still the right answer — an unproven send is not a
+              // delivered one — it just costs a re-drain instead of naming a
+              // broken frame.
               stop()
               return
             }

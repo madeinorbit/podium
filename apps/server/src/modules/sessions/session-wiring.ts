@@ -23,7 +23,7 @@ import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
 import {
-  driverIdIsServerFamily,
+  driverFamilyForId,
   harnessDisplayName,
   harnessInterrupt,
   harnessNeedsSubmitVerification,
@@ -383,17 +383,35 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     authorizeDrive: (principal, sessionId) => bag.authorizeClientDrive(principal, sessionId),
     /**
      * THE DRAIN'S NO-PTY FACT (POD-2291), keyed on durable-enough data: the
-     * bind-reported `runtimeContract` AND a `driverId` some manifest declares as
-     * server-family. Both are bind facts, so a `starting` session answers false
-     * and stays queued until bind says which family it became — which is
+     * bind-reported `runtimeContract` AND a `driverId` no manifest declares as
+     * TERMINAL-family. Both are bind facts, so a `starting` session answers
+     * false and stays queued until bind says which family it became — which is
      * exactly when the drain runs. The conjunction matters: `runtimeContract`
      * alone is true for TERMINAL-driver sessions too, whose PTY drain must not
      * change.
+     *
+     * WHY THE TEST IS NEGATIVE (POD-2327). It used to ask `driverIdIsServerFamily`,
+     * and an id no manifest claims answers false there — so a NEWER DAEMON
+     * binding a driver this server has never heard of (a renamed or brand-new
+     * server driver, an embedded one) landed on the PTY path, where the daemon
+     * finds no bridge, logs a warning, discards the bytes, and this side
+     * confirms the row. That is the POD-2291 vanish, reached through a
+     * version-skew door. Only a manifest-declared TERMINAL driver has a
+     * terminal; every other answer — server, embedded, unknown — means no PTY.
+     *
+     * THE TWO WRONG ANSWERS ARE NOT SYMMETRIC, which is what makes "unknown"
+     * safe to fold in here. Guess "no PTY" for a driver that has one and the
+     * row still delivers: terminal drivers are behind the same contract
+     * (`sessionIsBehindContract` is true for every runtime binding), so
+     * `contractDeliver` reaches the terminal driver's own injection path, and
+     * the worst case is an `unverified` receipt that leaves the row VISIBLY
+     * QUEUED. Guess "PTY" for a driver that has none and the bytes are gone.
+     * Fail toward keep-queued.
      */
     serverDriven: (session) =>
       session.runtimeContract === true &&
       session.driverId !== undefined &&
-      driverIdIsServerFamily(session.driverId),
+      driverFamilyForId(session.driverId) !== 'terminal',
     // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
     // this function, and the first drain that can need it runs strictly after
     // a bind frame — long past composition.
