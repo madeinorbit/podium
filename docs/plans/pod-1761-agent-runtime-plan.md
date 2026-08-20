@@ -427,3 +427,10 @@ in the WRONG SCOPE — a rule pinned where its obligated party never reads, an o
 attached to a different duplicate than the one it explained, a sentence true of an
 imagined driver and no real one. The uniform check: name the exact object a claim
 quantifies over, then go looking for members it does not cover.
+
+Third face of the same lesson, from POD-2297's verification round: a comment that says
+"deliberately does NOT X" is an INVARIANT, and an invariant with no test is a
+decoration — the reviewer mutated two such comments' code and nothing went red, though
+one regression would kill the child every fleet reattach speaks to and the other would
+reintroduce the exact silent loss the issue closes. When a comment says a thing is
+deliberate, that sentence is the test's specification.
