@@ -421,3 +421,9 @@ INVARIANT can be reached or broken — object replacement, map overwrite, proces
 not the places the usual flag is set. The fix pattern that closes it: make the
 registration point itself enforce the invariant (registerSession ends whatever it
 displaces), so unknown future callers are covered too.
+
+Refinement, from the same issue's second round: every finding there was a TRUE statement
+in the WRONG SCOPE — a rule pinned where its obligated party never reads, an obligation
+attached to a different duplicate than the one it explained, a sentence true of an
+imagined driver and no real one. The uniform check: name the exact object a claim
+quantifies over, then go looking for members it does not cover.
