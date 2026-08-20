@@ -1,7 +1,7 @@
 import { createLogger } from '@podium/logger'
 import { compareProviderCursor } from '@podium/harness/metadata'
 import type { SessionId } from '@podium/model'
-import type { RuntimeEvent } from '@podium/protocol'
+import type { InteractionEvent, RuntimeEvent, TurnEvent } from '@podium/protocol'
 import {
   RUNTIME_EVENT_LOG_KIND,
   type EventsRepository,
@@ -54,6 +54,38 @@ export interface RuntimeEventGatePorts {
   >
   session(sessionId: SessionId): RuntimeEventSessionProjection | undefined
   persist(sessionId: SessionId, additionalWrite: () => void): void
+  /**
+   * COARSE TURN BOUNDARIES, for the failure→interaction gate (POD-2414).
+   *
+   * A separate port from {@link board} rather than another arm of it, because
+   * the two answer different questions: the board is a RECENCY projection and
+   * this one decides whether a human has to be told a session stopped. Folding
+   * them would make every future board consumer a consumer of failure semantics.
+   *
+   * Awaited on the same terms as the board effect — the durable event-id cursor
+   * advances only after it resolves — so a crash between commit and projection
+   * re-delivers rather than loses the failure. The consumer is therefore
+   * required to be safe to repeat, which the aggregate's fingerprint dedupe and
+   * no-op close already are.
+   */
+  turn?(input: {
+    sessionId: SessionId
+    ev: TurnEvent
+    /** EVENT time, not observe time — the ask is stamped when the turn failed. */
+    at: string
+  }): void | Promise<void>
+  /**
+   * THE DRIVER'S OWN INTERACTION RESOLUTIONS (POD-2414).
+   *
+   * A protocol-sourced ask is opened by `runtimeInteractionAsked` and, until
+   * this port existed, was closed by NOTHING — the compatibility frame carries
+   * only the `asked` arm, so an ask a person answered in the harness's own TUI
+   * stayed open in the aggregate forever. The coarse stream carries all three
+   * arms, so the driver that raised the ask is also what retires it.
+   *
+   * Awaited on the same terms as {@link turn}.
+   */
+  interaction?(input: { sessionId: SessionId; ev: InteractionEvent }): void | Promise<void>
   board(
     event:
       | { kind: 'attention' | 'turnEnd'; sessionId: SessionId; eventId: number }
@@ -281,6 +313,12 @@ export class RuntimeEventGate {
       })
     }
     if (event.provenance !== 'live') return
+    if (event.t === 'turn') {
+      await this.ports.turn?.({ sessionId, ev: event.ev, at: event.at })
+    }
+    if (event.t === 'interaction') {
+      await this.ports.interaction?.({ sessionId, ev: event.ev })
+    }
     if (closesTurn(event)) await this.ports.board({ kind: 'turnEnd', sessionId, eventId })
     if (event.t === 'state' && event.change.kind === 'needs_user') {
       await this.ports.board({ kind: 'attention', sessionId, eventId })

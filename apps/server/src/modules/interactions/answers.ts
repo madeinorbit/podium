@@ -36,7 +36,7 @@
  * something because nobody configured otherwise.
  */
 
-import type { InteractionAnswer, InteractionKind } from '@podium/protocol'
+import type { InteractionAnswer, InteractionKind, RecoveryAsk } from '@podium/protocol'
 import { matchAnswerToOptions } from '../superagent/answer-delivery'
 import type { InteractionAskSpec } from './synthesis'
 
@@ -53,6 +53,33 @@ export const DEFAULT_ANSWERS: Partial<Record<InteractionKind, InteractionAnswer>
 }
 
 /**
+ * WHICH `recovery` ASKS THE DEFAULT APPLIES TO — and why it is not all of them
+ * (POD-2414).
+ *
+ * The spec's justification for auto-answering recovery is specific and is about
+ * STARTUP: "Background executors auto-answer these and never stall on startup".
+ * A `cache-miss` or a `trust-prompt` is a question about how to RESUME, asked
+ * before the session has done anything; answering it `full-resume` costs
+ * nothing and is what every role profile wants.
+ *
+ * A recovery ask minted from a FAILURE is a different question wearing the same
+ * kind. `context-overflow` means the last turn died because the conversation is
+ * too big; auto-answering `full-resume` re-runs the turn into the same wall, and
+ * on a loop. `unknown` means a needs-human failure whose class we could not
+ * read — auto-resuming past one is precisely the decision a person is being
+ * asked to make. Both escalate.
+ *
+ * This is a scoping rule, not the interaction policy engine §4 describes: there
+ * is still no rule language and no per-session table. What it does is keep the
+ * ONE default that exists from silently answering a question it was not written
+ * for.
+ */
+const RESUME_TIME_RECOVERY: ReadonlySet<RecoveryAsk['reason']> = new Set([
+  'cache-miss',
+  'trust-prompt',
+])
+
+/**
  * The default answer for an ask, if the table has one AND the harness offers it.
  *
  * The offered-check is why this is a function and not a lookup: `full-resume` is
@@ -65,6 +92,7 @@ export function defaultAnswerFor(spec: InteractionAskSpec): InteractionAnswer | 
   const preset = DEFAULT_ANSWERS[spec.kind]
   if (!preset) return null
   if (spec.kind === 'recovery' && preset.kind === 'recovery') {
+    if (!RESUME_TIME_RECOVERY.has(spec.payload.reason)) return null
     const offered = spec.payload.offered
     if (offered.includes(preset.choice)) return preset
     if (offered.includes('summary-resume')) return { kind: 'recovery', choice: 'summary-resume' }

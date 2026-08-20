@@ -2448,6 +2448,37 @@ export class SessionRegistry {
           })
         })
     }
+    /**
+     * THE FAILURE SINK, BOUND (POD-2414).
+     *
+     * Every coarse turn boundary the runtime event gate commits reaches the
+     * aggregate: a `needs-human` failure opens an ask, and a turn that starts or
+     * completes closes the stale login/recovery row it left behind. AWAITED by
+     * the gate's projector — its durable cursor does not advance until this
+     * resolves — which is what makes a failure survive a crash between the
+     * event's commit and its materialization.
+     *
+     * The provider hint is the session's own harness, so a `login` ask names the
+     * credential a person actually has to refresh instead of echoing a failure
+     * reason back at them.
+     */
+    sessionsSvc.interactionTurn = (msg) => {
+      const provider = sessionsSvc.sessionById(msg.sessionId)?.agentKind
+      return interactions.onTurnEvent({
+        sessionId: msg.sessionId,
+        ev: msg.ev,
+        at: msg.at,
+        ...(provider ? { provider } : {}),
+      })
+    }
+    /**
+     * THE RESOLUTION SINK, BOUND (POD-2414). A protocol ask answered inside the
+     * harness's own UI retires here; without it the aggregate could only ever
+     * open one of those rows.
+     */
+    sessionsSvc.interactionResolved = (msg) => {
+      interactions.onInteractionResolved(msg)
+    }
     this.bus.on('session.stateChanged', (e) => {
       void interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
     })

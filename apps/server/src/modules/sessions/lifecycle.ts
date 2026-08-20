@@ -48,7 +48,13 @@ export interface SessionRoutingFacts {
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { MachinePrincipal, PendingInteraction, Principal } from '@podium/protocol'
+import type {
+  InteractionEvent,
+  MachinePrincipal,
+  PendingInteraction,
+  Principal,
+  TurnEvent,
+} from '@podium/protocol'
 import {
   type AgentInstruction,
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -299,6 +305,35 @@ export class SessionLifecycle {
     sessionId: SessionId
     interaction: PendingInteraction
   }) => void
+  /**
+   * THE FAILURE SINK (POD-2414), late-bound for the same reason and on the same
+   * terms as {@link interactionAsk} above.
+   *
+   * Every coarse turn boundary the runtime event gate commits is handed over,
+   * not only the failures: the aggregate opens an ask on a needs-human failure
+   * AND closes the stale one when a turn proves the session is running again,
+   * and both halves have to see the same stream to stay in step.
+   *
+   * The returned promise is awaited by the gate's projector before its durable
+   * cursor advances, so this must be safe to repeat.
+   */
+  interactionTurn?: (msg: {
+    sessionId: SessionId
+    ev: TurnEvent
+    at: string
+  }) => void | Promise<void>
+  /**
+   * THE RESOLUTION SINK (POD-2414), late-bound like its two siblings.
+   *
+   * `runtimeInteractionAsked` carries only the `asked` arm, so a protocol ask
+   * resolved inside the harness's own UI had nothing to retire it. The coarse
+   * stream's `interaction` events carry `answered` and `expired` too, and this
+   * is where they reach the aggregate.
+   */
+  interactionResolved?: (msg: {
+    sessionId: SessionId
+    ev: InteractionEvent
+  }) => void | Promise<void>
   private readonly daemonLifecycle!: SessionDaemonLifecycle
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView

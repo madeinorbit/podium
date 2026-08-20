@@ -41,12 +41,20 @@ import type {
   InteractionSource,
   QuestionPrompt,
 } from '@podium/protocol'
+import { materializeFailure } from './materialize'
 
 /** Re-exported, not redefined: the distributive kind/payload pair lives in
  *  `@podium/protocol` beside the union it derives from, because all three
  *  producers need it and three copies of a conditional type is three chances to
  *  get the distribution wrong. */
 export type { InteractionAskSpec } from '@podium/protocol'
+
+/** What an ask reads as when the observation path knows a session is waiting and
+ *  could not read WHAT it is waiting on. Deliberately a sentence about the
+ *  session rather than an invented question: nothing here knows what is on
+ *  screen, and a card that guessed would be answered against a guess. */
+const UNREADABLE_PROMPT =
+  'This session is waiting on a prompt Podium could not read. Open the terminal to see it.'
 
 export interface SynthesizedAsk {
   readonly spec: InteractionAskSpec
@@ -145,10 +153,6 @@ export function interactionFingerprint(
     .slice(0, 32)
 }
 
-/** Error classes that mean "this session needs a credential, not a retry". The
- *  harness vocabulary is open, so this matches rather than enumerates. */
-const AUTH_ERROR = /auth|login|credential|unauthor|forbidden|api[_-]?key/i
-
 /**
  * The one entry point: what ask, if any, does this state represent?
  *
@@ -213,6 +217,23 @@ function specFor(
   questionOptions: QuestionPromptInput[] | undefined,
 ): InteractionAskSpec | null {
   if (state.phase === 'needs_user') {
+    // AN UNREADABLE PROMPT IS STILL A BLOCKED SESSION (POD-2414).
+    //
+    // `needs_user` with no classified `need` is what an older daemon reports,
+    // and what the observation path reports when it can see the session is
+    // waiting and cannot say what for. Returning null here — which is what this
+    // did — meant the ONE phase that literally means "a person has to do
+    // something" produced nothing to do it from, and `onStateChanged` then
+    // superseded whatever row was open. A question with no options is the
+    // honest rendering: the aggregate says the session is blocked, the delivery
+    // gate refuses to type digits at a menu it never read, and the card reads
+    // "go look" rather than not existing.
+    if (state.need === undefined) {
+      return {
+        kind: 'question',
+        payload: { v: 1, questions: normalizeQuestions(undefined, UNREADABLE_PROMPT) },
+      }
+    }
     if (state.need?.kind === 'permission') {
       return {
         kind: 'permission',
@@ -251,14 +272,21 @@ function specFor(
       },
     }
   }
-  // THE ROUTING RULE (contract `FailureDisposition`): a needs-human failure
-  // materializes as an interaction, so a session blocked on credentials is an
-  // enumerable blocked session rather than one that silently stopped.
-  if (state.phase === 'errored' && state.error && AUTH_ERROR.test(state.error.class)) {
-    return {
-      kind: 'login',
-      payload: { v: 1, provider: state.error.class, reason: 'auth-expired' },
-    }
+  // THE ROUTING RULE (contract `FailureDisposition`), through the ONE gate:
+  // a needs-human failure materializes as an interaction, so a session blocked
+  // on credentials, on billing, on a usage cap or on an overflowed context is
+  // an enumerable blocked session rather than one that silently stopped.
+  //
+  // The classification is `materialize.ts`'s and is not restated here — the
+  // causal `TurnFailed` path reaches the same table, and a second copy of
+  // "which failures need a human" is how one family's blocked sessions become
+  // invisible again.
+  if (state.phase === 'errored' && state.error) {
+    return materializeFailure({
+      evidence: 'agent-state',
+      errorClass: state.error.class,
+      retryable: state.error.retryable,
+    })
   }
   return null
 }

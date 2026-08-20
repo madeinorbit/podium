@@ -578,6 +578,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.repository.persist(session, additionalWrite)
     },
     board: (event) => bag.bus.emitDurable('issue.runtimeDerived', event),
+    // DEFERRED READ, on the same terms as `runtimeInteractions.ask` below: the
+    // interactions aggregate is built by the composition root after this
+    // function runs, so the sink is read through the closure rather than
+    // captured. A turn event that arrives before the aggregate exists is
+    // dropped, which cannot happen — nothing can spawn a session before the
+    // server is serving.
+    turn: (input) => bag.interactionTurn?.(input),
+    interaction: (input) => bag.interactionResolved?.(input),
     now: () => bag.now(),
   })
   bag.runtimeGateway = new SessionRuntimeGateway({

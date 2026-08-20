@@ -45,13 +45,17 @@ import type {
   InteractionAnswerability,
   InteractionAnsweredBy,
   InteractionAnswerOutcome,
+  InteractionEvent,
+  InteractionKind,
   InteractionSource,
   PendingInteractionWire,
+  TurnEvent,
 } from '@podium/protocol'
 import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 import type { InboxPrincipalReference } from '../sessions/inbox'
 import type { AnswerDeliveryResult } from '../superagent/answer-delivery'
 import { defaultAnswerFor, resolveAnswerText } from './answers'
+import { materializeFailure } from './materialize'
 import {
   hasReliableIdentity,
   type InteractionAskSpec,
@@ -66,6 +70,37 @@ const log = createLogger('server:interactions')
  *  window `deliverAnswerToSession` uses, for the same reason (the last
  *  AskUserQuestion call carries them as structured `toolInputJson`). */
 const TRANSCRIPT_TAIL = 50
+
+/**
+ * THE SOURCES THE STATE PATH OWNS.
+ *
+ * `onStateChanged` closes the session's open asks when the state stops being an
+ * ask, and that half is load-bearing — without it a permission row answered at
+ * the terminal would stay open forever and the list would lie about which
+ * sessions are blocked. But it must close only what it SYNTHESIZED. A
+ * protocol-sourced ask has its own resolution event coming from the driver that
+ * raised it, and an ask materialized from a causal turn failure is closed by the
+ * next turn boundary; wiping either one because an unrelated terminal
+ * observation moved is how a session ends up blocked on a prompt whose row was
+ * deleted out from under it (POD-2414).
+ *
+ * `hook` and `screen-classifier` are exactly the two `sourceFor` can return.
+ */
+const STATE_DERIVED_SOURCES: ReadonlySet<InteractionSource> = new Set(['hook', 'screen-classifier'])
+
+/**
+ * THE KINDS A TURN BOUNDARY RESOLVES.
+ *
+ * A session that just started or finished a turn is demonstrably not waiting on
+ * a credential or on a resume decision, so any open `login`/`recovery` row is
+ * stale whoever opened it — the operator refreshed the token, answered the
+ * resume prompt at the terminal, or the harness recovered by itself.
+ *
+ * The mid-turn kinds are deliberately absent. A `permission` or `question` ask
+ * IS a turn in progress; closing those on a turn event would close them the
+ * instant they were raised.
+ */
+const TURN_BOUNDARY_RESOLVES: ReadonlySet<InteractionKind> = new Set(['login', 'recovery'])
 
 export interface InteractionServiceDeps {
   readonly store: InteractionsRepository
@@ -241,13 +276,19 @@ export class InteractionService {
         // SUPERSEDED, not expired: the overwhelmingly common cause is a person
         // answering at the terminal, which is a resolution. A list that
         // reported those as expirations would read as a pile of failures.
-        this.closeOpen(input.sessionId, 'superseded', 'the session left the asking state')
+        //
+        // Scoped to what this path synthesized — see {@link STATE_DERIVED_SOURCES}.
+        this.closeOpen(input.sessionId, 'superseded', 'the session left the asking state', (row) =>
+          STATE_DERIVED_SOURCES.has(row.source),
+        )
         return
       }
       // A state that re-reports the SAME ask leaves the open row alone; a state
       // that reports a DIFFERENT one closes the stale row first, because two
-      // open asks on one terminal session would both claim the same menu.
+      // open asks on one terminal session would both claim the same menu. Same
+      // scoping: a driver's own ask is not this path's to supersede.
       for (const open of this.deps.store.listOpen(input.sessionId)) {
+        if (!STATE_DERIVED_SOURCES.has(open.source)) continue
         if (open.fingerprint !== ask.fingerprint) this.supersede(open.id)
       }
       // ONE INTERNAL CALLER of the public ingress: the bus path has no more
@@ -269,6 +310,122 @@ export class InteractionService {
     }
   }
 
+  /**
+   * THE FAILURE INGRESS — a causal turn event, from the runtime event gate
+   * (POD-2414; spec §3 "Failure semantics").
+   *
+   * This is the second half of the routing rule the contract states as an
+   * invariant: needs-human failures materialize as PendingInteractions. The
+   * classification is `materialize.ts`'s, shared with the state path, so a
+   * driver that reports `TurnFailed{disposition:'needs-human'}` and a daemon
+   * that reports an `errored` phase produce the same ask for the same cause.
+   *
+   * BOTH DIRECTIONS ARE HERE, and the closing half matters as much as the
+   * opening one. A turn that STARTS or COMPLETES is proof the session is not
+   * waiting on a credential or a resume decision any more — whoever fixed it —
+   * so the stale row closes. Without that, the first billing failure of a
+   * session's life would pin a row open for the rest of it.
+   *
+   * DEDUPE IS BY FINGERPRINT AND DELIBERATELY HAS NO OCCURRENCE DISCRIMINATOR.
+   * A session hitting the same wall on three consecutive turns is one blocked
+   * session, not three asks; the partial unique index collapses them while the
+   * first is still open, and a genuinely new failure after the first is answered
+   * opens a fresh row.
+   *
+   * SAFE TO REPEAT, because the gate's board projector may replay it: the
+   * durable event-id cursor advances only after this resolves, so a crash
+   * between commit and projection re-delivers the event. Insert-on-conflict and
+   * a close that no-ops on an already-closed row are what make that harmless.
+   */
+  async onTurnEvent(input: {
+    sessionId: SessionId
+    ev: TurnEvent
+    at: string
+    /** The harness a `login` ask should name as the provider, when the caller
+     *  knows it. */
+    provider?: string
+  }): Promise<void> {
+    try {
+      if (input.ev.ev !== 'failed') {
+        this.closeOpen(
+          input.sessionId,
+          'superseded',
+          'a turn boundary passed, so the session is no longer blocked on it',
+          (row) => TURN_BOUNDARY_RESOLVES.has(row.kind),
+        )
+        return
+      }
+      const spec = materializeFailure({
+        evidence: 'turn-failed',
+        reason: input.ev.reason,
+        disposition: input.ev.disposition,
+        ...(input.ev.detail ? { detail: input.ev.detail } : {}),
+        ...(input.provider ? { provider: input.provider } : {}),
+      })
+      if (!spec) return
+      await this.ask({
+        interaction: {
+          ...spec,
+          sessionId: input.sessionId,
+          // THE DRIVER OBSERVED IT. `protocol` is the provenance of a causal
+          // event off the contract stream, and it is what keeps this row out of
+          // the state path's supersede sweep.
+          source: 'protocol',
+          // NOT `structured`, and the distinction is the honest one: the ask
+          // came over a protocol, but the ANSWER is prose the durable send path
+          // delivers ("continue where you left off"), not a reply to a request
+          // id the harness is holding open. Claiming `structured` would route it
+          // to a driver with nothing to reply to.
+          answerable: 'keystroke-emulated',
+          askedAt: input.at,
+          fingerprint: interactionFingerprint(input.sessionId, spec),
+        },
+      })
+    } catch (err) {
+      // Never throws into the projector — a fault here must not stall the
+      // board's durable cursor behind an interaction the aggregate could not
+      // record. The event is logged and the stream keeps moving.
+      log.warn('failure materialization failed', { err, sessionId: input.sessionId })
+    }
+  }
+
+  /**
+   * A DRIVER RETIRED ONE OF ITS OWN ASKS (POD-2414).
+   *
+   * The compatibility frame that opens a protocol ask carries only the `asked`
+   * arm, so before this the aggregate had no way to learn that a person had
+   * answered a permission prompt in opencode's own UI: the row stayed open, and
+   * a list whose promise is "these sessions are blocked" accumulated sessions
+   * that were not. The coarse stream carries all three arms; this is the other
+   * two.
+   *
+   * SUPERSEDED, NOT ANSWERED, for the `answered` arm — the aggregate did not
+   * record the decision and must not claim to know what it was. `expired` is
+   * expired: the harness withdrew the ask and nobody decided anything.
+   *
+   * Safe to repeat: `close` guards on `status = 'asked'`, so a row this
+   * aggregate already answered is untouched, which is exactly the common case —
+   * an answer delivered through `deliverStructured` comes straight back as an
+   * `answered` event from the driver that applied it.
+   */
+  onInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): void {
+    if (input.ev.ev === 'asked') return
+    const row = this.deps.store.get(input.ev.id)
+    // A resolution for a row this server never saw is not an error: the ask may
+    // predate the aggregate's knowledge of the session, or belong to a replica.
+    if (!row || row.sessionId !== input.sessionId) return
+    if (
+      !this.deps.store.close(
+        row.id,
+        input.ev.ev === 'expired' ? 'expired' : 'superseded',
+        this.deps.now(),
+      )
+    )
+      return
+    const settled = this.deps.store.get(row.id)
+    if (settled) this.deps.publish(settled)
+  }
+
   /** A session ended: every ask it left behind stops being answerable. EXPIRED
    *  rather than superseded — the menu went away with the process, and nobody
    *  answered it. */
@@ -276,11 +433,30 @@ export class InteractionService {
     this.closeOpen(sessionId, 'expired', 'the session ended')
   }
 
-  private closeOpen(sessionId: SessionId, status: 'expired' | 'superseded', why: string): void {
-    for (const id of this.deps.store.closeSession(sessionId, status, this.deps.now())) {
-      const row = this.deps.store.get(id)
-      if (row) this.deps.publish(row)
-      log.debug('interaction closed', { id, status, why })
+  private closeOpen(
+    sessionId: SessionId,
+    status: 'expired' | 'superseded',
+    why: string,
+    only?: (row: InteractionRow) => boolean,
+  ): void {
+    if (!only) {
+      for (const id of this.deps.store.closeSession(sessionId, status, this.deps.now())) {
+        const row = this.deps.store.get(id)
+        if (row) this.deps.publish(row)
+        log.debug('interaction closed', { id, status, why })
+      }
+      return
+    }
+    // The filtered form closes row by row rather than in one statement. The
+    // set is at most a handful — an open ask means a session is blocked — and a
+    // predicate the caller owns cannot be pushed into SQL without this module
+    // deciding for every future caller which columns a filter may name.
+    for (const row of this.deps.store.listOpen(sessionId)) {
+      if (!only(row)) continue
+      if (!this.deps.store.close(row.id, status, this.deps.now())) continue
+      const settled = this.deps.store.get(row.id)
+      if (settled) this.deps.publish(settled)
+      log.debug('interaction closed', { id: row.id, status, why })
     }
   }
 
@@ -330,7 +506,35 @@ export class InteractionService {
       answeredBy: 'policy',
       principal: this.deps.policyPrincipal(),
     })
-    if (!outcome.ok) log.debug('default answer declined', { id: row.id, reason: outcome.reason })
+    if (!outcome.ok) {
+      // A REFUSED default never claimed the row, so it is still open. Nothing to
+      // undo; the human sees it, which is the escalation.
+      log.debug('default answer declined', { id: row.id, reason: outcome.reason })
+      return
+    }
+    // ACCEPTED BUT UNDELIVERED IS THE CASE THAT USED TO SWALLOW THE ASK
+    // (POD-2414). `answer()` claims the row before delivering, and reports a
+    // failed delivery as `ok: true` with a detail — correct for a human, who is
+    // told their answer was recorded and could not be proven to land. For the
+    // POLICY it is wrong: the row leaves `listOpen` and the feed, so a session
+    // that stalled at a recovery prompt the default could not deliver becomes a
+    // session stalled with nothing on any surface. §4's order is policy, then
+    // triage, then a human — so a policy that could not act hands it back.
+    const settled = this.deps.store.get(row.id)
+    if (settled?.deliveredVia !== 'unverified') return
+    // A FRESH DUPLICATE IS ALREADY THE ESCALATION. Between the claim and here a
+    // re-observation can have opened another row for the same fingerprint, and
+    // the partial unique index would refuse a second open one — correctly, since
+    // the session is visibly blocked either way.
+    if (this.deps.store.openByFingerprint(row.sessionId, row.fingerprint)) return
+    if (!this.deps.store.reopen(row.id)) return
+    const reopened = this.deps.store.get(row.id)
+    if (reopened) this.deps.publish(reopened)
+    log.info('default answer could not be delivered; escalating to a human', {
+      id: row.id,
+      kind: row.kind,
+      detail: outcome.detail,
+    })
   }
 
   // -- answering ------------------------------------------------------------
@@ -481,7 +685,14 @@ export class InteractionService {
         // they reach the agent. A permission or question answer must hit the
         // live menu, so it gets no fallback — free text landing on top of an
         // open menu is the failure the delivery gate exists to prevent.
-        ...(answer.kind === 'plan-approval' || answer.kind === 'login'
+        //
+        // A `recovery` verdict joins them (POD-2414): a resume decision and a
+        // failure acknowledgement are prose too, and the ask that carries them
+        // is raised precisely when there is no menu — at startup, or after a
+        // turn died. `resumeAndSend` is the path that wakes a parked session and
+        // queues while one is still starting, which is what makes a STARTING
+        // recovery answerable instead of deadlocked.
+        ...(answer.kind === 'plan-approval' || answer.kind === 'login' || answer.kind === 'recovery'
           ? { textFallback: true }
           : {}),
       })
@@ -579,8 +790,32 @@ function deliverableText(answer: InteractionAnswer): string | null {
       return answer.outcome === 'completed'
         ? 'The credential has been refreshed — please retry.'
         : 'Stop waiting on the login; abandon this turn.'
+    /**
+     * THE RESUME VERDICT AS PROSE, not as its enum name.
+     *
+     * `answer.choice` used to be returned verbatim, which meant a delivered
+     * recovery answer typed the literal string `full-resume` at an agent. The
+     * choice is a CONTRACT token for the surfaces; what reaches the session has
+     * to be a sentence it can act on, exactly as the `login` arm above already
+     * decided for the same reason.
+     *
+     * `fresh-session` has no prose form and returns null: it means spawn a NEW
+     * session, which is a different verb with different ownership, and a
+     * sentence asking an agent to do it would be delivered as if it had. The
+     * refusal is honest and the ask stays open.
+     */
     case 'recovery':
-      return answer.choice
+      switch (answer.choice) {
+        case 'full-resume':
+          return 'Continue where you left off.'
+        case 'summary-resume':
+          return 'Continue from a summary of the conversation so far.'
+        case 'abandon':
+          return 'Stop waiting on this; abandon the turn.'
+        case 'fresh-session':
+          return null
+      }
+      return null
     case 'elicitation':
       return null
   }

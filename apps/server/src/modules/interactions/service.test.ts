@@ -469,6 +469,301 @@ describe('InteractionService — the default answer table', () => {
   })
 })
 
+describe('InteractionService — needs-human failure materialization (POD-2414)', () => {
+  it('a NON-auth error phase now produces an answerable row', async () => {
+    // Before POD-2414 only an auth-shaped error class minted anything, so a
+    // session stopped on billing sat there with nothing on any list.
+    const { svc } = harness()
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({ phase: 'errored', error: { class: 'billing_error', retryable: false } }),
+    })
+    const [row] = svc.listOpen()
+    expect(row).toMatchObject({ kind: 'recovery', status: 'asked' })
+    expect(row?.kind === 'recovery' && row.payload.offered).toEqual(['full-resume', 'abandon'])
+  })
+
+  it('an auth error phase still produces exactly the login row it always did', async () => {
+    const { svc } = harness()
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({ phase: 'errored', error: { class: 'authentication', retryable: false } }),
+    })
+    expect(svc.listOpen()[0]).toMatchObject({
+      kind: 'login',
+      payload: { provider: 'authentication', reason: 'auth-expired' },
+    })
+  })
+
+  it('a RETRYABLE error phase still mints nothing', async () => {
+    const { svc } = harness()
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({ phase: 'errored', error: { class: 'overloaded', retryable: true } }),
+    })
+    expect(svc.listOpen()).toHaveLength(0)
+  })
+
+  it('a needs_user phase Podium could NOT classify is still an enumerable ask', async () => {
+    // The unreadable-prompt gap: `needs_user` with no `need` is the one phase
+    // that literally means "a person has to act", and it used to produce
+    // nothing — and then supersede whatever was open.
+    const { svc } = harness()
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({ phase: 'needs_user', stateSource: 'poll' }),
+    })
+    const [row] = svc.listOpen()
+    expect(row).toMatchObject({ kind: 'question', status: 'asked' })
+    expect(row?.kind === 'question' && row.payload.questions[0]?.options).toEqual([])
+    expect(row?.kind === 'question' && row.payload.questions[0]?.question).toContain(
+      'could not read',
+    )
+  })
+
+  it('an unreadable prompt refuses a free-text answer and STAYS open', async () => {
+    const { svc, delivered } = harness()
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({ phase: 'needs_user', stateSource: 'poll' }),
+    })
+    const id = svc.listOpen()[0]?.id ?? ''
+    const outcome = await answerAs(svc, id, 'yes')
+    expect(outcome.ok).toBe(false)
+    expect(delivered).toEqual([])
+    expect(svc.get(id)).toMatchObject({ status: 'asked' })
+  })
+
+  it('a needs-human TURN FAILURE opens a row, and the next turn closes it', async () => {
+    const { svc } = harness()
+    await svc.onTurnEvent({
+      sessionId: S,
+      at: '2026-08-14T00:00:00.000Z',
+      provider: 'claude',
+      ev: { ev: 'failed', turnEpoch: 1, reason: 'auth-expired', disposition: 'needs-human' },
+    })
+    expect(svc.listOpen()[0]).toMatchObject({ kind: 'login', source: 'protocol' })
+    // A turn STARTING is proof the session is no longer waiting on a credential
+    // — whoever refreshed it.
+    await svc.onTurnEvent({
+      sessionId: S,
+      at: '2026-08-14T00:01:00.000Z',
+      ev: { ev: 'started', turnEpoch: 2, origin: 'human' },
+    })
+    expect(svc.listOpen()).toHaveLength(0)
+  })
+
+  it('the same failure repeated while open is ONE blocked session, not three', async () => {
+    const { svc, published } = harness()
+    const fail = (at: string) =>
+      svc.onTurnEvent({
+        sessionId: S,
+        at,
+        ev: {
+          ev: 'failed',
+          turnEpoch: 1,
+          reason: 'context-overflow',
+          disposition: 'needs-human',
+        },
+      })
+    await fail('2026-08-14T00:00:00.000Z')
+    await fail('2026-08-14T00:00:10.000Z')
+    await fail('2026-08-14T00:00:20.000Z')
+    expect(svc.listOpen()).toHaveLength(1)
+    expect(published).toHaveLength(1)
+  })
+
+  it('a turn boundary does NOT close a mid-turn permission ask', async () => {
+    // `login`/`recovery` are what a turn boundary resolves. A permission ask IS
+    // a turn in progress; closing it on a turn event would close it the instant
+    // it was raised.
+    const { svc } = harness()
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: permissionState() })
+    await svc.onTurnEvent({
+      sessionId: S,
+      at: '2026-08-14T00:01:00.000Z',
+      ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' },
+    })
+    expect(svc.listOpen()).toHaveLength(1)
+  })
+
+  it('a terminal state change does NOT supersede a PROTOCOL-sourced ask', async () => {
+    // The state path owns what it synthesized and nothing else. A driver's own
+    // ask being wiped by an unrelated observation is a session blocked on a
+    // prompt whose row vanished underneath it.
+    const { svc } = harness()
+    await svc.ask({
+      interaction: {
+        id: 'ixn_driver',
+        sessionId: S,
+        kind: 'permission',
+        payload: { v: 1, toolName: 'edit', canAlwaysAllow: false },
+        source: 'protocol',
+        answerable: 'structured',
+      },
+    })
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({ phase: 'working' }),
+    })
+    expect(svc.get('ixn_driver')).toMatchObject({ status: 'asked' })
+  })
+
+  it('a driver retiring its OWN ask closes the row', async () => {
+    // The other half of the scoping rule: the state path no longer wipes a
+    // protocol ask, so the driver's own resolution has to retire it — otherwise
+    // a list whose promise is "these sessions are blocked" accumulates sessions
+    // that are not.
+    const { svc } = harness()
+    await svc.ask({
+      interaction: {
+        id: 'ixn_driver',
+        sessionId: S,
+        kind: 'permission',
+        payload: { v: 1, toolName: 'edit', canAlwaysAllow: false },
+        source: 'protocol',
+        answerable: 'structured',
+      },
+    })
+    svc.onInteractionResolved({
+      sessionId: S,
+      // SUPERSEDED, not answered: the aggregate did not record the decision and
+      // must not claim to know what it was.
+      ev: { ev: 'answered', id: 'ixn_driver', answeredBy: 'human', at: '2026-08-14T00:01:00.000Z' },
+    })
+    expect(svc.get('ixn_driver')).toMatchObject({ status: 'superseded' })
+    expect(svc.listOpen()).toHaveLength(0)
+  })
+
+  it('a resolution for another session’s row is ignored', async () => {
+    const { svc } = harness()
+    await svc.ask({
+      interaction: {
+        id: 'ixn_driver',
+        sessionId: S,
+        kind: 'permission',
+        payload: { v: 1, toolName: 'edit', canAlwaysAllow: false },
+        source: 'protocol',
+        answerable: 'structured',
+      },
+    })
+    svc.onInteractionResolved({
+      sessionId: asSessionId('ses_other'),
+      ev: { ev: 'expired', id: 'ixn_driver', at: '2026-08-14T00:01:00.000Z' },
+    })
+    expect(svc.get('ixn_driver')).toMatchObject({ status: 'asked' })
+  })
+
+  it('a session exit still closes EVERYTHING, whatever raised it', async () => {
+    const { svc } = harness()
+    await svc.ask({
+      interaction: {
+        id: 'ixn_driver',
+        sessionId: S,
+        kind: 'permission',
+        payload: { v: 1, toolName: 'edit', canAlwaysAllow: false },
+        source: 'protocol',
+        answerable: 'structured',
+      },
+    })
+    svc.onSessionExited(S)
+    expect(svc.listOpen()).toHaveLength(0)
+  })
+})
+
+describe('InteractionService — STARTING recovery (POD-2414)', () => {
+  const recoveryRow = (reason: 'cache-miss' | 'context-overflow') => ({
+    id: `ixn_${reason}`,
+    sessionId: S,
+    kind: 'recovery' as const,
+    payload: { v: 1, reason, prompt: 'Resume?', offered: ['full-resume', 'abandon'] },
+    source: 'hook' as const,
+    answerable: 'keystroke-emulated' as const,
+    fingerprint: `fp-${reason}`,
+    askedAt: '2026-08-14T00:00:00.000Z',
+  })
+
+  it('a resume-time recovery auto-answers and delivers PROSE, not the enum token', async () => {
+    const { svc, store, delivered } = harness()
+    store.insert(recoveryRow('cache-miss'))
+    await svc.answer({
+      id: 'ixn_cache-miss',
+      answer: { kind: 'recovery', choice: 'full-resume' },
+      answeredBy: 'policy',
+      principal: PRINCIPAL,
+    })
+    // `full-resume` used to be typed at the agent verbatim.
+    expect(delivered).toEqual(['Continue where you left off.'])
+  })
+
+  it('an UNDELIVERABLE policy answer reopens the ask instead of swallowing it', async () => {
+    // The deadlock POD-2414 closes: the default claimed the row, delivery
+    // failed, and the row left `listOpen` and the feed — so a session stalled at
+    // startup became a session stalled with nothing on any surface.
+    const { svc, published } = harness({
+      delivery: () => ({ ok: false, message: 'no session to resume' }),
+    })
+    await svc.ask({
+      interaction: {
+        ...recoveryRow('cache-miss'),
+        kind: 'recovery',
+        payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
+      },
+    })
+    const row = svc.get('ixn_cache-miss')
+    expect(row).toMatchObject({ status: 'asked', policyVerdict: 'escalated' })
+    expect(svc.listOpen()).toHaveLength(1)
+    // The surfaces saw it open, then answered, then open again — the last word
+    // is what a replica keeps.
+    expect(published.at(-1)).toMatchObject({ status: 'asked' })
+  })
+
+  it('a HUMAN answer whose delivery failed stays resolved and honest', async () => {
+    // The other side of the same rule: claiming first is what stops two people
+    // typing at one menu, and `unverified` is the honest record for a human.
+    const { svc, store } = harness({
+      delivery: () => ({ ok: false, message: 'no live menu' }),
+    })
+    store.insert(recoveryRow('cache-miss'))
+    await svc.answer({
+      id: 'ixn_cache-miss',
+      answer: { kind: 'recovery', choice: 'full-resume' },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+    expect(svc.get('ixn_cache-miss')).toMatchObject({
+      status: 'answered',
+      answeredBy: 'human',
+      deliveredVia: 'unverified',
+    })
+  })
+
+  it('a FAILURE recovery is never auto-answered — that is the retry loop', async () => {
+    const { svc, delivered } = harness()
+    // Through the same ingress the failure gate uses, so the default table sees
+    // it exactly as production does.
+    await svc.onTurnEvent({
+      sessionId: S,
+      at: '2026-08-14T00:00:30.000Z',
+      ev: {
+        ev: 'failed',
+        turnEpoch: 1,
+        reason: 'context-overflow',
+        disposition: 'needs-human',
+      },
+    })
+    expect(delivered).toEqual([])
+    expect(svc.listOpen()).toHaveLength(1)
+    expect(svc.listOpen()[0]).toMatchObject({ kind: 'recovery', status: 'asked' })
+  })
+})
+
 describe('InteractionsRepository', () => {
   const row = (id: string, fingerprint: string, sessionId: SessionId = S) => ({
     id,
