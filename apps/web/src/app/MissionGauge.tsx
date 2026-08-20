@@ -97,9 +97,11 @@ import { cn } from '@/lib/utils'
  * motion is licensed by an agent computing, and the whole claim of this band is
  * that there is not one.
  *
- * BLOCKED TAKES NO HUE AT ALL. `--warning` IS `--attention` (#f5c518) in
- * Podium, so a warning-toned band would spend the one signal colour on work
- * that is asking nothing of the operator. It wears the same 135° diagonal a
+ * BLOCKED TAKES NO HUE AT ALL. Since the bisque swap `--warning` is the
+ * demoted yellow, the only high-chroma warm left in the window, so a
+ * warning-toned band would shout alarm about work that is asking nothing of the
+ * operator — and it cannot borrow `--attention` either, which is now the accent
+ * itself and would read as "answer me". It wears the same 135° diagonal a
  * blocked strip wears three rows below, one step denser because the strip has a
  * 28px row and the gauge has a 22px band — one texture for "stopped", in the
  * column and in the meter.

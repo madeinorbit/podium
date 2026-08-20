@@ -243,7 +243,7 @@ export function VpsFirstActivation({
       <div className="max-w-[760px] space-y-4">
         <section className="rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d] sm:p-6">
           <div className="flex items-start gap-3.5">
-            <span className="flex size-8 flex-none items-center justify-center rounded-[9px] bg-[#2b2f37] font-mono text-[10px] font-semibold text-[#e3ba52] shadow-[inset_0_0_0_1px_#3a4049]">
+            <span className="flex size-8 flex-none items-center justify-center rounded-[9px] bg-[#2b2f37] font-mono text-[10px] font-semibold text-[#d9b477] shadow-[inset_0_0_0_1px_#3a4049]">
               01
             </span>
             <div>
@@ -265,7 +265,7 @@ export function VpsFirstActivation({
                   type="button"
                   data-pressable
                   onClick={copyCommand}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-semibold text-[#e3ba52] hover:bg-[#e3ba52]/10"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-semibold text-[#d9b477] hover:bg-[#d9b477]/10"
                 >
                   {copyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
                   {copyState === 'copied'
@@ -287,7 +287,7 @@ export function VpsFirstActivation({
               >
                 <LoaderCircle
                   size={14}
-                  className="flex-none animate-spin text-[#e3ba52] motion-reduce:animate-none"
+                  className="flex-none animate-spin text-[#d9b477] motion-reduce:animate-none"
                   aria-hidden="true"
                 />
                 Reading which release train this Podium installs from…
@@ -301,7 +301,7 @@ export function VpsFirstActivation({
                   type="button"
                   data-pressable
                   onClick={() => setAttempt((previous) => previous + 1)}
-                  className="mt-2 -ml-2.5 flex h-7 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-semibold text-[#e3ba52] hover:bg-[#e3ba52]/10"
+                  className="mt-2 -ml-2.5 flex h-7 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-semibold text-[#d9b477] hover:bg-[#d9b477]/10"
                 >
                   <RefreshCw size={14} aria-hidden="true" /> Try again
                 </button>
@@ -319,7 +319,7 @@ export function VpsFirstActivation({
 
         <section className="rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d] sm:p-6">
           <div className="flex items-start gap-3.5">
-            <span className="flex size-8 flex-none items-center justify-center rounded-[9px] bg-[#2b2f37] font-mono text-[10px] font-semibold text-[#e3ba52] shadow-[inset_0_0_0_1px_#3a4049]">
+            <span className="flex size-8 flex-none items-center justify-center rounded-[9px] bg-[#2b2f37] font-mono text-[10px] font-semibold text-[#d9b477] shadow-[inset_0_0_0_1px_#3a4049]">
               02
             </span>
             <div>
@@ -356,7 +356,7 @@ export function VpsFirstActivation({
                   pending={busy}
                   pendingLabel="Checking VPS…"
                   disabled={!serverUrl.trim()}
-                  className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+                  className="h-[42px] rounded-[10px] border-0 bg-[#d9b477] px-4 text-[13.5px] font-semibold text-[#191308] hover:bg-[#e8ca97]"
                   onClick={() => void connect()}
                 >
                   Connect to VPS

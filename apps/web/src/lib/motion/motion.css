@@ -8,26 +8,27 @@
 :root {
   /* Reserved motion colours (handoff 4b, retuned by POD-166 R10: working is
      calm blue, never green or red). The issue palette's blue slot (#3b82f6)
-     stays a different hue band, and the amber band is excluded entirely, so
-     these never collide with an issue colour and are safe to hardcode here. */
+     stays a different hue band, and the whole warm accent band is excluded
+     entirely, so these never collide with an issue colour and are safe to
+     hardcode here. */
   --motion-working: #6f9dff; /* working mark + counting timer */
   --motion-working-bright: #9dbcff; /* mark/✓ glyph inside dark badges */
   --motion-badge-bg: #0e1a2e; /* dark navy badge fill behind the glyph */
-  --motion-waiting: #f59e0b; /* amber: waiting on you */
-  --motion-waiting-ink: #161006; /* text on an amber pill */
+  --motion-waiting: #d9b477; /* bisque: waiting on you */
+  --motion-waiting-ink: #191308; /* text on a bisque pill */
   --motion-total: #6c6c78; /* grey ∑ total on done rows */
 }
 
 /* Podium light (Paper, POD-725). The values above are tuned to be legible on
-   near-black; on warm stone the same blue is washed out, the amber is illegible
-   as text, and a navy badge fill is a hole in the page. Restated here rather
+   near-black; on warm stone the same blue is washed out, bisque is illegible as
+   text, and a navy badge fill is a hole in the page. Restated here rather
    than tokenized because these five are a closed set the motion grammar owns —
    see index.css for the theme palette they mirror (--live / --attention). */
 [data-theme="podium"]:not(.dark) {
   --motion-working: #2a62f0;
   --motion-working-bright: #ffffff;
   --motion-badge-bg: #2a62f0;
-  --motion-waiting: #8a6200;
+  --motion-waiting: #7a6134;
   --motion-waiting-ink: #ffffff;
   --motion-total: #a3a199;
 }
@@ -105,7 +106,7 @@
     opacity: 0.4;
   }
   45% {
-    color: #f59e0b;
+    color: #d9b477;
   }
   100% {
     transform: scale(1);

@@ -76,8 +76,8 @@
   --color-text-faint: var(--text-faint);
   --color-label: var(--label);
 
-  /* Semantic accents. --attention = "waiting on you" amber (separate from the
-     primary fill so light mode can use legible ochre text); --claude = the
+  /* Semantic accents. --attention = "waiting on you" (separate from the
+     primary fill so light mode can use legible bronze text); --claude = the
      Claude brand terracotta (agent icons, cursor block, ⏺ glyphs); --flow = the
      neutral slate that colours the whole context flow when an issue has no
      assigned colour. Reserved: none of these three hues may ever be used as an
@@ -204,11 +204,16 @@
    ONE INK: #1d1c19, a warm near-black. Every neutral and every carve alpha is
    that ink, so nothing in the window is a cool grey.
 
-   Yellow keeps the primary role (navy-on-yellow measures 11.1:1) but yellow
-   FILLS and ochre WRITES: --attention is a `color:` in six places, so it takes
-   #8a6200. #f5c518 as text is 1.6:1 and must never reach a text token. The
-   silhouette rim Daylight needed is gone — against warm stone the yellow reads
-   as its own object without an edge, and the rim only muddied it. */
+   BISQUE FILLS, BRONZE WRITES. The accent is #d9b477 — the icon's light-cut
+   plane. It lands on the yellow's own lightness, so nothing in the token graph
+   shifts underneath it and every color-mix tint in styles.css keeps the dose
+   the design already tuned. It is a fill and nothing else: 1.6:1 on stone,
+   exactly the constraint the yellow had, so it must never reach a text token.
+   --attention is a `color:` in six places and takes #7a6134 — bisque's hue
+   with the chroma held down, 5.2:1. The silhouette rim comes BACK (see
+   --primary-rim): the yellow read as its own object against warm stone, and
+   bisque, at half the chroma, does not. Ochre #8a6200 stays on as --warning
+   only — bisque is the material, the saturated warm is the alarm. */
 [data-theme="podium"] {
   /* 8px — the design's chip/pill radius. The named radii (--radius-row 7,
      --radius-composer 9, --radius-tray 10) already match and are unchanged. */
@@ -223,7 +228,7 @@
   --card-foreground: #38362f;
   --popover: #ffffff;
   --popover-foreground: #38362f;
-  --primary: #f5c518;
+  --primary: #d9b477;
   --primary-foreground: #1d1c19;
   --secondary: #eceae4;
   --secondary-foreground: #1d1c19;
@@ -234,7 +239,7 @@
   --destructive: #c81e2b;
   --border: #e6e5e0;
   --input: #e2e0d9;
-  --ring: #c8990a;
+  --ring: #b08c4e;
   /* Podium has no green: success reads in its blue, as in the dark variant.
      TWO blues, though, not one. They were briefly the same value, which broke
      the mission gauge — its done and running bands sit adjacent in one meter and
@@ -258,12 +263,12 @@
   --chart-5: oklch(0.269 0 0);
   --sidebar: #f4f3f0;
   --sidebar-foreground: #38362f;
-  --sidebar-primary: #f5c518;
+  --sidebar-primary: #d9b477;
   --sidebar-primary-foreground: #1d1c19;
   --sidebar-accent: #eceae4;
   --sidebar-accent-foreground: #1d1c19;
   --sidebar-border: #e6e5e0;
-  --sidebar-ring: #c8990a;
+  --sidebar-ring: #b08c4e;
 
   /* Surface tiers. Ordering inverts the dark ramp (rule 3): the rail is the
      DEEPEST chrome and the card the brightest, with the command bar and status
@@ -290,14 +295,15 @@
   --text-faint: #a3a199;
   --label: #8f8d85;
 
-  /* Ochre — the brand hue as ink (5.6:1). Yellow fills, ochre writes. */
-  --attention: #8a6200;
+  /* Bronze — the accent hue as ink (5.2:1). Bisque fills, bronze writes. */
+  --attention: #7a6134;
   --attention-foreground: #ffffff;
-  /* No rim: on warm stone the yellow already has a silhouette, and the ochre
-     edge Daylight needed against cool grey read as dirt here. Kept as a token
-     (rather than deleted) because .btn-primary-rim and the light/dark leakage
-     test both expect the name to exist in this block. */
-  --primary-rim: transparent;
+  /* The rim is back. The yellow carried its own silhouette against warm stone,
+     so this was transparent; bisque is quiet enough that the button otherwise
+     dissolves into the ground. Darkening the FILL to restore the edge was the
+     wrong lever — it cost the label four points of contrast (10.4:1 → 6.5:1).
+     The rim does it instead, and the label holds 9.4:1. */
+  --primary-rim: #b08c4e;
 
   --claude: #b8532e;
   /* The no-colour flow. Warm taupe, not slate — a blue-grey flow over stone is
@@ -377,10 +383,13 @@
       the --well-* block below flips with them.
       background 16171a · sidebar/dock 191a1e · bar 1b1d21 · rail/muted 1e2024 ·
       tabstrip 202228 · card 23262d · chip 252830 · secondary 2c3038.
-   3. YELLOW FILLS, GOLD WRITES. Same split Paper makes, one tier up: #f5c518
-      stays the fill (buttons, dots, spines) and #e3ba52 — the mock's own value —
-      does every attention/warning `color:`. Pure yellow as running text at this
-      size reads as a highlighter smear against neutral ink.
+   3. ONE ACCENT, BOTH JOBS. Paper still splits fill from ink; dark no longer
+      has to. #f5c518 could not be running text — a highlighter smear against
+      neutral ink — so #e3ba52 existed purely to carry the `color:` cases.
+      Bisque #d9b477 measures 9.9:1 on this ground and does not glare, so
+      --primary and --attention collapse to one value and the split disappears.
+      The yellow is not deleted, it is demoted: #f5c518 becomes --warning, the
+      only high-chroma warm left in the window.
 
    Blue keeps its two jobs from the mock: #6f9dff is what is MOVING (spinners,
    live rings, meters) and #2a62f0 the settled fill behind them. Still no green;
@@ -393,7 +402,7 @@
   --card-foreground: #d7dae0;
   --popover: #23262d;
   --popover-foreground: #d7dae0;
-  --primary: #f5c518;
+  --primary: #d9b477;
   --primary-foreground: #16171a;
   --secondary: #2c3038;
   --secondary-foreground: #f2f3f5;
@@ -404,23 +413,23 @@
   --destructive: #e5303f;
   --border: #26292f;
   --input: #2a2d33;
-  --ring: #f5c518;
+  --ring: #d9b477;
   /* No green: host-health dots and quota meters render in the mock's blue.
      Live agent activity reads calm blue too (POD-166 R10). */
   --success: #2a62f0;
   --success-solid: #1d4ed8;
   --success-foreground: #ffffff;
-  --warning: #e3ba52;
+  --warning: #f5c518;
   --live: #6f9dff;
   --info: #2a62f0;
   --sidebar: #191a1e;
   --sidebar-foreground: #d7dae0;
-  --sidebar-primary: #f5c518;
+  --sidebar-primary: #d9b477;
   --sidebar-primary-foreground: #16171a;
   --sidebar-accent: #2c3038;
   --sidebar-accent-foreground: #f2f3f5;
   --sidebar-border: #24272d;
-  --sidebar-ring: #f5c518;
+  --sidebar-ring: #d9b477;
 
   /* Surface tiers — the mock's own values (rule 2). The right dock takes the
      same tone as the work list (both are #191a1e in the mock) and the icon rail,
@@ -444,9 +453,10 @@
   --text-dim: #848a94;
   --text-faint: #6f7580;
   --label: #949aa4;
-  /* Gold writes (9.9:1); --primary above keeps the fill (rule 3). */
-  --attention: #e3ba52;
-  --attention-foreground: #161006;
+  /* Same value as --primary (rule 3): bisque writes at 9.9:1 as well as it
+     fills, so the two tokens no longer diverge on this ground. */
+  --attention: #d9b477;
+  --attention-foreground: #191308;
   --claude: #d97757;
   /* The no-colour flow is a true neutral, not slate: a blue-grey default tint
      over neutral ink reads as an issue colour nobody chose. */
@@ -457,7 +467,7 @@
      introduces — `[data-theme="podium"]` matches this element too, so an
      unrestored token would leak into dark (POD-372). */
   --ink: #f3f3f8;
-  --primary-rim: #f5c518;
+  --primary-rim: #e8ca97;
   --carve-engraved: rgb(0 0 0 / 0.85);
   --carve-drop: rgb(0 0 0 / 0.9);
   /* Softened for the dark ground so the cast reads as a shadow, not another panel. */
@@ -507,7 +517,7 @@
    ink and lean italic, so prose in a code file reads as prose.
 
    Hues are the shell's own vocabulary, desaturated to document strength: the
-   brand yellow becomes ochre/sand for literals, the activity blue carries call
+   brand accent becomes ochre/sand for literals, the activity blue carries call
    sites, --claude's terracotta carries markup tags, and violet — the one hue
    the chrome never spends — is free to mean "keyword" without colliding with
    any state the surrounding UI can be in.
@@ -556,7 +566,7 @@
   --syntax-gutter-active: #d5d7de;
   --syntax-selection: rgb(127 176 255 / 0.22);
   --syntax-active-line: rgb(255 255 255 / 0.035);
-  --syntax-cursor: #f5c518;
+  --syntax-cursor: #d9b477;
   --syntax-match: rgb(127 176 255 / 0.22);
 }
 
@@ -690,7 +700,8 @@
     var(--issue-base, var(--card)) 240px
   );
 }
-/* The primary button's rim — transparent on Paper, yellow on Dark Ink.
+/* The primary button's rim — bronze on Paper, pale bisque on Dark Ink. Both
+   appearances set it now; it is transparent nowhere.
    Plain (unlayered) so it beats the base variant's `border-transparent`
    utility regardless of source order. */
 .btn-primary-rim {

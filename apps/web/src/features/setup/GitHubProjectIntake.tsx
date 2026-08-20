@@ -223,7 +223,7 @@ export function GitHubProjectIntake({
           <div className="mt-3 flex justify-end">
             <Button
               size="sm"
-              className="h-[34px] rounded-[9px] border-0 bg-[#e3ba52] px-[15px] text-[12.5px] font-semibold text-[#1a1408]"
+              className="h-[34px] rounded-[9px] border-0 bg-[#d9b477] px-[15px] text-[12.5px] font-semibold text-[#191308]"
               onClick={() => void refresh(true)}
               disabled={checking}
             >
@@ -274,7 +274,7 @@ export function GitHubProjectIntake({
             </div>
             <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
               <div>
-                <span className="mx-auto flex size-9 items-center justify-center rounded-[10px] bg-[#2a2718] text-[#e3ba52] shadow-[inset_0_0_0_1px_#4a4324]">
+                <span className="mx-auto flex size-9 items-center justify-center rounded-[10px] bg-[#2a2418] text-[#d9b477] shadow-[inset_0_0_0_1px_#4a4331]">
                   <GitFork size={19} aria-hidden="true" />
                 </span>
                 <p className="mt-3 text-[15px] leading-none font-semibold text-[#f2f3f5]">
@@ -351,7 +351,7 @@ export function GitHubProjectIntake({
           <Button
             disabled={!canClone || cloning}
             onClick={() => void clone()}
-            className="h-[38px] rounded-[9px] border-0 bg-[#e3ba52] px-[15px] text-[12.5px] font-semibold text-[#1a1408] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37] max-sm:w-full"
+            className="h-[38px] rounded-[9px] border-0 bg-[#d9b477] px-[15px] text-[12.5px] font-semibold text-[#191308] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37] max-sm:w-full"
           >
             <Download size={15} />{' '}
             {cloning ? 'Preparing…' : selected ? 'Clone repository' : 'Choose a repository'}

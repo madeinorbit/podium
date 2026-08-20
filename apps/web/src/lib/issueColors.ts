@@ -16,14 +16,16 @@
  *
  * RESERVED COLOURS — never pickable, never to be reused as issue accents, and
  * conversely never to be used for status:
- *   - amber   #f59e0b (--attention): "waiting on you"
+ *   - bisque  #d9b477 (--primary / --attention): the brand accent, and the
+ *     "waiting on you" signal the accent now also carries
  *   - terracotta #d97757 (--claude): the Claude brand
  *   - calm blue #6f9dff (--live / --motion-working): "agent working" (POD-166
  *     R10 — was green #10b981, which stays retired from the palette too)
  *   - slate   #94a3b8 (--flow): the default no-colour flow accent — a state,
  *     not a choice, so it is absent from the picker.
- * The yellow/orange/amber band is deliberately missing from the palette and red
- * is folded into rose so an issue colour can never be misread as a status.
+ * The whole yellow/orange/amber band — which covers the bisque accent and the
+ * demoted #f5c518 warning alike — is deliberately missing from the palette, and
+ * red is folded into rose, so an issue colour can never be misread as a status.
  * Blue (#3b82f6) and green (#22c55e) palette slots exist alongside the --info /
  * --success status hues — status UI must use the tokens, never these literals.
  *

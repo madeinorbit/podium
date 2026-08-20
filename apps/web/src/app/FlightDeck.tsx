@@ -486,13 +486,15 @@ function matchesQuery(row: FlightDeckRow, needle: string): boolean {
  * folded away. The marks are drawn from what already carries meaning here — the
  * canonical braille spinner of the motion grammar — rather than invented.
  *
- * NOTHING HERE IS AMBER. Under the round-2 model attention belongs to the
- * session that asked, so amber on a task strip is the one colour this slot may
- * not spend. `Blocked` therefore takes no hue either: in the Podium theme
- * `--warning` IS `--attention` (#f5c518), so a warning-toned "Blocked" would
- * read as "answer me" on the very surface built to tell those apart. Blocked is
- * a stopped state, not an obligation — the ⊘ mark and the named reason
- * underneath carry it, and the dot beside them is the only amber on the strip.
+ * NOTHING HERE TAKES THE ACCENT. Under the round-2 model attention belongs to
+ * the session that asked, so the accent on a task strip is the one colour this
+ * slot may not spend. `Blocked` therefore takes no hue either: `--warning` is
+ * the demoted yellow, the loudest warm left in the window, so a warning-toned
+ * "Blocked" would shout alarm about a stopped state — and `--attention` is now
+ * the accent itself, which would read as "answer me" on the very surface built
+ * to tell those apart. Blocked is a stopped state, not an obligation — the ⊘
+ * mark and the named reason underneath carry it, and the dot beside them is the
+ * only accent on the strip.
  */
 function StateMark({ state }: { state: DeckState }): JSX.Element | null {
   // ONLY THE LIVE ONE (POD-758). An earlier pass gave every state a mark — a
