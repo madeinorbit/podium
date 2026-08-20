@@ -1071,6 +1071,27 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
+/**
+ * daemon → server: the outcome of one `runtimeSendRequest`.
+ *
+ * THE OUTCOME IS NOT ALWAYS AN ANSWER, and the consumer of this frame is the
+ * party that has to cope with that (POD-2297 review, E1). `unverified` — and an
+ * RPC window that closes with no daemon reply at all — means UNKNOWN, not "did
+ * not arrive": the server keeps its row queued and the next bind, reconnect or
+ * enqueue re-sends it under the SAME `turnId`. THE WRITE PATH IS THEREFORE
+ * AT-LEAST-ONCE, deliberately, because under a two-generals gap a duplicate
+ * prompt is recoverable by a reader and a vanished one is not.
+ *
+ * WHAT THAT OBLIGES OF WHOEVER HANDLES THIS FRAME: be IDEMPOTENT UNDER REPEATS,
+ * keyed on `turnId`. Idempotent, not necessarily deduplicating — a status write
+ * guarded on `status = 'queued'` is already safe however often it is replayed,
+ * and append-only observation events may legitimately fire once per receipt.
+ * The same rule, stated the same way, governs `RuntimeQueueDrainAbandonedMessage`,
+ * whose replay-until-acknowledged transport makes repeats routine rather than
+ * exceptional. Neither rule reaches the duplicate the AGENT sees — two identical
+ * user turns in its provider transcript carry provider ids and no `turnId`, so
+ * no consumer here can pair them; that residual is POD-2497's.
+ */
 export const RuntimeSendResultMessage = z.object({
   type: z.literal('runtimeSendResult'),
   requestId: z.string(),

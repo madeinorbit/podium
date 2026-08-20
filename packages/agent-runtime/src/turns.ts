@@ -22,7 +22,16 @@ export interface TurnInput {
   /**
    * Stable identity supplied by the caller when a later delivery outcome has
    * to reconcile durable state outside the driver. Drivers must carry it
-   * through any local queue unchanged; absent callers get a driver-local id.
+   * through any local queue unchanged.
+   *
+   * OPTIONAL, AND ABSENT MEANS ABSENT. No driver mints a fallback — terminal
+   * takes `options.id` as given and the server families carry `input.id`
+   * through untouched — so a turn can reach a driver queue with no identity at
+   * all, and the machinery downstream is built for that: an abandonment report
+   * carries such a turn anyway, and the daemon logs it as `unattributed`
+   * rather than inventing an id the server would fail to find a row for.
+   * A turn with no id is therefore never SILENTLY lost, but it is also never
+   * receipt-corrected.
    *
    * THE WRITE PATH IS AT-LEAST-ONCE, AND THIS ID IS WHAT MAKES THAT SURVIVABLE
    * (POD-2297). A send whose outcome is UNKNOWN — an `unverified` receipt, an
@@ -33,12 +42,27 @@ export interface TurnInput {
    * duplicate prompt is something a reader can recover from and a vanished one
    * is not.
    *
-   * WHAT THE ID THEREFORE OBLIGES. A driver may dedupe by it, and a CONSUMER of
-   * delivery outcomes MUST — an abandonment report carries ids a consumer may
-   * already have handled, and repeats across daemon restarts (see
-   * `TerminalInjectionPorts.onDrainAbandoned`). No driver may claim
-   * exactly-once on the strength of it: driver-local memory dies with the
-   * process, so dedupe there narrows the duplicate window and never closes it.
+   * TWO DIFFERENT DUPLICATES HIDE UNDER THAT SENTENCE, and only one of them is
+   * anybody's to dedupe (POD-2297 review, E2):
+   *
+   *  - THE OUTCOME duplicate — the same delivery outcome observed twice, e.g.
+   *    an abandonment report replayed until acknowledged. It CARRIES this id,
+   *    so it is dedupable, and handlers of those outcomes must be IDEMPOTENT
+   *    UNDER REPEATS. Idempotent, not necessarily deduplicating: the server's
+   *    status writes are guarded on `status = 'queued'` and are therefore safe
+   *    however often they are replayed, while append-only observation events
+   *    (`reconcileReceipt`'s per-receipt transitions) legitimately emit once
+   *    per occurrence and are exempt.
+   *  - THE PROMPT duplicate — the agent seeing the same words twice in its own
+   *    provider transcript, which is the visible harm the paragraph above
+   *    describes. Those turns carry PROVIDER ids and no `turnId`, so nothing
+   *    downstream can pair them and no consumer-side fix exists. That residual
+   *    belongs to POD-2497, and closing it for good needs a durable
+   *    idempotency key on the server's inbox drain, not driver-local memory.
+   *
+   * No driver may claim exactly-once on the strength of this id: driver-local
+   * memory dies with the process, so dedupe there narrows the window and never
+   * closes it.
    */
   id?: string
   text: string
