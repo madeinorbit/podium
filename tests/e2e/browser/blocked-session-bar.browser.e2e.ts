@@ -120,6 +120,9 @@ test('a needs-human failure becomes a card in chat, and answering it clears the 
 
   const preexistingHooks = await hookSettingsFiles()
   await rpc(request, 'issues.create', { repoPath, title, startNow: true })
+  // The hook URL carries the session id in its path — the same id the aggregate
+  // keys its rows on, so the assertions below can scope to THIS session.
+  let sessionId = ''
   let hookUrl: string | undefined
   await expect
     .poll(async () => {
@@ -127,6 +130,8 @@ test('a needs-human failure becomes a card in chat, and answering it clears the 
       return hookUrl
     })
     .toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\//)
+  sessionId = (hookUrl as string).split('/hooks/')[1] ?? ''
+  expect(sessionId).not.toBe('')
 
   await openChat(page)
   const row = page
@@ -152,21 +157,58 @@ test('a needs-human failure becomes a card in chat, and answering it clears the 
   // The prompt names the cause rather than proposing a course of action.
   await expect(card).toContainText('billing_error')
 
-  // Both offered choices are ones the answer path can actually perform.
+  // ONE offered choice, and it is one the answer path can actually perform.
+  // `abandon` is deliberately absent: Podium has no verb that dismisses without
+  // waking the session it claims to stop.
   await expect(card.getByTestId('pending-interaction-action-full-resume')).toBeVisible()
-  await expect(card.getByTestId('pending-interaction-action-abandon')).toBeVisible()
+  await expect(card.getByTestId('pending-interaction-action-abandon')).toHaveCount(0)
 
-  // ---- Answering from the card resolves it everywhere. ----
-  // The feed carries the OPEN set only, so a resolved ask is removed from the
-  // replica and the bar unmounts itself — the disappearance IS the assertion.
-  await card.getByTestId('pending-interaction-action-abandon').click()
+  // ---- Answering from the card resolves it, and the answer LANDS. ----
+  //
+  // THE DISAPPEARANCE IS NOT THE ASSERTION (POD-2414 review, P2/7). The feed
+  // carries the open set only, so the card also vanishes when an answer was
+  // recorded and never delivered — the precise failure this journey is supposed
+  // to catch. So: watch it go, then read the durable row back and require proof
+  // of delivery, scoped to THIS session rather than to a global count that any
+  // other spec's session could satisfy.
+  await card.getByTestId('pending-interaction-action-full-resume').click()
   await expect(page.getByTestId('pending-interaction')).toHaveCount(0, { timeout: 30_000 })
 
-  // And the aggregate agrees: no open ask remains for this session.
   await expect
     .poll(
-      async () => (await rpc<unknown[]>(request, 'interactions.list', undefined, 'get')).length,
+      async () =>
+        (await rpc<{ sessionId: string }[]>(request, 'interactions.list', undefined, 'get')).filter(
+          (row) => row.sessionId === sessionId,
+        ).length,
       { timeout: 20_000 },
     )
     .toBe(0)
+
+  const resolved = await rpc<
+    { status: string; answeredBy?: string; deliveredVia?: string; answer?: { choice?: string } }[]
+  >(request, 'interactions.forSession', { sessionId }, 'get')
+  const settled = resolved[0]
+  expect(settled?.status).toBe('answered')
+  expect(settled?.answeredBy).toBe('human')
+  expect(settled?.answer?.choice).toBe('full-resume')
+  // `unverified` would mean the aggregate recorded a decision it could not
+  // prove reached the agent — a green test over a still-blocked session.
+  expect(settled?.deliveredVia).not.toBe('unverified')
+
+  // The smallest real external effect: the resume prose reached the session's
+  // own transcript, so something actually crossed to the agent.
+  await expect
+    .poll(
+      async () => {
+        const page = await rpc<{ items: { text?: string }[] }>(
+          request,
+          'sessions.transcriptRead',
+          { sessionId, direction: 'before', limit: 30 },
+          'get',
+        )
+        return page.items.some((item) => (item.text ?? '').includes('Continue where you left off'))
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true)
 })

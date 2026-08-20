@@ -139,6 +139,16 @@ export function pendingInteractionCard(row: PendingInteractionWire): PendingInte
     case 'question': {
       const first = row.payload.questions[0]
       const readable = questionIsPressable(row.payload.questions)
+      // WHO HAS THE RICHER CARD — not "is it readable" (POD-2414 review, P1/3).
+      //
+      // Deferring to the transcript is only correct where a transcript card
+      // EXISTS, and the one that does is Claude's AskUserQuestion — a
+      // terminal-family, keystroke-emulated ask. An opencode `question.asked`
+      // is a structured protocol interaction with no transcript item behind it,
+      // so deferring hid the only answerable row a server-family session has,
+      // and left at most an optionless "open the terminal" card for a session
+      // that HAS no terminal.
+      const transcriptOwnsIt = readable && row.answerable === 'keystroke-emulated'
       return {
         ...base,
         title: 'Question',
@@ -160,7 +170,7 @@ export function pendingInteractionCard(row: PendingInteractionWire): PendingInte
               }))
             : [],
         ...(readable ? {} : { note: UNPRESSABLE_QUESTION }),
-        surface: readable ? 'transcript' : 'aggregate',
+        surface: transcriptOwnsIt ? 'transcript' : 'aggregate',
       }
     }
     case 'plan-approval':
@@ -273,11 +283,18 @@ export function pendingInteractionCards(
 const UNPRESSABLE_QUESTION =
   'Podium could not read this prompt’s options, so it cannot answer it for you. Open the terminal to see it.'
 
-/** No entry means no answer path — see the `fresh-session` note above. */
+/**
+ * No entry means no answer path — see the `fresh-session` note above.
+ *
+ * `abandon` has none either (POD-2414 review, P1/2): every keystroke answer
+ * reaches a session through the durable send path, so "stop waiting" was
+ * delivered by WAKING the session it claimed to stop. A harness that really
+ * offers it needs a route that dismisses; until one exists, a button that did
+ * the opposite of its label is worse than no button.
+ */
 const RECOVERY_LABELS: Partial<Record<PendingRecoveryChoice, string>> = {
   'full-resume': 'Resume the session',
   'summary-resume': 'Resume from a summary',
-  abandon: 'Stop waiting',
 }
 
 type PendingRecoveryChoice = Extract<InteractionAnswer, { kind: 'recovery' }>['choice']

@@ -56,13 +56,16 @@ describe('PendingInteractionBand', () => {
     expect(container.textContent).toBe('')
   })
 
-  it('renders a failure-blocked session and the choices it can actually perform', () => {
+  it('renders a failure-blocked session and only the choices it can perform', () => {
     rows.push(recovery())
     render(<PendingInteractionBand sessionId={'ses_1' as never} />)
     expect(screen.getByTestId('pending-interaction')).toBeTruthy()
     expect(screen.getByText('The turn outgrew the context window.')).toBeTruthy()
     expect(screen.getByTestId('pending-interaction-action-full-resume')).toBeTruthy()
-    expect(screen.getByTestId('pending-interaction-action-abandon')).toBeTruthy()
+    // `abandon` is offered by the harness but has no answer path — its one
+    // delivery route woke the session it claimed to stop — so the card must not
+    // draw a button for it (POD-2414 review).
+    expect(screen.queryByTestId('pending-interaction-action-abandon')).toBeNull()
   })
 
   it('submits the typed answer, not a label', async () => {

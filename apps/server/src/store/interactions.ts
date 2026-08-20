@@ -256,24 +256,29 @@ export class InteractionsRepository {
    * became a session stuck with NOTHING on any surface saying so. That is the
    * exact bug the aggregate exists to prevent, produced by the aggregate.
    *
-   * So an undeliverable policy answer reopens the row. Guarded on
-   * `status = 'answered'` AND on the answer having been the policy's, because
-   * this must never resurrect an ask a person answered — a human answer that
-   * failed delivery is recorded honestly as `unverified` and stays resolved,
-   * which is the distinction {@link recordDelivery} draws.
+   * So an undeliverable policy answer reopens the row. `answeredBy` is a
+   * parameter rather than a hardcoded `'policy'` because a second case earns
+   * the same treatment (POD-2414 review, P1/4): a STRUCTURED delivery that came
+   * back as a typed refusal is a PROVEN non-delivery — the driver told us the
+   * request is still open on its side — which is categorically different from
+   * a keystroke answer that merely could not be confirmed. The unprovable case
+   * still stays resolved as `unverified`; only a proven one reopens.
+   *
+   * Guarded on `status = 'answered'` and on WHO answered, so a reopen aimed at
+   * one class can never resurrect the other's row underneath it.
    *
    * Returns false when the row moved underneath us, which is the caller's cue
    * that somebody else settled it.
    */
-  reopen(id: string): boolean {
+  reopen(id: string, answeredBy: InteractionAnsweredBy): boolean {
     const res = this.db
       .prepare(
         `UPDATE pending_interactions
          SET status = 'asked', answer_json = NULL, answered_by = NULL,
              delivered_via = NULL, answered_at = NULL, policy_verdict = 'escalated'
-         WHERE id = ? AND status = 'answered' AND answered_by = 'policy'`,
+         WHERE id = ? AND status = 'answered' AND answered_by = ?`,
       )
-      .run(id)
+      .run(id, answeredBy)
     return res.changes > 0
   }
 

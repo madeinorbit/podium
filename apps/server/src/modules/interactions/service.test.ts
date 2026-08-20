@@ -79,7 +79,12 @@ const ASK_USER_QUESTION_PREVIEW = {
 }
 
 function harness(
-  options: { delivery?: (answer: string) => AnswerDeliveryResult; transcript?: unknown[] } = {},
+  options: {
+    delivery?: (answer: string) => AnswerDeliveryResult
+    transcript?: unknown[]
+    /** Wire a structured delivery route — the seam a protocol driver fills. */
+    structured?: boolean
+  } = {},
 ) {
   const db = openMigratedTestDatabase()
   const store = new InteractionsRepository(db)
@@ -98,6 +103,7 @@ function harness(
       items: (options.transcript ?? []) as never,
     }),
     policyPrincipal: () => PRINCIPAL,
+    ...(options.structured ? { deliverStructured: async () => ({ ok: true as const }) } : {}),
   })
   return { svc, store, published, delivered }
 }
@@ -437,14 +443,19 @@ describe('InteractionService — answering', () => {
 
 describe('InteractionService — the default answer table', () => {
   it('auto-answers a recovery ask as policy, without a human', async () => {
-    const { svc, store } = harness()
+    // STRUCTURED, since POD-2414's review round: a resume-time recovery is
+    // answered by replying to the driver holding the handle in STARTING, and
+    // the keystroke form of the same ask now refuses rather than prose-resuming
+    // it. The policy behaviour under test — one entry, applied at ask time,
+    // recorded as `policy` — is unchanged.
+    const { svc, store } = harness({ structured: true })
     store.insert({
       id: 'ixn_recovery',
       sessionId: S,
       kind: 'recovery',
       payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
-      source: 'hook',
-      answerable: 'keystroke-emulated',
+      source: 'protocol',
+      answerable: 'structured',
       fingerprint: 'fp-recovery',
       askedAt: '2026-08-14T00:00:00.000Z',
     })
@@ -481,7 +492,10 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
     })
     const [row] = svc.listOpen()
     expect(row).toMatchObject({ kind: 'recovery', status: 'asked' })
-    expect(row?.kind === 'recovery' && row.payload.offered).toEqual(['full-resume', 'abandon'])
+    // Only what the answer path can perform — `abandon` was removed in the
+    // review round because its one delivery route woke the session it claimed
+    // to stop.
+    expect(row?.kind === 'recovery' && row.payload.offered).toEqual(['full-resume'])
   })
 
   it('an auth error phase still produces exactly the login row it always did', async () => {
@@ -677,6 +691,186 @@ describe('InteractionService — needs-human failure materialization (POD-2414)'
   })
 })
 
+describe('InteractionService — the POD-2414 adversarial review round', () => {
+  it('a FAILED transcript read still leaves an enumerable blocked session', async () => {
+    // P0/1. The read is an enrichment; letting it throw took the whole
+    // synthesis down and stranded a live native menu with no row at all.
+    const db = openMigratedTestDatabase()
+    const store = new InteractionsRepository(db)
+    let clock = 0
+    const service = new InteractionService({
+      store,
+      now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+      publish: () => {},
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
+      readTranscript: async () => {
+        throw new Error('transcript rpc is down')
+      },
+      policyPrincipal: () => PRINCIPAL,
+    })
+    await service.onStateChanged({ sessionId: S, prev: undefined, next: questionState() })
+    const open = service.listOpen()
+    expect(open).toHaveLength(1)
+    expect(open[0]).toMatchObject({ kind: 'question', status: 'asked' })
+  })
+
+  it('refuses a RESUME-TIME recovery by keystroke instead of prose-resuming it', async () => {
+    // P0/2. `cache-miss` is asked while the handle is held in STARTING;
+    // answering it means resolving that prompt, and prose over the durable send
+    // path only queues a turn behind it.
+    const { svc, store, delivered } = harness()
+    store.insert({
+      id: 'ixn_resume',
+      sessionId: S,
+      kind: 'recovery',
+      payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
+      source: 'hook',
+      answerable: 'keystroke-emulated',
+      fingerprint: 'fp-resume',
+      askedAt: '2026-08-14T00:00:00.000Z',
+    })
+    const outcome = await svc.answer({
+      id: 'ixn_resume',
+      answer: { kind: 'recovery', choice: 'full-resume' },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.ok === false && outcome.reason).toBe('not-yet-supported')
+    expect(delivered).toEqual([])
+    expect(svc.get('ixn_resume')).toMatchObject({ status: 'asked' })
+  })
+
+  it('a FAILURE recovery is still answerable — it is not holding a handle open', async () => {
+    const { svc, delivered } = harness()
+    await svc.onTurnEvent({
+      sessionId: S,
+      at: '2026-08-14T00:00:00.000Z',
+      ev: { ev: 'failed', turnEpoch: 1, reason: 'context-overflow', disposition: 'needs-human' },
+    })
+    const id = svc.listOpen()[0]?.id ?? ''
+    const outcome = await svc.answer({
+      id,
+      answer: { kind: 'recovery', choice: 'full-resume' },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+    expect(outcome.ok).toBe(true)
+    expect(delivered).toEqual(['Continue where you left off.'])
+  })
+
+  it('a PROVEN structured refusal reopens the ask instead of dropping it', async () => {
+    // P1/4. The driver said it did not apply the answer, so its request is
+    // still open — leaving the row resolved hides a session that is blocked.
+    const db = openMigratedTestDatabase()
+    const store = new InteractionsRepository(db)
+    let clock = 0
+    const published: InteractionRow[] = []
+    const service = new InteractionService({
+      store,
+      now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+      publish: (row) => published.push(row),
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
+      readTranscript: async () => ({ items: [] }),
+      policyPrincipal: () => PRINCIPAL,
+      deliverStructured: async () => ({ ok: false, reason: 'not-yet-supported' }),
+    })
+    await service.ask({
+      interaction: {
+        id: 'ixn_structured_refused',
+        sessionId: S,
+        kind: 'permission',
+        payload: { v: 1, toolName: 'edit', canAlwaysAllow: false },
+        source: 'protocol',
+        answerable: 'structured',
+      },
+    })
+    const outcome = await service.answer({
+      id: 'ixn_structured_refused',
+      answer: { kind: 'permission', decision: 'allow-once' },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.ok === false && outcome.reason).toBe('delivery-failed')
+    expect(service.get('ixn_structured_refused')).toMatchObject({ status: 'asked' })
+    expect(published.at(-1)).toMatchObject({ status: 'asked' })
+  })
+
+  it('a policy answer overtaken by a turn boundary does NOT reopen', async () => {
+    // P1/5. The row is `answered` while delivery is in flight, so no closer can
+    // supersede it; without the in-flight guard the reopen put a blocked card
+    // back on a session that had demonstrably moved on.
+    const db = openMigratedTestDatabase()
+    const store = new InteractionsRepository(db)
+    let clock = 0
+    let service!: InteractionService
+    service = new InteractionService({
+      store,
+      now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+      publish: () => {},
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
+      readTranscript: async () => ({ items: [] }),
+      policyPrincipal: () => PRINCIPAL,
+      // The turn boundary lands WHILE this delivery is in flight, and the
+      // round-trip then THROWS — an unproven failure, which is the one that
+      // reaches the policy reopen. (A typed refusal is proven and reopens on
+      // its own path; that is the test above.)
+      deliverStructured: async () => {
+        await service.onTurnEvent({
+          sessionId: S,
+          at: '2026-08-14T00:00:30.000Z',
+          ev: { ev: 'started', turnEpoch: 2, origin: 'human' },
+        })
+        throw new Error('the reply never came back')
+      },
+    })
+    await service.ask({
+      interaction: {
+        id: 'ixn_overtaken',
+        sessionId: S,
+        kind: 'recovery',
+        payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
+        source: 'hook',
+        answerable: 'structured',
+      },
+    })
+    expect(service.get('ixn_overtaken')).toMatchObject({ status: 'answered' })
+    expect(service.listOpen()).toHaveLength(0)
+  })
+
+  it("a driver's FATAL verdict suppresses the errored state's shadow ask", async () => {
+    // P2/6. Grok reports a fatal TurnFailed and then folds the same failure into
+    // `errored` with retryable:false; the legacy arm cannot see the disposition
+    // and offered Resume against an unrecoverable outcome.
+    const { svc } = harness()
+    await svc.onTurnEvent({
+      sessionId: S,
+      at: '2026-08-14T00:00:00.000Z',
+      ev: { ev: 'failed', turnEpoch: 1, reason: 'provider-error', disposition: 'fatal' },
+    })
+    expect(svc.listOpen()).toHaveLength(0)
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({ phase: 'errored', error: { class: 'provider_refusal', retryable: false } }),
+    })
+    expect(svc.listOpen()).toHaveLength(0)
+    // A session that runs again was not fatal after all.
+    await svc.onTurnEvent({
+      sessionId: S,
+      at: '2026-08-14T00:01:00.000Z',
+      ev: { ev: 'started', turnEpoch: 2, origin: 'human' },
+    })
+    await svc.onStateChanged({
+      sessionId: S,
+      prev: undefined,
+      next: state({ phase: 'errored', error: { class: 'billing_error', retryable: false } }),
+    })
+    expect(svc.listOpen()).toHaveLength(1)
+  })
+})
+
 describe('InteractionService — STARTING recovery (POD-2414)', () => {
   const recoveryRow = (reason: 'cache-miss' | 'context-overflow') => ({
     id: `ixn_${reason}`,
@@ -689,55 +883,94 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     askedAt: '2026-08-14T00:00:00.000Z',
   })
 
-  it('a resume-time recovery auto-answers and delivers PROSE, not the enum token', async () => {
-    const { svc, store, delivered } = harness()
-    store.insert(recoveryRow('cache-miss'))
-    await svc.answer({
-      id: 'ixn_cache-miss',
-      answer: { kind: 'recovery', choice: 'full-resume' },
-      answeredBy: 'policy',
-      principal: PRINCIPAL,
+  it('a STRUCTURED resume-time recovery auto-answers over its own protocol', async () => {
+    // The kind the spec is about: asked while the handle is STARTING, answered
+    // by replying to the driver holding it. The keystroke form of the same ask
+    // has no such route and is refused — see the review-round block above.
+    const db = openMigratedTestDatabase()
+    const store = new InteractionsRepository(db)
+    let clock = 0
+    const structured: unknown[] = []
+    const service = new InteractionService({
+      store,
+      now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+      publish: () => {},
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
+      readTranscript: async () => ({ items: [] }),
+      policyPrincipal: () => PRINCIPAL,
+      deliverStructured: async (input) => {
+        structured.push(input.answer)
+        return { ok: true }
+      },
     })
-    // `full-resume` used to be typed at the agent verbatim.
-    expect(delivered).toEqual(['Continue where you left off.'])
+    await service.ask({
+      interaction: {
+        id: 'ixn_starting',
+        sessionId: S,
+        kind: 'recovery',
+        payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
+        source: 'protocol',
+        answerable: 'structured',
+      },
+    })
+    expect(structured).toEqual([{ kind: 'recovery', choice: 'full-resume' }])
+    expect(service.listOpen()).toHaveLength(0)
   })
 
   it('an UNDELIVERABLE policy answer reopens the ask instead of swallowing it', async () => {
     // The deadlock POD-2414 closes: the default claimed the row, delivery
     // failed, and the row left `listOpen` and the feed — so a session stalled at
     // startup became a session stalled with nothing on any surface.
-    const { svc, published } = harness({
-      delivery: () => ({ ok: false, message: 'no session to resume' }),
+    const db = openMigratedTestDatabase()
+    const store = new InteractionsRepository(db)
+    let clock = 0
+    const published: InteractionRow[] = []
+    const service = new InteractionService({
+      store,
+      now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+      publish: (row) => published.push(row),
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
+      readTranscript: async () => ({ items: [] }),
+      policyPrincipal: () => PRINCIPAL,
+      // Accepted by the port, then reported as UNDELIVERED — the case that used
+      // to leave the row answered and off every surface.
+      deliverStructured: async () => ({ ok: false, reason: 'delivery-failed' }),
     })
-    await svc.ask({
+    await service.ask({
       interaction: {
-        ...recoveryRow('cache-miss'),
+        id: 'ixn_cache-miss',
+        sessionId: S,
         kind: 'recovery',
         payload: { v: 1, reason: 'cache-miss', prompt: 'Resume?', offered: ['full-resume'] },
+        source: 'protocol',
+        answerable: 'structured',
       },
     })
-    const row = svc.get('ixn_cache-miss')
-    expect(row).toMatchObject({ status: 'asked', policyVerdict: 'escalated' })
-    expect(svc.listOpen()).toHaveLength(1)
+    expect(service.get('ixn_cache-miss')).toMatchObject({
+      status: 'asked',
+      policyVerdict: 'escalated',
+    })
+    expect(service.listOpen()).toHaveLength(1)
     // The surfaces saw it open, then answered, then open again — the last word
     // is what a replica keeps.
     expect(published.at(-1)).toMatchObject({ status: 'asked' })
   })
 
-  it('a HUMAN answer whose delivery failed stays resolved and honest', async () => {
+  it('a HUMAN keystroke answer whose delivery failed stays resolved and honest', async () => {
     // The other side of the same rule: claiming first is what stops two people
-    // typing at one menu, and `unverified` is the honest record for a human.
+    // typing at one menu, an UNPROVEN keystroke failure must not reopen (the
+    // digits may already have landed), and `unverified` is the honest record.
     const { svc, store } = harness({
       delivery: () => ({ ok: false, message: 'no live menu' }),
     })
-    store.insert(recoveryRow('cache-miss'))
+    store.insert(recoveryRow('context-overflow'))
     await svc.answer({
-      id: 'ixn_cache-miss',
+      id: 'ixn_context-overflow',
       answer: { kind: 'recovery', choice: 'full-resume' },
       answeredBy: 'human',
       principal: PRINCIPAL,
     })
-    expect(svc.get('ixn_cache-miss')).toMatchObject({
+    expect(svc.get('ixn_context-overflow')).toMatchObject({
       status: 'answered',
       answeredBy: 'human',
       deliveredVia: 'unverified',

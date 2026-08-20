@@ -164,6 +164,56 @@ export interface AnswerInput {
 export class InteractionService {
   constructor(private readonly deps: InteractionServiceDeps) {}
 
+  /**
+   * POLICY ANSWERS WHOSE DELIVERY IS STILL IN FLIGHT (POD-2414 review, P1/5).
+   *
+   * The default table CLAIMS a row before delivering, so while delivery is in
+   * flight the row is `answered` — and every closer here guards on
+   * `status = 'asked'`, which means a turn boundary or a state change that
+   * arrives in that window cannot supersede it. Without this set, the reopen
+   * that rescues an undeliverable default would fire afterwards and put a
+   * blocked card back on a session that had demonstrably moved on.
+   *
+   * So a closer that passes while a policy delivery is in flight DROPS the id,
+   * and the reopen only fires for ids still present. In memory rather than in
+   * the row, because it is the lifetime of one delivery: a restart loses it,
+   * and the loss fails toward NOT resurrecting — the honest direction, since
+   * the row is at worst recorded answered-but-unverified, which is visible in
+   * the audit read rather than invented on a running session.
+   */
+  private readonly policyDeliveryInFlight = new Map<string, SessionId>()
+
+  /**
+   * SESSIONS WHOSE LAST TURN A DRIVER CALLED FATAL (POD-2414 review, P2/6).
+   *
+   * The two evidence paths disagree, and one of them knows more. Grok emits a
+   * causal `TurnFailed{disposition:'fatal'}` — which `materializeFailure`
+   * correctly ignores, because a fatal run is over and an ask against it can
+   * only expire — and then folds the SAME failure into an `errored` state with
+   * `retryable: false`. The legacy arm reads that as needs-human and mints a
+   * `recovery` offering Resume against an outcome the driver already declared
+   * unrecoverable: exactly the noise `materialize.ts` says fatal never creates.
+   *
+   * The driver's classification wins. This remembers the fatal verdict so the
+   * state shadow of the same failure is suppressed, and forgets it the moment a
+   * turn starts — a session that runs again was not fatal after all.
+   *
+   * In memory on purpose: it exists to reconcile two reports of ONE event, and
+   * a restart between them is indistinguishable from never having heard the
+   * causal one, which is the pre-existing behaviour rather than a new hole.
+   */
+  private readonly driverDeclaredFatal = new Set<SessionId>()
+
+  /** Every in-flight policy delivery on a session is overtaken at once — the
+   *  closers below can only SEE `asked` rows, and an in-flight one is already
+   *  `answered`, so dropping it has to be keyed on the session rather than
+   *  found in the open list. */
+  private overtakePolicyDeliveries(sessionId: SessionId): void {
+    for (const [id, owner] of this.policyDeliveryInFlight) {
+      if (owner === sessionId) this.policyDeliveryInFlight.delete(id)
+    }
+  }
+
   // -- reads ----------------------------------------------------------------
 
   /** The durable row → the wire shape. Exposed because the feed publisher needs
@@ -272,6 +322,17 @@ export class InteractionService {
           ? await this.readQuestionOptions(input.sessionId)
           : undefined
       const ask = synthesizeAsk(input.sessionId, input.next, { questionOptions })
+      // THE DRIVER ALREADY RULED ON THIS FAILURE — see {@link driverDeclaredFatal}.
+      // The `errored` state is the compatibility shadow of a turn the driver
+      // called fatal, and the legacy arm cannot see the disposition, so it
+      // would offer a Resume against an unrecoverable outcome.
+      if (
+        ask?.spec.kind === 'recovery' &&
+        input.next.phase === 'errored' &&
+        this.driverDeclaredFatal.has(input.sessionId)
+      ) {
+        return
+      }
       if (!ask) {
         // SUPERSEDED, not expired: the overwhelmingly common cause is a person
         // answering at the terminal, which is a resolution. A list that
@@ -347,6 +408,8 @@ export class InteractionService {
   }): Promise<void> {
     try {
       if (input.ev.ev !== 'failed') {
+        // A turn is running again, so the previous fatal verdict is spent.
+        this.driverDeclaredFatal.delete(input.sessionId)
         this.closeOpen(
           input.sessionId,
           'superseded',
@@ -355,6 +418,7 @@ export class InteractionService {
         )
         return
       }
+      if (input.ev.disposition === 'fatal') this.driverDeclaredFatal.add(input.sessionId)
       const spec = materializeFailure({
         evidence: 'turn-failed',
         reason: input.ev.reason,
@@ -410,6 +474,9 @@ export class InteractionService {
    */
   onInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): void {
     if (input.ev.ev === 'asked') return
+    // The driver settled it, so an in-flight policy answer for the same row has
+    // been overtaken and must not reopen behind it.
+    this.policyDeliveryInFlight.delete(input.ev.id)
     const row = this.deps.store.get(input.ev.id)
     // A resolution for a row this server never saw is not an error: the ask may
     // predate the aggregate's knowledge of the session, or belong to a replica.
@@ -439,6 +506,7 @@ export class InteractionService {
     why: string,
     only?: (row: InteractionRow) => boolean,
   ): void {
+    this.overtakePolicyDeliveries(sessionId)
     if (!only) {
       for (const id of this.deps.store.closeSession(sessionId, status, this.deps.now())) {
         const row = this.deps.store.get(id)
@@ -470,11 +538,32 @@ export class InteractionService {
   private async readQuestionOptions(
     sessionId: SessionId,
   ): Promise<QuestionPromptInput[] | undefined> {
-    const { items } = await this.deps.readTranscript({
-      sessionId,
-      direction: 'before',
-      limit: TRANSCRIPT_TAIL,
-    })
+    // THE READ IS AN ENRICHMENT, NEVER A PRECONDITION (POD-2414 review, P0/1).
+    //
+    // This returns the OPTIONS on a live menu. Letting it throw took the whole
+    // synthesis down with it — `onStateChanged`'s outer catch logged and
+    // returned — so one transient RPC rejection left a session sitting on a
+    // native menu with NO enumerable row, and nothing later was obliged to
+    // re-report the same state. That is precisely the bug this aggregate
+    // exists to prevent, reintroduced through its own code path.
+    //
+    // Undefined instead: the caller synthesizes the optionless question, which
+    // says "this session is blocked and Podium could not read the prompt" —
+    // true, visible, and honest about what it does not know.
+    let items: Awaited<ReturnType<InteractionServiceDeps['readTranscript']>>['items']
+    try {
+      ;({ items } = await this.deps.readTranscript({
+        sessionId,
+        direction: 'before',
+        limit: TRANSCRIPT_TAIL,
+      }))
+    } catch (err) {
+      log.warn('transcript read failed; synthesizing the ask without its options', {
+        err,
+        sessionId,
+      })
+      return undefined
+    }
     const q = [...items]
       .reverse()
       .find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
@@ -500,6 +589,7 @@ export class InteractionService {
   private async applyDefaultAnswer(row: InteractionRow, spec: InteractionAskSpec): Promise<void> {
     const answer = defaultAnswerFor(spec)
     if (!answer) return
+    this.policyDeliveryInFlight.set(row.id, row.sessionId)
     const outcome = await this.answer({
       id: row.id,
       answer,
@@ -509,6 +599,7 @@ export class InteractionService {
     if (!outcome.ok) {
       // A REFUSED default never claimed the row, so it is still open. Nothing to
       // undo; the human sees it, which is the escalation.
+      this.policyDeliveryInFlight.delete(row.id)
       log.debug('default answer declined', { id: row.id, reason: outcome.reason })
       return
     }
@@ -522,12 +613,17 @@ export class InteractionService {
     // triage, then a human — so a policy that could not act hands it back.
     const settled = this.deps.store.get(row.id)
     if (settled?.deliveredVia !== 'unverified') return
+    // OVERTAKEN WHILE DELIVERING — see {@link policyDeliveryInFlight}. A turn
+    // boundary, a state change or the driver's own resolution passed while this
+    // answer was in flight, so the session is not blocked on it any more and
+    // reopening would invent a card on a running session.
+    if (!this.policyDeliveryInFlight.delete(row.id)) return
     // A FRESH DUPLICATE IS ALREADY THE ESCALATION. Between the claim and here a
     // re-observation can have opened another row for the same fingerprint, and
     // the partial unique index would refuse a second open one — correctly, since
     // the session is visibly blocked either way.
     if (this.deps.store.openByFingerprint(row.sessionId, row.fingerprint)) return
-    if (!this.deps.store.reopen(row.id)) return
+    if (!this.deps.store.reopen(row.id, 'policy')) return
     const reopened = this.deps.store.get(row.id)
     if (reopened) this.deps.publish(reopened)
     log.info('default answer could not be delivered; escalating to a human', {
@@ -610,6 +706,29 @@ export class InteractionService {
     if (!claimed) return { ok: false, reason: 'already-answered' }
 
     const delivery = await this.deliver(row, answer, input.principal)
+    /**
+     * A PROVEN NON-DELIVERY HANDS THE ASK BACK (POD-2414 review, P1/4).
+     *
+     * The structured path replies over the driver's own protocol, so a typed
+     * refusal is the driver SAYING it did not apply the answer — Codex, for
+     * one, can decline a decision its private `availableDecisions` never
+     * offered. Leaving that row resolved dropped it off `listOpen` and off the
+     * feed while the harness's request stayed open: a session blocked with
+     * nothing on any surface, which is the bug this aggregate exists to
+     * prevent. So it reopens and the person sees it again.
+     *
+     * The KEYSTROKE path deliberately does not do this. There a failure is
+     * unprovable — the digits may or may not have landed on the menu — and
+     * reopening could produce a second set of keystrokes at a menu that already
+     * moved. `unverified` is the honest record for that, and it stays.
+     */
+    if (!delivery.ok && delivery.proven) {
+      if (this.deps.store.reopen(row.id, input.answeredBy)) {
+        const reopened = this.deps.store.get(row.id)
+        if (reopened) this.deps.publish(reopened)
+        return { ok: false, reason: 'delivery-failed', detail: delivery.detail }
+      }
+    }
     // `recordDelivery`, not a second `answer`: that one guards on
     // `status = 'asked'` — the guard IS the claim above — so it would update
     // nothing here and leave every delivered answer recorded as unverified.
@@ -639,6 +758,9 @@ export class InteractionService {
     ok: boolean
     via: NonNullable<PendingInteractionWire['deliveredVia']>
     detail?: string
+    /** The driver told us it did not apply the answer, as against a keystroke
+     *  path that simply could not confirm. Only a proven failure reopens. */
+    proven?: boolean
   }> {
     /**
      * THE STRUCTURED PATH GOES FIRST, and it never falls back to keystrokes.
@@ -658,8 +780,22 @@ export class InteractionService {
         })
         return outcome.ok
           ? { ok: true, via: 'structured' }
-          : { ok: false, via: 'unverified', detail: outcome.reason }
+          : {
+              ok: false,
+              via: 'unverified',
+              detail: outcome.detail ?? outcome.reason,
+              // `delivery-failed` is the contract's own word for "the capability
+              // exists and the REPLY did not arrive" — unknowable, so it is NOT
+              // proven and the row stays resolved as unverified, exactly as W5
+              // decided. Every other typed reason is the driver ANSWERING us:
+              // it declined the decision, or the request it names is gone. That
+              // is a definite non-application, and the ask goes back on the list.
+              proven: outcome.reason !== 'delivery-failed',
+            }
       } catch (err) {
+        // A THROWN round-trip is NOT proven: the reply may have been applied
+        // and the transport lost on the way back, so this stays resolved rather
+        // than risking a second application.
         return {
           ok: false,
           via: 'unverified',
@@ -735,6 +871,10 @@ export function unsupportedAnswerReason(
   row: {
     kind: InteractionRow['kind']
     answerable: InteractionRow['answerable']
+    /** Only the `recovery` arm reads it, and only for its `reason` — the whole
+     *  payload rather than that one field because this takes a stored ROW, and
+     *  narrowing it here would make every caller destructure for one branch. */
+    payload?: InteractionRow['payload']
   },
   capabilities: { structuredDelivery: boolean } = { structuredDelivery: false },
 ): string | null {
@@ -747,6 +887,32 @@ export function unsupportedAnswerReason(
     return capabilities.structuredDelivery
       ? null
       : 'structured answering needs a protocol driver, and no structured delivery route is wired on this server'
+  }
+  // A RESUME-TIME RECOVERY HAS NO KEYSTROKE ROUTE (POD-2414 review, P0/2).
+  //
+  // `cache-miss` / `trust-prompt` are asked while the handle is still STARTING,
+  // and answering one means resolving the prompt that is HOLDING it there. The
+  // keystroke path cannot do that: every answer it can make is prose over the
+  // durable send path, which queues an ordinary user turn behind the very
+  // prompt that is blocking startup. Delivering it would report a resume that
+  // never happened, so it refuses and stays open.
+  //
+  // The failure-materialized reasons (`context-overflow`, `unknown`) are NOT
+  // refused: nothing is holding a handle open for those — the turn already
+  // died — so "continue where you left off" over the durable path is exactly
+  // what the answer means. The producer for the resume-time kinds is W3's
+  // terminal resume path, and this refusal is the seam it must replace with a
+  // real route rather than silently inherit prose.
+  // (Reached only on the keystroke path: the structured arm above has already
+  // returned, which is why there is no answerability check here.)
+  if (row.kind === 'recovery') {
+    const reason = (row.payload as { reason?: string } | null | undefined)?.reason
+    if (reason === 'cache-miss' || reason === 'trust-prompt') {
+      return (
+        'this is a resume-time prompt holding the session in startup, and Podium has no ' +
+        'keystroke route that resolves it — answer it at the terminal'
+      )
+    }
   }
   if (row.kind === 'permission') {
     return (
@@ -810,8 +976,13 @@ function deliverableText(answer: InteractionAnswer): string | null {
           return 'Continue where you left off.'
         case 'summary-resume':
           return 'Continue from a summary of the conversation so far.'
+        // NO PROSE FOR `abandon`. It is not offered by anything this server
+        // mints (see FAILURE_RECOVERY_CHOICES), and the sentence it used to
+        // send was delivered by WAKING the session it claimed to stop. A
+        // harness that genuinely offers it needs a route that dismisses rather
+        // than one that resumes, so this refuses instead of guessing.
         case 'abandon':
-          return 'Stop waiting on this; abandon the turn.'
+          return null
         case 'fresh-session':
           return null
       }

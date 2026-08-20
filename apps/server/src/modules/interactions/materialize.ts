@@ -61,16 +61,25 @@ import type {
 /**
  * WHAT A FAILURE-MATERIALIZED RECOVERY OFFERS.
  *
- * `full-resume` and `abandon` only, and the omissions are the honest part.
- * `summary-resume` is a HARNESS capability — a resume path that replays a
- * summary instead of the transcript — and nothing about a failed turn says the
- * harness has one. `fresh-session` would mean spawning a new session, which is
- * a different verb with different ownership and is not what answering an ask
- * does. `RecoveryAsk.offered` is contractually "which choices this harness
- * offers ... a choice absent here must not be sent", so offering either would
- * be a promise the answer path could not keep.
+ * `full-resume` ALONE, and every omission is a promise the answer path could
+ * not keep — `RecoveryAsk.offered` is contractually "which choices this harness
+ * offers ... a choice absent here must not be sent".
+ *
+ * `summary-resume` is a HARNESS capability (a resume path that replays a
+ * summary instead of the transcript) and nothing about a failed turn says the
+ * harness has one. `fresh-session` would mean spawning a new session — a
+ * different verb with different ownership, not something answering an ask does.
+ *
+ * `abandon` WAS offered here and was removed (POD-2414 review, P0/2). Podium
+ * has no "stop waiting" verb for this: every keystroke-emulated answer reaches
+ * the session through the durable send path, so `abandon` was delivered by
+ * WAKING a parked session to tell it to stop — the exact opposite of what the
+ * button said, and a side effect the person pressing it did not ask for. A card
+ * that stays open on a session that is genuinely still blocked is the true
+ * statement; a dismissal affordance needs a verb that actually dismisses, and
+ * inventing one is not this issue's to invent.
  */
-const FAILURE_RECOVERY_CHOICES: readonly RecoveryChoice[] = ['full-resume', 'abandon']
+const FAILURE_RECOVERY_CHOICES: readonly RecoveryChoice[] = ['full-resume']
 
 /** Error classes that mean "this session needs a credential, not a retry". The
  *  harness vocabulary is open, so this matches rather than enumerates. */

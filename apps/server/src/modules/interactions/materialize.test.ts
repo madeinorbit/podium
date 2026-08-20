@@ -29,9 +29,11 @@ describe('materializeFailure — turn failures', () => {
     })
     expect(spec?.kind).toBe('recovery')
     expect(spec?.kind === 'recovery' && spec.payload.reason).toBe('context-overflow')
-    // `fresh-session` and `summary-resume` are NOT offered: the first is a
-    // different verb and the second is a harness capability nothing proved.
-    expect(spec?.kind === 'recovery' && spec.payload.offered).toEqual(['full-resume', 'abandon'])
+    // ONLY what the answer path can perform. `fresh-session` is a different
+    // verb, `summary-resume` a harness capability nothing proved, and `abandon`
+    // was removed because its only delivery route WOKE the session it claimed
+    // to stop (POD-2414 review).
+    expect(spec?.kind === 'recovery' && spec.payload.offered).toEqual(['full-resume'])
   })
 
   it('every OTHER needs-human failure still materializes, as an unknown recovery', () => {

@@ -56,7 +56,7 @@ describe('pendingInteractionCard', () => {
     expect(without.actions.map((a) => a.id)).toEqual(['allow', 'deny'])
   })
 
-  it('defers a readable single-select question to the transcript card', () => {
+  it('defers a readable KEYSTROKE question to the transcript card', () => {
     const card = pendingInteractionCard(
       row({
         kind: 'question',
@@ -127,6 +127,31 @@ describe('pendingInteractionCard', () => {
     expect(card.surface).toBe('aggregate')
   })
 
+  it('keeps a STRUCTURED question on the aggregate — no transcript card exists for it', () => {
+    // An opencode `question.asked` is a protocol interaction with no Claude
+    // AskUserQuestion item behind it. Deferring hid the only answerable row a
+    // server-family session has, on a session with no terminal to fall back to.
+    const card = pendingInteractionCard(
+      row({
+        kind: 'question',
+        answerable: 'structured',
+        payload: {
+          v: 1,
+          questions: [
+            {
+              question: 'Which database?',
+              multiSelect: false,
+              previewLayout: false,
+              options: [{ label: 'Postgres' }, { label: 'SQLite' }],
+            },
+          ],
+        },
+      }),
+    )
+    expect(card.surface).toBe('aggregate')
+    expect(card.actions.map((a) => a.label)).toEqual(['Postgres', 'SQLite'])
+  })
+
   it('a login ask asks for a REPORT, never a credential', () => {
     const card = pendingInteractionCard(
       row({
@@ -142,10 +167,11 @@ describe('pendingInteractionCard', () => {
     expect(card.detail).toContain('https://x.test')
   })
 
-  it('a recovery ask offers exactly what the harness offered, minus fresh-session', () => {
+  it('a recovery ask offers only what the answer path can perform', () => {
     // `fresh-session` means spawning a NEW session — a verb the answer command
-    // does not perform, so a button for it would report something that did not
-    // happen.
+    // does not perform. `abandon` had only one delivery route and it WOKE the
+    // session it claimed to stop, so a button for either would report something
+    // that did not happen (POD-2414 review).
     const card = pendingInteractionCard(
       row({
         kind: 'recovery',
@@ -158,7 +184,7 @@ describe('pendingInteractionCard', () => {
         },
       }),
     )
-    expect(card.actions.map((a) => a.id)).toEqual(['full-resume', 'abandon'])
+    expect(card.actions.map((a) => a.id)).toEqual(['full-resume'])
   })
 
   it('an elicitation offers only a decline, and says a form is needed', () => {
