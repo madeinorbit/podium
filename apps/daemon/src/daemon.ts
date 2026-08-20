@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -10,6 +11,7 @@ import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
 import type { PortableStateControl } from './portable-state-fence'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
+import { createRuntimeEventOutbox } from './runtime-event-outbox'
 
 export type { DurableBackend } from './control/context'
 export { sessionRelayEnv } from './control/session'
@@ -102,12 +104,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   })
   let connection: DaemonConnection | undefined
   const queueDrainOutbox = createQueueDrainOutbox(instance.runtimeDir)
+  const runtimeEventOutbox = createRuntimeEventOutbox(instance.runtimeDir)
   const host = await createDaemonHostRuntime({
     options,
     instance,
     build,
     installDir,
     send: (message) => {
+      if (message.type === 'runtimeEvent') {
+        const durable = { ...message, deliveryId: message.deliveryId ?? randomUUID() }
+        runtimeEventOutbox.enqueue(durable)
+        connection?.send(durable)
+        return
+      }
       // The host exists briefly before its transport does. Persist the one frame
       // whose producer drops its only copy even in that bootstrap window;
       // connection.send repeats the idempotent enqueue once the transport exists.
@@ -121,6 +130,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (connection) connection.acknowledgeQueueDrainReport(reportId)
       else queueDrainOutbox.acknowledge(reportId)
     },
+    acknowledgeRuntimeEvent: (deliveryId) => {
+      if (connection) connection.acknowledgeRuntimeEvent(deliveryId)
+      else runtimeEventOutbox.acknowledge(deliveryId)
+    },
   })
   connection = createDaemonConnection({
     options,
@@ -131,6 +144,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     sendApplicationFrame: (socket, message) =>
       host.frameGuard.send(socket as never, message as DaemonMessage),
     queueDrainOutbox,
+    runtimeEventOutbox,
     onConnected: host.connected,
     onTerminal: host.close,
     restartAfterUpdate: options.restartAfterUpdate,

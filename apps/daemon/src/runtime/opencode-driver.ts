@@ -19,7 +19,7 @@
  * That translation is this file's main job, and it is deliberately a
  * TRANSLATION rather than a second source of truth. Which is also what
  * discharges the precondition W3's review recorded against the `runtime` message
- * family: `runtimeEvent` is classified `stream.live` on the argument that the
+ * family: `runtimeFineEvent` is the live-only delta frame on the argument that the
  * durable truth arrives by another path, and for a server-family session that
  * argument only holds if the daemon actually PUTS it on that path. It does, here.
  * (The second half of that precondition — a wire representation for `snapshot()`
@@ -136,7 +136,11 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
     // THE CONTRACT STREAM GOES OUT AS ITSELF TOO. A consumer that speaks the
     // contract (W4's migrated callers) reads this; the legacy frames below are
     // for the surfaces that do not, and both describe the same fact.
-    deps.send({ type: 'runtimeEvent', sessionId, event })
+    if (event.t === 'item' && event.item.kind === 'delta') {
+      deps.send({ type: 'runtimeFineEvent', sessionId, event: { ...event, item: event.item } })
+    } else {
+      deps.send({ type: 'runtimeEvent', sessionId, event })
+    }
 
     switch (event.t) {
       case 'item': {

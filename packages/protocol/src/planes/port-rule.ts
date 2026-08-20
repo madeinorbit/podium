@@ -89,6 +89,7 @@ export const HOST_EDGE_FRAMES = [
   'runtimeSendResult',
   'runtimeQueueDrainAbandoned',
   'runtimeQueueDrainAbandonedAck',
+  'runtimeEventAck',
   'runtimeInterruptRequest',
   'runtimeAnswerRequest',
   'runtimeAnswerResult',
@@ -98,6 +99,7 @@ export const HOST_EDGE_FRAMES = [
   'runtimeSnapshotResult',
   'runtimeInteractionAsked',
   'runtimeEvent',
+  'runtimeFineEvent',
   // Host-initiated file / transcript bulk.
   'transcriptRead',
   'transcriptReadResult',

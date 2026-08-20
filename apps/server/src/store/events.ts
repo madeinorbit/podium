@@ -5,7 +5,8 @@
  * event-subscriptions design Phase B).
  */
 
-import { ISSUE_EVENTS_DEFAULT_LIMIT } from '@podium/protocol'
+import type { SessionId } from '@podium/model'
+import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor, RuntimeEvent } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { Subscription } from './types'
 
@@ -49,6 +50,23 @@ function rowToSubscription(r: Record<string, unknown>): Subscription {
   }
 }
 
+export const RUNTIME_EVENT_LOG_KIND = 'session.runtime'
+
+export interface RuntimeEventCheckpoint {
+  sessionId: SessionId
+  observerGeneration: number
+  cursor: import('@podium/protocol').ProviderCursor
+  turnEpoch: number
+  closedTurnEpoch: number | null
+  updatedAt: string
+}
+
+export interface RuntimeEventLogRecord {
+  id: number
+  sessionId: SessionId
+  event: import('@podium/protocol').RuntimeEvent
+}
+
 export interface EventPrunePlan {
   cutoff: string
   capThroughId: number
@@ -73,6 +91,94 @@ export class EventsRepository {
    *  seam, not a general event bus (the orchestrator already has one). */
   onAppend(listener: EventAppendListener): void {
     this.appendListener = listener
+  }
+
+  // ---- coarse runtime event log + restart head ----
+
+  runtimeEventCheckpoint(sessionId: SessionId): RuntimeEventCheckpoint | null {
+    const row = this.db
+      .prepare(
+        'SELECT observer_generation, cursor_json, turn_epoch, closed_turn_epoch, updated_at FROM runtime_event_checkpoints WHERE session_id = ?',
+      )
+      .get(sessionId) as Record<string, unknown> | undefined
+    if (!row) return null
+    try {
+      const cursor = ProviderCursor.parse(JSON.parse(String(row.cursor_json)))
+      return {
+        sessionId,
+        observerGeneration: Number(row.observer_generation),
+        cursor,
+        turnEpoch: Number(row.turn_epoch),
+        closedTurnEpoch: row.closed_turn_epoch == null ? null : Number(row.closed_turn_epoch),
+        updatedAt: String(row.updated_at),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  saveRuntimeEventCheckpoint(checkpoint: RuntimeEventCheckpoint): void {
+    this.db
+      .prepare(
+        'INSERT INTO runtime_event_checkpoints (session_id, observer_generation, cursor_json, turn_epoch, closed_turn_epoch, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET observer_generation = excluded.observer_generation, cursor_json = excluded.cursor_json, turn_epoch = excluded.turn_epoch, closed_turn_epoch = excluded.closed_turn_epoch, updated_at = excluded.updated_at',
+      )
+      .run(
+        checkpoint.sessionId,
+        checkpoint.observerGeneration,
+        JSON.stringify(checkpoint.cursor),
+        checkpoint.turnEpoch,
+        checkpoint.closedTurnEpoch,
+        checkpoint.updatedAt,
+      )
+  }
+
+  listRuntimeEvents(sessionId: SessionId, limit = 64): RuntimeEvent[] {
+    const rows = this.db
+      .prepare(
+        'SELECT payload FROM podium_events WHERE kind = ? AND subject = ? ORDER BY id DESC LIMIT ?',
+      )
+      .all(RUNTIME_EVENT_LOG_KIND, sessionId, limit) as { payload: unknown }[]
+    const events: RuntimeEvent[] = []
+    for (const row of rows.reverse()) {
+      try {
+        events.push(
+          RuntimeEvent.parse(
+            typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
+          ),
+        )
+      } catch {}
+    }
+    return events
+  }
+
+  listRuntimeEventsAfter(afterId: number, limit = 128): RuntimeEventLogRecord[] {
+    const rows = this.db
+      .prepare(
+        'SELECT id, subject, payload FROM podium_events WHERE kind = ? AND id > ? ORDER BY id ASC LIMIT ?',
+      )
+      .all(RUNTIME_EVENT_LOG_KIND, afterId, limit) as Record<string, unknown>[]
+    return rows.map((row) => ({
+      id: Number(row.id),
+      sessionId: row.subject as SessionId,
+      event: RuntimeEvent.parse(
+        typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
+      ),
+    }))
+  }
+
+  runtimeEventProjectionCursor(projector: string): number {
+    const row = this.db
+      .prepare('SELECT last_event_id FROM runtime_event_projection_cursors WHERE projector = ?')
+      .get(projector) as { last_event_id?: unknown } | undefined
+    return row ? Number(row.last_event_id) : 0
+  }
+
+  saveRuntimeEventProjectionCursor(projector: string, eventId: number, updatedAt: string): void {
+    this.db
+      .prepare(
+        'INSERT INTO runtime_event_projection_cursors (projector, last_event_id, updated_at) VALUES (?, ?, ?) ON CONFLICT(projector) DO UPDATE SET last_event_id = excluded.last_event_id, updated_at = excluded.updated_at WHERE excluded.last_event_id > runtime_event_projection_cursors.last_event_id',
+      )
+      .run(projector, eventId, updatedAt)
   }
 
   // ---- event log ----
@@ -236,7 +342,14 @@ export class EventsRepository {
         `DELETE FROM podium_events
          WHERE id IN (
            SELECT id FROM podium_events
-           WHERE ts < ? OR id <= ?
+           WHERE (ts < ? OR id <= ?)
+             AND NOT (
+               kind = 'session.runtime'
+               AND id > COALESCE(
+                 (SELECT last_event_id FROM runtime_event_projection_cursors WHERE projector = 'runtime.board.v1'),
+                 0
+               )
+             )
            ORDER BY id ASC
            LIMIT ?
          )`,

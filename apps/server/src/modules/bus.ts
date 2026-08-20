@@ -54,12 +54,36 @@ export interface EventMap {
   'session.wakeRequested': { sessionId: SessionId; principal: InboxPrincipalReference }
   /** System derived-field maintenance driven by committed/live session facts. */
   'issue.sessionDerived':
-    | { kind: 'gitActivity'; sessionId: SessionId; commits?: string[]; touched?: string[] }
-    | { kind: 'activity' | 'attention' | 'turnEnd' | 'removedOrArchived'; sessionId: SessionId }
+    | {
+        kind: 'gitActivity'
+        sessionId: SessionId
+        eventId?: number
+        commits?: string[]
+        touched?: string[]
+      }
+    | {
+        kind: 'activity' | 'attention' | 'turnEnd' | 'removedOrArchived'
+        sessionId: SessionId
+        eventId?: number
+      }
     | {
         kind: 'adoptWorktree'
         issueId: IssueId
         message: Extract<DaemonMessage, { type: 'sessionCwd' }>
+      }
+  /** Oplog-replayed board/recency vertical slice; every input has a durable id. */
+  'issue.runtimeDerived':
+    | {
+        kind: 'gitActivity'
+        sessionId: SessionId
+        eventId: number
+        commits?: string[]
+        touched?: string[]
+      }
+    | {
+        kind: 'activity' | 'attention' | 'turnEnd'
+        sessionId: SessionId
+        eventId: number
       }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
   'session.openUrl': SessionOpenUrlMessage
@@ -168,17 +192,28 @@ export class EventBus {
   }
 
   emit<E extends EventName>(event: E, payload: EventMap[E]): void {
+    this.dispatch(event, payload, false)
+  }
+
+  /** Durable projector dispatch: finish sibling listeners, then report failure
+   * so the caller can leave its oplog cursor before the unprojected row. */
+  emitDurable<E extends EventName>(event: E, payload: EventMap[E]): void {
+    this.dispatch(event, payload, true)
+  }
+
+  private dispatch<E extends EventName>(event: E, payload: EventMap[E], rethrow: boolean): void {
     const set = this.listeners.get(event)
     if (!set) return
-    // Snapshot so a listener that unsubscribes (or subscribes) mid-dispatch
-    // doesn't mutate the iteration.
+    let failure: unknown
     for (const listener of [...set]) {
       try {
         listener(payload)
       } catch (err) {
+        failure ??= err
         log.warn('event listener threw', { err, event })
       }
     }
+    if (rethrow && failure) throw failure
   }
 
   listenerCount(event: EventName): number {

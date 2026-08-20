@@ -72,7 +72,7 @@ import { NativeLoginService } from './modules/accounts/native-login'
 import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
-import { EventBus } from './modules/bus'
+import { EventBus, type EventMap } from './modules/bus'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
@@ -1228,7 +1228,9 @@ export class SessionRegistry {
           ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
     })
-    this.bus.on('issue.sessionDerived', (event) => {
+    const applySessionDerived = (
+      event: EventMap['issue.sessionDerived'] | EventMap['issue.runtimeDerived'],
+    ): void => {
       switch (event.kind) {
         case 'gitActivity':
           issues.recordSessionGitActivity(event.sessionId, {
@@ -1267,7 +1269,10 @@ export class SessionRegistry {
           break
         }
       }
-    })
+    }
+    this.bus.on('issue.sessionDerived', applySessionDerived)
+    this.bus.on('issue.runtimeDerived', applySessionDerived)
+    sessionsSvc.runtimeGateway.replayBoardProjection()
     const issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,

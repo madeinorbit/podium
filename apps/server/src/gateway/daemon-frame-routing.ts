@@ -71,6 +71,7 @@ export const DAEMON_FRAME_PORTS = {
   // session's driver produces. Session-owned like every other per-session
   // observation, and attributed to the machine that sent it.
   runtimeEvent: ['sessions'],
+  runtimeFineEvent: ['sessions'],
   /**
    * THE TURNS A QUEUE NEVER TYPED (POD-2132, POD-2202). Session-owned, and the
    * ownership check matters more here than for a read-only observation: acting on

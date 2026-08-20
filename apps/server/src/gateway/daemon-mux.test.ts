@@ -193,7 +193,10 @@ describe('machine scope and the writer class', () => {
     // before bind so the session view can select the correct surface during launch.
     // It names one session and mutates that session's durable selection, so it
     // carries the same ownership boundary as bind and the runtime frames above.
-    expect(sessionFrames.length).toBe(27)
+    //
+    // 28 since POD-2411: fine token deltas have their own live-only frame but
+    // retain the same per-session machine ownership check as coarse events.
+    expect(sessionFrames.length).toBe(28)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

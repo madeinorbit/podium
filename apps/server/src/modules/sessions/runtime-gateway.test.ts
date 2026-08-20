@@ -58,6 +58,7 @@ function makeGateway(
         return { ok: true, position: 3 }
       }),
   }
+  const durableEvents: import('@podium/protocol').RuntimeEvent[] = []
   return {
     gateway: new SessionRuntimeGateway({
       rpc,
@@ -65,6 +66,16 @@ function makeGateway(
       machineOf: overrides.machineOf ?? (() => MACHINE),
       systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
       now: () => Date.UTC(2026, 7, 14),
+      events: {
+        record: (_sessionId, event) => {
+          durableEvents.push(event)
+          if (durableEvents.length > 64) durableEvents.splice(0, durableEvents.length - 64)
+          return { kind: 'accepted', eventId: durableEvents.length }
+        },
+        ready: () => durableEvents.length > 0,
+        recent: () => durableEvents,
+        replayBoardProjection: () => {},
+      },
     }),
     forwarded,
     enqueued,
@@ -201,7 +212,7 @@ describe('the event sink', () => {
     expect(gateway.recentEvents(SESSION)).toHaveLength(2)
   })
 
-  it('bounds the retained tail rather than pretending to be durable', () => {
+  it('reads the bounded diagnostic window from the durable event port', () => {
     const { gateway } = makeGateway()
     for (let i = 0; i < 200; i++) {
       gateway.record(MACHINE, {
@@ -217,8 +228,8 @@ describe('the event sink', () => {
         },
       })
     }
-    // A large buffer here would LOOK like a durability guarantee. Recovery is
-    // `snapshot()` plus a cursor — which is the whole reason the envelope exists.
+    // The gateway owns no memory tail; this window is supplied by the durable
+    // repository port and remains available to a replacement gateway process.
     expect(gateway.recentEvents(SESSION)).toHaveLength(64)
     expect(gateway.recentEvents(SESSION).at(-1)?.cursor.components.seq).toBe(199)
   })

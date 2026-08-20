@@ -1,0 +1,423 @@
+import type { RuntimeEvent } from '@podium/protocol'
+import { describe, expect, it } from 'vitest'
+import { SessionRegistry } from '../relay'
+import { SessionStore } from '../store'
+
+function stateEvent(input: {
+  at: string
+  seq: number
+  observerGeneration: number
+  turnEpoch?: number
+  provenance?: RuntimeEvent['provenance']
+  segmentId?: string
+  predecessorSegmentId?: string
+}): RuntimeEvent {
+  return {
+    t: 'state',
+    change: { kind: 'activity' },
+    at: input.at,
+    provenance: input.provenance ?? 'live',
+    cursor: {
+      segmentId: input.segmentId ?? 'runtime-segment',
+      ...(input.predecessorSegmentId ? { predecessorSegmentId: input.predecessorSegmentId } : {}),
+      components: { seq: input.seq },
+    },
+    observerGeneration: input.observerGeneration,
+    turnEpoch: input.turnEpoch ?? 1,
+  }
+}
+
+function bindContract(registry: SessionRegistry, store: SessionStore) {
+  registry.gateway.attachDaemon(store.hostMachineId, () => {})
+  const { sessionId } = registry.modules.sessions.createSession({
+    agentKind: 'codex',
+    cwd: '/project',
+  })
+  registry.gateway.routeDaemonFrame(store.hostMachineId, {
+    type: 'bind',
+    sessionId,
+    cmd: 'codex app-server',
+    cwd: '/project',
+    agentKind: 'codex',
+    geometry: { cols: 80, rows: 24 },
+    runtimeContract: true,
+    driverId: 'codex-app-server',
+  })
+  return sessionId
+}
+
+describe('durable runtime observation gate', () => {
+  it('owns recency/board after readiness and enforces restart, segment, epoch, and terminal fences', () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+    const initial = registry.modules.sessions.sessionById(sessionId)
+    expect(initial).toBeDefined()
+    const legacyAt = new Date(Date.parse(initial?.lastActiveAt ?? '') + 1_000).toISOString()
+    const runtimeBoard: string[] = []
+    const legacyBoard: string[] = []
+    registry.bus.on('issue.runtimeDerived', (event) => runtimeBoard.push(event.kind))
+    registry.bus.on('issue.sessionDerived', (event) => legacyBoard.push(event.kind))
+
+    // A bind flag alone is not a cutover. Mixed-version legacy facts remain the
+    // fallback until the first coarse event has committed its restart head.
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'working',
+        since: legacyAt,
+        nativeSubagentCount: 0,
+      },
+    })
+    expect(registry.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(legacyAt)
+    expect(legacyBoard).toEqual(['activity'])
+
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'bootstrap-1',
+      sessionId,
+      event: stateEvent({
+        at: legacyAt,
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+      }),
+    })
+    expect(runtimeBoard).toEqual([])
+
+    const firstAt = new Date(Date.parse(legacyAt) + 1_000).toISOString()
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-1',
+      sessionId,
+      event: stateEvent({ at: firstAt, seq: 2, observerGeneration: 1 }),
+    })
+    expect(registry.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(firstAt)
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
+    expect(store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+      observerGeneration: 1,
+      turnEpoch: 1,
+      cursor: { components: { seq: 2 } },
+    })
+    expect(runtimeBoard).toEqual(['activity'])
+
+    // After readiness, compatibility state still feeds its unmigrated consumers
+    // but can no longer own board or recency.
+    const ignoredLegacyAt = new Date(Date.parse(firstAt) + 1_000).toISOString()
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        since: ignoredLegacyAt,
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
+      },
+    })
+    expect(registry.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(firstAt)
+    expect(legacyBoard).toEqual(['activity'])
+
+    registry.dispose()
+    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    restarted.gateway.attachDaemon(store.hostMachineId, () => {})
+    const restartedBoard: string[] = []
+    restarted.bus.on('issue.runtimeDerived', (event) => restartedBoard.push(event.kind))
+
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-1-replay',
+      sessionId,
+      event: stateEvent({
+        at: firstAt,
+        seq: 2,
+        observerGeneration: 2,
+        provenance: 'bootstrap',
+      }),
+    })
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
+    expect(store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+      observerGeneration: 2,
+      cursor: { components: { seq: 2 } },
+    })
+
+    const secondAt = new Date(
+      Math.ceil((Date.parse(ignoredLegacyAt) + 1) / 1_000) * 1_000,
+    ).toISOString()
+    const secondAtWire = secondAt.replace('.000Z', 'Z')
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-2',
+      sessionId,
+      event: stateEvent({ at: secondAtWire, seq: 3, observerGeneration: 2 }),
+    })
+    expect(restarted.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(secondAt)
+    expect(restartedBoard).toEqual(['activity'])
+
+    const fineSeen: string[] = []
+    const stopFine = restarted.modules.sessions.runtimeGateway.onEvent((_id, event) =>
+      fineSeen.push(event.t),
+    )
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeFineEvent',
+      sessionId,
+      event: {
+        t: 'item',
+        item: { kind: 'delta', itemId: 'item-1', textDelta: 'token' },
+        at: new Date(Date.parse(secondAt) + 1_000).toISOString(),
+        provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
+        observerGeneration: 2,
+        turnEpoch: 1,
+      },
+    })
+    stopFine()
+    expect(fineSeen).toEqual(['item'])
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
+    expect(restartedBoard).toEqual(['activity'])
+
+    const completedAt = new Date(Date.parse(secondAt) + 2_000).toISOString()
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-3',
+      sessionId,
+      event: {
+        t: 'turn',
+        ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' },
+        at: completedAt,
+        provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
+        observerGeneration: 2,
+        turnEpoch: 1,
+      },
+    })
+    expect(restartedBoard).toEqual(['activity', 'activity', 'turnEnd'])
+
+    // The terminal fence absorbs every later arm in the closed epoch, not just
+    // a duplicate turn.started edge.
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-after-terminal',
+      sessionId,
+      event: stateEvent({
+        at: new Date(Date.parse(completedAt) + 1_000).toISOString(),
+        seq: 5,
+        observerGeneration: 2,
+      }),
+    })
+    // Nor may a sender skip an epoch without its immediate turn.started edge.
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-epoch-jump',
+      sessionId,
+      event: {
+        t: 'turn',
+        ev: { ev: 'started', turnEpoch: 3, origin: 'human' },
+        at: new Date(Date.parse(completedAt) + 2_000).toISOString(),
+        provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 6 } },
+        observerGeneration: 2,
+        turnEpoch: 3,
+      },
+    })
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(4)
+
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-turn-2',
+      sessionId,
+      event: {
+        t: 'turn',
+        ev: { ev: 'started', turnEpoch: 2, origin: 'human' },
+        at: new Date(Date.parse(completedAt) + 3_000).toISOString(),
+        provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 6 } },
+        observerGeneration: 2,
+        turnEpoch: 2,
+      },
+    })
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(5)
+
+    // Envelope/body epoch disagreement is rejected before it can fence a turn.
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-epoch-mismatch',
+      sessionId,
+      event: {
+        t: 'turn',
+        ev: { ev: 'completed', turnEpoch: 3, verdict: 'done' },
+        at: new Date(Date.parse(completedAt) + 4_000).toISOString(),
+        provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 7 } },
+        observerGeneration: 2,
+        turnEpoch: 2,
+      },
+    })
+
+    // A replacement observer must begin with the immediate next generation's
+    // bootstrap and an ordered cursor succession.
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-live-reset',
+      sessionId,
+      event: stateEvent({
+        at: new Date(Date.parse(completedAt) + 5_000).toISOString(),
+        seq: 8,
+        observerGeneration: 3,
+        turnEpoch: 2,
+      }),
+    })
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-unrelated-reset',
+      sessionId,
+      event: stateEvent({
+        at: new Date(Date.parse(completedAt) + 6_000).toISOString(),
+        seq: 1,
+        observerGeneration: 3,
+        turnEpoch: 2,
+        provenance: 'bootstrap',
+        segmentId: 'unrelated',
+      }),
+    })
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-generation-jump',
+      sessionId,
+      event: stateEvent({
+        at: new Date(Date.parse(completedAt) + 7_000).toISOString(),
+        seq: 1,
+        observerGeneration: 5,
+        turnEpoch: 2,
+        provenance: 'bootstrap',
+        segmentId: 'future',
+        predecessorSegmentId: 'runtime-segment',
+      }),
+    })
+    expect(store.events.runtimeEventCheckpoint(sessionId)?.observerGeneration).toBe(2)
+
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-proven-reset',
+      sessionId,
+      event: stateEvent({
+        at: new Date(Date.parse(completedAt) + 8_000).toISOString(),
+        seq: 1,
+        observerGeneration: 3,
+        turnEpoch: 2,
+        provenance: 'bootstrap',
+        segmentId: 'successor',
+        predecessorSegmentId: 'runtime-segment',
+      }),
+    })
+    expect(store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+      observerGeneration: 3,
+      cursor: { segmentId: 'successor', predecessorSegmentId: 'runtime-segment' },
+    })
+    restarted.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'event-stale-generation',
+      sessionId,
+      event: stateEvent({
+        at: new Date(Date.parse(completedAt) + 9_000).toISOString(),
+        seq: 8,
+        observerGeneration: 2,
+        turnEpoch: 2,
+      }),
+    })
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(6)
+
+    restarted.dispose()
+    store.close()
+  })
+
+  it('rolls event, checkpoint, and session recency back together when ingress persistence fails', () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+    const before = registry.modules.sessions.sessionById(sessionId)?.lastActiveAt ?? ''
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'rollback-bootstrap',
+      sessionId,
+      event: stateEvent({
+        at: before,
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+      }),
+    })
+    const originalSave = store.events.saveRuntimeEventCheckpoint
+    store.events.saveRuntimeEventCheckpoint = () => {
+      throw new Error('injected checkpoint failure')
+    }
+    try {
+      expect(() =>
+        registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'runtimeEvent',
+          deliveryId: 'rollback-live',
+          sessionId,
+          event: stateEvent({
+            at: new Date(Date.parse(before) + 1_000).toISOString(),
+            seq: 2,
+            observerGeneration: 1,
+          }),
+        }),
+      ).toThrow('injected checkpoint failure')
+    } finally {
+      store.events.saveRuntimeEventCheckpoint = originalSave
+    }
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(1)
+    expect(store.events.runtimeEventCheckpoint(sessionId)?.cursor.components.seq).toBe(1)
+    expect(registry.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(before)
+
+    registry.dispose()
+    store.close()
+  })
+
+  it('leaves the projector cursor before a thrown board effect and replays it after restart', () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+    const initial = registry.modules.sessions.sessionById(sessionId)
+    const at = new Date(Date.parse(initial?.lastActiveAt ?? '') + 1_000).toISOString()
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'crash-bootstrap',
+      sessionId,
+      event: stateEvent({
+        at: registry.modules.sessions.sessionById(sessionId)?.lastActiveAt ?? at,
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+      }),
+    })
+    const baselineCursor = store.events.runtimeEventProjectionCursor('runtime.board.v1')
+    const stopFailure = registry.bus.on('issue.runtimeDerived', () => {
+      throw new Error('injected board crash')
+    })
+
+    expect(() =>
+      registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'crash-event',
+        sessionId,
+        event: stateEvent({ at, seq: 2, observerGeneration: 1 }),
+      }),
+    ).toThrow('injected board crash')
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
+    expect(store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(baselineCursor)
+    const prune = store.events.planEventPrune({ maxAgeDays: 0, maxRows: 0 })
+    expect(store.events.pruneEventBatch(prune)).toBeGreaterThan(0)
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(1)
+
+    stopFailure()
+    registry.dispose()
+    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    expect(store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBeGreaterThan(0)
+    expect(restarted.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(at)
+
+    restarted.dispose()
+    store.close()
+  })
+})

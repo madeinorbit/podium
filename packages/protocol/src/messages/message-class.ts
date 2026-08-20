@@ -253,6 +253,7 @@ export const CONTROL_PLANE_CLASS = {
   // Receipt for a durable-synced daemon report. It is safe to repeat and only
   // retires the daemon outbox record whose reportId it names.
   runtimeQueueDrainAbandonedAck: 'control.command',
+  runtimeEventAck: 'control.command',
   /** The observation bootstrap request (POD-2023) — a correlated round-trip
    *  like every other session verb, so the same class for the same reason: a
    *  lost one is a failed RPC the caller already handles. */
@@ -343,11 +344,8 @@ export const DAEMON_PLANE_CLASS = {
   shippingJobResult: 'control.command',
   shippingEvidenceResult: 'control.command',
   shippingRepairApplyResult: 'control.command',
-  // AGENT RUNTIME CONTRACT (POD-1761 W3). The receipts are correlated replies;
-  // `runtimeEvent` is stream·live for the same reason `agentObservation` and
-  // `transcriptDelta` above are — the durable truth arrives by the observation
-  // protocol, and the causal envelope makes a gap re-readable from `snapshot()`
-  // rather than permanently invisible.
+  // Agent Runtime receipts are correlated replies. Coarse events are retained
+  // until their durable server commit; fine token deltas have a separate live frame.
   runtimeSendResult: 'control.command',
   // A dropped report would leave durable sender state claiming only `queued`,
   // so this correction is entity truth rather than a lossy live-stream hint.
@@ -367,7 +365,8 @@ export const DAEMON_PLANE_CLASS = {
    *  session verb's reply, for the same reason: a lost one is a failed RPC the
    *  caller already has to handle. */
   runtimeSnapshotResult: 'control.command',
-  runtimeEvent: 'stream.live',
+  runtimeEvent: 'control.entity',
+  runtimeFineEvent: 'stream.live',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

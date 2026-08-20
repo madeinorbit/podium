@@ -1,8 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": [
-    "//"
-  ],
+  "extends": ["//"],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -472,6 +470,7 @@
         "src/modules/sessions/read-toolkit.ts",
         "src/modules/sessions/receipt-send.ts",
         "src/modules/sessions/repository.ts",
+        "src/modules/sessions/runtime-event-gate.ts",
         "src/modules/sessions/runtime-gateway.ts",
         "src/modules/sessions/session-access.ts",
         "src/modules/sessions/session-authz.ts",
@@ -572,6 +571,7 @@
         "src/store/read-watermarks.ts",
         "src/store/repos-read-cost.test.ts",
         "src/store/repos.ts",
+        "src/store/runtime-events.test.ts",
         "src/store/server-secrets.test.ts",
         "src/store/server-secrets.ts",
         "src/store/session-attribution.test.ts",
@@ -949,6 +949,7 @@
         "src/modules/sessions/rename-target-path.ts",
         "src/modules/sessions/repository.ts",
         "src/modules/sessions/repository.volatile-slice.test.ts",
+        "src/modules/sessions/runtime-event-gate.ts",
         "src/modules/sessions/runtime-gateway.test.ts",
         "src/modules/sessions/runtime-gateway.ts",
         "src/modules/sessions/session-access.ts",
@@ -1439,6 +1440,7 @@
         "src/modules/sessions/rename-adapter.ts",
         "src/modules/sessions/rename-target-path.ts",
         "src/modules/sessions/repository.ts",
+        "src/modules/sessions/runtime-event-gate.ts",
         "src/modules/sessions/runtime-gateway.ts",
         "src/modules/sessions/session-access.ts",
         "src/modules/sessions/session-authz.ts",
@@ -1858,6 +1860,7 @@
         "src/modules/sessions/read-toolkit.ts",
         "src/modules/sessions/receipt-send.ts",
         "src/modules/sessions/repository.ts",
+        "src/modules/sessions/runtime-event-gate.ts",
         "src/modules/sessions/runtime-gateway.ts",
         "src/modules/sessions/session-access.ts",
         "src/modules/sessions/session-authz.ts",

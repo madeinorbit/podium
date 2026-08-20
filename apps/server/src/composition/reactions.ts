@@ -192,6 +192,32 @@ export const REACTIONS = [
     scopeInvariant: 'Writes inherit the acted-on issue scope and stamp no human actor.',
   },
   {
+    id: 'issues.runtime-board-projection',
+    description: 'Project durable coarse runtime events into issue board fields.',
+    trigger: 'issue.runtimeDerived',
+    durability: 'durable',
+    replay: {
+      mode: 'startup-reconcile',
+      sourceOfTruth: 'coarse runtime event oplog and its board projector cursor',
+      reauthorizeAtApply: true,
+    },
+    idempotency: {
+      key: 'runtime event id + issue/session id + derived payload hash',
+      duplicatePolicy: 'safe-repeat',
+    },
+    ordering: 'Strict runtime event-log id order.',
+    retry:
+      'The projector leaves its cursor before a failed effect and retries at boot or the next event.',
+    failureOwner: 'runtime board projector',
+    observability: {
+      registry: true,
+      events: ['issue.runtimeDerived', 'session.runtime'],
+      metrics: [],
+    },
+    principal: system(),
+    scopeInvariant: 'Writes inherit the acted-on issue scope and stamp no human actor.',
+  },
+  {
     id: 'sessions.delegated-wake-on-queue',
     description: 'Best-effort wake a parked session after delegated input is durably queued.',
     trigger: 'session.wakeRequested',

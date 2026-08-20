@@ -37,7 +37,10 @@ import type { ControlHandlers, DaemonContext } from '../control/context'
  * chooses a driver once and registers there — so the order below is a lookup,
  * not a precedence.
  */
-export function handleFor(ctx: DaemonContext, sessionId: SessionId): AgentSessionHandle | undefined {
+export function handleFor(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+): AgentSessionHandle | undefined {
   return ctx.agentRuntime?.handleFor(sessionId)
 }
 
@@ -71,9 +74,13 @@ export const runtimeHandlers: Pick<
   | 'runtimeLifecycleRequest'
   | 'runtimeSnapshotRequest'
   | 'runtimeQueueDrainAbandonedAck'
+  | 'runtimeEventAck'
 > = {
   runtimeQueueDrainAbandonedAck: (ctx, msg) => {
     ctx.acknowledgeQueueDrainReport(msg.reportId)
+  },
+  runtimeEventAck: (ctx, msg) => {
+    ctx.acknowledgeRuntimeEvent(msg.deliveryId)
   },
 
   runtimeSendRequest: (ctx, msg) => {
@@ -202,8 +209,8 @@ export const runtimeHandlers: Pick<
   },
 
   /**
-   * THE OBSERVATION BOOTSTRAP (POD-2023) — the frame that makes `runtimeEvent`'s
-   * `stream.live` classification stand on its own.
+   * THE OBSERVATION BOOTSTRAP (POD-2023) — the frame that makes the runtime event stream's
+   * recovery contract stand on its own.
    *
    * A server that missed events re-reads from `snapshot()` and its cursor. That
    * was the recovery story from W1 onward, and until this handler existed it

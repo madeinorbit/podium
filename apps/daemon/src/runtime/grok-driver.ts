@@ -38,7 +38,11 @@ export function createDaemonGrokRuntime(deps: {
   const runtime = createGrokAcpRuntime(deps.host)
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
-    deps.send({ type: 'runtimeEvent', sessionId, event })
+    if (event.t === 'item' && event.item.kind === 'delta') {
+      deps.send({ type: 'runtimeFineEvent', sessionId, event: { ...event, item: event.item } })
+    } else {
+      deps.send({ type: 'runtimeEvent', sessionId, event })
+    }
     switch (event.t) {
       case 'item':
         if (event.item.kind === 'complete') {

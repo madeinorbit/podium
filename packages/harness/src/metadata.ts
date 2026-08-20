@@ -49,7 +49,7 @@
 // version, terminal fence). Harness-AGNOSTIC — its only imports are types from
 // `@podium/protocol` — and merely FILED in this package; the boundary-allowlist
 // entry it replaces said exactly that.
-export { acceptAgentObservation } from './agent-state/causal.js'
+export { acceptAgentObservation, compareProviderCursor } from './agent-state/causal.js'
 
 // Two prompt-pointer string constants. Data the server renders into agent
 // prompts; they name no process and reach no host.

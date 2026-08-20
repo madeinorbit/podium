@@ -41,6 +41,7 @@ import type {
   TurnReceipt,
 } from '@podium/protocol'
 import type { InboxPrincipalReference } from './inbox'
+import type { RuntimeEventGate, RuntimeEventGateResult } from './runtime-event-gate'
 
 /**
  * The durable FIFO, as this gateway needs it.
@@ -130,23 +131,13 @@ export interface SessionRuntimeGatewayPorts {
   /** Which machine holds this session, or undefined when nothing does. */
   machineOf(sessionId: SessionId): MachineId | undefined
   now(): number
+  /** The one durable coarse-event application gate. */
+  events: Pick<RuntimeEventGate, 'record' | 'ready' | 'recent' | 'replayBoardProjection'>
 }
-
-/**
- * How many events per session the sink retains.
- *
- * SMALL ON PURPOSE. This is a diagnostic tail for the phase in which nothing
- * subscribes yet, not a replacement for the causal stream's own recovery story:
- * a consumer that missed events re-reads from `snapshot()` and its cursor, which
- * is the whole reason the envelope exists. A large buffer here would look like a
- * durability guarantee and would not be one.
- */
-const EVENT_TAIL_SIZE = 64
 
 export type RuntimeEventListener = (sessionId: SessionId, event: RuntimeEvent) => void
 
 export class SessionRuntimeGateway {
-  private readonly tails = new Map<SessionId, RuntimeEvent[]>()
   private readonly listeners = new Set<RuntimeEventListener>()
 
   constructor(private readonly ports: SessionRuntimeGatewayPorts) {}
@@ -248,12 +239,15 @@ export class SessionRuntimeGateway {
 
   /** The daemon's `runtimeEvent` frames, already ownership-checked by the
    *  session lifecycle that routes them here. */
-  record(_machineId: MachineId, msg: { sessionId: SessionId; event: RuntimeEvent }): void {
-    const tail = this.tails.get(msg.sessionId) ?? []
-    tail.push(msg.event)
-    if (tail.length > EVENT_TAIL_SIZE) tail.splice(0, tail.length - EVENT_TAIL_SIZE)
-    this.tails.set(msg.sessionId, tail)
-    for (const listener of [...this.listeners]) listener(msg.sessionId, msg.event)
+  record(
+    _machineId: MachineId,
+    msg: { sessionId: SessionId; event: RuntimeEvent },
+  ): RuntimeEventGateResult {
+    const result = this.ports.events.record(msg.sessionId, msg.event)
+    if (result.kind === 'accepted' || result.kind === 'fine-live-only') {
+      for (const listener of [...this.listeners]) listener(msg.sessionId, msg.event)
+    }
+    return result
   }
 
   /** Subscribe. Returns an unsubscribe, so a consumer that goes away cannot leak
@@ -265,13 +259,18 @@ export class SessionRuntimeGateway {
     }
   }
 
-  /** The retained tail for a session, newest last. Diagnostics only — see
-   *  {@link EVENT_TAIL_SIZE} for why this is not a recovery mechanism. */
-  recentEvents(sessionId: SessionId): readonly RuntimeEvent[] {
-    return this.tails.get(sessionId) ?? []
+  /** True only after this session has a committed coarse-event restart head. */
+  ready(sessionId: SessionId): boolean {
+    return this.ports.events.ready(sessionId)
   }
 
-  forget(sessionId: SessionId): void {
-    this.tails.delete(sessionId)
+  /** Replay committed board inputs after a server crash or interrupted fan-out. */
+  replayBoardProjection(): void {
+    this.ports.events.replayBoardProjection()
+  }
+
+  /** Durable coarse events for diagnostics, newest last. */
+  recentEvents(sessionId: SessionId): readonly RuntimeEvent[] {
+    return this.ports.events.recent(sessionId)
   }
 }

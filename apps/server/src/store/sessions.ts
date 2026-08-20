@@ -480,6 +480,7 @@ export class SessionsRepository {
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   purgeSession(id: SessionId): void {
+    this.db.prepare('DELETE FROM runtime_event_checkpoints WHERE session_id = ?').run(id)
     this.purgeObservationCheckpoint(id)
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)

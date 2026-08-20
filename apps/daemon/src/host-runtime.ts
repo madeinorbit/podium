@@ -134,6 +134,7 @@ export async function createDaemonHostRuntime(args: {
   installDir: string | undefined
   send: (message: DaemonMessage) => void
   acknowledgeQueueDrainReport: (reportId: string) => void
+  acknowledgeRuntimeEvent: (deliveryId: string) => void
 }): Promise<DaemonHostRuntime> {
   const { options: opts, instance, build, installDir, send: sendUpstream } = args
   /**
@@ -160,7 +161,9 @@ export async function createDaemonHostRuntime(args: {
    * tap returns on a map lookup.
    */
   const send = (message: DaemonMessage): void => {
-    if (message.type !== 'runtimeEvent') agentRuntime?.observe(message)
+    if (message.type !== 'runtimeEvent' && message.type !== 'runtimeFineEvent') {
+      agentRuntime?.observe(message)
+    }
     sendUpstream(message)
   }
   const config = loadConfig()
@@ -529,6 +532,7 @@ export async function createDaemonHostRuntime(args: {
   const ctx: DaemonContext = {
     send,
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
+    acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
     machineId,
     instanceId: instance.instanceId,
     durableLabels: new Map<SessionId, string>(),
@@ -706,9 +710,7 @@ export async function createDaemonHostRuntime(args: {
     codex: codexRuntime,
     grok: grokRuntime,
     inventory: async () =>
-      (
-        await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })
-      ).inventory,
+      (await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })).inventory,
   })
   ctx.agentRuntime = agentRuntime
 

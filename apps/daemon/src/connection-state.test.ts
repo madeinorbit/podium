@@ -13,6 +13,7 @@ import { buildReport } from './build-report'
 import { loadIdentity } from './identity'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
+import { createRuntimeEventOutbox } from './runtime-event-outbox'
 
 const roots: string[] = []
 const MACHINE_ID = asMachineId('11111111-1111-4111-8111-111111111111')
@@ -63,6 +64,7 @@ function connection(
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame: vi.fn(() => true),
     queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
   })
@@ -286,6 +288,7 @@ it('reports transport loss as backoff and schedules a retry', async () => {
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame: vi.fn(() => true),
     queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => socket,
@@ -328,6 +331,7 @@ it('keeps the daemon boot identity when the live source changes before reconnect
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame: vi.fn(() => true),
     queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => sockets[socketIndex++] as FakeSocket,
@@ -365,6 +369,7 @@ it('retains a host diagnostic until the machine transport authenticates', async 
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame,
     queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => socket,
@@ -421,6 +426,7 @@ it('repeats an abandonment report until the server acknowledges its durable corr
       return true
     },
     queueDrainOutbox: outbox,
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => socket,

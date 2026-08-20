@@ -44,6 +44,7 @@ import {
   RuntimeInterruptRequestMessage,
   RuntimeLifecycleRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
+  RuntimeEventAckMessage,
   RuntimeSnapshotRequestMessage,
   RuntimeSendRequestMessage,
 } from './runtime'
@@ -157,5 +158,6 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RuntimeLifecycleRequestMessage,
   RuntimeSnapshotRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
+  RuntimeEventAckMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>

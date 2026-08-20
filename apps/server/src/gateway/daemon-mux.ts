@@ -138,6 +138,7 @@ const DISPATCH: Dispatcher = {
   sessionOpenUrlResult: toSessions,
   // AGENT RUNTIME CONTRACT (POD-1761 W3) — the driver's causal stream.
   runtimeEvent: toSessions,
+  runtimeFineEvent: toSessions,
   runtimeQueueDrainAbandoned: toSessions,
   /** POD-2023 — a protocol driver's ask, on its way to the interactions
    *  aggregate. `toSessions` because the sessions feature owns the per-session

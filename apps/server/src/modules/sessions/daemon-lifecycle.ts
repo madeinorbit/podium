@@ -61,7 +61,11 @@ export interface SessionDaemonLifecyclePorts {
    * produces none of these frames, so an absent sink is not a dropped fact.
    */
   runtimeEvents?: {
-    record(machineId: MachineId, msg: Extract<SessionsDaemonFrame, { type: 'runtimeEvent' }>): void
+    record(
+      machineId: MachineId,
+      msg: Extract<SessionsDaemonFrame, { type: 'runtimeEvent' | 'runtimeFineEvent' }>,
+    ): import('./runtime-event-gate').RuntimeEventGateResult
+    ready(sessionId: SessionId): boolean
   }
   /**
    * The daemon reporting turns its queue never typed (POD-2132, POD-2202).
@@ -317,7 +321,8 @@ export class SessionDaemonLifecycle {
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
         this.broadcastSessions()
-        this.ports.onSessionActivity(msg.sessionId)
+        if (!this.ports.runtimeEvents?.ready(msg.sessionId))
+          this.ports.onSessionActivity(msg.sessionId)
         // Keep the issue attachment: an updater and an abandoned process both
         // arrive as agentExit, and the exited session remains resumable.
         // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
@@ -560,7 +565,10 @@ export class SessionDaemonLifecycle {
         }
 
         const prev = session.agentState
-        session.applyObservationCheckpoint(outcome.checkpoint)
+        session.applyObservationCheckpoint(
+          outcome.checkpoint,
+          !this.ports.runtimeEvents?.ready(session.sessionId),
+        )
         const acceptedLive =
           outcome.kind === 'live_transition_accepted' || outcome.kind === 'live_refresh_accepted'
         if (acceptedLive) session.terminal.recordObservationActivity()
@@ -614,10 +622,15 @@ export class SessionDaemonLifecycle {
         // effect below is exclusive to one accepted causal live phase edge.
         if (outcome.kind !== 'live_transition_accepted') break
         this.autoContinue.onStateChange(session.sessionId, next)
-        this.ports.onSessionActivity(session.sessionId)
+        if (!this.ports.runtimeEvents?.ready(session.sessionId))
+          this.ports.onSessionActivity(session.sessionId)
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
-        if (prev?.phase === 'working' && next.phase !== 'working') {
+        if (
+          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          prev?.phase === 'working' &&
+          next.phase !== 'working'
+        ) {
           this.ports.onSessionTurnEnd(session.sessionId)
         }
         this.inbox.stateChanged({
@@ -629,7 +642,11 @@ export class SessionDaemonLifecycle {
         if (isAttentionPhase(prev) && !isAttentionPhase(next)) {
           this.state.clearAllSnoozes(session.sessionId)
         }
-        if (!isAttentionPhase(prev) && isAttentionPhase(next)) {
+        if (
+          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          !isAttentionPhase(prev) &&
+          isAttentionPhase(next)
+        ) {
           this.ports.onSessionAttention(session.sessionId)
         }
         // A NEW turn opened after the offer means the conversation moved past
@@ -686,7 +703,7 @@ export class SessionDaemonLifecycle {
           break
         }
         const prev = session.agentState
-        session.setAgentState(msg.state)
+        session.setAgentState(msg.state, !this.ports.runtimeEvents?.ready(session.sessionId))
         const next = session.agentState ?? msg.state
         this.autoContinue.onStateChange(msg.sessionId, next)
         // Persist so the advanced recency (lastActiveAt) is durable across a server
@@ -702,10 +719,15 @@ export class SessionDaemonLifecycle {
           sessionId: msg.sessionId,
           state: next,
         })
-        this.ports.onSessionActivity(msg.sessionId)
+        if (!this.ports.runtimeEvents?.ready(session.sessionId))
+          this.ports.onSessionActivity(msg.sessionId)
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
-        if (prev?.phase === 'working' && next.phase !== 'working') {
+        if (
+          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          prev?.phase === 'working' &&
+          next.phase !== 'working'
+        ) {
           this.ports.onSessionTurnEnd(msg.sessionId)
         }
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
@@ -716,7 +738,11 @@ export class SessionDaemonLifecycle {
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
-        if (!isAttentionPhase(prev) && isAttentionPhase(next)) {
+        if (
+          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          !isAttentionPhase(prev) &&
+          isAttentionPhase(next)
+        ) {
           this.ports.onSessionAttention(msg.sessionId)
         }
         // A NEW turn beginning after the offer was made means the conversation
@@ -767,17 +793,30 @@ export class SessionDaemonLifecycle {
         }
         break
       }
+      case 'runtimeFineEvent':
       case 'runtimeEvent': {
-        // THE AGENT RUNTIME CONTRACT'S CAUSAL STREAM (POD-1761 W3).
+        // THE DURABLE COARSE RUNTIME STREAM (POD-2411).
         //
-        // W3 lands the PATH, not the consumers: the durable facts this stream
-        // describes still arrive by the observation protocol above, and W2/W4
-        // are what subscribe to it for interactions and receipts. So the server
-        // half here is exactly two things — the ownership check every
-        // session-owned frame gets, and a sink a later item registers against.
-        // Anything more would be a second writer for facts that already have one.
+        // Ownership is checked before the one application gate advances its
+        // restart cursor, appends the event and projects board/recency. State,
+        // notification and chat compatibility frames remain separate consumers
+        // until their own vertical slices move; they no longer own board effects
+        // for a session that declared the runtime contract.
         const owner = this.sessions.get(msg.sessionId)
-        if (owner?.machineId === machineId) this.ports.runtimeEvents?.record(machineId, msg)
+        if (owner?.machineId === machineId) {
+          const result = this.ports.runtimeEvents?.record(machineId, msg)
+          if (
+            msg.type === 'runtimeEvent' &&
+            msg.deliveryId &&
+            result &&
+            result.kind !== 'rejected'
+          ) {
+            this.ports.toMachine(machineId, {
+              type: 'runtimeEventAck',
+              deliveryId: msg.deliveryId,
+            })
+          }
+        }
         break
       }
       default:

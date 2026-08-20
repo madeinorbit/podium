@@ -58,30 +58,11 @@ import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from '.
  *     correlated request/reply over a live path, exactly like `spawn`,
  *     `memoryBreakdownRequest` and every other session verb. A lost one is a
  *     failed RPC the caller already has to handle, not a durability hole.
- *   - `runtimeEvent` → `stream.live`, NOT `control.entity`. W1 expected
- *     `control.entity` by analogy with `feedDelta`, and that analogy does not
- *     survive contact with the terminal driver: the durable truth this stream
- *     describes already arrives by another path (`agentObservation`,
- *     `transcriptDelta`, `agentState` — all `stream.live` for the same reason),
- *     and the causal envelope makes a gap RECOVERABLE by construction — a
- *     consumer that missed events re-reads from `snapshot()` and its cursor.
- *     Classifying it entity would put a second, unreconciled writer in front of
- *     the oplog for facts the observation protocol already owns. When W4 makes a
- *     runtime event the SOLE source of a durable fact, that is the moment to
- *     re-argue this — with the fact in hand.
- *
- *     A W5 PRECONDITION RIDES ON THIS, and it is written down because the
- *     argument above is circular the moment the legacy paths retire. The
- *     recovery mechanism named here is `snapshot()`, and `snapshot()` has no
- *     wire frame (see the note further down): a server holding a gap cannot
- *     actually invoke it. That is harmless while every `runtimeEvent` is a
- *     TRANSLATION of a frame the server also receives on its own durable path —
- *     `agentObservation`, `transcriptDelta`, `agentExit`, `sessionCwd` — which
- *     is true for W3 and W4. It stops being true at W5, when `runtimeEvent`
- *     becomes the only channel and there is no ack, no durable queue and no
- *     snapshot frame behind it. BEFORE W5 SWITCHES A SESSION TO A SERVER DRIVER,
- *     this family needs either a snapshot frame or a durable classification —
- *     not both, but not neither.
+ *   - `runtimeEvent` → `control.entity`. POD-2411 makes coarse events
+ *     the sole board/recency input after readiness, so the daemon fsync-retains
+ *     each one until the server commits its oplog row and restart checkpoint,
+ *     then acknowledges the delivery. `runtimeFineEvent` is the separate
+ *     `stream.live` token-delta frame and is never retained or persisted.
  *   - `runtimeInteractionAsked` stays OUT, and is the reason this section says
  *     twelve rather than thirteen. Its producer is W2's interactions aggregate,
  *     and W1's classification for it — durable-synced, because a blocking ask
@@ -889,6 +870,20 @@ export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
 export const RuntimeEvent = z.intersection(CausalEnvelope, RuntimeEventBody)
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 
+/** The only payload legal on the live-only fine plane. */
+export const RuntimeFineEvent = z.intersection(
+  CausalEnvelope,
+  z.object({
+    t: z.literal('item'),
+    item: z.object({
+      kind: z.literal('delta'),
+      itemId: z.string().min(1),
+      textDelta: z.string(),
+    }),
+  }),
+)
+export type RuntimeFineEvent = z.infer<typeof RuntimeFineEvent>
+
 // ---------------------------------------------------------------------------
 // The frames
 // ---------------------------------------------------------------------------
@@ -945,30 +940,11 @@ export type RuntimeLifecycleRequestMessage = z.infer<typeof RuntimeLifecycleRequ
  * WHY THE PRECONDITION HAD TO BE DISCHARGED HERE
  * ---------------------------------------------------------------------------
  *
- * The header's classification argument is that `runtimeEvent` may be
- * `stream.live` because a consumer that missed events re-reads from `snapshot()`
- * and its cursor. W3 could hold that argument on the legacy durable paths
- * instead, because every `runtimeEvent` it produced was a TRANSLATION of a frame
- * the server also received on its own durable path. W5 is where that stops being
- * automatic: a server-family session has no observer, no bridge and no PTY, so
- * nothing else is producing those facts.
- *
- * W5 answers it on BOTH halves, deliberately, because either alone is thin:
- *
- *   1. The daemon still puts a server session's items and state onto the
- *      DURABLE paths (`transcriptDelta`, `agentState`) — see
- *      `apps/daemon/src/runtime/opencode-driver.ts`. So the header's original
- *      argument keeps standing rather than being replaced.
- *   2. And the recovery mechanism the argument NAMES is now actually reachable:
- *      `runtimeSnapshotRequest` lets a server holding a gap ask the machine for
- *      the bootstrap and resume from its cursor. Without it the sentence
- *      "re-reads from `snapshot()`" described a call no remote caller could make.
- *
- * The plan offered a choice — an ack plus a durable queue on this family, or a
- * wire representation for `snapshot()`. The second is what landed: it is the
- * mechanism the existing argument already cites, it adds no delivery semantics
- * to a stream whose whole point is that it needs none, and it is two frames
- * rather than a protocol.
+ * Snapshot remains the folded recovery/read primitive. Coarse delivery no
+ * longer depends on snapshot reconstruction: the acknowledged daemon outbox
+ * preserves individual turn/git/activity edges that a folded snapshot cannot.
+ * A snapshot is still how a consumer obtains current state and an ordered
+ * cursor when it has no prior head.
  *
  * ATTACH STAYS OUT for W1's original reason, unchanged: `attach()` is
  * implemented on the driver and exercised by the corpus, and nothing on the
@@ -1063,6 +1039,13 @@ export type RuntimeQueueDrainAbandonedAckMessage = z.infer<
   typeof RuntimeQueueDrainAbandonedAckMessage
 >
 
+/** Server receipt released only after the coarse event and restart head commit. */
+export const RuntimeEventAckMessage = z.object({
+  type: z.literal('runtimeEventAck'),
+  deliveryId: z.string().min(1),
+})
+export type RuntimeEventAckMessage = z.infer<typeof RuntimeEventAckMessage>
+
 /** server → daemon: drive one session verb, or acknowledge one durable report. */
 export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeSendRequestMessage,
@@ -1071,6 +1054,7 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeLifecycleRequestMessage,
   RuntimeSnapshotRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
+  RuntimeEventAckMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -1140,15 +1124,23 @@ export const RuntimeInteractionAskedMessage = z.object({
 })
 export type RuntimeInteractionAskedMessage = z.infer<typeof RuntimeInteractionAskedMessage>
 
-/** daemon → server: one causally-enveloped event from a session's driver.
- *  UNCORRELATED — it is a stream, not a reply, which is why it is the only
- *  frame in this family without a `requestId`. */
+/** daemon → server: one retained coarse event. The delivery id is optional only
+ * during a rolling upgrade from the former unacknowledged stream. */
 export const RuntimeEventMessage = z.object({
   type: z.literal('runtimeEvent'),
+  deliveryId: z.string().min(1).optional(),
   sessionId: z.string().min(1).pipe(SessionIdField),
   event: RuntimeEvent,
 })
 export type RuntimeEventMessage = z.infer<typeof RuntimeEventMessage>
+
+/** daemon → server: token-level viewer delta; never retained or acknowledged. */
+export const RuntimeFineEventMessage = z.object({
+  type: z.literal('runtimeFineEvent'),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  event: RuntimeFineEvent,
+})
+export type RuntimeFineEventMessage = z.infer<typeof RuntimeFineEventMessage>
 
 /** daemon → server: receipts, results, and the causal event stream. */
 export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
@@ -1159,6 +1151,7 @@ export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
   RuntimeInteractionAskedMessage,
   RuntimeSnapshotResultMessage,
   RuntimeEventMessage,
+  RuntimeFineEventMessage,
 ])
 export type RuntimeDaemonMessage = z.infer<typeof RuntimeDaemonMessage>
 
@@ -1184,6 +1177,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeLifecycleRequest',
   'runtimeSnapshotRequest',
   'runtimeQueueDrainAbandonedAck',
+  'runtimeEventAck',
   'runtimeSendResult',
   'runtimeQueueDrainAbandoned',
   'runtimeLifecycleResult',
@@ -1191,6 +1185,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeInteractionAsked',
   'runtimeSnapshotResult',
   'runtimeEvent',
+  'runtimeFineEvent',
 ] as const satisfies readonly RuntimeMessage['type'][]
 
 /** Frames in the union that {@link RUNTIME_FRAME_TYPES} forgot. `never` when the

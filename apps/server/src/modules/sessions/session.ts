@@ -424,20 +424,32 @@ export class Session {
 
   /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
   /** Harness-observed runtime state (hooks-driven). The cumulative compute base is persisted. */
-  applyObservationCheckpoint(checkpoint: SessionObservationCheckpointV1): void {
+  applyObservationCheckpoint(
+    checkpoint: SessionObservationCheckpointV1,
+    advanceRecency = true,
+  ): void {
     const state = checkpoint.turnState
     this.workingMsTotal = state.workingMsTotal
     this.incomingWorkingMsTotal = undefined
     this.agentState = state
     const providerAt = checkpoint.providerAt
-    if (providerAt && providerAt > this.lastActiveAt) this.lastActiveAt = providerAt
+    if (advanceRecency && providerAt && providerAt > this.lastActiveAt)
+      this.lastActiveAt = providerAt
+  }
+
+  /** Advance the board/sidebar recency projection from one accepted coarse runtime event. */
+  recordRuntimeActivity(at: string): boolean {
+    const candidate = Date.parse(at)
+    if (!Number.isFinite(candidate) || candidate <= Date.parse(this.lastActiveAt)) return false
+    this.lastActiveAt = new Date(candidate).toISOString()
+    return true
   }
 
   /**
    * Legacy unfenced state path. Kept during mixed deployment only; causal v1
    * sessions bypass its daemon-counter reset heuristic.
    */
-  setAgentState(state: AgentRuntimeState): void {
+  setAgentState(state: AgentRuntimeState, advanceRecency = true): void {
     // The daemon reducer's total restarts at zero with each tracker. Persist only
     // positive deltas within one tracker epoch on top of our durable total; a
     // lower/reset incoming value becomes the next epoch's baseline.
@@ -462,7 +474,7 @@ export class Session {
     // sink the session below genuinely-older ones and every reattach re-asserted
     // it. The old stale-HIGH poisoning this could correct (mtime-derived stamps) is
     // gone since seeds stamp the last DATED record, so regression buys nothing.
-    if (state.since > this.lastActiveAt) this.lastActiveAt = state.since
+    if (advanceRecency && state.since > this.lastActiveAt) this.lastActiveAt = state.since
   }
 
   /** Adopt a `/color` value from the transcript. Treats Claude's "no colour"

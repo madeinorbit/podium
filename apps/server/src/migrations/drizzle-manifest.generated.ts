@@ -92,6 +92,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260816202210_add-message-delivery-deferral", sql: "ALTER TABLE `messages` ADD `delivery_deferred_at` text;--> statement-breakpoint\nALTER TABLE `messages` ADD `delivery_deferred_reason` text;" },
   { name: "20260818012131_pod-2290-selected-driver", sql: "ALTER TABLE `sessions` ADD `selected_driver_id` text;" },
   { name: "20260818141127_login-shell-purpose", sql: "ALTER TABLE `sessions` ADD `login_harness` text;\n" },
+  { name: "20260820042206_durable-runtime-events", sql: "CREATE TABLE `runtime_event_checkpoints` (\n\t`session_id` text PRIMARY KEY,\n\t`observer_generation` integer NOT NULL,\n\t`cursor_json` text NOT NULL,\n\t`turn_epoch` integer NOT NULL,\n\t`closed_turn_epoch` integer,\n\t`updated_at` text NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE `runtime_event_projection_cursors` (\n\t`projector` text PRIMARY KEY,\n\t`last_event_id` integer NOT NULL,\n\t`updated_at` text NOT NULL\n);\n" },
 ]
 
 /**

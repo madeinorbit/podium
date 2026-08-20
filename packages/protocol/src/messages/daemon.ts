@@ -44,6 +44,7 @@ import { AgentRelayRequestMessage } from './issues'
 import {
   RuntimeAnswerResultMessage,
   RuntimeEventMessage,
+  RuntimeFineEventMessage,
   RuntimeInteractionAskedMessage,
   RuntimeLifecycleResultMessage,
   RuntimeQueueDrainAbandonedMessage,
@@ -230,8 +231,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ShippingRepairApplyResultMessage,
   // The Agent Runtime contract's read/receipt path (POD-1761 W3). The five
   // `*Result` frames settle through the one RPC correlator by `requestId`;
-  // `runtimeEvent` is the uncorrelated causal stream a flagged session's driver
-  // produces.
+  // coarse runtime events are acknowledged entity deliveries; fine deltas are live.
   RuntimeSendResultMessage,
   RuntimeQueueDrainAbandonedMessage,
   RuntimeLifecycleResultMessage,
@@ -243,5 +243,6 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RuntimeInteractionAskedMessage,
   RuntimeSnapshotResultMessage,
   RuntimeEventMessage,
+  RuntimeFineEventMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

@@ -137,7 +137,11 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
     // THE CONTRACT STREAM GOES OUT AS ITSELF TOO. A consumer that speaks the
     // contract reads this; the legacy frames below are for the surfaces that do
     // not, and both describe the same fact.
-    deps.send({ type: 'runtimeEvent', sessionId, event })
+    if (event.t === 'item' && event.item.kind === 'delta') {
+      deps.send({ type: 'runtimeFineEvent', sessionId, event: { ...event, item: event.item } })
+    } else {
+      deps.send({ type: 'runtimeEvent', sessionId, event })
+    }
 
     switch (event.t) {
       case 'item': {

@@ -53,6 +53,7 @@ import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
 import { SessionRepository } from './repository'
 import { ReceiptSender } from './receipt-send'
+import { RuntimeEventGate } from './runtime-event-gate'
 import { SessionRuntimeGateway } from './runtime-gateway'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
 import { SessionAuthz } from './session-authz'
@@ -162,10 +163,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
   })
+  let runtimeEventGate: RuntimeEventGate | undefined
   bag.daemonProjection = new SessionDaemonProjection({
     sessions: bag.sessions,
-    recordSessionGitActivity: (sessionId, input) =>
-      bag.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input }),
+    recordSessionGitActivity: (sessionId, input) => {
+      if (runtimeEventGate?.ready(sessionId) === true) return
+      bag.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input })
+    },
     binding: bag.bindingReceipts,
     persist: (session) => bag.repository.persist(session),
     broadcastSessions: () => bag.broadcastSessions(),
@@ -530,11 +534,23 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
   }
   /**
-   * THE AGENT RUNTIME CONTRACT'S SERVER HALF (POD-1761 W3).
+   * THE ONE COARSE-EVENT SIDE-EFFECT GATE (POD-2411).
    *
-   * Built here so the daemon lifecycle below can route `runtimeEvent` frames
-   * into it, and so W4's send seam has a contract path to route through.
+   * The durable event row, restart head and session recency all commit through
+   * the session ledger before board effects fan out. Other product consumers
+   * stay on compatibility frames until their own vertical slices migrate.
    */
+  runtimeEventGate = new RuntimeEventGate({
+    events: bag.store.events,
+    session: (sessionId) => bag.sessions.get(sessionId),
+    persist: (sessionId, additionalWrite) => {
+      const session = bag.sessions.get(sessionId)
+      if (!session) throw new Error(`runtime event session disappeared: ${sessionId}`)
+      bag.repository.persist(session, additionalWrite)
+    },
+    board: (event) => bag.bus.emitDurable('issue.runtimeDerived', event),
+    now: () => bag.now(),
+  })
   bag.runtimeGateway = new SessionRuntimeGateway({
     rpc: bag.rpc,
     queue: durableQueue,
@@ -542,6 +558,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // The one place "an unattributed turn acts as the system" is written down.
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
+    events: runtimeEventGate,
   })
   /**
    * THE SEND SEAM W4'S MIGRATED CALLERS ROUTE THROUGH.

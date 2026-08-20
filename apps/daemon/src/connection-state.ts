@@ -1,7 +1,13 @@
 import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
 import type { MachineId } from '@podium/model'
-import { createHandshakeDialer, type LocalDaemonAttachment, type PeerBuild, type PeerCredential, type PeerHelloRejected } from '@podium/protocol'
+import {
+  createHandshakeDialer,
+  type LocalDaemonAttachment,
+  type PeerBuild,
+  type PeerCredential,
+  type PeerHelloRejected,
+} from '@podium/protocol'
 import { type DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
@@ -10,6 +16,7 @@ import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import type { QueueDrainOutbox } from './queue-drain-outbox'
+import type { RuntimeEventOutbox } from './runtime-event-outbox'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 import { createLogger } from '@podium/logger'
@@ -71,6 +78,7 @@ export interface DaemonConnectionDeps {
   readonly receiveApplicationFrame: (raw: RawData) => void
   readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => boolean
   readonly queueDrainOutbox: QueueDrainOutbox
+  readonly runtimeEventOutbox: RuntimeEventOutbox
   readonly onConnected: () => void
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
@@ -82,6 +90,7 @@ export interface DaemonConnection {
   start(): Promise<void>
   send(msg: DaemonMessage): void
   acknowledgeQueueDrainReport(reportId: string): void
+  acknowledgeRuntimeEvent(deliveryId: string): void
   close(): Promise<void>
 }
 
@@ -109,6 +118,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let localAttachment: Extract<LocalDaemonAttachment, { established: true }> | undefined
   let reconnectTimer: unknown | undefined
   let queueDrainRetryTimer: unknown | undefined
+  let runtimeEventRetryTimer: unknown | undefined
   let reconnectBackoffMs = RECONNECT_MIN_MS
   let closing = false
   let started = false
@@ -153,6 +163,12 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     queueDrainRetryTimer = undefined
   }
 
+  const stopRuntimeEventRetry = (): void => {
+    if (runtimeEventRetryTimer === undefined) return
+    timers.clearTimeout(runtimeEventRetryTimer)
+    runtimeEventRetryTimer = undefined
+  }
+
   const sendConnected = (msg: DaemonMessage): boolean => {
     if (localAttachment) {
       try {
@@ -185,6 +201,26 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     if (state !== 'connected') return
     for (const report of deps.queueDrainOutbox.pending()) sendConnected(report)
     scheduleQueueDrainRetry()
+  }
+
+  const scheduleRuntimeEventRetry = (): void => {
+    if (
+      closing ||
+      state !== 'connected' ||
+      runtimeEventRetryTimer !== undefined ||
+      deps.runtimeEventOutbox.pending().length === 0
+    )
+      return
+    runtimeEventRetryTimer = timers.setTimeout(() => {
+      runtimeEventRetryTimer = undefined
+      replayRuntimeEvents()
+    }, QUEUE_DRAIN_RETRY_MS)
+  }
+
+  const replayRuntimeEvents = (): void => {
+    if (state !== 'connected') return
+    for (const event of deps.runtimeEventOutbox.pending()) sendConnected(event)
+    scheduleRuntimeEventRetry()
   }
 
   const scheduleReconnect = (): void => {
@@ -247,17 +283,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   const persistBootstrapPin = (updatePubkey: string): void => {
     identity.updatePubkey = updatePubkey
-    savePinnedUpdatePubkey(
-      updatePubkey,
-      options.identityDir ? { dir: options.identityDir } : {},
-    )
+    savePinnedUpdatePubkey(updatePubkey, options.identityDir ? { dir: options.identityDir } : {})
   }
 
-  const established = (
-    issuedToken?: string,
-    updatePubkey?: string,
-    active?: SocketLike,
-  ): void => {
+  const established = (issuedToken?: string, updatePubkey?: string, active?: SocketLike): void => {
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
     } else if (updatePubkey !== undefined) {
@@ -289,6 +318,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     }
     pendingDiagnostics.clear()
     replayQueueDrainReports()
+    replayRuntimeEvents()
     resolveStart()
   }
 
@@ -467,6 +497,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     active.on('close', () => {
       if (socket === active) socket = undefined
       stopQueueDrainRetry()
+      stopRuntimeEventRetry()
       scheduleReconnect()
     })
   }
@@ -496,6 +527,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         }
         deps.queueDrainOutbox.enqueue({ ...msg, reportId: msg.reportId })
       }
+      if (msg.type === 'runtimeEvent') {
+        if (!msg.deliveryId) throw new Error('runtimeEvent requires deliveryId before daemon send')
+        deps.runtimeEventOutbox.enqueue({ ...msg, deliveryId: msg.deliveryId })
+      }
       if (state !== 'connected') {
         if (msg.type === 'machineDiagnostic') {
           pendingDiagnostics.set(`${msg.code}\0${msg.observedVersion ?? ''}`, msg)
@@ -504,15 +539,21 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
       sendConnected(msg)
       if (msg.type === 'runtimeQueueDrainAbandoned') scheduleQueueDrainRetry()
+      if (msg.type === 'runtimeEvent') scheduleRuntimeEventRetry()
     },
     acknowledgeQueueDrainReport(reportId) {
       deps.queueDrainOutbox.acknowledge(reportId)
       if (deps.queueDrainOutbox.pending().length === 0) stopQueueDrainRetry()
     },
+    acknowledgeRuntimeEvent(deliveryId) {
+      deps.runtimeEventOutbox.acknowledge(deliveryId)
+      if (deps.runtimeEventOutbox.pending().length === 0) stopRuntimeEventRetry()
+    },
     async close() {
       closing = true
       state = 'closed'
       stopQueueDrainRetry()
+      stopRuntimeEventRetry()
       if (reconnectTimer !== undefined) {
         timers.clearTimeout(reconnectTimer)
         reconnectTimer = undefined

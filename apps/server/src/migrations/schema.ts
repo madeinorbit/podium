@@ -973,6 +973,30 @@ export const podiumEvents = sqliteTable(
   ],
 )
 
+/**
+ * The durable head of each session's coarse Agent Runtime stream.
+ *
+ * `podium_events` is the append-only history, while this row survives that
+ * log's bounded retention and fences a daemon bootstrap/replay after a server
+ * restart. Keeping the head separate is what prevents retention from turning
+ * an old provider cursor back into apparently-new work.
+ */
+export const runtimeEventCheckpoints = sqliteTable('runtime_event_checkpoints', {
+  sessionId: text('session_id').$type<SessionId>().primaryKey(),
+  observerGeneration: integer('observer_generation').notNull(),
+  cursorJson: text('cursor_json').notNull(),
+  turnEpoch: integer('turn_epoch').notNull(),
+  closedTurnEpoch: integer('closed_turn_epoch'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/** Durable consumption head for each coarse-event oplog projector. */
+export const runtimeEventProjectionCursors = sqliteTable('runtime_event_projection_cursors', {
+  projector: text().primaryKey(),
+  lastEventId: integer('last_event_id').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const stewardState = sqliteTable('steward_state', {
   key: text().primaryKey(),
   value: text().notNull(),

@@ -1646,6 +1646,18 @@
       "encoded": "{\"type\":\"runtimeQueueDrainAbandonedAck\",\"reportId\":\"reportId\"}"
     },
     {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "runtimeEventAck",
+        "deliveryId": "deliveryId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\"}"
+    },
+    {
       "schema": "RuntimeDaemonMessage",
       "variant": "minimal",
       "wire": {
@@ -1785,6 +1797,7 @@
       "variant": "full/arm6",
       "wire": {
         "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
         "sessionId": "sessionId",
         "event": {
           "at": "2026-01-02T03:04:05.000Z",
@@ -1812,7 +1825,42 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "full/arm7",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 8
+            }
+          },
+          "observerGeneration": 8,
+          "turnEpoch": 8,
+          "t": "item",
+          "item": {
+            "kind": "delta",
+            "itemId": "event.item.itemId",
+            "textDelta": "event.item.textDelta"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":8}},\"observerGeneration\":8,\"turnEpoch\":8,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
     },
     {
       "schema": "RuntimeEvent",
@@ -2052,6 +2100,30 @@
       "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"ev.url\",\"intent\":\"link\"}}"
     },
     {
+      "schema": "RuntimeEventAckMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeEventAck",
+        "deliveryId": "deliveryId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\"}"
+    },
+    {
+      "schema": "RuntimeEventAckMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeEventAck",
+        "deliveryId": "deliveryId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\"}"
+    },
+    {
       "schema": "RuntimeEventBody",
       "variant": "minimal",
       "wire": {
@@ -2204,6 +2276,7 @@
       "variant": "full/arm0",
       "wire": {
         "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
         "sessionId": "sessionId",
         "event": {
           "at": "2026-01-02T03:04:05.000Z",
@@ -2232,13 +2305,14 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"event.change.key\":{\"unknownFixture\":\"event.change.event.change.key\"}}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"event.change.key\":{\"unknownFixture\":\"event.change.event.change.key\"}}}}"
     },
     {
       "schema": "RuntimeEventMessage",
       "variant": "full/arm1",
       "wire": {
         "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
         "sessionId": "sessionId",
         "event": {
           "at": "2026-01-02T03:04:05.000Z",
@@ -2267,13 +2341,14 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
     },
     {
       "schema": "RuntimeEventMessage",
       "variant": "full/arm2",
       "wire": {
         "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
         "sessionId": "sessionId",
         "event": {
           "at": "2026-01-02T03:04:05.000Z",
@@ -2302,13 +2377,14 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"interaction\",\"ev\":{\"ev\":\"expired\",\"id\":\"event.ev.id\",\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"interaction\",\"ev\":{\"ev\":\"expired\",\"id\":\"event.ev.id\",\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
     },
     {
       "schema": "RuntimeEventMessage",
       "variant": "full/arm3",
       "wire": {
         "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
         "sessionId": "sessionId",
         "event": {
           "at": "2026-01-02T03:04:05.000Z",
@@ -2339,13 +2415,14 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":4,\"reason\":\"provider-error\",\"disposition\":\"fatal\",\"detail\":\"event.ev.detail\"}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":4,\"reason\":\"provider-error\",\"disposition\":\"fatal\",\"detail\":\"event.ev.detail\"}}}"
     },
     {
       "schema": "RuntimeEventMessage",
       "variant": "full/arm4",
       "wire": {
         "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
         "sessionId": "sessionId",
         "event": {
           "at": "2026-01-02T03:04:05.000Z",
@@ -2373,13 +2450,14 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":5}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":5}}}"
     },
     {
       "schema": "RuntimeEventMessage",
       "variant": "full/arm5",
       "wire": {
         "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
         "sessionId": "sessionId",
         "event": {
           "at": "2026-01-02T03:04:05.000Z",
@@ -2408,13 +2486,14 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"event.ev.commits[0]\"],\"touchedFiles\":[\"event.ev.touchedFiles[0]\"]}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"event.ev.commits[0]\"],\"touchedFiles\":[\"event.ev.touchedFiles[0]\"]}}}"
     },
     {
       "schema": "RuntimeEventMessage",
       "variant": "full/arm6",
       "wire": {
         "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
         "sessionId": "sessionId",
         "event": {
           "at": "2026-01-02T03:04:05.000Z",
@@ -2442,7 +2521,125 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+    },
+    {
+      "schema": "RuntimeFineEvent",
+      "variant": "minimal",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "components": {}
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "t": "item",
+        "item": {
+          "kind": "delta",
+          "itemId": "item.itemId",
+          "textDelta": "item.textDelta"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"item.itemId\",\"textDelta\":\"item.textDelta\"}}"
+    },
+    {
+      "schema": "RuntimeFineEvent",
+      "variant": "full",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 1
+          }
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "t": "item",
+        "item": {
+          "kind": "delta",
+          "itemId": "item.itemId",
+          "textDelta": "item.textDelta"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"item.itemId\",\"textDelta\":\"item.textDelta\"}}"
+    },
+    {
+      "schema": "RuntimeFineEventMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "bootstrap",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "components": {}
+          },
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "t": "item",
+          "item": {
+            "kind": "delta",
+            "itemId": "event.item.itemId",
+            "textDelta": "event.item.textDelta"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
+    },
+    {
+      "schema": "RuntimeFineEventMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "bootstrap",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 1
+            }
+          },
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "t": "item",
+          "item": {
+            "kind": "delta",
+            "itemId": "event.item.itemId",
+            "textDelta": "event.item.textDelta"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
     },
     {
       "schema": "RuntimeInteractionAskedMessage",
@@ -2895,6 +3092,7 @@
       "variant": "full/arm6",
       "wire": {
         "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
         "sessionId": "sessionId",
         "event": {
           "at": "2026-01-02T03:04:05.000Z",
@@ -2922,7 +3120,42 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "full/arm7",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 8
+            }
+          },
+          "observerGeneration": 8,
+          "turnEpoch": 8,
+          "t": "item",
+          "item": {
+            "kind": "delta",
+            "itemId": "event.item.itemId",
+            "textDelta": "event.item.textDelta"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":8}},\"observerGeneration\":8,\"turnEpoch\":8,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
     },
     {
       "schema": "RuntimeQueueDrainAbandonedAckMessage",

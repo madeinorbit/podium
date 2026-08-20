@@ -597,7 +597,15 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       session.log.splice(0, session.log.length - EVENT_LOG_LIMIT)
     }
     for (const wake of [...session.wakers]) wake()
-    host.send({ type: 'runtimeEvent', sessionId: session.sessionId, event })
+    if (event.t === 'item' && event.item.kind === 'delta') {
+      host.send({
+        type: 'runtimeFineEvent',
+        sessionId: session.sessionId,
+        event: { ...event, item: event.item },
+      })
+    } else {
+      host.send({ type: 'runtimeEvent', sessionId: session.sessionId, event })
+    }
   }
 
   // -- interactions ---------------------------------------------------------

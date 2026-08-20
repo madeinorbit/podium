@@ -38,6 +38,8 @@ export interface DaemonContext {
   /** Retire one durable queue-abandonment report after the server acknowledges
    *  that its terminal receipt correction committed. */
   acknowledgeQueueDrainReport(reportId: string): void
+  /** Retire a retained coarse event after the server's durable commit. */
+  acknowledgeRuntimeEvent(deliveryId: string): void
 
   // -- configuration ---------------------------------------------------------
   /** The machine identity this daemon registers as (inventory reports carry it). */

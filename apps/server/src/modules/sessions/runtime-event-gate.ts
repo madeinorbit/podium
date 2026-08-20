@@ -1,0 +1,244 @@
+import { compareProviderCursor } from '@podium/harness/metadata'
+import type { SessionId } from '@podium/model'
+import type { RuntimeEvent } from '@podium/protocol'
+import {
+  RUNTIME_EVENT_LOG_KIND,
+  type EventsRepository,
+  type RuntimeEventCheckpoint,
+  type RuntimeEventLogRecord,
+} from '../../store/events'
+
+const BOARD_PROJECTOR = 'runtime.board.v1'
+
+export type RuntimeEventGateResult =
+  | { kind: 'accepted'; eventId: number }
+  | { kind: 'duplicate' }
+  | {
+      kind: 'rejected'
+      reason:
+        | 'unknown-session'
+        | 'invalid-event-time'
+        | 'stale-observer-generation'
+        | 'observer-generation-jump'
+        | 'replacement-requires-bootstrap'
+        | 'cursor-not-after-checkpoint'
+        | 'unproven-segment-rotation'
+        | 'turn-epoch-mismatch'
+        | 'turn-epoch-regressed'
+        | 'turn-epoch-jump'
+        | 'terminal-epoch-closed'
+    }
+  | { kind: 'fine-live-only' }
+
+export interface RuntimeEventSessionProjection {
+  readonly sessionId: SessionId
+  recordRuntimeActivity(at: string): boolean
+}
+
+export interface RuntimeEventGatePorts {
+  events: Pick<
+    EventsRepository,
+    | 'appendEvent'
+    | 'announceEvent'
+    | 'listRuntimeEvents'
+    | 'listRuntimeEventsAfter'
+    | 'runtimeEventCheckpoint'
+    | 'saveRuntimeEventCheckpoint'
+    | 'runtimeEventProjectionCursor'
+    | 'saveRuntimeEventProjectionCursor'
+  >
+  session(sessionId: SessionId): RuntimeEventSessionProjection | undefined
+  persist(sessionId: SessionId, additionalWrite: () => void): void
+  board(
+    event:
+      | { kind: 'activity' | 'attention' | 'turnEnd'; sessionId: SessionId; eventId: number }
+      | {
+          kind: 'gitActivity'
+          sessionId: SessionId
+          eventId: number
+          commits?: string[]
+          touched?: string[]
+        },
+  ): void
+  now(): number
+}
+
+function isFineOnly(event: RuntimeEvent): boolean {
+  return event.t === 'item' && event.item.kind === 'delta'
+}
+
+function closesTurn(event: RuntimeEvent): boolean {
+  return event.t === 'turn' && (event.ev.ev === 'completed' || event.ev.ev === 'failed')
+}
+
+function startsTurn(event: RuntimeEvent): boolean {
+  return event.t === 'turn' && event.ev.ev === 'started'
+}
+
+function turnEpochMatches(event: RuntimeEvent): boolean {
+  return event.t !== 'turn' || event.ev.turnEpoch === event.turnEpoch
+}
+
+/**
+ * The single durable application gate for the coarse Agent Runtime stream.
+ *
+ * Ingress orders/deduplicates, then commits the event-log row, restart head and
+ * session-recency projection in one session-ledger transaction. The board is a
+ * separate oplog projector: it advances its own durable event-id cursor only
+ * after a safe-repeat application, so a crash after ingress but before fan-out
+ * is recovered by {@link replayBoardProjection} at boot or the next delivery.
+ */
+export class RuntimeEventGate {
+  constructor(private readonly ports: RuntimeEventGatePorts) {}
+
+  record(sessionId: SessionId, event: RuntimeEvent): RuntimeEventGateResult {
+    if (isFineOnly(event)) return { kind: 'fine-live-only' }
+    const session = this.ports.session(sessionId)
+    if (!session) return { kind: 'rejected', reason: 'unknown-session' }
+    if (!Number.isFinite(Date.parse(event.at))) {
+      return { kind: 'rejected', reason: 'invalid-event-time' }
+    }
+    if (!turnEpochMatches(event)) {
+      return { kind: 'rejected', reason: 'turn-epoch-mismatch' }
+    }
+
+    const current = this.ports.events.runtimeEventCheckpoint(sessionId)
+    if (!current && event.provenance !== 'bootstrap') {
+      return { kind: 'rejected', reason: 'replacement-requires-bootstrap' }
+    }
+    if (current) {
+      const decision = this.decide(current, event)
+      if (decision.kind === 'rejected') return decision
+      if (decision.kind === 'duplicate') {
+        if (decision.rebaseGeneration) {
+          this.ports.persist(sessionId, () => {
+            this.ports.events.saveRuntimeEventCheckpoint({
+              ...current,
+              observerGeneration: event.observerGeneration,
+              updatedAt: new Date(this.ports.now()).toISOString(),
+            })
+          })
+        }
+        this.replayBoardProjection()
+        return { kind: 'duplicate' }
+      }
+    }
+
+    const next: RuntimeEventCheckpoint = {
+      sessionId,
+      observerGeneration: event.observerGeneration,
+      cursor: event.cursor,
+      turnEpoch: event.turnEpoch,
+      closedTurnEpoch: closesTurn(event) ? event.turnEpoch : (current?.closedTurnEpoch ?? null),
+      updatedAt: new Date(this.ports.now()).toISOString(),
+    }
+    session.recordRuntimeActivity(event.at)
+    let eventId = 0
+    this.ports.persist(sessionId, () => {
+      eventId = this.ports.events.appendEvent(
+        {
+          ts: event.at,
+          kind: RUNTIME_EVENT_LOG_KIND,
+          subject: sessionId,
+          payload: event,
+        },
+        { announce: false },
+      )
+      this.ports.events.saveRuntimeEventCheckpoint(next)
+    })
+    this.ports.events.announceEvent(eventId)
+    this.replayBoardProjection()
+    return { kind: 'accepted', eventId }
+  }
+
+  ready(sessionId: SessionId): boolean {
+    return this.ports.events.runtimeEventCheckpoint(sessionId) !== null
+  }
+
+  recent(sessionId: SessionId): readonly RuntimeEvent[] {
+    return this.ports.events.listRuntimeEvents(sessionId)
+  }
+
+  /** Drain committed coarse events through the board's durable oplog cursor. */
+  replayBoardProjection(): void {
+    let cursor = this.ports.events.runtimeEventProjectionCursor(BOARD_PROJECTOR)
+    for (;;) {
+      const batch = this.ports.events.listRuntimeEventsAfter(cursor, 128)
+      if (batch.length === 0) return
+      for (const record of batch) {
+        this.projectBoard(record)
+        this.ports.events.saveRuntimeEventProjectionCursor(
+          BOARD_PROJECTOR,
+          record.id,
+          new Date(this.ports.now()).toISOString(),
+        )
+        cursor = record.id
+      }
+    }
+  }
+
+  private decide(
+    current: RuntimeEventCheckpoint,
+    event: RuntimeEvent,
+  ):
+    | { kind: 'accept' }
+    | { kind: 'duplicate'; rebaseGeneration: boolean }
+    | Extract<RuntimeEventGateResult, { kind: 'rejected' }> {
+    if (event.observerGeneration < current.observerGeneration) {
+      return { kind: 'rejected', reason: 'stale-observer-generation' }
+    }
+
+    const replacing = event.observerGeneration > current.observerGeneration
+    if (replacing) {
+      if (event.observerGeneration !== current.observerGeneration + 1) {
+        return { kind: 'rejected', reason: 'observer-generation-jump' }
+      }
+      if (event.provenance !== 'bootstrap') {
+        return { kind: 'rejected', reason: 'replacement-requires-bootstrap' }
+      }
+    }
+
+    const order = compareProviderCursor(current.cursor, event.cursor)
+    if (order === 'incomparable') {
+      return { kind: 'rejected', reason: 'unproven-segment-rotation' }
+    }
+    if (order === 'same_or_before') {
+      return { kind: 'duplicate', rebaseGeneration: replacing }
+    }
+    if (!replacing && event.provenance === 'bootstrap') {
+      return { kind: 'rejected', reason: 'cursor-not-after-checkpoint' }
+    }
+
+    if (event.turnEpoch < current.turnEpoch) {
+      return { kind: 'rejected', reason: 'turn-epoch-regressed' }
+    }
+    if (current.closedTurnEpoch !== null && event.turnEpoch <= current.closedTurnEpoch) {
+      return { kind: 'rejected', reason: 'terminal-epoch-closed' }
+    }
+    if (event.turnEpoch > current.turnEpoch) {
+      if (event.turnEpoch !== current.turnEpoch + 1 || !startsTurn(event)) {
+        return { kind: 'rejected', reason: 'turn-epoch-jump' }
+      }
+    }
+    return { kind: 'accept' }
+  }
+
+  private projectBoard(record: RuntimeEventLogRecord): void {
+    const { event, id: eventId, sessionId } = record
+    if (event.t === 'workspace' && event.ev.ev === 'git-activity') {
+      this.ports.board({
+        kind: 'gitActivity',
+        sessionId,
+        eventId,
+        commits: [...event.ev.commits],
+        touched: [...event.ev.touchedFiles],
+      })
+    }
+    if (event.provenance !== 'live') return
+    this.ports.board({ kind: 'activity', sessionId, eventId })
+    if (closesTurn(event)) this.ports.board({ kind: 'turnEnd', sessionId, eventId })
+    if (event.t === 'state' && event.change.kind === 'needs_user') {
+      this.ports.board({ kind: 'attention', sessionId, eventId })
+    }
+  }
+}
