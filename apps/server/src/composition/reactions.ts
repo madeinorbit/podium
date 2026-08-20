@@ -207,7 +207,7 @@ export const REACTIONS = [
     },
     ordering: 'Strict runtime event-log id order.',
     retry:
-      'The projector leaves its cursor before a failed effect and retries at boot or the next event.',
+      'The projector awaits each effect, leaves its cursor before a failed or interrupted effect, and retries at boot or the next event.',
     failureOwner: 'runtime board projector',
     observability: {
       registry: true,

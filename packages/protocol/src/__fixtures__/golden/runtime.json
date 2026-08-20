@@ -1650,12 +1650,14 @@
       "variant": "full/arm6",
       "wire": {
         "type": "runtimeEventAck",
-        "deliveryId": "deliveryId"
+        "deliveryId": "deliveryId",
+        "outcome": "rejected",
+        "rejectionReason": "rejectionReason"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\"}"
+      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\",\"outcome\":\"rejected\",\"rejectionReason\":\"rejectionReason\"}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -2104,24 +2106,27 @@
       "variant": "minimal",
       "wire": {
         "type": "runtimeEventAck",
-        "deliveryId": "deliveryId"
+        "deliveryId": "deliveryId",
+        "outcome": "committed"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\"}"
+      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\",\"outcome\":\"committed\"}"
     },
     {
       "schema": "RuntimeEventAckMessage",
       "variant": "full",
       "wire": {
         "type": "runtimeEventAck",
-        "deliveryId": "deliveryId"
+        "deliveryId": "deliveryId",
+        "outcome": "committed",
+        "rejectionReason": "rejectionReason"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\"}"
+      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\",\"outcome\":\"committed\",\"rejectionReason\":\"rejectionReason\"}"
     },
     {
       "schema": "RuntimeEventBody",

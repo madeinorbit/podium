@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import { compareProviderCursor } from '@podium/harness/metadata'
 import type { SessionId } from '@podium/model'
 import type { RuntimeEvent } from '@podium/protocol'
@@ -8,6 +9,7 @@ import {
   type RuntimeEventLogRecord,
 } from '../../store/events'
 
+const log = createLogger('server:runtime-event-gate')
 const BOARD_PROJECTOR = 'runtime.board.v1'
 
 export type RuntimeEventGateResult =
@@ -51,7 +53,7 @@ export interface RuntimeEventGatePorts {
   persist(sessionId: SessionId, additionalWrite: () => void): void
   board(
     event:
-      | { kind: 'activity' | 'attention' | 'turnEnd'; sessionId: SessionId; eventId: number }
+      | { kind: 'attention' | 'turnEnd'; sessionId: SessionId; eventId: number }
       | {
           kind: 'gitActivity'
           sessionId: SessionId
@@ -59,7 +61,7 @@ export interface RuntimeEventGatePorts {
           commits?: string[]
           touched?: string[]
         },
-  ): void
+  ): void | Promise<void>
   now(): number
 }
 
@@ -90,6 +92,8 @@ function turnEpochMatches(event: RuntimeEvent): boolean {
  */
 export class RuntimeEventGate {
   constructor(private readonly ports: RuntimeEventGatePorts) {}
+  private projectionDrain: Promise<void> | undefined
+  private projectionRequested = false
 
   record(sessionId: SessionId, event: RuntimeEvent): RuntimeEventGateResult {
     if (isFineOnly(event)) return { kind: 'fine-live-only' }
@@ -119,7 +123,7 @@ export class RuntimeEventGate {
             })
           })
         }
-        this.replayBoardProjection()
+        this.scheduleBoardProjection()
         return { kind: 'duplicate' }
       }
     }
@@ -147,7 +151,7 @@ export class RuntimeEventGate {
       this.ports.events.saveRuntimeEventCheckpoint(next)
     })
     this.ports.events.announceEvent(eventId)
-    this.replayBoardProjection()
+    this.scheduleBoardProjection()
     return { kind: 'accepted', eventId }
   }
 
@@ -159,14 +163,40 @@ export class RuntimeEventGate {
     return this.ports.events.listRuntimeEvents(sessionId)
   }
 
-  /** Drain committed coarse events through the board's durable oplog cursor. */
-  replayBoardProjection(): void {
+  /** Drain committed coarse events through the board's durable oplog cursor.
+   * Concurrent deliveries share one drain, and the cursor moves only after the
+   * complete asynchronous board effect resolves. */
+  replayBoardProjection(): Promise<void> {
+    this.projectionRequested = true
+    if (this.projectionDrain) return this.projectionDrain
+    const run = this.runBoardProjection()
+    const tracked = run.finally(() => {
+      if (this.projectionDrain === tracked) this.projectionDrain = undefined
+    })
+    this.projectionDrain = tracked
+    return tracked
+  }
+
+  private async runBoardProjection(): Promise<void> {
+    do {
+      this.projectionRequested = false
+      await this.drainBoardProjection()
+    } while (this.projectionRequested)
+  }
+
+  private scheduleBoardProjection(): void {
+    void this.replayBoardProjection().catch((err) => {
+      log.warn('runtime board projection paused before cursor advance', { err })
+    })
+  }
+
+  private async drainBoardProjection(): Promise<void> {
     let cursor = this.ports.events.runtimeEventProjectionCursor(BOARD_PROJECTOR)
     for (;;) {
       const batch = this.ports.events.listRuntimeEventsAfter(cursor, 128)
       if (batch.length === 0) return
       for (const record of batch) {
-        this.projectBoard(record)
+        await this.projectBoard(record)
         this.ports.events.saveRuntimeEventProjectionCursor(
           BOARD_PROJECTOR,
           record.id,
@@ -223,10 +253,10 @@ export class RuntimeEventGate {
     return { kind: 'accept' }
   }
 
-  private projectBoard(record: RuntimeEventLogRecord): void {
+  private async projectBoard(record: RuntimeEventLogRecord): Promise<void> {
     const { event, id: eventId, sessionId } = record
     if (event.t === 'workspace' && event.ev.ev === 'git-activity') {
-      this.ports.board({
+      await this.ports.board({
         kind: 'gitActivity',
         sessionId,
         eventId,
@@ -235,10 +265,9 @@ export class RuntimeEventGate {
       })
     }
     if (event.provenance !== 'live') return
-    this.ports.board({ kind: 'activity', sessionId, eventId })
-    if (closesTurn(event)) this.ports.board({ kind: 'turnEnd', sessionId, eventId })
+    if (closesTurn(event)) await this.ports.board({ kind: 'turnEnd', sessionId, eventId })
     if (event.t === 'state' && event.change.kind === 'needs_user') {
-      this.ports.board({ kind: 'attention', sessionId, eventId })
+      await this.ports.board({ kind: 'attention', sessionId, eventId })
     }
   }
 }

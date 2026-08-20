@@ -81,7 +81,7 @@ export interface EventMap {
         touched?: string[]
       }
     | {
-        kind: 'activity' | 'attention' | 'turnEnd'
+        kind: 'attention' | 'turnEnd'
         sessionId: SessionId
         eventId: number
       }
@@ -158,13 +158,12 @@ export interface EventMap {
 }
 
 export type EventName = keyof EventMap
-export type Listener<E extends EventName> = (payload: EventMap[E]) => void
+export type Listener<E extends EventName> = (payload: EventMap[E]) => unknown
 
 /**
- * Minimal typed emitter over {@link EventMap}. Synchronous dispatch (emit
- * returns after every listener ran) so ordering stays deterministic for tests;
- * per-listener try/catch so one broken observer can't break the emitter or
- * its sibling subscribers.
+ * Minimal typed emitter over {@link EventMap}. Regular dispatch invokes every
+ * listener synchronously and observes asynchronous rejection without blocking;
+ * durable dispatch additionally awaits every listener before it returns.
  */
 export class EventBus {
   private readonly listeners = new Map<EventName, Set<Listener<EventName>>>()
@@ -186,34 +185,48 @@ export class EventBus {
   once<E extends EventName>(event: E, listener: Listener<E>): () => void {
     const dispose = this.on(event, (payload) => {
       dispose()
-      listener(payload)
+      return listener(payload)
     })
     return dispose
   }
 
   emit<E extends EventName>(event: E, payload: EventMap[E]): void {
-    this.dispatch(event, payload, false)
-  }
-
-  /** Durable projector dispatch: finish sibling listeners, then report failure
-   * so the caller can leave its oplog cursor before the unprojected row. */
-  emitDurable<E extends EventName>(event: E, payload: EventMap[E]): void {
-    this.dispatch(event, payload, true)
-  }
-
-  private dispatch<E extends EventName>(event: E, payload: EventMap[E], rethrow: boolean): void {
     const set = this.listeners.get(event)
     if (!set) return
-    let failure: unknown
     for (const listener of [...set]) {
       try {
-        listener(payload)
+        void Promise.resolve(listener(payload)).catch((err) =>
+          log.warn('event listener rejected', { err, event }),
+        )
       } catch (err) {
-        failure ??= err
         log.warn('event listener threw', { err, event })
       }
     }
-    if (rethrow && failure) throw failure
+  }
+
+  /** Durable projector dispatch: await every sibling listener, then report the
+   * first failure so the caller leaves its oplog cursor before the row. */
+  async emitDurable<E extends EventName>(event: E, payload: EventMap[E]): Promise<void> {
+    const set = this.listeners.get(event)
+    if (!set) return
+    const pending: Promise<unknown>[] = []
+    for (const listener of [...set]) {
+      try {
+        pending.push(Promise.resolve(listener(payload)))
+      } catch (err) {
+        pending.push(Promise.reject(err))
+      }
+    }
+    const settled = await Promise.allSettled(pending)
+    let failure: unknown
+    for (const result of settled) {
+      if (result.status === 'rejected') {
+        failure ??= result.reason
+        const err = result.reason
+        log.warn('durable event listener rejected', { err, event })
+      }
+    }
+    if (failure) throw failure
   }
 
   listenerCount(event: EventName): number {

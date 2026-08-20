@@ -74,7 +74,7 @@ function makeGateway(
         },
         ready: () => durableEvents.length > 0,
         recent: () => durableEvents,
-        replayBoardProjection: () => {},
+        replayBoardProjection: async () => {},
       },
     }),
     forwarded,
@@ -232,5 +232,14 @@ describe('the event sink', () => {
     // repository port and remains available to a replacement gateway process.
     expect(gateway.recentEvents(SESSION)).toHaveLength(64)
     expect(gateway.recentEvents(SESSION).at(-1)?.cursor.components.seq).toBe(199)
+  })
+
+  it('declares fine delivery receiver-only until POD-2293 wires watch activation', () => {
+    const { gateway } = makeGateway()
+    expect(gateway.fineWatchAvailability()).toEqual({
+      kind: 'deferred',
+      prerequisite: 'POD-2293',
+      activation: 'not-wired',
+    })
   })
 })

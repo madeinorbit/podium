@@ -47,7 +47,7 @@ function bindContract(registry: SessionRegistry, store: SessionStore) {
 }
 
 describe('durable runtime observation gate', () => {
-  it('owns recency/board after readiness and enforces restart, segment, epoch, and terminal fences', () => {
+  it('owns recency/board after readiness and enforces restart, segment, epoch, and terminal fences', async () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
@@ -100,7 +100,7 @@ describe('durable runtime observation gate', () => {
       turnEpoch: 1,
       cursor: { components: { seq: 2 } },
     })
-    expect(runtimeBoard).toEqual(['activity'])
+    expect(runtimeBoard).toEqual([])
 
     // After readiness, compatibility state still feeds its unmigrated consumers
     // but can no longer own board or recency.
@@ -116,8 +116,9 @@ describe('durable runtime observation gate', () => {
       },
     })
     expect(registry.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(firstAt)
-    expect(legacyBoard).toEqual(['activity'])
+    expect(legacyBoard).toEqual(['activity', 'activity'])
 
+    await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     registry.dispose()
     const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
     restarted.gateway.attachDaemon(store.hostMachineId, () => {})
@@ -152,7 +153,7 @@ describe('durable runtime observation gate', () => {
       event: stateEvent({ at: secondAtWire, seq: 3, observerGeneration: 2 }),
     })
     expect(restarted.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(secondAt)
-    expect(restartedBoard).toEqual(['activity'])
+    expect(restartedBoard).toEqual([])
 
     const fineSeen: string[] = []
     const stopFine = restarted.modules.sessions.runtimeGateway.onEvent((_id, event) =>
@@ -174,7 +175,7 @@ describe('durable runtime observation gate', () => {
     stopFine()
     expect(fineSeen).toEqual(['item'])
     expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
-    expect(restartedBoard).toEqual(['activity'])
+    expect(restartedBoard).toEqual([])
 
     const completedAt = new Date(Date.parse(secondAt) + 2_000).toISOString()
     restarted.gateway.routeDaemonFrame(store.hostMachineId, {
@@ -191,7 +192,8 @@ describe('durable runtime observation gate', () => {
         turnEpoch: 1,
       },
     })
-    expect(restartedBoard).toEqual(['activity', 'activity', 'turnEnd'])
+    await restarted.modules.sessions.runtimeGateway.replayBoardProjection()
+    expect(restartedBoard).toEqual(['turnEnd'])
 
     // The terminal fence absorbs every later arm in the closed epoch, not just
     // a duplicate turn.started edge.
@@ -327,6 +329,7 @@ describe('durable runtime observation gate', () => {
     })
     expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(6)
 
+    await restarted.modules.sessions.runtimeGateway.replayBoardProjection()
     restarted.dispose()
     store.close()
   })
@@ -375,7 +378,7 @@ describe('durable runtime observation gate', () => {
     store.close()
   })
 
-  it('leaves the projector cursor before a thrown board effect and replays it after restart', () => {
+  it('replays after a server kill while an asynchronous board effect is pending', async () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
@@ -392,29 +395,47 @@ describe('durable runtime observation gate', () => {
         provenance: 'bootstrap',
       }),
     })
+    await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     const baselineCursor = store.events.runtimeEventProjectionCursor('runtime.board.v1')
-    const stopFailure = registry.bus.on('issue.runtimeDerived', () => {
-      throw new Error('injected board crash')
+    let markEffectStarted: (() => void) | undefined
+    const effectStarted = new Promise<void>((resolve) => {
+      markEffectStarted = resolve
+    })
+    const neverCompletes = new Promise<void>(() => {})
+    registry.bus.on('issue.runtimeDerived', (event) => {
+      if (event.kind !== 'turnEnd') return
+      markEffectStarted?.()
+      return neverCompletes
     })
 
-    expect(() =>
-      registry.gateway.routeDaemonFrame(store.hostMachineId, {
-        type: 'runtimeEvent',
-        deliveryId: 'crash-event',
-        sessionId,
-        event: stateEvent({ at, seq: 2, observerGeneration: 1 }),
-      }),
-    ).toThrow('injected board crash')
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'crash-event',
+      sessionId,
+      event: {
+        t: 'turn',
+        ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' },
+        at,
+        provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 2 } },
+        observerGeneration: 1,
+        turnEpoch: 1,
+      },
+    })
+    await effectStarted
     expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
     expect(store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(baselineCursor)
     const prune = store.events.planEventPrune({ maxAgeDays: 0, maxRows: 0 })
     expect(store.events.pruneEventBatch(prune)).toBeGreaterThan(0)
     expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(1)
 
-    stopFailure()
+    // Dispose without resolving the listener: this is the server-kill window.
     registry.dispose()
     const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
-    expect(store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBeGreaterThan(0)
+    await restarted.modules.sessions.runtimeGateway.replayBoardProjection()
+    expect(store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBeGreaterThan(
+      baselineCursor,
+    )
     expect(restarted.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(at)
 
     restarted.dispose()

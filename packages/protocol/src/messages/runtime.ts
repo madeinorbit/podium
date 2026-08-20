@@ -1039,10 +1039,14 @@ export type RuntimeQueueDrainAbandonedAckMessage = z.infer<
   typeof RuntimeQueueDrainAbandonedAckMessage
 >
 
-/** Server receipt released only after the coarse event and restart head commit. */
+/** Server terminal receipt for one retained coarse-event delivery. Rejections are
+ * terminal too: retrying a stale, malformed, or purged-session event cannot make
+ * it admissible, so the daemon retires either outcome from its fsync outbox. */
 export const RuntimeEventAckMessage = z.object({
   type: z.literal('runtimeEventAck'),
   deliveryId: z.string().min(1),
+  outcome: z.enum(['committed', 'rejected']),
+  rejectionReason: z.string().min(1).optional(),
 })
 export type RuntimeEventAckMessage = z.infer<typeof RuntimeEventAckMessage>
 

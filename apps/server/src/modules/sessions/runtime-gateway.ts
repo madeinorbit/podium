@@ -137,6 +137,15 @@ export interface SessionRuntimeGatewayPorts {
 
 export type RuntimeEventListener = (sessionId: SessionId, event: RuntimeEvent) => void
 
+/** Fine delivery is deliberately receiver-only in this board/recency slice.
+ * POD-2293 owns the watch(fine) activation frame and reference-count lifecycle. */
+export const RUNTIME_FINE_WATCH_AVAILABILITY = {
+  kind: 'deferred',
+  prerequisite: 'POD-2293',
+  activation: 'not-wired',
+} as const
+export type RuntimeFineWatchAvailability = typeof RUNTIME_FINE_WATCH_AVAILABILITY
+
 export class SessionRuntimeGateway {
   private readonly listeners = new Set<RuntimeEventListener>()
 
@@ -250,13 +259,21 @@ export class SessionRuntimeGateway {
     return result
   }
 
-  /** Subscribe. Returns an unsubscribe, so a consumer that goes away cannot leak
-   *  a listener into the next one's fan-out. */
+  /** Subscribe to events that already reached the server. This receiver does
+   * not activate driver fine watches; callers must inspect
+   * {@link fineWatchAvailability}. Returns an unsubscribe. */
   onEvent(listener: RuntimeEventListener): () => void {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
     }
+  }
+
+  /** Typed declaration of the intentionally unimplemented fine-watch control
+   * plane. POD-2293 must add daemon activation before a production consumer can
+   * rely on token deltas; receiving an already-arrived frame is not activation. */
+  fineWatchAvailability(): RuntimeFineWatchAvailability {
+    return RUNTIME_FINE_WATCH_AVAILABILITY
   }
 
   /** True only after this session has a committed coarse-event restart head. */
@@ -265,8 +282,8 @@ export class SessionRuntimeGateway {
   }
 
   /** Replay committed board inputs after a server crash or interrupted fan-out. */
-  replayBoardProjection(): void {
-    this.ports.events.replayBoardProjection()
+  replayBoardProjection(): Promise<void> {
+    return this.ports.events.replayBoardProjection()
   }
 
   /** Durable coarse events for diagnostics, newest last. */

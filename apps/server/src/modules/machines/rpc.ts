@@ -727,11 +727,10 @@ export class DaemonRpcService {
   /**
    * THE OBSERVATION BOOTSTRAP, ACROSS THE WIRE (POD-2023).
    *
-   * `runtimeEvent` is classified `stream.live` on the argument that a consumer
-   * which missed events re-reads from `snapshot()` and its cursor. Until this
-   * method existed that sentence described a call no remote caller could make,
-   * which is the precondition W3's review recorded against W5. This is it: ask
-   * the machine for the session's snapshot, resume the stream from its cursor.
+   * Coarse `runtimeEvent` frames are `control.entity`: the daemon fsync-retains
+   * them until the server commits and returns a terminal receipt. This snapshot
+   * RPC is an explicit current-state read for control-plane callers, not the
+   * recovery mechanism for the durable event stream or its board projector.
    *
    * A TIMEOUT IS `not_running`, and that is the honest default rather than a
    * convenient one: what a caller learns is "I could not obtain a bootstrap",

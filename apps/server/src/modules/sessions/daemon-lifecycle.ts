@@ -321,8 +321,8 @@ export class SessionDaemonLifecycle {
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
         this.broadcastSessions()
-        if (!this.ports.runtimeEvents?.ready(msg.sessionId))
-          this.ports.onSessionActivity(msg.sessionId)
+        // The assistant digest remains a legacy consumer in this vertical slice.
+        this.ports.onSessionActivity(msg.sessionId)
         // Keep the issue attachment: an updater and an abandoned process both
         // arrive as agentExit, and the exited session remains resumable.
         // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
@@ -622,8 +622,9 @@ export class SessionDaemonLifecycle {
         // effect below is exclusive to one accepted causal live phase edge.
         if (outcome.kind !== 'live_transition_accepted') break
         this.autoContinue.onStateChange(session.sessionId, next)
-        if (!this.ports.runtimeEvents?.ready(session.sessionId))
-          this.ports.onSessionActivity(session.sessionId)
+        // The assistant digest is not part of the board/recency slice; keep its
+        // legacy activity trigger until a later consumer migration owns replay.
+        this.ports.onSessionActivity(session.sessionId)
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
         if (
@@ -719,8 +720,9 @@ export class SessionDaemonLifecycle {
           sessionId: msg.sessionId,
           state: next,
         })
-        if (!this.ports.runtimeEvents?.ready(session.sessionId))
-          this.ports.onSessionActivity(msg.sessionId)
+        // The assistant digest is not part of the board/recency slice; keep its
+        // legacy activity trigger until a later consumer migration owns replay.
+        this.ports.onSessionActivity(msg.sessionId)
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
         if (
@@ -803,19 +805,29 @@ export class SessionDaemonLifecycle {
         // until their own vertical slices move; they no longer own board effects
         // for a session that declared the runtime contract.
         const owner = this.sessions.get(msg.sessionId)
-        if (owner?.machineId === machineId) {
-          const result = this.ports.runtimeEvents?.record(machineId, msg)
-          if (
-            msg.type === 'runtimeEvent' &&
-            msg.deliveryId &&
-            result &&
-            result.kind !== 'rejected'
-          ) {
-            this.ports.toMachine(machineId, {
-              type: 'runtimeEventAck',
-              deliveryId: msg.deliveryId,
-            })
-          }
+        if (msg.type === 'runtimeFineEvent') {
+          if (owner?.machineId === machineId) this.ports.runtimeEvents?.record(machineId, msg)
+          break
+        }
+        const result =
+          owner?.machineId === machineId
+            ? this.ports.runtimeEvents?.record(machineId, msg)
+            : ({ kind: 'rejected', reason: 'unknown-session' } as const)
+        if (!result) break
+        if (!msg.deliveryId) break
+        if (result.kind === 'rejected') {
+          this.ports.toMachine(machineId, {
+            type: 'runtimeEventAck',
+            deliveryId: msg.deliveryId,
+            outcome: 'rejected',
+            rejectionReason: result.reason,
+          })
+        } else {
+          this.ports.toMachine(machineId, {
+            type: 'runtimeEventAck',
+            deliveryId: msg.deliveryId,
+            outcome: 'committed',
+          })
         }
         break
       }

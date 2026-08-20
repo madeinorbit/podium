@@ -1228,9 +1228,7 @@ export class SessionRegistry {
           ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
     })
-    const applySessionDerived = (
-      event: EventMap['issue.sessionDerived'] | EventMap['issue.runtimeDerived'],
-    ): void => {
+    const applySessionDerived = (event: EventMap['issue.sessionDerived']): void => {
       switch (event.kind) {
         case 'gitActivity':
           issues.recordSessionGitActivity(event.sessionId, {
@@ -1270,9 +1268,27 @@ export class SessionRegistry {
         }
       }
     }
+    const applyRuntimeDerived = async (event: EventMap['issue.runtimeDerived']): Promise<void> => {
+      switch (event.kind) {
+        case 'gitActivity':
+          await issues.projectSessionGitActivity(event.sessionId, {
+            ...(event.commits ? { commits: event.commits } : {}),
+            ...(event.touched ? { touched: event.touched } : {}),
+          })
+          break
+        case 'attention':
+          issues.onSessionAttention(event.sessionId)
+          break
+        case 'turnEnd':
+          await issues.projectSessionTurnEnd(event.sessionId)
+          break
+      }
+    }
     this.bus.on('issue.sessionDerived', applySessionDerived)
-    this.bus.on('issue.runtimeDerived', applySessionDerived)
-    sessionsSvc.runtimeGateway.replayBoardProjection()
+    this.bus.on('issue.runtimeDerived', applyRuntimeDerived)
+    void sessionsSvc.runtimeGateway.replayBoardProjection().catch((err) => {
+      log.warn('runtime board startup replay paused before cursor advance', { err })
+    })
     const issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,

@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { MachineId } from '@podium/model'
+import { asSessionId, type MachineId } from '@podium/model'
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -61,7 +61,12 @@ describe('coarse runtime events across a daemon disconnect', () => {
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const machineId: MachineId = registry.sessionStore.hostMachineId
     const runtimeOutbox = createRuntimeEventOutbox(temp())
-    const sockets = [new FakeSocket(), new FakeSocket()]
+    const sockets = [new FakeSocket(), new FakeSocket(), new FakeSocket()]
+    const receipts: Array<{
+      deliveryId: string
+      outcome: 'committed' | 'rejected'
+      rejectionReason?: string
+    }> = []
     let socketIndex = 0
     let activeSocket: FakeSocket | undefined
     let retry: (() => void) | undefined
@@ -89,6 +94,11 @@ describe('coarse runtime events across a daemon disconnect', () => {
         receiveApplicationFrame: (raw) => {
           const message = parseControlMessage(raw.toString())
           if (message.type === 'runtimeEventAck') {
+            receipts.push({
+              deliveryId: message.deliveryId,
+              outcome: message.outcome,
+              ...(message.rejectionReason ? { rejectionReason: message.rejectionReason } : {}),
+            })
             connection?.acknowledgeRuntimeEvent(message.deliveryId)
           }
         },
@@ -190,6 +200,60 @@ describe('coarse runtime events across a daemon disconnect', () => {
       expect(registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
       expect(registry.modules.sessions.sessionById(sessionId)?.lastActiveAt).toBe(at)
       expect(runtimeOutbox.pending()).toEqual([])
+
+      if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
+      sockets[1]?.close()
+      connection.send({
+        type: 'runtimeEvent',
+        deliveryId: 'rejected-generation',
+        sessionId,
+        event: {
+          t: 'state',
+          change: { kind: 'activity' },
+          at,
+          provenance: 'live',
+          cursor: { segmentId: 'segment', components: { seq: 3 } },
+          observerGeneration: 3,
+          turnEpoch: 1,
+        },
+      })
+      // A purged session has no ownership row and is therefore the same poison
+      // delivery shape as an unknown session after restart.
+      connection.send({
+        type: 'runtimeEvent',
+        deliveryId: 'rejected-purged-session',
+        sessionId: asSessionId('purged-session'),
+        event: {
+          t: 'state',
+          change: { kind: 'activity' },
+          at,
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'purged-segment', components: { seq: 1 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+        },
+      })
+      expect(runtimeOutbox.pending()).toHaveLength(2)
+
+      if (!retry) throw new Error('second disconnect did not schedule reconnect')
+      retry()
+      sockets[2]?.emit('open')
+      sockets[2]?.message(helloOk)
+
+      expect(runtimeOutbox.pending()).toEqual([])
+      expect(registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
+      expect(receipts.slice(-2)).toEqual([
+        {
+          deliveryId: 'rejected-generation',
+          outcome: 'rejected',
+          rejectionReason: 'observer-generation-jump',
+        },
+        {
+          deliveryId: 'rejected-purged-session',
+          outcome: 'rejected',
+          rejectionReason: 'unknown-session',
+        },
+      ])
     } finally {
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
       await connection?.close()

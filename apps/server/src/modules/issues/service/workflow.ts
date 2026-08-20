@@ -1156,39 +1156,56 @@ export class IssueGitWorkflowModule {
    *  same reason: it caches a git fact, never a decision. */
   private parentTips = new Map<string, string>()
 
-  /** Daemon-captured git activity for a session: commit shas from the HEAD
-   *  delta around the session's own tool call (trusted only in private
-   *  worktrees), and/or files its Edit/Write tools touched. Registers the
-   *  session as attribution-capable even when both lists are empty
-   *  (SessionStart baseline). */
-  recordSessionGitActivity(
+  /** Capture daemon-reported git attribution and return the board refresh that
+   * must complete before a durable runtime projector may advance. */
+  private captureSessionGitActivity(
     sessionId: SessionId,
     activity: { commits?: string[]; touched?: string[] },
-  ): void {
+  ): Promise<void> | undefined {
     const commits = this.gitCommitsBySession.get(sessionId) ?? []
     for (const sha of activity.commits ?? []) if (!commits.includes(sha)) commits.push(sha)
     this.gitCommitsBySession.set(sessionId, commits)
     const touched = this.gitTouchedBySession.get(sessionId) ?? new Set<string>()
     for (const f of activity.touched ?? []) touched.add(f)
     this.gitTouchedBySession.set(sessionId, touched)
-    // A commit is the one git-state change worth a probe OUTSIDE the turn-end
-    // edge — it flips the headline answer ("has it committed?") mid-turn. And
-    // after a restart the ephemeral gitStates map is empty: the first hook
-    // registration from a live session repopulates its issue's stamp instead
-    // of leaving the UI blank until the next full turn ends.
     const resolved = this.issueForSession(sessionId)
-    if (!resolved) return
+    if (!resolved) return undefined
     if (activity.commits?.length || !this.store.gitStates.has(resolved.row.id)) {
-      void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
+      return this.refreshGitState(resolved.row.id, resolved.sess.cwd)
     }
+    return undefined
   }
 
-  /** Working→idle edge from the sessions service: refresh the git state of the
-   *  issue this session works. Fire-and-forget; never throws into the caller. */
-  onSessionTurnEnd(sessionId: SessionId): void {
+  /** Legacy live notification path; its next event remains the retry backstop. */
+  recordSessionGitActivity(
+    sessionId: SessionId,
+    activity: { commits?: string[]; touched?: string[] },
+  ): void {
+    void this.captureSessionGitActivity(sessionId, activity)?.catch(() => {})
+  }
+
+  /** Durable runtime projection path: completion is the projector cursor fence. */
+  async projectSessionGitActivity(
+    sessionId: SessionId,
+    activity: { commits?: string[]; touched?: string[] },
+  ): Promise<void> {
+    await this.captureSessionGitActivity(sessionId, activity)
+  }
+
+  private sessionTurnEndRefresh(sessionId: SessionId): Promise<void> | undefined {
     const resolved = this.issueForSession(sessionId)
-    if (!resolved) return
-    void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
+    if (!resolved) return undefined
+    return this.refreshGitState(resolved.row.id, resolved.sess.cwd)
+  }
+
+  /** Legacy working→idle notification; best-effort by its existing contract. */
+  onSessionTurnEnd(sessionId: SessionId): void {
+    void this.sessionTurnEndRefresh(sessionId)?.catch(() => {})
+  }
+
+  /** Durable runtime turn end: do not advance its oplog cursor before refresh. */
+  async projectSessionTurnEnd(sessionId: SessionId): Promise<void> {
+    await this.sessionTurnEndRefresh(sessionId)
   }
 
   /** A session was archived or permanently removed. Drop its ephemeral
