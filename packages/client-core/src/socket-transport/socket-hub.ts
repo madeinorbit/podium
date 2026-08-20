@@ -28,6 +28,7 @@ import {
   createDispatcher,
   encode,
   type HeadlessActivityEvent,
+  type TurnPreviewMessage,
   isKnownMetadataChange,
   type MetadataChange,
   type MetadataChangeLenient,
@@ -509,6 +510,12 @@ export interface HubEvents {
    *  subscription these frames depend on). */
   transcriptDelta: [sessionId: SessionId, items: TranscriptItem[], meta: { reset: boolean }]
   headlessActivity: [sessionId: SessionId, event: HeadlessActivityEvent]
+  /** The in-progress half of a turn (POD-2293): a SNAPSHOT of everything the
+   *  agent is producing right now, superseded row by row as the durable items
+   *  land on `transcriptDelta`. Frames are subscriber-scoped — the server sends
+   *  them only to clients holding a transcript subscription on that session — so
+   *  this needs no subscription of its own beyond that one. */
+  turnPreview: [sessionId: SessionId, frame: TurnPreviewMessage]
   presenceRoomState: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomState' }>]
   presenceRoomDelta: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomDelta' }>]
   presenceRoomClosed: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomClosed' }>]
@@ -1961,6 +1968,11 @@ export class SocketHub {
     },
     headlessActivity: (msg) => {
       this.emit('headlessActivity', msg.sessionId, msg.event)
+    },
+    turnPreview: (msg) => {
+      // A pure forward: no cursor to track and nothing to accumulate, because
+      // every frame is the whole preview. The consumer applies newest-wins.
+      this.emit('turnPreview', msg.sessionId, msg)
     },
     transcriptDelta: (msg) => {
       // Track the newest cursor so a reconnect resumes from here. A reset frame

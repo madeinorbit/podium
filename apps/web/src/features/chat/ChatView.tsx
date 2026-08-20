@@ -394,6 +394,7 @@ export function ChatView({
             restoredQueued={chat.restoredQueued}
             onRetractQueued={chat.retractQueuedMessage}
             overlay={chat.headless ? chat.headlessTurn.overlay : null}
+            turnPreview={chat.turnPreview}
             activity={chat.activity}
             attribution={chat.attribution}
             expandRuns={chat.expandRuns}

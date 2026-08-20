@@ -30,6 +30,7 @@ import { transcriptComputeClient } from './transcript-compute-client'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
+import type { TurnPreview } from './use-turn-preview'
 
 const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
 
@@ -340,6 +341,7 @@ export function TranscriptFeed({
   onRetractQueued,
   onRetryFailed,
   overlay,
+  turnPreview,
   activity,
   attribution,
   scrollerEpoch = 0,
@@ -387,6 +389,11 @@ export function TranscriptFeed({
   onRetractQueued: (id: string) => Promise<void>
   onRetryFailed?: (text: string) => void
   overlay: HeadlessOverlay | null
+  /** The in-progress half of the open turn (POD-2293) — assistant text still
+   *  being written and tool calls still running, for driver-backed sessions.
+   *  Null for every session that produces no fragments, which is what keeps a
+   *  PTY chat byte-identical to what it renders today. */
+  turnPreview: TurnPreview | null
   activity: ChatActivity | null
   /** The session's three attribution pairs (doc §3.1.3 A3), derived once by the
    *  slice. Each row picks its pair by role; the objects are stable, so the
@@ -852,6 +859,41 @@ export function TranscriptFeed({
             )}
             {overlay.status && (
               <div className="mt-1 text-xs text-muted-foreground italic">{overlay.status}</div>
+            )}
+          </div>
+        </div>
+      )}
+      {/* THE IN-PROGRESS TURN (POD-2293), in the position its durable items will
+          occupy. Each row disappears when the item carrying its identity lands
+          on the transcript plane — the server retires it there, so a row still
+          drawn here is one the transcript genuinely does not have yet.
+
+          Deliberately LIGHTER than the blocks below it: assistant text renders
+          through the same StreamingMarkdown the headless overlay uses, and a
+          running tool is one muted line rather than a ToolBlock. A preview row
+          that looked identical to a finished one would be claiming a result it
+          does not have. */}
+      {turnPreview && turnPreview.items.length > 0 && (
+        <div className="transcript-row" data-turn-preview>
+          <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+          <div className="transcript-body">
+            {turnPreview.items.map((item) =>
+              item.kind === 'text' ? (
+                <StreamingMarkdown
+                  key={item.itemId}
+                  text={item.text}
+                  issueReferences={issueReferences}
+                />
+              ) : (
+                <div
+                  key={item.itemId}
+                  className="mt-1 text-xs text-muted-foreground italic"
+                  data-turn-preview-tool
+                >
+                  {item.item.toolName ?? 'tool'}
+                  {item.item.toolInput ? ` ${item.item.toolInput}` : ''}
+                </div>
+              ),
             )}
           </div>
         </div>

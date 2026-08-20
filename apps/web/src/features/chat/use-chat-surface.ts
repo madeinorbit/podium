@@ -37,6 +37,7 @@ import type { ChatBlock, DeadLetteredChatMessage, PendingItem, QueuedChatMessage
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
+import { type TurnPreview, useTurnPreview } from './use-turn-preview'
 import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
 import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
 
@@ -167,6 +168,10 @@ export interface ChatSurface {
 
   // -- headless superagent routing -------------------------------------------
   headlessTurn: UseHeadlessTurnResult
+  /** The in-progress half of the open turn (POD-2293): text still being written
+   *  and tools still running, for sessions whose driver publishes fragments.
+   *  Null for everyone else — a PTY chat is untouched. */
+  turnPreview: TurnPreview | null
   /** A turn is running: show the stop control. */
   turnActive: boolean
   /** A stop may be attempted: arm the chord and enable the control. */
@@ -419,6 +424,17 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const setBackendEffort = useCallback((effort: string) => {
     setBackendPick((p) => ({ ...p, effort }))
   }, [])
+
+  /**
+   * THE STREAMED TURN (POD-2293), for every session — not only headless ones.
+   *
+   * `useHeadlessTurn` above is the SUPERAGENT thread's overlay and is inert
+   * without one. This is a different plane with a different producer: any
+   * session whose driver publishes fragments, which is every headless RUNTIME
+   * family. A session that publishes none simply never gets a frame, so the
+   * hook costs one idle subscription and renders nothing.
+   */
+  const turnPreview = useTurnPreview(sessionId, hub)
 
   const headlessTurn = useHeadlessTurn({
     sessionId,
@@ -764,6 +780,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     activity,
 
     headlessTurn,
+    turnPreview,
     turnActive,
     canInterrupt,
     interrupt,
