@@ -885,6 +885,40 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
   }
 
   /**
+   * THE ONE CALL TO THE HOST'S PORT, AND THE ONE GUARD AROUND IT
+   * (POD-2297 review, 2).
+   *
+   * `endSession` is the FIRST statement of `stop`/`kill`/`hibernate`, and this
+   * port is not cheap: the daemon's implementation fsyncs a durable outbox, so
+   * ENOSPC, EDQUOT, EIO and a reportId collision all reach here as exceptions.
+   * Letting one propagate would skip `client.close()`, `endpoint.stop()` and the
+   * map deletes that follow — a live `codex app-server` child with nobody holding it,
+   * which is a worse failure than the one being reported — and inside
+   * `dispose()` it would abandon every remaining session mid-loop.
+   *
+   * SWALLOWING IS SAFE HERE, and only because of where the log line lives: the
+   * daemon's adapter writes its `warn` BEFORE it tries to make the report
+   * durable, so a turn whose report cannot be persisted has still been said out
+   * loud. Silence is what this issue closes; the durable correction is the part
+   * that can fail, and the host owns saying so.
+   *
+   * CALLERS HAVE ALREADY GIVEN THE TURNS UP by the time they reach here, so
+   * report-is-the-point-of-no-return holds however this returns.
+   */
+  function reportAbandoned(
+    session: DriverSession,
+    turns: readonly QueuedTurn[],
+    reason: QueueDrainAbandonedReason,
+  ): void {
+    if (turns.length === 0) return
+    try {
+      host.onQueueAbandoned?.({ sessionId: session.sessionId, turns, reason })
+    } catch {
+      // Intentionally terminal: see above.
+    }
+  }
+
+  /**
    * SAY WHAT THIS SESSION IS LOSING (POD-2297).
    *
    * `host.onQueueAbandoned` is the server family's `onDrainAbandoned`, and its
@@ -897,7 +931,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
   function abandonQueue(session: DriverSession, reason: QueueDrainAbandonedReason): void {
     if (session.queue.length === 0) return
     const turns = session.queue.splice(0, session.queue.length)
-    host.onQueueAbandoned?.({ sessionId: session.sessionId, turns, reason })
+    reportAbandoned(session, turns, reason)
   }
 
   /** One turn, already off the queue, that will not be retried by anybody. */
@@ -906,7 +940,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     turn: QueuedTurn,
     reason: QueueDrainAbandonedReason,
   ): void {
-    host.onQueueAbandoned?.({ sessionId: session.sessionId, turns: [turn], reason })
+    reportAbandoned(session, [turn], reason)
   }
 
   /**
@@ -922,6 +956,34 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
   function endSession(session: DriverSession): void {
     session.disposed = true
     abandonQueue(session, 'teardown')
+  }
+
+  /**
+   * REGISTER A SESSION UNDER AN ID, REPORTING WHATEVER IT DISPLACES (POD-2297).
+   *
+   * `sessions.set` is the OTHER way a session stops draining, and the one the
+   * first round of this issue missed. Every `disposed = true` goes through
+   * `endSession`, but `adopt()` does not set `disposed` at all — it builds a
+   * fresh session object and puts it in the map, and when the id is already
+   * there the live object is simply overwritten and garbage-collected with its
+   * queue still in it.
+   *
+   * THAT IS A HOT PATH, NOT A CORNER. The daemon's reattach runs
+   * `adoptServerDriverSession` before any live-session check and a server
+   * reconnect can re-send a hundred reattaches at once, so a browser refresh
+   * was enough to lose nudges parked behind a human's take-over lease — exactly
+   * the loss this issue exists to end, through a door it had left open.
+   *
+   * THE DISPLACED OBJECT IS ENDED, NOT JUST DRAINED. `endSession` also marks it
+   * disposed, which is what stops its own loops reading a session nobody can
+   * reach any more. What it deliberately does NOT do is close the client or the
+   * endpoint: an adopt re-binds the SAME child, and tearing down its transport
+   * here would kill the process the new session is about to speak to.
+   */
+  function registerSession(sessionId: SessionId, session: DriverSession): void {
+    const displaced = sessions.get(sessionId)
+    if (displaced && displaced !== session) endSession(displaced)
+    sessions.set(sessionId, session)
   }
 
   async function drainQueue(session: DriverSession): Promise<void> {
@@ -1888,7 +1950,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       usage: undefined,
       title: undefined,
     }
-    sessions.set(input.sessionId, session)
+    registerSession(input.sessionId, session)
     wire(session, input.connection)
     persist(session)
 

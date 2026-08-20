@@ -897,8 +897,17 @@ export type RuntimeFineEvent = z.infer<typeof RuntimeFineEvent>
 export const RuntimeSendRequestMessage = z.object({
   type: z.literal('runtimeSendRequest'),
   requestId: z.string(),
-  /** Stable delivery identity, distinct from the one-shot RPC correlation id. */
-  turnId: z.string(),
+  /**
+   * Stable delivery identity, distinct from the one-shot RPC correlation id.
+   *
+   * `.min(1)` because the EMPTY STRING is not an identity (POD-2297 review, 5).
+   * A driver that loses this turn reports it by id, and the abandonment frame
+   * requires ids of `.min(1)` — so an empty one would be wire-legal on the way
+   * in and unreportable on the way out, landing the turn in the log-only bucket
+   * with no receipt correction. Nothing emits one today; this closes the door
+   * rather than relying on that staying true.
+   */
+  turnId: z.string().min(1),
   sessionId: z.string().min(1).pipe(SessionIdField),
   text: z.string(),
   origin: ObservationInputOrigin,
@@ -1087,10 +1096,19 @@ export type RuntimeSendResultMessage = z.infer<typeof RuntimeSendResultMessage>
  *                      gone or refused it (POD-2297). Distinct from `teardown`
  *                      because nobody tore anything down: the turn was attempted.
  *
- * WIDENING THIS ENUM IS A ROLLING-UPGRADE EVENT. A server too old to parse a new
- * arm rejects the frame, and the daemon's outbox then replays it forever — which
- * is the same shape as an offline server and heals on upgrade, but it is the cost
- * to weigh before adding a fourth.
+ * WIDENING THIS ENUM IS A ROLLING-UPGRADE EVENT, AND THE COST IS NOT THE ONE AN
+ * EARLIER DRAFT OF THIS COMMENT CLAIMED (POD-2297 review, 4). A NEW daemon
+ * against an OLD server is the only arm that produces it, and it is NOT the same
+ * shape as an offline server: offline, `scheduleQueueDrainRetry` returns early on
+ * `state !== 'connected'` and nothing is re-sent at all. Connected-but-too-old,
+ * the server drops the unparseable frame with a warn and NO ack, so the daemon
+ * re-sends the ENTIRE pending outbox every 500ms forever — no backoff, no cap —
+ * and every enqueue and every ack rewrites the whole JSON file with two fsyncs,
+ * so the per-abandonment cost grows with the stuck set. Other frames are not
+ * starved (replay interleaves on the same socket) and an unparseable frame does
+ * not tear down the connection, so this cannot become a reconnect loop. Bounding
+ * that outbox is POD-2499; it is not a reason to avoid a fourth arm, but it is
+ * the real bill for one.
  */
 export const QueueDrainAbandonedReason = z.enum(['never-live', 'teardown', 'delivery-failed'])
 export type QueueDrainAbandonedReason = z.infer<typeof QueueDrainAbandonedReason>

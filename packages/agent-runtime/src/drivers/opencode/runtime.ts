@@ -243,6 +243,20 @@ interface DriverSession {
    *  Bounded by the session's message count, which is what the transcript is. */
   messages: Map<string, OpencodeMessageInfo>
   queue: QueuedTurn[]
+  /**
+   * THREE PROBES PROVED THE SERVER GONE, AND NOTHING WILL DRAIN THIS AGAIN
+   * (POD-2297 review, 3).
+   *
+   * SEPARATE FROM `disposed` on purpose. Disposal is the handle owner's call and
+   * the corroborated-death path deliberately does not make it — but `consume()`
+   * has returned for good by then, so no later drain and no later abandonment
+   * can happen either. Without this flag `send` still answered `queued` to every
+   * turn that arrived afterwards, promising a delivery from a queue the driver
+   * had already declared dead and reported. grok reaches the same guarantee
+   * through `endpoint.alive()`; this family has no such probe on the hot path,
+   * so it records the verdict it already reached.
+   */
+  serverGone: boolean
   lease: SessionLease | null
   draft: string
   watchers: { coarse: number; fine: number }
@@ -826,6 +840,9 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
          * holds a `queued` receipt that POD-2291 made the ledger's last word.
          * Waiting for a teardown that may never come is how they vanished.
          */
+        // Ordered before the report so nothing racing this can slip a fresh
+        // turn into a queue that is already being given up.
+        session.serverGone = true
         abandonQueue(session, 'teardown')
         return
       }
@@ -934,6 +951,40 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   }
 
   /**
+   * THE ONE CALL TO THE HOST'S PORT, AND THE ONE GUARD AROUND IT
+   * (POD-2297 review, 2).
+   *
+   * `endSession` is the FIRST statement of `stop`/`kill`/`hibernate`, and this
+   * port is not cheap: the daemon's implementation fsyncs a durable outbox, so
+   * ENOSPC, EDQUOT, EIO and a reportId collision all reach here as exceptions.
+   * Letting one propagate would skip `client.close()`, `endpoint.stop()` and the
+   * map deletes that follow — a live `opencode serve` child with nobody holding it,
+   * which is a worse failure than the one being reported — and inside
+   * `dispose()` it would abandon every remaining session mid-loop.
+   *
+   * SWALLOWING IS SAFE HERE, and only because of where the log line lives: the
+   * daemon's adapter writes its `warn` BEFORE it tries to make the report
+   * durable, so a turn whose report cannot be persisted has still been said out
+   * loud. Silence is what this issue closes; the durable correction is the part
+   * that can fail, and the host owns saying so.
+   *
+   * CALLERS HAVE ALREADY GIVEN THE TURNS UP by the time they reach here, so
+   * report-is-the-point-of-no-return holds however this returns.
+   */
+  function reportAbandoned(
+    session: DriverSession,
+    turns: readonly QueuedTurn[],
+    reason: QueueDrainAbandonedReason,
+  ): void {
+    if (turns.length === 0) return
+    try {
+      host.onQueueAbandoned?.({ sessionId: session.sessionId, turns, reason })
+    } catch {
+      // Intentionally terminal: see above.
+    }
+  }
+
+  /**
    * SAY WHAT THIS SESSION IS LOSING (POD-2297).
    *
    * `host.onQueueAbandoned` is the server family's `onDrainAbandoned`, and its
@@ -945,7 +996,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   function abandonQueue(session: DriverSession, reason: QueueDrainAbandonedReason): void {
     if (session.queue.length === 0) return
     const turns = session.queue.splice(0, session.queue.length)
-    host.onQueueAbandoned?.({ sessionId: session.sessionId, turns, reason })
+    reportAbandoned(session, turns, reason)
   }
 
   /** One turn, already off the queue, that will not be retried by anybody. */
@@ -954,7 +1005,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     turn: QueuedTurn,
     reason: QueueDrainAbandonedReason,
   ): void {
-    host.onQueueAbandoned?.({ sessionId: session.sessionId, turns: [turn], reason })
+    reportAbandoned(session, [turn], reason)
   }
 
   /**
@@ -966,6 +1017,34 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   function endSession(session: DriverSession): void {
     session.disposed = true
     abandonQueue(session, 'teardown')
+  }
+
+  /**
+   * REGISTER A SESSION UNDER AN ID, REPORTING WHATEVER IT DISPLACES (POD-2297).
+   *
+   * `sessions.set` is the OTHER way a session stops draining, and the one the
+   * first round of this issue missed. Every `disposed = true` goes through
+   * `endSession`, but `adopt()` does not set `disposed` at all — it builds a
+   * fresh session object and puts it in the map, and when the id is already
+   * there the live object is simply overwritten and garbage-collected with its
+   * queue still in it.
+   *
+   * THAT IS A HOT PATH, NOT A CORNER. The daemon's reattach runs
+   * `adoptServerDriverSession` before any live-session check and a server
+   * reconnect can re-send a hundred reattaches at once, so a browser refresh
+   * was enough to lose nudges parked behind a human's take-over lease — exactly
+   * the loss this issue exists to end, through a door it had left open.
+   *
+   * THE DISPLACED OBJECT IS ENDED, NOT JUST DRAINED. `endSession` also marks it
+   * disposed, which is what stops its own loops reading a session nobody can
+   * reach any more. What it deliberately does NOT do is close the client or the
+   * endpoint: an adopt re-binds the SAME child, and tearing down its transport
+   * here would kill the process the new session is about to speak to.
+   */
+  function registerSession(sessionId: SessionId, session: DriverSession): void {
+    const displaced = sessions.get(sessionId)
+    if (displaced && displaced !== session) endSession(displaced)
+    sessions.set(sessionId, session)
   }
 
   async function drainQueue(session: DriverSession): Promise<void> {
@@ -1119,6 +1198,13 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (session.disposed) return refuse('not_running')
+        // The server is gone and the queue that would have held this has already
+        // been reported abandoned (POD-2297 review, 3). Answering `queued` here
+        // would hand out the very promise this issue exists to stop making —
+        // and this time nothing is left running that could ever break it aloud.
+        if (session.serverGone) {
+          return refuse('not_running', 'the opencode server for this session is gone')
+        }
         await refreshInteractions(session)
         // ORDER MATTERS AND IS NOT ARBITRARY. An open ask blocks EVERY delivery,
         // including a queue, because the session is stopped waiting for a human
@@ -1583,6 +1669,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       answered: new Set(),
       messages: new Map(),
       queue: [],
+      serverGone: false,
       lease: null,
       draft: '',
       watchers: { coarse: 0, fine: 0 },
@@ -1593,7 +1680,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       disposed: false,
       idleWaiters: new Set(),
     }
-    sessions.set(input.sessionId, session)
+    registerSession(input.sessionId, session)
     persist(session)
     consume(session)
 

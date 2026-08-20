@@ -26,6 +26,9 @@ export interface OpencodeTestHostOptions {
   hostsClientTerminals?: boolean
   /** Hear the turns this driver accepted and will never deliver (POD-2297). */
   onQueueAbandoned?: OpencodeRuntimeHost['onQueueAbandoned']
+  /** Let `adopt()` return the LIVE endpoint for a matching process key, as the
+   *  daemon's host does — needed to drive an adopt over a live session. */
+  adoptsLiveEndpoint?: boolean
 }
 
 /** The host, plus a handle on the fake servers it started — a test that wants to
@@ -37,6 +40,7 @@ export type OpencodeTestHost = OpencodeRuntimeHost & {
 export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): OpencodeTestHost {
   const servers: FakeOpencodeServer[] = []
   const bySession = new Map<SessionId, FakeOpencodeServer>()
+  const endpoints = new Map<SessionId, OpencodeServerEndpoint>()
   const entries = new Map<SessionId, Parameters<OpencodeRuntimeHost['journal']['write']>[0]>()
   let seq = 0
 
@@ -65,14 +69,24 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
         },
         resources: () => undefined,
       }
+      endpoints.set(input.sessionId, endpoint)
       return endpoint
     },
 
-    // Nothing in the driver-level tests restarts a supervisor; a host that
-    // answered anything here would be describing a capability these tests do not
-    // exercise.
-    async adopt() {
-      return undefined
+    /**
+     * ADOPT THE LIVE ENDPOINT, which is what the daemon's host does for a
+     * matching process key — and what makes the adopt-over-LIVE journey
+     * reachable from a driver-level test (POD-2297 review, 1).
+     *
+     * Off by default: most driver-level tests never restart a supervisor, and a
+     * host that always answered here would be describing a capability they do
+     * not exercise. `adoptsLiveEndpoint` turns it on for the tests that do.
+     */
+    async adopt(binding) {
+      if (!options.adoptsLiveEndpoint) return undefined
+      const endpoint = endpoints.get(binding.sessionId)
+      if (!endpoint || endpoint.process.key !== binding.process.key) return undefined
+      return endpoint
     },
 
     async attachClient(input) {

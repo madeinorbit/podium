@@ -41,6 +41,10 @@ interface World {
   /** Every `onQueueAbandoned` the driver raised, in order (POD-2297). */
   abandonments: { turnIds: (string | undefined)[]; reason: string }[]
   events(): RuntimeEvent[]
+  /** Re-adopt the session from its journal, as the daemon's reattach does. */
+  adopt(): Promise<AgentSessionHandle>
+  /** Make the NEXT `onQueueAbandoned` throw, as an fsync-backed host can. */
+  failNextAbandonment(): void
   dispose(): void
 }
 
@@ -49,6 +53,7 @@ async function world(): Promise<World> {
   const entries = new Map<SessionId, CodexJournalEntry>()
   const authReports: World['authReports'] = []
   const abandonments: World['abandonments'] = []
+  let failAbandonment = false
   const attachedAddresses: string[] = []
   let seq = 0
   let launches = 0
@@ -124,6 +129,12 @@ async function world(): Promise<World> {
       detached += 1
     },
     onQueueAbandoned: ({ turns, reason }) => {
+      if (failAbandonment) {
+        failAbandonment = false
+        // What an fsync-backed outbox raises: ENOSPC, EDQUOT, EIO, or an
+        // outright throw on a reportId collision.
+        throw new Error('ENOSPC: no space left on device, write')
+      }
       abandonments.push({ turnIds: turns.map((turn) => turn.input.id), reason })
     },
   }
@@ -160,6 +171,10 @@ async function world(): Promise<World> {
     authReports,
     abandonments,
     events: () => [...collected],
+    adopt: () => runtime.driver.adopt(handle.binding),
+    failNextAbandonment: () => {
+      failAbandonment = true
+    },
     dispose: () => runtime.dispose(),
   }
 }
@@ -696,3 +711,78 @@ describe('a queue this driver loses says so — POD-2297', () => {
     expect(w.abandonments).toEqual([{ turnIds: ['once'], reason: 'teardown' }])
   })
 })
+
+describe('a session adopted OVER a live one takes its queue with it — POD-2297 review, 1', () => {
+  it('reports the displaced queue instead of overwriting it into the garbage collector', async () => {
+    /**
+     * `adopt()` never sets `disposed`, so it never reached `endSession`: it built
+     * a fresh session object and `sessions.set` overwrote the live one, whose
+     * queue was collected in silence. The daemon's reattach runs
+     * `adoptServerDriverSession` BEFORE any live-session check and a reconnect
+     * can re-send a hundred reattaches, so a browser refresh was enough.
+     */
+    const w = await world()
+    await w.handle.lease.acquire('operator', 'human-controller')
+    const parked = await w.handle.send(
+      { id: 'nudge-adopted-away', text: 'land after the takeover' },
+      { origin: 'steward', delivery: 'when-ready' },
+    )
+    expect(parked.outcome).toBe('queued')
+
+    await w.adopt()
+
+    expect(w.abandonments).toEqual([{ turnIds: ['nudge-adopted-away'], reason: 'teardown' }])
+    w.dispose()
+  })
+
+  it('says nothing when the session it displaces had an empty queue', async () => {
+    // The common reattach. A report here would put a durable frame on the
+    // daemon's outbox for every reconnect in the fleet.
+    const w = await world()
+    await w.adopt()
+    expect(w.abandonments).toEqual([])
+    w.dispose()
+  })
+})
+
+describe('a throwing report does not leak the child — POD-2297 review, 2', () => {
+  it('still stops the endpoint when the host port throws', async () => {
+    /**
+     * `endSession` is the FIRST statement of `stop`/`kill`/`hibernate`, and the
+     * daemon's port fsyncs a durable outbox — ENOSPC, EDQUOT, EIO and a reportId
+     * collision all arrive here as exceptions. Before the guard, one of those
+     * skipped `detachClient`, `client.close()`, `endpoint.stop()` and both map
+     * deletes: a live `codex app-server` with nobody holding it, which is a
+     * worse failure than the one being reported.
+     */
+    const w = await world()
+    await w.handle.lease.acquire('operator', 'human-controller')
+    await w.handle.send({ id: 'boom', text: 'x' }, { origin: 'steward', delivery: 'when-ready' })
+    w.failNextAbandonment()
+
+    await expect(w.handle.stop()).resolves.toBeUndefined()
+
+    // The child was stopped and the session unregistered — the teardown ran to
+    // the end despite the port throwing on its way through.
+    expect(w.counts().stopped).toBe(1)
+    expect(w.counts().detached).toBe(1)
+    w.dispose()
+  })
+
+  it('does not retain the turns a failed report was carrying', async () => {
+    // `abandonQueue` splices BEFORE calling the port, so the turns are gone
+    // whether or not the report lands. A queue that kept them could deliver, on
+    // a later drain, words the ledger may already have recorded as undelivered.
+    const w = await world()
+    await w.handle.lease.acquire('operator', 'human-controller')
+    await w.handle.send({ id: 'boom', text: 'x' }, { origin: 'steward', delivery: 'when-ready' })
+    w.failNextAbandonment()
+    await w.handle.stop()
+
+    // The throwing call consumed them; the dispose that follows finds nothing
+    // left to report rather than reporting them a second time.
+    w.dispose()
+    expect(w.abandonments).toEqual([])
+  })
+})
+

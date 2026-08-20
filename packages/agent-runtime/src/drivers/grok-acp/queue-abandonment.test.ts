@@ -195,3 +195,43 @@ describe('a queue this driver loses says so — POD-2297', () => {
     }
   })
 })
+
+describe('a session adopted OVER a live one takes its queue with it — POD-2297 review, 1', () => {
+  it('reports the displaced queue instead of overwriting it into the garbage collector', async () => {
+    /**
+     * Same hole as the other two families and reachable the same way: `adopt()`
+     * builds a fresh session object and `sessions.set` overwrote the live one,
+     * with nothing setting `disposed` and so nothing reaching `endSession`. The
+     * daemon's reattach runs before any live-session check.
+     */
+    const w = world()
+    const runtime = createGrokAcpRuntime(w.host)
+    try {
+      const handle = await runtime.driver.create(spec())
+      await handle.lease.acquire('operator', 'human-controller')
+      const parked = await handle.send(
+        { id: 'nudge-adopted-away', text: 'land after the takeover' },
+        { origin: 'steward', delivery: 'when-ready' },
+      )
+      expect(parked.outcome).toBe('queued')
+
+      await runtime.driver.adopt(handle.binding)
+
+      expect(w.reports).toEqual([{ turnIds: ['nudge-adopted-away'], reason: 'teardown' }])
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('says nothing when the session it displaces had an empty queue', async () => {
+    const w = world()
+    const runtime = createGrokAcpRuntime(w.host)
+    try {
+      const handle = await runtime.driver.create(spec())
+      await runtime.driver.adopt(handle.binding)
+      expect(w.reports).toEqual([])
+    } finally {
+      runtime.dispose()
+    }
+  })
+})
