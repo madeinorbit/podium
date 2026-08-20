@@ -35,7 +35,7 @@ function world() {
     nativeClientRequests: new Set(),
     nativeClientTransitions: new Map(),
     pendingResizes: new Map(),
-    opencodeRuntime: { handleFor: (id: string) => (id === SESSION ? handle : undefined) },
+    agentRuntime: { handleFor: (id: string) => (id === SESSION ? handle : undefined) },
     bridges: new Map(),
     observers: { recordInputOrigin: vi.fn() },
     composerEngine: { onInputByte: vi.fn(), onResize: vi.fn() },
