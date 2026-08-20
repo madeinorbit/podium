@@ -47,7 +47,6 @@ function harness(
     /** Receipts the fake contract port answers with, in order; when omitted
      *  entirely the port itself is absent (the bare-fixture shape). */
     contractReceipts?: TurnReceipt[]
-    phase?: string
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []

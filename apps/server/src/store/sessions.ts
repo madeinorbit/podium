@@ -129,7 +129,7 @@ export class SessionsRepository {
   private readSessions(where: string, ...params: SqlParam[]): SessionRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, owner_user_id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
+        `SELECT id, owner_user_id, agent_kind, model, effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,
                 resume_kind,
                 resume_value, selected_driver_id, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
