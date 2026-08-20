@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import type { RefusalReason } from '@podium/agent-runtime'
 import {
   bindHarnessLaunch,
   agentStateProviderFor,
@@ -11,7 +12,13 @@ import {
   manifestFor,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import { type AgentKind, asMachineId, type Geometry, type SessionId } from '@podium/model'
+import {
+  type AgentKind,
+  type AgentRuntimeState,
+  asMachineId,
+  type Geometry,
+  type SessionId,
+} from '@podium/model'
 import {
   type AgentSession,
   abducoHasSession,
@@ -59,12 +66,127 @@ const log = createLogger('daemon:session')
 
 const nativeClientHolder = (sessionId: SessionId): string => `podium-native:${sessionId}`
 
+/**
+ * THE REFUSALS THAT CLEAR ON THEIR OWN (POD-2489).
+ *
+ * A take-over attach is a single-writer handoff, and codex refuses it outright
+ * while a turn is open or an ask is unanswered: `busy` and `needs_user` are the
+ * driver saying NOT RIGHT NOW, not NOT EVER. The reconcile below used to treat
+ * every refusal alike and return, and nothing rescheduled it — so a user who
+ * opened Native mid-turn had the request dropped on the floor, and only toggling
+ * to Chat and back made the view ask again.
+ *
+ * EVERY OTHER REFUSAL STAYS TERMINAL, and the distinction is not a severity
+ * ranking. `unsupported` and `not_running` are standing facts about this machine
+ * and this session; `session_ended` is final; `lease_held` names SOMEBODY ELSE as
+ * the one human-controller, and retrying against it is precisely the interleaving
+ * the lease exists to prevent. Only a refusal the session itself will stop
+ * issuing is worth re-arming.
+ */
+const TRANSIENT_ATTACH_REFUSALS: ReadonlySet<RefusalReason> = new Set(['busy', 'needs_user'])
+
+/**
+ * How many transient refusals one Native request may spend.
+ *
+ * The retry is armed by a STATE CHANGE, not a timer, so this bound is not about
+ * pacing — it is what stops a session flapping between idle and working from
+ * re-attempting the handoff forever. Leaving Native clears the count (see the
+ * release arm below), so the user's own toggle is always a fresh start.
+ */
+const NATIVE_ATTACH_RETRY_LIMIT = 3
+
+/**
+ * A REFUSED NATIVE REQUEST, RE-ARMED BY THE SESSION'S OWN STATE (POD-2489).
+ *
+ * Called for every `agentState` frame this daemon emits, from the outbound sink
+ * in `frame-sink.ts` — the same tap the terminal driver reads, and for the same
+ * reason: the frame is already computed and already carries the fact, so a second
+ * observer channel would only be a second thing to keep in sync. A session with
+ * no refused request costs one map lookup here.
+ *
+ * THE TRIGGER SURFACE IS `idle`, AND SAYING SO PRECISELY MATTERS, because the two
+ * transient refusals do not reach it by the same route.
+ *
+ *   `busy` — the ordinary case. The turn ends, codex emits its state change, the
+ *   phase is `idle`, and the retry fires. This is the path the bug report
+ *   describes and the one the tests drive.
+ *
+ *   `needs_user` — NOT reachable from a state frame, and this is a real limit
+ *   rather than an oversight. A session with an open ask reports the phase
+ *   `needs_user`, which is the refusal restated and is dropped here; and codex's
+ *   `closeAsk()` emits no state event at all, so the ask-being-answered — the very
+ *   transition that would let the take-over win — produces no frame to observe
+ *   (POD-2494, pre-existing). That arm is re-armed by
+ *   {@link nativeClientInteractionAnswered} instead, off the causal `answered`
+ *   event — which the driver DOES emit, and which reaches the same sink.
+ *
+ * `working` and `compacting` are likewise the refusal restated: spending one of a
+ * small budget on either would burn it before the session reached the phase that
+ * clears it. `ended` cannot be honoured at all, so the request is dropped rather
+ * than spending an attempt proving it.
+ *
+ * `errored` IS DELIBERATELY NOT HERE. It looks like it belongs — a failed turn is
+ * a turn that is over — but only codex's `attach()` can refuse transiently, so
+ * only a codex session can ever be in this map, and the codex driver never
+ * assigns that phase (opencode is the only driver that does, and its attach
+ * refuses only `lease_held`/`unsupported`). An arm no reachable session can take
+ * is not caution, it is a comment that lies.
+ *
+ * THE RETRY GOES THROUGH THE RECONCILE, never around it — so it re-reads the
+ * request set (the user may have left Native since), takes the lease through the
+ * same `attach` call, and serializes against any in-flight transition.
+ */
+export function nativeClientStateObserved(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  state: AgentRuntimeState,
+): void {
+  const retries = ctx.nativeClientRetries
+  if (!retries?.has(sessionId)) return
+  if (state.phase === 'ended') {
+    retries.delete(sessionId)
+    return
+  }
+  if (state.phase !== 'idle') return
+  reconcileNativeClientTerminal(ctx, sessionId)
+}
+
+/**
+ * THE OTHER HALF OF THE TRIGGER SURFACE (POD-2489): an ask that just got answered.
+ *
+ * Opening Native to answer a prompt is the most natural thing a person does with
+ * the native TUI, and it is exactly the request codex refuses — `needs_user`,
+ * because an unanswered ask blocks the single-writer handoff. Left to state
+ * frames alone that arm was inert: the phase while the ask is open IS
+ * `needs_user`, and the STATE transition out of it emits nothing (POD-2494).
+ *
+ * THE CAUSAL STREAM CARRIES WHAT THE STATE STREAM DROPPED. `closeAsk()` does emit
+ * `{t:'interaction', ev:'answered'}`, and that event crosses the same outbound
+ * sink as the state frames — so the fact was always there, just not in the frame
+ * the other tap reads. Hanging the re-arm off the event rather than off the
+ * daemon's own `answer` verb also covers the answers the daemon never issued: a
+ * policy or the superagent resolving an ask clears the block just as well.
+ *
+ * Costs one map lookup for a session that is owed nothing.
+ */
+export function nativeClientInteractionAnswered(ctx: DaemonContext, sessionId: SessionId): void {
+  if (ctx.nativeClientRetries?.has(sessionId)) reconcileNativeClientTerminal(ctx, sessionId)
+}
+
 /** Reconcile one server-family session's on-demand original harness TUI. */
 export function reconcileNativeClientTerminal(ctx: DaemonContext, sessionId: SessionId): void {
   const requests = (ctx.nativeClientRequests ??= new Set<SessionId>())
   const transitions = (ctx.nativeClientTransitions ??= new Map<SessionId, Promise<void>>())
   if (transitions.has(sessionId)) return
   let applied: boolean | undefined
+  /**
+   * A REFUSAL RETURNS WITHOUT SETTING `applied`, so the `.finally` re-run guard
+   * below declines and a request the user cancelled DURING a refusing attach
+   * leaves its map entry behind. It self-heals: the entry is only ever read by
+   * the two re-arm functions above, both of which route into this reconcile,
+   * which re-reads the request set and takes the release arm. The same window
+   * used to leave the lease unreleased with nothing to notice.
+   */
   const transition = (async () => {
     for (;;) {
       const wanted = requests.has(sessionId)
@@ -76,18 +198,35 @@ export function reconcileNativeClientTerminal(ctx: DaemonContext, sessionId: Ses
           holder: nativeClientHolder(sessionId),
         })
         if ('reason' in result) {
+          const retries = (ctx.nativeClientRetries ??= new Map<SessionId, number>())
+          const spent = (retries.get(sessionId) ?? 0) + 1
+          const rearmed =
+            TRANSIENT_ATTACH_REFUSALS.has(result.reason) && spent <= NATIVE_ATTACH_RETRY_LIMIT
+          if (rearmed) retries.set(sessionId, spent)
+          else retries.delete(sessionId)
           log.warn('could not attach the native client terminal', {
             sessionId,
             reason: result.reason,
             detail: result.detail,
+            // The request is still live: the session's next attachable state
+            // change re-runs this reconcile. `false` is the old behaviour and
+            // now means what it says — nobody is coming back for this one.
+            rearmed,
+            ...(rearmed ? { attempt: spent } : {}),
           })
           return
         }
+        // Attached: the request is honoured, so nothing is owed a retry.
+        ctx.nativeClientRetries?.delete(sessionId)
         const pending = ctx.pendingResizes.get(sessionId)
         if (pending && ctx.clientTerminals?.resize(sessionId, pending.cols, pending.rows)) {
           ctx.pendingResizes.delete(sessionId)
         }
       } else {
+        // LEAVING NATIVE RETIRES A PENDING RETRY. The bounded re-arm above exists
+        // to honour a request the user still has open; firing it after they went
+        // back to Chat would take the lease behind their back.
+        ctx.nativeClientRetries?.delete(sessionId)
         // The stock TUI owns a direct WebSocket to the Codex Unix listener.
         // Releasing the lease must revoke that writer before another client can
         // take control; leaving it warm would let queued keystrokes bypass the
@@ -1337,6 +1476,9 @@ export function stopSessionProcess(
   ctx.agentRuntime?.clearTerminal(msg.sessionId)
   ctx.pendingResizes.delete(msg.sessionId)
   ctx.nativeClientRequests?.delete(msg.sessionId)
+  // The request is gone, so the retry it was owed is too — there is no session
+  // left to become idle, and a stale entry would outlive the id.
+  ctx.nativeClientRetries?.delete(msg.sessionId)
   void ctx.clientTerminals?.close(msg.sessionId)
   if (session) {
     session.dispose()

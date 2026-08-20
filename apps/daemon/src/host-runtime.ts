@@ -48,6 +48,7 @@ import {
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
+import { createFrameSink } from './frame-sink'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createGitRunner } from './git-runner'
@@ -151,22 +152,38 @@ export async function createDaemonHostRuntime(args: {
   let codexRuntime: DaemonCodexRuntime | undefined
   let grokRuntime: DaemonGrokRuntime | undefined
   let agentRuntime: DaemonMachineRuntime | undefined
+  /**
+   * The context, once it exists, for the frame sink below. Declared here for the
+   * same reason the four runtimes above are: `send` is built before the context
+   * its own consumers need, and the assignment that closes the cycle is at the
+   * bottom of the wiring, beside `ctx.agentRuntime`.
+   *
+   * THE SINK FAILS OPEN ACROSS THAT WINDOW — a frame sent before this is assigned
+   * goes upstream untapped rather than throwing. That is safe today because the
+   * only `await` in between is `buildMachineInventory` and no session is bound
+   * yet, but it is safe by ARRANGEMENT, not by construction: anything that binds
+   * or adopts a session above the assignment would silently lose the native-attach
+   * re-arm for it. Keep the assignment as early as the wiring allows.
+   */
+  let context: DaemonContext | undefined
   const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
   /**
-   * Every outbound daemon frame, past the driver's observation tap.
+   * Every outbound daemon frame, past both observation taps.
    *
-   * TWO PROPERTIES THIS WRAPPER HAS TO KEEP. It must not recurse — the driver
-   * emits `runtimeEvent` frames THROUGH here, so those are the one type the tap
-   * skips. And it must cost nothing when the flag is off: with no registry the
-   * optional call is a null check, and with a registry but no flagged session the
-   * tap returns on a map lookup.
+   * THE SINK ITSELF LIVES IN `frame-sink.ts`, with its own test, because the taps
+   * it applies are load-bearing and an anonymous closure here was reachable only
+   * by booting the daemon — see that file's header. The properties it keeps are
+   * stated there: it must not recurse on the driver's own `runtimeEvent` output,
+   * and it must cost nothing when nothing is listening.
+   *
+   * The ports are read PER FRAME rather than captured, because the runtime and
+   * the context are both built below this line.
    */
-  const send = (message: DaemonMessage): void => {
-    if (message.type !== 'runtimeEvent' && message.type !== 'runtimeFineEvent') {
-      agentRuntime?.observe(message)
-    }
-    sendUpstream(message)
-  }
+  const send = createFrameSink({
+    upstream: sendUpstream,
+    runtime: () => agentRuntime,
+    context: () => context,
+  })
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const backend = selectDurableBackend(opts)
@@ -552,6 +569,7 @@ export async function createDaemonHostRuntime(args: {
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     nativeClientRequests: new Set<SessionId>(),
     nativeClientTransitions: new Map<SessionId, Promise<void>>(),
+    nativeClientRetries: new Map<SessionId, number>(),
     composerEngine,
     outputScheduler,
     observers,
@@ -727,6 +745,9 @@ export async function createDaemonHostRuntime(args: {
       (await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })).inventory,
   })
   ctx.agentRuntime = agentRuntime
+  // Closes the cycle the `let context` declaration above describes. Nothing that
+  // binds a session may move above this line — see that comment.
+  context = ctx
 
   const frameGuard = createFrameGuard(ctx)
 

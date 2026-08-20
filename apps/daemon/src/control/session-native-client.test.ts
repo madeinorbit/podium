@@ -1,11 +1,21 @@
-import { asSessionId } from '@podium/model'
+import { type AgentPhase, type AgentRuntimeState, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
-import { sessionHandlers } from './session'
+import {
+  nativeClientInteractionAnswered,
+  nativeClientStateObserved,
+  sessionHandlers,
+} from './session'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
+/** Every transient refusal these tests drive is one only codex can issue. */
+const CODEX = 'codex-app-server' as const
 
-function world() {
+/**
+ * The driver matters: the release arm below branches on it, and only codex can
+ * issue the `busy`/`needs_user` refusals the retry tests drive.
+ */
+function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server') {
   const attach = vi.fn(async () => ({
     kind: 'client' as const,
     placement: 'on-machine' as const,
@@ -25,7 +35,7 @@ function world() {
     reclaimUnwatched: vi.fn(async () => 0),
   }
   const handle = {
-    binding: { family: 'server', driver: 'opencode-server' },
+    binding: { family: 'server', driver },
     attach,
     lease: { release },
   }
@@ -44,6 +54,28 @@ function world() {
     composerEngine: { onInputByte: vi.fn(), onResize: vi.fn() },
   } as unknown as DaemonContext
   return { ctx, attach, release, clientTerminals }
+}
+
+/** The frame the daemon already emits on every phase change, as this session. */
+const stateOf = (phase: AgentPhase): AgentRuntimeState => ({
+  phase,
+  since: '2026-08-20T00:00:00.000Z',
+  nativeSubagentCount: 0,
+})
+
+/** Let the in-flight attach/release transition finish before asserting on what
+ *  it recorded — the reconcile calls `attach()` before it takes its own slot. */
+const settled = (ctx: DaemonContext) =>
+  vi.waitFor(() => expect(ctx.nativeClientTransitions?.size).toBe(0))
+
+/** Open Native on this session, exactly as the browser's view switch does. */
+function openNative(ctx: DaemonContext, nativeView = true): void {
+  sessionHandlers.sessionPriority(ctx, {
+    type: 'sessionPriority',
+    sessionId: SESSION,
+    priority: 0,
+    nativeView,
+  })
 }
 
 describe('server-family native client control', () => {
@@ -104,5 +136,141 @@ describe('server-family native client control', () => {
       inputOrigin: 'human',
     })
     expect(clientTerminals.input).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * THE DROPPED REQUEST (POD-2489). Codex hands its single writer to the native
+ * TUI only while idle, so opening Native mid-turn is refused with `busy` — and
+ * every refusal used to end the reconcile with nothing scheduled to come back.
+ * The user got a dark view until they toggled to Chat and back.
+ */
+describe('a native attach the session refused', () => {
+  it('re-attaches on its own once the turn ends', async () => {
+    const { ctx, attach, clientTerminals } = world(CODEX)
+    attach.mockResolvedValueOnce({ reason: 'busy', detail: 'a turn is open' } as never)
+
+    openNative(ctx)
+    await settled(ctx)
+    expect(attach).toHaveBeenCalledTimes(1)
+    expect(clientTerminals.viewers).toHaveBeenLastCalledWith(SESSION, true)
+    // Refused, but owed: the request is still live and recorded as such.
+    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+
+    // Mid-turn states are the refusal restated — spending the small budget on
+    // them would exhaust it before the session ever became attachable. `errored`
+    // and `unknown` are not retried either: only a codex session can be in this
+    // map, and the codex driver assigns neither phase, so an arm for them would
+    // be a claim no reachable session can take.
+    for (const phase of ['working', 'compacting', 'needs_user', 'errored', 'unknown'] as const) {
+      nativeClientStateObserved(ctx, SESSION, stateOf(phase))
+    }
+    expect(attach).toHaveBeenCalledTimes(1)
+    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+
+    // The turn ends. NO USER ACTION: the same frame the badge already rides.
+    nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
+    await settled(ctx)
+    expect(attach).toHaveBeenCalledTimes(2)
+    expect(attach).toHaveBeenLastCalledWith({
+      mode: 'takeover',
+      holder: `podium-native:${SESSION}`,
+    })
+    // Attached: nothing is owed, so a later idle does not re-attach.
+    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
+    expect(attach).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a refusal that will not clear on its own', async () => {
+    const { ctx, attach } = world(CODEX)
+    attach.mockResolvedValue({ reason: 'lease_held', detail: 'held by someone else' } as never)
+
+    openNative(ctx)
+    await settled(ctx)
+    expect(attach).toHaveBeenCalledTimes(1)
+    // `lease_held` names another human-controller: retrying against it is the
+    // interleaving the lease exists to prevent. Same for a machine that cannot
+    // host a client terminal at all.
+    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+
+    nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
+    nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
+    expect(attach).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives up after a bounded number of transient refusals', async () => {
+    const { ctx, attach } = world(CODEX)
+    attach.mockResolvedValue({ reason: 'busy' } as never)
+
+    openNative(ctx)
+    await settled(ctx)
+    // A session flapping between idle and working must not re-attempt the
+    // handoff forever — the retry is armed by state changes, not a timer.
+    for (let i = 0; i < 10; i += 1) {
+      nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
+      await settled(ctx)
+    }
+    expect(attach).toHaveBeenCalledTimes(4)
+    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+  })
+
+  it('drops the pending retry when the user goes back to Chat', async () => {
+    const { ctx, attach, release } = world(CODEX)
+    attach.mockResolvedValueOnce({ reason: 'needs_user' } as never)
+
+    openNative(ctx)
+    await settled(ctx)
+    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+
+    openNative(ctx, false)
+    await vi.waitFor(() => expect(release).toHaveBeenCalledWith(`podium-native:${SESSION}`))
+    // Firing the retry now would take the lease behind the user's back.
+    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
+    expect(attach).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-arms a needs_user refusal off the answer, not off a state frame', async () => {
+    const { ctx, attach } = world(CODEX)
+    attach.mockResolvedValueOnce({ reason: 'needs_user' } as never)
+
+    openNative(ctx)
+    await settled(ctx)
+    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+
+    // THE PHASE CANNOT CARRY THIS ONE. A session with an open ask reports
+    // `needs_user`, which is the refusal restated, and codex emits no state event
+    // when the ask closes (POD-2494) — so the arm would be inert if it waited for
+    // a frame. The answer itself is the trigger.
+    nativeClientStateObserved(ctx, SESSION, stateOf('needs_user'))
+    expect(attach).toHaveBeenCalledTimes(1)
+
+    nativeClientInteractionAnswered(ctx, SESSION)
+    await settled(ctx)
+    expect(attach).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores an answer for a session that never asked for Native', async () => {
+    const { ctx, attach } = world(CODEX)
+    ctx.nativeClientRequests?.delete(SESSION)
+
+    // No refused request, nothing owed: an answer is just an answer.
+    nativeClientInteractionAnswered(ctx, SESSION)
+    await settled(ctx)
+    expect(attach).not.toHaveBeenCalled()
+  })
+
+  it('forgets a request whose session ended before it could be honoured', async () => {
+    const { ctx, attach } = world(CODEX)
+    attach.mockResolvedValue({ reason: 'busy' } as never)
+
+    openNative(ctx)
+    await settled(ctx)
+    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+
+    nativeClientStateObserved(ctx, SESSION, stateOf('ended'))
+    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    expect(attach).toHaveBeenCalledTimes(1)
   })
 })
