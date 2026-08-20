@@ -57,10 +57,16 @@ function socketPath(): string {
 /**
  * A listener that answers each connection's request head with whatever `answer`
  * returns — or, returning `undefined`, with nothing at all.
+ *
+ * `delayMs` models the third state between unbound and serving: a peer that has
+ * bound and ACCEPTS at once, but takes its time over the upgrade. That is where
+ * the per-attempt bound actually bites, so it is where the bound's value has to
+ * be argued.
  */
 function listen(
   path: string,
   answer: (key: string) => string | undefined,
+  delayMs = 0,
 ): {
   path: string
   frames: Buffer[]
@@ -88,7 +94,9 @@ function listen(
       const key =
         /sec-websocket-key:[ \t]*([^\r\n]+)/i.exec(pending.slice(0, end))?.[1]?.trim() ?? ''
       const reply = answer(key)
-      if (reply !== undefined) socket.write(reply)
+      if (reply === undefined) return
+      if (delayMs === 0) socket.write(reply)
+      else setTimeout(() => !socket.destroyed && socket.write(reply), delayMs)
     })
     socket.on('error', () => undefined)
   })
@@ -185,6 +193,46 @@ describe('connecting to a listener that behaves', () => {
 
     expect(socket.readyState).toBe(1 /* OPEN */)
   })
+
+  it('OPENS against a peer that takes 2s over a correct handshake', async () => {
+    /**
+     * THE PER-ATTEMPT BOUND, PINNED FROM BELOW — the risky direction, and the
+     * one nothing else here covers. Every other test in this file drives a peer
+     * that fails; all of them keep passing as the bound is trimmed, so trimming
+     * it back to 500ms would look free. It is not: this bound is a ceiling on
+     * how long a WORKING handshake may take, and a peer that has bound and
+     * accepts immediately but answers late lands squarely on it.
+     *
+     * Run against the REAL default rather than an injected bound, because the
+     * default's value is the thing at stake. 2s is chosen well above anything
+     * measured (real codex binds in ~400–630ms) and well under the 5s bound, so
+     * this fails only if someone trims the constant toward the peer's latency.
+     */
+    const peer = listen(socketPath(), accepted, 2_000)
+
+    const socket = await connectCodexWebSocket(peer.path, alive, noBanner)
+    opened.push(socket)
+
+    expect(socket.readyState).toBe(1 /* OPEN */)
+    expect(peer.accepted()).toBe(1) // opened on the first attempt, not after retries
+  }, 30_000)
+
+  it('keeps the per-attempt bound in a defensible band', () => {
+    /**
+     * A VALUE ASSERTION, because the behavioural ones cannot reach the whole
+     * range on their own — and because this constant has now been wrong in one
+     * direction and unpinned in both. The reasoning lives at the constant; this
+     * is the guard rail.
+     *
+     * FLOOR: a working handshake that takes a couple of seconds on a starved box
+     * must survive, and retries do not rescue it — whatever slows one attempt is
+     * a sustained condition, not an independent draw.
+     * CEILING: the loop only re-checks whether the child died between attempts,
+     * so the bound must leave several attempts inside the 20s wait.
+     */
+    expect(CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS).toBeGreaterThanOrEqual(3_000)
+    expect(CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS).toBeLessThanOrEqual(7_000)
+  })
 })
 
 describe('connecting to a listener that cannot complete', () => {
@@ -207,23 +255,36 @@ describe('connecting to a listener that cannot complete', () => {
 
   it('gives each attempt the per-attempt bound, not the whole wait', async () => {
     /**
-     * WHERE THE CONSTANT IS ACTUALLY OBSERVABLE — and it needs a deadline
-     * LONGER than the constant to be so. Given a shorter one, `attemptMs` is
-     * clamped to the deadline either way, so raising the constant to 60s
-     * changes nothing a test can see. That is exactly how an earlier version of
-     * this suite came to claim it pinned the bound when it did not.
+     * LITERAL NUMBERS ON BOTH SIDES, DELIBERATELY. The version of this test that
+     * derived its deadline from `CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS` and then
+     * asserted against that same constant was scale-invariant: raising the
+     * constant fourfold moved the deadline with it and everything passed, so it
+     * pinned nothing while claiming to pin the bound. Fixed numbers here mean
+     * the clamp is checked against a wait it cannot move.
      *
-     * With room to breathe, two things separate a 2s attempt bound from one
-     * raised past the wait: the stalled peer is reconnected to more than once,
-     * and the reported cause names the constant rather than the deadline.
+     * Two things then separate a per-attempt bound from one raised past the
+     * wait: the stalled peer is reconnected to more than once, and the reported
+     * cause names the attempt bound rather than the deadline.
      */
-    const deadline = CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS * 2 + 1_000
     const peer = listen(socketPath(), () => undefined)
 
-    const err = await failureOf(connectCodexWebSocket(peer.path, alive, noBanner, deadline))
+    const err = await failureOf(connectCodexWebSocket(peer.path, alive, noBanner, 2_500, 600))
 
-    expect(err.message).toContain(`within ${CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS}ms`)
+    expect(err.message).toContain('within 600ms')
     expect(peer.accepted()).toBeGreaterThan(1)
+  }, 30_000)
+
+  it('keeps the attempt bound INSIDE the deadline when the deadline is shorter', async () => {
+    // The other half of the clamp: a per-attempt bound larger than the whole
+    // wait must not extend it. This is the direction that let the original hang
+    // through, so it is asserted rather than assumed.
+    const peer = listen(socketPath(), () => undefined)
+
+    const started = Date.now()
+    const err = await failureOf(connectCodexWebSocket(peer.path, alive, noBanner, 700, 30_000))
+
+    expect(err.message).toContain('within 700ms')
+    expect(Date.now() - started).toBeLessThan(700 * 3)
   }, 30_000)
 
   it('FAILS within the deadline when nothing ever binds the path', async () => {

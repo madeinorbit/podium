@@ -696,18 +696,35 @@ const CODEX_SOCKET_CONNECT_TIMEOUT_MS = 20_000
  * and `launch()` never settled either way. A connection that cannot complete
  * must fail, not hang (POD-2484).
  *
- * WHY 2s IS SAFE, SINCE IT IS A CEILING ON HANDSHAKE LATENCY. It bounds ONE
- * attempt, not the launch: an attempt that trips it is retried against the same
- * listener, and only the 20s deadline above can end the wait. So the way 2s
- * loses a working session is for EVERY attempt inside 20s to exceed it, which
- * takes a box too starved to have finished in 20s under any bound.
+ * WHY 5s, AND WHY NOT LESS. This is a CEILING ON HANDSHAKE LATENCY, so the
+ * value is a real trade and it was argued down from 2s in review. Two things
+ * make the low end dangerous:
  *
- * It is deliberately not the answer to a SLOW-TO-BIND child either — the
- * reviewer's cold-start caveat, a codex that once took >15s to create its
- * socket. That path never reaches this timer: `connect` on an unbound socket is
- * refused in microseconds, and the loop simply retries until the deadline.
+ *   - A listener that has bound and is ACCEPTING but has not yet answered the
+ *     upgrade is a third state, between "unbound" and "serving", and it lands
+ *     squarely on this timer — `connect` succeeds immediately there. A codex
+ *     that binds early and finishes initialising afterwards looks exactly like
+ *     that, so "a slow child never reaches this timer" is true only of a child
+ *     slow to BIND (`connect` on an unbound socket is refused in microseconds,
+ *     and the loop simply retries).
+ *   - Retries do not rescue it. Attempts are not independent draws: whatever
+ *     makes one attempt slow — a descheduled process, swap, a starved box — is
+ *     a sustained condition, so ten retries against a peer that is slow FOR A
+ *     REASON buy nothing. Measured in review at a 12s deadline: a peer whose
+ *     handshake takes 3s never connects under a 2s bound, though it would have
+ *     opened at 3s and had 17s to spare.
+ *
+ * The costs are asymmetric, and that decides it. Too low loses a session that
+ * would have worked and blames the peer for it, in front of a user. Too high
+ * only delays noticing a dead child, inside the same 20s wait, invisibly. When
+ * one side of the error is user-visible and the other is not, take the invisible
+ * one. 5s still leaves three to four attempts inside the deadline.
+ *
+ * Real codex binds in 395–628ms here, so this is headroom, not a measured need.
+ * `codex-app-server.transport.test.ts` pins the band and pins the low end
+ * behaviourally — a correct handshake that takes 2s must still OPEN.
  */
-export const CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS = 2_000
+export const CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS = 5_000
 
 /** What the connect loop needs of a child; a test supplies it without spawning. */
 export interface CodexChildLiveness {
@@ -752,12 +769,21 @@ function connectFailureReason(err: unknown): string {
  * BOUNDED BY CONSTRUCTION. Listener startup is polled by opening real
  * connections, and each attempt carries its own timeout clamped to what is left
  * of the deadline. This returns a socket or throws; it cannot outlive the wait.
+ *
+ * BOTH BOUNDS ARE INJECTABLE, and the second one had to become so. A test that
+ * derives its deadline from `CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS` and then
+ * asserts against that same constant is scale-invariant — every value rides
+ * through together, which is how a version of this suite came to pass with the
+ * constant raised fourfold while claiming to pin it. Separating the two lets the
+ * clamping LOGIC be pinned against fixed numbers, and leaves the constant's
+ * VALUE to the band and slow-peer assertions that actually speak to it.
  */
 export async function connectCodexWebSocket(
   path: string,
   child: CodexChildLiveness,
   banner: () => string,
   timeoutMs: number = CODEX_SOCKET_CONNECT_TIMEOUT_MS,
+  attemptTimeoutMs: number = CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS,
 ): Promise<WebSocket> {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown
@@ -771,8 +797,8 @@ export async function connectCodexWebSocket(
     // Floored at 1ms: the deadline can lapse between the loop's test and here,
     // and a negative timer is a warning on some runtimes and immediate on all.
     const remaining = deadline - Date.now()
-    const attemptMs = Math.max(1, Math.min(CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS, remaining))
-    const clipped = attemptMs < CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS
+    const attemptMs = Math.max(1, Math.min(attemptTimeoutMs, remaining))
+    const clipped = attemptMs < attemptTimeoutMs
     try {
       const socket = await new Promise<WebSocket>((resolve, reject) => {
         const candidate = new WebSocket(`ws+unix://${path}:/rpc`, {
