@@ -375,3 +375,17 @@ If you mutate files for testing: take `podium lock acquire wt:<worktree-name>` (
 in a clone), verify file content BETWEEN runs, not just at batch start, and never leave
 a mutation uncommitted while yielding. A verdict built on unverified file state is not
 evidence.
+
+### Lesson: in a shared worktree, `git commit` ships the whole index — including someone else's
+The coordinator's docs-only commit 7b2566ce5 silently deleted POD-2489's entire landed
+fix (248 lines across four source files): a sibling session had STAGED those files in
+the shared worktree, `git add <one-file>` did not unstage them, and `git commit -m`
+committed the full index. Detected only by the next lander; restored in feea5387d.
+Rules: in any shared worktree, commit with an explicit pathspec (`git commit -m … --
+<files>`), and verify `git show --stat HEAD` afterward — a docs commit that shows
+source files in its stat is not a docs commit.
+
+### Lesson: `lock acquire` without `--wait` queues and returns success-shaped
+`podium lock acquire test:heavy && <heavy command>` runs the command UNLEASED while the
+acquire merely queues — the exit code does not mean "acquired". Always pass `--wait`,
+or check the output text for "acquired" before proceeding.
