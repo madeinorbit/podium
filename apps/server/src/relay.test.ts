@@ -5323,17 +5323,18 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
  * the server cannot enumerate what a future daemon will bind, so the predicate
  * has to be right for ids it has never seen.
  */
-describe('unknown driver ids fail toward keep-queued [POD-2327]', () => {
+describe('binds this build cannot classify fail toward keep-queued [POD-2327]', () => {
   /** No manifest declares this. That is the entire fixture. */
   const FUTURE_DRIVER = 'codex-app-server-v2'
 
-  const contractBind = (sessionId: SessionId, driverId: string) =>
+  /** Omit `driverId` for the OLDER daemon that binds the contract without one. */
+  const contractBind = (sessionId: SessionId, driverId?: string) =>
     ({
       ...bind(sessionId),
-      cmd: `codex (${driverId})`,
+      cmd: driverId ? `codex (${driverId})` : 'codex',
       agentKind: 'codex',
       runtimeContract: true,
-      driverId,
+      ...(driverId === undefined ? {} : { driverId }),
     }) as const
 
   const inputFramesWith = (daemon: ControlMessage[], needle: string) =>
@@ -5437,6 +5438,55 @@ describe('unknown driver ids fail toward keep-queued [POD-2327]', () => {
       })
       expect(registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
       expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  /**
+   * THE SKEW RUNS BOTH WAYS. The first fix guarded on `driverId !== undefined`,
+   * which left this door open: a daemon new enough to drive the contract but
+   * OLDER than the `driverId` field on `bind` reports `runtimeContract` with no
+   * driver at all, the guard answered "has a PTY", and the row vanished exactly
+   * as it did through the forward door. `runtimeContract` is assigned one line
+   * after `markLive` and nowhere else, so it — not the driver id — is what
+   * keeps a `starting` session off this path.
+   */
+  it('drains through the contract when an older daemon binds the contract with NO driver id', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      const sent = sendPrompt(registry, sessionId)
+      expect(sent.message.status).toBe('queued')
+
+      registry.gateway.routeDaemonFrame(
+        registry.sessionStore.hostMachineId,
+        contractBind(sessionId),
+      )
+      // Same shape as the forward-skew pin above, and the same reason for the
+      // wide window: without the fix the PTY frame appears once the woken
+      // drain's 10s state grace expires, and the failure prints those bytes.
+      await vi.waitFor(
+        () => {
+          expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
+          expect(
+            daemon.filter(
+              (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+            ),
+          ).toHaveLength(1)
+        },
+        { timeout: 12_000 },
+      )
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
     } finally {
       registry.dispose()
     }

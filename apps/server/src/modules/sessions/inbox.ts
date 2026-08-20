@@ -269,14 +269,14 @@ export interface SessionInboxDeps {
    * merely suboptimal, it is a guaranteed silent loss: the daemon's `input`
    * handler resolves the PTY bridge by session id, finds none, and discards the
    * bytes with no error — while this side reports the row applied. The fact is
-   * read off the bind-reported `driverId`, so it is only ever true for a LIVE
-   * session; a `starting` one stays on the queue until bind says which family
-   * it became.
+   * read off the bind-reported contract flag, so it is only ever true for a
+   * LIVE session; a `starting` one stays on the queue until bind says which
+   * family it became.
    *
    * Production answers it by ruling a terminal driver IN rather than a server
-   * driver OUT, so an id this build's manifests do not know still takes the
-   * contract path (POD-2327) — see `session-wiring.ts` for why that asymmetry
-   * is the safe one.
+   * driver OUT, so a driver id this build's manifests do not know — or a bind
+   * that carries no driver id at all — still takes the contract path
+   * (POD-2327). See `session-wiring.ts` for why that asymmetry is the safe one.
    */
   serverDriven?(session: Session): boolean
   /**
