@@ -157,14 +157,16 @@ function defaultServerName(httpOrigin: string): string | undefined {
 export function surfaceFromDesktopBridge(): UpdateSurface {
   const bridge = nativeDesktopBridge()
   if (!bridge) return window.location.pathname.startsWith('/mobile') ? 'mobile' : 'web'
+  // launchMode is authoritative. Served-local all-in-one loads http://127.0.0.1
+  // from the sidecar — that page origin must NOT be classified as desktop-remote.
   if (bridge.launchMode === 'all-in-one' || bridge.launchMode === 'server') {
     return 'desktop-all-in-one'
   }
   if (bridge.launchMode === 'daemon' || bridge.launchMode === 'client') {
     return 'desktop-remote'
   }
-  // Older shells omit launchMode. Their page origin still establishes the same
-  // ownership fact: bundled tauri:// UI is local; an http(s) page is remote.
+  // Older shells omit launchMode. Fall back to page origin: baked tauri:// is
+  // local; any http(s) page on those shells was remote-only (pre-served-local).
   return window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost'
     ? 'desktop-all-in-one'
     : 'desktop-remote'

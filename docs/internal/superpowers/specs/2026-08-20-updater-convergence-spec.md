@@ -59,12 +59,33 @@ answer: SW-cached assets + IndexedDB, eviction accepted as a "be online once" re
 2. **Service-worker cache** — the offline layer, best-effort. Evictable (the webview
    engine owns eviction; nothing is contractual; `persist()` helps). Keyed by origin
    (scheme+host+port) — server-origin stability is part of the contract. WKWebView SW
-   support unverified → open item. In browsers this is all there is — same accepted
-   risk as Linear (`/refresh`-style repair, "be online once" recovery).
+   support is **degraded** (see verification below); the design tolerates that. In
+   browsers this is all there is — same accepted risk as Linear (`/refresh`-style
+   repair, "be online once" recovery).
 3. **Baked dist in the .app** — last resort, potentially stale. Guarded: if its build
    stamp is too old for the local replica (existing skew machinery), show a clear
    "connect once to update Podium" error instead of running stale code against newer
    local data.
+
+**Boot order (shell):** reachable connected server → load its http(s) origin; else
+baked `frontendDist` (tauri scheme) with reconnect injection. SW cache is not a
+separate shell URL choice — when present it answers inside the served origin.
+
+**Stable local origin contract:** all-in-one / local-server webviews load
+`http://127.0.0.1:<port>/`, where `<port>` is `PODIUM_PORT` → `config.port` →
+`18787` (same precedence as `resolvePort` in `@podium/runtime`). The origin must
+not change across ordinary restarts: SW cache identity, cookies, and IndexedDB are
+all origin-keyed. Ephemeral `pick_free_port()` is retired for this path; a second
+desktop instance must set `PODIUM_PORT` / `config.port` / a named instance (see
+`docs/multi-instance.md`). Prefer `127.0.0.1` over `localhost` (distinct origins).
+
+**Verification (POD-2510, 2026-08-21) — IPC / SW / CSP for served origins**
+
+| Concern | Finding | Consequence |
+|---|---|---|
+| IPC from served http(s) | **Works.** Tauri v2 grants it via `CapabilityBuilder::remote(urlPattern)` (v1's `dangerousRemoteDomainIpcAccess` equivalent). Client/daemon modes already load `WebviewUrl::External` and grant window/opener/sql/update/hosting permissions to the loaded origin; transfer retarget re-grants the same set. POD-1782 evidence: after retarget to a remote http origin, `toggleMaximize` / `startDragging` / `internalToggleMaximize` invoked successfully (`apps/desktop/src-tauri/tests/evidence/pod-1782-native-runtime.json`). All-in-one served-local uses the same grant pattern for `http://127.0.0.1:<port>/*`. | Proceed with server-served UI; no auto-sync-tauri-scheme fallback issue needed. |
+| Service workers in WKWebView | **Degraded / unavailable for Tauri's WKWebView.** Apple/WebKit: SW API is available in Safari, SFSafariViewController, and home-screen web apps — not general third-party WKWebView ([WebKit, "Workers at Your Service"](https://webkit.org/blog/8090/workers-at-your-service/), post update). Secure-context rules still apply where SW exists (`https` or loopback). | Layer 2 is best-effort; macOS desktop relies on live server + baked fallback. Design already tolerates this. |
+| CSP | App `tauri.conf.json` sets `"csp": null` (no Tauri-injected asset CSP). A served page is governed by the **server's** CSP/CORS headers, identical to a browser tab. Remote-mode shells already depend on this. | No extra shell CSP work for served-local; keep server headers correct. |
 
 DEFERRED: a shell-managed durable dist copy in Application Support (engine-evict-proof
 offline boot). Adopt only if the layer-3 error is actually seen in practice.
@@ -374,8 +395,10 @@ Need operator decisions:
 - **Settings UI redesign** (display breaks 1–2): per-component versions become
   ALWAYS-VISIBLE rows with an expected/unexpected skew marking (shell trailing on dev
   = normal, not a fault); the "Web app" row is replaced by a "UI source" row (live
-  server / offline cache / built-in fallback + build stamp); the legacy
-  `surfaceFromDesktopBridge` http(s) heuristic is fixed alongside `launchMode`.
+  server / offline cache / built-in fallback + build stamp); `launchMode` over the
+  bridge is authoritative for surface classification — served-local http(s) stays
+  `desktop-all-in-one` (POD-2510; legacy origin heuristic only when `launchMode` is
+  omitted).
 
 ### 8a. Full update matrix (components × running modes × channels)
 
@@ -551,8 +574,10 @@ Evidence write-up:
 ## 9. Open items
 
 - Spike: updater-swapped ad-hoc-signed .app relaunches cleanly on macOS (Gatekeeper).
-- Verify: service workers (and IPC) in the Tauri/WKWebView webview when the UI is
-  served from the connected server (§2.1).
+- ~~Verify: service workers (and IPC) in the Tauri/WKWebView webview when the UI is
+  served from the connected server (§2.1).~~ **Resolved POD-2510** — IPC works via
+  remote capabilities (shipping remote-mode + POD-1782 evidence); WKWebView SW is
+  degraded; recorded under §2.1.
 - Define the shell-input hash set for CI's shell-version mint decision (§5).
 - Dev feed manifest validation scoped to fleet platforms vs production's full set.
 - Parent↔shell relationship on macOS: shell *as* parent vs shell supervising the parent.
