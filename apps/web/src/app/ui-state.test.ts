@@ -106,7 +106,6 @@ describe('replica ui-state collection', () => {
 
   it('theme keys are MIRRORED into ui-state but stay in localStorage (anti-flash fast path)', () => {
     const { storage, data } = makeStorage({
-      'podium.theme.preset': 'shadcn',
       'podium.theme.mode': 'light',
     })
     const ui = createReplica({
@@ -114,11 +113,9 @@ describe('replica ui-state collection', () => {
       keyPrefix: prefix,
       enumerateKeys: () => [...data.keys()],
     }).uiState()
-    expect(ui.get('podium.theme.preset')).toBe('shadcn')
     expect(ui.get('podium.theme.mode')).toBe('light')
     // index.html's anti-flash script and the pre-store ThemeProvider read these
     // raw — migration must NOT retire them.
-    expect(data.get('podium.theme.preset')).toBe('shadcn')
     expect(data.get('podium.theme.mode')).toBe('light')
   })
 

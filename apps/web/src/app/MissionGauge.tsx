@@ -58,15 +58,14 @@ import { cn } from '@/lib/utils'
  * COLOUR, TEXTURE, MOTION
  * ---------------------------------------------------------------------------
  *
- * Meters are data (DESIGN.md §5). Done takes `--success` — a real green in the
- * Nova and Podium presets, Royal Blue in Daylight, which has none — and running
- * takes the working blue the spinner already wears (`--live`).
+ * Meters are data (DESIGN.md §5). Done takes Podium's settled Royal Blue
+ * (`--success`) and running takes the lighter working blue the spinner already
+ * wears (`--live`).
  *
  * WEIGHT IS WHAT SEPARATES THEM, not hue: DONE IS THE GAUGE'S ONLY SOLID BAND
  * and everything unfinished is a tint over a saturated floor rule. Finished
  * work is settled, so it is dense; work in flight is light and carries the
- * motion. That holds in Daylight, where done and running are two blues and hue
- * alone could not carry it, and it reinforces the hue everywhere else.
+ * motion. Done and running are two blues, so hue alone cannot carry the split.
  *
  * THE BAND IS CALLED `UNDERWAY`, NOT `RUNNING` AND NO LONGER `IN PROGRESS`. In
  * `missionProgress` the `run` bucket counts tasks whose STAGE says work has
@@ -99,7 +98,7 @@ import { cn } from '@/lib/utils'
  * that there is not one.
  *
  * BLOCKED TAKES NO HUE AT ALL. `--warning` IS `--attention` (#f5c518) in
- * Superade, so a warning-toned band would spend the one signal colour on work
+ * Podium, so a warning-toned band would spend the one signal colour on work
  * that is asking nothing of the operator. It wears the same 135° diagonal a
  * blocked strip wears three rows below, one step denser because the strip has a
  * 28px row and the gauge has a 22px band — one texture for "stopped", in the

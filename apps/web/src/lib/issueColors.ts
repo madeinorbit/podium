@@ -82,10 +82,10 @@ export function issueSquareFg(hex: string): string {
 
 /** The neutral no-colour flow, as a literal hex — for JS colour MATH only
  *  (mixHex and friends, which cannot resolve a custom property). It is the
- *  --flow token of the podium/shadcn dark presets; each Superade variant now
- *  carries its own, because a flow that reads as "no colour chosen" has to
- *  match its ground — a warm taupe on Paper's stone (a blue-grey there is what
- *  makes that palette look broken) and a true grey on Dark Ink's neutral, where
+ *  Podium theme's --flow token differs by appearance because a flow that reads
+ *  as "no colour chosen" has to match its ground — a warm taupe on Paper's
+ *  stone (a blue-grey there is what makes that palette look broken) and a true
+ *  grey on Dark Ink's neutral, where
  *  this slate would read as a blue somebody picked. Every CALL SITE should use
  *  FLOW_CSS below; this hex is the last-resort value for a JS mixer, and the
  *  one place it survives (terminal appearance) mixes it at 9%. */

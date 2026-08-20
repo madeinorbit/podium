@@ -497,7 +497,7 @@ describe('the side cache', () => {
   it('folds the raw legacy localStorage keys in once, and leaves the mirrored ones', () => {
     const storage = memoryStorage()
     storage.setItem('podium.view', 'issues')
-    storage.setItem('podium.theme.preset', 'superade')
+    storage.setItem('podium.theme.mode', 'dark')
     storage.setItem('podium:sidebar:width', '320')
     storage.setItem('podium.htmlmode:tab-1', 'raw')
 
@@ -513,8 +513,8 @@ describe('the side cache', () => {
     // Migrated keys are retired…
     expect(storage.getItem('podium.view')).toBeNull()
     // …except the theme, which index.html's anti-flash script reads before React.
-    expect(storage.getItem('podium.theme.preset')).toBe('superade')
-    expect(ui.get('podium.theme.preset')).toBe('superade')
+    expect(storage.getItem('podium.theme.mode')).toBe('dark')
+    expect(ui.get('podium.theme.mode')).toBe('dark')
   })
 
   it('bounds the transcript cache: newest items per conversation, LRU across them', () => {

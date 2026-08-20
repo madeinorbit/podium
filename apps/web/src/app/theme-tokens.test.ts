@@ -4,19 +4,19 @@ import { describe, expect, it } from 'vitest'
 
 import { THEME_BG } from './theme'
 
-/** Source-level invariants for the Superade theme's token blocks [POD-372].
+/** Source-level invariants for the Podium theme's token blocks [POD-372].
  *
  *  These are cheap string assertions on index.css rather than computed-style
  *  checks, and they exist because of a specific failure mode: a token
  *  declaration can be silently DROPPED by a malformed comment above it (the CSS
  *  parser resyncs by discarding), and nothing downstream complains — the theme
- *  just quietly falls back to another preset's value. That happened once while
- *  building Daylight: --carve-engraved vanished from the light block and the
+ *  just quietly loses that value. That happened once while building Daylight:
+ *  --carve-engraved vanished from the light block and the
  *  engraved column kept painting the dark theme's pure-black inset.
  *
- *  The other half is leakage. `[data-theme="superade"]` matches the dark variant
- *  too (it is `[data-theme="superade"].dark`), so every token the light block
- *  introduces MUST be restored in the dark block or it bleeds across themes.
+ *  The other half is leakage. `[data-theme="podium"]` matches the dark variant
+ *  too (it is `[data-theme="podium"].dark`), so every token the light block
+ *  introduces MUST be restored in the dark block or it bleeds across appearances.
  */
 
 // Resolved from cwd rather than import.meta.url: the web suite runs under a
@@ -36,8 +36,8 @@ function block(selector: string): string {
   return css.slice(start, end)
 }
 
-const light = block('[data-theme="superade"]')
-const dark = block('[data-theme="superade"].dark')
+const light = block('[data-theme="podium"]')
+const dark = block('[data-theme="podium"].dark')
 
 /** Tokens Daylight introduces. Each must be present in BOTH blocks: in light
  *  because that is the point, in dark to stop the light value leaking. */
@@ -52,7 +52,7 @@ const INTRODUCED = [
   '--issue-line-scale',
 ] as const
 
-describe('superade token blocks', () => {
+describe('Podium token blocks', () => {
   it.each(INTRODUCED)('declares %s in the light block', (token) => {
     expect(light).toContain(`${token}:`)
   })
@@ -98,7 +98,7 @@ describe('superade token blocks', () => {
     expect(dark).toContain('--issue-line-scale: 1%')
   })
 
-  it('never assigns Superade Yellow to a text token in light', () => {
+  it('never assigns Podium Yellow to a text token in light', () => {
     // --attention is a `color:` in six places (styles.css .chat-next,
     // text-attention in UnifiedIssueRow/sidebar-common/the Flight Deck).
     // #f5c518 as text is 1.6:1 on paper. Yellow fills; ochre writes.
@@ -117,11 +117,18 @@ describe('superade token blocks', () => {
   })
 })
 
+describe('theme inventory', () => {
+  it('contains only the Podium selector', () => {
+    const names = [...css.matchAll(/^\[data-theme="([^"]+)"\][^{]*\{/gm)].map((m) => m[1])
+    expect([...new Set(names)]).toEqual(['podium'])
+  })
+})
+
 describe('THEME_BG', () => {
-  it('mirrors each superade block --background, for the anti-flash script', () => {
+  it('mirrors each Podium block --background, for the anti-flash script', () => {
     // index.html duplicates this map pre-React; a mismatch flashes the wrong
     // colour on every cold load.
-    expect(THEME_BG['superade-light']).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(light)?.[1])
-    expect(THEME_BG['superade-dark']).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(dark)?.[1])
+    expect(THEME_BG.light).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(light)?.[1])
+    expect(THEME_BG.dark).toBe(/--background:\s*(#[0-9a-f]{6})/i.exec(dark)?.[1])
   })
 })

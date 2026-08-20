@@ -6,7 +6,7 @@
  * the fold's motion can be sampled on a still main thread. See
  * `harness/sidebar-store.ts` for why the live instance cannot answer that.
  *
- * Query string: `?rows=N` sizes the list, `?theme=…` picks the palette block,
+ * Query string: `?rows=N` sizes the list, `?mode=…` picks light or dark,
  * and `?rail=1` renders the COLLAPSED column instead — the 58px aside with its
  * ⟩ header band, exactly as `AppShell` builds it, because the rail's spacing is
  * only readable against the column's real width and its real chrome ends.
@@ -20,11 +20,10 @@ import '@/index.css'
 import '@/styles.css'
 
 const params = new URLSearchParams(location.search)
-const theme = params.get('theme') ?? 'superade'
 const mode = params.get('mode') ?? 'dark'
 const width = Number(params.get('width') ?? 306)
 
-document.documentElement.dataset.theme = theme
+document.documentElement.dataset.theme = 'podium'
 document.documentElement.classList.toggle('dark', mode === 'dark')
 if (params.get('density'))
   document.documentElement.dataset.density = params.get('density') as string

@@ -62,10 +62,10 @@ function Shell(): JSX.Element {
   )
 }
 
-// The theme lives on <html> (`[data-theme="superade"].dark`), so the probe sets
+// The theme lives on <html> (`[data-theme="podium"].dark`), so the probe sets
 // it there between shots rather than the page nesting two themed subtrees —
-// nesting resolves half the tokens from the outer preset and lies about dark.
-document.documentElement.dataset.theme = 'superade'
+// nesting resolves half the tokens from the outer appearance and lies about dark.
+document.documentElement.dataset.theme = 'podium'
 document.documentElement.dataset.density = 'balanced'
 createRoot(document.getElementById('root') as HTMLElement).render(
   // The shell mounts one of these at its root, and the QR plate's tooltip takes

@@ -2,7 +2,7 @@
  * POD-1253: the spawn control's hover, measured as PAINTED PIXELS.
  *
  * `data-pressable`'s hover is `filter: brightness(1.08)`, which can only
- * brighten — and the artboard's chip rests on `#ffffff` in every light preset,
+ * brighten — and the artboard's chip rests on `#ffffff` in light mode,
  * where that is a literal no-op. Computed style cannot see this: it reports the
  * background it was given whether or not the filter cancelled it. So this reads
  * the actual pixel out of a screenshot, at rest and on hover, in both modes.

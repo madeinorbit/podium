@@ -488,7 +488,7 @@ function matchesQuery(row: FlightDeckRow, needle: string): boolean {
  *
  * NOTHING HERE IS AMBER. Under the round-2 model attention belongs to the
  * session that asked, so amber on a task strip is the one colour this slot may
- * not spend. `Blocked` therefore takes no hue either: in the Superade theme
+ * not spend. `Blocked` therefore takes no hue either: in the Podium theme
  * `--warning` IS `--attention` (#f5c518), so a warning-toned "Blocked" would
  * read as "answer me" on the very surface built to tell those apart. Blocked is
  * a stopped state, not an obligation — the ⊘ mark and the named reason
