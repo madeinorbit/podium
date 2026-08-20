@@ -117,6 +117,18 @@ export function devBuildScopeUnit(role: string, instanceId: string): string {
  * Properties must precede the `--` separator or systemd-run reads them as
  * arguments to the command — which is why the budget is spliced in HERE and not
  * appended by a caller.
+ *
+ * WHY THIS IS NOT `systemdScopeArgv` (`packages/pty/src/abduco.ts`), which
+ * assembles the same kind of argv for a session scope. POD-2413's reviewer
+ * would rather one builder existed, and that is a fair thing to want. What the
+ * two share is four constant flags; what they do not share is every line that
+ * carries policy — a session takes CPUWeight=50/IOWeight=100 and no quota, a
+ * build takes IOWeight=50 under a hard `CPUQuota` and a description, and the
+ * budgets come from different resolvers. Unifying them means a builder
+ * parameterised on each of those axes, which is one function answering two
+ * questions and the shape that lets a session's policy change quietly alter a
+ * build's. The BUDGET is shared, in `@podium/runtime/scope`, because that is
+ * the part where drift would actually hurt.
  */
 export function devBuildScopeArgv(
   unit: string,

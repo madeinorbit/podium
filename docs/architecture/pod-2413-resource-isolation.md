@@ -79,9 +79,15 @@ and correct for builds: it costs a redeploy, not a conversation.
 And the placement itself is the point of the separate slice. A build inside
 `podium-sessions.slice` would be bounded just as well and would still be wrong —
 the reclaim below reads *that slice's* memory pressure to choose which agents to
-park, so every redeploy would read as agents starving. Measured on this host: a
-repo typecheck run inside the sessions slice took the trigger from 11 firings to
-40.
+park, so every redeploy would read as agents starving. Measured while this
+trigger was being calibrated: a repo typecheck alone held the sessions slice
+pinned at its watermark for most of its life, and a harder squeeze drove the
+slice's `full avg10` to 85–93%.
+
+The two slice budgets overcommit the machine on purpose — 75% for sessions plus
+50% for builds, with no aggregate above them. They are ceilings, not
+reservations, and sizing them to sum to 100% would throttle agents on an idle
+box because a build might start.
 
 ## What the live probes settled
 

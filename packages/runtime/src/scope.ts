@@ -31,12 +31,14 @@
  *
  * BUILDS ARE A SIBLING OF SESSIONS, NOT A MEMBER — twice deliberately.
  *
- * Placement: `scope-monitor.ts` reads the SESSIONS slice's memory pressure and
- * the reclaim policy parks sessions on it. A build inside that slice would make
- * every redeploy read as session memory pressure and park innocent agents; a
- * repo typecheck run in the sessions slice was measured taking that trigger from
- * 11 firings to 40. Builds still get bounded — they just do not contaminate the
- * signal the reclaim reads.
+ * Placement: `scope-monitor.ts` reads the SESSIONS slice's memory pressure —
+ * `instanceSessionSliceName()`, exactly — and the reclaim policy parks sessions
+ * on that number. A build inside that slice would make every redeploy read as
+ * session memory pressure and park innocent agents. Measured while POD-2413 was
+ * calibrating that trigger: a repo typecheck alone held the sessions slice
+ * pinned at its watermark for most of its life, and a harder squeeze drove the
+ * slice's `full avg10` to 85–93%. Builds still get bounded — they just do not
+ * contaminate the signal the reclaim reads.
  *
  * Budget: the sessions slice carries a `High` and never a `Max`, because
  * collective OOM death of every agent on the box is the one outcome the spec
@@ -151,6 +153,15 @@ const BUILD_MEMORY_CEILING = 4 * 1024 ** 3
  * And the share that keeps that ceiling honest on a smaller box, where a cap
  * above host RAM would bound nothing at all — it is also the aggregate cap on
  * the builds slice itself ({@link resolveBuildsSliceBudget}).
+ *
+ * THE SLICES DELIBERATELY OVERCOMMIT. 75% for sessions plus 50% for builds is
+ * 125% of the machine, and `podium.slice` carries no aggregate above them to
+ * reconcile it. That is on purpose: these are ceilings, not reservations, and
+ * sizing them to sum to 100% would mean throttling agents on a box that is
+ * idle because a build MIGHT start. The two are also different instruments —
+ * the sessions number throttles, this one kills — so the failure mode of the
+ * overlap is a build dying at its own cap while sessions slow down, which is
+ * the order of preference this whole module is arguing for.
  */
 const BUILDS_SLICE_SHARE = 0.5
 
